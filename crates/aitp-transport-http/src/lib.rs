@@ -18,14 +18,32 @@ pub mod common;
 #[cfg(feature = "client")]
 pub mod client;
 
+#[cfg(feature = "client")]
+pub mod key_resolution;
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub mod revocation;
+
 #[cfg(feature = "server")]
 pub mod server;
 
 #[cfg(feature = "client")]
 pub use client::{FetchError, JwksFetcher, JwksFetcherError, ManifestFetcher};
 
+#[cfg(feature = "client")]
+pub use key_resolution::{
+    KeyResolutionFailMode, KeyResolutionPolicy, KeyResolutionPolicyBuilder, PinnedIssuerKeyStore,
+    StaticPinnedIssuerKeyStore,
+};
+
 #[cfg(feature = "server")]
-pub use server::{HandshakeServer, ManifestServer, DEFAULT_SESSION_TTL};
+pub use server::{HandshakeServer, ManifestServer, RevocationListProducer, DEFAULT_SESSION_TTL};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub use revocation::{
+    revocation_list_uri_from_manifest, RevocationCache, RevocationError, RevocationFailMode,
+    RevocationPolicy, RevocationProvider, REVOCATION_LIST_URI_EXT,
+};

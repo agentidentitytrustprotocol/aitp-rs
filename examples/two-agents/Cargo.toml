@@ -16,8 +16,16 @@ path = "src/bin/agent-a.rs"
 name = "agent-b"
 path = "src/bin/agent-b.rs"
 
+[[bin]]
+name = "revocation-demo"
+path = "src/bin/revocation-demo.rs"
+
+[[bin]]
+name = "tct-renewal-demo"
+path = "src/bin/tct-renewal-demo.rs"
+
 [dependencies]
-aitp = { path = "../../crates/aitp", version = "0.1.0-alpha.4", features = ["all"] }
+aitp = { path = "../../crates/aitp", version = "0.1.0-beta.1", features = ["all"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 clap = { workspace = true }

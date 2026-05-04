@@ -52,6 +52,32 @@ pub struct TctBinding {
     pub cnf: String,
 }
 
+/// TCT renewal request body.
+///
+/// A holder asks the issuer to mint a fresh TCT (new JTI, fresh
+/// `expires_at`) by presenting:
+/// - the existing TCT it currently holds, as proof the original
+///   handshake completed;
+/// - a fresh `pop_nonce` the issuer's response will echo;
+/// - a `pop_signature` over `sha256(decoded(pop_nonce))` using the
+///   subject's key, proving the renewal request comes from the
+///   original holder rather than someone replaying the existing TCT.
+///
+/// The issuer returns a new `TctEnvelope` with a fresh `jti` and TTL
+/// bounded by the issuing peer's current Manifest `expires_at`
+/// (RFC-AITP-0004 §4.3).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TctRenewalPayload {
+    /// The currently-held TCT being renewed. Issuer re-verifies
+    /// signature + audience + non-expired before honoring the renewal.
+    pub current_tct: TctEnvelope,
+    /// Holder-supplied fresh nonce (22-char base64url, 16 bytes).
+    pub pop_nonce: String,
+    /// `sign(holder_key, sha256(base64url_decode(pop_nonce)))`.
+    pub pop_signature: String,
+}
+
 /// HTTP-wrapped TCT (the `{"tct": {...}}` form).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

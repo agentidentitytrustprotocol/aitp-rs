@@ -85,6 +85,8 @@ fn full_pinned_key_handshake() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -92,6 +94,8 @@ fn full_pinned_key_handshake() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
 
@@ -102,6 +106,7 @@ fn full_pinned_key_handshake() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         NOW,
         vec!["demo.echo".into()],
@@ -193,6 +198,8 @@ fn nonce_mismatch_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -200,6 +207,8 @@ fn nonce_mismatch_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let hello_mid = Uuid::new_v4();
@@ -208,6 +217,7 @@ fn nonce_mismatch_aborts() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         NOW,
         vec!["demo.echo".into()],
@@ -262,6 +272,8 @@ fn insufficient_grants_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -269,6 +281,8 @@ fn insufficient_grants_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     // Note: alice_manifest now no longer matches the inline manifest's
@@ -303,6 +317,7 @@ fn insufficient_grants_aborts() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         NOW,
         vec!["demo.echo".into()],

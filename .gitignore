@@ -66,3 +66,4 @@ result-*
 # WASM / web build artifacts (if added later)
 pkg/
 wasm-pack.log
+plans/

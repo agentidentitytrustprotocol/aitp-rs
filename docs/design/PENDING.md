@@ -205,12 +205,82 @@ Local code complete. External actions still pending.
       `agentidentitytrustprotocol/agentidentitytrustprotocol` (#1–#6).
       See SPEC-005, SPEC-006, SPEC-007, BLOCKED-SPEC-DELEGATION-ISSUEDAT,
       BLOCKED-SPEC-EXAMPLE, SPEC-POP-INPUT-AMBIGUITY entries above.
-- [ ] **PHASE-B-FIXTURE-PR** — Deferred to a follow-up session. The
-      spec-fixture migration PR (`BLOCKED-SPEC-FIXTURE-MIGRATION`)
-      should land after SPEC-005 (#1) is resolved, so the minted
-      fixtures use the spec's pinned KAT seeds rather than ours.
-      Sequence: spec lands #1 → we run a minting script against the
-      pinned seeds → PR with migrated fixtures.
+- [x] **PHASE-B-FIXTURE-PR** — RESOLVED. `tools/mint-conformance-fixtures`
+      runs against the pinned KAT seeds and produces byte-stable
+      fixtures (`AITP_SPEC_DIR=… cargo run -p mint-conformance-fixtures`).
+      All 22 original spec fixtures + 9 alpha.5 negative-path additions
+      mint cleanly.
+
+## v0.1.0-alpha.5 — security hardening (P0/P1)
+
+Phases 1–9 of the unified plan landed. Per-bug regression tests pinned
+in `crates/aitp-handshake/tests/p1_p8_regressions.rs`. JwksFetcher
+hardening covered by
+`crates/aitp-transport-http/tests/{client_manifest,handshake_boundary}.rs`.
+
+- [x] **P1** — Pinned-key proof v1 (5-field domain-prefixed input).
+- [x] **P2** — `IdentityPresentationContext` API + `Initiator::start(peer_aid)`.
+      Note: P2.4's defensive construction-time JWT-nonce check is
+      intentionally deferred. The receiver-side `verify_oidc` already
+      enforces nonce equality (RFC-AITP-0002 §2.3 MUST is on the
+      verifier). The construction-time check would conflict with the
+      pre-mint-then-rebind test pattern; see comment in
+      `state_machine.rs::build_descriptor`.
+- [x] **P3** — `PinnedKeyStore` + `StaticPinnedKeyStore`.
+- [x] **P4** — Identity-type/hint match enforcement.
+- [x] **P5** — Handshake PoP nonce → `sha256(decoded(nonce))`.
+- [x] **P6** — TCT `expires_at` bounded by Manifest `expires_at`.
+- [x] **P7** — `PeerConfig.grant_policy` callback (RFC-AITP-0004 §4.1).
+- [x] **P8** — Message-ID replay deny list on `HandshakeServer`.
+- [x] **P9** — JwksFetcher hardening (HTTPS-only, no redirects,
+      configurable timeout, `/.well-known/aitp-keys` fallback).
+
+## v0.1.0-beta.1 — production layer (P2/P3)
+
+Phases 10–16 of the unified plan landed.
+
+- [x] **P10** — `KeyResolutionPolicy` + `PinnedIssuerKeyStore` +
+      RFC-AITP-0007 ordering + three fail modes
+      (`crates/aitp-transport-http/src/key_resolution.rs`).
+- [x] **P11** — `ManifestFetcher` cache honors `expires_at`;
+      `maybe_replace_inline` enforces newer-`published_at` rule
+      (`crates/aitp-transport-http/src/client.rs`).
+- [x] **P12** — `RevocationCache` + `RevocationPolicy` +
+      `RevocationListProducer` + `GET /.well-known/aitp-revocation-list`
+      + `REVOCATION_LIST_URI_EXT` extension key
+      (`crates/aitp-transport-http/src/revocation.rs`,
+      `crates/aitp-transport-http/src/server.rs`).
+- [x] **P13** — HTTP transport hardening: AITP error envelopes keyed by
+      `aitp_core::ErrorCode`, `Content-Type`/oversize/replay/timestamp
+      checks at the boundary
+      (`crates/aitp-transport-http/src/{server,client}.rs`).
+- [x] **P14** — 9 new spec fixtures in
+      `agentidentitytrustprotocol/schemas/conformance/`
+      (id-005, id-006, id-007, mh-009, man-003, tct-005, rev-001,
+      rev-002, env-004) with byte-stable mint logic in
+      `tools/mint-conformance-fixtures`. Six per-bug regression tests
+      in `crates/aitp-handshake/tests/p1_p8_regressions.rs`.
+- [x] **P15** — `aitp_tct::TctRenewalPayload` +
+      `process_renewal_request`; `POST /aitp/handshake/renew`;
+      `aitp::facade::{run_initiator_handshake, renew_tct, TctStore}`.
+      Two demo bins (`revocation-demo`, `tct-renewal-demo`) added to
+      `examples/two-agents/`. The third planned demo
+      (`oidc-demo` with mock issuer) is deferred — receiver-side OIDC
+      is fully covered by `tests/oidc_handshake.rs`; building a runnable
+      mock-issuer demo is post-beta polish.
+- [x] **P16** — Workspace bumped to `0.1.0-beta.1`. CHANGELOG +
+      RELEASE_NOTES_v0.1.0-beta.1 written. All four CI gates green:
+      fmt, clippy --all-targets --all-features -- -D warnings, test
+      --workspace --all-features (218+ passing), deny check.
+
+## Reserved RFCs (post-beta)
+
+- [ ] **RFC-AITP-0010** — Session Trust Bundle. Coordinator-signed
+      artifact wrapping N bilateral TCTs. Design prerequisites in the
+      unified plan §"Reserved RFC implementation".
+- [ ] **RFC-AITP-0011** — Multi-hop delegation. Chain encoding,
+      hop-limit, mid-chain revocation, truncation defenses. Both depend
+      on a soaked v0.1; do not start until beta.1 has been in the field.
 
 ## Things explicitly out of scope for v0.1
 

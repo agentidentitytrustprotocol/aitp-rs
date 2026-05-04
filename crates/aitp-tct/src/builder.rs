@@ -103,6 +103,14 @@ impl<'a> TctBuilder<'a> {
         if self.grants.is_empty() {
             return Err(TctError::EmptyGrants);
         }
+        // RFC-AITP-0005 §4.2: "Grants MUST NOT contain whitespace."
+        // Catch caller-supplied bad input here rather than letting a
+        // malformed grant flow into the signed body.
+        for g in &self.grants {
+            if g.chars().any(char::is_whitespace) {
+                return Err(TctError::GrantWhitespace(g.clone()));
+            }
+        }
         if subject != audience {
             // v0.1 invariant: audience must equal subject.
             return Err(TctError::AudienceMismatch);

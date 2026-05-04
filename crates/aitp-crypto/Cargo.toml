@@ -11,7 +11,7 @@ categories.workspace = true
 homepage.workspace = true
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
+aitp-core = { path = "../aitp-core", version = "0.1.0-beta.1" }
 ed25519-dalek = { workspace = true }
 sha2 = { workspace = true }
 base64ct = { workspace = true }

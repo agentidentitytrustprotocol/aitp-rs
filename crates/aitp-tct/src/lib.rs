@@ -9,6 +9,7 @@
 pub mod builder;
 pub mod error;
 pub mod pop;
+pub mod renewal;
 pub mod revocation;
 pub mod types;
 pub mod verifier;
@@ -16,11 +17,12 @@ pub mod verifier;
 pub use builder::TctBuilder;
 pub use error::TctError;
 pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse};
+pub use renewal::{build_renewal_request, process_renewal_request};
 pub use revocation::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
     RevocationListEnvelope, VerifyRevocationListContext,
 };
-pub use types::{Tct, TctBinding, TctEnvelope};
+pub use types::{Tct, TctBinding, TctEnvelope, TctRenewalPayload};
 pub use verifier::{verify_tct, TctVerifyContext};
 
 /// Recommended TCT TTL (1 hour).

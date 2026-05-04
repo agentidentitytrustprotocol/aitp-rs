@@ -16,11 +16,11 @@ client = ["dep:reqwest", "dep:tokio"]
 server = ["dep:axum", "dep:tokio"]
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-alpha.4" }
-aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-alpha.4" }
-aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-alpha.4" }
-aitp-tct = { path = "../aitp-tct", version = "0.1.0-alpha.4" }
+aitp-core = { path = "../aitp-core", version = "0.1.0-beta.1" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-beta.1" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-beta.1" }
+aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-beta.1" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-beta.1" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

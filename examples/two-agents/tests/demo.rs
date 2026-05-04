@@ -16,7 +16,8 @@ fn cargo_bin(name: &str) -> std::path::PathBuf {
         .parent() // .../deps/
         .and_then(|p| p.parent()) // .../debug/
         .expect("test exe lives under target/<profile>/deps/");
-    let candidate = parent.join(name);
+    // EXE_SUFFIX is "" on Unix, ".exe" on Windows.
+    let candidate = parent.join(format!("{name}{}", std::env::consts::EXE_SUFFIX));
     if !candidate.exists() {
         panic!(
             "binary {} not found at {} — build with `cargo build -p aitp-example-two-agents`",

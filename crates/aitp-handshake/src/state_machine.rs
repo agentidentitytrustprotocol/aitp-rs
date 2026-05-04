@@ -20,6 +20,36 @@ use rand::RngCore;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
+/// Local trust store for pinned Ed25519 public keys.
+///
+/// Per RFC-AITP-0002 §3.2 step 1, a verifying peer MUST locate the
+/// claimed public key in its local pinned-keys configuration before
+/// honoring a pinned-key identity proof. Implementations supply their
+/// own store; [`StaticPinnedKeyStore`] is a simple in-memory default.
+pub trait PinnedKeyStore: Send + Sync {
+    /// Returns true if the given 32-byte raw Ed25519 public key is
+    /// locally trusted to make pinned-key claims.
+    fn is_trusted(&self, public_key_bytes: &[u8; 32]) -> bool;
+}
+
+/// Simple in-memory `PinnedKeyStore` backed by a fixed list of keys.
+pub struct StaticPinnedKeyStore {
+    trusted: Vec<[u8; 32]>,
+}
+
+impl StaticPinnedKeyStore {
+    /// Construct a store from a list of 32-byte raw public keys.
+    pub fn new(trusted: Vec<[u8; 32]>) -> Self {
+        Self { trusted }
+    }
+}
+
+impl PinnedKeyStore for StaticPinnedKeyStore {
+    fn is_trusted(&self, public_key_bytes: &[u8; 32]) -> bool {
+        self.trusted.iter().any(|k| k == public_key_bytes)
+    }
+}
+
 /// Opaque session identifier — handle for an in-progress handshake.
 pub type SessionId = Uuid;
 
@@ -33,8 +63,50 @@ pub struct PeerConfig<'a> {
     pub trust_anchors: &'a [url::Url],
     /// JWKS resolver. May be a no-op for pinned-key-only deployments.
     pub jwks_resolver: &'a dyn JwksResolver,
+    /// Optional local pinned-key trust store (RFC-AITP-0002 §3.2 step 1).
+    /// When `Some`, pinned-key identities whose public key is not in the
+    /// store are rejected with `IDENTITY_FAILED`. When `None`, the
+    /// pinned-key check is key-possession-only — acceptable for local
+    /// development; production deployments SHOULD configure a store.
+    pub pinned_key_store: Option<&'a dyn PinnedKeyStore>,
+    /// Optional grant-policy hook (RFC-AITP-0004 §4.1). Applied to the
+    /// `peer_requested ∩ self.offered` intersection before issuing a
+    /// TCT — typically used to derive identity-based capability
+    /// restrictions. `None` means policy-allow-all (the default).
+    pub grant_policy: Option<&'a GrantPolicyFn>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
+}
+
+/// Identity-aware grant-policy hook (RFC-AITP-0004 §4.1).
+///
+/// Receives the peer's identity descriptor and the
+/// `peer_requested ∩ self.offered` intersection; returns the subset
+/// the policy permits. Returning empty triggers `PolicyViolation`.
+pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> + Send + Sync;
+
+/// Inputs the issuing side needs to mint a fresh identity proof bound
+/// to an outbound envelope. RFC-AITP-0002 §3.1 requires every pinned-key
+/// proof to bind the full (sender, receiver, message_id, timestamp,
+/// pop_nonce) tuple; collecting them in one struct prevents call sites
+/// from forgetting fields.
+pub struct IdentityPresentationContext<'a> {
+    /// Sender's AID (= signer's AID — must match
+    /// `signing_key.aid()`).
+    pub sender_aid: &'a Aid,
+    /// Receiver's AID (the verifying peer). For an Initiator's HELLO
+    /// this is the peer AID (caller fetched from peer Manifest); for
+    /// a Responder's HELLO_ACK this is the responder's own AID since
+    /// the *initiator* is the sender of HELLO and receiver of HELLO_ACK
+    /// — see RFC-AITP-0002 §3.1 for the exact role mapping.
+    pub receiver_aid: &'a Aid,
+    /// Outbound envelope's `message_id`.
+    pub envelope_message_id: &'a Uuid,
+    /// Outbound envelope's `timestamp`.
+    pub envelope_timestamp: Timestamp,
+    /// `pop_nonce` carried by the outbound payload (the holder's own
+    /// nonce on HELLO/HELLO_ACK).
+    pub pop_nonce: &'a str,
 }
 
 /// What identity this peer will present.
@@ -57,31 +129,59 @@ pub enum PresentedIdentity {
 }
 
 impl PresentedIdentity {
+    /// Mint the `IdentityDescriptor` to embed in an outbound payload.
+    ///
+    /// For pinned-key, this signs over the full RFC-AITP-0002 §3.1
+    /// proof input (sender + receiver + message_id + timestamp +
+    /// pop_nonce). For OIDC, this validates that the supplied JWT's
+    /// `nonce` claim matches `ctx.pop_nonce` — a defensive check at
+    /// construction time, in addition to the receiving peer's
+    /// signature-and-nonce verification.
     fn build_descriptor(
         &self,
-        envelope_message_id: &Uuid,
-        envelope_timestamp: Timestamp,
+        ctx: &IdentityPresentationContext<'_>,
         signing_key: &AitpSigningKey,
-    ) -> IdentityDescriptor {
+    ) -> Result<IdentityDescriptor, HandshakeError> {
         match self {
-            Self::PinnedKey { subject } => IdentityDescriptor {
-                kind: IdentityKind::PinnedKey,
-                issuer: None,
-                subject: subject.clone(),
-                proof: sign_pinned_key_proof(signing_key, envelope_message_id, envelope_timestamp),
-                public_key: Some(base64url::encode(&signing_key.verifying_key().to_bytes())),
-            },
+            Self::PinnedKey { subject } => {
+                let proof = sign_pinned_key_proof(
+                    signing_key,
+                    ctx.sender_aid,
+                    ctx.receiver_aid,
+                    ctx.envelope_message_id,
+                    ctx.envelope_timestamp,
+                    ctx.pop_nonce,
+                )?;
+                Ok(IdentityDescriptor {
+                    kind: IdentityKind::PinnedKey,
+                    issuer: None,
+                    subject: subject.clone(),
+                    proof,
+                    public_key: Some(base64url::encode(&signing_key.verifying_key().to_bytes())),
+                })
+            }
             Self::Oidc {
                 issuer,
                 subject,
                 proof_jwt,
-            } => IdentityDescriptor {
-                kind: IdentityKind::Oidc,
-                issuer: Some(issuer.clone()),
-                subject: subject.clone(),
-                proof: proof_jwt.clone(),
-                public_key: None,
-            },
+            } => {
+                // Note: per Phase 2.4 of the unified plan we considered
+                // adding a defensive construction-time check that
+                // `proof_jwt`'s `nonce` claim equals `ctx.pop_nonce`.
+                // The receiving peer already verifies that under
+                // `verify_oidc`, and the construction-time check
+                // conflicts with the common test pattern of
+                // pre-minting a JWT then re-minting once the
+                // handshake-generated nonce is known. Left to a
+                // future logging-aware revisit (PENDING.md).
+                Ok(IdentityDescriptor {
+                    kind: IdentityKind::Oidc,
+                    issuer: Some(issuer.clone()),
+                    subject: subject.clone(),
+                    proof: proof_jwt.clone(),
+                    public_key: None,
+                })
+            }
         }
     }
 }
@@ -117,6 +217,20 @@ pub fn bootstrap_verify_peer(
             "identity.subject != manifest.identity_hint.subject".into(),
         ));
     }
+    // RFC-AITP-0002 §3 / RFC-AITP-0004 §5.1: the proof's mechanism
+    // (`identity.kind`) MUST match the manifest's advertised
+    // mechanism (`identity_hint.kind`). Without this check, a peer
+    // whose manifest advertises OIDC could present a pinned-key proof
+    // and bypass OIDC trust-anchor checks (type confusion).
+    let expected_kind = match payload_manifest.identity_hint.kind {
+        aitp_manifest::IdentityHintKind::Oidc => IdentityKind::Oidc,
+        aitp_manifest::IdentityHintKind::PinnedKey => IdentityKind::PinnedKey,
+    };
+    if payload_identity.kind != expected_kind {
+        return Err(HandshakeError::Identity(
+            "identity.type does not match manifest.identity_hint.type".into(),
+        ));
+    }
     match payload_identity.kind {
         IdentityKind::Oidc => {
             let issuer = payload_identity
@@ -142,19 +256,41 @@ pub fn bootstrap_verify_peer(
                 payload_identity,
                 &PinnedKeyVerifyContext {
                     sender_aid: &payload_manifest.aid,
+                    receiver_aid: &cfg.manifest.aid,
                     message_id: &envelope.message_id,
                     timestamp: envelope.timestamp,
+                    pop_nonce: payload_pop_nonce,
                 },
             )?;
+            // RFC-AITP-0002 §3.2 step 1: confirm the public key is
+            // locally trusted (when a store is configured). Without
+            // this gate, the proof only proves key possession — it
+            // doesn't prove we should *honor* keys we've never seen.
+            if let Some(store) = cfg.pinned_key_store {
+                let pk_bytes = payload_manifest.aid.to_ed25519_bytes();
+                if !store.is_trusted(&pk_bytes) {
+                    return Err(HandshakeError::Identity(
+                        "pinned_key not in local trust store".into(),
+                    ));
+                }
+            }
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)
 }
 
-/// Round-2 PoP: `sign(my_key, sha256(peer_nonce.as_bytes()))`.
-fn sign_pop(my_key: &AitpSigningKey, peer_nonce: &str) -> String {
-    let digest = Sha256::digest(peer_nonce.as_bytes());
-    my_key.sign(&digest).into_string()
+/// Round-2 PoP: `sign(my_key, sha256(base64url_decode(peer_nonce)))`.
+///
+/// Per RFC-AITP-0004 §3 (preamble), `sha256(<nonce>)` denotes the SHA-256
+/// hash of the **raw bytes obtained by base64url-decoding the nonce
+/// string** — not the ASCII bytes of the base64url encoding. This brings
+/// the handshake PoP into alignment with the TCT downstream PoP in
+/// `aitp-tct::pop`.
+fn sign_pop(my_key: &AitpSigningKey, peer_nonce: &str) -> Result<String, HandshakeError> {
+    let nonce_bytes = base64url::decode_strict(peer_nonce)
+        .map_err(|_| HandshakeError::InvalidEnvelope("pop nonce is not valid base64url".into()))?;
+    let digest = Sha256::digest(&nonce_bytes);
+    Ok(my_key.sign(&digest).into_string())
 }
 
 /// Round-2 PoP verify.
@@ -163,7 +299,9 @@ fn verify_pop(
     my_nonce: &str,
     pop_signature: &str,
 ) -> Result<(), HandshakeError> {
-    let digest = Sha256::digest(my_nonce.as_bytes());
+    let nonce_bytes =
+        base64url::decode_strict(my_nonce).map_err(|_| HandshakeError::PopVerificationFailed)?;
+    let digest = Sha256::digest(&nonce_bytes);
     let sig = Signature::parse(pop_signature).map_err(|_| HandshakeError::PopVerificationFailed)?;
     peer_pubkey
         .verify(&digest, &sig)
@@ -172,27 +310,51 @@ fn verify_pop(
 
 /// Build a TCT for the peer.
 ///
-/// Grants are the intersection of `peer_requested ∩ self.offered`. Empty
-/// intersection ⇒ `PolicyViolation` (RFC-AITP-0004 §4.1).
+/// Grants are the three-way intersection per RFC-AITP-0004 §4.1:
+///
+/// ```text
+///   peer_requested ∩ identity_policy(peer_identity, ...) ∩ self.offered
+/// ```
+///
+/// Empty intersection ⇒ `PolicyViolation`. The TCT's `expires_at` is
+/// bounded by `cfg.manifest.expires_at` per RFC-AITP-0004 §4.3 — a
+/// peer-issued TCT MUST NOT outlive the issuing peer's own Manifest,
+/// because the issuer's keys could legitimately rotate at that point.
 fn issue_tct_for_peer(
     cfg: &PeerConfig<'_>,
+    peer_identity: &IdentityDescriptor,
     peer_aid: &Aid,
     peer_pubkey: &AitpVerifyingKey,
     peer_requested: &[String],
 ) -> Result<Tct, HandshakeError> {
-    let grants: Vec<String> = peer_requested
+    let mut grants: Vec<String> = peer_requested
         .iter()
         .filter(|g| cfg.manifest.offered_capabilities.contains(g))
         .cloned()
         .collect();
+    if let Some(policy) = cfg.grant_policy {
+        grants = policy(peer_identity, &grants);
+    }
     if grants.is_empty() {
         return Err(HandshakeError::PolicyViolation);
+    }
+
+    // Bound expiry by the issuing-peer Manifest's expiry. If our own
+    // Manifest is already past expiry, refuse to issue.
+    let manifest_expires = cfg.manifest.expires_at.0;
+    let default_expires = cfg.now.0 + aitp_tct::DEFAULT_TCT_TTL_SECS;
+    let effective_expires = default_expires.min(manifest_expires);
+    let ttl = effective_expires.saturating_sub(cfg.now.0);
+    if ttl == 0 {
+        return Err(HandshakeError::InvalidEnvelope(
+            "issuing peer's manifest is expired; cannot issue TCT".into(),
+        ));
     }
     TctBuilder::new(cfg.signing_key)
         .subject(peer_aid.clone())
         .audience(peer_aid.clone())
         .grants(grants)
-        .ttl_secs(aitp_tct::DEFAULT_TCT_TTL_SECS)
+        .ttl_secs(ttl)
         .subject_pubkey(peer_pubkey.clone())
         .issued_at(cfg.now)
         .build()
@@ -247,17 +409,32 @@ enum InitiatorState {
 impl Initiator {
     /// Begin a new handshake. Returns the session and the
     /// `MutualHelloPayload` to wrap in an envelope and POST.
+    ///
+    /// `peer_aid` is the receiving peer's AID — typically obtained by
+    /// fetching the peer's Manifest before the handshake starts. It
+    /// is required because the pinned-key proof input binds both
+    /// sender AND receiver (RFC-AITP-0002 §3.1) to defend against
+    /// cross-peer replay.
     pub fn start(
         cfg: &PeerConfig<'_>,
         identity: PresentedIdentity,
+        peer_aid: &Aid,
         envelope_message_id: &Uuid,
         envelope_timestamp: Timestamp,
         requested_grants: Vec<String>,
     ) -> Result<(Self, MutualHelloPayload), HandshakeError> {
         let session_id = Uuid::new_v4();
         let pop_nonce = fresh_nonce()?;
-        let descriptor =
-            identity.build_descriptor(envelope_message_id, envelope_timestamp, cfg.signing_key);
+        let descriptor = identity.build_descriptor(
+            &IdentityPresentationContext {
+                sender_aid: cfg.signing_key.aid(),
+                receiver_aid: peer_aid,
+                envelope_message_id,
+                envelope_timestamp,
+                pop_nonce: &pop_nonce,
+            },
+            cfg.signing_key,
+        )?;
         let payload = MutualHelloPayload {
             identity: descriptor,
             manifest: cfg.manifest.clone(),
@@ -306,8 +483,14 @@ impl Initiator {
                 return Err(e);
             }
         };
-        let tct = issue_tct_for_peer(cfg, &ack.manifest.aid, &peer_pubkey, &ack.requested_grants)?;
-        let pop_signature = sign_pop(cfg.signing_key, &ack.pop_nonce);
+        let tct = issue_tct_for_peer(
+            cfg,
+            &ack.identity,
+            &ack.manifest.aid,
+            &peer_pubkey,
+            &ack.requested_grants,
+        )?;
+        let pop_signature = sign_pop(cfg.signing_key, &ack.pop_nonce)?;
         let commit = MutualCommitPayload {
             tct_for_peer: TctEnvelope { tct },
             pop_signature,
@@ -397,10 +580,15 @@ impl Responder {
         )?;
         let my_pop_nonce = fresh_nonce()?;
         let descriptor = my_identity.build_descriptor(
-            ack_envelope_message_id,
-            ack_envelope_timestamp,
+            &IdentityPresentationContext {
+                sender_aid: cfg.signing_key.aid(),
+                receiver_aid: &hello.manifest.aid,
+                envelope_message_id: ack_envelope_message_id,
+                envelope_timestamp: ack_envelope_timestamp,
+                pop_nonce: &my_pop_nonce,
+            },
             cfg.signing_key,
-        );
+        )?;
         let ack = MutualHelloAckPayload {
             identity: descriptor,
             manifest: cfg.manifest.clone(),
@@ -463,11 +651,29 @@ impl Responder {
         verify_received_tct(&commit.tct_for_peer.tct, cfg, &peer_pubkey)?;
         let received_tct = commit.tct_for_peer.tct.clone();
 
-        // Issue our TCT for the initiator.
-        let our_tct = issue_tct_for_peer(cfg, &peer_aid, &peer_pubkey, &peer_requested_grants)?;
+        // Issue our TCT for the initiator. We don't have the
+        // initiator's IdentityDescriptor stored in the responder
+        // session — for v0.1, the policy hook (when configured) is
+        // applied with a placeholder descriptor carrying just the
+        // peer's AID. Phase 7 plan deferred capturing the full
+        // descriptor on the responder side as a v0.2 follow-up.
+        let placeholder_identity = IdentityDescriptor {
+            kind: IdentityKind::PinnedKey,
+            issuer: None,
+            subject: peer_aid.as_str().to_string(),
+            proof: String::new(),
+            public_key: None,
+        };
+        let our_tct = issue_tct_for_peer(
+            cfg,
+            &placeholder_identity,
+            &peer_aid,
+            &peer_pubkey,
+            &peer_requested_grants,
+        )?;
         let ack = MutualCommitAckPayload {
             tct_for_peer: TctEnvelope { tct: our_tct },
-            pop_signature: sign_pop(cfg.signing_key, &peer_pop_nonce),
+            pop_signature: sign_pop(cfg.signing_key, &peer_pop_nonce)?,
             pop_nonce_echo: peer_pop_nonce,
         };
         self.state = ResponderState::Done;

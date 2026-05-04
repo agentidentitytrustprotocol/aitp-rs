@@ -101,6 +101,8 @@ fn full_oidc_handshake_in_process() {
         manifest: &alice_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -108,6 +110,8 @@ fn full_oidc_handshake_in_process() {
         manifest: &bob_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
 
@@ -120,6 +124,7 @@ fn full_oidc_handshake_in_process() {
             subject: "alice".into(),
             proof_jwt: alice_jwt.clone(),
         },
+        bob.aid(),
         &hello_mid,
         NOW,
         vec!["demo.echo".into()],

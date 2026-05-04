@@ -96,6 +96,8 @@ fn all_four_handshake_payloads_validate_against_schema() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -103,6 +105,8 @@ fn all_four_handshake_payloads_validate_against_schema() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: NOW,
     };
 
@@ -114,6 +118,7 @@ fn all_four_handshake_payloads_validate_against_schema() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         hello_ts,
         vec!["demo.echo".into()],

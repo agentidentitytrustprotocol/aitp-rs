@@ -88,6 +88,8 @@ async fn full_pinned_key_handshake_over_http() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();
@@ -97,6 +99,7 @@ async fn full_pinned_key_handshake_over_http() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         hello_ts,
         vec!["demo.echo".into()],

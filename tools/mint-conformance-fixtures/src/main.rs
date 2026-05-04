@@ -409,9 +409,18 @@ fn mint_fixture(value: &mut Value) {
         "mh-007" => mint_mh_007(value),
         "mh-008" => mint_mh_008(value),
         "mh-success-001" => mint_mh_success_001(value),
-        "tct-002" | "tct-004" => mint_tct_simple(value),
+        "tct-002" | "tct-004" | "tct-005" => mint_tct_simple(value),
         "tct-003" => mint_tct_003(value),
         "del-003" => mint_del_003(value),
+
+        // ── alpha.5 P14 negative-path additions ──────────────────────
+        "man-003" => mint_man(value),
+        "id-005" => mint_id_005_legacy_proof(value),
+        "id-006" => mint_id_006_wrong_pop_nonce(value),
+        "id-007" => mint_id_007_untrusted_key(value),
+        "mh-009" => mint_mh_009_type_mismatch(value),
+        "rev-001" | "rev-002" => mint_rev_snapshot(value),
+        "env-004" => {} // self-contained sequence (mirrors mh-001)
         other => eprintln!("WARN: unhandled fixture id {other}"),
     }
 }
@@ -1085,6 +1094,229 @@ fn sign_delegation_inplace(token: &mut Map<String, Value>) {
     }
     // Now sign the delegation body.
     sign_inplace(token, &b_key);
+}
+
+// ── alpha.5 P14 negative-path mint helpers ────────────────────────────────
+
+/// Sign a pinned-key proof for the (sender, receiver, mid, ts, nonce)
+/// tuple actually present on the envelope. Used by id-007 / mh-009.
+fn pinned_proof_for_envelope(
+    envelope: &serde_json::Map<String, Value>,
+    sender_key: &AitpSigningKey,
+    receiver_aid: &str,
+) -> String {
+    let sender_aid = envelope
+        .get("sender")
+        .and_then(|s| s.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap();
+    let mid_str = envelope.get("message_id").and_then(|v| v.as_str()).unwrap();
+    let ts = envelope.get("timestamp").and_then(|v| v.as_i64()).unwrap();
+    let nonce = envelope
+        .get("payload")
+        .and_then(|p| p.get("pop_nonce"))
+        .and_then(|v| v.as_str())
+        .unwrap();
+    let mut input_bytes = Vec::new();
+    input_bytes.extend_from_slice(b"aitp-pinned-key-v1\0");
+    input_bytes.extend_from_slice(sender_aid.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(receiver_aid.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(mid_str.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(ts.to_string().as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(&base64url::decode_strict(nonce).unwrap());
+    let digest = Sha256::digest(&input_bytes);
+    sender_key.sign(&digest).into_string()
+}
+
+/// id-005 — pinned-key legacy proof (pre-v0.1, two-field input). The
+/// signature is real but uses the old `message_id|timestamp` ASCII
+/// input, so the v0.1 verifier reconstructing the five-field input
+/// fails the signature check.
+fn mint_id_005_legacy_proof(value: &mut Value) {
+    let envelope = value
+        .get_mut("input")
+        .unwrap()
+        .get_mut("envelope")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    let sender_aid = envelope
+        .get("sender")
+        .and_then(|s| s.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let sender_key = key_for_aid(&sender_aid).unwrap();
+
+    // Sign manifest first so the inner signatures resolve.
+    let manifest = envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("manifest")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    sign_manifest_inplace(manifest);
+
+    // Legacy proof: sign over ASCII "<mid>|<ts>" — no domain prefix,
+    // no receiver, no nonce.
+    let mid = envelope.get("message_id").and_then(|v| v.as_str()).unwrap();
+    let ts = envelope.get("timestamp").and_then(|v| v.as_i64()).unwrap();
+    let legacy_input = format!("{mid}|{ts}");
+    let legacy_proof = sender_key.sign(legacy_input.as_bytes()).into_string();
+    envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("identity")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert("proof".into(), json!(legacy_proof));
+    sign_aitp_envelope(envelope, &sender_key);
+}
+
+/// id-006 — proof bound to a *different* nonce than the envelope's
+/// `pop_nonce`. The signature itself is valid; the verifier
+/// reconstructing the proof input with the on-wire nonce fails.
+fn mint_id_006_wrong_pop_nonce(value: &mut Value) {
+    let receiver_aid = value
+        .get("input")
+        .and_then(|i| i.get("self_aid"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let envelope = value
+        .get_mut("input")
+        .unwrap()
+        .get_mut("envelope")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    let sender_aid = envelope
+        .get("sender")
+        .and_then(|s| s.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let sender_key = key_for_aid(&sender_aid).unwrap();
+
+    let manifest = envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("manifest")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    sign_manifest_inplace(manifest);
+
+    // Sign with a *different* nonce ("BBBB..." in 16-byte form) than
+    // the envelope's "AAAA..." pop_nonce.
+    let bad_nonce = base64url::encode(&[0xBB; 16]);
+    let mid_str = envelope.get("message_id").and_then(|v| v.as_str()).unwrap();
+    let ts = envelope.get("timestamp").and_then(|v| v.as_i64()).unwrap();
+    let mut input_bytes = Vec::new();
+    input_bytes.extend_from_slice(b"aitp-pinned-key-v1\0");
+    input_bytes.extend_from_slice(sender_aid.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(receiver_aid.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(mid_str.as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(ts.to_string().as_bytes());
+    input_bytes.push(0);
+    input_bytes.extend_from_slice(&base64url::decode_strict(&bad_nonce).unwrap());
+    let digest = Sha256::digest(&input_bytes);
+    let proof = sender_key.sign(&digest).into_string();
+    envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("identity")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert("proof".into(), json!(proof));
+    sign_aitp_envelope(envelope, &sender_key);
+}
+
+/// id-007 — valid proof, but the sender's public key is not in the
+/// fixture-supplied `trust_store`. Verifier rejects after step 1 of
+/// RFC-AITP-0002 §3.2.
+fn mint_id_007_untrusted_key(value: &mut Value) {
+    let receiver_aid = value
+        .get("input")
+        .and_then(|i| i.get("self_aid"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let envelope = value
+        .get_mut("input")
+        .unwrap()
+        .get_mut("envelope")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    let sender_aid = envelope
+        .get("sender")
+        .and_then(|s| s.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let sender_key = key_for_aid(&sender_aid).unwrap();
+    let manifest = envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("manifest")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    sign_manifest_inplace(manifest);
+    let proof = pinned_proof_for_envelope(envelope, &sender_key, &receiver_aid);
+    envelope
+        .get_mut("payload")
+        .unwrap()
+        .get_mut("identity")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert("proof".into(), json!(proof));
+    sign_aitp_envelope(envelope, &sender_key);
+}
+
+/// mh-009 — manifest declares OIDC, payload presents pinned_key.
+/// Identical mint to id-007 (proof itself is real); only the type
+/// mismatch matters.
+fn mint_mh_009_type_mismatch(value: &mut Value) {
+    mint_id_007_untrusted_key(value);
+}
+
+/// rev-001 / rev-002 — sign the inline revocation snapshot under the
+/// declared issuer's key.
+fn mint_rev_snapshot(value: &mut Value) {
+    let snapshot = value
+        .get_mut("input")
+        .unwrap()
+        .get_mut("snapshot")
+        .unwrap()
+        .as_object_mut()
+        .unwrap();
+    let issuer_aid = snapshot
+        .get("revocation_list")
+        .and_then(|v| v.get("issuer"))
+        .and_then(|v| v.as_str())
+        .unwrap()
+        .to_string();
+    let key = key_for_aid(&issuer_aid).unwrap();
+    let view = json!({
+        "revocation_list": snapshot.get("revocation_list").unwrap().clone(),
+    });
+    let canonical = jcs::canonicalize(&view).unwrap();
+    let digest = Sha256::digest(&canonical);
+    let sig = key.sign(&digest).into_string();
+    snapshot.insert("signature".into(), json!(sig));
 }
 
 // ── Driver ───────────────────────────────────────────────────────────────

@@ -80,6 +80,8 @@ async fn commit_after_session_ttl_is_rejected() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();
@@ -89,6 +91,7 @@ async fn commit_after_session_ttl_is_rejected() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         hello_ts,
         vec!["demo.echo".into()],
@@ -197,6 +200,8 @@ async fn fresh_session_within_ttl_is_accepted() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();
@@ -206,6 +211,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         PresentedIdentity::PinnedKey {
             subject: "alice".into(),
         },
+        bob.aid(),
         &hello_mid,
         hello_ts,
         vec!["demo.echo".into()],

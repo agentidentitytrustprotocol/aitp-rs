@@ -21,6 +21,10 @@ pub enum TctError {
     /// `grants` is empty (forbidden by RFC-AITP-0004 §4.1).
     #[error("TCT grants must be non-empty")]
     EmptyGrants,
+    /// One or more grant strings contain whitespace
+    /// (forbidden by RFC-AITP-0005 §4.2).
+    #[error("TCT grant must not contain whitespace: `{0}`")]
+    GrantWhitespace(String),
     /// `binding.cnf` is not 43-char base64url or does not decode to 32 bytes.
     #[error("TCT binding.cnf is malformed")]
     CnfMalformed,

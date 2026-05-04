@@ -81,6 +81,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         manifest: &manifest,
         trust_anchors: &[],
         jwks_resolver: &NoOpResolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: aitp::core::Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();
@@ -90,6 +92,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         PresentedIdentity::PinnedKey {
             subject: "agent-a".into(),
         },
+        &bob_manifest.aid,
         &hello_mid,
         hello_ts,
         vec!["demo.echo".into()],

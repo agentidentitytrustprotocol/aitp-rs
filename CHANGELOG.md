@@ -5,7 +5,178 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.1.0-alpha.4
+## [Unreleased] — v0.1.0-beta.1
+
+Production-readiness release. Phases 10–16 of the unified hardening
+plan: key-resolution policy, manifest-cache correctness, revocation
+end-to-end, HTTP transport hardening, conformance-fixture expansion,
+TCT renewal, and beta-gate validation. No breaking wire-format
+changes vs alpha.5; the additions are layered on top.
+
+### Added — production layer
+
+- **Key resolution policy** (RFC-AITP-0007).
+  `aitp_transport_http::KeyResolutionPolicy` composes a configurable
+  `PinnedIssuerKeyStore` + `JwksFetcher` + in-memory cache into a
+  single sync `JwksResolver`. Resolution order: cache → pinned
+  issuer store → `/.well-known/aitp-keys` → OIDC JWKS. Three
+  fail modes — `FailClosed` (default), `FailOpen`, `SoftFail`.
+- **Manifest cache correctness**. `ManifestFetcher::cached`
+  now returns `None` for expired entries (RFC-AITP-0003 §4.2);
+  new `maybe_replace_inline` enforces newer-`published_at`-only
+  replacement to defeat rollback attempts.
+- **Revocation policy + HTTP endpoint** (RFC-AITP-0008 §1.5).
+  `RevocationCache` + `RevocationPolicy { fail_mode,
+  max_staleness_secs, cache_ttl_secs }`; `RevocationListProducer`
+  trait wires `GET /.well-known/aitp-revocation-list` onto
+  `HandshakeServer`. New `REVOCATION_LIST_URI_EXT` extension
+  key for Manifest discovery.
+- **HTTP transport hardening**. `ManifestFetcher` enforces
+  Content-Type, oversize cap (`DEFAULT_MAX_MANIFEST_BYTES = 256 KB`),
+  structured `UpstreamStatus`/`WrongContentType`/`OversizedResponse`
+  errors. `HandshakeServer` now emits AITP error envelopes
+  (`{"error": {"code": "...", "message": "..."}}`) keyed by
+  `aitp_core::ErrorCode`. Boundary checks (Content-Type, body cap,
+  timestamp tolerance, replay deny list) run before payload parsing.
+- **TCT renewal** (RFC-AITP-0005 §10). New
+  `aitp_tct::TctRenewalPayload` + `build_renewal_request` /
+  `process_renewal_request`. `HandshakeServer` mounts
+  `POST /aitp/handshake/renew`. Renewal flow: existing TCT +
+  fresh PoP; issuer mints new JTI bounded by Manifest expiry.
+- **High-level `aitp::facade`** (feature `http-client`). New
+  `run_initiator_handshake(InitiatorConfig) -> SessionContext`
+  drives the four-message handshake from a peer Manifest URL.
+  `renew_tct(holder_key, current, endpoint) -> TctEnvelope`
+  is the renewal one-liner.
+
+### Added — conformance fixtures
+
+Eight new negative-path fixtures pin the alpha.5 security work
+across implementations:
+
+- `id-005` — pinned-key legacy proof (pre-v0.1 two-field input)
+- `id-006` — pinned-key proof bound to wrong `pop_nonce`
+- `id-007` — pinned-key proof from key not in trust store
+- `mh-009` — manifest type mismatch (`oidc` hint, `pinned_key` proof)
+- `man-003` — expired Manifest must not be served from cache
+- `tct-005` — TCT `expires_at` after issuer Manifest expiry
+- `rev-001` — stale revocation snapshot, fail-closed
+- `rev-002` — stale revocation snapshot, soft-fail
+- `env-004` — replayed `message_id` rejected at envelope boundary
+
+`tools/mint-conformance-fixtures` extended with mint logic for each.
+Output is byte-stable across re-mints.
+
+### Added — regression tests
+
+`crates/aitp-handshake/tests/p1_p8_regressions.rs` pins six per-bug
+regressions: P1 legacy proof, P1 wrong receiver, P1 wrong nonce,
+P3 untrusted-key trust-store enforcement, P4 type mismatch,
+P7 grant-policy plumbing.
+
+### Test counts
+
+214+ passing, 0 failed, 2 ignored (alpha.5 was 177; +37 from P10–P16
+units + integrations + regressions). All gates clean: fmt, clippy
+--all-features --all-targets -- -D warnings, build --release.
+
+## [Released] — v0.1.0-alpha.5
+
+Security + spec-compliance hardening release. Phases 1–9 of the
+unified production-hardening plan: every P0 and P1 item is in. Two
+breaking wire-format changes; six new spec-compliance enforcements;
+one new transport-layer defense.
+
+### ⚠️ Breaking wire-format changes vs alpha.4
+
+- **Pinned-key identity proof format** (RFC-AITP-0002 §3.1).
+  Previously signed `sha256("{message_id}|{timestamp}")` —
+  vulnerable to cross-peer / cross-handshake replay. Now signs
+  `sha256(b"aitp-pinned-key-v1\0" || sender_aid || \0 || receiver_aid
+  || \0 || message_id || \0 || timestamp_be_8 || \0 ||
+  base64url_decode(pop_nonce))`. Captured signatures are now bound to
+  the full five-tuple. Any pinned-key proof minted by alpha.4 or
+  earlier WILL fail to verify under alpha.5.
+- **Handshake round-2 PoP signing input** (RFC-AITP-0004 §3).
+  Previously `sha256(nonce.as_bytes())`. Now
+  `sha256(base64url_decode(nonce))`, matching the TCT downstream PoP
+  rule from spec rc.2. Aligns the handshake's two PoP paths with each
+  other and the spec.
+
+### Added — spec compliance + security
+
+- **`PresentedIdentity` API refactor.** New
+  `IdentityPresentationContext` carries the (sender, receiver,
+  message_id, timestamp, pop_nonce) tuple to `build_descriptor`.
+  `Initiator::start` now takes the peer's AID up-front (callers must
+  fetch the peer's Manifest first).
+- **`PinnedKeyStore` trust enforcement** (RFC-AITP-0002 §3.2 step 1).
+  New trait + `StaticPinnedKeyStore`; `PeerConfig.pinned_key_store`
+  is consulted before honoring any pinned-key identity. `None` keeps
+  the legacy key-possession-only behavior for local dev.
+- **Identity-type/hint match** (RFC-AITP-0004 §5.1). The verifier
+  now rejects when `identity.kind ≠ manifest.identity_hint.kind`,
+  closing a type-confusion bypass.
+- **TCT expiry bounded by Manifest** (RFC-AITP-0004 §4.3).
+  `issue_tct_for_peer` caps the issued TCT's `expires_at` at the
+  issuing peer's Manifest expiry. Refuses to issue if the issuing
+  Manifest is already expired.
+- **Identity-aware grant policy** (RFC-AITP-0004 §4.1). New
+  `PeerConfig.grant_policy: Option<&'a GrantPolicyFn>` lets
+  deployments derive identity-based capability restrictions on top
+  of the `peer_requested ∩ self.offered` intersection. Empty result
+  → `PolicyViolation`.
+- **Message-ID replay deny list on `HandshakeServer`**
+  (RFC-AITP-0001 §5.5). Per-server `seen_message_ids` map with
+  TTL-based eviction (default 5-minute window). Duplicate message_ids
+  in the window are rejected with `REPLAY_DETECTED`.
+  `with_session_ttl_and_replay_window` for tests.
+- **JwksFetcher hardening** (RFC-AITP-0007 §2). HTTPS enforced for
+  both discovery and the resolved `jwks_uri`. All redirects refused
+  outright. Non-2xx responses surface as structured errors.
+  Configurable timeout via `JwksFetcher::with_timeout`. On OIDC
+  discovery failure, falls back to AITP-native
+  `<issuer>/.well-known/aitp-keys`.
+
+### Migration from alpha.4
+
+Three things to re-do:
+
+1. **Re-issue pinned-key identity proofs** — anything cached under
+   alpha.4's two-field format will fail to verify
+2. **Re-mint conformance fixtures** with the new pinned-key proof
+   format: `cargo run -p mint-conformance-fixtures`
+3. **Update `Initiator::start` callers** to pass the peer's AID
+   (fetched from the peer's Manifest before the handshake begins)
+
+`PinnedKeyStore` and `grant_policy` are both opt-in (`None` defaults
+keep alpha.4 behavior). No action needed unless you want them.
+
+### Test counts
+
+177 passing, 0 failed, 2 ignored (alpha.4 was 171; +6 from the new
+pinned-key proof regression tests). All gates clean: fmt, clippy
+--all-features --all-targets -- -D warnings, doc --no-deps, build
+--release, deny check.
+
+### Still deferred (Phases 10-16 from the unified plan)
+
+- **P10**: Key-resolution policy struct (RFC-AITP-0007 fail modes)
+- **P11**: Manifest cache correctness (expiry-aware, inline-replace
+  semantics)
+- **P12**: Revocation policy + `/.well-known/aitp-revocation-list`
+  HTTP endpoint
+- **P13**: HTTP transport hardening (content-type, max body, error
+  envelopes)
+- **P14**: Conformance fixture expansion (negative-path fixtures
+  for every bug fixed in P1-P8)
+- **P15**: TCT renewal flow + high-level `aitp` facade driver
+- **P16**: beta.1 release gates + per-bug regression tests
+
+Carved out into a follow-up phase; this release cuts at the P0/P1
+boundary.
+
+## [Released] — v0.1.0-alpha.4
 
 Spec rc.3 alignment + paired follow-up release. The spec rc.3 commit
 landed `kat-keypair-003`, the `__VALID_SIG__` placeholder rename in

@@ -250,3 +250,32 @@ fn builder_rejects_audience_neq_subject() {
         .unwrap_err();
     assert!(matches!(err, TctError::AudienceMismatch));
 }
+
+#[test]
+fn builder_rejects_grant_with_whitespace() {
+    // RFC-AITP-0005 §4.2: "Grants MUST NOT contain whitespace."
+    let issuer = issuer_key();
+    let subject = subject_key();
+    let err = TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(["bad grant"])
+        .subject_pubkey(subject.verifying_key())
+        .build()
+        .unwrap_err();
+    assert!(matches!(err, TctError::GrantWhitespace(_)), "got {err:?}");
+}
+
+#[test]
+fn builder_rejects_grant_with_tab() {
+    let issuer = issuer_key();
+    let subject = subject_key();
+    let err = TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(["one\ttwo"])
+        .subject_pubkey(subject.verifying_key())
+        .build()
+        .unwrap_err();
+    assert!(matches!(err, TctError::GrantWhitespace(_)));
+}

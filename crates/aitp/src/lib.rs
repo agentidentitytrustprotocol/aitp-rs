@@ -58,6 +58,9 @@ pub use aitp_tct as tct;
 #[cfg(feature = "http-client")]
 pub use aitp_transport_http as transport;
 
+#[cfg(feature = "http-client")]
+pub mod facade;
+
 /// Convenience re-exports of the most common types.
 pub mod prelude {
     pub use crate::core::{Aid, AitpEnvelope, Timestamp};

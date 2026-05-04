@@ -259,6 +259,31 @@ fn verify_envelope_op(id: &str, params: Value) -> Value {
         Ok(e) => e,
         Err(e) => return err(id, "INVALID_ENVELOPE", &format!("envelope parse: {e}")),
     };
+    // RFC-AITP-0001 §5.5 / §5.6: version + freshness checks are part of
+    // envelope verification. When the fixture supplies `tolerance_seconds`
+    // we enforce it relative to the verifier's clock (or the fixture's
+    // explicit `now`).
+    if envelope.version != "aitp/0.1" {
+        return err(
+            id,
+            "UNKNOWN_VERSION",
+            &format!("unsupported envelope version `{}`", envelope.version),
+        );
+    }
+    if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
+        let now_secs = params
+            .get("now")
+            .and_then(|v| v.as_i64())
+            .unwrap_or_else(|| Timestamp::now().0);
+        let drift = (now_secs - envelope.timestamp.0).abs();
+        if drift > tolerance {
+            return err(
+                id,
+                "TIMESTAMP_EXPIRED",
+                &format!("envelope timestamp drift {drift}s exceeds {tolerance}s"),
+            );
+        }
+    }
     let pk = match AitpVerifyingKey::from_aid(&envelope.sender.agent_id) {
         Ok(p) => p,
         Err(e) => return err(id, "KEY_RESOLUTION_FAILED", &e.to_string()),
@@ -323,20 +348,30 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
 }
 
 fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    let tct = match serde_json::from_value::<aitp_tct::Tct>(
-        params.get("tct").cloned().unwrap_or_default(),
-    ) {
+    // Accept both `tct` (alpha.4 vintage) and `tct_token` (spec rc.4
+    // vintage). The two are equivalent.
+    let tct_value = params
+        .get("tct")
+        .cloned()
+        .or_else(|| params.get("tct_token").cloned())
+        .unwrap_or_default();
+    let tct = match serde_json::from_value::<aitp_tct::Tct>(tct_value) {
         Ok(t) => t,
         Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct parse: {e}")),
     };
+    // expected_audience defaults to the TCT's own audience (v0.1
+    // mandates audience == subject; the holder is verifying its own
+    // TCT). Fixtures may also supply `self_aid` as an explicit
+    // verifier name.
     let expected_audience = match params
         .get("expected_audience")
+        .or_else(|| params.get("self_aid"))
         .and_then(|v| v.as_str())
         .map(Aid::parse)
     {
         Some(Ok(a)) => a,
         Some(Err(e)) => return err(id, "INVALID_ENVELOPE", &format!("expected_audience: {e}")),
-        None => return err(id, "INVALID_ENVELOPE", "missing expected_audience"),
+        None => tct.audience.clone(),
     };
     let issuer_pubkey = match AitpVerifyingKey::from_aid(&tct.issuer) {
         Ok(p) => p,
@@ -347,7 +382,18 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .and_then(|v| v.as_i64())
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
-    let revoked_jtis = state.revoked_jtis.clone();
+    // Honor a fixture-supplied issuer_revocation_list in addition to
+    // any JTIs the adapter has been told to revoke via Tier-D inject.
+    let mut revoked_jtis = state.revoked_jtis.clone();
+    if let Some(list) = params.get("issuer_revocation_list") {
+        if let Some(jtis) = list.get("revoked_jtis").and_then(|v| v.as_array()) {
+            for j in jtis {
+                if let Some(s) = j.as_str() {
+                    revoked_jtis.insert(s.to_string());
+                }
+            }
+        }
+    }
     let check = move |jti: &Uuid| revoked_jtis.contains(&jti.to_string());
     let ctx = aitp_tct::TctVerifyContext {
         expected_audience: &expected_audience,
@@ -370,6 +416,7 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         Expired => "TCT_EXPIRED",
         Revoked => "TCT_REVOKED",
         EmptyGrants => "INVALID_ENVELOPE",
+        GrantWhitespace(_) => "INVALID_ENVELOPE",
         CnfMalformed => "INVALID_ENVELOPE",
         MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
@@ -382,20 +429,30 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
 }
 
 fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    let token = match serde_json::from_value::<aitp_delegation::DelegationToken>(
-        params.get("delegation").cloned().unwrap_or_default(),
-    ) {
+    // Accept both `delegation` and `delegation_token` field names per
+    // the spec PLACEHOLDERS convention.
+    let token_value = params
+        .get("delegation")
+        .cloned()
+        .or_else(|| params.get("delegation_token").cloned())
+        .unwrap_or_default();
+    let token = match serde_json::from_value::<aitp_delegation::DelegationToken>(token_value) {
         Ok(t) => t,
         Err(e) => return err(id, "INVALID_ENVELOPE", &format!("delegation parse: {e}")),
     };
+    // Spec fixtures carry `verifier_aid` OR they carry `audience`/`self_aid`
+    // — both name the receiver. Default to `audience` derived from the
+    // token if neither is supplied.
     let verifier_aid = match params
         .get("verifier_aid")
+        .or_else(|| params.get("self_aid"))
+        .or_else(|| params.get("audience"))
         .and_then(|v| v.as_str())
         .map(Aid::parse)
     {
         Some(Ok(a)) => a,
         Some(Err(e)) => return err(id, "INVALID_ENVELOPE", &format!("verifier_aid: {e}")),
-        None => return err(id, "INVALID_ENVELOPE", "missing verifier_aid"),
+        None => token.audience.clone(),
     };
     let now = params
         .get("now")
@@ -831,12 +888,23 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     match role {
         "initiator" => {
             let peer_manifest_value = params.get("peer_manifest").cloned().unwrap_or_default();
-            if let Ok(peer_m) = serde_json::from_value::<Manifest>(peer_manifest_value) {
-                state
-                    .peer_manifests
-                    .insert(peer_m.aid.as_str().to_string(), peer_m);
-            }
-            start_initiator(state, id, handle, manifest, requested_grants)
+            let peer_aid = match serde_json::from_value::<Manifest>(peer_manifest_value) {
+                Ok(peer_m) => {
+                    let aid = peer_m.aid.clone();
+                    state
+                        .peer_manifests
+                        .insert(peer_m.aid.as_str().to_string(), peer_m);
+                    aid
+                }
+                Err(_) => {
+                    return err(
+                        id,
+                        "INVALID_REQUEST",
+                        "start_handshake role=initiator requires `peer_manifest` so the pinned-key proof can bind the receiver AID per RFC-AITP-0002 §3.1",
+                    );
+                }
+            };
+            start_initiator(state, id, handle, manifest, peer_aid, requested_grants)
         }
         "responder" => {
             let session_id = state.fresh_session_id();
@@ -870,6 +938,7 @@ fn start_initiator(
     id: &str,
     handle: String,
     manifest: Manifest,
+    peer_aid: Aid,
     requested_grants: Vec<String>,
 ) -> Value {
     let key = state.key_for(&handle).expect("keypair existence checked");
@@ -887,10 +956,12 @@ fn start_initiator(
         manifest: &manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: ts,
     };
     let (init_state, hello_payload) =
-        match Initiator::start(&cfg, identity, &mid, ts, requested_grants) {
+        match Initiator::start(&cfg, identity, &peer_aid, &mid, ts, requested_grants) {
             Ok(p) => p,
             Err(e) => return err(id, "HANDSHAKE_FAILED", &e.to_string()),
         };
@@ -989,6 +1060,8 @@ fn initiator_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: state.now(),
     };
     match envelope.message_type {
@@ -1090,6 +1163,8 @@ fn responder_first_hello(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: state.now(),
     };
     let identity = PresentedIdentity::PinnedKey {
@@ -1170,6 +1245,8 @@ fn responder_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: state.now(),
     };
     let (ack_payload, held_tct) = match responder.on_commit(&envelope, &commit_payload, &cfg) {
@@ -1221,11 +1298,18 @@ fn sign_envelope_with_key<P: serde::Serialize>(
 }
 
 fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    let env: aitp_tct::RevocationListEnvelope =
-        match serde_json::from_value(params.get("revocation_list").cloned().unwrap_or_default()) {
-            Ok(e) => e,
-            Err(e) => return err(id, "INVALID_ENVELOPE", &format!("revocation_list: {e}")),
-        };
+    // Accept three field-name variants in fixtures: `revocation_list`
+    // (pre-rc.4), `snapshot` (spec rc.4 + rev-* fixtures), `envelope`.
+    let env_value = params
+        .get("revocation_list")
+        .cloned()
+        .or_else(|| params.get("snapshot").cloned())
+        .or_else(|| params.get("envelope").cloned())
+        .unwrap_or_default();
+    let env: aitp_tct::RevocationListEnvelope = match serde_json::from_value(env_value) {
+        Ok(e) => e,
+        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("revocation_list: {e}")),
+    };
     let expected_issuer = match params
         .get("expected_issuer")
         .and_then(|v| v.as_str())
@@ -1244,12 +1328,37 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         expected_issuer: &expected_issuer,
         now,
     };
-    match aitp_tct::verify_revocation_list(&env, &ctx) {
-        Ok(()) => {
-            json!({"id": id, "ok": true, "result": {"verified": true, "revoked_count": env.revocation_list.entries.len()}})
-        }
-        Err(e) => err(id, &tct_error_code(&e), &e.to_string()),
+    if let Err(e) = aitp_tct::verify_revocation_list(&env, &ctx) {
+        return err(id, &tct_error_code(&e), &e.to_string());
     }
+    // Apply the optional RevocationPolicy when supplied (rev-001 /
+    // rev-002 fixtures). The wire shape is `policy: {fail_mode,
+    // max_staleness_secs}`. When absent, the snapshot's own validity
+    // is the decision (current behavior).
+    if let Some(policy) = params.get("policy") {
+        let max_staleness = policy
+            .get("max_staleness_secs")
+            .and_then(|v| v.as_i64())
+            .unwrap_or(86_400);
+        let fail_mode = policy
+            .get("fail_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or("fail_closed");
+        let age = now.0.saturating_sub(env.revocation_list.published_at.0);
+        if age > max_staleness {
+            return match fail_mode {
+                "fail_open" | "soft_fail" => {
+                    json!({"id": id, "ok": true, "result": {"verified": true, "stale": true}})
+                }
+                _ => err(
+                    id,
+                    "TCT_REVOKED",
+                    &format!("snapshot stale ({age}s > {max_staleness}s) under fail_closed policy"),
+                ),
+            };
+        }
+    }
+    json!({"id": id, "ok": true, "result": {"verified": true, "revoked_count": env.revocation_list.entries.len()}})
 }
 
 fn revoke_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {

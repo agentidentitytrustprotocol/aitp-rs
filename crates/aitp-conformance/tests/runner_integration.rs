@@ -12,7 +12,10 @@ fn adapter_path() -> std::path::PathBuf {
         .parent()
         .and_then(|p| p.parent())
         .expect("target/<profile>/deps");
-    let candidate = parent.join("aitp-rs-adapter");
+    // EXE_SUFFIX is "" on Unix, ".exe" on Windows — without it, this
+    // helper silently looks for the wrong filename and every test in
+    // this file panics on Windows CI.
+    let candidate = parent.join(format!("aitp-rs-adapter{}", std::env::consts::EXE_SUFFIX));
     if !candidate.exists() {
         panic!(
             "{} not found — run `cargo build -p aitp-rs-adapter` first",

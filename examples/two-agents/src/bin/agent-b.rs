@@ -104,6 +104,8 @@ async fn handle_hello(
         manifest: &state.manifest,
         trust_anchors: &[],
         jwks_resolver: &NoOpResolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: aitp::core::Timestamp::now(),
     };
     let ack_mid = Uuid::new_v4();
@@ -166,6 +168,8 @@ async fn handle_commit(
         manifest: &state.manifest,
         trust_anchors: &[],
         jwks_resolver: &NoOpResolver,
+        pinned_key_store: None,
+        grant_policy: None,
         now: aitp::core::Timestamp::now(),
     };
     let (ack_payload, _bob_holds_tct_for_alice) = responder

@@ -23,6 +23,8 @@ async fn rejects_non_localhost_http() {
 
 #[tokio::test]
 async fn malformed_json_response_rejected() {
+    // Plain string responses come back with Content-Type: text/plain;
+    // P13 hardening rejects this at the boundary as WrongContentType.
     use axum::{response::IntoResponse, routing::get, Router};
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -41,8 +43,118 @@ async fn malformed_json_response_rejected() {
         .await
         .unwrap_err();
     assert!(
+        matches!(err, FetchError::WrongContentType(_)),
+        "expected WrongContentType, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn malformed_json_with_correct_content_type_rejected() {
+    // Server claims application/json but body is invalid JSON — we
+    // should fall through to MalformedJson.
+    use axum::{
+        http::header,
+        response::{IntoResponse, Response},
+        routing::get,
+        Router,
+    };
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(|| async {
+            Response::builder()
+                .header(header::CONTENT_TYPE, "application/json")
+                .body(axum::body::Body::from("not valid json"))
+                .unwrap()
+                .into_response()
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
         matches!(err, FetchError::MalformedJson(_)),
         "expected MalformedJson, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn non_2xx_upstream_status_returned() {
+    use axum::{http::StatusCode, routing::get, Router};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(|| async { (StatusCode::INTERNAL_SERVER_ERROR, "broken") }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::UpstreamStatus(500)),
+        "expected UpstreamStatus(500), got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn oversized_response_rejected() {
+    use axum::{
+        http::header,
+        response::{IntoResponse, Response},
+        routing::get,
+        Router,
+    };
+    // Build a large JSON-shaped string the size limit will trip on.
+    let big = format!("{{\"manifest\":{}}}", "0".repeat(200_000));
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let big = big.clone();
+            async move {
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(big))
+                    .unwrap()
+                    .into_response()
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new().with_max_bytes(64 * 1024);
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::OversizedResponse { limit: 65_536 }),
+        "expected OversizedResponse, got: {err:?}"
     );
     server.abort();
     let _ = server.await;
