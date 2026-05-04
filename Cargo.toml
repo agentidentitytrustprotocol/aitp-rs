@@ -46,7 +46,7 @@ rand = "0.8"
 # HTTP transport (feature-gated, only used by aitp-transport-http)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.7"
-tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
+tokio = { version = "1.52", features = ["rt-multi-thread", "macros"] }
 
 # OIDC (used by aitp-handshake and aitp-transport-http)
 jsonwebtoken = "9.2"
