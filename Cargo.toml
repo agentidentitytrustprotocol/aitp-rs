@@ -49,7 +49,7 @@ axum = "0.7"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
 
 # OIDC (used by aitp-handshake and aitp-transport-http)
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.3"
 
 # CLI (used by aitp-conformance)
 clap = { version = "4.5", features = ["derive"] }
