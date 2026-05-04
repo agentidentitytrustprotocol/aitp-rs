@@ -1,0 +1,120 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/tct.json",
+  "title": "TrustContextToken",
+  "description": "AITP v0.1 Trust Context Token \u2014 the signed, peer-issued capability grant produced by the Mutual Handshake (RFC-AITP-0004). In AITP, TCTs are issued by one peer to another; `issuer` and `audience` are both peer AIDs.",
+  "type": "object",
+  "required": [
+    "tct"
+  ],
+  "properties": {
+    "tct": {
+      "type": "object",
+      "required": [
+        "version",
+        "jti",
+        "issuer",
+        "subject",
+        "audience",
+        "issued_at",
+        "expires_at",
+        "grants",
+        "binding",
+        "signature"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "aitp/0.1",
+          "description": "Protocol version. MUST be 'aitp/0.1'."
+        },
+        "jti": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "description": "UUID v4 unique token identifier. Used for revocation."
+        },
+        "issuer": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the issuing peer."
+        },
+        "subject": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the agent this TCT was issued for (the subject peer)."
+        },
+        "audience": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the intended consuming peer. MUST equal the subject's AID for peer-issued TCTs."
+        },
+        "issued_at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp (seconds) of issuance."
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unix timestamp (seconds) of expiry. Consumers MUST enforce this."
+        },
+        "grants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s]+$",
+            "description": "Capability string. No whitespace."
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Capability strings granted to the subject. v0.1 forbids empty-grants TCTs (RFC-AITP-0004 \u00a74.1)."
+        },
+        "binding": {
+          "type": "object",
+          "description": "Proof-of-possession binding. REQUIRED for v0.1 peer-issued TCTs (RFC-AITP-0004 \u00a74.4). Wraps the subject's public key so consumers can challenge the holder for downstream PoP per RFC-AITP-0005 \u00a76.",
+          "properties": {
+            "cnf": {
+              "type": "string",
+              "description": "Subject's public key in unpadded base64url (RFC 4648 \u00a75). Used for proof-of-possession.",
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            }
+          },
+          "required": [
+            "cnf"
+          ],
+          "additionalProperties": false
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Unpadded base64url signature (RFC 4648 \u00a75) by the issuing peer over the JCS-canonicalized TCT JSON (RFC 8785), excluding this field. See RFC-AITP-0001 \u00a75.4.",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "tct": {
+        "version": "aitp/0.1",
+        "jti": "550e8400-e29b-41d4-a716-446655440000",
+        "issuer": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+        "subject": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+        "audience": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+        "issued_at": 1711900000,
+        "expires_at": 1711903600,
+        "grants": [
+          "macp.mode.task.v1",
+          "read_data"
+        ],
+        "binding": {
+          "cnf": "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB"
+        },
+        "signature": "sig_A_tct_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  ]
+}

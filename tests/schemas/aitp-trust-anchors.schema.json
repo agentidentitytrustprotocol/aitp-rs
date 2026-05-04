@@ -1,0 +1,148 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/trust-anchors.json",
+  "title": "TrustAnchorsConfig",
+  "description": "AITP v0.1 trust anchor and pinned key configuration.",
+  "type": "object",
+  "properties": {
+    "trust_anchors": {
+      "type": "array",
+      "description": "Trusted OIDC issuers and their public keys.",
+      "items": {
+        "type": "object",
+        "required": [
+          "issuer",
+          "keys"
+        ],
+        "properties": {
+          "issuer": {
+            "type": "string",
+            "format": "uri"
+          },
+          "keys": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 43,
+              "pattern": "^[A-Za-z0-9_-]{43}$"
+            },
+            "minItems": 1,
+            "description": "base64url-encoded public keys."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "pinned_keys": {
+      "type": "array",
+      "description": "Pre-configured agent keys (for pinned_key identity type).",
+      "items": {
+        "type": "object",
+        "required": [
+          "subject",
+          "public_key"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "minLength": 1
+          },
+          "public_key": {
+            "type": "string",
+            "minLength": 43,
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          },
+          "allowed_capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "key_resolution": {
+      "type": "object",
+      "properties": {
+        "offline_mode": {
+          "type": "boolean",
+          "default": false
+        },
+        "cache_ttl_secs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 3600
+        },
+        "fail_mode": {
+          "type": "string",
+          "enum": [
+            "fail_closed",
+            "fail_open",
+            "soft_fail"
+          ],
+          "default": "fail_closed"
+        }
+      },
+      "additionalProperties": false
+    },
+    "revocation_policy": {
+      "type": "object",
+      "properties": {
+        "mode": {
+          "type": "string",
+          "enum": [
+            "fail_closed",
+            "fail_open",
+            "soft_fail"
+          ],
+          "default": "fail_closed"
+        },
+        "max_staleness_secs": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 300
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "trust_anchors": [
+        {
+          "issuer": "https://auth.openai.com",
+          "keys": [
+            "agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+            "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB"
+          ]
+        },
+        {
+          "issuer": "https://auth.anthropic.com",
+          "keys": [
+            "agentC_pubkey_AID_v01_placeholder_CCCCCCCCC"
+          ]
+        }
+      ],
+      "pinned_keys": [
+        {
+          "subject": "internal-worker-1",
+          "public_key": "worker_pubkey_AID_v01_placeholder_wwwwwwwww",
+          "allowed_capabilities": [
+            "macp.mode.task.v1"
+          ]
+        }
+      ],
+      "key_resolution": {
+        "offline_mode": false,
+        "cache_ttl_secs": 3600,
+        "fail_mode": "fail_closed"
+      },
+      "revocation_policy": {
+        "mode": "fail_closed",
+        "max_staleness_secs": 300
+      }
+    }
+  ]
+}

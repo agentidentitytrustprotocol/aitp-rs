@@ -1,0 +1,132 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/delegation.json",
+  "title": "DelegationToken",
+  "description": "AITP v0.1 single-hop delegation token. Allows agent B to delegate a subset of its grants to agent C.",
+  "type": "object",
+  "required": [
+    "delegation"
+  ],
+  "properties": {
+    "delegation": {
+      "type": "object",
+      "required": [
+        "delegator",
+        "delegatee",
+        "issued_by",
+        "audience",
+        "scope",
+        "expires_at",
+        "cnf",
+        "grant_proof",
+        "signature"
+      ],
+      "properties": {
+        "delegator": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the original grant issuer (A)."
+        },
+        "delegatee": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the agent receiving delegation (C)."
+        },
+        "issued_by": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID of the agent issuing this delegation (B)."
+        },
+        "audience": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "MUST equal delegator's AID. Prevents use at other verifiers."
+        },
+        "scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s]+$"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Capabilities delegated to C. MUST be a subset of grant_proof.capabilities."
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unix timestamp of expiry. MUST be <= grant_proof.expires_at."
+        },
+        "cnf": {
+          "type": "string",
+          "minLength": 1,
+          "description": "C's public key (base64url) for proof-of-possession.",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        },
+        "grant_proof": {
+          "type": "object",
+          "required": [
+            "issuer",
+            "subject",
+            "capabilities",
+            "issued_at",
+            "expires_at",
+            "source_tct_jti",
+            "signature"
+          ],
+          "properties": {
+            "issuer": {
+              "type": "string",
+              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+              "description": "AID of the original grant issuer (A)."
+            },
+            "subject": {
+              "type": "string",
+              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+              "description": "AID of the original grantee (B). MUST equal delegation.issued_by."
+            },
+            "capabilities": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "issued_at": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "Unix timestamp; copied verbatim from the source TCT's issued_at so the source TCT signing input can be reconstructed byte-for-byte. See RFC-AITP-0006 §3.1."
+            },
+            "expires_at": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "source_tct_jti": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+              "description": "JTI of A's original TCT to B. Used for revocation lookup."
+            },
+            "signature": {
+              "type": "string",
+              "minLength": 1,
+              "description": "A's signature over the source TCT body (reused verbatim from the source TCT's signature).",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "description": "B's signature over canonical DelegationToken JSON (excluding signature).",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

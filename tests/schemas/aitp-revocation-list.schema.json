@@ -1,0 +1,85 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/revocation-list.json",
+  "title": "AitpRevocationList",
+  "description": "AITP v0.1 signed revocation snapshot — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
+  "type": "object",
+  "required": ["revocation_list", "signature"],
+  "additionalProperties": false,
+  "properties": {
+    "revocation_list": {
+      "type": "object",
+      "required": ["version", "issuer", "published_at", "expires_at", "entries"],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "aitp/0.1",
+          "description": "Protocol version. MUST be 'aitp/0.1'."
+        },
+        "issuer": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "The issuing peer's AID. MUST equal the `issuer` of every TCT covered by `entries`."
+        },
+        "published_at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp when this snapshot was signed."
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unix timestamp after which this snapshot MUST NOT be cached."
+        },
+        "entries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["jti", "revoked_at"],
+            "additionalProperties": false,
+            "properties": {
+              "jti": {
+                "type": "string",
+                "format": "uuid",
+                "description": "JTI of the revoked TCT."
+              },
+              "revoked_at": {
+                "type": "integer",
+                "minimum": 0,
+                "description": "Unix timestamp when the issuing peer revoked this TCT."
+              },
+              "reason": {
+                "type": "string",
+                "description": "Optional human-readable reason. Not used in trust decisions."
+              }
+            }
+          },
+          "description": "Revoked-entry records. MAY be empty — an empty list is itself a signed assertion that nothing has been revoked, defending against suppression of fresher snapshots."
+        }
+      }
+    },
+    "signature": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "description": "Unpadded base64url signature (RFC 4648 §5) by the issuing peer over the JCS-canonical bytes of `revocation_list` (RFC 8785), excluding this field. See RFC-AITP-0001 §5.4. The known-answer body at `schemas/conformance/known-answer/jcs-sha256.json` (`kat-revocation-001`) pins the canonical bytes; a runtime-served snapshot MUST also carry this field."
+    }
+  },
+  "examples": [
+    {
+      "revocation_list": {
+        "version": "aitp/0.1",
+        "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+        "published_at": 1711900000,
+        "expires_at": 1711903600,
+        "entries": [
+          {
+            "jti": "550e8400-e29b-41d4-a716-446655440000",
+            "revoked_at": 1711901000
+          }
+        ]
+      },
+      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+    }
+  ]
+}

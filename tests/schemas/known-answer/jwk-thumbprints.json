@@ -1,0 +1,29 @@
+{
+  "$comment": "AITP v0.1 JWK SHA-256 thumbprint known-answer vectors per RFC 7638. Used to verify that an implementation produces the same `cnf.jkt` value as the reference for a pinned Ed25519 public key. Canonical JWK form per RFC-AITP-0002 \u00a72.2.1: members in lex order, exactly three members (crv, kty, x), no whitespace.",
+  "vectors": [
+    {
+      "id": "kat-jwk-thumb-001",
+      "keypair_ref": "kat-keypair-001",
+      "jwk_canonical": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik\"}",
+      "jwk_canonical_hex": "7b22637276223a2245643235353139222c226b7479223a224f4b50222c2278223a224f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b227d",
+      "sha256_hex": "f593f4dcdbbc1ab5cf01491b28dc4738a073c4f5fcdd24a180591134af9fda5c",
+      "jkt": "9ZP03Nu8GrXPAUkbKNxHOKBzxPX83SShgFkRNK-f2lw"
+    },
+    {
+      "id": "kat-jwk-thumb-002",
+      "keypair_ref": "kat-keypair-002",
+      "jwk_canonical": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg\"}",
+      "jwk_canonical_hex": "7b22637276223a2245643235353139222c226b7479223a224f4b50222c2278223a2241364548765f504f454c3464634e3059353076416d57666b316a436270513166486479475a424a564d6267227d",
+      "sha256_hex": "d481b6b4c1fb276c1b2599ce7fc2c9cd08ad29fecb32fa00125b2e0cc54ce786",
+      "jkt": "1IG2tMH7J2wbJZnOf8LJzQitKf7LMvoAElsuDMVM54Y"
+    },
+    {
+      "id": "kat-jwk-thumb-003",
+      "keypair_ref": "kat-keypair-003",
+      "jwk_canonical": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU\"}",
+      "jwk_canonical_hex": "7b22637276223a2245643235353139222c226b7479223a224f4b50222c2278223a226471465a4945536d355055524a6c764b63365945325173464b6448665943766a43686d704a585a67306655227d",
+      "sha256_hex": "2e5b2691798726e5d691164bbff14a97f9a9adf215e5a6159d7a8282c79bb1d5",
+      "jkt": "LlsmkXmHJuXWkRZLv_FKl_mprfIV5aYVnXqCgsebsdU"
+    }
+  ]
+}

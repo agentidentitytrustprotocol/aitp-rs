@@ -1,0 +1,68 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/aitp-core",
+    "crates/aitp-crypto",
+    "crates/aitp-manifest",
+    "crates/aitp-handshake",
+    "crates/aitp-tct",
+    "crates/aitp-delegation",
+    "crates/aitp-transport-http",
+    "crates/aitp",
+    "crates/aitp-conformance",
+    "crates/aitp-rs-adapter",
+    "examples/two-agents",
+    "tools/mint-signed-examples",
+    "tools/mint-conformance-fixtures",
+]
+
+[workspace.package]
+version = "0.1.0-alpha.4"
+edition = "2021"
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/agentidentitytrustprotocol/aitp-rs"
+homepage = "https://github.com/agentidentitytrustprotocol/aitp-rs"
+authors = ["AITP contributors"]
+keywords = ["aitp", "agent", "trust", "identity", "ed25519"]
+categories = ["cryptography", "authentication"]
+
+[workspace.dependencies]
+# Pinned core deps. Every crate references these via { workspace = true }
+# so the workspace has exactly one version of each.
+serde = { version = "1.0", features = ["derive"] }
+serde_json = { version = "1.0", features = ["preserve_order"] }
+serde_jcs = "0.2"
+thiserror = "1.0"
+ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+base64ct = { version = "1.6", features = ["std"] }
+secrecy = "0.8"
+uuid = { version = "1.7", features = ["v4", "serde"] }
+sha2 = "0.10"
+url = { version = "2.5", features = ["serde"] }
+chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
+rand = "0.8"
+
+# HTTP transport (feature-gated, only used by aitp-transport-http)
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+axum = "0.7"
+tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
+
+# OIDC (used by aitp-handshake and aitp-transport-http)
+jsonwebtoken = "9.2"
+
+# CLI (used by aitp-conformance)
+clap = { version = "4.5", features = ["derive"] }
+
+# Test deps
+proptest = "1.4"
+insta = { version = "1.36", features = ["json"] }
+hex = "0.4"
+# JSON Schema validator — used in tests/schema.rs to catch wire-type drift
+# from the AITP JSON Schemas. Test-only; do NOT take a runtime dependency.
+boon = "0.6"
+
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true

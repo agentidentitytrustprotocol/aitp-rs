@@ -1,0 +1,28 @@
+[package]
+name = "aitp-example-two-agents"
+description = "Two-agent demo showing a complete AITP handshake and TCT exchange"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+publish = false
+
+[[bin]]
+name = "agent-a"
+path = "src/bin/agent-a.rs"
+
+[[bin]]
+name = "agent-b"
+path = "src/bin/agent-b.rs"
+
+[dependencies]
+aitp = { path = "../../crates/aitp", version = "0.1.0-alpha.4", features = ["all"] }
+tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
+serde_json = { workspace = true }
+clap = { workspace = true }
+axum = { workspace = true }
+reqwest = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }

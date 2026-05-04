@@ -1,0 +1,7 @@
+[toolchain]
+# 1.88+ is required by transitive deps (`time`, `time-macros`, `icu_*`,
+# `idna_adapter`, `clap_lex`). Bump in lockstep with `rust-version` in
+# the workspace `Cargo.toml`.
+channel = "1.89.0"
+components = ["rustfmt", "clippy"]
+profile = "minimal"

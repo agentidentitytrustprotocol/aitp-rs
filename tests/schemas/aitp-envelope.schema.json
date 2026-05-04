@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/envelope.json",
+  "title": "AitpEnvelope",
+  "description": "AITP v0.1 message envelope. Wraps all protocol messages exchanged during the Mutual Handshake (RFC-AITP-0004) and the TCTs it produces.",
+  "type": "object",
+  "required": [
+    "version",
+    "message_type",
+    "message_id",
+    "timestamp",
+    "sender",
+    "payload",
+    "signature"
+  ],
+  "properties": {
+    "version": {
+      "type": "string",
+      "const": "aitp/0.1"
+    },
+    "message_type": {
+      "type": "string",
+      "enum": [
+        "mutual_hello",
+        "mutual_hello_ack",
+        "mutual_commit",
+        "mutual_commit_ack",
+        "tct",
+        "pop_challenge",
+        "pop_response",
+        "error"
+      ]
+    },
+    "message_id": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4 in hyphenated lowercase."
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix timestamp (seconds)."
+    },
+    "sender": {
+      "type": "object",
+      "required": [
+        "agent_id"
+      ],
+      "properties": {
+        "agent_id": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "additionalProperties": false
+    },
+    "payload": {
+      "type": "object",
+      "description": "Message-type-specific content."
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "base64url signature.",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    }
+  },
+  "additionalProperties": false
+}

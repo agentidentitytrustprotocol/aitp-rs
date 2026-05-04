@@ -1,0 +1,37 @@
+[package]
+name = "aitp-transport-http"
+description = "HTTP client and server bindings for AITP (feature-gated)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+client = ["dep:reqwest", "dep:tokio"]
+server = ["dep:axum", "dep:tokio"]
+
+[dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-alpha.4" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-alpha.4" }
+aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-alpha.4" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-alpha.4" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+reqwest = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+jsonwebtoken = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+axum = { workspace = true }
+reqwest = { workspace = true }

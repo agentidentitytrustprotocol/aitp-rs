@@ -1,0 +1,229 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/manifest.json",
+  "title": "AgentManifest",
+  "description": "AITP v0.1 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
+  "type": "object",
+  "required": [
+    "manifest"
+  ],
+  "properties": {
+    "manifest": {
+      "type": "object",
+      "required": [
+        "version",
+        "aid",
+        "identity_hint",
+        "handshake_endpoint",
+        "accepted_trust_anchors",
+        "offered_capabilities",
+        "proof_of_possession",
+        "published_at",
+        "expires_at",
+        "signature"
+      ],
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "aitp/0.1",
+          "description": "Protocol version. MUST be 'aitp/0.1'."
+        },
+        "aid": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "Agent's cryptographic identifier. Format: aid:<method>:<base64url>."
+        },
+        "display_name": {
+          "type": "string",
+          "maxLength": 128,
+          "description": "Human-readable agent name. Not used in trust decisions."
+        },
+        "identity_hint": {
+          "$ref": "#/$defs/IdentityHint"
+        },
+        "handshake_endpoint": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "HTTPS URL where peer agents initiate the Mutual Handshake. MUST use HTTPS."
+        },
+        "accepted_trust_anchors": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uri"
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "OIDC issuer URIs this agent accepts from peers. Peer's identity issuer MUST appear here for handshake to proceed."
+        },
+        "offered_capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s]+$"
+          },
+          "uniqueItems": true,
+          "description": "Capabilities this agent is willing to grant to authenticated peers."
+        },
+        "required_peer_capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1,
+            "pattern": "^[^\\s]+$"
+          },
+          "uniqueItems": true,
+          "description": "Capabilities the peer MUST hold for this agent to accept a handshake. Empty means no prerequisites."
+        },
+        "accepted_identity_types": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "oidc",
+              "pinned_key"
+            ]
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Identity binding types this agent accepts from peers (RFC-AITP-0002). If absent, peers MUST treat as [\"oidc\"]. Used at discovery time when the peer's identity is not OIDC-based."
+        },
+        "proof_of_possession": {
+          "type": "object",
+          "required": [
+            "challenge",
+            "signature"
+          ],
+          "properties": {
+            "challenge": {
+              "type": "string",
+              "minLength": 22,
+              "description": "Random 128-bit value (base64url) chosen at publish time.",
+              "pattern": "^[A-Za-z0-9_-]{22}$"
+            },
+            "signature": {
+              "type": "string",
+              "minLength": 1,
+              "description": "base64url(sign(agent_private_key, sha256(challenge))). Verified using the public key in `aid`.",
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          },
+          "additionalProperties": false
+        },
+        "published_at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp (seconds) when this Manifest was signed."
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unix timestamp (seconds) after which this Manifest MUST NOT be used."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Reserved for future extension fields. Unknown extensions MUST be ignored."
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "description": "base64url signature over canonical Manifest JSON (excluding this field, keys sorted lexicographically). Signed by the agent's private key.",
+          "pattern": "^[A-Za-z0-9_-]{86}$"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "IdentityHint": {
+      "description": "Static identity metadata published in the Agent Manifest. Contains no verifiable JWT \u2014 the verifiable proof is exchanged inline in the Mutual Handshake (RFC-AITP-0004 \u00a73) where it can be bound to a fresh nonce and the verifying peer's AID.",
+      "type": "object",
+      "required": [
+        "type",
+        "subject"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "oidc",
+            "pinned_key"
+          ],
+          "description": "Identity mechanism. v0.1: oidc, pinned_key."
+        },
+        "issuer": {
+          "type": "string",
+          "format": "uri",
+          "description": "Issuer URI. Required for type=oidc."
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Agent subject identifier at the issuer."
+        },
+        "public_key": {
+          "type": "string",
+          "description": "base64url public key. Required for pinned_key.",
+          "pattern": "^[A-Za-z0-9_-]{43}$"
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "oidc"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "issuer"
+        ],
+        "not": {
+          "required": [
+            "public_key"
+          ]
+        }
+      },
+      "else": {
+        "required": [
+          "public_key"
+        ]
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "manifest": {
+        "version": "aitp/0.1",
+        "aid": "aid:pubkey:worker_pubkey_AID_v01_placeholder_wwwwwwwww",
+        "display_name": "WorkerAgent-7",
+        "identity_hint": {
+          "type": "oidc",
+          "issuer": "https://auth.openai.com",
+          "subject": "worker-agent-7"
+        },
+        "handshake_endpoint": "https://worker-7.agents.example.com/aitp/handshake",
+        "accepted_trust_anchors": [
+          "https://auth.openai.com",
+          "https://auth.anthropic.com"
+        ],
+        "offered_capabilities": [
+          "macp.mode.task.v1",
+          "read_data"
+        ],
+        "required_peer_capabilities": [],
+        "proof_of_possession": {
+          "challenge": "nonce_A_chal_v01_aaann",
+          "signature": "sig_A_pop_chal_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        },
+        "published_at": 1711900000,
+        "expires_at": 1711986400,
+        "signature": "sig_A_manifest_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      }
+    }
+  ]
+}

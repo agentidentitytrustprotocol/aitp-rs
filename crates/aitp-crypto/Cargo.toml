@@ -1,0 +1,23 @@
+[package]
+name = "aitp-crypto"
+description = "Ed25519 signing and JWK thumbprint primitives for AITP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
+ed25519-dalek = { workspace = true }
+sha2 = { workspace = true }
+base64ct = { workspace = true }
+rand = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+[dev-dependencies]
+hex = { workspace = true }

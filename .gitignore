@@ -1,0 +1,68 @@
+# Cargo build artifacts
+/target/
+**/target/
+
+# Cargo lockfile is checked in for the workspace (binaries + reproducible CI).
+# If this becomes a library-only workspace, drop the lock from VCS.
+# Cargo.lock — kept
+
+# Rust backup files
+**/*.rs.bk
+
+# Generated docs
+/doc/
+
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+*.swn
+*~
+.history/
+
+# macOS / Windows / Linux junk
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Local env / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Coverage and profiling
+*.profraw
+*.profdata
+/coverage/
+/lcov.info
+
+# Cargo tools / caches
+/.cargo-ok
+/.cargo/config
+**/*.orig
+
+# cargo-fuzz
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+
+# cargo-mutants / cargo-tarpaulin
+mutants.out/
+tarpaulin-report.html
+
+# direnv / nix
+.direnv/
+result
+result-*
+
+# Working scratch dirs
+/temp/
+/tmp/
+
+# WASM / web build artifacts (if added later)
+pkg/
+wasm-pack.log

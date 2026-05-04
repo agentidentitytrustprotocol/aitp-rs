@@ -1,0 +1,45 @@
+# cargo-deny configuration for aitp-rs.
+# Run: cargo deny check
+#
+# Schema: cargo-deny >= 0.18 (the older `unlicensed` / `copyleft` /
+# `allow-osi-fsf-free` / `default` license fields, and the
+# severity-style `unmaintained` advisory field, were removed).
+
+[graph]
+all-features = true
+
+[advisories]
+# Warn on yanked dependencies; CI surfaces these for review.
+yanked = "warn"
+# Audit all crates (workspace + transitive) for unmaintained-marker advisories.
+unmaintained = "all"
+
+[licenses]
+# Explicit allowlist; anything not on this list fails.
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "0BSD",
+    "MPL-2.0",
+    "CC0-1.0",
+    # Community Data License Agreement, Permissive variant 2.0 — used by
+    # `webpki-roots` for the bundled Mozilla root CA list (data, not code).
+    "CDLA-Permissive-2.0",
+]
+confidence-threshold = 0.8
+
+[bans]
+multiple-versions = "warn"
+wildcards = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]

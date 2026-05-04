@@ -1,0 +1,34 @@
+[package]
+name = "aitp-conformance"
+description = "Conformance test runner for AITP implementations"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+in-process = ["aitp-core", "aitp-crypto", "aitp-manifest", "aitp-handshake", "aitp-tct", "aitp-delegation"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+uuid = { workspace = true }
+
+aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4", optional = true }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-alpha.4", optional = true }
+aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-alpha.4", optional = true }
+aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-alpha.4", optional = true }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-alpha.4", optional = true }
+aitp-delegation = { path = "../aitp-delegation", version = "0.1.0-alpha.4", optional = true }
+
+[dev-dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-alpha.4" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-alpha.4" }

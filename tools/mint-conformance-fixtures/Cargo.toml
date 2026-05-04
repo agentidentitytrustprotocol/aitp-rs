@@ -1,0 +1,21 @@
+[package]
+name = "mint-conformance-fixtures"
+description = "Mint real signed values into the spec's 22 conformance fixtures (closes PHASE-B-FIXTURE-PR / BLOCKED-SPEC-FIXTURE-MIGRATION). Walks each fixture, applies the normative substitution rules in PLACEHOLDERS.md, writes back."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+aitp-core = { path = "../../crates/aitp-core", version = "0.1.0-alpha.4" }
+aitp-crypto = { path = "../../crates/aitp-crypto", version = "0.1.0-alpha.4" }
+aitp-manifest = { path = "../../crates/aitp-manifest", version = "0.1.0-alpha.4" }
+aitp-tct = { path = "../../crates/aitp-tct", version = "0.1.0-alpha.4" }
+aitp-delegation = { path = "../../crates/aitp-delegation", version = "0.1.0-alpha.4" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+jsonwebtoken = { workspace = true }

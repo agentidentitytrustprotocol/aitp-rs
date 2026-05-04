@@ -1,0 +1,30 @@
+[package]
+name = "aitp-handshake"
+description = "Mutual handshake state machine for AITP"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0-alpha.4" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-alpha.4" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-alpha.4" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-alpha.4" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+jsonwebtoken = { workspace = true }
+uuid = { workspace = true }
+url = { workspace = true }
+rand = { workspace = true }
+sha2 = { workspace = true }
+
+[dev-dependencies]
+boon = { workspace = true }
+ed25519-dalek = { workspace = true }
+base64ct = { workspace = true }

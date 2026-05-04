@@ -1,0 +1,329 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/mutual-handshake.json",
+  "title": "MutualHandshakeMessages",
+  "description": "AITP v0.1 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack.",
+  "$defs": {
+    "IdentityDescriptor": {
+      "type": "object",
+      "required": [
+        "type",
+        "subject",
+        "proof"
+      ],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "oidc",
+            "pinned_key"
+          ]
+        },
+        "issuer": {
+          "type": "string",
+          "format": "uri"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proof": {
+          "type": "string",
+          "minLength": 1
+        },
+        "public_key": {
+          "type": "string"
+        }
+      },
+      "if": {
+        "properties": {
+          "type": {
+            "const": "oidc"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "issuer"
+        ]
+      },
+      "else": {
+        "required": [
+          "public_key"
+        ]
+      },
+      "additionalProperties": false
+    },
+    "TrustContextToken": {
+      "description": "Inline TCT. Full schema: aitp-tct.schema.json.",
+      "type": "object",
+      "required": [
+        "tct"
+      ],
+      "properties": {
+        "tct": {
+          "type": "object",
+          "required": [
+            "version",
+            "jti",
+            "issuer",
+            "subject",
+            "audience",
+            "issued_at",
+            "expires_at",
+            "grants",
+            "binding",
+            "signature"
+          ],
+          "properties": {
+            "version": {
+              "type": "string",
+              "const": "aitp/0.1"
+            },
+            "jti": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+            },
+            "issuer": {
+              "type": "string",
+              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$"
+            },
+            "subject": {
+              "type": "string",
+              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$"
+            },
+            "audience": {
+              "type": "string",
+              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+              "description": "MUST be the peer's AID."
+            },
+            "issued_at": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "expires_at": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "grants": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "pattern": "^[^\\s]+$"
+              },
+              "minItems": 1,
+              "uniqueItems": true
+            },
+            "binding": {
+              "type": "object",
+              "required": [
+                "cnf"
+              ],
+              "properties": {
+                "cnf": {
+                  "type": "string",
+                  "minLength": 1,
+                  "pattern": "^[A-Za-z0-9_-]{43}$"
+                }
+              },
+              "additionalProperties": false
+            },
+            "signature": {
+              "type": "string",
+              "minLength": 1,
+              "pattern": "^[A-Za-z0-9_-]{86}$"
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "PopNonce": {
+      "type": "string",
+      "minLength": 22,
+      "description": "Random 128-bit value encoded as base64url (minimum 22 chars).",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "PopSignature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "base64url(sign(private_key, sha256(peer_pop_nonce))). Proves possession of the private key for this agent's AID.",
+      "pattern": "^[A-Za-z0-9_-]{86}$"
+    },
+    "MutualHelloPayload": {
+      "type": "object",
+      "required": [
+        "identity",
+        "manifest",
+        "requested_grants",
+        "pop_nonce"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/IdentityDescriptor"
+        },
+        "manifest": {
+          "description": "Initiator's Agent Manifest inline.",
+          "type": "object"
+        },
+        "requested_grants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\s]+$"
+          },
+          "uniqueItems": true
+        },
+        "pop_nonce": {
+          "$ref": "#/$defs/PopNonce"
+        }
+      },
+      "additionalProperties": false
+    },
+    "MutualHelloAckPayload": {
+      "type": "object",
+      "required": [
+        "identity",
+        "manifest",
+        "requested_grants",
+        "pop_nonce",
+        "pop_nonce_echo"
+      ],
+      "properties": {
+        "identity": {
+          "$ref": "#/$defs/IdentityDescriptor"
+        },
+        "manifest": {
+          "description": "Target's Agent Manifest inline.",
+          "type": "object"
+        },
+        "requested_grants": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "pattern": "^[^\\s]+$"
+          },
+          "uniqueItems": true
+        },
+        "pop_nonce": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "Target's nonce. Initiator must sign this in MUTUAL_COMMIT."
+        },
+        "pop_nonce_echo": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "MUST equal initiator's pop_nonce from MUTUAL_HELLO."
+        }
+      },
+      "additionalProperties": false
+    },
+    "MutualCommitPayload": {
+      "type": "object",
+      "required": [
+        "tct_for_peer",
+        "pop_signature",
+        "pop_nonce_echo"
+      ],
+      "properties": {
+        "tct_for_peer": {
+          "$ref": "#/$defs/TrustContextToken",
+          "description": "TCT initiator issues for target."
+        },
+        "pop_signature": {
+          "$ref": "#/$defs/PopSignature",
+          "description": "base64url(sign(A_key, sha256(B_pop_nonce)))."
+        },
+        "pop_nonce_echo": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "MUST equal target's pop_nonce from MUTUAL_HELLO_ACK."
+        }
+      },
+      "additionalProperties": false
+    },
+    "MutualCommitAckPayload": {
+      "type": "object",
+      "required": [
+        "tct_for_peer",
+        "pop_signature",
+        "pop_nonce_echo"
+      ],
+      "properties": {
+        "tct_for_peer": {
+          "$ref": "#/$defs/TrustContextToken",
+          "description": "TCT target issues for initiator."
+        },
+        "pop_signature": {
+          "$ref": "#/$defs/PopSignature",
+          "description": "base64url(sign(B_key, sha256(A_pop_nonce)))."
+        },
+        "pop_nonce_echo": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "MUST equal initiator's pop_nonce from MUTUAL_HELLO."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "oneOf": [
+    {
+      "title": "MutualHello (message_type=mutual_hello)",
+      "$ref": "#/$defs/MutualHelloPayload"
+    },
+    {
+      "title": "MutualHelloAck (message_type=mutual_hello_ack)",
+      "$ref": "#/$defs/MutualHelloAckPayload"
+    },
+    {
+      "title": "MutualCommit (message_type=mutual_commit)",
+      "$ref": "#/$defs/MutualCommitPayload"
+    },
+    {
+      "title": "MutualCommitAck (message_type=mutual_commit_ack)",
+      "$ref": "#/$defs/MutualCommitAckPayload"
+    }
+  ],
+  "examples": [
+    {
+      "title": "MutualHello \u2014 OIDC",
+      "identity": {
+        "type": "oidc",
+        "issuer": "https://auth.openai.com",
+        "subject": "agent-A",
+        "proof": "eyJhbGciOiJFZERTQSJ9..."
+      },
+      "manifest": {
+        "version": "aitp/0.1",
+        "aid": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+        "signature": "sig_A_manifest_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      },
+      "requested_grants": [
+        "macp.mode.task.v1",
+        "read_data"
+      ],
+      "pop_nonce": "nonce_A_pop_v01_aaannn"
+    },
+    {
+      "title": "MutualCommit",
+      "tct_for_peer": {
+        "tct": {
+          "version": "aitp/0.1",
+          "jti": "550e8400-e29b-41d4-a716-446655440001",
+          "issuer": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+          "subject": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+          "audience": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+          "issued_at": 1711900200,
+          "expires_at": 1711903800,
+          "grants": [
+            "macp.mode.task.v1"
+          ],
+          "binding": {
+            "cnf": "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB"
+          },
+          "signature": "sig_A_tct_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        }
+      },
+      "pop_signature": "sig_A_pop_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "pop_nonce_echo": "nonce_B_pop_v01_aaannn"
+    }
+  ]
+}

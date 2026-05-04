@@ -1,0 +1,23 @@
+{
+  "$comment": "AITP v0.1 Ed25519 keypair known-answer test vectors. Pinned reference values for cross-implementation interop. RFC-AITP-0001 \u00a75.3 references this file. Each entry takes a 32-byte seed and pins the resulting raw Ed25519 public key (base64url, unpadded, 43 chars) and the corresponding aid:pubkey: identifier.",
+  "vectors": [
+    {
+      "id": "kat-keypair-001",
+      "seed_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "pubkey_b64url": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik"
+    },
+    {
+      "id": "kat-keypair-002",
+      "seed_hex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+      "pubkey_b64url": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+    },
+    {
+      "id": "kat-keypair-003",
+      "seed_hex": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+      "pubkey_b64url": "dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
+      "aid": "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU"
+    }
+  ]
+}

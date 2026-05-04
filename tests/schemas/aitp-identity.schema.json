@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/identity.json",
+  "title": "IdentityDescriptor",
+  "description": "AITP v0.1 identity binding. Connects an AID to a verifiable issuer claim.",
+  "type": "object",
+  "required": [
+    "type",
+    "subject",
+    "proof"
+  ],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": [
+        "oidc",
+        "pinned_key"
+      ],
+      "description": "Identity mechanism. v0.1 supports: oidc, pinned_key"
+    },
+    "issuer": {
+      "type": "string",
+      "format": "uri",
+      "description": "Issuer URI. Required for type=oidc."
+    },
+    "subject": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Agent subject identifier."
+    },
+    "proof": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: an unpadded base64url Ed25519 signature whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor."
+    },
+    "public_key": {
+      "type": "string",
+      "description": "base64url public key. Required for pinned_key.",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "minLength": 43
+    }
+  },
+  "if": {
+    "properties": {
+      "type": {
+        "const": "oidc"
+      }
+    }
+  },
+  "then": {
+    "required": [
+      "issuer"
+    ]
+  },
+  "else": {
+    "required": [
+      "public_key"
+    ]
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "type": "oidc",
+      "issuer": "https://auth.openai.com",
+      "subject": "agent-gpt4-xyz",
+      "proof": "eyJhbGciOiJFZERTQSJ9..."
+    },
+    {
+      "type": "pinned_key",
+      "subject": "internal-worker-1",
+      "proof": "base64url_signature",
+      "public_key": "worker_pubkey_AID_v01_placeholder_wwwwwwwww"
+    }
+  ]
+}
