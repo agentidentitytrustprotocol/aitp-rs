@@ -38,7 +38,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 base64ct = { version = "1.6", features = ["std"] }
 secrecy = "0.8"
 uuid = { version = "1.7", features = ["v4", "serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 url = { version = "2.5", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
 rand = "0.8"
