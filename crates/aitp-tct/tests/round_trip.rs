@@ -40,6 +40,7 @@ fn happy_path_round_trip() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     verify_tct(&tct, &ctx).expect("fresh TCT verifies");
@@ -56,6 +57,7 @@ fn wrong_audience_rejected() {
         expected_audience: other.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     let err = verify_tct(&tct, &ctx).unwrap_err();
@@ -77,6 +79,7 @@ fn audience_subject_mismatch_rejected() {
         expected_audience: evil.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     let err = verify_tct(&tct, &ctx).unwrap_err();
@@ -98,6 +101,7 @@ fn tampered_signature_rejected() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     let err = verify_tct(&tct, &ctx).unwrap_err();
@@ -115,6 +119,7 @@ fn tampered_grants_rejected() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     let err = verify_tct(&tct, &ctx).unwrap_err();
@@ -132,6 +137,7 @@ fn expired_rejected() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now: later,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     assert!(matches!(
@@ -151,6 +157,7 @@ fn future_issued_rejected() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now: earlier,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     assert!(matches!(
@@ -171,6 +178,7 @@ fn revoked_rejected() {
         expected_audience: subject.aid(),
         issuer_pubkey: &issuer.verifying_key(),
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: Some(&revoked),
     };
     assert!(matches!(

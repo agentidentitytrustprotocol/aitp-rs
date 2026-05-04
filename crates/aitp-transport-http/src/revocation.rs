@@ -1,8 +1,8 @@
 //! Revocation policy + per-issuer revocation cache (RFC-AITP-0008).
 //!
-//! Composes a [`RevocationProvider`] (typically the HTTP fetcher in
-//! [`crate::client::RevocationFetcher`]) with a per-issuer cache, applies
-//! a configurable [`RevocationFailMode`] when the network source is
+//! Composes a [`RevocationProvider`] (typically backed by the HTTP
+//! client in [`crate::client`]) with a per-issuer cache, applies a
+//! configurable [`RevocationFailMode`] when the network source is
 //! unreachable, and exposes a `is_revoked(jti, issuer)` decision for
 //! handshake / TCT verifiers.
 
@@ -52,7 +52,7 @@ pub enum RevocationError {
 
 /// What to do when revocation cannot be checked freshly (network down,
 /// no provider configured, snapshot stale, …).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RevocationFailMode {
     /// Reject the underlying TCT — safest choice for high-value flows.
     /// Default.
@@ -60,10 +60,23 @@ pub enum RevocationFailMode {
     /// Accept the underlying TCT — appropriate for low-value flows where
     /// availability dominates.
     FailOpen,
-    /// Same wire behavior as `FailOpen`; reserved for callers that want
-    /// to wire their own logging/telemetry. Kept distinct so the policy
-    /// surface mirrors `KeyResolutionFailMode`.
-    SoftFail,
+    /// Reduce the issued grant set to a configured safe subset
+    /// (RFC-AITP-0008). Callers consuming a [`RevocationOutcome`]
+    /// receive the safe subset and MUST intersect it with the
+    /// peer's requested grants before issuing a TCT — an empty
+    /// intersection MUST surface as `POLICY_VIOLATION` per
+    /// RFC-AITP-0008 §X.
+    ///
+    /// `SoftFail { safe_grants: vec![] }` is identical in effect to
+    /// `FailClosed` (RFC requirement: SoftFail without a non-empty
+    /// safe-grant list MUST fail closed).
+    SoftFail {
+        /// The grants that may still be issued when the revocation
+        /// source is unavailable. Typically a small, low-risk subset
+        /// of the issuer's offered capabilities (e.g. read-only
+        /// surfaces).
+        safe_grants: Vec<String>,
+    },
 }
 
 impl Default for RevocationFailMode {
@@ -72,8 +85,41 @@ impl Default for RevocationFailMode {
     }
 }
 
+/// Result of a `RevocationCache::check` call.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RevocationOutcome {
+    /// The TCT's JTI is not on the issuer's revocation list. The
+    /// caller may issue/accept the TCT with the full grant set.
+    Clear,
+    /// The TCT's JTI is on the issuer's revocation list. Reject.
+    Revoked,
+    /// The revocation source was unavailable and the configured
+    /// `RevocationFailMode::SoftFail` applies. The caller MUST
+    /// intersect outgoing grants with `safe_grants` before issuing a
+    /// TCT (RFC-AITP-0008 §X). Empty intersection ⇒ `POLICY_VIOLATION`.
+    SoftFailSafeSubset {
+        /// The configured safe grant subset; non-empty by construction
+        /// (an empty `safe_grants` configuration degenerates to
+        /// `FailClosed` and surfaces as a `RevocationError` instead).
+        safe_grants: Vec<String>,
+    },
+}
+
+/// Intersect the peer's requested grants with the configured safe
+/// subset under [`RevocationFailMode::SoftFail`]. Returns the grants
+/// that may be issued under the degraded policy.
+///
+/// Empty result is the caller's signal to surface `POLICY_VIOLATION`.
+pub fn apply_safe_subset(requested: &[String], safe_grants: &[String]) -> Vec<String> {
+    requested
+        .iter()
+        .filter(|g| safe_grants.iter().any(|s| s == *g))
+        .cloned()
+        .collect()
+}
+
 /// Per-issuer revocation policy.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct RevocationPolicy {
     /// What to do when a fresh snapshot cannot be obtained.
     pub fail_mode: RevocationFailMode,
@@ -130,25 +176,59 @@ impl<P: RevocationProvider> RevocationCache<P> {
         }
     }
 
-    /// Return whether `jti` has been revoked by `issuer`. Network /
+    /// Decide what to do for `(jti, issuer)`. Snapshot fetch /
     /// signature / staleness failures translate via the configured
-    /// fail mode:
+    /// fail mode (RFC-AITP-0008):
     ///
-    /// - `FailClosed` → `Err(RevocationError::*)` (caller treats as
-    ///   "TCT rejected").
-    /// - `FailOpen` / `SoftFail` → `Ok(false)` (caller proceeds).
+    /// - `FailClosed` → `Err(RevocationError::*)` (caller rejects TCT).
+    /// - `FailOpen` → `Ok(Clear)` (caller proceeds with full grants).
+    /// - `SoftFail { safe_grants: non-empty }` → `Ok(SoftFailSafeSubset
+    ///   { safe_grants })`. Caller MUST intersect outgoing grants with
+    ///   the subset; empty intersection is `POLICY_VIOLATION`.
+    /// - `SoftFail { safe_grants: empty }` → degenerates to `FailClosed`
+    ///   (RFC: SoftFail without a non-empty safe list MUST fail closed).
+    pub fn check(
+        &self,
+        jti: &Uuid,
+        issuer: &Aid,
+        now: Timestamp,
+    ) -> Result<RevocationOutcome, RevocationError> {
+        match self.snapshot_for(issuer, now) {
+            Ok(env) => {
+                if env.revocation_list.entries.iter().any(|e| &e.jti == jti) {
+                    Ok(RevocationOutcome::Revoked)
+                } else {
+                    Ok(RevocationOutcome::Clear)
+                }
+            }
+            Err(e) => match &self.policy.fail_mode {
+                RevocationFailMode::FailClosed => Err(e),
+                RevocationFailMode::FailOpen => Ok(RevocationOutcome::Clear),
+                RevocationFailMode::SoftFail { safe_grants } if safe_grants.is_empty() => Err(e),
+                RevocationFailMode::SoftFail { safe_grants } => {
+                    Ok(RevocationOutcome::SoftFailSafeSubset {
+                        safe_grants: safe_grants.clone(),
+                    })
+                }
+            },
+        }
+    }
+
+    /// Bool-flavored revocation check kept for handshake hooks that
+    /// only need to answer "is this TCT on the revocation list?".
+    /// Maps `RevocationOutcome::Clear` and `SoftFailSafeSubset` to
+    /// `Ok(false)` (TCT may proceed; if the caller is the *issuer*
+    /// it should call [`Self::check`] instead and apply the safe
+    /// subset). `Revoked` maps to `Ok(true)`.
     pub fn is_revoked(
         &self,
         jti: &Uuid,
         issuer: &Aid,
         now: Timestamp,
     ) -> Result<bool, RevocationError> {
-        match self.snapshot_for(issuer, now) {
-            Ok(env) => Ok(env.revocation_list.entries.iter().any(|e| &e.jti == jti)),
-            Err(e) => match self.policy.fail_mode {
-                RevocationFailMode::FailClosed => Err(e),
-                RevocationFailMode::FailOpen | RevocationFailMode::SoftFail => Ok(false),
-            },
+        match self.check(jti, issuer, now)? {
+            RevocationOutcome::Revoked => Ok(true),
+            RevocationOutcome::Clear | RevocationOutcome::SoftFailSafeSubset { .. } => Ok(false),
         }
     }
 
@@ -397,19 +477,64 @@ mod tests {
     }
 
     #[test]
-    fn soft_fail_returns_not_revoked() {
+    fn soft_fail_with_safe_grants_returns_subset() {
         let key = AitpSigningKey::from_seed(&[7u8; 32]);
         let cache = RevocationCache::new(
             ErrProvider,
             RevocationPolicy {
-                fail_mode: RevocationFailMode::SoftFail,
+                fail_mode: RevocationFailMode::SoftFail {
+                    safe_grants: vec!["read_data".into()],
+                },
                 ..Default::default()
             },
         );
-        let revoked = cache
+        let outcome = cache
+            .check(&Uuid::new_v4(), key.aid(), Timestamp::now())
+            .unwrap();
+        assert!(matches!(
+            outcome,
+            RevocationOutcome::SoftFailSafeSubset { ref safe_grants } if safe_grants == &["read_data".to_string()]
+        ));
+
+        // The safe-subset helper drops grants outside the configured
+        // list and keeps the rest.
+        let issued = apply_safe_subset(
+            &["read_data".to_string(), "write_data".to_string()],
+            &["read_data".to_string()],
+        );
+        assert_eq!(issued, vec!["read_data".to_string()]);
+
+        // Empty intersection → caller's signal to fail with
+        // POLICY_VIOLATION.
+        let issued = apply_safe_subset(&["write_data".to_string()], &["read_data".to_string()]);
+        assert!(issued.is_empty());
+
+        // is_revoked() for a SoftFail outcome reports "not revoked" —
+        // it's the issuer's responsibility to apply the safe subset.
+        let not_revoked = cache
             .is_revoked(&Uuid::new_v4(), key.aid(), Timestamp::now())
             .unwrap();
-        assert!(!revoked);
+        assert!(!not_revoked);
+    }
+
+    #[test]
+    fn soft_fail_with_empty_safe_grants_degrades_to_fail_closed() {
+        // RFC-AITP-0008: SoftFail without a non-empty safe-grant list
+        // MUST behave as FailClosed.
+        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let cache = RevocationCache::new(
+            ErrProvider,
+            RevocationPolicy {
+                fail_mode: RevocationFailMode::SoftFail {
+                    safe_grants: vec![],
+                },
+                ..Default::default()
+            },
+        );
+        let err = cache
+            .check(&Uuid::new_v4(), key.aid(), Timestamp::now())
+            .unwrap_err();
+        assert!(matches!(err, RevocationError::Network(_)));
     }
 
     #[test]

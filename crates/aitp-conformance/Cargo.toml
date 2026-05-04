@@ -12,7 +12,11 @@ homepage.workspace = true
 
 [features]
 default = []
-in-process = ["aitp-core", "aitp-crypto", "aitp-manifest", "aitp-handshake", "aitp-tct", "aitp-delegation"]
+# `in-process` brings the in-process adapter into scope. It calls
+# directly into `aitp-rs-adapter`'s library API, so all per-tier ops
+# (Tier A through D) come from the same dispatch the subprocess
+# binary uses — no risk of in-process and subprocess drifting.
+in-process = ["aitp-rs-adapter"]
 
 [dependencies]
 serde = { workspace = true }
@@ -21,14 +25,9 @@ thiserror = { workspace = true }
 clap = { workspace = true }
 uuid = { workspace = true }
 
-aitp-core = { path = "../aitp-core", version = "0.1.0-beta.1", optional = true }
-aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-beta.1", optional = true }
-aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-beta.1", optional = true }
-aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-beta.1", optional = true }
-aitp-tct = { path = "../aitp-tct", version = "0.1.0-beta.1", optional = true }
-aitp-delegation = { path = "../aitp-delegation", version = "0.1.0-beta.1", optional = true }
+aitp-rs-adapter = { path = "../aitp-rs-adapter", version = "0.1.0-rc.1", optional = true }
 
 [dev-dependencies]
-aitp-core = { path = "../aitp-core", version = "0.1.0-beta.1" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-beta.1" }
-aitp-tct = { path = "../aitp-tct", version = "0.1.0-beta.1" }
+aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-rc.1" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-rc.1" }

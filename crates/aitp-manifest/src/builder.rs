@@ -150,8 +150,12 @@ impl<'a> ManifestBuilder<'a> {
             "16 bytes encode to 22 base64url-unpadded chars"
         );
 
-        // 3. Sign sha256(challenge_bytes) with the signing key.
-        let pop_input = Sha256::digest(challenge.as_bytes());
+        // 3. Sign `sha256(base64url_decode(challenge))` per RFC-AITP-0001
+        //    §5.4.2 (unified PoP signing-input convention) and RFC-AITP-0003
+        //    §3 — the hash input is the 16 raw decoded bytes, NOT the ASCII
+        //    bytes of the base64url-encoded string. Pinned by KAT
+        //    `kat-manifest-pop-001` in `jcs-sha256.json`.
+        let pop_input = Sha256::digest(challenge_bytes);
         let pop_signature = self.signing_key.sign(&pop_input);
 
         // 4. Compose published_at / expires_at.

@@ -200,6 +200,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
         jwks_resolver: &resolver,
         pinned_key_store: Some(&store),
         grant_policy: None,
+        revocation_check: None,
         now: ts,
     };
 
@@ -289,6 +290,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: ts,
     };
     let envelope = AitpEnvelope {
@@ -338,6 +340,7 @@ fn p7_grant_policy_filters_intersection() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: Some(policy_ref),
+        revocation_check: None,
         now: Timestamp::now(),
     };
     let mid = Uuid::new_v4();

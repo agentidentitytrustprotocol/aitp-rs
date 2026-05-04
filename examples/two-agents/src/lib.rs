@@ -94,6 +94,7 @@ pub fn verify_presented_tct(
         expected_audience,
         issuer_pubkey: &issuer_pk,
         now: Timestamp::now(),
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     verify_tct(tct, &ctx).map_err(|e| format!("{e}"))?;

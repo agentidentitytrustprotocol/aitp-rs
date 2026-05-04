@@ -36,6 +36,7 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
         tags: vec!["jcs".into()],
         preconditions: serde_json::Value::Null,
         input: FixtureInput {
+            operation: None,
             variant: FixtureInputVariant::Single(json!({
                 "operation": "verify_jcs",
                 "input": {}
@@ -70,6 +71,7 @@ fn unsupported_op_yields_skip() {
         // Update this to any other unsupported name if/when v0.2 adds
         // it to the canonical op set.
         input: FixtureInput {
+            operation: None,
             variant: FixtureInputVariant::Single(
                 json!({"operation": "future_op_reserved_for_v0_2"}),
             ),
@@ -113,6 +115,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         tags: vec!["tct".into()],
         preconditions: serde_json::Value::Null,
         input: FixtureInput {
+            operation: None,
             variant: FixtureInputVariant::Single(json!({
                 "operation": "verify_tct",
                 "tct": forged,

@@ -319,6 +319,7 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
         jwks_resolver: &state.jwks_resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: aitp_core::Timestamp::now(),
     };
     // Server uses pinned-key identity by default (the demo). Production
@@ -435,6 +436,7 @@ async fn handle_commit<R: JwksResolver + Send + Sync + 'static>(
         jwks_resolver: &state.jwks_resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: aitp_core::Timestamp::now(),
     };
     let (ack_payload, _our_held_tct) = entry

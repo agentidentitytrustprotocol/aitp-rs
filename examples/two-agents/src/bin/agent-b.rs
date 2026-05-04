@@ -106,6 +106,7 @@ async fn handle_hello(
         jwks_resolver: &NoOpResolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: aitp::core::Timestamp::now(),
     };
     let ack_mid = Uuid::new_v4();
@@ -170,6 +171,7 @@ async fn handle_commit(
         jwks_resolver: &NoOpResolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: aitp::core::Timestamp::now(),
     };
     let (ack_payload, _bob_holds_tct_for_alice) = responder
@@ -204,6 +206,7 @@ async fn handle_echo(
         expected_audience: &tct.subject, // holder receipt: subject == audience == caller
         issuer_pubkey: &issuer_pk,
         now: aitp::core::Timestamp::now(),
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     verify_tct(&tct, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;

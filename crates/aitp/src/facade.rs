@@ -51,6 +51,12 @@ pub enum FacadeError {
     /// Renewal-specific error.
     #[error("renewal failed: {0}")]
     Renewal(#[from] aitp_tct::TctError),
+    /// Manifest-level rejection (e.g.
+    /// [`aitp_manifest::ManifestError::IncompatibleIdentityType`] when
+    /// the peer Manifest's `accepted_identity_types` doesn't include
+    /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
+    #[error("manifest verification: {0}")]
+    ManifestVerify(#[from] aitp_manifest::ManifestError),
 }
 
 /// Drive a complete initiator-side Mutual Handshake against a peer
@@ -69,6 +75,12 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
 ) -> Result<SessionContext, FacadeError> {
     let manifest_fetcher = ManifestFetcher::new();
     let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
+    // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake
+    // if the peer doesn't accept the type we'd present. The high-
+    // level facade always presents pinned-key (see `Initiator::start`
+    // call below). Skipping the round trip here produces a cleaner
+    // error than letting the responder reject the HELLO.
+    aitp_manifest::check_identity_type_compatibility(&peer_manifest, "pinned_key")?;
     let cfg = PeerConfig {
         signing_key: config.signing_key,
         manifest: config.own_manifest,
@@ -76,6 +88,7 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
         jwks_resolver: config.jwks_resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: Timestamp::now(),
     };
 

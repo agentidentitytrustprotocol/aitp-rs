@@ -76,6 +76,7 @@ pub fn process_renewal_request(
         expected_audience: &request.current_tct.tct.audience,
         issuer_pubkey: &issuer_pubkey,
         now,
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     verify_tct(&request.current_tct.tct, &ctx)?;

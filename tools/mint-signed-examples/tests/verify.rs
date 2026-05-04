@@ -70,6 +70,7 @@ fn minted_tct_verifies() {
         expected_audience: &expected_audience,
         issuer_pubkey: &issuer_pk,
         now: fixed_now(),
+        issuer_manifest_expires_at: None,
         revocation_check: None,
     };
     verify_tct(&tct, &ctx).expect("minted TCT verifies");

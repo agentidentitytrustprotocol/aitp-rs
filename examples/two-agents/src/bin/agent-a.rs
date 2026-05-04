@@ -75,16 +75,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     aitp::manifest::verify_manifest(&bob_manifest, &aitp::manifest::VerifyManifestContext::now())?;
     println!("agent-a: fetched B's manifest, AID = {}", bob_manifest.aid);
 
-    // Run the handshake.
-    let cfg = PeerConfig {
+    // Run the handshake. PeerConfig is rebuilt before each verify step so
+    // `now` advances with the wall clock — otherwise on slow runners the
+    // peer-issued TCT's `issued_at` lands strictly after a stale startup
+    // `now` and the verifier rejects it as `Tct(Expired)`.
+    let make_cfg = || PeerConfig {
         signing_key: &key,
         manifest: &manifest,
         trust_anchors: &[],
         jwks_resolver: &NoOpResolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: aitp::core::Timestamp::now(),
     };
+    let cfg = make_cfg();
     let hello_mid = Uuid::new_v4();
     let hello_ts = aitp::core::Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(
@@ -140,6 +145,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Drive the initiator forward.
     println!("agent-a: building MUTUAL_COMMIT");
+    let cfg = make_cfg();
     let commit_payload = initiator.on_hello_ack(&ack_envelope, &ack_payload, &cfg)?;
     let commit_mid = Uuid::new_v4();
     let commit_ts = aitp::core::Timestamp::now();
@@ -166,6 +172,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let commit_ack_envelope: AitpEnvelope = resp.json().await?;
     let commit_ack_payload: MutualCommitAckPayload =
         serde_json::from_value(commit_ack_envelope.payload.clone())?;
+    let cfg = make_cfg();
     let alice_holds_tct =
         initiator.on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &cfg)?;
     println!(

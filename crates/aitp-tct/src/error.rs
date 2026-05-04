@@ -15,6 +15,13 @@ pub enum TctError {
     /// `expires_at` is in the past, or `issued_at` is in the future.
     #[error("TCT has expired or is not yet valid")]
     Expired,
+    /// `expires_at` exceeds the issuer Manifest's `expires_at`.
+    /// RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: a peer-issued TCT MUST
+    /// NOT outlive the issuer's published Manifest. Verifiers that
+    /// have resolved the issuer's Manifest MUST reject TCTs whose
+    /// `expires_at` exceeds the Manifest's.
+    #[error("TCT expires_at exceeds issuer Manifest expires_at")]
+    ExpiresAfterManifest,
     /// `jti` appears in the issuer's deny list.
     #[error("TCT jti is revoked")]
     Revoked,

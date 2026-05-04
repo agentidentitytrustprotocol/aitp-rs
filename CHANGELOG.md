@@ -5,7 +5,158 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.1.0-beta.1
+## [v0.1.0-rc.1]
+
+Release-candidate gate over beta.1. Six P0/P1 bugs from the
+post-beta.1 audit are fixed; the TCT verifier now caps `expires_at`
+by the issuer Manifest's expiry; revocation is wired into the Mutual
+Handshake; SoftFail enforces a real safe-grant subset; the Manifest
+PoP signing input matches the spec's unified
+`sha256(base64url_decode(x))` convention; and the responder's
+grant_policy receives the verified peer identity instead of a
+placeholder.
+
+Breaking changes are confined to internal struct literals
+(`PeerConfig`, `TctVerifyContext`, `RevocationFailMode::SoftFail`)
+that any caller will have to update — the wire format is unchanged.
+
+### Changed — breaking
+
+- **`RevocationFailMode::SoftFail` now carries `safe_grants`** (BUG-4,
+  P1 spec non-conformance). Pre-rc.1, `SoftFail` was identical in
+  every observable way to `FailOpen` — both returned `Ok(false)` for
+  `is_revoked` when the snapshot source failed, so a revoked TCT's
+  issuer would still hand out the full grant set under degraded
+  policy. RFC-AITP-0008 says SoftFail must reduce the grant set to a
+  configured safe subset; SoftFail without a non-empty safe-grant
+  list MUST behave as `FailClosed`.
+  - `SoftFail` is now `SoftFail { safe_grants: Vec<String> }`. `Copy`
+    is gone from `RevocationFailMode` and `RevocationPolicy`.
+  - New `RevocationCache::check` returns `RevocationOutcome::{Clear,
+    Revoked, SoftFailSafeSubset { safe_grants }}` so callers can
+    branch on the degraded-policy result. Existing `is_revoked` is
+    kept for handshake hooks that only need the bool.
+  - New `apply_safe_subset(requested, safe_grants)` helper for the
+    issuance site. Empty intersection is the caller's signal to
+    surface `POLICY_VIOLATION`.
+
+### Added — conformance
+
+- **`aitp-rs-adapter` is now a library + binary**. The dispatch
+  logic moved from `main.rs` into `lib.rs` so callers can drive the
+  same dispatch in-process. The binary is a thin shell over
+  `lib::handle`; behavior is unchanged.
+- **In-process adapter at parity with the subprocess binary**.
+  `aitp_conformance::adapter::in_process::InProcessRustAdapter` now
+  delegates to `aitp_rs_adapter::handle`, so every Tier A/B/C/D op
+  the subprocess supports is also reachable in-process. Pre-rc.1 the
+  in-process adapter only spoke Tier A.
+- **PoP challenge/response ops** (Phase 7, RFC-AITP-0005 §6).
+  Adapter exposes `issue_pop_challenge`, `produce_pop_response`,
+  `verify_pop_response`. State stashes pending challenges by JTI so
+  multi-step fixtures (e.g. `tct-006`) can drive the full exchange
+  without supplying a challenge to every step.
+- **`verify_handshake_payload` adapter op**. Wires the op the spec's
+  `id-*` and single-message `mh-*` fixtures dispatch to. Defaults to
+  kat-keypair-001 when `self_aid` is omitted (the spec's mh-*
+  convention).
+- **OIDC mock-issuer demo**: `examples/two-agents/src/bin/oidc-demo.rs`
+  drives a complete OIDC handshake against an in-process IdP that
+  mints EdDSA-signed JWTs. Self-contained; no network required.
+- **Sequence-fixture parsing** (runner). `FixtureInputVariant` now
+  prefers `Sequence` over `Single` when both could match (untagged
+  serde otherwise greedily picked Single, even for fixtures where
+  `sequence` is the meaningful field). A new top-level
+  `FixtureInput::operation` field captures fixtures like `env-004`
+  that declare the op once at the parent level and rely on
+  per-step inheritance.
+
+### Added — security
+
+- **`accepted_identity_types` pre-handshake screening** (BUG-6, P1
+  spec compliance). RFC-AITP-0003 §3.2 / §5 step 5: a fetching peer
+  MUST verify that its own identity type appears in the target
+  Manifest's `accepted_identity_types` before initiating the
+  handshake. Pre-rc.1 the check happened only inside the responder's
+  HELLO handler, so a pinned-key initiator against an OIDC-only peer
+  would round-trip several messages just to learn the peer rejects
+  it. New `aitp_manifest::check_identity_type_compatibility` is wired
+  into `aitp::facade::run_initiator_handshake` and surfaces as
+  `ManifestError::IncompatibleIdentityType` →
+  `INCOMPATIBLE_IDENTITY_TYPE`. New regression tests in
+  `crates/aitp-manifest/tests/identity_type_compat.rs`.
+- **TCT verifier enforces issuer-Manifest expiry bound** (BUG-5, P1
+  spec gap). RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: a peer-issued TCT
+  MUST NOT outlive its issuer's published Manifest, because the
+  issuer's keys could legitimately rotate at that point. Issuance
+  has always enforced this; pre-rc.1 the *verifier* couldn't because
+  `TctVerifyContext` had no field for the bound. Added
+  `TctVerifyContext::issuer_manifest_expires_at: Option<Timestamp>`
+  and `TctError::ExpiresAfterManifest`. The handshake state machine
+  captures the peer Manifest's `expires_at` from `MUTUAL_HELLO`
+  (responder side) and `MUTUAL_HELLO_ACK` (initiator side) and feeds
+  it through to `verify_received_tct`. Adapter maps the new error to
+  the `TCT_EXPIRES_AFTER_MANIFEST` code. New regression tests in
+  `crates/aitp-tct/tests/manifest_expiry_bound.rs`. Breaking:
+  `TctVerifyContext` literal construction now requires the new
+  field; callers without a known issuer Manifest pass `None`
+  (RFC-AITP-0005 §9: MAY skip when unavailable).
+- **Handshake-time revocation enforcement** (BUG-3, P0 security gap).
+  `PeerConfig::revocation_check: Option<&RevocationCheckFn>` is a
+  new optional hook called inside `verify_received_tct` for every
+  peer-issued TCT (`MUTUAL_HELLO_ACK`'s and `MUTUAL_COMMIT_ACK`'s
+  TCT). Pre-rc.1, the inner `verify_tct` was always passed
+  `revocation_check: None`, so revoked TCTs slipped through the
+  Mutual Handshake even when the caller had a fully wired
+  `RevocationCache` available. The hook is called with
+  `(issuer_aid, jti)` so per-issuer caches can route correctly; an
+  `Err(HandshakeError)` from the hook propagates as-is to surface
+  fail-closed policy when the revocation source is unreachable. New
+  regression tests in `crates/aitp-handshake/tests/revocation_hook.rs`.
+
+### Fixed — interoperability
+
+- **Responder grant policy receives real peer identity** (BUG-2, P0
+  policy bypass). `Responder::on_commit` previously synthesized a
+  placeholder `IdentityDescriptor` (kind=PinnedKey, empty proof) when
+  issuing the peer's TCT, so any policy that branched on `kind`,
+  `issuer`, `subject`, or OIDC claims silently saw the wrong identity
+  on the responder side. The verified `hello.identity` is now
+  captured into `ResponderState::AwaitingCommit` and handed to
+  `issue_tct_for_peer` — RFC-AITP-0004 §4.1 grant-policy symmetry is
+  now correct on both peers. New regression test
+  `responder_grant_policy_sees_real_pinned_key_identity` asserts the
+  responder's policy sees the same descriptor the initiator
+  presented.
+- **Manifest PoP signing input** (BUG-1, P0 interop). Builder and
+  verifier now use the unified RFC-AITP-0001 §5.4.2 signing-input
+  convention `sha256(base64url_decode(challenge))`. Pre-fix, both
+  sides hashed the ASCII bytes of the base64url-encoded challenge —
+  internally consistent but rejected by any spec-conformant external
+  verifier. New regression tests in
+  `crates/aitp-manifest/tests/pop_kat.rs`: KAT-driven check against
+  `kat-manifest-pop-001` from `jcs-sha256.json`, builder cross-path
+  verification, and a legacy-form rejection guard. Pre-rc.1 minted
+  Manifests will fail verification under rc.1 and must be re-minted
+  with `cargo run -p mint-signed-examples`.
+- **CI vendored-schemas drift job**. `actions/checkout@v4` defaulted
+  to depth 1, so the pinned historical spec commit was unreachable
+  and `git checkout <PIN>` failed with `unable to read tree`. Now
+  reads `tests/schemas/SPEC_VERSION` first and passes it as `ref:`
+  so checkout fetches the exact commit.
+- **`docs` job rustdoc warning**. Removed broken intra-doc link
+  `crate::client::RevocationFetcher` in `aitp-transport-http` (no
+  such item; revocation fetching uses the `RevocationProvider`
+  trait).
+- **`demo_runs_end_to_end` and `full_pinned_key_handshake_over_http`
+  TCT(Expired) flake**. Both call sites captured `cfg.now` at
+  startup; on slow CI runners the peer-issued TCT's `issued_at`
+  landed strictly after the stale `now` and the verifier rejected
+  it as `Expired`. `PeerConfig` is now rebuilt with
+  `Timestamp::now()` immediately before each `on_hello_ack` /
+  `on_commit_ack`.
+
+## [v0.1.0-beta.1]
 
 Production-readiness release. Phases 10–16 of the unified hardening
 plan: key-resolution policy, manifest-cache correctness, revocation

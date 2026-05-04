@@ -15,6 +15,13 @@ pub enum ManifestError {
     /// `aid` field does not match the key used to sign.
     #[error("manifest aid does not match signing key")]
     AidMismatch,
+    /// Peer's `accepted_identity_types` does not include the type we
+    /// would present (RFC-AITP-0003 §3.2 / §5 step 5). Surfaces as
+    /// `INCOMPATIBLE_IDENTITY_TYPE` to the caller. An absent field
+    /// defaults to `["oidc"]`; an explicitly empty list rejects every
+    /// peer (RFC clarification, post-rc.1).
+    #[error("manifest does not accept identity type `{0}`")]
+    IncompatibleIdentityType(&'static str),
     /// Version is not supported by this implementation.
     #[error("manifest version is not supported")]
     VersionUnknown,

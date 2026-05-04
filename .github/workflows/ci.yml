@@ -98,16 +98,19 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: aitp-rs
+      - name: Read pinned spec commit
+        id: pin
+        run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
       - name: Checkout spec at pinned commit
         uses: actions/checkout@v4
         with:
           repository: agentidentitytrustprotocol/agentidentitytrustprotocol
           path: spec
+          ref: ${{ steps.pin.outputs.sha }}
       - name: Verify vendored schemas match pinned spec commit
         working-directory: aitp-rs
         run: |
           PIN="$(cat tests/schemas/SPEC_VERSION)"
-          (cd ../spec && git checkout "$PIN")
           AITP_SPEC="$PWD/../spec" scripts/sync-schemas.sh
           if ! git diff --quiet -- tests/schemas/; then
             echo "::error::Vendored schemas drift from pinned spec commit $PIN."
