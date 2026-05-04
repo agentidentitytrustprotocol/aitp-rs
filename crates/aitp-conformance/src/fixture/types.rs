@@ -25,20 +25,78 @@ pub struct Fixture {
 /// Operation input. Most fixtures use a flat object with `operation` and
 /// operation-specific fields. `mh-001`-style fixtures use a `sequence`.
 #[derive(Debug, Clone, Deserialize, Serialize)]
+#[serde(from = "serde_json::Value", into = "serde_json::Value")]
 pub struct FixtureInput {
     /// Either a single op or a multi-step sequence.
-    #[serde(flatten)]
     pub variant: FixtureInputVariant,
+    /// Some fixtures (e.g. `env-004`) declare `operation` at the
+    /// top level alongside a `sequence`, expecting each step to
+    /// inherit it. Captured here so the runner can fall back.
+    pub operation: Option<String>,
+}
+
+impl From<serde_json::Value> for FixtureInput {
+    fn from(v: serde_json::Value) -> Self {
+        // Pull off a top-level `operation` first (if present) and
+        // strip it from the value before letting serde infer
+        // Single vs Sequence — otherwise `operation` would leak
+        // into Single's params and pollute the op call.
+        let operation = v
+            .get("operation")
+            .and_then(|x| x.as_str())
+            .map(str::to_string);
+        let mut stripped = v.clone();
+        if operation.is_some() {
+            if let Some(map) = stripped.as_object_mut() {
+                map.remove("operation");
+            }
+        }
+        // Now classify: Sequence if the (stripped) value has
+        // `sequence`, else Single (carrying the original value so
+        // single-op fixtures still see `operation`).
+        let variant = if stripped
+            .as_object()
+            .and_then(|m| m.get("sequence"))
+            .is_some()
+        {
+            serde_json::from_value::<FixtureInputVariant>(stripped)
+                .unwrap_or_else(|_| FixtureInputVariant::Single(v.clone()))
+        } else {
+            FixtureInputVariant::Single(v.clone())
+        };
+        Self { variant, operation }
+    }
+}
+
+impl From<FixtureInput> for serde_json::Value {
+    fn from(input: FixtureInput) -> Self {
+        // Round-trip serialization: emit the variant and re-attach
+        // `operation` at the top level if present.
+        let mut v = serde_json::to_value(&input.variant).unwrap_or(serde_json::Value::Null);
+        if let Some(op) = input.operation {
+            if let Some(map) = v.as_object_mut() {
+                map.insert("operation".into(), serde_json::Value::String(op));
+            }
+        }
+        v
+    }
 }
 
 /// Two kinds of fixture inputs.
+//
+// Order matters: `serde(untagged)` tries variants top-to-bottom and
+// `Single(Value)` matches *any* JSON object. Sequence must come first
+// so that fixtures carrying both top-level fields AND a `sequence`
+// array (e.g. tct-006, where `tct_token` and `sequence` are siblings)
+// route to the multi-step path instead of being treated as a
+// flat single-op.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum FixtureInputVariant {
-    /// Single-step: `{operation: "verify_tct", ...op_params}`.
-    Single(serde_json::Value),
     /// Multi-step sequence (e.g. for replay tests).
     Sequence { sequence: Vec<SequenceStep> },
+    /// Single-step: `{operation: "verify_tct", ...op_params}`.
+    Single(serde_json::Value),
 }
 
 /// One step of a multi-step fixture.

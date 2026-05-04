@@ -1,24 +1,27 @@
 //! In-process adapter for the Rust reference implementation.
 //!
-//! Calls the AITP crates directly, no IPC overhead. Used during local
-//! development; CI uses the subprocess adapter against the same code via
-//! `aitp-rs-adapter` so that the subprocess protocol itself is exercised.
-//!
-//! Only Tier-A (stateless verification) ops are implemented today. Tier
-//! B/C/D require persistent keypair/session state which lives in the
-//! subprocess adapter (`aitp-rs-adapter`) — duplicating it here would
-//! re-implement most of that binary. Use the subprocess path for those.
+//! Calls directly into [`aitp_rs_adapter`]'s library API, so the
+//! subprocess and in-process adapters share one dispatch
+//! implementation — every Tier A/B/C/D op the subprocess binary
+//! supports is also reachable here, with no IPC overhead. Used for
+//! fast local development; CI uses the subprocess adapter against
+//! the same library so the NDJSON wire protocol is exercised on
+//! every PR.
 
 use crate::adapter::{Adapter, AdapterError, AdapterInfo, OpResult};
 use serde_json::{json, Value};
 
-/// In-process adapter wrapping the `aitp-rs` crates directly.
-pub struct InProcessRustAdapter;
+/// In-process adapter wrapping the `aitp-rs-adapter` library directly.
+pub struct InProcessRustAdapter {
+    state: aitp_rs_adapter::AdapterState,
+}
 
 impl InProcessRustAdapter {
-    /// Construct a fresh adapter.
+    /// Construct a fresh adapter with a clean session/keypair store.
     pub fn new() -> Self {
-        Self
+        Self {
+            state: aitp_rs_adapter::AdapterState::default(),
+        }
     }
 }
 
@@ -28,193 +31,81 @@ impl Default for InProcessRustAdapter {
     }
 }
 
-const SUPPORTED_OPS: &[&str] = &[
-    "init",
-    "shutdown",
-    "verify_jcs",
-    "compute_jwk_thumbprint",
-    "verify_envelope",
-    "verify_manifest",
-    "verify_tct",
-    "verify_delegation_token",
-];
-
 impl Adapter for InProcessRustAdapter {
     fn init(&mut self) -> Result<AdapterInfo, AdapterError> {
+        // Run the canonical `init` op against the same dispatcher the
+        // subprocess binary uses — that way the supported_ops /
+        // supported_features list stays in sync automatically.
+        let resp = aitp_rs_adapter::handle(&mut self.state, "init", "init", json!({}));
+        let result = resp.get("result").cloned().unwrap_or_default();
+        let supported_ops = result
+            .get("supported_ops")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
+        let supported_features = result
+            .get("supported_features")
+            .and_then(|v| v.as_array())
+            .cloned()
+            .unwrap_or_default()
+            .into_iter()
+            .filter_map(|v| v.as_str().map(str::to_string))
+            .collect();
         Ok(AdapterInfo {
-            implementation: "aitp-rs (in-process, Tier-A only)".into(),
-            version: env!("CARGO_PKG_VERSION").into(),
-            supported_ops: SUPPORTED_OPS.iter().map(|s| (*s).to_string()).collect(),
-            supported_features: ["pinned_key_identity"]
-                .iter()
-                .map(|s| (*s).to_string())
-                .collect(),
+            implementation: format!(
+                "{} (in-process)",
+                result
+                    .get("implementation")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("aitp-rs")
+            ),
+            version: result
+                .get("version")
+                .and_then(|v| v.as_str())
+                .unwrap_or(env!("CARGO_PKG_VERSION"))
+                .to_string(),
+            supported_ops,
+            supported_features,
         })
     }
 
     fn execute(&mut self, op: &str, params: Value) -> Result<OpResult, AdapterError> {
-        Ok(match op {
-            "verify_jcs" => verify_jcs(params),
-            "compute_jwk_thumbprint" => compute_jwk_thumbprint(params),
-            "verify_envelope" => verify_envelope(params),
-            "verify_manifest" => verify_manifest_op(params),
-            "verify_tct" => verify_tct_op(params),
-            "verify_delegation_token" => verify_delegation_token_op(params),
-            _ => return Err(AdapterError::OpNotSupported(op.to_string())),
-        })
+        let resp = aitp_rs_adapter::handle(&mut self.state, "exec", op, params);
+        let ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
+        if ok {
+            Ok(OpResult::Ok {
+                ok: true,
+                result: resp.get("result").cloned().unwrap_or_default(),
+            })
+        } else {
+            let error_code = resp
+                .get("error_code")
+                .and_then(|v| v.as_str())
+                .unwrap_or("INTERNAL_ERROR")
+                .to_string();
+            // Translate OP_NOT_SUPPORTED to AdapterError so the
+            // runner's skip path triggers, mirroring how the
+            // subprocess adapter behaves.
+            if error_code == "OP_NOT_SUPPORTED" {
+                return Err(AdapterError::OpNotSupported(op.to_string()));
+            }
+            Ok(OpResult::Err {
+                ok: false,
+                error_code,
+                message: resp
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string(),
+            })
+        }
     }
 
     fn shutdown(&mut self) -> Result<(), AdapterError> {
         Ok(())
-    }
-}
-
-fn ok(result: Value) -> OpResult {
-    OpResult::Ok { ok: true, result }
-}
-fn err(code: &str, msg: &str) -> OpResult {
-    OpResult::Err {
-        ok: false,
-        error_code: code.to_string(),
-        message: msg.to_string(),
-    }
-}
-
-fn verify_jcs(params: Value) -> OpResult {
-    let input = match params.get("input") {
-        Some(v) => v.clone(),
-        None => return err("INVALID_REQUEST", "missing 'input'"),
-    };
-    match aitp_core::jcs::canonicalize(&input) {
-        Ok(bytes) => ok(json!({
-            "canonical_utf8": std::str::from_utf8(&bytes).unwrap_or(""),
-        })),
-        Err(e) => err("JCS_ERROR", &e.to_string()),
-    }
-}
-
-fn compute_jwk_thumbprint(params: Value) -> OpResult {
-    let pubkey_b64 = match params.get("public_key").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return err("INVALID_REQUEST", "missing 'public_key'"),
-    };
-    let bytes = match aitp_core::base64url::decode_strict(pubkey_b64) {
-        Ok(b) if b.len() == 32 => b,
-        _ => return err("INVALID_REQUEST", "public_key must be 32-byte base64url"),
-    };
-    let mut buf = [0u8; 32];
-    buf.copy_from_slice(&bytes);
-    ok(json!({"thumbprint": aitp_crypto::compute_jwk_thumbprint(&buf)}))
-}
-
-fn verify_envelope(params: Value) -> OpResult {
-    let env: aitp_core::AitpEnvelope =
-        match serde_json::from_value(params.get("envelope").cloned().unwrap_or_default()) {
-            Ok(e) => e,
-            Err(e) => return err("INVALID_ENVELOPE", &format!("envelope parse: {e}")),
-        };
-    let pk = match aitp_crypto::AitpVerifyingKey::from_aid(&env.sender.agent_id) {
-        Ok(p) => p,
-        Err(e) => return err("KEY_RESOLUTION_FAILED", &e.to_string()),
-    };
-    let digest = match aitp_core::envelope_signing_digest(
-        &env.message_id,
-        env.timestamp,
-        &env.sender.agent_id,
-        &env.payload,
-    ) {
-        Ok(d) => d,
-        Err(e) => return err("INTERNAL_ERROR", &e.to_string()),
-    };
-    let sig = match aitp_crypto::Signature::parse(&env.signature) {
-        Ok(s) => s,
-        Err(_) => return err("INVALID_SIGNATURE", "signature parse"),
-    };
-    match pk.verify(&digest, &sig) {
-        Ok(()) => ok(json!({"verified": true})),
-        Err(_) => err("INVALID_SIGNATURE", "envelope signature invalid"),
-    }
-}
-
-fn verify_manifest_op(params: Value) -> OpResult {
-    let m: aitp_manifest::Manifest =
-        match serde_json::from_value(params.get("manifest").cloned().unwrap_or_default()) {
-            Ok(m) => m,
-            Err(e) => return err("INVALID_ENVELOPE", &format!("manifest parse: {e}")),
-        };
-    let now = params
-        .get("now")
-        .and_then(|v| v.as_i64())
-        .map(aitp_core::Timestamp)
-        .unwrap_or_else(aitp_core::Timestamp::now);
-    match aitp_manifest::verify_manifest(&m, &aitp_manifest::VerifyManifestContext { now }) {
-        Ok(()) => ok(json!({"verified": true})),
-        Err(e) => err("MANIFEST_SIGNATURE_INVALID", &e.to_string()),
-    }
-}
-
-fn verify_tct_op(params: Value) -> OpResult {
-    let tct: aitp_tct::Tct =
-        match serde_json::from_value(params.get("tct").cloned().unwrap_or_default()) {
-            Ok(t) => t,
-            Err(e) => return err("INVALID_ENVELOPE", &format!("tct parse: {e}")),
-        };
-    let expected_audience = match params
-        .get("expected_audience")
-        .and_then(|v| v.as_str())
-        .map(aitp_core::Aid::parse)
-    {
-        Some(Ok(a)) => a,
-        _ => return err("INVALID_REQUEST", "missing/invalid expected_audience"),
-    };
-    let issuer_pubkey = match aitp_crypto::AitpVerifyingKey::from_aid(&tct.issuer) {
-        Ok(p) => p,
-        Err(e) => return err("KEY_RESOLUTION_FAILED", &e.to_string()),
-    };
-    let now = params
-        .get("now")
-        .and_then(|v| v.as_i64())
-        .map(aitp_core::Timestamp)
-        .unwrap_or_else(aitp_core::Timestamp::now);
-    let ctx = aitp_tct::TctVerifyContext {
-        expected_audience: &expected_audience,
-        issuer_pubkey: &issuer_pubkey,
-        now,
-        revocation_check: None,
-    };
-    match aitp_tct::verify_tct(&tct, &ctx) {
-        Ok(_) => ok(json!({"verified": true})),
-        Err(e) => err("TCT_SIGNATURE_INVALID", &e.to_string()),
-    }
-}
-
-fn verify_delegation_token_op(params: Value) -> OpResult {
-    let token: aitp_delegation::DelegationToken =
-        match serde_json::from_value(params.get("delegation").cloned().unwrap_or_default()) {
-            Ok(t) => t,
-            Err(e) => return err("INVALID_ENVELOPE", &format!("delegation parse: {e}")),
-        };
-    let verifier_aid = match params
-        .get("verifier_aid")
-        .and_then(|v| v.as_str())
-        .map(aitp_core::Aid::parse)
-    {
-        Some(Ok(a)) => a,
-        _ => return err("INVALID_REQUEST", "missing/invalid verifier_aid"),
-    };
-    let now = params
-        .get("now")
-        .and_then(|v| v.as_i64())
-        .map(aitp_core::Timestamp)
-        .unwrap_or_else(aitp_core::Timestamp::now);
-    let ctx = aitp_delegation::VerifyDelegationContext {
-        verifier_aid: &verifier_aid,
-        now,
-        revocation_check: None,
-    };
-    match aitp_delegation::verify_delegation(&token, &ctx) {
-        Ok(_) => ok(json!({"verified": true})),
-        Err(e) => err("DELEGATION_INVALID", &e.to_string()),
     }
 }
 
@@ -228,16 +119,21 @@ mod tests {
         let info = a.init().unwrap();
         assert!(info.supported_ops.contains("verify_jcs"));
         assert!(info.supported_ops.contains("verify_tct"));
-        assert!(!info.supported_ops.contains("issue_tct"));
+        // After the rc.1 refactor the in-process adapter shares its
+        // dispatch with the subprocess binary, so it now supports
+        // Tier B/C/D ops too.
+        assert!(info.supported_ops.contains("issue_tct"));
+        assert!(info.supported_ops.contains("generate_keypair"));
+        assert!(info.supported_ops.contains("start_handshake"));
     }
 
     #[test]
     fn unsupported_op_returns_op_not_supported() {
         let mut a = InProcessRustAdapter::new();
-        let result = a.execute("issue_tct", json!({}));
+        let result = a.execute("nonexistent_op", json!({}));
         assert!(matches!(
             result,
-            Err(AdapterError::OpNotSupported(ref op)) if op == "issue_tct"
+            Err(AdapterError::OpNotSupported(ref op)) if op == "nonexistent_op"
         ));
     }
 
@@ -257,7 +153,6 @@ mod tests {
 
     #[test]
     fn jwk_thumbprint_matches_kat_001() {
-        // KAT vector kat-jwk-thumb-001: pubkey for kat-keypair-001 -> jkt.
         let mut a = InProcessRustAdapter::new();
         let r = a
             .execute(
@@ -274,5 +169,107 @@ mod tests {
             }
             OpResult::Err { error_code, .. } => panic!("expected ok, got err: {error_code}"),
         }
+    }
+
+    /// Round-trip a Tier-B issuance pipeline through the in-process
+    /// adapter: generate a keypair, mint a Manifest, mint a TCT for
+    /// the same pubkey, then verify the TCT. Pre-rc.1 the in-process
+    /// adapter returned `OP_NOT_SUPPORTED` for these ops.
+    #[test]
+    fn tier_b_round_trip_through_in_process() {
+        let mut a = InProcessRustAdapter::new();
+        // 1. Generate a keypair from kat-keypair-001's seed (zeros).
+        let kp = match a
+            .execute(
+                "generate_keypair",
+                json!({"seed": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}),
+            )
+            .unwrap()
+        {
+            OpResult::Ok { result, .. } => result,
+            OpResult::Err {
+                error_code,
+                message,
+                ..
+            } => panic!("generate_keypair failed: {error_code} {message}"),
+        };
+        let issuer_handle = kp["handle"].as_str().unwrap().to_string();
+        let issuer_aid = kp["aid"].as_str().unwrap().to_string();
+        let issuer_pubkey = kp["public_key"].as_str().unwrap().to_string();
+
+        // 2. Issue a Manifest using that keypair.
+        let manifest = match a
+            .execute(
+                "issue_manifest",
+                json!({
+                    "keypair": issuer_handle,
+                    "ttl_secs": 3600,
+                    "handshake_endpoint": "https://example.com/aitp/handshake",
+                    "identity_hint": {
+                        "type": "pinned_key",
+                        "subject": "x",
+                        "public_key": issuer_pubkey,
+                    },
+                    "accepted_trust_anchors": ["https://idp.example.com"],
+                    "offered_capabilities": ["demo.echo"],
+                }),
+            )
+            .unwrap()
+        {
+            OpResult::Ok { result, .. } => result,
+            OpResult::Err {
+                error_code,
+                message,
+                ..
+            } => panic!("issue_manifest failed: {error_code} {message}"),
+        };
+        assert!(manifest["manifest_envelope"]["manifest"].is_object());
+
+        // 3. Issue a TCT under the same keypair, audience == issuer.
+        let tct = match a
+            .execute(
+                "issue_tct",
+                json!({
+                    "issuer_keypair": issuer_handle,
+                    "subject": issuer_aid,
+                    "audience": issuer_aid,
+                    "subject_public_key": issuer_pubkey,
+                    "grants": ["demo.echo"],
+                    "ttl_secs": 600,
+                }),
+            )
+            .unwrap()
+        {
+            OpResult::Ok { result, .. } => result,
+            OpResult::Err {
+                error_code,
+                message,
+                ..
+            } => panic!("issue_tct failed: {error_code} {message}"),
+        };
+        assert!(tct["tct_envelope"]["tct"].is_object());
+
+        // 4. Verify the TCT round-trips through the same adapter.
+        let verify = match a
+            .execute(
+                "verify_tct",
+                json!({
+                    "tct": tct["tct_envelope"]["tct"].clone(),
+                    "expected_audience": issuer_aid,
+                }),
+            )
+            .unwrap()
+        {
+            OpResult::Ok { result, .. } => result,
+            OpResult::Err {
+                error_code,
+                message,
+                ..
+            } => panic!("verify_tct failed: {error_code} {message}"),
+        };
+        assert!(verify
+            .get("verified")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false));
     }
 }

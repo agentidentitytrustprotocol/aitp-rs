@@ -98,6 +98,7 @@ fn all_four_handshake_payloads_validate_against_schema() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -107,6 +108,7 @@ fn all_four_handshake_payloads_validate_against_schema() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
 

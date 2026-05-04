@@ -62,7 +62,9 @@ impl<A: Adapter> Runner<A> {
             FixtureInputVariant::Single(params) => {
                 self.run_single(params, fixture.expected.as_ref())
             }
-            FixtureInputVariant::Sequence { sequence } => self.run_sequence(sequence),
+            FixtureInputVariant::Sequence { sequence } => {
+                self.run_sequence(sequence, fixture.input.operation.as_deref())
+            }
         };
 
         let duration_ms = started.elapsed().as_millis() as u64;
@@ -129,12 +131,24 @@ impl<A: Adapter> Runner<A> {
         Ok(())
     }
 
-    fn run_sequence(&mut self, sequence: &[crate::fixture::SequenceStep]) -> Result<(), StepError> {
+    fn run_sequence(
+        &mut self,
+        sequence: &[crate::fixture::SequenceStep],
+        parent_op: Option<&str>,
+    ) -> Result<(), StepError> {
         for step in sequence {
-            let op = step
+            // RFC-AITP fixture protocol: a step's `operation` field
+            // takes precedence; if absent, it inherits from the
+            // input-level `operation` field (e.g. `env-004`'s replay
+            // sequence has the op at the parent level).
+            let op_owned: Option<String> = step
                 .params
                 .get("operation")
                 .and_then(|v| v.as_str())
+                .map(str::to_string)
+                .or_else(|| parent_op.map(str::to_string));
+            let op = op_owned
+                .as_deref()
                 .ok_or_else(|| StepError::Fail(format!("step {}: operation missing", step.step)))?;
             let mut params = step.params.clone();
             if let Some(map) = params.as_object_mut() {

@@ -106,7 +106,7 @@
             "signature": {
               "type": "string",
               "minLength": 1,
-              "description": "base64url(sign(agent_private_key, sha256(challenge))). Verified using the public key in `aid`.",
+              "description": "base64url(sign(agent_private_key, sha256(base64url_decode(challenge)))). Verified using the public key in `aid`. The hash input is the 16 raw bytes obtained by decoding `challenge`, not the ASCII bytes of the encoded form, matching the convention in RFC-AITP-0004 §3.",
               "pattern": "^[A-Za-z0-9_-]{86}$"
             }
           },

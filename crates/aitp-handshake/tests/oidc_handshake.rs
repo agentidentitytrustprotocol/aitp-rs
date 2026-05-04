@@ -103,6 +103,7 @@ fn full_oidc_handshake_in_process() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -112,6 +113,7 @@ fn full_oidc_handshake_in_process() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
 

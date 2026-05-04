@@ -20,4 +20,4 @@ pub mod verifier;
 pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL_SECS};
 pub use error::ManifestError;
 pub use types::{IdentityHint, IdentityHintKind, Manifest, ManifestEnvelope, ManifestPop};
-pub use verifier::{verify_manifest, VerifyManifestContext};
+pub use verifier::{check_identity_type_compatibility, verify_manifest, VerifyManifestContext};

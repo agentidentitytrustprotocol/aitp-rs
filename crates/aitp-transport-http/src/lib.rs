@@ -44,6 +44,7 @@ pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use revocation::{
-    revocation_list_uri_from_manifest, RevocationCache, RevocationError, RevocationFailMode,
-    RevocationPolicy, RevocationProvider, REVOCATION_LIST_URI_EXT,
+    apply_safe_subset, revocation_list_uri_from_manifest, RevocationCache, RevocationError,
+    RevocationFailMode, RevocationOutcome, RevocationPolicy, RevocationProvider,
+    REVOCATION_LIST_URI_EXT,
 };

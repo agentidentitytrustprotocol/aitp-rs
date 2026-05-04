@@ -20,6 +20,12 @@ pub struct TctVerifyContext<'a> {
     pub issuer_pubkey: &'a AitpVerifyingKey,
     /// Current time, for expiry / freshness checks.
     pub now: Timestamp,
+    /// If provided, the TCT's `expires_at` MUST NOT exceed this value
+    /// (the issuer Manifest's `expires_at`). Callers that have
+    /// resolved the issuer's Manifest SHOULD supply it; when absent,
+    /// the verifier skips this check (RFC-AITP-0005 §9: MAY skip when
+    /// the issuer Manifest is unavailable).
+    pub issuer_manifest_expires_at: Option<Timestamp>,
     /// Optional revocation lookup. Returns `true` if `jti` is revoked.
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
 }
@@ -31,6 +37,7 @@ impl<'a> TctVerifyContext<'a> {
             expected_audience,
             issuer_pubkey,
             now: Timestamp::now(),
+            issuer_manifest_expires_at: None,
             revocation_check: None,
         }
     }
@@ -44,7 +51,10 @@ impl<'a> TctVerifyContext<'a> {
 /// 2. `audience == ctx.expected_audience` — else [`TctError::AudienceMismatch`].
 /// 3. v0.1 invariant: `audience == subject` — else [`TctError::AudienceMismatch`].
 /// 4. `expires_at` in the future and `issued_at` not in the future —
-///    else [`TctError::Expired`].
+///    else [`TctError::Expired`]. If
+///    `ctx.issuer_manifest_expires_at` is `Some`, the TCT's
+///    `expires_at` MUST NOT exceed it — else
+///    [`TctError::ExpiresAfterManifest`].
 /// 5. `grants` non-empty — else [`TctError::EmptyGrants`].
 /// 6. `binding.cnf` is 43-char base64url decoding to 32 bytes — else
 ///    [`TctError::CnfMalformed`].
@@ -69,6 +79,11 @@ pub fn verify_tct<'a>(tct: &'a Tct, ctx: &TctVerifyContext<'_>) -> Result<&'a Tc
     }
     if tct.issued_at.is_in_the_future(ctx.now) {
         return Err(TctError::Expired);
+    }
+    if let Some(manifest_expires_at) = ctx.issuer_manifest_expires_at {
+        if tct.expires_at.0 > manifest_expires_at.0 {
+            return Err(TctError::ExpiresAfterManifest);
+        }
     }
     if tct.grants.is_empty() {
         return Err(TctError::EmptyGrants);

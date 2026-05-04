@@ -74,9 +74,37 @@ pub struct PeerConfig<'a> {
     /// TCT — typically used to derive identity-based capability
     /// restrictions. `None` means policy-allow-all (the default).
     pub grant_policy: Option<&'a GrantPolicyFn>,
+    /// Optional revocation check for peer-issued TCTs received during
+    /// the Mutual Handshake. Called with `(issuer_aid, jti)` for the
+    /// TCT inside MUTUAL_HELLO_ACK and MUTUAL_COMMIT_ACK.
+    ///
+    /// Return values:
+    /// - `Ok(false)` — not revoked, accept the TCT.
+    /// - `Ok(true)` — revoked, handshake fails with
+    ///   [`aitp_tct::TctError::Revoked`].
+    /// - `Err(_)` — propagated as-is (use this to surface fail-closed
+    ///   policy when the revocation source is unreachable; map your
+    ///   provider-level error into a `HandshakeError` variant of your
+    ///   choice — typically `HandshakeError::Tct(TctError::Revoked)`
+    ///   for fail-closed).
+    ///
+    /// `None` (the default) skips the revocation check — appropriate
+    /// for short-lived test or in-process scenarios but NOT for
+    /// production. The high-level facade in `aitp::facade` and the
+    /// HTTP transport's `RevocationCache` are intended to back this
+    /// hook in production deployments.
+    pub revocation_check: Option<&'a RevocationCheckFn>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
 }
+
+/// Hook signature for handshake-time revocation lookups.
+///
+/// Implementors typically wrap a `RevocationCache` from
+/// `aitp_transport_http` or any other [RFC-AITP-0008] revocation
+/// provider. The `Aid` argument is the TCT issuer (so per-issuer
+/// caches can route correctly); the `Uuid` is the TCT's JTI.
+pub type RevocationCheckFn = dyn Fn(&Aid, &Uuid) -> Result<bool, HandshakeError> + Send + Sync;
 
 /// Identity-aware grant-policy hook (RFC-AITP-0004 §4.1).
 ///
@@ -367,11 +395,26 @@ fn verify_received_tct(
     tct: &Tct,
     cfg: &PeerConfig<'_>,
     issuer_pubkey: &AitpVerifyingKey,
+    issuer_manifest_expires_at: Option<Timestamp>,
 ) -> Result<(), HandshakeError> {
+    // Revocation runs before signature/expiry — a revoked TCT MUST be
+    // rejected even when its signature and timestamps are otherwise
+    // valid (RFC-AITP-0008 §1).
+    if let Some(check) = cfg.revocation_check {
+        if check(&tct.issuer, &tct.jti)? {
+            return Err(HandshakeError::Tct(aitp_tct::TctError::Revoked));
+        }
+    }
     let ctx = TctVerifyContext {
         expected_audience: &cfg.manifest.aid,
         issuer_pubkey,
         now: cfg.now,
+        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: issuer manifest's
+        // expiry caps the TCT's expiry. We have it in scope from
+        // bootstrap_verify_peer (initiator) or from hello.manifest
+        // (responder), so always pass it through during the
+        // handshake.
+        issuer_manifest_expires_at,
         revocation_check: None,
     };
     verify_tct(tct, &ctx)?;
@@ -401,6 +444,11 @@ enum InitiatorState {
         my_pop_nonce: String,
         peer_aid: Aid,
         peer_pubkey: AitpVerifyingKey,
+        // The peer Manifest's `expires_at`, captured during HELLO_ACK.
+        // Passed back into `verify_received_tct` on COMMIT_ACK so the
+        // TCT's `expires_at` can be capped by the issuer Manifest's
+        // expiry per RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9.
+        peer_manifest_expires_at: Timestamp,
     },
     Done,
     Failed,
@@ -501,6 +549,7 @@ impl Initiator {
             my_pop_nonce,
             peer_aid: ack.manifest.aid.clone(),
             peer_pubkey,
+            peer_manifest_expires_at: ack.manifest.expires_at,
         };
         Ok(commit)
     }
@@ -512,13 +561,19 @@ impl Initiator {
         ack: &MutualCommitAckPayload,
         cfg: &PeerConfig<'_>,
     ) -> Result<Tct, HandshakeError> {
-        let (peer_aid, peer_pubkey, my_pop_nonce) = match &self.state {
+        let (peer_aid, peer_pubkey, my_pop_nonce, peer_manifest_expires_at) = match &self.state {
             InitiatorState::AwaitingCommitAck {
                 peer_aid,
                 peer_pubkey,
                 my_pop_nonce,
+                peer_manifest_expires_at,
                 ..
-            } => (peer_aid.clone(), peer_pubkey.clone(), my_pop_nonce.clone()),
+            } => (
+                peer_aid.clone(),
+                peer_pubkey.clone(),
+                my_pop_nonce.clone(),
+                *peer_manifest_expires_at,
+            ),
             _ => return Err(HandshakeError::State("on_commit_ack out of order")),
         };
         if envelope.sender.agent_id != peer_aid {
@@ -532,7 +587,12 @@ impl Initiator {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &ack.pop_signature)?;
-        verify_received_tct(&ack.tct_for_peer.tct, cfg, &peer_pubkey)?;
+        verify_received_tct(
+            &ack.tct_for_peer.tct,
+            cfg,
+            &peer_pubkey,
+            Some(peer_manifest_expires_at),
+        )?;
         let tct = ack.tct_for_peer.tct.clone();
         self.state = InitiatorState::Done;
         Ok(tct)
@@ -555,6 +615,17 @@ enum ResponderState {
         peer_aid: Aid,
         peer_pubkey: AitpVerifyingKey,
         peer_requested_grants: Vec<String>,
+        // Captured from MUTUAL_HELLO after `bootstrap_verify_peer`
+        // succeeds, then handed to `issue_tct_for_peer` so the
+        // responder's `grant_policy` sees the same identity the
+        // initiator's `grant_policy` saw — symmetric policy across
+        // both peers (RFC-AITP-0004 §4.1).
+        peer_identity: IdentityDescriptor,
+        // The peer Manifest's `expires_at` from MUTUAL_HELLO. Passed
+        // back into `verify_received_tct` on COMMIT so the TCT's
+        // `expires_at` can be capped by the issuer Manifest's expiry
+        // (RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9).
+        peer_manifest_expires_at: Timestamp,
     },
     Done,
     Failed,
@@ -605,6 +676,8 @@ impl Responder {
                     peer_aid: hello.manifest.aid.clone(),
                     peer_pubkey,
                     peer_requested_grants: hello.requested_grants.clone(),
+                    peer_identity: hello.identity.clone(),
+                    peer_manifest_expires_at: hello.manifest.expires_at,
                 },
             },
             ack,
@@ -619,24 +692,35 @@ impl Responder {
         commit: &MutualCommitPayload,
         cfg: &PeerConfig<'_>,
     ) -> Result<(MutualCommitAckPayload, Tct), HandshakeError> {
-        let (peer_aid, peer_pubkey, my_pop_nonce, peer_pop_nonce, peer_requested_grants) =
-            match &self.state {
-                ResponderState::AwaitingCommit {
-                    peer_aid,
-                    peer_pubkey,
-                    my_pop_nonce,
-                    peer_pop_nonce,
-                    peer_requested_grants,
-                    ..
-                } => (
-                    peer_aid.clone(),
-                    peer_pubkey.clone(),
-                    my_pop_nonce.clone(),
-                    peer_pop_nonce.clone(),
-                    peer_requested_grants.clone(),
-                ),
-                _ => return Err(HandshakeError::State("on_commit out of order")),
-            };
+        let (
+            peer_aid,
+            peer_pubkey,
+            my_pop_nonce,
+            peer_pop_nonce,
+            peer_requested_grants,
+            peer_identity,
+            peer_manifest_expires_at,
+        ) = match &self.state {
+            ResponderState::AwaitingCommit {
+                peer_aid,
+                peer_pubkey,
+                my_pop_nonce,
+                peer_pop_nonce,
+                peer_requested_grants,
+                peer_identity,
+                peer_manifest_expires_at,
+                ..
+            } => (
+                peer_aid.clone(),
+                peer_pubkey.clone(),
+                my_pop_nonce.clone(),
+                peer_pop_nonce.clone(),
+                peer_requested_grants.clone(),
+                peer_identity.clone(),
+                *peer_manifest_expires_at,
+            ),
+            _ => return Err(HandshakeError::State("on_commit out of order")),
+        };
         if envelope.sender.agent_id != peer_aid {
             self.state = ResponderState::Failed;
             return Err(HandshakeError::InvalidEnvelope(
@@ -648,25 +732,23 @@ impl Responder {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &commit.pop_signature)?;
-        verify_received_tct(&commit.tct_for_peer.tct, cfg, &peer_pubkey)?;
+        verify_received_tct(
+            &commit.tct_for_peer.tct,
+            cfg,
+            &peer_pubkey,
+            Some(peer_manifest_expires_at),
+        )?;
         let received_tct = commit.tct_for_peer.tct.clone();
 
-        // Issue our TCT for the initiator. We don't have the
-        // initiator's IdentityDescriptor stored in the responder
-        // session — for v0.1, the policy hook (when configured) is
-        // applied with a placeholder descriptor carrying just the
-        // peer's AID. Phase 7 plan deferred capturing the full
-        // descriptor on the responder side as a v0.2 follow-up.
-        let placeholder_identity = IdentityDescriptor {
-            kind: IdentityKind::PinnedKey,
-            issuer: None,
-            subject: peer_aid.as_str().to_string(),
-            proof: String::new(),
-            public_key: None,
-        };
+        // Issue our TCT for the initiator using the peer's verified
+        // identity captured during MUTUAL_HELLO. RFC-AITP-0004 §4.1
+        // requires both peers' grant policies to see the real peer
+        // identity (not a placeholder), so policies that branch on
+        // identity kind, issuer, or subject behave symmetrically
+        // regardless of which side initiated.
         let our_tct = issue_tct_for_peer(
             cfg,
-            &placeholder_identity,
+            &peer_identity,
             &peer_aid,
             &peer_pubkey,
             &peer_requested_grants,

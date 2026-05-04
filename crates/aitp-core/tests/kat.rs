@@ -28,6 +28,14 @@ fn jcs_sha256_kat() {
 
     for v in vectors {
         let id = v["id"].as_str().unwrap();
+        // jcs-sha256.json mixes two vector kinds: canonical-form
+        // vectors (have `object` + `jcs_canonical_hex`) and
+        // signing-input vectors (e.g. kat-manifest-pop-001, which
+        // pins the unified `sha256(base64url_decode(x))` PoP input).
+        // Only the canonical-form entries are exercised here.
+        if v.get("object").is_none() || v.get("jcs_canonical_hex").is_none() {
+            continue;
+        }
         let object = v["object"].clone();
         let expected_canonical_hex = v["jcs_canonical_hex"].as_str().unwrap();
         let expected_sha256_hex = v["sha256_hex"].as_str().unwrap();

@@ -81,17 +81,23 @@ async fn full_pinned_key_handshake_over_http() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // Alice drives the handshake.
+    // Alice drives the handshake. PeerConfig is rebuilt before each
+    // verify step so `now` advances with the wall clock — otherwise on
+    // slow runners Bob's TCT `issued_at` (his Timestamp::now() in handle
+    // hello-ack) lands strictly after a stale startup `now` and Alice's
+    // verifier rejects it as `Tct(Expired)`.
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
+    let make_cfg = || PeerConfig {
         signing_key: &alice,
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: Timestamp::now(),
     };
+    let cfg = make_cfg();
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(
@@ -137,6 +143,7 @@ async fn full_pinned_key_handshake_over_http() {
     let ack_payload: MutualHelloAckPayload =
         serde_json::from_value(ack_envelope.payload.clone()).unwrap();
 
+    let cfg = make_cfg();
     let commit_payload = initiator
         .on_hello_ack(&ack_envelope, &ack_payload, &cfg)
         .unwrap();
@@ -166,6 +173,7 @@ async fn full_pinned_key_handshake_over_http() {
     let commit_ack_payload: MutualCommitAckPayload =
         serde_json::from_value(commit_ack_envelope.payload.clone()).unwrap();
 
+    let cfg = make_cfg();
     let alice_holds = initiator
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &cfg)
         .unwrap();

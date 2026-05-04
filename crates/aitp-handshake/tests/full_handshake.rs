@@ -87,6 +87,7 @@ fn full_pinned_key_handshake() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -96,6 +97,7 @@ fn full_pinned_key_handshake() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
 
@@ -200,6 +202,7 @@ fn nonce_mismatch_aborts() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -209,6 +212,7 @@ fn nonce_mismatch_aborts() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let hello_mid = Uuid::new_v4();
@@ -274,6 +278,7 @@ fn insufficient_grants_aborts() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     let bob_cfg = PeerConfig {
@@ -283,6 +288,7 @@ fn insufficient_grants_aborts() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: NOW,
     };
     // Note: alice_manifest now no longer matches the inline manifest's

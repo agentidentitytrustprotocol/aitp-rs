@@ -82,6 +82,7 @@ async fn commit_after_session_ttl_is_rejected() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();
@@ -202,6 +203,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         jwks_resolver: &resolver,
         pinned_key_store: None,
         grant_policy: None,
+        revocation_check: None,
         now: Timestamp::now(),
     };
     let hello_mid = Uuid::new_v4();

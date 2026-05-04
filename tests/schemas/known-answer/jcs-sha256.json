@@ -99,6 +99,22 @@
       "sha256_b64url": "b9kJPz_6iqoVGRrpTBwOhATK0pHnn83NPgjZ2xlhxm0"
     },
     {
+      "id": "kat-manifest-pop-001",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.2",
+        "RFC-AITP-0003 §3",
+        "RFC-AITP-0003 §5"
+      ],
+      "$comment": "Pinned PoP signing-input vector covering the unified sha256(base64url_decode(x)) convention used by Manifest PoP (RFC-AITP-0003 §3), handshake PoP (RFC-AITP-0004 §3), downstream TCT PoP (RFC-AITP-0005 §6.1), and the pinned-key identity proof input (RFC-AITP-0002 §3.1). Implementations MUST hash the 16 raw decoded bytes, NOT the ASCII bytes of the base64url string. The signature is produced with kat-keypair-001 (seed = 32 zero bytes) over the SHA-256 digest of the decoded bytes.",
+      "challenge": "AAECAwQFBgcICQoLDA0ODw",
+      "decoded_hex": "000102030405060708090a0b0c0d0e0f",
+      "sha256_hex": "be45cb2605bf36bebde684841a28f0fd43c69850a3dce5fedba69928ee3a8991",
+      "sha256_b64url": "vkXLJgW_Nr695oSEGijw_UPGmFCj3OX-26aZKO46iZE",
+      "signing_keypair_id": "kat-keypair-001",
+      "signer_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "signature_b64url": "3cL6ITDAazeyYrS3pm6Wd1boPvXttQ5iJp27l5cPc5unJ3txxme1myOW3mvAnmlIQsvZGmt-A_VJvdkBbFJcCw"
+    },
+    {
       "id": "kat-revocation-001",
       "rfc_refs": [
         "RFC-AITP-0008 \u00a71.5"

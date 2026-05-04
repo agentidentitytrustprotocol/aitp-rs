@@ -39,6 +39,7 @@
 //!     expected_audience: bob.aid(),
 //!     issuer_pubkey: &alice_pubkey,
 //!     now,
+//!     issuer_manifest_expires_at: None,
 //!     revocation_check: None,
 //! };
 //! verify_tct(&tct, &ctx)?;

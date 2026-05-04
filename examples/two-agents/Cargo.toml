@@ -24,8 +24,12 @@ path = "src/bin/revocation-demo.rs"
 name = "tct-renewal-demo"
 path = "src/bin/tct-renewal-demo.rs"
 
+[[bin]]
+name = "oidc-demo"
+path = "src/bin/oidc-demo.rs"
+
 [dependencies]
-aitp = { path = "../../crates/aitp", version = "0.1.0-beta.1", features = ["all"] }
+aitp = { path = "../../crates/aitp", version = "0.1.0-rc.1", features = ["all"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 clap = { workspace = true }
@@ -34,3 +38,8 @@ reqwest = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
 sha2 = { workspace = true }
+# For the OIDC mock issuer demo: build JWTs over an in-process
+# Ed25519 keypair so the demo runs without an HTTP IdP.
+ed25519-dalek = { workspace = true }
+base64ct = { workspace = true }
+jsonwebtoken = { workspace = true }
