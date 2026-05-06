@@ -148,6 +148,15 @@ jobs:
         # requires rustc ≥1.91; the runner's stable toolchain handles it.
         working-directory: /tmp
         run: cargo install --locked cargo-tarpaulin
+      - name: Build adapter binary
+        # crates/aitp-conformance/tests/runner_integration.rs spawns
+        # target/<profile>/aitp-rs-adapter as a subprocess. Plain
+        # `cargo test --workspace` builds it as part of the workspace
+        # graph, but tarpaulin's underlying `cargo test --no-run` only
+        # produces test artifacts — bin targets that aren't a direct
+        # test dep aren't built. Build it explicitly so the 12 runner
+        # integration tests don't panic in adapter_path().
+        run: cargo build -p aitp-rs-adapter
       - name: Run coverage with floor
         # Tarpaulin's --fail-under <pct> exits non-zero if total
         # workspace coverage drops below that threshold.
@@ -165,7 +174,10 @@ jobs:
         # only inflate the denominator. aitp-conformance is included
         # because its integration tests exercise other crates'
         # public surface.
-        run: cargo tarpaulin --workspace --all-features --skip-clean --timeout 180 --exclude mint-signed-examples mint-conformance-fixtures aitp-example-two-agents --out Xml --output-dir coverage --fail-under 50
+        # Note: each excluded crate needs its own --exclude flag.
+        # `--exclude a b c` is parsed as one excluded value plus two
+        # stray positionals.
+        run: cargo tarpaulin --workspace --all-features --skip-clean --timeout 180 --exclude mint-signed-examples --exclude mint-conformance-fixtures --exclude aitp-example-two-agents --out Xml --output-dir coverage --fail-under 50
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-report
