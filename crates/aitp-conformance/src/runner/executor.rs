@@ -1,7 +1,7 @@
 //! Fixture runner.
 
 use crate::adapter::{Adapter, OpResult};
-use crate::fixture::{Fixture, FixtureExpected, FixtureInputVariant};
+use crate::fixture::{Fixture, FixtureExpected, FixtureInputVariant, RunnerContext, REFERENCE_NOW};
 use std::time::Instant;
 
 /// Result of running one fixture.
@@ -36,17 +36,60 @@ pub enum FixtureResult {
 /// Executes fixtures against an adapter.
 pub struct Runner<A: Adapter> {
     adapter: A,
+    /// Per-run substitution context — handles `__UPPER_SNAKE__`
+    /// placeholders defined in the spec's
+    /// `schemas/conformance/PLACEHOLDERS.md`.
+    ctx: RunnerContext,
+    /// When `true` (the default), the runner pins the adapter's
+    /// notion of "now" to [`REFERENCE_NOW`] before every fixture by
+    /// invoking `set_clock`. This matches the convention used to
+    /// mint the conformance fixtures: every `expires_at` /
+    /// `issued_at` in the fixtures was computed against the same
+    /// reference clock, so an adapter using wall time would
+    /// spuriously report `EXPIRED` errors. Adapters that don't
+    /// support `set_clock` continue past the pre-init silently.
+    pin_clock: bool,
 }
 
 impl<A: Adapter> Runner<A> {
-    /// Construct a runner around an adapter.
+    /// Construct a runner around an adapter. Defaults to pinning
+    /// the adapter clock to [`REFERENCE_NOW`] before every fixture.
     pub fn new(adapter: A) -> Self {
-        Self { adapter }
+        Self {
+            adapter,
+            ctx: RunnerContext::new(),
+            pin_clock: true,
+        }
+    }
+
+    /// Disable the auto `set_clock` precondition. Use only when an
+    /// adapter is being driven outside the conformance fixture
+    /// suite (the in-process adapter's unit tests, for instance).
+    pub fn without_clock_pinning(mut self) -> Self {
+        self.pin_clock = false;
+        self
     }
 
     /// Run a single fixture.
     pub fn run(&mut self, fixture: &Fixture) -> FixtureResult {
         let started = Instant::now();
+        // Pin the adapter's clock to the fixture-set reference
+        // before any other op runs. This is best-effort: an adapter
+        // that doesn't expose `set_clock` returns `OP_NOT_SUPPORTED`
+        // and we proceed against wall time (the fixture is
+        // responsible for its own time references).
+        if self.pin_clock {
+            // Adapter expects `now_unix_secs`; spec PLACEHOLDERS uses
+            // `now`. Send both keys so either calling convention
+            // works.
+            let _ = self.adapter.execute(
+                "set_clock",
+                serde_json::json!({
+                    "now_unix_secs": REFERENCE_NOW,
+                    "now": REFERENCE_NOW,
+                }),
+            );
+        }
         // Apply preconditions if any. Schema is permissive — the
         // preconditions block is JSON-shaped, so we forward each top-level
         // key as an op invocation. Adapters that don't support the op
@@ -58,12 +101,22 @@ impl<A: Adapter> Runner<A> {
             };
         }
 
+        // Reset per-fixture substitution state (last_nonce) before
+        // walking the input.
+        self.ctx.last_nonce = None;
+
         let outcome = match &fixture.input.variant {
             FixtureInputVariant::Single(params) => {
-                self.run_single(params, fixture.expected.as_ref())
+                let mut params = params.clone();
+                self.ctx.substitute(&mut params);
+                self.run_single(&params, fixture.expected.as_ref())
             }
             FixtureInputVariant::Sequence { sequence } => {
-                self.run_sequence(sequence, fixture.input.operation.as_deref())
+                let mut substituted = sequence.clone();
+                for step in &mut substituted {
+                    self.ctx.substitute(&mut step.params);
+                }
+                self.run_sequence(&substituted, fixture.input.operation.as_deref())
             }
         };
 

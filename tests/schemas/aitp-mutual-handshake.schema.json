@@ -132,6 +132,10 @@
               "type": "string",
               "minLength": 1,
               "pattern": "^[A-Za-z0-9_-]{86}$"
+            },
+            "extensions": {
+              "type": "object",
+              "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
             }
           },
           "additionalProperties": false
@@ -177,6 +181,10 @@
         },
         "pop_nonce": {
           "$ref": "#/$defs/PopNonce"
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
         }
       },
       "additionalProperties": false
@@ -213,6 +221,10 @@
         "pop_nonce_echo": {
           "$ref": "#/$defs/PopNonce",
           "description": "MUST equal initiator's pop_nonce from MUTUAL_HELLO."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
         }
       },
       "additionalProperties": false
@@ -236,6 +248,10 @@
         "pop_nonce_echo": {
           "$ref": "#/$defs/PopNonce",
           "description": "MUST equal target's pop_nonce from MUTUAL_HELLO_ACK."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
         }
       },
       "additionalProperties": false
@@ -259,6 +275,10 @@
         "pop_nonce_echo": {
           "$ref": "#/$defs/PopNonce",
           "description": "MUST equal initiator's pop_nonce from MUTUAL_HELLO."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
         }
       },
       "additionalProperties": false

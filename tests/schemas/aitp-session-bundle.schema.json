@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/session-bundle.json",
+  "title": "SessionTrustBundle",
+  "description": "AITP v0.1 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh.",
+  "type": "object",
+  "required": [
+    "session_bundle",
+    "signature"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "session_bundle": {
+      "type": "object",
+      "required": [
+        "version",
+        "session_id",
+        "coordinator",
+        "issued_at",
+        "expires_at",
+        "participants"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "version": {
+          "type": "string",
+          "const": "aitp/0.1",
+          "description": "MUST be `aitp/0.1` for this RFC."
+        },
+        "session_id": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+          "description": "UUID v4 unique to this session. Used as a replay-binding scope."
+        },
+        "coordinator": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "The coordinator's AID. MUST match the `issuer` of every embedded `tct`."
+        },
+        "issued_at": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Unix timestamp when this bundle was signed."
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Unix timestamp after which the bundle MUST NOT be used. MUST equal `min(participants[*].tct.expires_at)` (RFC-AITP-0010 §6)."
+        },
+        "participants": {
+          "type": "array",
+          "minItems": 1,
+          "description": "Array of participant entries. Each pairs a participant AID with the peer-issued TCT the coordinator issued during the bilateral handshake that fed into this bundle.",
+          "items": {
+            "type": "object",
+            "required": [
+              "aid",
+              "tct"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "aid": {
+                "type": "string",
+                "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+                "description": "Participant's AID. MUST equal the embedded TCT's `audience`."
+              },
+              "tct": {
+                "type": "object",
+                "description": "Verbatim peer-issued TCT (RFC-AITP-0005 §1) — coordinator-issued, with `audience` = participant's AID. Validated against `aitp-tct.schema.json`."
+              }
+            }
+          }
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected."
+        }
+      }
+    },
+    "signature": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "description": "Coordinator's unpadded base64url Ed25519 signature over the JCS-canonical bytes of `session_bundle` (RFC 8785). Same convention as RFC-AITP-0008 revocation list. See RFC-AITP-0001 §5.4."
+    }
+  }
+}

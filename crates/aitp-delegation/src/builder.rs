@@ -6,7 +6,7 @@
 //! out of `held_tct` so that A's original signature continues to
 //! authenticate the underlying capability grant.
 
-use crate::types::{DelegationToken, GrantProof};
+use crate::types::{DelegationStep, DelegationToken, GrantProof};
 use crate::DelegationError;
 use aitp_core::{base64url, jcs, Aid, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
@@ -140,6 +140,8 @@ impl<'a> DelegationBuilder<'a> {
             expires_at: &expires_at,
             cnf: &cnf,
             grant_proof: &grant_proof,
+            chain: None,
+            chain_hash: None,
         };
         let canonical = jcs::canonicalize_serializable(&view)
             .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
@@ -155,12 +157,19 @@ impl<'a> DelegationBuilder<'a> {
             expires_at,
             cnf,
             grant_proof,
+            chain: None,
+            chain_hash: None,
             signature: signature.into_string(),
         })
     }
 }
 
 /// Serialization view of [`DelegationToken`] without `signature`.
+///
+/// `chain` and `chain_hash` use `skip_serializing_if = "Option::is_none"`
+/// so single-hop tokens (the v0.1 case) produce JCS bytes byte-identical
+/// to pre-rc.1 — this preserves signature compatibility for the
+/// existing single-hop fixtures.
 #[derive(Serialize)]
 pub(crate) struct DelegationSigningView<'a> {
     pub delegator: &'a Aid,
@@ -171,4 +180,8 @@ pub(crate) struct DelegationSigningView<'a> {
     pub expires_at: &'a Timestamp,
     pub cnf: &'a str,
     pub grant_proof: &'a GrantProof,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain: Option<&'a [DelegationStep]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub chain_hash: Option<&'a str>,
 }

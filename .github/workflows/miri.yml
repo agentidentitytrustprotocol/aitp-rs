@@ -1,0 +1,56 @@
+name: miri
+
+# Miri checks for undefined behavior on the crates that contain unsafe
+# or low-level byte-shuffling — primarily aitp-core (JCS, AID parsing)
+# and aitp-crypto. Miri is slow and occasionally needs feature gating
+# (ed25519-dalek pulls in code paths Miri doesn't model perfectly), so
+# this workflow is intentionally NOT a PR gate. Trigger it manually
+# (or on a weekly schedule) when adding crypto code or touching
+# canonicalization, and inspect the output.
+#
+# See plans/defered/deferred.md §4.2 for the rationale.
+
+on:
+  schedule:
+    - cron: "23 4 * * 1"   # 04:23 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      crates:
+        description: "Comma-separated -p arguments (default: aitp-core)"
+        required: false
+        default: "aitp-core"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+  # Miri's tree-borrows is the recommended aliasing model for new
+  # code. -Zmiri-disable-isolation lets the JCS canonicalizer read
+  # vendored test vectors without sandbox tripping; we don't run any
+  # network code under Miri.
+  MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-strict-provenance"
+
+permissions:
+  contents: read
+
+jobs:
+  miri:
+    name: miri (${{ matrix.crate }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        crate:
+          - aitp-core
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly + miri
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: miri, rust-src
+      - name: Setup miri
+        run: cargo miri setup
+      - name: Run miri tests
+        # Skip integration tests that read large vendored fixtures —
+        # the unit tests inside src/ are the high-value target for
+        # UB checks (JCS canonicalization, AID byte parsing).
+        run: cargo +nightly miri test -p ${{ matrix.crate }} --lib

@@ -1,6 +1,9 @@
-//! Single-hop delegation tokens (RFC-AITP-0006).
+//! Delegation tokens.
 //!
-//! Multi-hop delegation is reserved for v0.2 (RFC-AITP-0011).
+//! Single-hop (RFC-AITP-0006) is the v0.1 default. Multi-hop chains
+//! (RFC-AITP-0011) are carried in optional `chain` and `chain_hash`
+//! fields on [`DelegationToken`]. Verifiers configure the maximum
+//! permitted chain length via [`VerifyDelegationContext::max_hops`].
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -12,5 +15,7 @@ pub mod verifier;
 
 pub use builder::{DelegationBuilder, DEFAULT_DELEGATION_TTL_SECS};
 pub use error::DelegationError;
-pub use types::{DelegationEnvelope, DelegationToken, GrantProof};
-pub use verifier::{verify_delegation, VerifyDelegationContext};
+pub use types::{DelegationEnvelope, DelegationStep, DelegationToken, GrantProof};
+pub use verifier::{
+    compute_chain_hash, verify_delegation, VerifyDelegationContext, DEFAULT_MAX_HOPS,
+};

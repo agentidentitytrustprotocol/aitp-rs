@@ -1,0 +1,21 @@
+[package]
+name = "aitp-session-bundle"
+description = "Session Trust Bundle (RFC-AITP-0010) — coordinator-attested membership for multi-agent sessions"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-rc.1" }
+aitp-tct = { path = "../aitp-tct", version = "0.1.0-rc.1" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }

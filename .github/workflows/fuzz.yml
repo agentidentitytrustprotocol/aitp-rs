@@ -1,0 +1,62 @@
+name: fuzz
+
+# Nightly fuzz runs on the three parser targets in `fuzz/`. Each
+# target gets a 60s budget — enough to catch crashes on randomly
+# mutated input without holding up the runner. Crashes are uploaded
+# as artifacts; corpus deltas are committed back via a follow-up PR.
+
+on:
+  schedule:
+    - cron: "17 3 * * *"   # 03:17 UTC daily
+  workflow_dispatch:
+    inputs:
+      duration_seconds:
+        description: "Per-target run duration (seconds)"
+        required: false
+        default: "60"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz:
+    name: fuzz / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [envelope_parse, manifest_parse, delegation_parse]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Install cargo-fuzz
+        run: cargo install --locked cargo-fuzz
+      - name: Run fuzz target
+        working-directory: fuzz
+        env:
+          DURATION: ${{ github.event.inputs.duration_seconds || '60' }}
+        run: |
+          set -euo pipefail
+          cargo +nightly fuzz run ${{ matrix.target }} \
+            --release \
+            -- -max_total_time=${DURATION} -timeout=10
+      - name: Upload crashes
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crashes-${{ matrix.target }}
+          path: |
+            fuzz/artifacts/${{ matrix.target }}/**
+          if-no-files-found: ignore
+      - name: Upload corpus delta
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-${{ matrix.target }}
+          path: fuzz/corpus/${{ matrix.target }}/**
+          if-no-files-found: ignore

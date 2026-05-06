@@ -38,6 +38,10 @@
       "description": "base64url public key. Required for pinned_key.",
       "pattern": "^[A-Za-z0-9_-]{43}$",
       "minLength": 43
+    },
+    "extensions": {
+      "type": "object",
+      "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
     }
   },
   "if": {

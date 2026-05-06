@@ -43,3 +43,4 @@ sha2 = { workspace = true }
 ed25519-dalek = { workspace = true }
 base64ct = { workspace = true }
 jsonwebtoken = { workspace = true }
+parking_lot = { workspace = true }

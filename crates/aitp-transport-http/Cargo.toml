@@ -14,6 +14,10 @@ homepage.workspace = true
 default = []
 client = ["dep:reqwest", "dep:tokio"]
 server = ["dep:axum", "dep:tokio"]
+# Enable SHA-256 SPKI cert pinning on the outbound HTTP client. Off by
+# default so workspaces that don't need air-gapped pinning don't pull in
+# rustls/x509-parser. Requires `client`.
+client-spki-pinning = ["client", "dep:rustls", "dep:rustls-pki-types", "dep:x509-parser"]
 
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
@@ -30,8 +34,17 @@ reqwest = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 jsonwebtoken = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
+rustls = { workspace = true, optional = true }
+rustls-pki-types = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 axum = { workspace = true }
 reqwest = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+ed25519-dalek = { workspace = true }

@@ -16,10 +16,12 @@ use axum::{
     routing::{get, post},
     Json, Router,
 };
+use parking_lot::Mutex;
 use serde_json::json;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+use tracing::{debug, instrument, warn};
 use uuid::Uuid;
 
 /// Default period after which an in-progress handshake session is
@@ -132,6 +134,16 @@ pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
 /// is a generous ceiling that still rejects accidental gigabyte uploads.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
 
+/// Wall-clock cap on body read. Defends against slow-loris attackers
+/// who trickle a small body across many seconds: the body-size cap
+/// alone admits a 256 KB body delivered at 1 byte/s for ~3 days,
+/// holding a connection slot the whole time. With this timeout, the
+/// client must finish sending the body within `DEFAULT_BODY_READ_TIMEOUT`
+/// seconds or the request is rejected as `INVALID_ENVELOPE`. The
+/// default of 5 s is generous for ~256 KB on any non-pathological
+/// network.
+pub const DEFAULT_BODY_READ_TIMEOUT: Duration = Duration::from_secs(5);
+
 struct SessionEntry {
     responder: Responder,
     created_at: Instant,
@@ -235,6 +247,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 /// `POST /aitp/handshake/renew` accepts a [`TctRenewalPayload`] and
 /// returns a fresh [`TctEnvelope`]. The renewal handler does NOT
 /// drive the full state machine — see [`aitp_tct::process_renewal_request`].
+#[instrument(level = "debug", skip(state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
@@ -251,14 +264,7 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
             "expected Content-Type: application/json".into(),
         ));
     }
-    let body = to_bytes(request.into_body(), DEFAULT_MAX_BODY_BYTES)
-        .await
-        .map_err(|e| {
-            ResponseError::aitp(
-                ErrorCode::InvalidEnvelope,
-                format!("oversized or unreadable body: {e}"),
-            )
-        })?;
+    let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
     let payload: TctRenewalPayload = serde_json::from_slice(&body).map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
     })?;
@@ -348,7 +354,7 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
 
     let session_id = Uuid::new_v4();
     {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = state.sessions.lock();
         sweep_expired(&mut sessions, state.session_ttl);
         sessions.insert(
             session_id,
@@ -363,18 +369,24 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
     // `ack_payload`. The pinned-key proof is bound to those values; if we
     // re-generated them here the receiving peer would fail identity
     // verification.
+    let ack_payload_value =
+        serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope_with(
         &state.signing_key,
         MessageType::MutualHelloAck,
-        serde_json::to_value(&ack_payload).unwrap(),
+        ack_payload_value,
         ack_mid,
         ack_ts,
     )
     .map_err(|_| ResponseError::server_error())?;
     let mut response = Json(ack_envelope).into_response();
+    let session_header_value = session_id
+        .to_string()
+        .parse()
+        .map_err(|_| ResponseError::server_error())?;
     response
         .headers_mut()
-        .insert(SESSION_HEADER, session_id.to_string().parse().unwrap());
+        .insert(SESSION_HEADER, session_header_value);
     Ok(response)
 }
 
@@ -396,7 +408,7 @@ async fn handle_commit<R: JwksResolver + Send + Sync + 'static>(
             )
         })?;
     let mut entry = {
-        let mut sessions = state.sessions.lock().unwrap();
+        let mut sessions = state.sessions.lock();
         let expired_present = sessions
             .get(&session_id)
             .is_some_and(|e| Instant::now().duration_since(e.created_at) > state.session_ttl);
@@ -443,10 +455,12 @@ async fn handle_commit<R: JwksResolver + Send + Sync + 'static>(
         .responder
         .on_commit(&envelope, &payload, &cfg)
         .map_err(|e| ResponseError::aitp(handshake_error_code(&e), e.to_string()))?;
+    let ack_payload_value =
+        serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope(
         &state.signing_key,
         MessageType::MutualCommitAck,
-        serde_json::to_value(&ack_payload).unwrap(),
+        ack_payload_value,
     )
     .map_err(|_| ResponseError::server_error())?;
     Ok(Json(ack_envelope).into_response())
@@ -495,20 +509,63 @@ impl ResponseError {
 
 impl IntoResponse for ResponseError {
     fn into_response(self) -> Response {
+        // Emit a structured event for every error envelope we ship.
+        // Operators dashboarding on AITP error rates key off
+        // `aitp.error.envelope` event names.
+        warn!(
+            target: "aitp.error.envelope",
+            code = ?self.code,
+            status = self.status.as_u16(),
+            message = %self.message,
+            "AITP error envelope returned"
+        );
+        // The body is constructed from a json! macro over `Serialize`
+        // types we control, so to_vec() and Response::builder() are
+        // infallible in practice. We `expect` rather than `unwrap` to
+        // surface a clear panic message if a future change breaks
+        // either invariant.
         let body = json!({
             "error": {
                 "code": self.code,
                 "message": self.message,
             },
         });
+        let body_bytes =
+            serde_json::to_vec(&body).expect("serializing a static json! body cannot fail");
         let mut resp = Response::builder()
             .status(self.status)
             .header(header::CONTENT_TYPE, "application/json")
-            .body(Body::from(serde_json::to_vec(&body).unwrap()))
-            .unwrap();
-        resp.headers_mut()
-            .insert(header::CACHE_CONTROL, "no-store".parse().unwrap());
+            .body(Body::from(body_bytes))
+            .expect("response with valid status + headers + body builds");
+        resp.headers_mut().insert(
+            header::CACHE_CONTROL,
+            header::HeaderValue::from_static("no-store"),
+        );
         resp
+    }
+}
+
+/// Read the request body with two bounds:
+/// - **Size**: refused with `INVALID_ENVELOPE` if it exceeds
+///   [`DEFAULT_MAX_BODY_BYTES`].
+/// - **Wall-clock**: refused with `INVALID_ENVELOPE` if the entire
+///   body cannot be drained within `timeout`. Defeats slow-loris
+///   clients trickling bytes within the body cap.
+async fn read_body_with_timeout(
+    request: Request,
+    timeout: Duration,
+) -> Result<axum::body::Bytes, ResponseError> {
+    let body_fut = to_bytes(request.into_body(), DEFAULT_MAX_BODY_BYTES);
+    match tokio::time::timeout(timeout, body_fut).await {
+        Ok(Ok(b)) => Ok(b),
+        Ok(Err(e)) => Err(ResponseError::aitp(
+            ErrorCode::InvalidEnvelope,
+            format!("oversized or unreadable body: {e}"),
+        )),
+        Err(_elapsed) => Err(ResponseError::aitp(
+            ErrorCode::InvalidEnvelope,
+            format!("body read exceeded {}s", timeout.as_secs()),
+        )),
     }
 }
 
@@ -531,14 +588,7 @@ async fn parse_envelope_request(
             format!("expected Content-Type: application/json, got `{content_type}`"),
         ));
     }
-    let body = to_bytes(request.into_body(), DEFAULT_MAX_BODY_BYTES)
-        .await
-        .map_err(|e| {
-            ResponseError::aitp(
-                ErrorCode::InvalidEnvelope,
-                format!("oversized or unreadable body: {e}"),
-            )
-        })?;
+    let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
     let envelope: AitpEnvelope = serde_json::from_slice(&body).map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
     })?;
@@ -616,7 +666,7 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     mid: &Uuid,
 ) -> Result<(), ResponseError> {
     let now = Instant::now();
-    let mut seen = state.seen_message_ids.lock().unwrap();
+    let mut seen = state.seen_message_ids.lock();
     seen.retain(|_, ts| now.duration_since(*ts) < state.replay_window);
     if seen.insert(*mid, now).is_some() {
         return Err(ResponseError::aitp(
@@ -629,5 +679,10 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
 
 fn sweep_expired(sessions: &mut HashMap<Uuid, SessionEntry>, ttl: Duration) {
     let now = Instant::now();
+    let before = sessions.len();
     sessions.retain(|_, e| now.duration_since(e.created_at) <= ttl);
+    let evicted = before - sessions.len();
+    if evicted > 0 {
+        debug!(evicted, "swept expired handshake sessions");
+    }
 }

@@ -13,6 +13,7 @@ use aitp_tct::{
 use std::collections::HashMap;
 use std::sync::RwLock;
 use std::time::Duration;
+use tracing::debug;
 use uuid::Uuid;
 
 /// Source of revocation snapshots — typically backed by an HTTP fetch.
@@ -193,7 +194,7 @@ impl<P: RevocationProvider> RevocationCache<P> {
         issuer: &Aid,
         now: Timestamp,
     ) -> Result<RevocationOutcome, RevocationError> {
-        match self.snapshot_for(issuer, now) {
+        let outcome = match self.snapshot_for(issuer, now) {
             Ok(env) => {
                 if env.revocation_list.entries.iter().any(|e| &e.jti == jti) {
                     Ok(RevocationOutcome::Revoked)
@@ -211,7 +212,28 @@ impl<P: RevocationProvider> RevocationCache<P> {
                     })
                 }
             },
+        };
+        match &outcome {
+            Ok(RevocationOutcome::Clear) => {
+                debug!(%jti, %issuer, outcome = "clear", "revocation check");
+            }
+            Ok(RevocationOutcome::Revoked) => {
+                debug!(%jti, %issuer, outcome = "revoked", "revocation check");
+            }
+            Ok(RevocationOutcome::SoftFailSafeSubset { safe_grants }) => {
+                debug!(
+                    %jti,
+                    %issuer,
+                    outcome = "soft_fail_safe_subset",
+                    safe_grant_count = safe_grants.len(),
+                    "revocation check"
+                );
+            }
+            Err(e) => {
+                debug!(%jti, %issuer, error = %e, "revocation check failed closed");
+            }
         }
+        outcome
     }
 
     /// Bool-flavored revocation check kept for handshake hooks that

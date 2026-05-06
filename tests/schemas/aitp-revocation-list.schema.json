@@ -56,6 +56,10 @@
             }
           },
           "description": "Revoked-entry records. MAY be empty — an empty list is itself a signed assertion that nothing has been revoked, defending against suppression of fresher snapshots."
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
         }
       }
     },
@@ -79,7 +83,7 @@
           }
         ]
       },
-      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      "signature": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
     }
   ]
 }

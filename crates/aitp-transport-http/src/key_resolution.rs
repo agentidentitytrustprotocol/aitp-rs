@@ -32,6 +32,7 @@ use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::{Duration, Instant};
+use tracing::debug;
 use url::Url;
 
 /// Fail mode applied when **OIDC issuer** key resolution falls through
@@ -160,6 +161,7 @@ impl JwksResolver for KeyResolutionPolicy {
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         // 1. Cache.
         if let Some(keys) = self.cached(issuer) {
+            debug!(%issuer, source = "cache", "JWKS resolved");
             return Ok(keys);
         }
 
@@ -169,12 +171,14 @@ impl JwksResolver for KeyResolutionPolicy {
         // Re-check cache after acquiring the lock — another caller may
         // have populated it.
         if let Some(keys) = self.cached(issuer) {
+            debug!(%issuer, source = "cache", "JWKS resolved (after lock)");
             return Ok(keys);
         }
 
         // 2. Pinned issuer key store.
         if let Some(pinned) = self.pinned.as_ref() {
             if let Some(keys) = pinned.get(issuer) {
+                debug!(%issuer, source = "pinned_store", "JWKS resolved");
                 self.store(issuer, keys.clone());
                 return Ok(keys);
             }
@@ -208,6 +212,7 @@ impl JwksResolver for KeyResolutionPolicy {
 
         match result {
             Ok(keys) => {
+                debug!(%issuer, source = "network", "JWKS resolved");
                 self.store(issuer, keys.clone());
                 Ok(keys)
             }

@@ -1,5 +1,9 @@
 [workspace]
 resolver = "2"
+# Exclude `fuzz/` — cargo-fuzz uses its own profile and nightly-only
+# features. Run via `cargo +nightly fuzz run <target>` from the
+# `fuzz/` directory.
+exclude = ["fuzz"]
 members = [
     "crates/aitp-core",
     "crates/aitp-crypto",
@@ -7,6 +11,7 @@ members = [
     "crates/aitp-handshake",
     "crates/aitp-tct",
     "crates/aitp-delegation",
+    "crates/aitp-session-bundle",
     "crates/aitp-transport-http",
     "crates/aitp",
     "crates/aitp-conformance",
@@ -47,9 +52,29 @@ rand = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.7"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
+tower = { version = "0.5", default-features = false }
+
+# TLS — used by aitp-transport-http for SPKI cert pinning. Default-features
+# off so we don't pull in a CryptoProvider (reqwest's rustls-tls feature
+# already installs one); we only need the ClientConfig + verifier types.
+rustls = { version = "0.23", default-features = false, features = ["std"] }
+rustls-pki-types = "1.10"
+# X.509 parser for extracting SubjectPublicKeyInfo bytes when pinning.
+x509-parser = "0.17"
 
 # OIDC (used by aitp-handshake and aitp-transport-http)
 jsonwebtoken = "9.2"
+
+# Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
+# a poisoned state on a panic in a locked section — std::sync::Mutex would,
+# and an unwrap on the resulting PoisonError hangs every subsequent request.
+parking_lot = "0.12"
+
+# Structured logging. Library crates emit spans + events; binaries (or
+# downstream applications) install a subscriber. Default-features-off keeps
+# the dep lean for library consumers that don't subscribe.
+tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 
 # CLI (used by aitp-conformance)
 clap = { version = "4.5", features = ["derive"] }

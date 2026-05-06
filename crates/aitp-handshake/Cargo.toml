@@ -11,6 +11,7 @@ categories.workspace = true
 homepage.workspace = true
 
 [dependencies]
+tracing = { workspace = true }
 aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
 aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-rc.1" }
 aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-rc.1" }

@@ -91,6 +91,7 @@ fn minted_delegation_verifies() {
         verifier_aid: &verifier_aid,
         now: fixed_now(),
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     aitp_delegation::verify_delegation(&token, &ctx).expect("minted delegation verifies");
 }

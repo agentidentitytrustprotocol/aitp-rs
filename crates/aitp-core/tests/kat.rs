@@ -11,6 +11,24 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
+fn signing_input<'a>(object: &'a Value, expected_canonical_hex: &str) -> &'a Value {
+    let Some(map) = object.as_object() else {
+        return object;
+    };
+    if map.len() != 1 {
+        return object;
+    }
+    let (key, inner) = map.iter().next().unwrap();
+    let wrapped_prefix = format!("\"{key}\"");
+    let wrapped_prefix_hex = hex::encode(wrapped_prefix.as_bytes());
+    let starts_at = expected_canonical_hex.find(&wrapped_prefix_hex);
+    if matches!(starts_at, Some(2)) {
+        object
+    } else {
+        inner
+    }
+}
+
 fn kat_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -41,7 +59,20 @@ fn jcs_sha256_kat() {
         let expected_sha256_hex = v["sha256_hex"].as_str().unwrap();
         let expected_len = v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize;
 
-        let actual = jcs::canonicalize(&object).expect("canonicalize");
+        // Spec KAT vectors come in two shapes:
+        //   (a) `object` = the artifact wrapped in its type label
+        //       (e.g. `{"manifest": {...}}`) and canonical bytes match
+        //       that wrapped form.
+        //   (b) `object` = same wrapped form, but canonical bytes are
+        //       the *inner signing body* — i.e. the value without the
+        //       wrapper. RFC-AITP-0010/0011 vectors (multi-hop chain,
+        //       session bundle) use this shape because the signature
+        //       is computed over the inner body.
+        // Detect by comparing against the wrapper key: if the
+        // canonical hex starts with `{"<wrapper_key>"` we use the
+        // wrapped form; otherwise unwrap once.
+        let signing_input = signing_input(&object, expected_canonical_hex);
+        let actual = jcs::canonicalize(signing_input).expect("canonicalize");
         assert_eq!(
             actual.len(),
             expected_len,
