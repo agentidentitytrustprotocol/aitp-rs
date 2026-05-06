@@ -102,9 +102,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: obi1kenobi/cargo-semver-checks-action@v2
         with:
-          # Compare against the most recent release tag. If none exists
-          # yet (pre-1.0), this is a no-op and the job passes.
-          baseline-rev: ${{ github.event.pull_request.base.ref }}
+          # Use the PR base commit SHA (not the ref name). With only the
+          # PR head checked out, `main` doesn't exist as a local ref —
+          # cargo-semver-checks fails to resolve `main^{tree}`. The SHA
+          # is unambiguous and present after `fetch-depth: 0`.
+          baseline-rev: ${{ github.event.pull_request.base.sha }}
           # Skip the workspace-only crates that aren't published.
           exclude: aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures
 
@@ -116,6 +118,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-msrv
+        # Install from outside the repo so rustup ignores the
+        # rust-toolchain.toml pin (1.89) and uses the runner's stable
+        # toolchain to compile cargo-msrv. The latest cargo-msrv
+        # (≥0.19) requires rustc ≥1.91 and won't compile under 1.89.
+        working-directory: /tmp
         run: cargo install --locked cargo-msrv
       - name: Verify pinned MSRV (1.88) still builds
         # Don't search; just verify the rust-toolchain.toml pin compiles.
@@ -129,6 +136,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-tarpaulin
+        # Install from outside the repo so the project's pinned MSRV
+        # (1.89 in rust-toolchain.toml) doesn't gate the install. The
+        # latest cargo-tarpaulin pulls in `cargo-platform` 0.3.x, which
+        # requires rustc ≥1.91; the runner's stable toolchain handles it.
+        working-directory: /tmp
         run: cargo install --locked cargo-tarpaulin
       - name: Run coverage with floor
         # Tarpaulin's --fail-under <pct> exits non-zero if total
