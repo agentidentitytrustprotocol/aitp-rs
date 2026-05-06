@@ -107,8 +107,10 @@ jobs:
           # cargo-semver-checks fails to resolve `main^{tree}`. The SHA
           # is unambiguous and present after `fetch-depth: 0`.
           baseline-rev: ${{ github.event.pull_request.base.sha }}
-          # Skip the workspace-only crates that aren't published.
-          exclude: aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures
+          # Skip the workspace-only crates that aren't published, plus
+          # any crate that's brand-new in this PR (semver-checks needs
+          # a baseline to compare against; new crates have none).
+          exclude: aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-session-bundle
 
   msrv:
     name: cargo-msrv (workspace)
@@ -125,8 +127,12 @@ jobs:
         working-directory: /tmp
         run: cargo install --locked cargo-msrv
       - name: Verify pinned MSRV (1.88) still builds
-        # Don't search; just verify the rust-toolchain.toml pin compiles.
-        run: cargo msrv verify
+        # cargo-msrv verify reads `package.rust-version` from a single
+        # package manifest — it doesn't understand virtual workspaces.
+        # Point it at the facade crate, which transitively depends on
+        # every protocol crate via path deps. If `aitp` compiles under
+        # 1.88, the whole workspace does.
+        run: cargo msrv verify --manifest-path crates/aitp/Cargo.toml
 
   coverage:
     name: coverage (tarpaulin)
