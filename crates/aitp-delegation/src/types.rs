@@ -1,16 +1,20 @@
-//! Wire types for delegation tokens (RFC-AITP-0006).
+//! Wire types for delegation tokens (RFC-AITP-0006 single-hop;
+//! RFC-AITP-0011 multi-hop).
 
 use aitp_core::{Aid, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
-/// A single-hop delegation token.
+/// A delegation token.
 ///
-/// Issued by B (who holds a TCT from A) to authorize C to act with a
-/// subset of B's grants. Verified by A.
+/// Single-hop (RFC-AITP-0006): `chain` is absent or empty. Issued by B
+/// (who holds a TCT from A) to authorize C to act with a subset of B's
+/// grants. Verified by A.
 ///
-/// Schema is `additionalProperties: false`; v0.1 has no `extensions`
-/// slot on the delegation token.
+/// Multi-hop (RFC-AITP-0011): `chain` is non-empty and `chain_hash` is
+/// REQUIRED. The chain holds the first n-1 steps oldest-first; the
+/// most-recent step lives in the top-level `grant_proof`. Total hop
+/// count is `chain.len() + 1`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DelegationToken {
@@ -28,13 +32,36 @@ pub struct DelegationToken {
     pub expires_at: Timestamp,
     /// C's raw 32-byte Ed25519 public key (43-char base64url) for PoP.
     pub cnf: String,
-    /// A's original signed grant to B, used for stateless scope-subset
-    /// checks.
+    /// Most-recent hop's projection. For single-hop tokens this is A's
+    /// original signed grant to B. For multi-hop (RFC-AITP-0011) this
+    /// is the last DelegationStep, which authorizes `issued_by` to
+    /// issue the outer delegation.
     pub grant_proof: GrantProof,
+    /// Multi-hop chain (RFC-AITP-0011). Absent or empty means single-hop
+    /// (the v0.1 case). Ordered oldest hop first; `chain[0].issuer`
+    /// MUST equal `delegator` (A) and is what roots the chain.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain: Option<Vec<DelegationStep>>,
+    /// Truncation-defense binding (RFC-AITP-0011 §5). REQUIRED whenever
+    /// `chain` is non-empty. `base64url(sha256(canonical_json([
+    /// chain[0].source_tct_jti, ..., chain[n-2].source_tct_jti])))`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub chain_hash: Option<String>,
     /// B's signature over the JCS canonicalization of this token minus
     /// `signature`.
     pub signature: String,
 }
+
+/// One link in a multi-hop delegation chain (RFC-AITP-0011 §1.1).
+///
+/// Same wire shape as [`GrantProof`]. The semantics differ: `chain[0]`
+/// references A's original peer-issued TCT (`source_tct_jti` is the
+/// JTI of that TCT and the signature is reused verbatim from it). For
+/// `chain[i > 0]` the `signature` is the issuer's signature over the
+/// canonical step body (excluding `signature`); `source_tct_jti` is a
+/// fresh UUIDv4 the issuer assigned at minting time and only ever
+/// participates in `chain_hash` and per-hop revocation.
+pub type DelegationStep = GrantProof;
 
 /// Minimized record of A's original TCT issued to B.
 ///
@@ -101,6 +128,8 @@ mod tests {
                 source_tct_jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
                 signature: "A".repeat(86),
             },
+            chain: None,
+            chain_hash: None,
             signature: "A".repeat(86),
         }
     }

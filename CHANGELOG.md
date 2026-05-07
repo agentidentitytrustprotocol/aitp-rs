@@ -5,6 +5,136 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased] — v0.2 (in progress)
+
+Tracked in `plans/v0.2-roadmap.md`. Phase 1 first.
+
+### Added — DPoP scaffolding (Phase 6, RFC 9449)
+
+- **`aitp-transport-http::dpop`** module with `DpopProof`,
+  `DpopHeader::parse`, and a `verify_dpop_proof` stub returning
+  `DpopError::NotImplemented`. 4 unit tests cover header parsing.
+- Full DPoP verification (signature, htm/htu/iat binding,
+  replay-cache, `cnf.jkt` thumbprint check) is **deferred** — see
+  `plans/v0.2-closeout.md` Phase 6.
+
+### Added — CI hardening (Phase 8)
+
+- New CI jobs: `semver` (cargo-semver-checks vs PR base ref),
+  `msrv` (cargo-msrv verify), `coverage` (cargo-tarpaulin → Cobertura
+  artifact).
+- Fuzz scaffolding under `fuzz/` (excluded from the main workspace
+  for cargo-fuzz's nightly profile): targets for envelope parsing,
+  manifest parsing, delegation parsing. Run via
+  `cd fuzz && cargo +nightly fuzz run <target>`.
+
+### Documented — design / follow-ups
+
+- `plans/v0.2-roadmap.md` — full 9-phase plan with dependencies.
+- `plans/v0.2-closeout.md` — what landed, what's deferred, exact
+  pickup order for the next session.
+- `plans/v0.2-crypto-agility-design.md` — Phase 7 implementation
+  sketch. Implementation blocked on spec-side algorithm identifier.
+- (Spec repo) `plans/v0.2-conformance-followups.md` — concrete
+  list of KATs and conformance fixtures still to mint.
+
+### Added — Session Trust Bundle (Phase 5, RFC-AITP-0010)
+
+- **New crate `aitp-session-bundle`.** Coordinator-attested membership
+  artifact for multi-agent sessions. Redistributes N bilateral
+  coordinator↔participant Mutual Handshakes to all participants
+  without requiring an O(N²) full mesh.
+- Types: `SessionTrustBundle`, `ParticipantEntry`,
+  `SessionBundleEnvelope`. Schema-conformant with the new
+  `schemas/json/aitp-session-bundle.schema.json` shipped in the
+  spec repo's Phase 3 PR.
+- `SessionBundleBuilder` — coordinator-side: collects N participant
+  TCTs, validates `issuer == coordinator` and `audience == aid`
+  invariants, computes `expires_at = min(participant TCT expiries)`
+  per RFC-AITP-0010 §6, JCS-canonicalizes and signs.
+- `verify_session_bundle` — checks version, expiry, expiry-window
+  invariant, member presence, outer signature, per-participant TCT
+  validity. Per-pair revocation degradation: revoked participants
+  are dropped from the active set rather than invalidating the
+  whole bundle (`BundleOutcome::DegradedSubset`).
+- 8 new integration tests in `crates/aitp-session-bundle/tests/round_trip.rs`
+  — happy path with 3 participants, non-member, expired, tampered
+  signature, revoked-participant degraded subset, empty
+  participants, audience mismatch at build, schema rejection of
+  unknown fields.
+- Re-exported via `aitp::session_bundle` facade.
+
+### Added — multi-hop delegation (Phase 4, RFC-AITP-0011)
+
+- **`DelegationToken` carries optional `chain` and `chain_hash`** for
+  delegation chains longer than one hop. Single-hop tokens are
+  byte-identical to pre-rc.1 (both fields skip-if-none in JCS view).
+- **`DelegationStep`** type alias for `GrantProof`. Each `chain[i]` is
+  a step; the most-recent step lives in the top-level `grant_proof`.
+- **`VerifyDelegationContext::max_hops`** caps total chain length
+  (default 3 from RFC-AITP-0011 §2). Setting `0` reverts to strict
+  v0.1 posture (rejects any chain with `MultihopNotSupported`).
+- **Verifier per-hop checks** (RFC-AITP-0011 §3-§6): hop-0 source-TCT
+  projection signature; hops i>0 step-body JCS signature; audience
+  continuity through chain; `chain[0].issuer == delegator`; per-hop
+  expiry monotonically non-increasing; transitive scope subsetting
+  end-to-end; per-hop revocation lookup; JTI uniqueness within chain;
+  `chain_hash` recompute and outer-signature-binding check.
+- **New error variants**: `HopLimitExceeded`, `ChainHashMismatch`. The
+  conformance adapter maps these to `DELEGATION_HOP_LIMIT_EXCEEDED`
+  and `DELEGATION_CHAIN_HASH_MISMATCH` per the new RFC-AITP-0011
+  registry. `MultihopNotSupported` is now mapped to the spec's
+  `DELEGATION_MULTIHOP_NOT_SUPPORTED` (was `MULTIHOP_NOT_SUPPORTED`).
+- **9 new integration tests** in `crates/aitp-delegation/tests/multihop.rs`
+  — 3-hop happy path, hop-limit exceeded, max_hops=0 (strict v0.1),
+  chain_hash tampered, chain truncation, scope inflation, revoked
+  hop, duplicate JTI, single-hop unchanged.
+
+### Added — production posture (Phase 2)
+
+- **`tracing` instrumentation.** `aitp-transport-http` now emits structured
+  `tracing` spans on `ManifestFetcher::fetch` and `JwksFetcher::resolve`,
+  with span fields for the target origin/issuer. Library code is
+  zero-cost when consumers don't install a subscriber. Add
+  `tracing-subscriber = "0.3"` and call e.g.
+  `tracing_subscriber::fmt::init()` in your binary to enable.
+- **Retry policy for transient fetches.** `RetryPolicy` (in
+  `aitp-transport-http::retry`) carries an exponential-backoff
+  configuration: `none()`, `conservative()` (3 attempts / 100 ms
+  base / 1 s cap), `aggressive()` (5 attempts / 200 ms / 5 s cap),
+  or `custom(...)`. Wired into `ManifestFetcher::with_retry_policy`.
+  Only transient errors (`Timeout`, `Network(_)`, 5xx upstream) are
+  retried; verification, oversize, and content-type errors are not.
+  Default is no retry (rc.1 behavior preserved).
+
+### Deferred — production posture (to Phase 9)
+
+These items were in the original Phase 2 scope but moved to Phase 9
+polish since they are deployment-tunable rather than library-level
+concerns:
+
+- TLS root-CA override / certificate pinning (currently uses
+  `reqwest`'s system roots).
+- HTTP header-size cap and per-chunk slow-loris read timeout
+  (axum/hyper provides `http1_max_buf_size`; deployment tunable).
+- OIDC discovery cache + `iss` URL normalization (will land with
+  Phase 6 OIDC DPoP work).
+
+### Fixed — production safety (Phase 1)
+
+- **HTTP server mutex poisoning DoS** (post-rc.1 audit P0). `HandshakeState`
+  used `std::sync::Mutex` for its session map and message-id deny list,
+  with `.lock().unwrap()` at every call site
+  (`crates/aitp-transport-http/src/server.rs:351,399,619`). A panic in
+  any locked section would have poisoned the mutex; subsequent requests
+  would have unwrapped on `PoisonError` and crashed the request handler
+  permanently. The `JwksFetcher` cache (`client.rs:170,186,205`) had
+  the same shape, as did the demo agent's session map
+  (`examples/two-agents/src/bin/agent-b.rs:129,162`).
+  Swapped to `parking_lot::Mutex` (no poison state, drop-in API)
+  workspace-wide; all `.lock().unwrap()` call sites are gone. No
+  observable behavior change in the happy path.
+
 ## [v0.1.0-rc.1]
 
 Release-candidate gate over beta.1. Six P0/P1 bugs from the

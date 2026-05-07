@@ -19,8 +19,9 @@ use axum::{
     Json, Router,
 };
 use clap::Parser;
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use tokio::net::TcpListener;
 use uuid::Uuid;
 
@@ -126,7 +127,7 @@ async fn handle_hello(
     )
     .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
     let session_id = Uuid::new_v4();
-    state.sessions.lock().unwrap().insert(session_id, responder);
+    state.sessions.lock().insert(session_id, responder);
     // The ack envelope MUST use the same `(ack_mid, ack_ts)` that was
     // used to build the identity proof inside `ack_payload`, because the
     // pinned-key proof binding is `sha256(envelope.message_id|timestamp)`.
@@ -158,7 +159,6 @@ async fn handle_commit(
     let mut responder = state
         .sessions
         .lock()
-        .unwrap()
         .remove(&session_id)
         .ok_or_else(|| (StatusCode::BAD_REQUEST, "unknown session".to_string()))?;
     let payload: MutualCommitPayload = serde_json::from_value(envelope.payload.clone())

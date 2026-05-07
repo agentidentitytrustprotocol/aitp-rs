@@ -86,9 +86,8 @@
               "pinned_key"
             ]
           },
-          "minItems": 1,
           "uniqueItems": true,
-          "description": "Identity binding types this agent accepts from peers (RFC-AITP-0002). If absent, peers MUST treat as [\"oidc\"]. Used at discovery time when the peer's identity is not OIDC-based."
+          "description": "Identity binding types this agent accepts from peers (RFC-AITP-0002). Default semantics per RFC-AITP-0003 §3.2: an absent field defaults to [\"oidc\"]; an explicitly empty [] means 'accept no identity type' (rejects every peer with INCOMPATIBLE_TRUST_ANCHORS). Publishers SHOULD omit the field when the default is desired."
         },
         "proof_of_possession": {
           "type": "object",

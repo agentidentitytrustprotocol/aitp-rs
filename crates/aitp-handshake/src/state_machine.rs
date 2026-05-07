@@ -18,6 +18,7 @@ use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, Tct, TctBuilder, TctEnvelope, TctVerifyContext};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
+use tracing::debug;
 use uuid::Uuid;
 
 /// Local trust store for pinned Ed25519 public keys.
@@ -472,6 +473,12 @@ impl Initiator {
         requested_grants: Vec<String>,
     ) -> Result<(Self, MutualHelloPayload), HandshakeError> {
         let session_id = Uuid::new_v4();
+        debug!(
+            initiator_aid = %cfg.signing_key.aid(),
+            peer_aid = %peer_aid,
+            %session_id,
+            "handshake start (Initiator → AwaitingHelloAck)"
+        );
         let pop_nonce = fresh_nonce()?;
         let descriptor = identity.build_descriptor(
             &IdentityPresentationContext {
@@ -514,6 +521,11 @@ impl Initiator {
             } => (*session_id, my_pop_nonce.clone()),
             _ => return Err(HandshakeError::State("on_hello_ack out of order")),
         };
+        debug!(
+            %session_id,
+            message_id = %envelope.message_id,
+            "Initiator: AwaitingHelloAck → AwaitingCommitAck"
+        );
         if ack.pop_nonce_echo != my_pop_nonce {
             self.state = InitiatorState::Failed;
             return Err(HandshakeError::NonceMismatch);
@@ -561,6 +573,10 @@ impl Initiator {
         ack: &MutualCommitAckPayload,
         cfg: &PeerConfig<'_>,
     ) -> Result<Tct, HandshakeError> {
+        debug!(
+            message_id = %envelope.message_id,
+            "Initiator: AwaitingCommitAck → Done"
+        );
         let (peer_aid, peer_pubkey, my_pop_nonce, peer_manifest_expires_at) = match &self.state {
             InitiatorState::AwaitingCommitAck {
                 peer_aid,
@@ -642,6 +658,12 @@ impl Responder {
         cfg: &PeerConfig<'_>,
         my_requested_grants: Vec<String>,
     ) -> Result<(Self, MutualHelloAckPayload), HandshakeError> {
+        debug!(
+            responder_aid = %cfg.signing_key.aid(),
+            initiator_aid = ?envelope.sender.agent_id,
+            message_id = %envelope.message_id,
+            "Responder: Initial → AwaitingCommit"
+        );
         let peer_pubkey = bootstrap_verify_peer(
             envelope,
             &hello.manifest,
@@ -692,6 +714,10 @@ impl Responder {
         commit: &MutualCommitPayload,
         cfg: &PeerConfig<'_>,
     ) -> Result<(MutualCommitAckPayload, Tct), HandshakeError> {
+        debug!(
+            message_id = %envelope.message_id,
+            "Responder: AwaitingCommit → Done"
+        );
         let (
             peer_aid,
             peer_pubkey,

@@ -121,7 +121,11 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "issue_manifest" => issue_manifest_op(state, id, params),
         "issue_tct" => issue_tct_op(state, id, params),
         "issue_delegation_token" => issue_delegation_op(state, id, params),
+        "issue_session_bundle" => issue_session_bundle_op(state, id, params),
         "sign_envelope" => sign_envelope_op(state, id, params),
+
+        // Session bundle (RFC-AITP-0010, Tier A verify)
+        "verify_session_bundle" => verify_session_bundle_op(state, id, params),
 
         // Tier C
         "start_handshake" => start_handshake_op(state, id, params),
@@ -162,7 +166,9 @@ fn init(id: &str) -> Value {
         "issue_manifest",
         "issue_tct",
         "issue_delegation_token",
+        "issue_session_bundle",
         "sign_envelope",
+        "verify_session_bundle",
         // Tier C
         "start_handshake",
         "process_handshake_message",
@@ -620,6 +626,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         verifier_aid: &verifier_aid,
         now,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     match aitp_delegation::verify_delegation(&token, &ctx) {
         Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
@@ -637,7 +644,9 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         SourceTctRevoked => "SOURCE_TCT_REVOKED",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
-        MultihopNotSupported => "MULTIHOP_NOT_SUPPORTED",
+        MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
+        HopLimitExceeded => "DELEGATION_HOP_LIMIT_EXCEEDED",
+        ChainHashMismatch => "DELEGATION_CHAIN_HASH_MISMATCH",
         SelfDelegation => "INVALID_REQUEST",
         EmptyScope | CnfMalformed | MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
@@ -1707,4 +1716,208 @@ fn dump_session_op(state: &AdapterState, id: &str, params: Value) -> Value {
 
 fn err(id: &str, code: &str, message: &str) -> Value {
     json!({"id": id, "ok": false, "error_code": code, "message": message})
+}
+
+// ── Session Trust Bundle (RFC-AITP-0010) ────────────────────────────────
+
+fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
+    use aitp_session_bundle::SessionBundleBuilder;
+
+    let handle = match params.get("coordinator_keypair").and_then(|v| v.as_str()) {
+        Some(s) => s,
+        None => return err(id, "INVALID_REQUEST", "missing 'coordinator_keypair'"),
+    };
+    let coord = match state.key_for(handle) {
+        Some(k) => k,
+        None => return err(id, "INVALID_REQUEST", &format!("unknown keypair {handle}")),
+    };
+    let participants_json = match params.get("participants").and_then(|v| v.as_array()) {
+        Some(a) => a.clone(),
+        None => return err(id, "INVALID_REQUEST", "missing 'participants' array"),
+    };
+    let mut builder = SessionBundleBuilder::new(&coord);
+    if let Some(sid) = params
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
+    {
+        builder = builder.session_id(sid);
+    }
+    if let Some(now) = params.get("issued_at").and_then(|v| v.as_i64()) {
+        builder = builder.issued_at(Timestamp(now));
+    }
+    for entry in &participants_json {
+        let aid = match entry.get("aid").and_then(|v| v.as_str()).map(Aid::parse) {
+            Some(Ok(a)) => a,
+            _ => return err(id, "INVALID_REQUEST", "participant entry missing valid aid"),
+        };
+        let tct = match serde_json::from_value::<aitp_tct::Tct>(
+            entry.get("tct").cloned().unwrap_or_default(),
+        ) {
+            Ok(t) => t,
+            Err(e) => return err(id, "INVALID_REQUEST", &format!("participant tct: {e}")),
+        };
+        builder = builder.participant(aid, tct);
+    }
+    match builder.build() {
+        Ok(bundle) => json!({
+            "id": id,
+            "ok": true,
+            "result": {
+                "session_bundle": bundle
+            }
+        }),
+        Err(e) => err(id, &bundle_error_code(&e), &e.to_string()),
+    }
+}
+
+fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
+    use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+
+    // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}, "signature": "..."}`.
+    // The internal `SessionTrustBundle` keeps `signature` as a field
+    // *inside* the body (rc.1 representation); the envelope wrapper
+    // is what's on the wire. Accept either:
+    //
+    // - `params.session_bundle = {<body with signature inside>}`
+    //   (legacy internal callers)
+    // - `params.session_bundle = {"session_bundle": {<body>}, "signature": "..."}`
+    //   (spec wire envelope; `bundle-*` conformance fixtures)
+    // - `params.bundle_envelope = <envelope>`
+    //
+    // Reassemble into the internal shape (signature inside body)
+    // before deserialization.
+    let bundle_value = if let Some(inner) = params.get("session_bundle") {
+        // Detect envelope form: outer object has exactly the
+        // "session_bundle" + "signature" pair.
+        if let Some(map) = inner.as_object() {
+            if map.contains_key("session_bundle") && map.contains_key("signature") {
+                let mut body = map["session_bundle"].clone();
+                if let Some(b_map) = body.as_object_mut() {
+                    b_map.insert("signature".into(), map["signature"].clone());
+                }
+                body
+            } else {
+                inner.clone()
+            }
+        } else {
+            inner.clone()
+        }
+    } else if let Some(env) = params.get("bundle_envelope") {
+        if let Some(map) = env.as_object() {
+            let mut body = map.get("session_bundle").cloned().unwrap_or_default();
+            if let Some(b_map) = body.as_object_mut() {
+                if let Some(sig) = map.get("signature") {
+                    b_map.insert("signature".into(), sig.clone());
+                }
+            }
+            body
+        } else {
+            env.clone()
+        }
+    } else {
+        return err(id, "INVALID_REQUEST", "missing 'session_bundle'");
+    };
+    let bundle: aitp_session_bundle::SessionTrustBundle = match serde_json::from_value(bundle_value)
+    {
+        Ok(b) => b,
+        Err(e) => return err(id, "INVALID_REQUEST", &format!("malformed bundle: {e}")),
+    };
+    // Spec's PLACEHOLDERS.md uses `self_aid` for the receiving
+    // participant; older internal callers use `verifier_aid`.
+    // Accept either.
+    let verifier_aid = match params
+        .get("verifier_aid")
+        .or_else(|| params.get("self_aid"))
+        .and_then(|v| v.as_str())
+        .map(Aid::parse)
+    {
+        Some(Ok(a)) => a,
+        _ => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing/invalid verifier_aid (or self_aid)",
+            )
+        }
+    };
+    let now = params
+        .get("now")
+        .and_then(|v| v.as_i64())
+        .map(Timestamp)
+        .unwrap_or_else(|| state.now());
+    let revoked: std::collections::HashSet<Uuid> = params
+        .get("revoked_jtis")
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str())
+                .filter_map(|s| Uuid::parse_str(s).ok())
+                .collect()
+        })
+        .unwrap_or_default();
+    let check = |jti: &Uuid| revoked.contains(jti);
+    let revocation_check: Option<&dyn Fn(&Uuid) -> bool> = if revoked.is_empty() {
+        None
+    } else {
+        Some(&check)
+    };
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: &verifier_aid,
+        now,
+        revocation_check,
+    };
+    match verify_session_bundle(&bundle, &ctx) {
+        Ok(BundleOutcome::Clear { active_aids }) => {
+            let aids: Vec<String> = active_aids.iter().map(|a| a.to_string()).collect();
+            json!({
+                "id": id,
+                "ok": true,
+                "result": { "verified": true, "outcome": "clear", "active_aids": aids }
+            })
+        }
+        Ok(BundleOutcome::DegradedSubset {
+            active_aids,
+            dropped_aids,
+        }) => {
+            let active: Vec<String> = active_aids.iter().map(|a| a.to_string()).collect();
+            let dropped: Vec<String> = dropped_aids.iter().map(|a| a.to_string()).collect();
+            json!({
+                "id": id,
+                "ok": true,
+                "result": {
+                    "verified": true,
+                    "outcome": "degraded_subset",
+                    "active_aids": active,
+                    "dropped_aids": dropped,
+                }
+            })
+        }
+        Err(e) => err(id, &bundle_error_code(&e), &e.to_string()),
+    }
+}
+
+/// Map [`SessionBundleError`] to a stable conformance code. The
+/// `BUNDLE_*` codes match the names proposed in
+/// `agentidentitytrustprotocol/plans/v0.2-conformance-followups.md` §4
+/// for inclusion in the RFC-AITP-0001 error registry. They are emitted
+/// here ahead of the spec PR so that fixtures using these codes can be
+/// minted without a downstream waiting cycle.
+fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
+    use aitp_session_bundle::SessionBundleError::*;
+    match e {
+        VersionMismatch => "BUNDLE_VERSION_MISMATCH",
+        InvalidSignature => "BUNDLE_INVALID_SIGNATURE",
+        Expired => "BUNDLE_EXPIRED",
+        ExpiryWindowInvariant => "BUNDLE_EXPIRY_WINDOW_INVARIANT",
+        CoordinatorIssuerMismatch => "BUNDLE_COORDINATOR_ISSUER_MISMATCH",
+        AudienceMismatch => "BUNDLE_AUDIENCE_MISMATCH",
+        NotMember => "BUNDLE_NOT_MEMBER",
+        EmptyParticipants => "BUNDLE_EMPTY_PARTICIPANTS",
+        MissingField(_) => "INVALID_REQUEST",
+        Canonicalization(_) => "INTERNAL_ERROR",
+        TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
+        Crypto(_) => "INVALID_SIGNATURE",
+    }
+    .to_string()
 }

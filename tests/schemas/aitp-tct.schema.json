@@ -90,6 +90,10 @@
           "minLength": 1,
           "description": "Unpadded base64url signature (RFC 4648 \u00a75) by the issuing peer over the JCS-canonicalized TCT JSON (RFC 8785), excluding this field. See RFC-AITP-0001 \u00a75.4.",
           "pattern": "^[A-Za-z0-9_-]{86}$"
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 \u00a77 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
         }
       },
       "additionalProperties": false

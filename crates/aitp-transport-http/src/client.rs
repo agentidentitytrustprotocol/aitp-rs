@@ -1,10 +1,13 @@
 //! HTTP client primitives: Manifest fetcher + JWKS resolver.
 
+use crate::client_config::ClientConfig;
+use crate::retry::RetryPolicy;
 use aitp_core::{Aid, Timestamp};
 use aitp_manifest::{verify_manifest, Manifest, ManifestEnvelope, VerifyManifestContext};
+use parking_lot::Mutex;
 use std::collections::HashMap;
-use std::sync::Mutex;
 use std::time::Duration;
+use tracing::{debug, instrument, warn};
 use url::Url;
 
 /// Errors from `ManifestFetcher::fetch`.
@@ -47,6 +50,23 @@ pub enum FetchError {
 /// accidental megabyte-sized responses.
 pub const DEFAULT_MAX_MANIFEST_BYTES: usize = 256 * 1024;
 
+/// Whether a [`FetchError`] is transient and worth retrying. Network
+/// errors, timeouts, and 5xx upstream statuses are transient; everything
+/// else is a content-shape problem the next attempt would also fail.
+fn is_transient(err: &FetchError) -> bool {
+    match err {
+        FetchError::Timeout => true,
+        FetchError::Network(_) => true,
+        FetchError::UpstreamStatus(s) => *s >= 500,
+        FetchError::InsecureUrl
+        | FetchError::MalformedJson(_)
+        | FetchError::MalformedWrapper
+        | FetchError::WrongContentType(_)
+        | FetchError::OversizedResponse { .. }
+        | FetchError::VerificationFailed(_) => false,
+    }
+}
+
 /// Cache entry — keyed on `Aid`, holding the parsed Manifest plus its
 /// own published/expires window. We honor `expires_at` on lookup
 /// (RFC-AITP-0003 §4.2) so the cache never serves a Manifest the issuer
@@ -66,6 +86,8 @@ pub struct ManifestFetcher {
     timeout: Duration,
     /// Maximum response body size, bytes.
     max_bytes: usize,
+    /// Retry policy for transient network failures (default: no retry).
+    retry_policy: RetryPolicy,
 }
 
 impl ManifestFetcher {
@@ -79,6 +101,7 @@ impl ManifestFetcher {
             cache: Mutex::new(HashMap::new()),
             timeout: Duration::from_secs(10),
             max_bytes: DEFAULT_MAX_MANIFEST_BYTES,
+            retry_policy: RetryPolicy::none(),
         }
     }
 
@@ -95,11 +118,33 @@ impl ManifestFetcher {
         self
     }
 
+    /// Override the retry policy. Defaults to [`RetryPolicy::none`]
+    /// (single attempt). Only transient failures (timeout, 5xx,
+    /// network) are retried; verification or oversize errors are
+    /// returned on the first attempt.
+    pub fn with_retry_policy(mut self, policy: RetryPolicy) -> Self {
+        self.retry_policy = policy;
+        self
+    }
+
+    /// Override the underlying `reqwest` client with a fresh one
+    /// built from the supplied [`ClientConfig`] (connection pool +
+    /// TLS knobs). The fetcher's per-request timeout is preserved.
+    pub fn with_client_config(mut self, cfg: ClientConfig) -> Self {
+        let builder = reqwest::Client::builder().timeout(self.timeout);
+        self.client = cfg
+            .apply(builder)
+            .build()
+            .expect("reqwest client builds with supplied config");
+        self
+    }
+
     /// Fetch and verify a Manifest from a peer's well-known endpoint.
     ///
     /// `peer_origin` is something like `https://agent-b.example.com`. The
     /// fetcher GETs `peer_origin.join("/.well-known/aitp-manifest")`,
     /// parses `{"manifest": {...}}`, verifies, caches, and returns.
+    #[instrument(level = "debug", skip(self), fields(origin = %peer_origin))]
     pub async fn fetch(&self, peer_origin: &Url) -> Result<Manifest, FetchError> {
         if peer_origin.scheme() != "https" {
             // Allow http://localhost for local dev (demo).
@@ -113,9 +158,37 @@ impl ManifestFetcher {
         let url = peer_origin
             .join("/.well-known/aitp-manifest")
             .map_err(|e| FetchError::Network(e.to_string()))?;
+        let max_attempts = self.retry_policy.max_attempts();
+        let mut last_err: Option<FetchError> = None;
+        for attempt in 1..=max_attempts {
+            let delay = self.retry_policy.delay_before(attempt);
+            if !delay.is_zero() {
+                debug!(?delay, attempt, "manifest fetch retry sleep");
+                tokio::time::sleep(delay).await;
+            }
+            match self.fetch_attempt(&url).await {
+                Ok(manifest) => {
+                    if attempt > 1 {
+                        debug!(attempt, "manifest fetch succeeded after retry");
+                    }
+                    return Ok(manifest);
+                }
+                Err(e) if is_transient(&e) && attempt < max_attempts => {
+                    warn!(attempt, error = %e, "manifest fetch transient error; retrying");
+                    last_err = Some(e);
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err.unwrap_or(FetchError::Network("unreachable".into())))
+    }
+
+    /// Single fetch attempt; the retry harness in `fetch` calls this
+    /// once per attempt.
+    async fn fetch_attempt(&self, url: &Url) -> Result<Manifest, FetchError> {
         let resp = self
             .client
-            .get(url)
+            .get(url.clone())
             .timeout(self.timeout)
             .send()
             .await
@@ -167,11 +240,17 @@ impl ManifestFetcher {
     /// stale Manifests are not served.
     pub fn cached(&self, aid: &Aid) -> Option<Manifest> {
         let now = Timestamp::now();
-        let cache = self.cache.lock().unwrap();
-        cache
+        let cache = self.cache.lock();
+        let result = cache
             .get(aid)
             .filter(|e| e.expires_at.0 > now.0)
-            .map(|e| e.manifest.clone())
+            .map(|e| e.manifest.clone());
+        if result.is_some() {
+            debug!(%aid, "manifest cache hit");
+        } else {
+            debug!(%aid, "manifest cache miss");
+        }
+        result
     }
 
     /// Replace a cached Manifest with one carried inline in a handshake
@@ -183,7 +262,7 @@ impl ManifestFetcher {
     /// Returns `true` if the cache was updated.
     pub fn maybe_replace_inline(&self, manifest: Manifest) -> bool {
         let aid = manifest.aid.clone();
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock();
         let current_published = cache.get(&aid).map(|e| e.published_at);
         match current_published {
             Some(existing) if manifest.published_at.0 <= existing.0 => false,
@@ -202,7 +281,7 @@ impl ManifestFetcher {
     }
 
     fn insert_cache(&self, aid: Aid, manifest: Manifest) {
-        let mut cache = self.cache.lock().unwrap();
+        let mut cache = self.cache.lock();
         cache.insert(
             aid,
             CacheEntry {
@@ -239,9 +318,21 @@ pub enum JwksFetcherError {
     UnsupportedJwk(String),
 }
 
+/// Default OIDC discovery cache TTL (1 hour). The
+/// `.well-known/openid-configuration` document changes very rarely;
+/// caching the resolved `jwks_uri` for an hour saves one round trip
+/// on every JWKS lookup without giving up freshness on real key
+/// rotations (the JWKS itself is fetched per call).
+pub const DEFAULT_OIDC_DISCOVERY_TTL: Duration = Duration::from_secs(3600);
+
+struct DiscoveryCacheEntry {
+    jwks_uri: Url,
+    inserted_at: std::time::Instant,
+}
+
 /// HTTP client that resolves an OIDC issuer to its JWKS.
 ///
-/// Hardened per RFC-AITP-0007 §2 / Phase 9.4:
+/// Hardened per RFC-AITP-0007 §2:
 /// - HTTPS-only for both discovery and `jwks_uri`. HTTP and HTTP-bearing
 ///   redirects are rejected outright.
 /// - Configurable per-request timeout (default 10 s).
@@ -249,8 +340,19 @@ pub enum JwksFetcherError {
 ///   parse failure.
 /// - On OIDC discovery failure, falls back to AITP's native
 ///   `/.well-known/aitp-keys` endpoint (RFC-AITP-0007 §2.3).
+/// - Discovery responses are cached for [`DEFAULT_OIDC_DISCOVERY_TTL`];
+///   override with [`Self::with_discovery_ttl`].
+/// - `iss` claim and the requested issuer URL are compared using a
+///   tolerant normalization (lowercase host, single trailing slash
+///   stripped) so common IdP shape differences don't fail the check.
+/// - On a JWKS `kid` miss, callers can use
+///   [`Self::resolve_with_kid_hint`] to trigger a one-shot
+///   discovery-cache invalidation + refetch.
 pub struct JwksFetcher {
     client: reqwest::Client,
+    timeout: Duration,
+    discovery_cache: Mutex<HashMap<Url, DiscoveryCacheEntry>>,
+    discovery_ttl: Duration,
 }
 
 impl JwksFetcher {
@@ -272,12 +374,79 @@ impl JwksFetcher {
                 .redirect(reqwest::redirect::Policy::none())
                 .build()
                 .expect("reqwest client builds"),
+            timeout,
+            discovery_cache: Mutex::new(HashMap::new()),
+            discovery_ttl: DEFAULT_OIDC_DISCOVERY_TTL,
         }
+    }
+
+    /// Override the OIDC discovery cache TTL. Defaults to
+    /// [`DEFAULT_OIDC_DISCOVERY_TTL`] (1 hour). Set to
+    /// `Duration::ZERO` to disable caching entirely.
+    pub fn with_discovery_ttl(mut self, ttl: Duration) -> Self {
+        self.discovery_ttl = ttl;
+        self
+    }
+
+    /// Force a refresh of the cached OIDC discovery document for
+    /// `issuer`. Call this after a JWKS lookup yields a kid that
+    /// none of the returned keys match — the IdP has rotated keys
+    /// and the cached discovery (or its `jwks_uri`) may be stale.
+    pub fn invalidate_discovery_cache(&self, issuer: &Url) {
+        let normalized = normalize_issuer_url(issuer);
+        let mut cache = self.discovery_cache.lock();
+        cache.remove(&normalized);
+    }
+
+    /// Resolve and return only those JWKs whose `kid` matches the
+    /// supplied hint. If no key matches and the discovery cache had
+    /// a hit, the cache is invalidated and one fresh fetch is
+    /// attempted. Returns an empty Vec if still no match — callers
+    /// decide policy.
+    ///
+    /// Pass `None` to skip kid filtering (equivalent to
+    /// [`Self::resolve`]).
+    pub async fn resolve_with_kid_hint(
+        &self,
+        issuer: &Url,
+        kid_hint: Option<&str>,
+    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, JwksFetcherError> {
+        let keys = self.resolve(issuer).await?;
+        let Some(kid) = kid_hint else {
+            return Ok(keys);
+        };
+        if keys.iter().any(|k| k.kid.as_deref() == Some(kid)) {
+            return Ok(keys);
+        }
+        // Kid miss. The IdP may have rotated; try once more after
+        // invalidating discovery.
+        tracing::debug!(
+            kid,
+            issuer = %issuer,
+            "JWKS kid miss; invalidating discovery cache and refetching"
+        );
+        self.invalidate_discovery_cache(issuer);
+        self.resolve(issuer).await
+    }
+
+    /// Override the underlying `reqwest` client with a fresh one
+    /// built from the supplied [`ClientConfig`]. Preserves the per-
+    /// request timeout and the no-redirect safety policy.
+    pub fn with_client_config(mut self, cfg: ClientConfig) -> Self {
+        let builder = reqwest::Client::builder()
+            .timeout(self.timeout)
+            .redirect(reqwest::redirect::Policy::none());
+        self.client = cfg
+            .apply(builder)
+            .build()
+            .expect("reqwest client builds with supplied config");
+        self
     }
 
     /// Resolve `issuer/.well-known/openid-configuration`, then its
     /// `jwks_uri`, returning every parseable JWK. On any OIDC discovery
     /// failure, falls back to AITP's `<issuer>/.well-known/aitp-keys`.
+    #[instrument(level = "debug", skip(self), fields(issuer = %issuer))]
     pub async fn resolve(
         &self,
         issuer: &Url,
@@ -303,10 +472,45 @@ impl JwksFetcher {
         &self,
         issuer: &Url,
     ) -> Result<Vec<aitp_handshake::JwkPublicKey>, JwksFetcherError> {
-        let discovery_url = issuer
+        let jwks_url = self.resolve_jwks_uri(issuer).await?;
+        let jwks: serde_json::Value = self.fetch_https_json(&jwks_url).await?;
+        parse_jwks(&jwks)
+    }
+
+    /// Two-stage `jwks_uri` resolution: cache hit → use cached;
+    /// miss or expired → fetch discovery, validate, cache, return.
+    async fn resolve_jwks_uri(&self, issuer: &Url) -> Result<Url, JwksFetcherError> {
+        let normalized = normalize_issuer_url(issuer);
+
+        // Cache hit?
+        if !self.discovery_ttl.is_zero() {
+            let cache = self.discovery_cache.lock();
+            if let Some(entry) = cache.get(&normalized) {
+                if entry.inserted_at.elapsed() < self.discovery_ttl {
+                    return Ok(entry.jwks_uri.clone());
+                }
+            }
+        }
+
+        let discovery_url = normalized
             .join("/.well-known/openid-configuration")
             .map_err(|e| JwksFetcherError::Network(e.to_string()))?;
         let discovery: serde_json::Value = self.fetch_https_json(&discovery_url).await?;
+
+        // §3.5 iss URL normalization: the discovery document's
+        // `issuer` claim MUST equal the requested issuer modulo
+        // trailing-slash and scheme-case differences (OIDC Core
+        // 1.0 §3.1.3.7).
+        if let Some(disco_iss_str) = discovery.get("issuer").and_then(|v| v.as_str()) {
+            if let Ok(disco_iss) = Url::parse(disco_iss_str) {
+                if normalize_issuer_url(&disco_iss) != normalized {
+                    return Err(JwksFetcherError::MalformedJson(format!(
+                        "discovery issuer mismatch: requested {normalized}, got {disco_iss}"
+                    )));
+                }
+            }
+        }
+
         let jwks_uri_str = discovery
             .get("jwks_uri")
             .and_then(|v| v.as_str())
@@ -316,8 +520,19 @@ impl JwksFetcher {
         if jwks_url.scheme() != "https" {
             return Err(JwksFetcherError::InsecureUrl);
         }
-        let jwks: serde_json::Value = self.fetch_https_json(&jwks_url).await?;
-        parse_jwks(&jwks)
+
+        if !self.discovery_ttl.is_zero() {
+            let mut cache = self.discovery_cache.lock();
+            cache.insert(
+                normalized,
+                DiscoveryCacheEntry {
+                    jwks_uri: jwks_url.clone(),
+                    inserted_at: std::time::Instant::now(),
+                },
+            );
+        }
+
+        Ok(jwks_url)
     }
 
     async fn resolve_via_aitp_keys(
@@ -360,6 +575,30 @@ impl Default for JwksFetcher {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Normalize an issuer URL for cache-key and OIDC `iss`-claim
+/// comparison: lowercase scheme, lowercase host, strip a single
+/// trailing slash from the path. OIDC Core 1.0 §3.1.3.7 says the
+/// `iss` claim must compare with simple string equality, but
+/// real-world IdPs differ on whether they include a trailing slash;
+/// this normalization is a tolerant superset that lets fields like
+/// `https://idp.example.com` and `https://idp.example.com/` resolve
+/// to the same cache entry.
+pub(crate) fn normalize_issuer_url(url: &Url) -> Url {
+    let mut u = url.clone();
+    if let Some(host) = u.host_str() {
+        let lower = host.to_ascii_lowercase();
+        let _ = u.set_host(Some(&lower));
+    }
+    // url::Url already lowercases the scheme; nothing to do there.
+    // Drop a single trailing slash from the path (but keep "/" for
+    // the bare-root case).
+    let path = u.path().to_string();
+    if path.len() > 1 && path.ends_with('/') {
+        u.set_path(&path[..path.len() - 1]);
+    }
+    u
 }
 
 fn parse_jwks(
@@ -419,6 +658,51 @@ fn parse_jwks(
         }
     }
     Ok(out)
+}
+
+#[cfg(test)]
+mod normalize_tests {
+    //! Unit tests for the §3.5 `iss` URL normalization helper.
+
+    use super::normalize_issuer_url;
+    use url::Url;
+
+    #[test]
+    fn strips_single_trailing_slash() {
+        let a = Url::parse("https://idp.example.com/").unwrap();
+        let b = Url::parse("https://idp.example.com").unwrap();
+        assert_eq!(normalize_issuer_url(&a), normalize_issuer_url(&b));
+    }
+
+    #[test]
+    fn keeps_root_slash_for_bare_origin() {
+        let a = Url::parse("https://idp.example.com/").unwrap();
+        let n = normalize_issuer_url(&a);
+        // `url` always emits at least "/" for the path; we don't
+        // strip below that.
+        assert_eq!(n.path(), "/");
+    }
+
+    #[test]
+    fn lowercases_host() {
+        let a = Url::parse("https://IDP.Example.COM/realm").unwrap();
+        let b = Url::parse("https://idp.example.com/realm").unwrap();
+        assert_eq!(normalize_issuer_url(&a), normalize_issuer_url(&b));
+    }
+
+    #[test]
+    fn preserves_path_segments_below_root() {
+        let a = Url::parse("https://idp.example.com/realms/foo/").unwrap();
+        let b = Url::parse("https://idp.example.com/realms/foo").unwrap();
+        assert_eq!(normalize_issuer_url(&a), normalize_issuer_url(&b));
+    }
+
+    #[test]
+    fn does_not_collapse_query_or_fragment() {
+        let a = Url::parse("https://idp.example.com/realm?x=1").unwrap();
+        let n = normalize_issuer_url(&a);
+        assert_eq!(n.query(), Some("x=1"));
+    }
 }
 
 #[cfg(test)]

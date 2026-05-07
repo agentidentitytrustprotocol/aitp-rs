@@ -1,0 +1,125 @@
+{
+  "title": "AITP — Reference dashboard",
+  "schemaVersion": 38,
+  "version": 1,
+  "tags": ["aitp", "reference"],
+  "timezone": "browser",
+  "refresh": "30s",
+  "time": { "from": "now-1h", "to": "now" },
+  "templating": {
+    "list": [
+      {
+        "name": "datasource",
+        "type": "datasource",
+        "query": "loki",
+        "label": "Logs datasource"
+      }
+    ]
+  },
+  "panels": [
+    {
+      "id": 1,
+      "title": "AITP error envelope rate (by code)",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (code) (rate({target=\"aitp.error.envelope\"} [1m]))",
+          "legendFormat": "{{code}}"
+        }
+      ],
+      "description": "Rate of AITP error envelopes returned, grouped by spec error code (e.g. REPLAY_DETECTED, INVALID_SIGNATURE)."
+    },
+    {
+      "id": 2,
+      "title": "Revocation outcomes",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum by (outcome) (rate({app=\"aitp\"} |= \"revocation check\" | json [1m]))",
+          "legendFormat": "{{outcome}}"
+        }
+      ],
+      "description": "Split of clear vs revoked vs soft_fail_safe_subset outcomes from the RevocationCache."
+    },
+    {
+      "id": 3,
+      "title": "JWKS resolution source split",
+      "type": "piechart",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 8, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (source) (count_over_time({app=\"aitp\"} |= \"JWKS resolved\" | json [5m]))",
+          "legendFormat": "{{source}}"
+        }
+      ],
+      "description": "How often JWKS resolution comes from cache vs pinned store vs network. High network share suggests TTL too low or cache-key normalization bug."
+    },
+    {
+      "id": 4,
+      "title": "Manifest cache hit ratio",
+      "type": "stat",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 4, "x": 8, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum(count_over_time({app=\"aitp\"} |= \"manifest cache hit\" [5m])) / sum(count_over_time({app=\"aitp\"} |~ \"manifest cache (hit|miss)\" [5m]))"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "min": 0,
+          "max": 1
+        }
+      }
+    },
+    {
+      "id": 5,
+      "title": "Manifest fetch retry pressure",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 4, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "sum by (attempt) (rate({app=\"aitp\"} |= \"manifest fetch transient error; retrying\" | json [1m]))",
+          "legendFormat": "attempt={{attempt}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Handshake completions",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate({app=\"aitp\"} |= \"Initiator: AwaitingCommitAck → Done\" [1m]))",
+          "legendFormat": "initiator-completed"
+        },
+        {
+          "expr": "sum(rate({app=\"aitp\"} |= \"Responder: AwaitingCommit → Done\" [1m]))",
+          "legendFormat": "responder-completed"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Expired handshake sessions swept",
+      "type": "timeseries",
+      "datasource": { "type": "loki", "uid": "${datasource}" },
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "sum(rate({app=\"aitp\"} |= \"swept expired handshake sessions\" | json | unwrap evicted [1m]))"
+        }
+      ],
+      "description": "If this trends upward, clients are starting handshakes but not completing — investigate network/timeout or peer health."
+    }
+  ]
+}

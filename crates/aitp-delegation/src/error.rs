@@ -29,9 +29,19 @@ pub enum DelegationError {
     /// `binding.cnf` malformed (not 43-char base64url decoding to 32 bytes).
     #[error("delegation cnf is malformed")]
     CnfMalformed,
-    /// Token attempts multi-hop, which v0.1 does not support.
-    #[error("multi-hop delegation is not supported in v0.1")]
+    /// Token attempts multi-hop but the verifier was constructed with
+    /// `max_hops = 0` (single-hop only).
+    #[error("multi-hop delegation is not supported")]
     MultihopNotSupported,
+    /// Chain length + 1 exceeds the verifier's configured `max_hops`
+    /// (RFC-AITP-0011 §2). Default cap is 3.
+    #[error("delegation hop limit exceeded")]
+    HopLimitExceeded,
+    /// `chain` is non-empty but `chain_hash` was missing or did not
+    /// match the recomputed hash over `chain` (RFC-AITP-0011 §5,
+    /// truncation defense).
+    #[error("delegation chain_hash mismatch")]
+    ChainHashMismatch,
     /// Self-delegation attempt (`issued_by == delegatee`).
     #[error("self-delegation is forbidden")]
     SelfDelegation,

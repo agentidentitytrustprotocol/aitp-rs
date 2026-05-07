@@ -58,6 +58,7 @@ fn happy_path_round_trip() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     verify_delegation(&delegation, &ctx).expect("valid delegation verifies");
 }
@@ -79,6 +80,7 @@ fn scope_exceeded_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     // The forged scope also breaks the outer signature, which the verifier
@@ -107,6 +109,7 @@ fn delegation_expires_after_grant_proof_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     // Tamper invalidates the outer signature, which is checked after the
@@ -133,6 +136,7 @@ fn forged_grant_proof_subject_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     assert!(matches!(err, DelegationError::InvalidGrantProof));
@@ -157,6 +161,7 @@ fn tampered_outer_signature_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     assert!(matches!(err, DelegationError::InvalidSignature));
@@ -181,6 +186,7 @@ fn tampered_grant_proof_signature_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     assert!(matches!(err, DelegationError::InvalidGrantProof));
@@ -203,6 +209,7 @@ fn revoked_source_tct_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: Some(&revoked),
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     assert!(matches!(err, DelegationError::SourceTctRevoked));
@@ -223,6 +230,7 @@ fn wrong_verifier_rejected() {
         verifier_aid: other.aid(),
         now: NOW,
         revocation_check: None,
+        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
     };
     let err = verify_delegation(&d, &ctx).unwrap_err();
     assert!(matches!(err, DelegationError::AudienceMismatch));

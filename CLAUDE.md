@@ -1,0 +1,96 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Repo at a glance
+
+`aitp-rs` is the Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**: a transport- and identity-agnostic, JCS-canonicalized, Ed25519-signed protocol where two agents establish bilateral trust by exchanging peer-issued **Trust Context Tokens** (TCTs). The wire spec lives in the sibling [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol) repo; this implementation tracks **v0.1.0-rc.1**.
+
+It is a Cargo workspace (no Node, no Vercel, no JS tooling). MSRV is **1.88** and the toolchain is pinned to `1.89.0` via `rust-toolchain.toml`. Every crate sets `#![forbid(unsafe_code)]`.
+
+## Common commands
+
+```bash
+# Local CI gauntlet (same checks as `make test` and `scripts/test.sh`)
+cargo fmt --all -- --check
+cargo clippy --workspace --all-targets --all-features -- -D warnings
+cargo test --workspace --all-features
+cargo doc --workspace --no-deps --all-features      # RUSTDOCFLAGS="-D warnings" in CI
+
+# Run the end-to-end two-agent demo (real four-message handshake + /echo)
+make demo
+
+# Single test by name (substring match against test path)
+cargo test -p aitp-tct verifier::tests::rejects_expired
+# Single integration-test file
+cargo test -p aitp-delegation --test round_trip
+# Single fixture through the conformance runner
+cargo run -p aitp-conformance -- run --target ./target/debug/aitp-rs-adapter --filter <fixture-id>
+
+# Fuzzing (nightly only; targets live in fuzz/fuzz_targets/)
+cd fuzz && cargo +nightly fuzz run envelope_parse -- -max_total_time=60
+
+# Miri (manual, not a PR gate; aitp-core is the primary target)
+cargo +nightly miri test -p aitp-core --lib
+
+# Re-vendor JSON Schemas from the spec repo (run when the pinned spec commit changes)
+scripts/sync-schemas.sh        # or AITP_SPEC=/path/to/spec scripts/sync-schemas.sh
+```
+
+CI also runs `cargo deny check`, `cargo audit`, `cargo semver-checks` (PRs only), `cargo msrv verify`, and `cargo tarpaulin` with a **50% workspace-coverage floor** (ratchet upward, never down). The `spec-schemas` job re-runs `sync-schemas.sh` against the pinned commit in `tests/schemas/SPEC_VERSION` and fails on drift.
+
+## Architecture: the layered crate graph
+
+The workspace split is **load-bearing** — it exists so a TCT-only consumer (e.g. MACP) can verify tokens without inheriting an HTTP client, axum, or a handshake state machine. Read `docs/design/00-architecture.md` before changing crate boundaries.
+
+```
+aitp-core             pure: wire types, JCS, base64url, AID, error codes (no crypto, no I/O)
+  └─ aitp-crypto      Ed25519 (verify_strict), JWK thumbprint — no protocol awareness
+       ├─ aitp-manifest        Manifest issuance + verification
+       ├─ aitp-tct             TCT issuance/verification + downstream PoP + renewal
+       │    ├─ aitp-handshake  Mutual handshake state machine (depends on tct + manifest)
+       │    └─ aitp-delegation Single-hop delegation (chain length =1; >1 → MULTIHOP_NOT_SUPPORTED)
+       └─ aitp-transport-http  HTTP client/server — feature-gated, the ONLY async crate
+  └─ aitp                      Facade re-exporting the above + run_initiator_handshake / renew_tct / TctStore
+  └─ aitp-conformance          Language-agnostic runner with Adapter trait (subprocess + in-process)
+  └─ aitp-rs-adapter           Canonical Rust adapter exercised by the runner
+  └─ aitp-session-bundle       RFC-0010 stub (reserved; not wired into facade yet)
+```
+
+### Hard rules these crate boundaries enforce
+
+- **Protocol crates are sync.** `aitp-transport-http` is the only async crate (`reqwest`, `axum`, `tokio`). Do not pull async into `aitp-core`/`aitp-tct`/`aitp-handshake`.
+- **`aitp-core` has no crypto** — it must remain importable by tools that only parse/canonicalize wire data.
+- **`aitp-tct` does NOT depend on `aitp-handshake`.** TCT verification is the per-request hot path; reversing this dependency would force every verifier to compile the state machine.
+- **`aitp-transport-http` features are split**: `client` (reqwest), `server` (axum), `client-spki-pinning` (rustls + x509-parser, off by default to avoid pulling in a CryptoProvider unnecessarily). The `aitp` facade exposes them as `http-client` / `http-server` / `all`.
+- **Workspace deps only.** New third-party crates go in root `[workspace.dependencies]` and are referenced via `{ workspace = true }` so the lock has exactly one version of each.
+- **Public items require docs** (`#![warn(missing_docs)]`). Errors use `thiserror` with specific variants — no string-only catch-alls.
+
+### Wire-format invariants
+
+- Canonicalization is **RFC 8785 JCS** via `serde_jcs`. Anything that gets signed is JCS-encoded first; tests in `crates/aitp-core/tests/kat.rs` and `tests/schemas/known-answer/jcs-sha256.json` pin byte-exact output. See `docs/design/01-jcs.md`.
+- The wire schemas in `tests/schemas/` are **vendored copies** of the spec's `schemas/json/`, pinned by commit SHA in `tests/schemas/SPEC_VERSION`. The `spec-schemas` CI job blocks merges on drift — always re-run `scripts/sync-schemas.sh` after bumping the SHA.
+- `aitp-rs-adapter` deliberately does not yet implement `verify_handshake_payload`; spec fixtures `id-*` / `mh-*` SKIP through the conformance runner and are covered instead by in-process tests in `crates/aitp-handshake/src/identity_*.rs` and `crates/aitp-transport-http/src/key_resolution.rs::tests`. Three fixtures (`env-002`, `env-003`, `mh-001`) likewise fail in the runner because the adapter's wire shape doesn't yet express those scenarios — see the README RFC compliance matrix for the authoritative status.
+
+### Where async lives in `aitp-transport-http`
+
+`KeyResolutionPolicy` (RFC-0007) bridges sync verification into async JWKS fetches via a tokio runtime; **a multi-thread tokio context is required** in the calling thread. Pure-sync deployments must use the pinned-issuer store instead. Other notable subsystems: `client_config.rs`, `dpop.rs`, `retry.rs`, `revocation.rs`, `server_limits.rs`, `tls_pinning.rs`, `token_exchange.rs` — each one corresponds to a hardening item in `plans/aitp-rs-unified-claude-code-plan.md`.
+
+## When changes touch the wire format or signing inputs
+
+If you modify wire types, signing inputs, or canonicalization:
+
+1. Update the corresponding crate(s).
+2. Re-run `scripts/sync-schemas.sh` if the spec changed; otherwise the spec-schemas CI job will fail.
+3. Update the relevant fixture(s) in `tests/schemas/` and the kat tests.
+4. Link the matching spec-repo PR in your commit/PR description (per `CONTRIBUTING.md`).
+
+Wire-affecting changes are **`semver-major`** for the published crates — `cargo-semver-checks` runs on every PR and gates the merge.
+
+## Design docs to read first
+
+- `docs/design/00-architecture.md` — workspace split rationale (this is the canonical version of the rules above)
+- `docs/design/01-jcs.md` — JSON canonicalization strategy and test vectors
+- `docs/design/02-conformance-adapter.md` — runner design and adapter contract
+- `docs/design/03-handshake-transcripts.md` — the four-message exchange in detail
+- `docs/design/PENDING.md` — open work and known limitations

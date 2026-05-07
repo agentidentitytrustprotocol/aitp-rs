@@ -2,11 +2,68 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aitp.dev/schema/v0.1/delegation.json",
   "title": "DelegationToken",
-  "description": "AITP v0.1 single-hop delegation token. Allows agent B to delegate a subset of its grants to agent C.",
+  "description": "AITP v0.1 delegation token. Single-hop is the v0.1 default (no `chain` field). Multi-hop chains (RFC-AITP-0011) are carried in the optional `chain` and `chain_hash` fields.",
   "type": "object",
   "required": [
     "delegation"
   ],
+  "$defs": {
+    "DelegationStep": {
+      "type": "object",
+      "description": "One link in a multi-hop delegation chain (RFC-AITP-0011 §1.1). Same shape as `grant_proof`. At hop 0, `source_tct_jti` references A's original peer-issued TCT to B; at hops i>0 it is a fresh UUIDv4 used by `chain_hash` and per-hop revocation.",
+      "required": [
+        "issuer",
+        "subject",
+        "capabilities",
+        "issued_at",
+        "expires_at",
+        "source_tct_jti",
+        "signature"
+      ],
+      "properties": {
+        "issuer": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID that signed this step."
+        },
+        "subject": {
+          "type": "string",
+          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "description": "AID receiving capabilities at this hop."
+        },
+        "capabilities": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1,
+          "uniqueItems": true,
+          "description": "Capabilities granted at this hop. MUST be a subset of the previous hop's capabilities (transitive scope, RFC-AITP-0011 §3)."
+        },
+        "issued_at": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "expires_at": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "MUST be <= the previous hop's `expires_at` (transitive expiry)."
+        },
+        "source_tct_jti": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]{86}$",
+          "description": "At hop 0: re-uses the source TCT's signature verbatim. At hops i>0: issuer's signature over the canonical step body excluding `signature` (RFC-AITP-0011 §3 step 4)."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
   "properties": {
     "delegation": {
       "type": "object",
@@ -79,7 +136,7 @@
             "issuer": {
               "type": "string",
               "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-              "description": "AID of the original grant issuer (A)."
+              "description": "AID of the original grant issuer (A) for single-hop. For multi-hop (RFC-AITP-0011), the most-recent hop's issuer."
             },
             "subject": {
               "type": "string",
@@ -118,11 +175,28 @@
           },
           "additionalProperties": false
         },
+        "chain": {
+          "type": "array",
+          "description": "OPTIONAL multi-hop chain (RFC-AITP-0011). Absent or empty for single-hop. Ordered oldest hop first; the most-recent hop remains in `grant_proof`. v0.1 implementations MUST reject any token where this is non-empty with `DELEGATION_MULTIHOP_NOT_SUPPORTED`.",
+          "items": {
+            "$ref": "#/$defs/DelegationStep"
+          }
+        },
+        "chain_hash": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "description": "REQUIRED if `chain` is non-empty (RFC-AITP-0011 §5). `base64url(sha256(canonical_json([chain[0].source_tct_jti, ..., chain[n-2].source_tct_jti])))`. Bound into the outer signature so a hop cannot be removed without invalidating it."
+        },
         "signature": {
           "type": "string",
           "minLength": 1,
-          "description": "B's signature over canonical DelegationToken JSON (excluding signature).",
+          "description": "B's signature over canonical DelegationToken JSON (excluding signature). For multi-hop, covers `chain_hash`.",
           "pattern": "^[A-Za-z0-9_-]{86}$"
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
         }
       },
       "additionalProperties": false
