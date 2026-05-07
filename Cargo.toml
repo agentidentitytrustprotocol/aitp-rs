@@ -54,10 +54,13 @@ axum = "0.7"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", default-features = false }
 
-# TLS — used by aitp-transport-http for SPKI cert pinning. Default-features
-# off so we don't pull in a CryptoProvider (reqwest's rustls-tls feature
-# already installs one); we only need the ClientConfig + verifier types.
-rustls = { version = "0.23", default-features = false, features = ["std"] }
+# TLS — used by aitp-transport-http for SPKI cert pinning. The `ring`
+# feature gives access to `rustls::crypto::ring::default_provider()` as a
+# fallback when no CryptoProvider has been installed yet (e.g. callers
+# building a pinned client config before any reqwest call has had a
+# chance to install one). reqwest's rustls-tls feature installs a
+# provider on first use; the fallback only fires before that.
+rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 rustls-pki-types = "1.10"
 # X.509 parser for extracting SubjectPublicKeyInfo bytes when pinning.
 x509-parser = "0.17"

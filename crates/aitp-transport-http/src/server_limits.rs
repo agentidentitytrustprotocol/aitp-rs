@@ -5,8 +5,8 @@
 //! `hyper::server::conn::http1::Builder`, which has no library-side
 //! knob for the maximum HTTP header buffer. The header cap is set
 //! when the binary launches the server with a custom hyper builder.
-//! See [`recommended_max_header_bytes`] for the recommended value
-//! and a snippet callers can drop in.
+//! See [`RECOMMENDED_MAX_HEADER_BYTES`] and the recipe in
+//! `examples/observability/README.md`.
 //!
 //! For the request body, axum exposes
 //! [`axum::extract::DefaultBodyLimit`] as a router-level layer; the
@@ -44,10 +44,11 @@ pub const DEFAULT_REQUEST_BODY_LIMIT: usize = 64 * 1024;
 
 /// Recommended HTTP header buffer size for AITP servers: 16 KiB.
 ///
-/// This is the value [`recommended_max_header_bytes`] returns and
-/// the value to pass to `hyper::server::conn::http1::Builder::max_buf_size`.
-/// Headers larger than this cause hyper to terminate the connection
-/// before the request reaches the application.
+/// Pass to `hyper::server::conn::http1::Builder::max_buf_size`
+/// when launching the server. Headers larger than this cause
+/// hyper to terminate the connection before the request reaches
+/// the application. The full recipe is in
+/// `examples/observability/README.md`.
 pub const RECOMMENDED_MAX_HEADER_BYTES: usize = 16 * 1024;
 
 /// Wrap a router with [`DefaultBodyLimit::max(limit)`].
@@ -78,51 +79,12 @@ pub fn with_request_body_limit_default(router: Router) -> Router {
     with_request_body_limit(router, DEFAULT_REQUEST_BODY_LIMIT)
 }
 
-/// Reference snippet for callers that want a header-size cap.
-///
-/// `axum::serve` uses hyper's defaults and does not expose a
-/// builder hook. To cap header size, drop down to `hyper-util`
-/// directly. This function returns the documented constant and
-/// example; the actual builder construction happens in your binary
-/// (it depends on your runtime and TLS layer).
-///
-/// # Example
-///
-/// ```ignore
-/// use std::convert::Infallible;
-/// use hyper::server::conn::http1;
-/// use hyper_util::rt::TokioIo;
-/// use tokio::net::TcpListener;
-/// use tower::Service;
-/// use aitp_transport_http::server_limits::RECOMMENDED_MAX_HEADER_BYTES;
-///
-/// let listener = TcpListener::bind("0.0.0.0:8080").await?;
-/// let app = my_router();
-///
-/// loop {
-///     let (stream, _) = listener.accept().await?;
-///     let io = TokioIo::new(stream);
-///     let app = app.clone();
-///     tokio::spawn(async move {
-///         let svc = hyper::service::service_fn(move |req| {
-///             let mut app = app.clone();
-///             async move { app.call(req).await }
-///         });
-///         http1::Builder::new()
-///             .max_buf_size(RECOMMENDED_MAX_HEADER_BYTES)
-///             .serve_connection(io, svc)
-///             .await
-///             .ok();
-///     });
-/// }
-/// ```
-///
-/// `max_buf_size` bounds the read buffer hyper uses for the entire
-/// request line + headers; requests whose headers exceed it are
-/// rejected with a connection error before the router sees them.
-pub fn recommended_max_header_bytes() -> usize {
-    RECOMMENDED_MAX_HEADER_BYTES
-}
+// Header-size cap is binary-side: `axum::serve` uses hyper's
+// defaults and does not expose a builder hook. To cap header size,
+// drop down to `hyper-util`'s `http1::Builder` directly and pass
+// [`RECOMMENDED_MAX_HEADER_BYTES`] to `max_buf_size`. The full
+// recipe lives in `examples/observability/README.md` so callers
+// don't have to context-switch into rustdoc.
 
 #[cfg(test)]
 mod tests {
@@ -168,9 +130,9 @@ mod tests {
 
     #[test]
     fn header_constant_is_documented() {
-        // Sanity: callers may import the constant directly. Keep
-        // the type at usize so it composes with hyper's API.
-        let _v: usize = recommended_max_header_bytes();
+        // Sanity: the constant must compose with hyper's API
+        // (`max_buf_size` takes `usize`).
+        let _v: usize = RECOMMENDED_MAX_HEADER_BYTES;
         assert_eq!(RECOMMENDED_MAX_HEADER_BYTES, 16 * 1024);
     }
 }

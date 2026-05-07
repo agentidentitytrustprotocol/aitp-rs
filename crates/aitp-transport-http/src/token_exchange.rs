@@ -41,11 +41,13 @@ pub const SUBJECT_TYPE_SAML2: &str = "urn:ietf:params:oauth:token-type:saml2";
 pub const REQUESTED_TYPE_ACCESS_TOKEN: &str = "urn:ietf:params:oauth:token-type:access_token";
 
 /// Errors from a token-exchange call.
+///
+/// Marked `#[non_exhaustive]` so adding new variants — for client
+/// authentication failures, malformed claims, etc. — is not a
+/// breaking change.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TokenExchangeError {
-    /// The endpoint URL is malformed.
-    #[error("invalid endpoint URL: {0}")]
-    InvalidEndpoint(String),
     /// HTTP transport error (connect, timeout, TLS).
     #[error("HTTP error: {0}")]
     Http(#[from] reqwest::Error),

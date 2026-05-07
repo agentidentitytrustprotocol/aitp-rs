@@ -66,9 +66,12 @@ pub use tls_pinning::{build_pinning_client_config, compute_spki_hash, SpkiHash, 
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use dpop::{
-    verify_dpop_proof, verify_dpop_proof_full, DpopError, DpopHeader, DpopProof, DpopReplayCache,
-    DpopVerifyContext,
+    verify_dpop_proof_full, DpopError, DpopHeader, DpopProof, DpopReplayCache, DpopVerifyContext,
 };
+
+#[cfg(any(feature = "client", feature = "server"))]
+#[allow(deprecated)]
+pub use dpop::verify_dpop_proof;
 
 #[cfg(feature = "client")]
 pub use key_resolution::{
@@ -81,8 +84,8 @@ pub use server::{HandshakeServer, ManifestServer, RevocationListProducer, DEFAUL
 
 #[cfg(feature = "server")]
 pub use server_limits::{
-    recommended_max_header_bytes, with_request_body_limit, with_request_body_limit_default,
-    DEFAULT_REQUEST_BODY_LIMIT, RECOMMENDED_MAX_HEADER_BYTES,
+    with_request_body_limit, with_request_body_limit_default, DEFAULT_REQUEST_BODY_LIMIT,
+    RECOMMENDED_MAX_HEADER_BYTES,
 };
 
 #[cfg(any(feature = "client", feature = "server"))]
