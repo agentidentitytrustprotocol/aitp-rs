@@ -10,8 +10,7 @@
 //! `kat-keypair-001`-anchored KAT vectors), so a re-mint of any
 //! fixture is byte-stable across runs and across implementations.
 
-use aitp_core::{base64url, jcs};
-use aitp_crypto::AitpSigningKey;
+use aitp_core::base64url;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -38,6 +37,11 @@ pub struct RunnerContext {
     /// Most recently generated nonce, recalled by
     /// `__VALID_NONCE_ECHO__`. Updated as substitution proceeds.
     pub last_nonce: Option<String>,
+    /// Monotonic counter mixed into nonce derivation so that
+    /// repeated `__VALID_NONCE__` tokens within a single fixture
+    /// produce distinct values. Reset between fixtures via
+    /// [`Self::reset_per_fixture`].
+    nonce_counter: u32,
 }
 
 impl Default for RunnerContext {
@@ -59,7 +63,18 @@ impl RunnerContext {
             kp_002_seed: [0x77u8; 32],
             now: REFERENCE_NOW,
             last_nonce: None,
+            nonce_counter: 0,
         }
+    }
+
+    /// Reset per-fixture state: the nonce counter and the last
+    /// emitted nonce. Called by the runner before each fixture so
+    /// the second fixture's first `__VALID_NONCE__` is the same
+    /// byte sequence as the first fixture's first nonce
+    /// (deterministic, byte-stable runs).
+    pub fn reset_per_fixture(&mut self) {
+        self.last_nonce = None;
+        self.nonce_counter = 0;
     }
 
     /// Walk a fixture-input JSON value, replacing every
@@ -118,17 +133,20 @@ impl RunnerContext {
 
         // Deterministic nonce. Re-derived per call so multiple
         // `__VALID_NONCE__` tokens in the same fixture get distinct
-        // values; `last_nonce` is updated so the matching
-        // `__VALID_NONCE_ECHO__` can recall it.
+        // values. `last_nonce` is updated so the matching
+        // `__VALID_NONCE_ECHO__` can recall the most recent nonce.
         if s == "__VALID_NONCE__" {
-            // Tie nonce derivation to the count of nonces already
-            // emitted so the second `__VALID_NONCE__` in a fixture
-            // is a different value than the first. Use the first 16
-            // bytes of SHA-256(seed || counter) to keep it 128-bit.
-            let counter = self.last_nonce.is_some() as u8;
+            // Use a true incrementing counter mixed into SHA-256.
+            // Without this, `last_nonce.is_some() as u8` collapsed
+            // every nonce after the first to the same byte (the
+            // 2nd, 3rd, … all collided), reintroducing the replay
+            // surface the placeholder was meant to defend against.
+            // Take the first 16 bytes (128 bits) of the digest.
+            let counter = self.nonce_counter.to_be_bytes();
+            self.nonce_counter = self.nonce_counter.wrapping_add(1);
             let mut h = Sha256::new();
             h.update(b"__VALID_NONCE__");
-            h.update([counter]);
+            h.update(counter);
             let digest = h.finalize();
             let nonce = base64url::encode(&digest[..16]);
             self.last_nonce = Some(nonce.clone());
@@ -164,30 +182,6 @@ impl RunnerContext {
         // token as a real value.
         Some(Value::from(format!("RUNNER_UNKNOWN_PLACEHOLDER_{s}")))
     }
-
-    /// Sign a JCS-canonical body excluding `signature`, returning
-    /// the unpadded base64url-encoded Ed25519 signature. Helper for
-    /// future expansion when full sig substitution is wired.
-    #[allow(dead_code)]
-    pub(crate) fn sign_body(seed: &[u8; 32], body: &Value) -> String {
-        let key = AitpSigningKey::from_seed(seed);
-        let mut body = body.clone();
-        if let Some(map) = body.as_object_mut() {
-            map.remove("signature");
-        }
-        let bytes = jcs::canonicalize(&body).expect("canonicalize");
-        let sig = key.sign(&bytes);
-        sig.into_string()
-    }
-}
-
-// Re-export to keep `base64url` referenced even when the helper
-// above isn't called from any other path. Drops a clippy
-// `unused_imports` warning while leaving the symbol available for
-// downstream callers that import it via `pub use`.
-#[allow(dead_code)]
-fn _ensure_base64url_imported() -> String {
-    base64url::encode(b"")
 }
 
 fn is_placeholder(s: &str) -> bool {
@@ -236,6 +230,44 @@ mod tests {
         let echo = v["echo"].as_str().unwrap().to_string();
         assert!(!challenge.is_empty());
         assert_eq!(challenge, echo);
+    }
+
+    #[test]
+    fn multiple_nonces_in_same_fixture_are_distinct() {
+        // Regression: the prior implementation derived the counter
+        // from `last_nonce.is_some()`, which collapsed every nonce
+        // after the first to the same value. Three nonces in one
+        // fixture must produce three distinct strings.
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "first": "__VALID_NONCE__",
+            "second": "__VALID_NONCE__",
+            "third": "__VALID_NONCE__",
+        });
+        ctx.substitute(&mut v);
+        let a = v["first"].as_str().unwrap();
+        let b = v["second"].as_str().unwrap();
+        let c = v["third"].as_str().unwrap();
+        assert_ne!(a, b);
+        assert_ne!(b, c);
+        assert_ne!(a, c);
+    }
+
+    #[test]
+    fn nonce_counter_resets_between_fixtures() {
+        // Two fixtures running through the same context must each
+        // start from counter=0; otherwise re-mints diverge.
+        let mut ctx = RunnerContext::new();
+        let mut v1 = json!({"x": "__VALID_NONCE__"});
+        ctx.substitute(&mut v1);
+        let first_run = v1["x"].as_str().unwrap().to_string();
+
+        ctx.reset_per_fixture();
+        let mut v2 = json!({"x": "__VALID_NONCE__"});
+        ctx.substitute(&mut v2);
+        let second_run = v2["x"].as_str().unwrap().to_string();
+
+        assert_eq!(first_run, second_run);
     }
 
     #[test]

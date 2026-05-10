@@ -101,9 +101,9 @@ impl<A: Adapter> Runner<A> {
             };
         }
 
-        // Reset per-fixture substitution state (last_nonce) before
-        // walking the input.
-        self.ctx.last_nonce = None;
+        // Reset per-fixture substitution state (nonce counter +
+        // last_nonce) before walking the input.
+        self.ctx.reset_per_fixture();
 
         let outcome = match &fixture.input.variant {
             FixtureInputVariant::Single(params) => {

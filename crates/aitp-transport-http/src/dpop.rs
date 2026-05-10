@@ -28,6 +28,7 @@
 //!     expected_method: "POST",
 //!     expected_url: "https://api.example.com/resource",
 //!     expected_jkt: "9ZP03Nu8GrXPAUkbKNxHOKBzxPX83SShgFkRNK-f2lw",
+//!     expected_access_token: Some(header.access_token.as_bytes()),
 //!     replay_cache: &cache,
 //!     iat_tolerance_secs: 60,
 //!     now_unix_secs: now,
@@ -80,7 +81,11 @@ pub struct DpopHeader {
 }
 
 /// Errors from DPoP parsing/verification.
+///
+/// Marked `#[non_exhaustive]` so adding new variants is not a
+/// breaking change.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DpopError {
     /// Header missing or malformed.
     #[error("malformed DPoP header")]
@@ -112,6 +117,15 @@ pub enum DpopError {
     /// `cnf.jkt` of access token does not match proof's JWK thumbprint.
     #[error("DPoP confirmation thumbprint mismatch")]
     ConfirmationMismatch,
+    /// `ath` claim missing on a proof that was supposed to bind to
+    /// an access token (resource-server flow). RFC 9449 §4.1
+    /// requires `ath` whenever a proof accompanies an access token.
+    #[error("DPoP proof missing 'ath' claim")]
+    MissingAth,
+    /// `ath` claim present but its value does not equal
+    /// `base64url(sha256(access_token))`.
+    #[error("DPoP 'ath' does not match access token hash")]
+    AthMismatch,
 }
 
 impl DpopHeader {
@@ -206,6 +220,15 @@ pub struct DpopVerifyContext<'a> {
     /// Access-token-bound JWK thumbprint (RFC 7638) the proof's
     /// embedded JWK must hash to.
     pub expected_jkt: &'a str,
+    /// Access token bytes, when this proof is being verified at a
+    /// resource server. When `Some`, the verifier requires the
+    /// proof's `ath` claim to equal `base64url(sha256(token))`
+    /// (RFC 9449 §4.1) — otherwise an attacker who exfiltrates an
+    /// access token can mint their own DPoP proofs.
+    /// Set to `None` only when verifying a proof at the
+    /// authorization server (where the proof is presented without
+    /// an access token).
+    pub expected_access_token: Option<&'a [u8]>,
     /// `jti` replay cache. The verifier reserves the `jti` on
     /// success.
     pub replay_cache: &'a DpopReplayCache,
@@ -323,19 +346,46 @@ pub fn verify_dpop_proof_full(
         return Err(DpopError::ConfirmationMismatch);
     }
 
+    // Step 6: ath binding (RFC 9449 §4.1). Required whenever a
+    // proof accompanies an access token, optional on the
+    // authorization-server flow. Skipping this check would let an
+    // attacker who has stolen an access token forge proofs against
+    // any URL.
+    if let Some(token_bytes) = ctx.expected_access_token {
+        let ath = match &proof.ath {
+            Some(s) => s,
+            None => return Err(DpopError::MissingAth),
+        };
+        let expected = b64url_encode(&Sha256::digest(token_bytes));
+        if ath != &expected {
+            return Err(DpopError::AthMismatch);
+        }
+    }
+
     Ok(proof)
 }
 
-/// Compatibility shim: the original stub took five positional
-/// arguments and returned `DpopError::NotImplemented`. The full
-/// verifier now lives at [`verify_dpop_proof_full`]; this wrapper
-/// preserves the old signature for any caller still using it,
-/// constructing a fresh per-call replay cache and a default
-/// 60-second iat tolerance.
+/// Compatibility shim that preserves the rc.1 four-argument
+/// signature. The full verifier lives at
+/// [`verify_dpop_proof_full`].
 ///
-/// **Avoid in production**: the per-call cache means replay
-/// defense is effectively disabled across requests. Use
-/// [`verify_dpop_proof_full`] with a long-lived [`DpopReplayCache`].
+/// **Deprecated.** This shim is unsafe in two ways:
+///
+/// - It builds a fresh per-call [`DpopReplayCache`], so replay
+///   defense is effectively disabled — every proof is "new" to
+///   a freshly constructed cache.
+/// - It cannot verify the `ath` access-token-binding claim,
+///   because the access-token bytes are not in the argument
+///   list. RFC 9449 §4.1 requires this binding at every
+///   resource-server check.
+///
+/// Production callers MUST use [`verify_dpop_proof_full`] with a
+/// long-lived cache and [`DpopVerifyContext::expected_access_token`]
+/// populated.
+#[deprecated(
+    since = "0.1.0-rc.2",
+    note = "Use verify_dpop_proof_full: the 4-arg shim disables replay defense and cannot verify the ath access-token binding."
+)]
 pub fn verify_dpop_proof(
     header: &DpopHeader,
     expected_method: &str,
@@ -347,6 +397,7 @@ pub fn verify_dpop_proof(
         expected_method,
         expected_url,
         expected_jkt,
+        expected_access_token: None,
         replay_cache: &cache,
         iat_tolerance_secs: 60,
         now_unix_secs: chrono::Utc::now().timestamp(),
@@ -408,36 +459,46 @@ fn jwk_to_decoding_key(
 /// Compute the RFC 7638 JWK thumbprint of a JWK value, returning
 /// the unpadded base64url SHA-256 digest. Per §3.2 the input is
 /// the canonical JSON of only the required members for the
-/// `kty`-specific schema.
+/// `kty`-specific schema, with members ordered lexicographically
+/// by Unicode code point of the key.
+///
+/// Uses `serde_json::to_string` with a `BTreeMap` (the default
+/// `serde_json::Map` representation when the `preserve_order`
+/// feature is off) so values are JSON-escaped properly even if a
+/// JWK member contains a `"` or backslash. Keys are inserted in
+/// lexicographic order to match RFC 7638's canonical form.
 fn jwk_thumbprint(jwk: &serde_json::Value) -> Result<String, DpopError> {
     let kty = jwk
         .get("kty")
         .and_then(|v| v.as_str())
         .ok_or_else(|| DpopError::MalformedProof("jwk.kty missing".into()))?;
-    let canonical_json = match kty {
+    let mut members: std::collections::BTreeMap<&'static str, &str> =
+        std::collections::BTreeMap::new();
+    match kty {
         "OKP" => {
-            let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
-            let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
-            // Members in lexicographic order per RFC 7638 §3.2.
-            format!(r#"{{"crv":"{crv}","kty":"OKP","x":"{x}"}}"#)
+            members.insert("crv", jwk.get("crv").and_then(|v| v.as_str()).unwrap_or(""));
+            members.insert("kty", "OKP");
+            members.insert("x", jwk.get("x").and_then(|v| v.as_str()).unwrap_or(""));
         }
         "EC" => {
-            let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
-            let x = jwk.get("x").and_then(|v| v.as_str()).unwrap_or("");
-            let y = jwk.get("y").and_then(|v| v.as_str()).unwrap_or("");
-            format!(r#"{{"crv":"{crv}","kty":"EC","x":"{x}","y":"{y}"}}"#)
+            members.insert("crv", jwk.get("crv").and_then(|v| v.as_str()).unwrap_or(""));
+            members.insert("kty", "EC");
+            members.insert("x", jwk.get("x").and_then(|v| v.as_str()).unwrap_or(""));
+            members.insert("y", jwk.get("y").and_then(|v| v.as_str()).unwrap_or(""));
         }
         "RSA" => {
-            let e = jwk.get("e").and_then(|v| v.as_str()).unwrap_or("");
-            let n = jwk.get("n").and_then(|v| v.as_str()).unwrap_or("");
-            format!(r#"{{"e":"{e}","kty":"RSA","n":"{n}"}}"#)
+            members.insert("e", jwk.get("e").and_then(|v| v.as_str()).unwrap_or(""));
+            members.insert("kty", "RSA");
+            members.insert("n", jwk.get("n").and_then(|v| v.as_str()).unwrap_or(""));
         }
         other => {
             return Err(DpopError::UnsupportedAlgorithm(format!(
                 "jwk thumbprint: kty {other}"
             )))
         }
-    };
+    }
+    let canonical_json = serde_json::to_string(&members)
+        .map_err(|e| DpopError::MalformedProof(format!("thumbprint serialize: {e}")))?;
     let digest = Sha256::digest(canonical_json.as_bytes());
     Ok(b64url_encode(&digest))
 }
@@ -486,6 +547,7 @@ mod tests {
                 expected_method: "POST",
                 expected_url: "https://x",
                 expected_jkt: "jkt",
+                expected_access_token: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: 60,
                 now_unix_secs: 0,
@@ -577,6 +639,7 @@ mod tests {
                 expected_method: "POST",
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
+                expected_access_token: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -593,6 +656,7 @@ mod tests {
                 expected_method: "POST",
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
+                expected_access_token: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -637,6 +701,7 @@ mod tests {
                 expected_method: "POST", // proof says GET
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
+                expected_access_token: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -644,5 +709,143 @@ mod tests {
         )
         .unwrap_err();
         assert!(matches!(err, DpopError::RequestBindingMismatch(_)));
+    }
+
+    /// Mint a proof JWT bound to a specific access token, optionally
+    /// with the `ath` claim populated. Returns the JWT string.
+    fn mint_proof_with_ath(
+        seed: u8,
+        method: &str,
+        url: &str,
+        jti: &str,
+        iat: i64,
+        ath: Option<&str>,
+    ) -> (String, String) {
+        use aitp_core::base64url;
+        use ed25519_dalek::Signer;
+
+        let signing = ed25519_dalek::SigningKey::from_bytes(&[seed; 32]);
+        let pk = signing.verifying_key();
+        let pk_b64 = base64url::encode(&pk.to_bytes());
+        let jwk = serde_json::json!({"kty":"OKP","crv":"Ed25519","x":pk_b64});
+        let header = serde_json::json!({"typ":"dpop+jwt","alg":"EdDSA","jwk": jwk.clone()});
+        let mut claims = serde_json::json!({
+            "jti": jti,
+            "htm": method,
+            "htu": url,
+            "iat": iat,
+        });
+        if let Some(a) = ath {
+            claims["ath"] = serde_json::Value::String(a.into());
+        }
+        let header_b64 = base64url::encode(&serde_json::to_vec(&header).unwrap());
+        let claims_b64 = base64url::encode(&serde_json::to_vec(&claims).unwrap());
+        let signing_input = format!("{header_b64}.{claims_b64}");
+        let sig = signing.sign(signing_input.as_bytes());
+        let sig_b64 = base64url::encode(&sig.to_bytes());
+        let proof = format!("{signing_input}.{sig_b64}");
+        let jkt = jwk_thumbprint(&jwk).unwrap();
+        (proof, jkt)
+    }
+
+    #[test]
+    fn full_verify_with_correct_ath() {
+        // Compute the expected ath = base64url(sha256(token)) and
+        // mint a proof carrying it. Verifier should accept.
+        let token = b"opaque-access-token-bytes";
+        let expected_ath = b64url_encode(&Sha256::digest(token));
+        let (proof_jwt, jkt) = mint_proof_with_ath(
+            9,
+            "POST",
+            "https://api.example.com/resource",
+            "ath-good",
+            1_700_000_000,
+            Some(&expected_ath),
+        );
+        let cache = DpopReplayCache::default();
+        let header = DpopHeader {
+            access_token: String::from_utf8(token.to_vec()).unwrap(),
+            proof_jwt,
+        };
+        verify_dpop_proof_full(
+            &header,
+            &DpopVerifyContext {
+                expected_method: "POST",
+                expected_url: "https://api.example.com/resource",
+                expected_jkt: &jkt,
+                expected_access_token: Some(token),
+                replay_cache: &cache,
+                iat_tolerance_secs: i64::MAX / 2,
+                now_unix_secs: 1_700_000_000,
+            },
+        )
+        .unwrap();
+    }
+
+    #[test]
+    fn full_verify_rejects_missing_ath() {
+        // Resource server flow but proof has no `ath` — must reject.
+        let (proof_jwt, jkt) = mint_proof_with_ath(
+            10,
+            "GET",
+            "https://api.example.com/r",
+            "ath-missing",
+            1_700_000_000,
+            None,
+        );
+        let cache = DpopReplayCache::default();
+        let header = DpopHeader {
+            access_token: "tok".into(),
+            proof_jwt,
+        };
+        let err = verify_dpop_proof_full(
+            &header,
+            &DpopVerifyContext {
+                expected_method: "GET",
+                expected_url: "https://api.example.com/r",
+                expected_jkt: &jkt,
+                expected_access_token: Some(b"tok"),
+                replay_cache: &cache,
+                iat_tolerance_secs: i64::MAX / 2,
+                now_unix_secs: 1_700_000_000,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, DpopError::MissingAth));
+    }
+
+    #[test]
+    fn full_verify_rejects_wrong_ath() {
+        // Proof has an `ath` but for a *different* token — the
+        // exact attack the binding is supposed to defeat.
+        let real_token = b"the-real-token";
+        let other_ath = b64url_encode(&Sha256::digest(b"wrong-token"));
+        let (proof_jwt, jkt) = mint_proof_with_ath(
+            11,
+            "POST",
+            "https://api.example.com/r",
+            "ath-wrong",
+            1_700_000_000,
+            Some(&other_ath),
+        );
+        let cache = DpopReplayCache::default();
+        let header = DpopHeader {
+            access_token: "tok".into(),
+            proof_jwt,
+        };
+        let err = verify_dpop_proof_full(
+            &header,
+            &DpopVerifyContext {
+                expected_method: "POST",
+                expected_url: "https://api.example.com/r",
+                expected_jkt: &jkt,
+                expected_access_token: Some(real_token),
+                replay_cache: &cache,
+                iat_tolerance_secs: i64::MAX / 2,
+                now_unix_secs: 1_700_000_000,
+            },
+        )
+        .unwrap_err();
+        assert!(matches!(err, DpopError::AthMismatch));
     }
 }

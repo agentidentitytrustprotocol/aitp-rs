@@ -11,10 +11,21 @@
 //!
 //! # Threat model
 //!
-//! When at least one pin is registered, [`SpkiPinVerifier`] **fully
-//! replaces** the WebPKI chain validator: only certs whose SPKI hash
-//! is in the pin set will be accepted. There is no fallback to the
-//! OS root store.
+//! When at least one pin is registered, [`SpkiPinVerifier`] **replaces
+//! the WebPKI chain validator** but **still requires the server to
+//! prove possession of the pinned key**. The verifier:
+//!
+//! - Accepts a presented end-entity cert iff its SPKI SHA-256 is in
+//!   the pin list. There is no fallback to the OS root store.
+//! - Delegates the TLS 1.2 / 1.3 handshake signature verification to
+//!   the active rustls `CryptoProvider`. This is what proves the
+//!   peer holds the cert's private key, not merely a copy of the
+//!   public cert.
+//!
+//! Skipping signature verification is unsafe — a public certificate
+//! can be captured by anyone, so without the handshake-sig check,
+//! pinning would only verify that the attacker possesses the same
+//! public bytes anyone could fetch.
 //!
 //! - This protects against rogue CAs and MITM via stolen
 //!   intermediates: even a valid chain to a trusted root is rejected
@@ -42,6 +53,7 @@
 use std::sync::Arc;
 
 use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::crypto::{verify_tls12_signature, verify_tls13_signature, WebPkiSupportedAlgorithms};
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 use rustls::{DigitallySignedStruct, Error as TlsError, SignatureScheme};
 use sha2::{Digest, Sha256};
@@ -65,46 +77,60 @@ pub fn compute_spki_hash(cert_der: &[u8]) -> Option<SpkiHash> {
 
 /// Server cert verifier that accepts a peer iff the SHA-256 of the
 /// end-entity cert's `SubjectPublicKeyInfo` is present in the pin
-/// list.
+/// list **and** the peer proves possession of the pinned key by
+/// signing the handshake with the matching private key.
 ///
-/// Construct via [`SpkiPinVerifier::new`] from a non-empty list of
-/// pins. Wire into a [`rustls::ClientConfig`] via
+/// Construct via [`SpkiPinVerifier::new`] (uses the active rustls
+/// `CryptoProvider`'s signature verification algorithms) or
+/// [`SpkiPinVerifier::with_provider`] for explicit provider
+/// selection. Wire into a [`rustls::ClientConfig`] via
 /// `with_custom_certificate_verifier(Arc::new(verifier))`.
 #[derive(Debug)]
 pub struct SpkiPinVerifier {
     pins: Vec<SpkiHash>,
-    supported_signature_schemes: Vec<SignatureScheme>,
+    /// Signature verification algorithms taken from the rustls
+    /// `CryptoProvider`. Used by `verify_tls1{2,3}_signature` to
+    /// validate the server's handshake signature.
+    algorithms: WebPkiSupportedAlgorithms,
 }
 
 impl SpkiPinVerifier {
-    /// Build a verifier from a non-empty pin list.
+    /// Build a verifier from a non-empty pin list, using the active
+    /// rustls `CryptoProvider` for signature verification.
+    ///
+    /// If no provider has been installed yet, falls back to
+    /// `rustls::crypto::ring::default_provider()`. Either way the
+    /// verifier owns a `WebPkiSupportedAlgorithms` snapshot — later
+    /// changes to the global provider don't retroactively affect
+    /// what this verifier accepts.
     ///
     /// # Panics
     ///
-    /// Panics if `pins` is empty — a pin set that accepts everything
-    /// is almost certainly a misconfiguration; refuse to construct.
+    /// - If `pins` is empty (a pin set that accepts everything is
+    ///   almost certainly a misconfiguration).
     pub fn new(pins: Vec<SpkiHash>) -> Self {
+        let provider = rustls::crypto::CryptoProvider::get_default()
+            .cloned()
+            .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
+        Self::with_provider(pins, &provider)
+    }
+
+    /// Like [`Self::new`] but takes the `CryptoProvider` explicitly.
+    /// Use when the application installs `aws-lc-rs` or another
+    /// non-ring provider and wants the pinning verifier to use the
+    /// same set of signature algorithms.
+    ///
+    /// # Panics
+    ///
+    /// Panics if `pins` is empty.
+    pub fn with_provider(pins: Vec<SpkiHash>, provider: &rustls::crypto::CryptoProvider) -> Self {
         assert!(
             !pins.is_empty(),
             "SpkiPinVerifier requires at least one pin"
         );
         Self {
             pins,
-            // The default schemes a modern AITP server might present.
-            // The list is consulted by rustls when validating the
-            // ServerKeyExchange signature in TLS 1.2; under TLS 1.3
-            // signature scheme negotiation is handled separately.
-            supported_signature_schemes: vec![
-                SignatureScheme::ECDSA_NISTP256_SHA256,
-                SignatureScheme::ECDSA_NISTP384_SHA384,
-                SignatureScheme::ED25519,
-                SignatureScheme::RSA_PSS_SHA256,
-                SignatureScheme::RSA_PSS_SHA384,
-                SignatureScheme::RSA_PSS_SHA512,
-                SignatureScheme::RSA_PKCS1_SHA256,
-                SignatureScheme::RSA_PKCS1_SHA384,
-                SignatureScheme::RSA_PKCS1_SHA512,
-            ],
+            algorithms: provider.signature_verification_algorithms,
         }
     }
 
@@ -137,28 +163,30 @@ impl ServerCertVerifier for SpkiPinVerifier {
 
     fn verify_tls12_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
-        // We've accepted the cert via SPKI pinning; trust the
-        // signature on the assumption the operator pinned the
-        // expected leaf. A more conservative implementation could
-        // delegate to a real WebPKI verifier here.
-        Ok(HandshakeSignatureValid::assertion())
+        // SPKI pinning replaces *chain* validation; the handshake
+        // signature still has to verify against the cert's public
+        // key, otherwise an attacker who has captured a copy of the
+        // (public) cert could complete the handshake without
+        // possessing the private key. Delegate to the rustls
+        // CryptoProvider's signature verifier.
+        verify_tls12_signature(message, cert, dss, &self.algorithms)
     }
 
     fn verify_tls13_signature(
         &self,
-        _message: &[u8],
-        _cert: &CertificateDer<'_>,
-        _dss: &DigitallySignedStruct,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
     ) -> Result<HandshakeSignatureValid, TlsError> {
-        Ok(HandshakeSignatureValid::assertion())
+        verify_tls13_signature(message, cert, dss, &self.algorithms)
     }
 
     fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
-        self.supported_signature_schemes.clone()
+        self.algorithms.supported_schemes()
     }
 }
 
@@ -166,12 +194,21 @@ impl ServerCertVerifier for SpkiPinVerifier {
 /// [`SpkiPinVerifier`].
 ///
 /// reqwest's `use_preconfigured_tls` accepts this config and
-/// installs it for outbound HTTPS. Requires that a rustls
-/// `CryptoProvider` is installed in the process; the `rustls-tls`
-/// feature on reqwest installs one at startup.
+/// installs it for outbound HTTPS. Uses the active rustls
+/// `CryptoProvider`; falls back to `ring::default_provider()` if
+/// none is installed yet (typical when the pinned client is
+/// configured before any reqwest call has triggered provider
+/// installation). The same provider is used for cipher selection
+/// and for the verifier's handshake-signature check, so cipher /
+/// signature-algorithm sets stay consistent.
 pub fn build_pinning_client_config(pins: Vec<SpkiHash>) -> rustls::ClientConfig {
-    let verifier = Arc::new(SpkiPinVerifier::new(pins));
-    rustls::ClientConfig::builder()
+    let provider = rustls::crypto::CryptoProvider::get_default()
+        .cloned()
+        .unwrap_or_else(|| Arc::new(rustls::crypto::ring::default_provider()));
+    let verifier = Arc::new(SpkiPinVerifier::with_provider(pins, &provider));
+    rustls::ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .expect("rustls default protocol versions")
         .dangerous()
         .with_custom_certificate_verifier(verifier)
         .with_no_client_auth()
@@ -181,38 +218,61 @@ pub fn build_pinning_client_config(pins: Vec<SpkiHash>) -> rustls::ClientConfig 
 mod tests {
     use super::*;
 
-    // A minimal self-signed cert generated offline with rcgen, encoded
-    // as constants so the test has no I/O. Generation:
-    //   let mut p = rcgen::CertificateParams::new(vec!["pin.test".into()]);
-    //   let cert = rcgen::Certificate::from_params(p).unwrap();
-    //   let der = cert.serialize_der().unwrap();
-    // The bytes below are NOT a real-world cert and have no security
-    // properties; they exist solely to drive parser+hash tests.
-    //
-    // We build a synthetic cert at test time using only items in our
-    // dev-tree to keep things self-contained.
-    fn make_self_signed_der() -> Vec<u8> {
-        // Build a P-256 ECDSA-signed self-signed cert via rcgen, but
-        // rcgen isn't a dev-dep here. Use a hand-assembled minimal
-        // X.509 v1 cert with a pre-known SPKI. To avoid pulling rcgen
-        // in for one test, embed a pre-generated DER blob.
-        //
-        // The blob below was minted with:
-        //   openssl req -x509 -newkey ed25519 -nodes -days 1 \
-        //     -subj "/CN=pin.test" -keyout /tmp/k.pem -out /tmp/c.pem
-        //   openssl x509 -in /tmp/c.pem -outform DER | base64
-        // The exact bytes don't matter — we only round-trip them
-        // through compute_spki_hash to check parser symmetry.
-        // Embedded here would be too brittle; instead, generate a
-        // tiny DER stub that x509-parser will reject so we at least
-        // exercise the None branch.
-        b"not a der cert".to_vec()
+    // A real self-signed Ed25519 cert generated offline with:
+    //   openssl req -x509 -newkey ed25519 -nodes -days 1 \
+    //     -subj "/CN=pin.test" -keyout /tmp/k.pem -out /tmp/c.pem
+    //   openssl x509 -in /tmp/c.pem -outform DER | xxd -p -c 999
+    // The cert's not_before is irrelevant here — we don't validate
+    // expiry, only the SPKI hash.
+    const FIXTURE_CERT_DER_HEX: &str = "3082013a3081eda003020102021464f77ab0daa054338dd276a9ae7956d8bd737740300506032b657030133111300f06035504030c0870696e2e74657374301e170d3236303530373032343032355a170d3236303530383032343032355a30133111300f06035504030c0870696e2e74657374302a300506032b6570032100f84a2a0061babc970403a760a22ff9e1d426910eb85b47a1147ee67a9218499fa3533051301d0603551d0e04160414c31886fa0adbb84e1012080bacdcd4252b0eb648301f0603551d23041830168014c31886fa0adbb84e1012080bacdcd4252b0eb648300f0603551d130101ff040530030101ff300506032b65700341002205344cca62d90cdd042110dd72faa29e8b2cfb97e4f61c8dd8744c073800c4ba51018595b24569a94952cd7e3201df236958fd1a3d0503b85134bcd710c30a";
+
+    // Expected SPKI hash, computed independently with:
+    //   openssl x509 -in /tmp/c.pem -pubkey -noout
+    //     | openssl pkey -pubin -outform DER
+    //     | openssl dgst -sha256 -binary
+    //     | xxd -p -c 64
+    const FIXTURE_SPKI_HASH_HEX: &str =
+        "355aef3223b7c90587664d896722dede429ba20dc1934bf5fbe0000bceb83e17";
+
+    fn fixture_cert_der() -> Vec<u8> {
+        (0..FIXTURE_CERT_DER_HEX.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&FIXTURE_CERT_DER_HEX[i..i + 2], 16).unwrap())
+            .collect()
     }
 
     #[test]
     fn malformed_der_returns_none() {
-        let bytes = make_self_signed_der();
-        assert!(compute_spki_hash(&bytes).is_none());
+        assert!(compute_spki_hash(b"not a der cert").is_none());
+    }
+
+    #[test]
+    fn compute_spki_hash_matches_openssl() {
+        // Round-trip a real DER cert through compute_spki_hash and
+        // compare against the SHA-256 OpenSSL produces over the
+        // SPKI bytes. If x509-parser ever changes how
+        // `tbs_certificate.subject_pki.raw` is exposed, this test
+        // would catch it.
+        let der = fixture_cert_der();
+        let computed = compute_spki_hash(&der).expect("parse fixture cert");
+        let expected: Vec<u8> = (0..FIXTURE_SPKI_HASH_HEX.len())
+            .step_by(2)
+            .map(|i| u8::from_str_radix(&FIXTURE_SPKI_HASH_HEX[i..i + 2], 16).unwrap())
+            .collect();
+        assert_eq!(computed.as_slice(), expected.as_slice());
+    }
+
+    #[test]
+    fn pinned_cert_accepted_unpinned_rejected() {
+        let der = fixture_cert_der();
+        let correct_pin = compute_spki_hash(&der).unwrap();
+        let wrong_pin = [0xAAu8; 32];
+
+        let v_match = SpkiPinVerifier::new(vec![correct_pin]);
+        assert!(v_match.is_pinned(&der));
+
+        let v_other = SpkiPinVerifier::new(vec![wrong_pin]);
+        assert!(!v_other.is_pinned(&der));
     }
 
     #[test]
