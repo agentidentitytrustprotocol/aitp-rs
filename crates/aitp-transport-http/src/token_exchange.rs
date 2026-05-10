@@ -85,6 +85,57 @@ pub struct SubjectCredential {
     pub token_type: String,
 }
 
+/// Client authentication scheme per RFC 6749 §2.3 / RFC 7521.
+///
+/// RFC 8693 §2.1 says: "Client authentication is required by this
+/// specification." The token-exchange request must therefore carry
+/// proof of the client's identity in addition to the subject token
+/// being exchanged. The four production-realistic schemes:
+#[derive(Debug, Clone)]
+pub enum ClientAuthentication {
+    /// HTTP Basic auth (RFC 6749 §2.3.1). Base64-encoded
+    /// `client_id:client_secret` in the `Authorization` header.
+    /// Most common for confidential clients with a static secret.
+    HttpBasic {
+        /// OAuth client identifier.
+        client_id: String,
+        /// OAuth client secret.
+        client_secret: String,
+    },
+    /// `client_id` + `client_secret` carried in the form body
+    /// (RFC 6749 §2.3.1, "client_secret_post"). Equivalent to
+    /// HttpBasic but in the body — some IdPs require it.
+    ClientSecretPost {
+        /// OAuth client identifier.
+        client_id: String,
+        /// OAuth client secret.
+        client_secret: String,
+    },
+    /// JWT bearer client assertion (RFC 7523 §2.2). The client
+    /// signs a short-lived JWT proving its identity. AITP agents
+    /// typically use this with `client_assertion_type =
+    /// urn:ietf:params:oauth:client-assertion-type:jwt-bearer`.
+    /// The JWT MUST be minted and signed by the caller.
+    ClientAssertion {
+        /// OAuth client identifier.
+        client_id: String,
+        /// Type URI for the assertion. Use
+        /// [`CLIENT_ASSERTION_TYPE_JWT_BEARER`] for the common case.
+        client_assertion_type: String,
+        /// The signed JWT.
+        client_assertion: String,
+    },
+    /// No client authentication. Public clients only — most IdPs
+    /// reject token-exchange from public clients, so use this only
+    /// when the IdP is explicitly configured for it.
+    None,
+}
+
+/// `client_assertion_type` URI for JWT bearer client auth
+/// (RFC 7523 §2.2).
+pub const CLIENT_ASSERTION_TYPE_JWT_BEARER: &str =
+    "urn:ietf:params:oauth:client-assertion-type:jwt-bearer";
+
 /// Token-exchange request body (RFC 8693 §2.1).
 ///
 /// Only the subset of fields that AITP-bootstrapped agents
@@ -96,6 +147,12 @@ pub struct TokenExchangeRequest {
     pub endpoint: Url,
     /// The credential being exchanged.
     pub subject: SubjectCredential,
+    /// Client authentication for this request. RFC 8693 §2.1 says
+    /// client authentication is required; defaults to
+    /// [`ClientAuthentication::None`] only because some IdPs
+    /// permit public clients. Production callers should set one
+    /// of the explicit variants.
+    pub client_auth: ClientAuthentication,
     /// Optional actor token if the request is on behalf of another
     /// principal (RFC 8693 §2.1 `actor_token` / `actor_token_type`).
     pub actor: Option<SubjectCredential>,
@@ -111,10 +168,13 @@ pub struct TokenExchangeRequest {
 
 impl TokenExchangeRequest {
     /// Construct a minimal request: endpoint + subject credential.
+    /// Defaults to [`ClientAuthentication::None`] — set
+    /// [`Self::client_auth`] before posting in production.
     pub fn new(endpoint: Url, subject: SubjectCredential) -> Self {
         Self {
             endpoint,
             subject,
+            client_auth: ClientAuthentication::None,
             actor: None,
             requested_token_type: None,
             audience: None,
@@ -123,12 +183,41 @@ impl TokenExchangeRequest {
         }
     }
 
-    /// Build the application/x-www-form-urlencoded body.
+    /// Set the client authentication scheme. Convenience builder
+    /// over the public `client_auth` field.
+    pub fn with_client_auth(mut self, auth: ClientAuthentication) -> Self {
+        self.client_auth = auth;
+        self
+    }
+
+    /// Build the application/x-www-form-urlencoded body. Form
+    /// values for `client_secret_post` and `client_assertion`
+    /// auth land here; HttpBasic auth is added as a header in
+    /// [`exchange_token`] instead.
     fn form_body(&self) -> Vec<(&'static str, String)> {
-        let mut body: Vec<(&'static str, String)> = Vec::with_capacity(8);
+        let mut body: Vec<(&'static str, String)> = Vec::with_capacity(10);
         body.push(("grant_type", TOKEN_EXCHANGE_GRANT_TYPE.into()));
         body.push(("subject_token", self.subject.token.clone()));
         body.push(("subject_token_type", self.subject.token_type.clone()));
+        match &self.client_auth {
+            ClientAuthentication::ClientSecretPost {
+                client_id,
+                client_secret,
+            } => {
+                body.push(("client_id", client_id.clone()));
+                body.push(("client_secret", client_secret.clone()));
+            }
+            ClientAuthentication::ClientAssertion {
+                client_id,
+                client_assertion_type,
+                client_assertion,
+            } => {
+                body.push(("client_id", client_id.clone()));
+                body.push(("client_assertion_type", client_assertion_type.clone()));
+                body.push(("client_assertion", client_assertion.clone()));
+            }
+            ClientAuthentication::HttpBasic { .. } | ClientAuthentication::None => {}
+        }
         if let Some(actor) = &self.actor {
             body.push(("actor_token", actor.token.clone()));
             body.push(("actor_token_type", actor.token_type.clone()));
@@ -187,12 +276,20 @@ pub async fn exchange_token(
     request: &TokenExchangeRequest,
 ) -> Result<TokenExchangeResponse, TokenExchangeError> {
     let body = request.form_body();
-    let resp = client
+    let mut builder = client
         .post(request.endpoint.clone())
         .header(reqwest::header::ACCEPT, "application/json")
-        .form(&body)
-        .send()
-        .await?;
+        .form(&body);
+    // HttpBasic is the only scheme that lives outside the form
+    // body — RFC 6749 §2.3.1 puts it in the Authorization header.
+    if let ClientAuthentication::HttpBasic {
+        client_id,
+        client_secret,
+    } = &request.client_auth
+    {
+        builder = builder.basic_auth(client_id, Some(client_secret));
+    }
+    let resp = builder.send().await?;
 
     let status = resp.status();
     let bytes = resp.bytes().await?;

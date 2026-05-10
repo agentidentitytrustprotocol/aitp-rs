@@ -5,12 +5,12 @@
 
 use crate::types::{IdentityHint, IdentityHintKind, Manifest, ManifestPop};
 use crate::ManifestError;
+use aitp_core::RawUrl;
 use aitp_core::{base64url, jcs, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use rand::RngCore;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
-use url::Url;
 
 /// Default Manifest TTL (24 hours).
 pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
@@ -34,11 +34,18 @@ pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
 /// ```
 pub struct ManifestBuilder<'a> {
     signing_key: &'a AitpSigningKey,
-    handshake_endpoint: Option<Url>,
-    accepted_trust_anchors: Vec<Url>,
-    accepted_identity_types: Vec<String>,
+    handshake_endpoint: Option<RawUrl>,
+    accepted_trust_anchors: Vec<RawUrl>,
+    /// `None` until the caller explicitly opts in via
+    /// [`Self::accept_identity_type`]. The wire `Manifest` carries
+    /// this as `Option<Vec<String>>` so absent and explicit-empty
+    /// remain distinguishable in the canonical signing input.
+    accepted_identity_types: Option<Vec<String>>,
     offered_capabilities: Vec<String>,
-    required_peer_capabilities: Vec<String>,
+    /// `None` until the caller calls [`Self::require`]. Same
+    /// canonical-form rationale as `accepted_identity_types`:
+    /// absent vs explicit-empty must round-trip distinctly.
+    required_peer_capabilities: Option<Vec<String>>,
     identity_hint: Option<IdentityHint>,
     ttl_secs: i64,
     display_name: Option<String>,
@@ -54,9 +61,9 @@ impl<'a> ManifestBuilder<'a> {
             signing_key,
             handshake_endpoint: None,
             accepted_trust_anchors: Vec::new(),
-            accepted_identity_types: Vec::new(),
+            accepted_identity_types: None,
             offered_capabilities: Vec::new(),
-            required_peer_capabilities: Vec::new(),
+            required_peer_capabilities: None,
             identity_hint: None,
             ttl_secs: DEFAULT_MANIFEST_TTL_SECS,
             display_name: None,
@@ -66,7 +73,16 @@ impl<'a> ManifestBuilder<'a> {
     }
 
     /// Set the handshake endpoint URL.
-    pub fn handshake_endpoint(mut self, url: Url) -> Self {
+    pub fn handshake_endpoint(mut self, url: url::Url) -> Self {
+        self.handshake_endpoint = Some(RawUrl::from(url));
+        self
+    }
+
+    /// Set the handshake endpoint URL preserving the wire bytes
+    /// verbatim. Use when the endpoint string isn't `url::Url`-canonical
+    /// (e.g. a fixture that signs over `https://h` without trailing
+    /// slash and the canonical bytes must match).
+    pub fn handshake_endpoint_raw(mut self, url: RawUrl) -> Self {
         self.handshake_endpoint = Some(url);
         self
     }
@@ -83,21 +99,56 @@ impl<'a> ManifestBuilder<'a> {
         self
     }
 
-    /// Append a capability to `required_peer_capabilities`.
+    /// Append a capability to `required_peer_capabilities`. Once
+    /// called, the field is serialized in the canonical bytes; if
+    /// never called, the field is absent on the wire (which means
+    /// "no requirements" semantically and produces strictly
+    /// shorter canonical bytes).
     pub fn require(mut self, capability: impl Into<String>) -> Self {
-        self.required_peer_capabilities.push(capability.into());
+        self.required_peer_capabilities
+            .get_or_insert_with(Vec::new)
+            .push(capability.into());
         self
     }
 
-    /// Append an issuer URI to `accepted_trust_anchors`.
-    pub fn accept_trust_anchor(mut self, issuer: Url) -> Self {
+    /// Append an issuer URI to `accepted_trust_anchors`. Accepts
+    /// `url::Url`; use [`Self::accept_trust_anchor_raw`] when the
+    /// input string isn't `url::Url`-canonical and the canonical
+    /// bytes must match the wire form verbatim.
+    pub fn accept_trust_anchor(mut self, issuer: url::Url) -> Self {
+        self.accepted_trust_anchors.push(RawUrl::from(issuer));
+        self
+    }
+
+    /// Append an issuer URI to `accepted_trust_anchors` preserving
+    /// the wire bytes verbatim.
+    pub fn accept_trust_anchor_raw(mut self, issuer: RawUrl) -> Self {
         self.accepted_trust_anchors.push(issuer);
         self
     }
 
     /// Append an identity type (`"oidc"`, `"pinned_key"`).
+    ///
+    /// Once at least one type is appended, the manifest's
+    /// `accepted_identity_types` field is serialized in the
+    /// canonical bytes — even if the list is later cleared. Callers
+    /// who want the absent (default `["oidc"]`) semantic should not
+    /// call this method at all.
     pub fn accept_identity_type(mut self, ty: impl Into<String>) -> Self {
-        self.accepted_identity_types.push(ty.into());
+        self.accepted_identity_types
+            .get_or_insert_with(Vec::new)
+            .push(ty.into());
+        self
+    }
+
+    /// Set `accepted_identity_types` to an explicit empty list,
+    /// causing the manifest to reject every peer regardless of
+    /// presented identity type. The wire form will carry
+    /// `"accepted_identity_types": []`. Useful when the operator
+    /// wants to lock the agent down (e.g. during a key-rotation
+    /// drill).
+    pub fn accept_no_identity_types(mut self) -> Self {
+        self.accepted_identity_types = Some(Vec::new());
         self
     }
 
@@ -176,9 +227,9 @@ impl<'a> ManifestBuilder<'a> {
             identity_hint: &identity_hint,
             handshake_endpoint: &handshake_endpoint,
             accepted_trust_anchors: &self.accepted_trust_anchors,
-            accepted_identity_types: &self.accepted_identity_types,
+            accepted_identity_types: self.accepted_identity_types.as_deref(),
             offered_capabilities: &self.offered_capabilities,
-            required_peer_capabilities: &self.required_peer_capabilities,
+            required_peer_capabilities: self.required_peer_capabilities.as_deref(),
             proof_of_possession: &pop,
             published_at: &published_at,
             expires_at: &expires_at,
@@ -238,6 +289,22 @@ fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
 /// The exact field order, names, and skip-when-empty rules MUST mirror
 /// `Manifest` so that the bytes hashed at issuance are byte-identical to
 /// the bytes hashed at verification.
+///
+/// **Field-presence handling (RFC-AITP-0003 §3.2 / Gap-2):**
+///
+/// `accepted_identity_types` is omitted from the canonical bytes
+/// when absent and serialized verbatim (including explicit `[]`)
+/// when present. RFC §3.2 distinguishes absent (= defaults to
+/// `["oidc"]`) from explicit `[]` (= reject every peer); the
+/// canonical bytes MUST preserve that distinction so issuer and
+/// verifier compute identical digests. We track presence via
+/// `Option<Vec<String>>` on the wire `Manifest`, so a `None` here
+/// means "field absent in the original signed body".
+///
+/// `required_peer_capabilities` follows the same `Option` pattern
+/// as `accepted_identity_types` — spec fixtures vary in whether
+/// they include explicit `[]` or omit the field, and the canonical
+/// signing bytes differ accordingly.
 #[derive(Serialize)]
 pub(crate) struct ManifestSigningView<'a> {
     pub version: &'a str,
@@ -245,13 +312,13 @@ pub(crate) struct ManifestSigningView<'a> {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub display_name: Option<&'a str>,
     pub identity_hint: &'a IdentityHint,
-    pub handshake_endpoint: &'a Url,
-    pub accepted_trust_anchors: &'a [Url],
-    #[serde(skip_serializing_if = "<[String]>::is_empty")]
-    pub accepted_identity_types: &'a [String],
+    pub handshake_endpoint: &'a RawUrl,
+    pub accepted_trust_anchors: &'a [RawUrl],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_identity_types: Option<&'a [String]>,
     pub offered_capabilities: &'a [String],
-    #[serde(skip_serializing_if = "<[String]>::is_empty")]
-    pub required_peer_capabilities: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_peer_capabilities: Option<&'a [String]>,
     pub proof_of_possession: &'a ManifestPop,
     pub published_at: &'a Timestamp,
     pub expires_at: &'a Timestamp,

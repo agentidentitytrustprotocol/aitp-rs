@@ -101,11 +101,16 @@ struct OuterSigningView<'a> {
 }
 
 fn make_3hop_token() -> (DelegationToken, AitpSigningKey) {
+    // 3-hop A → B → C → D delegation. RFC-AITP-0011 §3 line 130:
+    // total_hops = chain.length + 1, where the +1 is the top-level
+    // grant_proof. So a 3-hop chain has chain[0..1] plus a grant_proof
+    // that IS the final hop. The outer delegation's `issued_by`
+    // equals `grant_proof.issuer`, and `delegatee` equals
+    // `grant_proof.subject`.
     let alice = key(0xA0);
     let bob = key(0xB0);
     let carol = key(0xC0);
     let dave = key(0xD0);
-    let evan = key(0xE0);
 
     // chain[0]: A → B (TCT projection). Signature reused from a real
     // peer-issued TCT minted by A.
@@ -136,7 +141,9 @@ fn make_3hop_token() -> (DelegationToken, AitpSigningKey) {
         Timestamp(tct_b.expires_at.0 - 60),
     );
 
-    // grant_proof: C → D, signed by C, narrowest scope.
+    // grant_proof = final hop C → D, signed by C, narrowest scope.
+    // C is `issued_by` (signs the outer delegation); D is the
+    // `delegatee` (recipient).
     let step_cd = mint_step(
         &carol,
         dave.aid().clone(),
@@ -153,12 +160,12 @@ fn make_3hop_token() -> (DelegationToken, AitpSigningKey) {
     let audience = delegator.clone();
     let scope = vec!["read".into()];
     let expires_at = Timestamp(step_cd.expires_at.0 - 60);
-    let cnf = base64url::encode(&evan.verifying_key().to_bytes());
+    let cnf = base64url::encode(&dave.verifying_key().to_bytes());
 
     let outer = OuterSigningView {
         delegator: &delegator,
-        delegatee: evan.aid(),
-        issued_by: dave.aid(),
+        delegatee: dave.aid(),
+        issued_by: carol.aid(),
         audience: &audience,
         scope: &scope,
         expires_at: &expires_at,
@@ -169,12 +176,12 @@ fn make_3hop_token() -> (DelegationToken, AitpSigningKey) {
     };
     let canonical = jcs::canonicalize_serializable(&outer).unwrap();
     let digest = Sha256::digest(&canonical);
-    let signature = dave.sign(&digest);
+    let signature = carol.sign(&digest);
 
     let token = DelegationToken {
         delegator,
-        delegatee: evan.aid().clone(),
-        issued_by: dave.aid().clone(),
+        delegatee: dave.aid().clone(),
+        issued_by: carol.aid().clone(),
         audience,
         scope,
         expires_at,

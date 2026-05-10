@@ -68,6 +68,13 @@ pub struct DpopProof {
     /// resource-server proofs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub ath: Option<String>,
+    /// Optional server-supplied nonce (RFC 9449 §8). When the
+    /// resource server has issued a `DPoP-Nonce` header in a
+    /// previous response, the next proof MUST echo it back here.
+    /// The verifier rejects proofs whose `nonce` doesn't equal
+    /// the most recent value the server emitted.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub nonce: Option<String>,
 }
 
 /// Parsed split of an `Authorization: DPoP <token>` plus the
@@ -126,6 +133,13 @@ pub enum DpopError {
     /// `base64url(sha256(access_token))`.
     #[error("DPoP 'ath' does not match access token hash")]
     AthMismatch,
+    /// Server expected a `nonce` claim but the proof omitted it.
+    #[error("DPoP proof missing 'nonce' claim")]
+    MissingNonce,
+    /// `nonce` claim present but does not match the
+    /// server-supplied value.
+    #[error("DPoP 'nonce' does not match server-supplied value")]
+    NonceMismatch,
 }
 
 impl DpopHeader {
@@ -238,6 +252,12 @@ pub struct DpopVerifyContext<'a> {
     pub iat_tolerance_secs: i64,
     /// Resource server's clock as Unix seconds.
     pub now_unix_secs: i64,
+    /// Server-supplied nonce the proof MUST echo (RFC 9449 §8).
+    /// `None` disables the check; `Some(value)` requires
+    /// `proof.nonce == value`. Production deployments at high
+    /// risk of replay use this to force every proof to be paired
+    /// with a recent server-issued nonce.
+    pub expected_nonce: Option<&'a str>,
 }
 
 /// Full DPoP proof verification (RFC 9449 §4.3).
@@ -362,6 +382,21 @@ pub fn verify_dpop_proof_full(
         }
     }
 
+    // Step 7: server-supplied nonce check (RFC 9449 §8). When the
+    // verifier expects a specific nonce, the proof must echo it
+    // back. This binds proofs to a recent server-issued nonce so
+    // an attacker can't replay a captured proof against a
+    // different request.
+    if let Some(expected_nonce) = ctx.expected_nonce {
+        let nonce = match &proof.nonce {
+            Some(n) => n,
+            None => return Err(DpopError::MissingNonce),
+        };
+        if nonce != expected_nonce {
+            return Err(DpopError::NonceMismatch);
+        }
+    }
+
     Ok(proof)
 }
 
@@ -398,6 +433,7 @@ pub fn verify_dpop_proof(
         expected_url,
         expected_jkt,
         expected_access_token: None,
+        expected_nonce: None,
         replay_cache: &cache,
         iat_tolerance_secs: 60,
         now_unix_secs: chrono::Utc::now().timestamp(),
@@ -548,6 +584,7 @@ mod tests {
                 expected_url: "https://x",
                 expected_jkt: "jkt",
                 expected_access_token: None,
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: 60,
                 now_unix_secs: 0,
@@ -640,6 +677,7 @@ mod tests {
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
                 expected_access_token: None,
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -657,6 +695,7 @@ mod tests {
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
                 expected_access_token: None,
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -702,6 +741,7 @@ mod tests {
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &expected_jkt,
                 expected_access_token: None,
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -774,6 +814,7 @@ mod tests {
                 expected_url: "https://api.example.com/resource",
                 expected_jkt: &jkt,
                 expected_access_token: Some(token),
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -805,6 +846,7 @@ mod tests {
                 expected_url: "https://api.example.com/r",
                 expected_jkt: &jkt,
                 expected_access_token: Some(b"tok"),
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,
@@ -840,6 +882,7 @@ mod tests {
                 expected_url: "https://api.example.com/r",
                 expected_jkt: &jkt,
                 expected_access_token: Some(real_token),
+                expected_nonce: None,
                 replay_cache: &cache,
                 iat_tolerance_secs: i64::MAX / 2,
                 now_unix_secs: 1_700_000_000,

@@ -1,8 +1,7 @@
 //! Wire types for the Manifest (RFC-AITP-0003 §2 / `schemas/json/aitp-manifest.schema.json`).
 
-use aitp_core::{Aid, ExtensionsMap, Timestamp};
+use aitp_core::{Aid, ExtensionsMap, RawUrl, Timestamp};
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 /// A signed self-description published by every A2A agent.
 ///
@@ -20,18 +19,38 @@ pub struct Manifest {
     pub display_name: Option<String>,
     /// Static identity metadata. NOT a verifiable JWT.
     pub identity_hint: IdentityHint,
-    /// HTTPS endpoint where peers initiate the handshake.
-    pub handshake_endpoint: Url,
+    /// HTTPS endpoint where peers initiate the handshake. Stored
+    /// as a [`RawUrl`] so the wire bytes are preserved verbatim
+    /// for canonical-form signing — `url::Url` normalizes (adds
+    /// trailing slash, lowercases scheme) which would diverge from
+    /// the issuer's signed input.
+    pub handshake_endpoint: RawUrl,
     /// OIDC issuer URIs this peer accepts from incoming peers.
-    pub accepted_trust_anchors: Vec<Url>,
-    /// Identity types this peer accepts. Default: `["oidc"]` when absent.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub accepted_identity_types: Vec<String>,
+    /// `RawUrl` for the same canonical-form-preservation reason as
+    /// [`Self::handshake_endpoint`].
+    pub accepted_trust_anchors: Vec<RawUrl>,
+    /// Identity types this peer accepts.
+    ///
+    /// **Presence-sensitive:** RFC-AITP-0003 §3.2 distinguishes
+    /// absent (= defaults to `["oidc"]`) from explicit `[]`
+    /// (= reject every peer). Modeled as `Option<Vec<String>>` so
+    /// the canonical signing bytes preserve the on-the-wire shape:
+    /// `None` → field absent, `Some(_)` → field serialized verbatim
+    /// (including `Some(vec![])`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_identity_types: Option<Vec<String>>,
     /// Capabilities this peer is willing to grant.
     pub offered_capabilities: Vec<String>,
     /// Capabilities this peer requires of any peer that connects to it.
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub required_peer_capabilities: Vec<String>,
+    ///
+    /// **Presence-sensitive** for the same canonical-form reason as
+    /// [`Self::accepted_identity_types`]: spec fixtures vary in
+    /// whether they include the field as explicit `[]` or omit it,
+    /// and the canonical signing bytes differ. Modeling as
+    /// `Option<Vec<String>>` preserves the wire form through
+    /// deserialize→re-serialize.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub required_peer_capabilities: Option<Vec<String>>,
     /// Proof-of-possession over the Manifest signing key.
     pub proof_of_possession: ManifestPop,
     /// When this Manifest was signed.
@@ -71,9 +90,10 @@ pub struct IdentityHint {
     pub kind: IdentityHintKind,
     /// Subject identifier at the identity provider.
     pub subject: String,
-    /// OIDC issuer URI (required when type=oidc).
+    /// OIDC issuer URI (required when type=oidc). `RawUrl` so the
+    /// canonical-form bytes match the issuer-signed input.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issuer: Option<Url>,
+    pub issuer: Option<RawUrl>,
     /// Pinned 32-byte raw public key, base64url-unpadded
     /// (required when type=pinned_key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -117,14 +137,14 @@ mod tests {
             identity_hint: IdentityHint {
                 kind: IdentityHintKind::Oidc,
                 subject: "agent-a".into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
+                issuer: Some(RawUrl::new("https://idp.example.com")),
                 public_key: None,
             },
-            handshake_endpoint: "https://a.example.com/handshake".parse().unwrap(),
-            accepted_trust_anchors: vec!["https://idp.example.com".parse().unwrap()],
-            accepted_identity_types: vec![],
+            handshake_endpoint: RawUrl::new("https://a.example.com/handshake"),
+            accepted_trust_anchors: vec![RawUrl::new("https://idp.example.com")],
+            accepted_identity_types: None,
             offered_capabilities: vec!["demo.echo".into()],
-            required_peer_capabilities: vec![],
+            required_peer_capabilities: None,
             proof_of_possession: ManifestPop {
                 challenge: "A".repeat(22),
                 signature: "A".repeat(86),
@@ -140,8 +160,17 @@ mod tests {
     fn round_trip_oidc_manifest() {
         let m = build_minimal_manifest();
         let s = serde_json::to_string(&m).unwrap();
+        // Optional fields modeled as `Option` round-trip absent
+        // → absent. `display_name`, `extensions`,
+        // `accepted_identity_types`, and `required_peer_capabilities`
+        // are all skip-on-none / skip-on-empty, so they're missing
+        // from the wire form when the builder didn't set them.
+        // (Preserving the absent-vs-explicit-empty distinction
+        // through a serde round-trip is what keeps issuer and
+        // verifier signing inputs in sync — see RFC-AITP-0001 §5.4.)
         assert!(!s.contains("\"display_name\":"));
         assert!(!s.contains("\"extensions\":"));
+        assert!(!s.contains("\"accepted_identity_types\":"));
         assert!(!s.contains("\"required_peer_capabilities\":"));
         let back: Manifest = serde_json::from_str(&s).unwrap();
         assert_eq!(back, m);

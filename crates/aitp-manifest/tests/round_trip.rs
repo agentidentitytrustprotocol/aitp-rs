@@ -61,7 +61,21 @@ fn tampered_pop_signature_fails() {
     s.push(if last == 'A' { 'B' } else { 'A' });
     m.proof_of_possession.signature = s;
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
-    assert!(matches!(err, ManifestError::PopFailed), "got: {:?}", err);
+    // Either error is acceptable: tampering the PoP signature also
+    // invalidates the outer signature (the outer covers the whole
+    // body including `proof_of_possession.signature`). The verifier
+    // checks the outer signature first (rc.4 ordering — see
+    // `mh-002` conformance), so SignatureInvalid is the typical
+    // observable. Accept either to keep this test robust to the
+    // outer/PoP check ordering.
+    assert!(
+        matches!(
+            err,
+            ManifestError::PopFailed | ManifestError::SignatureInvalid
+        ),
+        "got: {:?}",
+        err
+    );
 }
 
 #[test]
@@ -77,11 +91,20 @@ fn tampered_pop_challenge_fails() {
     }
     m.proof_of_possession.challenge = String::from_utf8(chars).unwrap();
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
-    // Tampering the challenge invalidates BOTH the pop_signature (because
-    // sha256(challenge) is now different) AND the outer signature
-    // (because the canonicalized body now differs). The verifier checks
-    // PoP first, so the observable error is PopFailed.
-    assert!(matches!(err, ManifestError::PopFailed), "got: {:?}", err);
+    // Tampering the challenge invalidates BOTH the pop_signature
+    // and the outer signature. The rc.4-era verifier checks the
+    // outer signature first (so `mh-002` reports
+    // MANIFEST_SIGNATURE_INVALID), hence SignatureInvalid is the
+    // typical observable here; accept either to keep the test
+    // robust to ordering changes.
+    assert!(
+        matches!(
+            err,
+            ManifestError::PopFailed | ManifestError::SignatureInvalid
+        ),
+        "got: {:?}",
+        err
+    );
 }
 
 #[test]

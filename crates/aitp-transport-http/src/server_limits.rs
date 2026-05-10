@@ -39,8 +39,16 @@ use axum::Router;
 
 /// Default request body limit applied by
 /// [`with_request_body_limit_default`]: 64 KiB. Safe default for
-/// every AITP endpoint except revocation-list uploads.
+/// every AITP endpoint except revocation-list uploads — see
+/// [`REVOCATION_LIST_BODY_LIMIT`].
 pub const DEFAULT_REQUEST_BODY_LIMIT: usize = 64 * 1024;
+
+/// Recommended body limit for `/.well-known/aitp-revocation-list`
+/// endpoints: 256 KiB. Revocation lists scale with the number of
+/// revoked JTIs, so the global default is too low. See the
+/// `_per_route_limits` module-level recipe for how to layer this
+/// onto the revocation route via axum's `route_layer`.
+pub const REVOCATION_LIST_BODY_LIMIT: usize = 256 * 1024;
 
 /// Recommended HTTP header buffer size for AITP servers: 16 KiB.
 ///
@@ -78,6 +86,28 @@ pub fn with_request_body_limit(router: Router, limit: usize) -> Router {
 pub fn with_request_body_limit_default(router: Router) -> Router {
     with_request_body_limit(router, DEFAULT_REQUEST_BODY_LIMIT)
 }
+
+/// Per-route body limits — use axum's native `route_layer` rather
+/// than wrapping the whole router. The pattern for the revocation
+/// endpoint:
+///
+/// ```rust,ignore
+/// use axum::extract::DefaultBodyLimit;
+/// use aitp_transport_http::REVOCATION_LIST_BODY_LIMIT;
+///
+/// let app = Router::new()
+///     .route("/.well-known/aitp-revocation-list", get(snapshot))
+///     .route_layer(DefaultBodyLimit::max(REVOCATION_LIST_BODY_LIMIT))
+///     .merge(other_aitp_routes);  // these inherit DEFAULT_REQUEST_BODY_LIMIT
+/// ```
+///
+/// We deliberately do NOT export a "with_request_body_limit_for_path"
+/// helper: axum's router merge semantics make path-scoped layering
+/// brittle when the same path is registered in two sub-routers
+/// with different limits, and a wrong helper here would silently
+/// pick the wrong limit. Callers should compose with axum's
+/// primitives directly.
+pub mod _per_route_limits {}
 
 // Header-size cap is binary-side: `axum::serve` uses hyper's
 // defaults and does not expose a builder hook. To cap header size,

@@ -62,8 +62,9 @@ pub struct OidcVerifyContext<'a> {
     pub expected_audience: &'a Aid,
     /// The fresh `pop_nonce` sent with the corresponding handshake message.
     pub expected_nonce: &'a str,
-    /// Accepted OIDC issuers.
-    pub trust_anchors: &'a [Url],
+    /// Accepted OIDC issuers (compared as wire strings; the
+    /// canonical bytes the OIDC issuer signed must match).
+    pub trust_anchors: &'a [aitp_core::RawUrl],
     /// JWKS resolver bridging to the issuer.
     pub jwks_resolver: &'a dyn JwksResolver,
     /// Subject AID (whose key the JWT's `cnf.jkt` MUST match).
@@ -85,16 +86,27 @@ pub fn verify_oidc(
         .as_ref()
         .ok_or_else(|| HandshakeError::Identity("oidc descriptor missing issuer".into()))?;
 
-    if !ctx.trust_anchors.iter().any(|a| a == issuer) {
+    if !ctx
+        .trust_anchors
+        .iter()
+        .any(|a| a.as_str() == issuer.as_str())
+    {
         return Err(HandshakeError::IncompatibleTrustAnchors);
     }
 
     let header = jsonwebtoken::decode_header(&proof.proof)
         .map_err(|e| HandshakeError::Identity(format!("malformed JWT header: {e}")))?;
 
+    // Parse the wire issuer string into a `url::Url` for the JWKS
+    // resolver, which is transport-layer and does need a normalized
+    // URL. Falls back to a structural error if the issuer string
+    // isn't a valid URL.
+    let issuer_url = issuer
+        .parse_url()
+        .map_err(|e| HandshakeError::Identity(format!("issuer not a URL: {e}")))?;
     let candidates = ctx
         .jwks_resolver
-        .resolve(issuer)
+        .resolve(&issuer_url)
         .map_err(|e| HandshakeError::Identity(format!("jwks resolve failed: {e}")))?;
 
     let key = match (&header.kid, candidates.iter().find(|k| k.kid == header.kid)) {

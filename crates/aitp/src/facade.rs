@@ -122,7 +122,11 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
         .build()
         .map_err(|e| FacadeError::Http(e.to_string()))?;
 
-    let hello_url = peer_manifest.handshake_endpoint.join("hello").unwrap();
+    let endpoint_url = peer_manifest
+        .handshake_endpoint
+        .parse_url()
+        .map_err(|e| FacadeError::Http(format!("handshake_endpoint not a URL: {e}")))?;
+    let hello_url = endpoint_url.join("hello").unwrap();
     let resp = client
         .post(hello_url)
         .json(&hello_envelope)
@@ -156,7 +160,7 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
     )
     .map_err(FacadeError::Http)?;
 
-    let commit_url = peer_manifest.handshake_endpoint.join("commit").unwrap();
+    let commit_url = endpoint_url.join("commit").unwrap();
     let commit_ack_envelope: AitpEnvelope = client
         .post(commit_url)
         .header("x-aitp-session-id", session_header)
@@ -190,7 +194,7 @@ pub struct InitiatorConfig<'a, R: JwksResolver + Send + Sync> {
     /// be fetched.
     pub peer_origin: url::Url,
     /// Accepted OIDC trust anchors.
-    pub trust_anchors: &'a [url::Url],
+    pub trust_anchors: &'a [aitp_core::RawUrl],
     /// JWKS resolver (no-op for pinned-key-only deployments).
     pub jwks_resolver: &'a R,
     /// Capabilities to request from the peer.

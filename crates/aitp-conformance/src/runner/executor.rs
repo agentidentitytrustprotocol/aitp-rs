@@ -81,14 +81,38 @@ impl<A: Adapter> Runner<A> {
         if self.pin_clock {
             // Adapter expects `now_unix_secs`; spec PLACEHOLDERS uses
             // `now`. Send both keys so either calling convention
-            // works.
-            let _ = self.adapter.execute(
+            // works. Surface non-OK results via tracing so an
+            // adapter that buggily accepts the call without moving
+            // its clock leaves a breadcrumb — every "expired"
+            // fixture would otherwise fail mysteriously.
+            match self.adapter.execute(
                 "set_clock",
                 serde_json::json!({
                     "now_unix_secs": REFERENCE_NOW,
                     "now": REFERENCE_NOW,
                 }),
-            );
+            ) {
+                Ok(crate::adapter::OpResult::Ok { .. }) => {}
+                Ok(crate::adapter::OpResult::Err {
+                    error_code,
+                    message,
+                    ..
+                }) => {
+                    tracing::debug!(
+                        fixture = %fixture.id,
+                        error_code = %error_code,
+                        message = %message,
+                        "set_clock precondition rejected by adapter; running against wall time"
+                    );
+                }
+                Err(e) => {
+                    tracing::debug!(
+                        fixture = %fixture.id,
+                        error = %e,
+                        "set_clock precondition failed; running against wall time"
+                    );
+                }
+            }
         }
         // Apply preconditions if any. Schema is permissive — the
         // preconditions block is JSON-shaped, so we forward each top-level

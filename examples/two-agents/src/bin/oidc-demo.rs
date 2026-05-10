@@ -55,7 +55,7 @@ fn main() {
 
     // ── Drive the handshake ────────────────────────────────────────────
     let resolver = issuer.as_resolver();
-    let trust_anchors = vec![issuer_url.clone()];
+    let trust_anchors = vec![aitp::core::RawUrl::from(issuer_url.clone())];
     let alice_cfg = PeerConfig {
         signing_key: &alice,
         manifest: &alice_manifest,
@@ -206,7 +206,7 @@ fn oidc_manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifes
         .identity_hint(IdentityHint {
             kind: IdentityHintKind::Oidc,
             subject: name.into(),
-            issuer: Some(issuer.clone()),
+            issuer: Some(aitp::core::RawUrl::from(issuer.clone())),
             public_key: None,
         })
         .accept_trust_anchor(issuer.clone())

@@ -99,7 +99,7 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
 struct HandshakeState<R: JwksResolver + Send + Sync> {
     signing_key: AitpSigningKey,
     manifest: Manifest,
-    trust_anchors: Vec<url::Url>,
+    trust_anchors: Vec<aitp_core::RawUrl>,
     jwks_resolver: R,
     /// Capabilities this responder requests from the peer. Per
     /// RFC-AITP-0004 §4.1 the issuing peer's TCT grants are
@@ -160,7 +160,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     pub fn new(
         signing_key: AitpSigningKey,
         manifest: Manifest,
-        trust_anchors: Vec<url::Url>,
+        trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
         requested_grants: Vec<String>,
     ) -> Self {
@@ -180,7 +180,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     pub fn with_session_ttl(
         signing_key: AitpSigningKey,
         manifest: Manifest,
-        trust_anchors: Vec<url::Url>,
+        trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
         requested_grants: Vec<String>,
         session_ttl: Duration,
@@ -201,7 +201,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     pub fn with_session_ttl_and_replay_window(
         signing_key: AitpSigningKey,
         manifest: Manifest,
-        trust_anchors: Vec<url::Url>,
+        trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
         requested_grants: Vec<String>,
         session_ttl: Duration,
