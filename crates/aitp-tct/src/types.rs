@@ -52,7 +52,8 @@ pub struct TctBinding {
     pub cnf: String,
 }
 
-/// TCT renewal request body.
+/// TCT renewal request body. Gated behind the
+/// `experimental-renewal` Cargo feature (post-v0.1, RFC-AITP-0004 §8.1).
 ///
 /// A holder asks the issuer to mint a fresh TCT (new JTI, fresh
 /// `expires_at`) by presenting:
@@ -66,6 +67,7 @@ pub struct TctBinding {
 /// The issuer returns a new `TctEnvelope` with a fresh `jti` and TTL
 /// bounded by the issuing peer's current Manifest `expires_at`
 /// (RFC-AITP-0004 §4.3).
+#[cfg(feature = "experimental-renewal")]
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TctRenewalPayload {

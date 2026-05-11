@@ -81,10 +81,12 @@ fn full_oidc_handshake_in_process() {
 
     let alice_jkt = aitp_crypto::AitpVerifyingKey::from_aid(alice.aid())
         .unwrap()
-        .to_jwk_thumbprint();
+        .to_jwk_thumbprint()
+        .unwrap();
     let bob_jkt = aitp_crypto::AitpVerifyingKey::from_aid(bob.aid())
         .unwrap()
-        .to_jwk_thumbprint();
+        .to_jwk_thumbprint()
+        .unwrap();
 
     let alice_jwt = issuer.mint_aitp_jwt(
         "alice",

@@ -45,10 +45,12 @@ fn main() {
     // ── Pre-compute pubkey thumbprints for the JWT cnf.jkt claim ────────
     let alice_jkt = AitpVerifyingKey::from_aid(alice.aid())
         .unwrap()
-        .to_jwk_thumbprint();
+        .to_jwk_thumbprint()
+        .unwrap();
     let bob_jkt = AitpVerifyingKey::from_aid(bob.aid())
         .unwrap()
-        .to_jwk_thumbprint();
+        .to_jwk_thumbprint()
+        .unwrap();
     println!("alice cnf.jkt: {alice_jkt}");
     println!("bob   cnf.jkt: {bob_jkt}");
     println!();

@@ -74,17 +74,19 @@ aitp-rs/
 | [0007](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0007-key-resolution.md) | Key resolution | ✅ implemented | `KeyResolutionPolicy` with cache → pinned → aitp-keys → OIDC ordering and three fail modes. |
 | [0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | Revocation | ✅ implemented | Snapshot signing/verification + per-issuer cache + HTTP endpoint + Manifest extension. |
 | [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults. |
-| [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ⏸ reserved | Deferred until v0.1 has soaked. |
-| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ⏸ reserved | Single-hop only in v0.1; chain length >1 rejected with `MULTIHOP_NOT_SUPPORTED`. |
+| [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft (opt-in) | Gated behind `experimental-session-bundle`. Builder + verifier in `aitp-session-bundle`; conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
+| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | v0.1-strict rejects with `DELEGATION_MULTIHOP_NOT_SUPPORTED` (max_hops=0). Opt-in `experimental-multihop-delegation` flips `max_hops` to `DEFAULT_MAX_HOPS=3` and exercises `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ✅ implemented | `ExtensionsMap` with namespace conventions; revocation URL extension wired. |
 
 ## Known limitations (v0.1)
 
-- **Single-hop delegation only.** Multi-hop chains (RFC-0011) are
-  rejected. Implementing them requires resolving mid-chain revocation
-  semantics; tracked for post-beta.
-- **No Session Trust Bundle.** N-party trust artifacts (RFC-0010) are
-  reserved; bilateral handshakes only.
+- **Single-hop delegation only by default.** Multi-hop chains (RFC-0011)
+  are rejected unless the `experimental-multihop-delegation` feature is
+  opted in. See [conformance-matrix](#conformance-matrix) for fixture
+  coverage.
+- **Session Trust Bundle is opt-in.** N-party trust artifacts (RFC-0010,
+  Draft) are gated behind the `experimental-session-bundle` Cargo
+  feature on the `aitp` facade.
 - **`verify_handshake_payload` adapter op** not implemented in
   `aitp-rs-adapter`, so the spec's `id-*` / `mh-*` (single-step)
   fixtures SKIP through the conformance runner. The underlying
@@ -100,6 +102,22 @@ aitp-rs/
   `KeyResolutionPolicy` sync→async bridge requires a multi-thread tokio
   runtime in the calling thread context; pure sync deployments must
   rely on the pinned-issuer store.
+
+## Conformance matrix
+
+The conformance runner reads fixture metadata (`status`, `feature`,
+`required_for_v0_1`) to decide which fixtures run in strict v0.1 vs.
+opt-in modes.
+
+| Mode | Command | Result |
+|------|---------|--------|
+| v0.1 strict (default) | `aitp-conformance run --target <adapter> --fixtures-dir <spec>/schemas/conformance` | 35 PASS / 7 SKIP / 0 FAIL |
+| Opt-in (Draft RFCs) | `… --feature experimental-multihop-delegation --feature experimental-session-bundle` | 41 PASS / 1 SKIP / 0 FAIL |
+
+The single SKIP in opt-in mode is `del-004`, which asserts the v0.1
+strict rejection (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) and is auto-
+skipped by the runner's negative-feature rule when multi-hop is opted
+in. See `crates/aitp-conformance/src/runner/executor.rs:negated_by_feature`.
 
 ## Quick start
 

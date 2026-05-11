@@ -11,8 +11,18 @@ use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Default `max_hops` cap from RFC-AITP-0011 §2: orchestrator → planner →
-/// executor. Configurable per [`VerifyDelegationContext`].
+/// executor. The RFC-AITP-0011 ceiling — NOT a constructor default.
+/// `VerifyDelegationContext::new` ships `max_hops = 0` (strict v0.1)
+/// and callers opt into multi-hop with [`VerifyDelegationContext::with_max_hops`].
 pub const DEFAULT_MAX_HOPS: u32 = 3;
+
+/// Strict v0.1 default. RFC-AITP-0006 §4.4 says: "Until an
+/// implementation explicitly opts into RFC-AITP-0011, it MUST
+/// reject any token carrying a non-empty `chain` field with
+/// `DELEGATION_MULTIHOP_NOT_SUPPORTED`." Setting `max_hops = 0`
+/// realizes that behavior — any chain length > 0 fails the
+/// `total_hops > max_hops` check before per-hop work runs.
+pub const V0_1_STRICT_MAX_HOPS: u32 = 0;
 
 /// Inputs for verifying a delegation token.
 pub struct VerifyDelegationContext<'a> {
@@ -26,22 +36,45 @@ pub struct VerifyDelegationContext<'a> {
     /// `grant_proof`) is consulted (RFC-AITP-0011 §6).
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
     /// Maximum total hop count permitted (RFC-AITP-0011 §2). The
-    /// total hop count is `chain.len() + 1`. Setting `0` rejects any
-    /// non-empty chain with `MultihopNotSupported` (the strict v0.1
-    /// posture). Default: 3.
+    /// total hop count is `chain.len() + 1`. **Default: 0** — any
+    /// non-empty chain is rejected with `MultihopNotSupported`,
+    /// matching the v0.1 strict posture (RFC-AITP-0006 §4.4).
+    /// Callers opting into multi-hop call
+    /// [`VerifyDelegationContext::with_max_hops`].
     pub max_hops: u32,
 }
 
 impl<'a> VerifyDelegationContext<'a> {
     /// Default context for verifier `verifier_aid` at time `now`. No
-    /// revocation lookup; `max_hops = 3`.
+    /// revocation lookup; `max_hops = 0` (v0.1 strict — rejects any
+    /// non-empty chain). Callers that want to opt into multi-hop
+    /// (RFC-AITP-0011) call [`Self::with_max_hops`] explicitly.
     pub fn new(verifier_aid: &'a Aid, now: Timestamp) -> Self {
         Self {
             verifier_aid,
             now,
             revocation_check: None,
-            max_hops: DEFAULT_MAX_HOPS,
+            max_hops: V0_1_STRICT_MAX_HOPS,
         }
+    }
+
+    /// Opt into RFC-AITP-0011 multi-hop delegation by raising the
+    /// hop cap. The RFC's recommended ceiling is
+    /// [`DEFAULT_MAX_HOPS`] (3); deployments wanting tighter
+    /// bounds pass a smaller value. Setting back to 0 reverts to
+    /// v0.1 strict.
+    pub fn with_max_hops(mut self, max_hops: u32) -> Self {
+        self.max_hops = max_hops;
+        self
+    }
+
+    /// Set the revocation check closure (builder).
+    pub fn with_revocation_check(
+        mut self,
+        check: &'a dyn Fn(&Uuid) -> bool,
+    ) -> Self {
+        self.revocation_check = Some(check);
+        self
     }
 }
 

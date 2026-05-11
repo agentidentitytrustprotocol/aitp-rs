@@ -18,4 +18,5 @@ pub use error::DelegationError;
 pub use types::{DelegationEnvelope, DelegationStep, DelegationToken, GrantProof};
 pub use verifier::{
     compute_chain_hash, verify_delegation, VerifyDelegationContext, DEFAULT_MAX_HOPS,
+    V0_1_STRICT_MAX_HOPS,
 };

@@ -32,6 +32,14 @@ enum Command {
         /// Only run fixtures with this tag.
         #[arg(long)]
         tag: Option<String>,
+        /// Opt into a feature flag, allowing non-core fixtures
+        /// with a matching `feature` field to run instead of
+        /// being SKIPped. Repeat the flag to opt into multiple.
+        /// Examples:
+        ///   --feature experimental-multihop-delegation
+        ///   --feature experimental-session-bundle
+        #[arg(long = "feature")]
+        features: Vec<String>,
         /// Output format: text|json|tap.
         #[arg(long, default_value = "text")]
         output: String,
@@ -66,9 +74,10 @@ fn main() {
             fixtures_dir,
             filter,
             tag,
+            features,
             output,
             fail_fast,
-        } => run(target, fixtures_dir, filter, tag, output, fail_fast),
+        } => run(target, fixtures_dir, filter, tag, features, output, fail_fast),
         Command::List { fixtures_dir, tag } => list(fixtures_dir, tag),
         Command::Describe { fixtures_dir, id } => describe(fixtures_dir, id),
     };
@@ -80,6 +89,7 @@ fn run(
     fixtures_dir: PathBuf,
     filter: Option<String>,
     tag: Option<String>,
+    features: Vec<String>,
     output: String,
     fail_fast: bool,
 ) -> i32 {
@@ -136,6 +146,9 @@ fn run(
     }
 
     let mut runner = Runner::new(adapter);
+    for feat in &features {
+        runner = runner.with_feature(feat.clone());
+    }
     let mut results: Vec<FixtureResult> = Vec::new();
     for fixture in &fixtures {
         let r = runner.run(fixture);

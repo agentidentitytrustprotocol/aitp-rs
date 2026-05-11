@@ -1,7 +1,10 @@
 //! Fixture runner.
 
 use crate::adapter::{Adapter, OpResult};
-use crate::fixture::{Fixture, FixtureExpected, FixtureInputVariant, RunnerContext, REFERENCE_NOW};
+use crate::fixture::{
+    Fixture, FixtureExpected, FixtureInputVariant, FixtureStatus, RunnerContext, REFERENCE_NOW,
+};
+use std::collections::HashSet;
 use std::time::Instant;
 
 /// Result of running one fixture.
@@ -49,16 +52,32 @@ pub struct Runner<A: Adapter> {
     /// spuriously report `EXPIRED` errors. Adapters that don't
     /// support `set_clock` continue past the pre-init silently.
     pin_clock: bool,
+    /// Feature flags this runner has been told the implementation
+    /// supports. Used by [`Self::should_skip_for_v0_1`] to decide
+    /// whether a non-core fixture runs (when its `feature` is in
+    /// this set) or skips. An empty set means strict v0.1: only
+    /// `status: core` fixtures run.
+    enabled_features: HashSet<String>,
+    /// Whether `set_features` has been broadcast to the adapter
+    /// for the current `enabled_features` set. Flipped to `false`
+    /// when [`Self::with_feature`] adds a new entry.
+    features_announced: bool,
 }
 
 impl<A: Adapter> Runner<A> {
-    /// Construct a runner around an adapter. Defaults to pinning
-    /// the adapter clock to [`REFERENCE_NOW`] before every fixture.
+    /// Construct a runner around an adapter. Defaults to:
+    ///
+    /// - pinning the adapter clock to [`REFERENCE_NOW`] before
+    ///   every fixture, and
+    /// - strict v0.1 mode (no feature flags enabled, so non-core
+    ///   fixtures SKIP automatically).
     pub fn new(adapter: A) -> Self {
         Self {
             adapter,
             ctx: RunnerContext::new(),
             pin_clock: true,
+            enabled_features: HashSet::new(),
+            features_announced: false,
         }
     }
 
@@ -70,8 +89,83 @@ impl<A: Adapter> Runner<A> {
         self
     }
 
+    /// Enable a feature flag so fixtures matching it run instead
+    /// of skipping. Examples: `experimental-multihop-delegation`,
+    /// `experimental-session-bundle`, `experimental-renewal`.
+    /// The adapter is also notified via the `set_features` op so
+    /// it can flip RFC-0011 (multi-hop) and similar post-v0.1
+    /// behaviors on. Call before `run()` — later calls don't
+    /// re-broadcast.
+    pub fn with_feature(mut self, feature: impl Into<String>) -> Self {
+        self.enabled_features.insert(feature.into());
+        self.features_announced = false;
+        self
+    }
+
+    /// Return `Some(reason)` if the fixture should be SKIP per
+    /// metadata: non-core status whose `feature` isn't in
+    /// [`Self::enabled_features`].
+    fn should_skip_for_v0_1(&self, fixture: &Fixture) -> Option<String> {
+        // Negative-feature rule: a core fixture asserting a
+        // v0.1-strict rejection (e.g. del-004 expects
+        // `DELEGATION_MULTIHOP_NOT_SUPPORTED`) is no longer
+        // applicable once the opposing experimental feature is
+        // opted in. Skip rather than fail.
+        if let Some(expected) = fixture.expected.as_ref() {
+            if let Some(code) = expected.error_code.as_deref() {
+                if let Some(feature) = negated_by_feature(code) {
+                    if self.enabled_features.contains(feature) {
+                        return Some(format!(
+                            "feature `{feature}` enabled — assertion `{code}` no longer applies"
+                        ));
+                    }
+                }
+            }
+        }
+        if matches!(fixture.status, FixtureStatus::Core) {
+            return None;
+        }
+        if let Some(feature) = &fixture.feature {
+            if self.enabled_features.contains(feature) {
+                return None;
+            }
+            return Some(format!(
+                "non-core fixture (status={:?}); requires feature `{feature}`",
+                fixture.status
+            ));
+        }
+        Some(format!(
+            "non-core fixture (status={:?}); no feature flag declared",
+            fixture.status
+        ))
+    }
+
     /// Run a single fixture.
     pub fn run(&mut self, fixture: &Fixture) -> FixtureResult {
+        // SKIP non-core fixtures whose feature flag isn't enabled.
+        // This is the v0.1-strict default — bundle-* and del-mh-*
+        // fixtures land as SKIP unless the operator opts into
+        // `experimental-session-bundle` / `experimental-multihop-delegation`.
+        if let Some(reason) = self.should_skip_for_v0_1(fixture) {
+            return FixtureResult::Skip {
+                id: fixture.id.clone(),
+                reason,
+            };
+        }
+        // Announce the enabled feature set to the adapter so it
+        // can flip post-v0.1 RFC behaviors on (multi-hop, bundles,
+        // …). Best-effort: an adapter that doesn't implement
+        // `set_features` returns `OP_NOT_SUPPORTED` and we continue
+        // — the runner-side skip logic above already handled the
+        // metadata pass. Broadcasts once per `with_feature` change.
+        if !self.features_announced {
+            let features: Vec<&String> = self.enabled_features.iter().collect();
+            let _ = self.adapter.execute(
+                "set_features",
+                serde_json::json!({ "features": features }),
+            );
+            self.features_announced = true;
+        }
         let started = Instant::now();
         // Pin the adapter's clock to the fixture-set reference
         // before any other op runs. This is best-effort: an adapter
@@ -292,4 +386,16 @@ fn assert_outcome(actual: &OpResult, expected: &FixtureExpected) -> Result<(), S
 enum StepError {
     Fail(String),
     Skip(String),
+}
+
+/// Maps a v0.1-strict rejection error code to the experimental
+/// feature whose opt-in invalidates the assertion. See
+/// [`Runner::should_skip_for_v0_1`].
+fn negated_by_feature(error_code: &str) -> Option<&'static str> {
+    match error_code {
+        "DELEGATION_MULTIHOP_NOT_SUPPORTED" => Some("experimental-multihop-delegation"),
+        "BUNDLE_NOT_SUPPORTED" => Some("experimental-session-bundle"),
+        "TCT_RENEWAL_NOT_SUPPORTED" => Some("experimental-renewal"),
+        _ => None,
+    }
 }

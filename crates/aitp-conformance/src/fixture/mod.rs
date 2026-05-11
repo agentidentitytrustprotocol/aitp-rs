@@ -6,4 +6,6 @@ mod types;
 
 pub use loader::FixtureLoader;
 pub use placeholder::{RunnerContext, REFERENCE_NOW};
-pub use types::{Fixture, FixtureExpected, FixtureInput, FixtureInputVariant, SequenceStep};
+pub use types::{
+    Fixture, FixtureExpected, FixtureInput, FixtureInputVariant, FixtureStatus, SequenceStep,
+};

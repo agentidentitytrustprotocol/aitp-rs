@@ -54,6 +54,11 @@ pub enum ResolveError {
     /// JWKS body was malformed.
     #[error("malformed JWKS: {0}")]
     Malformed(String),
+    /// Configured fail mode is `SoftFail` with no safe-grants subset —
+    /// there is no safe way to degrade, so resolution fails closed
+    /// (RFC-AITP-0007).
+    #[error("no pinned keys available and SoftFail has no safe_grants")]
+    NoPinnedKeys,
 }
 
 /// Inputs for verifying an OIDC identity proof.
@@ -162,7 +167,8 @@ pub fn verify_oidc(
         .ok_or_else(|| HandshakeError::Identity("missing cnf claim".into()))?;
     let expected_jkt = AitpVerifyingKey::from_aid(ctx.subject_aid)
         .map_err(|_| HandshakeError::Identity("subject AID not Ed25519".into()))?
-        .to_jwk_thumbprint();
+        .to_jwk_thumbprint()
+        .map_err(|_| HandshakeError::Identity("subject AID not Ed25519 (jkt)".into()))?;
     if cnf.jkt != expected_jkt {
         return Err(HandshakeError::Identity("cnf.jkt mismatch".into()));
     }

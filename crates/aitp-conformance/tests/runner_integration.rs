@@ -32,6 +32,10 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
     let mut runner = Runner::new(adapter);
     let f = Fixture {
         id: "jcs-001-empty-object".into(),
+        rfc: None,
+        status: aitp_conformance::fixture::FixtureStatus::Core,
+        required_for_v0_1: true,
+        feature: None,
         description: "verify_jcs of {} returns expected canonical bytes".into(),
         tags: vec!["jcs".into()],
         preconditions: serde_json::Value::Null,
@@ -62,6 +66,10 @@ fn unsupported_op_yields_skip() {
     let mut runner = Runner::new(adapter);
     let f = Fixture {
         id: "unknown-op".into(),
+        rfc: None,
+        status: aitp_conformance::fixture::FixtureStatus::Core,
+        required_for_v0_1: true,
+        feature: None,
         description: "adapter rejects op it does not declare".into(),
         tags: vec![],
         preconditions: serde_json::Value::Null,
@@ -111,6 +119,10 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
     let mut runner = Runner::new(adapter);
     let f = Fixture {
         id: "tct-forged-issuer".into(),
+        rfc: Some("RFC-AITP-0005".into()),
+        status: aitp_conformance::fixture::FixtureStatus::Core,
+        required_for_v0_1: true,
+        feature: None,
         description: "TCT whose issuer AID does not match the signing key fails".into(),
         tags: vec!["tct".into()],
         preconditions: serde_json::Value::Null,
