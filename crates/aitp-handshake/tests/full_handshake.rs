@@ -268,7 +268,7 @@ fn insufficient_grants_aborts() {
     let alice = alice_key();
     let bob = bob_key();
     let mut alice_manifest = manifest_for(&alice, "alice");
-    alice_manifest.required_peer_capabilities = vec!["super.power".into()];
+    alice_manifest.required_peer_capabilities = Some(vec!["super.power".into()]);
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
     let alice_cfg = PeerConfig {

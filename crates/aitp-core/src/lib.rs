@@ -22,6 +22,7 @@ pub mod envelope;
 pub mod error;
 pub mod extensions;
 pub mod jcs;
+pub mod raw_url;
 pub mod time;
 
 pub use aid::{Aid, AidParseError};
@@ -30,6 +31,7 @@ pub use envelope::{
 };
 pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;
+pub use raw_url::RawUrl;
 pub use time::Timestamp;
 
 /// Protocol version this crate implements.

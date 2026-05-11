@@ -29,8 +29,15 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
         .offer("demo.echo")
         .ttl_secs(3600)
         .published_at(NOW);
-    for t in accept {
-        b = b.accept_identity_type(*t);
+    if accept.is_empty() {
+        // Empty input list = explicit-empty test (BUG-6 case):
+        // wire form carries `"accepted_identity_types": []` so the
+        // verifier rejects every peer.
+        b = b.accept_no_identity_types();
+    } else {
+        for t in accept {
+            b = b.accept_identity_type(*t);
+        }
     }
     b.build().expect("manifest")
 }

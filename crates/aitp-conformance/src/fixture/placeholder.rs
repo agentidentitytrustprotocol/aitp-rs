@@ -10,13 +10,21 @@
 //! `kat-keypair-001`-anchored KAT vectors), so a re-mint of any
 //! fixture is byte-stable across runs and across implementations.
 
-use aitp_core::base64url;
+use aitp_core::{base64url, jcs};
+use aitp_crypto::AitpSigningKey;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 /// Reference clock for byte-stable substitution. Pinned by
 /// `PLACEHOLDERS.md` §"Reference clock for byte-stable minting".
 pub const REFERENCE_NOW: i64 = 1_711_900_000;
+
+/// Internal sentinel: the scalar pass writes this string into any
+/// `__VALID_*_SIG__` placeholder. The signature pass scans for it
+/// and replaces it with a real signature over the surrounding
+/// body. Distinct from any base64url string so the second pass
+/// can identify it unambiguously.
+const SIG_PENDING_SENTINEL: &str = "__RUNNER_SIG_PENDING__";
 
 /// Per-run substitution context. Holds known-answer keypair seeds
 /// (so signatures are reproducible) and a rolling cache of generated
@@ -78,11 +86,28 @@ impl RunnerContext {
     }
 
     /// Walk a fixture-input JSON value, replacing every
-    /// `__UPPER_SNAKE__` token according to PLACEHOLDERS.md. The
-    /// substitution is a single deep pass; tokens that depend on
-    /// each other (e.g. `__VALID_NONCE_ECHO__` must echo a prior
-    /// `__VALID_NONCE__`) are resolved by document-order traversal.
+    /// `__UPPER_SNAKE__` token according to PLACEHOLDERS.md.
+    ///
+    /// Two-pass:
+    /// 1. **Scalar pass.** Replaces `__NOW__`, `__NOW_PLUS_n__`,
+    ///    `__NOW_MINUS_n__`, `__VALID_NONCE__`, and
+    ///    `__VALID_NONCE_ECHO__` (no surrounding-body context
+    ///    needed). Signature placeholders are temporarily
+    ///    converted to a `__SIG_PENDING__` sentinel.
+    ///
+    /// 2. **Signature pass.** Walks the tree again. Any object
+    ///    whose `signature` field is the `__SIG_PENDING__`
+    ///    sentinel gets that field replaced with a real Ed25519
+    ///    signature over the JCS canonicalization of the body
+    ///    (excluding `signature`). Signing key is `kat-keypair-001`
+    ///    (the spec's pinned issuer); fixtures that need a
+    ///    different key still need pre-minting.
     pub fn substitute(&mut self, value: &mut Value) {
+        self.substitute_scalars(value);
+        self.substitute_signatures(value);
+    }
+
+    fn substitute_scalars(&mut self, value: &mut Value) {
         match value {
             Value::String(s) => {
                 if let Some(replacement) = self.materialize(s) {
@@ -91,12 +116,53 @@ impl RunnerContext {
             }
             Value::Array(items) => {
                 for item in items {
-                    self.substitute(item);
+                    self.substitute_scalars(item);
                 }
             }
             Value::Object(map) => {
                 for v in map.values_mut() {
-                    self.substitute(v);
+                    self.substitute_scalars(v);
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn substitute_signatures(&self, value: &mut Value) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    self.substitute_signatures(item);
+                }
+            }
+            Value::Object(map) => {
+                // Recurse first so nested bodies are signed before
+                // the parent's `signature` field is computed (the
+                // parent's canonical bytes include the now-signed
+                // children).
+                for v in map.values_mut() {
+                    self.substitute_signatures(v);
+                }
+                if let Some(sig_value) = map.get("signature").cloned() {
+                    if sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
+                        // Build a clone of the object without
+                        // `signature`, JCS-canonicalize, sign with
+                        // kp-001 (the spec's pinned issuer for
+                        // runner-substituted fixtures), and put the
+                        // base64url-encoded signature back.
+                        let mut body = Value::Object(map.clone());
+                        if let Some(b) = body.as_object_mut() {
+                            b.remove("signature");
+                        }
+                        let canonical = match jcs::canonicalize(&body) {
+                            Ok(b) => b,
+                            Err(_) => return,
+                        };
+                        let key = AitpSigningKey::from_seed(&self.kp_001_seed);
+                        let digest = Sha256::digest(&canonical);
+                        let sig = key.sign(&digest);
+                        map.insert("signature".into(), Value::from(sig.into_string()));
+                    }
                 }
             }
             _ => {}
@@ -161,20 +227,13 @@ impl RunnerContext {
             ));
         }
 
-        // Signature placeholders. The minting tool produces real
-        // Ed25519 signatures — but the runner substitutes against
-        // a JSON object whose surrounding context (the body to
-        // sign) isn't trivially separable from the placeholder
-        // location. For runner-side substitution we keep these as
-        // sentinels: the adapter's verify_* ops will reject them,
-        // so fixtures that rely on substituted signatures must be
-        // pre-minted by `tools/mint-conformance-fixtures`. We emit
-        // a recognizable sentinel so failures are diagnosable.
+        // Signature placeholders. Defer the actual signing to
+        // pass 2 — at this point we don't have parent-body
+        // context. Emit a sentinel that the second pass scans
+        // for and replaces with a real signature over the
+        // enclosing object (excluding `signature`).
         if s.starts_with("__VALID_") && s.ends_with("_SIG__") {
-            return Some(Value::from(format!(
-                "RUNNER_PLACEHOLDER_PRE_MINT_REQUIRED_{}",
-                &s[2..s.len() - 2]
-            )));
+            return Some(Value::from(SIG_PENDING_SENTINEL));
         }
 
         // Unknown placeholder — surface it as a sentinel so the
@@ -292,12 +351,46 @@ mod tests {
     }
 
     #[test]
-    fn sig_placeholder_emits_pre_mint_sentinel() {
+    fn sig_placeholder_outside_signature_field_keeps_pending_sentinel() {
+        // When a `__VALID_*_SIG__` placeholder appears in a field
+        // that isn't named `signature`, the second pass leaves the
+        // pending sentinel intact (no surrounding body to sign).
+        // The adapter will reject downstream — that's expected for
+        // unusual placements.
         let mut ctx = RunnerContext::new();
         let mut v = json!({"sig": "__VALID_TCT_SIG__"});
         ctx.substitute(&mut v);
         let s = v["sig"].as_str().unwrap();
-        assert!(s.starts_with("RUNNER_PLACEHOLDER_PRE_MINT_REQUIRED_"));
+        assert_eq!(s, SIG_PENDING_SENTINEL);
+    }
+
+    #[test]
+    fn sig_placeholder_in_signature_field_is_signed() {
+        // The common case: an enclosing object has a
+        // `signature: "__VALID_*_SIG__"` field. The runner signs
+        // the body (excluding `signature`) with kp-001 and replaces
+        // the placeholder with a real Ed25519 signature.
+        use aitp_core::base64url;
+        use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+        use sha2::{Digest, Sha256};
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "version": "aitp/0.1",
+            "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+            "signature": "__VALID_TCT_SIG__",
+        });
+        ctx.substitute(&mut v);
+        let sig_b64 = v["signature"].as_str().unwrap().to_string();
+        // The signature must verify against kp-001.
+        let mut body = v.clone();
+        body.as_object_mut().unwrap().remove("signature");
+        let canon = aitp_core::jcs::canonicalize(&body).unwrap();
+        let digest = Sha256::digest(&canon);
+        let key = AitpSigningKey::from_seed(&[0u8; 32]);
+        let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
+        let sig = aitp_crypto::Signature::parse(&sig_b64).unwrap();
+        pubkey.verify(&digest, &sig).expect("signature verifies");
+        let _ = base64url::encode(b"");
     }
 
     #[test]

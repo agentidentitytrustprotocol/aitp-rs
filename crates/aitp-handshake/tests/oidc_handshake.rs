@@ -30,7 +30,7 @@ fn manifest_for_oidc(
         .identity_hint(IdentityHint {
             kind: IdentityHintKind::Oidc,
             subject: name.into(),
-            issuer: Some(issuer.clone()),
+            issuer: Some(aitp_core::RawUrl::from(issuer.clone())),
             public_key: None,
         })
         .accept_trust_anchor(issuer.clone())
@@ -95,7 +95,7 @@ fn full_oidc_handshake_in_process() {
     );
     let bob_jwt = issuer.mint_aitp_jwt("bob", alice.aid().as_str(), &bob_pop, &bob_jkt, NOW.0);
 
-    let trust_anchors = vec![issuer_url.clone()];
+    let trust_anchors = vec![aitp_core::RawUrl::from(issuer_url.clone())];
     let alice_cfg = PeerConfig {
         signing_key: &alice,
         manifest: &alice_manifest,

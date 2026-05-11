@@ -15,8 +15,8 @@
 //! This module defines the wire struct, plus helper enums/methods to make
 //! the type-vs-shape distinction ergonomic in Rust.
 
+use aitp_core::RawUrl;
 use serde::{Deserialize, Serialize};
-use url::Url;
 
 /// Identity descriptor carried in handshake payloads (`payload.identity`).
 ///
@@ -29,9 +29,10 @@ pub struct IdentityDescriptor {
     /// Identity mechanism: `oidc` or `pinned_key`.
     #[serde(rename = "type")]
     pub kind: IdentityKind,
-    /// OIDC issuer URI (required when type=oidc).
+    /// OIDC issuer URI (required when type=oidc). [`RawUrl`] so the
+    /// canonical-form bytes match what the issuer signed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub issuer: Option<Url>,
+    pub issuer: Option<RawUrl>,
     /// Agent subject identifier.
     pub subject: String,
     /// JWT (oidc) or base64url signature (pinned_key).

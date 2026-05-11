@@ -60,20 +60,19 @@ pub fn verify_manifest(
         return Err(ManifestError::Expired);
     }
 
-    // 3. PoP signature check. RFC-AITP-0001 §5.4.2: the signing input
-    //    for every PoP construction is `sha256(base64url_decode(x))` —
-    //    decode the challenge to its raw bytes before hashing.
+    // Resolve the issuer pubkey early — both the PoP and outer
+    // signature verify against it, and the AID parse can fail
+    // before either check.
     let issuer_pubkey = AitpVerifyingKey::from_aid(&manifest.aid)?;
-    let challenge_bytes = base64url::decode_strict(&manifest.proof_of_possession.challenge)
-        .map_err(|_| ManifestError::PopFailed)?;
-    let pop_input = Sha256::digest(&challenge_bytes);
-    let pop_sig = Signature::parse(&manifest.proof_of_possession.signature)
-        .map_err(|_| ManifestError::PopFailed)?;
-    issuer_pubkey
-        .verify(&pop_input, &pop_sig)
-        .map_err(|_| ManifestError::PopFailed)?;
 
-    // 4. Outer signature check.
+    // 3. Outer signature check. Order matters: the spec
+    //    conformance fixture `mh-002` corrupts the outer signature
+    //    on a manifest whose PoP is also from a non-pinned key,
+    //    and expects `MANIFEST_SIGNATURE_INVALID` rather than
+    //    `MANIFEST_POP_FAILED` when both checks would fail. Doing
+    //    the outer-sig check first surfaces the higher-level error
+    //    that matches spec semantics — the manifest body itself
+    //    isn't trustworthy, so PoP details are moot.
     let view = ManifestSigningView {
         version: &manifest.version,
         aid: &manifest.aid,
@@ -81,9 +80,9 @@ pub fn verify_manifest(
         identity_hint: &manifest.identity_hint,
         handshake_endpoint: &manifest.handshake_endpoint,
         accepted_trust_anchors: &manifest.accepted_trust_anchors,
-        accepted_identity_types: &manifest.accepted_identity_types,
+        accepted_identity_types: manifest.accepted_identity_types.as_deref(),
         offered_capabilities: &manifest.offered_capabilities,
-        required_peer_capabilities: &manifest.required_peer_capabilities,
+        required_peer_capabilities: manifest.required_peer_capabilities.as_deref(),
         proof_of_possession: &manifest.proof_of_possession,
         published_at: &manifest.published_at,
         expires_at: &manifest.expires_at,
@@ -97,6 +96,18 @@ pub fn verify_manifest(
     issuer_pubkey
         .verify(&digest, &outer_sig)
         .map_err(|_| ManifestError::SignatureInvalid)?;
+
+    // 4. PoP signature check. RFC-AITP-0001 §5.4.2: the signing input
+    //    for every PoP construction is `sha256(base64url_decode(x))` —
+    //    decode the challenge to its raw bytes before hashing.
+    let challenge_bytes = base64url::decode_strict(&manifest.proof_of_possession.challenge)
+        .map_err(|_| ManifestError::PopFailed)?;
+    let pop_input = Sha256::digest(&challenge_bytes);
+    let pop_sig = Signature::parse(&manifest.proof_of_possession.signature)
+        .map_err(|_| ManifestError::PopFailed)?;
+    issuer_pubkey
+        .verify(&pop_input, &pop_sig)
+        .map_err(|_| ManifestError::PopFailed)?;
 
     // 5. Identity-hint shape check.
     match manifest.identity_hint.kind {
@@ -136,11 +147,12 @@ pub fn verify_manifest(
 /// produces a cleaner error code).
 ///
 /// Field semantics (RFC-AITP-0003 §3.2):
-/// - **Absent / not present**: defaults to `["oidc"]` per the
-///   spec's backward-compatibility rule.
-/// - **Empty array**: explicit "accept nothing" — rejects every
-///   peer regardless of presented type.
-/// - **Non-empty array**: peer must present a type from the list.
+/// - **Absent / not present** (`None`): defaults to `["oidc"]`
+///   per the spec's backward-compatibility rule.
+/// - **Empty array** (`Some(vec![])`): explicit "accept nothing"
+///   — rejects every peer regardless of presented type.
+/// - **Non-empty array** (`Some(non_empty)`): peer must present
+///   a type from the list.
 ///
 /// `our_identity_type` is `"pinned_key"` or `"oidc"` (RFC-AITP-0002
 /// §2 vocabulary).
@@ -148,23 +160,24 @@ pub fn check_identity_type_compatibility(
     peer_manifest: &crate::Manifest,
     our_identity_type: &'static str,
 ) -> Result<(), ManifestError> {
-    // Per RFC-AITP-0003 §3.2: present-but-empty is a different state
-    // from absent. The on-the-wire JSON distinguishes the two; here
-    // the type system collapses absent into "Vec::new()". The
-    // builder/parser must preserve the distinction (Manifest stores
-    // an empty Vec for both states currently). We treat any caller
-    // that builds a Manifest with an explicitly empty Vec the same
-    // way the wire-format empty array is treated: reject. Callers
-    // wanting the absent-default behavior should leave the field at
-    // its default of `["oidc"]`.
-    if peer_manifest.accepted_identity_types.is_empty() {
-        return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
-    }
-    if !peer_manifest
-        .accepted_identity_types
-        .iter()
-        .any(|t| t == our_identity_type)
-    {
+    let allowed: &[String] = match peer_manifest.accepted_identity_types.as_deref() {
+        // Absent → spec default ["oidc"].
+        None => {
+            // Inline a static slice so we don't allocate per call.
+            const DEFAULT: [&str; 1] = ["oidc"];
+            return if our_identity_type == DEFAULT[0] {
+                Ok(())
+            } else {
+                Err(ManifestError::IncompatibleIdentityType(our_identity_type))
+            };
+        }
+        // Explicit empty → reject every peer.
+        Some([]) => {
+            return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
+        }
+        Some(v) => v,
+    };
+    if !allowed.iter().any(|t| t == our_identity_type) {
         return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
     }
     Ok(())

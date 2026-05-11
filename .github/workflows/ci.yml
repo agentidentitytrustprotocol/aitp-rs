@@ -10,6 +10,18 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: short
+  # Workspace-only crates that aren't published. Excluded from
+  # semver-checks (they don't ship to crates.io) and from
+  # tarpaulin's coverage denominator (the mint-* binaries inflate
+  # the line count without contributing tests). Single source of
+  # truth so the two jobs can't drift.
+  #
+  # Note: aitp-conformance is in PUBLISH_EXCLUDE because its
+  # subprocess-driven entry point isn't part of the published
+  # surface, but it IS in the coverage scope because its
+  # integration tests exercise other crates' public APIs.
+  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-session-bundle"
+  COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents"
 
 permissions:
   contents: read
@@ -110,7 +122,7 @@ jobs:
           # Skip the workspace-only crates that aren't published, plus
           # any crate that's brand-new in this PR (semver-checks needs
           # a baseline to compare against; new crates have none).
-          exclude: aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-session-bundle
+          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }}
 
   msrv:
     name: cargo-msrv (workspace)
@@ -176,8 +188,18 @@ jobs:
         # public surface.
         # Note: each excluded crate needs its own --exclude flag.
         # `--exclude a b c` is parsed as one excluded value plus two
-        # stray positionals.
-        run: cargo tarpaulin --workspace --all-features --skip-clean --timeout 180 --exclude mint-signed-examples --exclude mint-conformance-fixtures --exclude aitp-example-two-agents --out Xml --output-dir coverage --fail-under 50
+        # stray positionals. We expand the env-var space-separated
+        # list into per-flag pairs at the shell layer so the exclude
+        # set lives in exactly one place (the workflow-level env).
+        run: |
+          excludes=()
+          for c in ${COVERAGE_EXCLUDE_CRATES}; do
+            excludes+=(--exclude "$c")
+          done
+          cargo tarpaulin \
+            --workspace --all-features --skip-clean --timeout 180 \
+            "${excludes[@]}" \
+            --out Xml --output-dir coverage --fail-under 50
       - uses: actions/upload-artifact@v4
         with:
           name: coverage-report

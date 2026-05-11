@@ -234,9 +234,21 @@ fn verify_multihop<'a>(
         return Err(DelegationError::Expired);
     }
 
-    // §3 step 2: audience continuity. chain[i].subject == chain[i+1].issuer
-    // for i < n-2, and chain[n-2].subject == grant_proof.issuer, and
-    // grant_proof.subject == issued_by.
+    // §3 step 2: audience continuity. The chain forms an unbroken
+    // authority lineage from the delegator (chain[0].issuer) to the
+    // outer signer (chain[n-2].subject). The top-level grant_proof
+    // is the *final* hop — the step where issued_by authorizes the
+    // delegatee to exercise the granted scope. So:
+    //
+    //   - chain[i].subject == chain[i+1].issuer for i < n-2
+    //   - chain[n-2].subject == grant_proof.issuer == token.issued_by
+    //   - grant_proof.subject == token.delegatee
+    //
+    // Note: this differs from single-hop, where grant_proof IS the
+    // peer-issued source TCT and grant_proof.subject == issued_by
+    // (RFC-AITP-0006). For multi-hop, grant_proof is a
+    // DelegationStep that carries the *final* hop, so its `subject`
+    // is the delegatee, not the issued_by.
     for w in chain.windows(2) {
         if w[0].subject != w[1].issuer {
             return Err(DelegationError::InvalidGrantProof);
@@ -245,7 +257,10 @@ fn verify_multihop<'a>(
     if chain[chain.len() - 1].subject != token.grant_proof.issuer {
         return Err(DelegationError::InvalidGrantProof);
     }
-    if token.grant_proof.subject != token.issued_by {
+    if token.grant_proof.issuer != token.issued_by {
+        return Err(DelegationError::InvalidGrantProof);
+    }
+    if token.grant_proof.subject != token.delegatee {
         return Err(DelegationError::InvalidGrantProof);
     }
 

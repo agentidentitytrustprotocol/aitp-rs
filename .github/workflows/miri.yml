@@ -16,18 +16,19 @@ on:
   workflow_dispatch:
     inputs:
       crates:
-        description: "Comma-separated -p arguments (default: aitp-core)"
+        description: "Comma-separated -p arguments (default: aitp-core,aitp-crypto)"
         required: false
-        default: "aitp-core"
+        default: "aitp-core,aitp-crypto"
 
 env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
   # Miri's tree-borrows is the recommended aliasing model for new
-  # code. -Zmiri-disable-isolation lets the JCS canonicalizer read
-  # vendored test vectors without sandbox tripping; we don't run any
-  # network code under Miri.
-  MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-disable-isolation -Zmiri-strict-provenance"
+  # code. `-Zmiri-disable-isolation` was needed when the JCS test
+  # path read vendored fixtures from disk; the unit tests covered
+  # by `--lib` don't touch the filesystem, so we drop it now to
+  # tighten the sandbox.
+  MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-strict-provenance"
 
 permissions:
   contents: read
@@ -41,6 +42,7 @@ jobs:
       matrix:
         crate:
           - aitp-core
+          - aitp-crypto
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly + miri

@@ -56,9 +56,10 @@ pub use client_config::ClientConfig;
 
 #[cfg(feature = "client")]
 pub use token_exchange::{
-    exchange_token, SubjectCredential, TokenExchangeError, TokenExchangeRequest,
-    TokenExchangeResponse, REQUESTED_TYPE_ACCESS_TOKEN, SUBJECT_TYPE_ID_TOKEN, SUBJECT_TYPE_JWT,
-    SUBJECT_TYPE_SAML2, TOKEN_EXCHANGE_GRANT_TYPE,
+    exchange_token, ClientAuthentication, SubjectCredential, TokenExchangeError,
+    TokenExchangeRequest, TokenExchangeResponse, CLIENT_ASSERTION_TYPE_JWT_BEARER,
+    REQUESTED_TYPE_ACCESS_TOKEN, SUBJECT_TYPE_ID_TOKEN, SUBJECT_TYPE_JWT, SUBJECT_TYPE_SAML2,
+    TOKEN_EXCHANGE_GRANT_TYPE,
 };
 
 #[cfg(feature = "client-spki-pinning")]

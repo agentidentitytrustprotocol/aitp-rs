@@ -61,7 +61,9 @@ pub struct PeerConfig<'a> {
     /// Our published Manifest (must equal `payload.manifest` we send).
     pub manifest: &'a Manifest,
     /// Accepted OIDC issuers (when peers present OIDC identities).
-    pub trust_anchors: &'a [url::Url],
+    /// `RawUrl` so wire-byte comparison matches the issuer-signed
+    /// canonical input.
+    pub trust_anchors: &'a [aitp_core::RawUrl],
     /// JWKS resolver. May be a no-op for pinned-key-only deployments.
     pub jwks_resolver: &'a dyn JwksResolver,
     /// Optional local pinned-key trust store (RFC-AITP-0002 §3.2 step 1).
@@ -205,7 +207,7 @@ impl PresentedIdentity {
                 // future logging-aware revisit (PENDING.md).
                 Ok(IdentityDescriptor {
                     kind: IdentityKind::Oidc,
-                    issuer: Some(issuer.clone()),
+                    issuer: Some(aitp_core::RawUrl::from(issuer.clone())),
                     subject: subject.clone(),
                     proof: proof_jwt.clone(),
                     public_key: None,
@@ -419,9 +421,11 @@ fn verify_received_tct(
         revocation_check: None,
     };
     verify_tct(tct, &ctx)?;
-    for required in &cfg.manifest.required_peer_capabilities {
-        if !tct.grants.contains(required) {
-            return Err(HandshakeError::InsufficientGrants);
+    if let Some(required_caps) = cfg.manifest.required_peer_capabilities.as_deref() {
+        for required in required_caps {
+            if !tct.grants.contains(required) {
+                return Err(HandshakeError::InsufficientGrants);
+            }
         }
     }
     Ok(())
