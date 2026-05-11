@@ -160,10 +160,9 @@ impl<A: Adapter> Runner<A> {
         // metadata pass. Broadcasts once per `with_feature` change.
         if !self.features_announced {
             let features: Vec<&String> = self.enabled_features.iter().collect();
-            let _ = self.adapter.execute(
-                "set_features",
-                serde_json::json!({ "features": features }),
-            );
+            let _ = self
+                .adapter
+                .execute("set_features", serde_json::json!({ "features": features }));
             self.features_announced = true;
         }
         let started = Instant::now();

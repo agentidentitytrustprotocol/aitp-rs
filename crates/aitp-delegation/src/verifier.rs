@@ -69,10 +69,7 @@ impl<'a> VerifyDelegationContext<'a> {
     }
 
     /// Set the revocation check closure (builder).
-    pub fn with_revocation_check(
-        mut self,
-        check: &'a dyn Fn(&Uuid) -> bool,
-    ) -> Self {
+    pub fn with_revocation_check(mut self, check: &'a dyn Fn(&Uuid) -> bool) -> Self {
         self.revocation_check = Some(check);
         self
     }

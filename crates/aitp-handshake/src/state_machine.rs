@@ -480,9 +480,7 @@ fn verify_received_tct(
     // satisfying a required-cap check the operator wouldn't accept
     // outside soft-fail.
     if let Some(required_caps) = cfg.manifest.required_peer_capabilities.as_deref() {
-        let effective: &[String] = safe_subset
-            .as_deref()
-            .unwrap_or(tct.grants.as_slice());
+        let effective: &[String] = safe_subset.as_deref().unwrap_or(tct.grants.as_slice());
         for required in required_caps {
             if !effective.contains(required) {
                 return Err(HandshakeError::InsufficientGrants);

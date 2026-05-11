@@ -77,7 +77,15 @@ fn main() {
             features,
             output,
             fail_fast,
-        } => run(target, fixtures_dir, filter, tag, features, output, fail_fast),
+        } => run(
+            target,
+            fixtures_dir,
+            filter,
+            tag,
+            features,
+            output,
+            fail_fast,
+        ),
         Command::List { fixtures_dir, tag } => list(fixtures_dir, tag),
         Command::Describe { fixtures_dir, id } => describe(fixtures_dir, id),
     };

@@ -27,9 +27,9 @@ pub use revocation::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
     RevocationListEnvelope, VerifyRevocationListContext,
 };
-pub use types::{Tct, TctBinding, TctEnvelope};
 #[cfg(feature = "experimental-renewal")]
 pub use types::TctRenewalPayload;
+pub use types::{Tct, TctBinding, TctEnvelope};
 pub use verifier::{verify_tct, TctVerifyContext};
 
 /// Recommended TCT TTL (1 hour).

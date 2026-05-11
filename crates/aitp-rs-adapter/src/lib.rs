@@ -2277,7 +2277,13 @@ fn set_features_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
             .iter()
             .filter_map(|v| v.as_str().map(String::from))
             .collect(),
-        None => return err(id, "INVALID_REQUEST", "missing 'features' (array of strings)"),
+        None => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'features' (array of strings)",
+            )
+        }
     };
     state.enabled_features = features.iter().cloned().collect();
     json!({"id": id, "ok": true, "result": {"enabled": features}})

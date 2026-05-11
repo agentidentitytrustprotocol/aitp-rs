@@ -7,9 +7,9 @@ use aitp_handshake::{
     JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig, PresentedIdentity, Responder,
 };
 use aitp_manifest::{Manifest, ManifestEnvelope};
+use aitp_tct::RevocationListEnvelope;
 #[cfg(feature = "experimental-renewal")]
 use aitp_tct::{process_renewal_request, TctEnvelope, TctRenewalPayload};
-use aitp_tct::RevocationListEnvelope;
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -23,9 +23,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, warn};
 #[cfg(feature = "experimental-renewal")]
 use tracing::instrument;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 /// Default period after which an in-progress handshake session is
@@ -145,9 +145,9 @@ pub enum RateLimitOutcome {
 /// requests with [`HandshakeServer::verify_dpop_request`].
 #[derive(Clone, Debug)]
 pub struct DpopPolicy {
-    /// When `true`, requests routed through [`verify_dpop_request`]
-    /// MUST carry an `Authorization: DPoP <token>` and a `DPoP` proof
-    /// header.
+    /// When `true`, requests routed through
+    /// [`HandshakeServer::verify_dpop_request`] MUST carry an
+    /// `Authorization: DPoP <token>` and a `DPoP` proof header.
     pub required: bool,
     /// Permitted absolute drift (seconds) between the proof's `iat`
     /// and the server clock (RFC 9449 §4.3). Common production
@@ -396,10 +396,10 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     }
 
     /// Verify a DPoP-bound request against the configured policy.
-    /// Returns `Err` with the appropriate [`DpopError`] mapped to HTTP
-    /// 401 if the policy is `required` and the request is missing or
-    /// invalid headers. When policy is not configured or `required ==
-    /// false` and headers are absent, returns `Ok(None)`.
+    /// Returns `Err` with the appropriate [`crate::dpop::DpopError`]
+    /// mapped to HTTP 401 if the policy is `required` and the request
+    /// is missing or invalid headers. When policy is not configured or
+    /// `required == false` and headers are absent, returns `Ok(None)`.
     pub fn verify_dpop_request(
         &self,
         request: &Request,
@@ -407,12 +407,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         expected_method: &str,
         expected_url: &str,
     ) -> Result<Option<crate::dpop::DpopProof>, crate::dpop::DpopError> {
-        let policy = self
-            .state
-            .dpop_policy
-            .lock()
-            .clone()
-            .unwrap_or_default();
+        let policy = self.state.dpop_policy.lock().clone().unwrap_or_default();
         let authz = request
             .headers()
             .get(header::AUTHORIZATION)

@@ -141,8 +141,8 @@ impl AitpVerifyingKey {
                     return Err(CryptoError::SignatureInvalid);
                 }
                 // p256::ecdsa::Signature accepts R||S as 64 bytes.
-                let p256_sig = P256Signature::from_slice(&raw)
-                    .map_err(|_| CryptoError::SignatureInvalid)?;
+                let p256_sig =
+                    P256Signature::from_slice(&raw).map_err(|_| CryptoError::SignatureInvalid)?;
                 vk.verify(message, &p256_sig)
                     .map_err(|_| CryptoError::SignatureInvalid)
             }
@@ -437,7 +437,9 @@ mod tests {
         let parsed = Signature::parse(&wire).unwrap();
         assert_eq!(parsed.algorithm(), SignatureAlgorithm::P256);
 
-        verifier.verify(msg, &parsed).expect("P-256 signature verifies");
+        verifier
+            .verify(msg, &parsed)
+            .expect("P-256 signature verifies");
         assert!(verifier.verify(b"tampered", &parsed).is_err());
     }
 
