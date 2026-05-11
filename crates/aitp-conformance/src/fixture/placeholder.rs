@@ -66,9 +66,21 @@ impl RunnerContext {
             // kat-keypair-001 seed: 32 zero bytes (per
             // schemas/conformance/known-answer/keypairs.json).
             kp_001_seed: [0u8; 32],
-            // kat-keypair-002 seed: 32 bytes of 0x77 (per
-            // keypairs.json).
-            kp_002_seed: [0x77u8; 32],
+            // kat-keypair-002 seed:
+            // `000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f`
+            // per `schemas/conformance/known-answer/keypairs.json`.
+            // (The earlier `[0x77u8; 32]` value was a stale guess; it
+            // produced a pubkey that didn't match the spec's pinned
+            // kat-keypair-002 AID `aid:pubkey:A6EHv_…`.)
+            kp_002_seed: {
+                let mut s = [0u8; 32];
+                let mut i = 0;
+                while i < 32 {
+                    s[i] = i as u8;
+                    i += 1;
+                }
+                s
+            },
             now: REFERENCE_NOW,
             last_nonce: None,
             nonce_counter: 0,
@@ -143,25 +155,50 @@ impl RunnerContext {
                 for v in map.values_mut() {
                     self.substitute_signatures(v);
                 }
+                // `pop_signature` (downstream PoP response, RFC-AITP-0005 §6.2):
+                // signing input is `sha256(base64url_decode(nonce))`
+                // where `nonce` is the matching challenge's nonce.
+                // The fixture supplies it as `payload.nonce_echo`
+                // alongside `pop_signature`. Sign with kat-keypair-002
+                // (the holder; AIDS in tct-006 set subject=A6EH...).
+                if let Some(pop_sig_value) = map.get("pop_signature").cloned() {
+                    if pop_sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
+                        if let Some(echo) = map.get("nonce_echo").and_then(|v| v.as_str()) {
+                            if let Ok(nonce_bytes) = base64url::decode_strict(echo) {
+                                let pop_input = Sha256::digest(&nonce_bytes);
+                                let key = AitpSigningKey::from_seed(&self.kp_002_seed);
+                                let sig = key.sign(&pop_input);
+                                map.insert("pop_signature".into(), Value::from(sig.into_string()));
+                            }
+                        }
+                    }
+                }
                 if let Some(sig_value) = map.get("signature").cloned() {
                     if sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
-                        // Build a clone of the object without
-                        // `signature`, JCS-canonicalize, sign with
-                        // kp-001 (the spec's pinned issuer for
-                        // runner-substituted fixtures), and put the
-                        // base64url-encoded signature back.
-                        let mut body = Value::Object(map.clone());
-                        if let Some(b) = body.as_object_mut() {
-                            b.remove("signature");
-                        }
-                        let canonical = match jcs::canonicalize(&body) {
-                            Ok(b) => b,
-                            Err(_) => return,
+                        // Pick the right signing-input convention
+                        // based on object shape:
+                        //
+                        // - **Envelope** — has `message_id`,
+                        //   `timestamp`, `sender`, `payload`. The
+                        //   signing input per RFC-AITP-0001 §5.4 is
+                        //   `message_id|timestamp|sender.agent_id|
+                        //   hex(sha256(payload_canonical_json))`. The
+                        //   sender's KAT-keypair is used (we map the
+                        //   agent_id back to a seed).
+                        //
+                        // - **Generic body** — TCT, manifest,
+                        //   delegation, bundle. Sign the JCS
+                        //   canonicalization of the body excluding
+                        //   `signature`, with `kat-keypair-001`
+                        //   (the spec's pinned issuer).
+                        let signed = if is_envelope_shape(map) {
+                            sign_envelope_shape(map)
+                        } else {
+                            sign_generic_body(&self.kp_001_seed, map)
                         };
-                        let key = AitpSigningKey::from_seed(&self.kp_001_seed);
-                        let digest = Sha256::digest(&canonical);
-                        let sig = key.sign(&digest);
-                        map.insert("signature".into(), Value::from(sig.into_string()));
+                        if let Some(s) = signed {
+                            map.insert("signature".into(), Value::from(s));
+                        }
                     }
                 }
             }
@@ -250,6 +287,67 @@ fn is_placeholder(s: &str) -> bool {
         && s[2..s.len() - 2]
             .chars()
             .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_')
+}
+
+fn is_envelope_shape(map: &serde_json::Map<String, Value>) -> bool {
+    map.contains_key("message_id")
+        && map.contains_key("timestamp")
+        && map.contains_key("sender")
+        && map.contains_key("payload")
+        && map.contains_key("signature")
+}
+
+fn sign_generic_body(seed: &[u8; 32], map: &serde_json::Map<String, Value>) -> Option<String> {
+    let mut body = serde_json::Map::new();
+    for (k, v) in map.iter() {
+        if k != "signature" {
+            body.insert(k.clone(), v.clone());
+        }
+    }
+    let canonical = jcs::canonicalize(&Value::Object(body)).ok()?;
+    let key = AitpSigningKey::from_seed(seed);
+    let digest = Sha256::digest(&canonical);
+    Some(key.sign(&digest).into_string())
+}
+
+fn sign_envelope_shape(map: &serde_json::Map<String, Value>) -> Option<String> {
+    // RFC-AITP-0001 §5.4 envelope signing input:
+    //   message_id | timestamp | sender.agent_id | hex(sha256(payload_canonical_json))
+    let message_id = map.get("message_id")?.as_str()?;
+    let timestamp = map.get("timestamp")?.as_i64()?;
+    let sender_aid = map.get("sender")?.get("agent_id")?.as_str()?;
+    let payload = map.get("payload")?;
+    let payload_canonical = jcs::canonicalize(payload).ok()?;
+    let payload_hash = Sha256::digest(&payload_canonical);
+    let signing_input = format!(
+        "{}|{}|{}|{}",
+        message_id,
+        timestamp,
+        sender_aid,
+        hex::encode(payload_hash)
+    );
+    let seed = kat_seed_for_aid(sender_aid)?;
+    let key = AitpSigningKey::from_seed(&seed);
+    Some(key.sign(signing_input.as_bytes()).into_string())
+}
+
+/// Map a sender AID to its KAT-keypair seed. The runner only knows
+/// about the four pinned KAT keypairs; envelopes signed by other
+/// keys can't be runner-substituted (caller must pre-mint).
+fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
+    match aid {
+        "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik" => Some([0u8; 32]),
+        "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg" => {
+            let mut s = [0u8; 32];
+            for (i, b) in s.iter_mut().enumerate() {
+                *b = i as u8;
+            }
+            Some(s)
+        }
+        "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU" => Some([0xffu8; 32]),
+        "aid:pubkey:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" => Some([1u8; 32]),
+        _ => None,
+    }
 }
 
 #[cfg(test)]

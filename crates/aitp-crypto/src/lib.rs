@@ -11,5 +11,5 @@ pub mod keys;
 pub mod thumbprint;
 
 pub use error::CryptoError;
-pub use keys::{AitpSigningKey, AitpVerifyingKey, Signature};
+pub use keys::{AitpSigningKey, AitpVerifyingKey, Signature, SignatureAlgorithm};
 pub use thumbprint::compute_jwk_thumbprint;

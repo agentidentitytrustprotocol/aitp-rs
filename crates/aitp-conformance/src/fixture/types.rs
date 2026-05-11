@@ -93,8 +93,16 @@ impl From<FixtureInput> for serde_json::Value {
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(untagged)]
 pub enum FixtureInputVariant {
-    /// Multi-step sequence (e.g. for replay tests).
-    Sequence { sequence: Vec<SequenceStep> },
+    /// Multi-step sequence (e.g. for replay tests). Sibling fields
+    /// alongside `sequence` (e.g. `tct_token` in tct-006) land in
+    /// `context` and are merged into every step's params at
+    /// dispatch time — the spec convention is that sequence-level
+    /// context applies to each step.
+    Sequence {
+        sequence: Vec<SequenceStep>,
+        #[serde(flatten)]
+        context: serde_json::Map<String, serde_json::Value>,
+    },
     /// Single-step: `{operation: "verify_tct", ...op_params}`.
     Single(serde_json::Value),
 }

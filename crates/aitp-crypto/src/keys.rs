@@ -88,7 +88,15 @@ impl AitpVerifyingKey {
     /// signatures that other implementations reject, leading to silent
     /// validity disagreements.
     pub fn verify(&self, message: &[u8], sig: &Signature) -> Result<(), CryptoError> {
-        let raw = Base64UrlUnpadded::decode_vec(sig.as_str())
+        // Reject `p256.`-tagged signatures here: this verifier holds
+        // an Ed25519 key. Crypto-agility callers MUST resolve the
+        // verifier from the signing AID's algorithm tag first.
+        if !matches!(sig.algorithm(), SignatureAlgorithm::Ed25519) {
+            return Err(CryptoError::SignatureInvalid);
+        }
+        // Decode the b64url payload (everything after the optional
+        // algorithm tag — `Signature::payload` strips it).
+        let raw = Base64UrlUnpadded::decode_vec(sig.payload())
             .map_err(|_| CryptoError::SignatureInvalid)?;
         if raw.len() != 64 {
             return Err(CryptoError::SignatureInvalid);
@@ -112,37 +120,56 @@ impl AitpVerifyingKey {
     }
 }
 
-/// An Ed25519 signature in unpadded base64url form (86 characters).
+/// A signature in the AITP wire format.
+///
+/// v0.2 wire format (RFC-AITP-0001 §5.4.3) accepts three forms:
+///
+/// - **Legacy v0.1 (untagged)** — 86 unpadded base64url chars,
+///   implicitly Ed25519.
+/// - **Tagged Ed25519** — `ed25519.<86-char-b64url>`.
+/// - **Tagged P-256** — `p256.<86-char-b64url>` (R || S, 64 bytes
+///   total).
+///
+/// The wrapper stores the verbatim wire string; the algorithm tag,
+/// if present, is part of the canonical bytes. Use
+/// [`Signature::algorithm`] to dispatch on which verifier to call.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Signature(String);
 
+/// Signature algorithm tag.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SignatureAlgorithm {
+    /// Ed25519 (RFC 8032). Legacy untagged signatures default to this.
+    Ed25519,
+    /// ECDSA on P-256 with SHA-256.
+    P256,
+}
+
 impl Signature {
-    /// Parse a signature string.
-    ///
-    /// Validates: no `=` padding, exactly 86 characters, every byte in the
-    /// base64url alphabet.
+    /// Parse a signature string. Accepts both the legacy v0.1
+    /// untagged form and the v0.2 algorithm-tagged forms.
     pub fn parse(s: &str) -> Result<Self, CryptoError> {
         if s.contains('=') {
             return Err(CryptoError::SignatureMalformed(
                 "padding is forbidden".into(),
             ));
         }
-        if s.len() != ED25519_SIGNATURE_BASE64URL_LEN {
-            return Err(CryptoError::SignatureMalformed(format!(
-                "expected {} characters, got {}",
-                ED25519_SIGNATURE_BASE64URL_LEN,
-                s.len()
-            )));
+        // Tagged forms: `ed25519.<86char>` or `p256.<86char>`.
+        if let Some(rest) = s.strip_prefix("ed25519.") {
+            validate_b64url_signature(rest)?;
+            return Ok(Self(s.to_string()));
         }
-        if !s.bytes().all(is_base64url_byte) {
-            return Err(CryptoError::SignatureMalformed(
-                "non-base64url character".into(),
-            ));
+        if let Some(rest) = s.strip_prefix("p256.") {
+            validate_b64url_signature(rest)?;
+            return Ok(Self(s.to_string()));
         }
+        // Untagged v0.1 form.
+        validate_b64url_signature(s)?;
         Ok(Self(s.to_string()))
     }
 
-    /// Return the base64url-unpadded string.
+    /// Return the base64url-unpadded string verbatim (including
+    /// any algorithm tag).
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -151,6 +178,45 @@ impl Signature {
     pub fn into_string(self) -> String {
         self.0
     }
+
+    /// Algorithm of this signature, derived from the wire tag (or
+    /// defaulting to Ed25519 when untagged).
+    pub fn algorithm(&self) -> SignatureAlgorithm {
+        if self.0.starts_with("p256.") {
+            SignatureAlgorithm::P256
+        } else {
+            SignatureAlgorithm::Ed25519
+        }
+    }
+
+    /// Return the base64url payload portion (everything after the
+    /// algorithm tag, or the entire string for untagged
+    /// signatures). 86 characters by construction.
+    pub fn payload(&self) -> &str {
+        if let Some(p) = self.0.strip_prefix("ed25519.") {
+            p
+        } else if let Some(p) = self.0.strip_prefix("p256.") {
+            p
+        } else {
+            &self.0
+        }
+    }
+}
+
+fn validate_b64url_signature(payload: &str) -> Result<(), CryptoError> {
+    if payload.len() != ED25519_SIGNATURE_BASE64URL_LEN {
+        return Err(CryptoError::SignatureMalformed(format!(
+            "expected {} payload characters, got {}",
+            ED25519_SIGNATURE_BASE64URL_LEN,
+            payload.len()
+        )));
+    }
+    if !payload.bytes().all(is_base64url_byte) {
+        return Err(CryptoError::SignatureMalformed(
+            "non-base64url character".into(),
+        ));
+    }
+    Ok(())
 }
 
 fn is_base64url_byte(b: u8) -> bool {
@@ -219,5 +285,54 @@ mod tests {
             Signature::parse(&s),
             Err(CryptoError::SignatureMalformed(_))
         ));
+    }
+
+    #[test]
+    fn signature_parse_accepts_tagged_ed25519() {
+        let payload = "A".repeat(86);
+        let s = format!("ed25519.{payload}");
+        let sig = Signature::parse(&s).unwrap();
+        assert_eq!(sig.algorithm(), SignatureAlgorithm::Ed25519);
+        assert_eq!(sig.payload(), payload);
+        assert_eq!(sig.as_str(), s);
+    }
+
+    #[test]
+    fn signature_parse_accepts_tagged_p256() {
+        let payload = "B".repeat(86);
+        let s = format!("p256.{payload}");
+        let sig = Signature::parse(&s).unwrap();
+        assert_eq!(sig.algorithm(), SignatureAlgorithm::P256);
+        assert_eq!(sig.payload(), payload);
+    }
+
+    #[test]
+    fn signature_parse_rejects_unknown_tag() {
+        // `rsa.<86chars>` — unknown algorithm tag means total length
+        // != 86 chars so the untagged-form length check fires.
+        let s = format!("rsa.{}", "A".repeat(86));
+        assert!(matches!(
+            Signature::parse(&s),
+            Err(CryptoError::SignatureMalformed(_))
+        ));
+    }
+
+    #[test]
+    fn untagged_signature_defaults_to_ed25519() {
+        let s = "A".repeat(86);
+        let sig = Signature::parse(&s).unwrap();
+        assert_eq!(sig.algorithm(), SignatureAlgorithm::Ed25519);
+        assert_eq!(sig.payload(), &s);
+    }
+
+    #[test]
+    fn ed25519_verify_rejects_p256_tagged_signature() {
+        // An Ed25519 verifier MUST reject a `p256.`-tagged
+        // signature: the algorithm is part of the binding and we
+        // don't auto-fall-back to verifying as Ed25519.
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let s = format!("p256.{}", "A".repeat(86));
+        let sig = Signature::parse(&s).unwrap();
+        assert!(key.verifying_key().verify(b"msg", &sig).is_err());
     }
 }

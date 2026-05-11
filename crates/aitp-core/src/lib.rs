@@ -25,7 +25,7 @@ pub mod jcs;
 pub mod raw_url;
 pub mod time;
 
-pub use aid::{Aid, AidParseError};
+pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
     envelope_signing_digest, envelope_signing_input, AitpEnvelope, MessageType, Sender,
 };

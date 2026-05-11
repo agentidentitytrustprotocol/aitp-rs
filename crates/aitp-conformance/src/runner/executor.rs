@@ -135,9 +135,28 @@ impl<A: Adapter> Runner<A> {
                 self.ctx.substitute(&mut params);
                 self.run_single(&params, fixture.expected.as_ref())
             }
-            FixtureInputVariant::Sequence { sequence } => {
+            FixtureInputVariant::Sequence { sequence, context } => {
                 let mut substituted = sequence.clone();
+                let mut context = context.clone();
+                // Substitute placeholders in the sibling context
+                // BEFORE merging into each step — otherwise step
+                // ordering for nonce-counter generation would
+                // depend on context-vs-step order.
+                let mut context_value = serde_json::Value::Object(context.clone());
+                self.ctx.substitute(&mut context_value);
+                context = match context_value {
+                    serde_json::Value::Object(m) => m,
+                    _ => serde_json::Map::new(),
+                };
                 for step in &mut substituted {
+                    // Merge context fields under the step's params,
+                    // with step values taking precedence on any
+                    // collision.
+                    if let Some(step_map) = step.params.as_object_mut() {
+                        for (k, v) in context.iter() {
+                            step_map.entry(k.clone()).or_insert_with(|| v.clone());
+                        }
+                    }
                     self.ctx.substitute(&mut step.params);
                 }
                 self.run_sequence(&substituted, fixture.input.operation.as_deref())

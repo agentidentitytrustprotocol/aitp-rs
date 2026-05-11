@@ -53,6 +53,7 @@ dependencies = [
  "aitp-rs-adapter",
  "aitp-tct",
  "clap",
+ "hex",
  "serde",
  "serde_json",
  "sha2",
@@ -180,6 +181,7 @@ dependencies = [
  "rand 0.8.6",
  "serde",
  "serde_json",
+ "sha2",
  "url",
  "uuid",
 ]
