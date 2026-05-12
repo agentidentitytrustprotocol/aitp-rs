@@ -495,6 +495,13 @@ fn verify_received_tct(
 /// Initiator-side handshake driver.
 pub struct Initiator {
     state: InitiatorState,
+    /// Stashed effective-grants restriction from the most recent
+    /// `on_commit_ack`. `None` when the received TCT's full grant
+    /// set is in force; `Some(g)` when the configured revocation
+    /// hook returned `SoftFailSafeSubset` and the verifying side
+    /// must honor only `held_tct.grants ∩ g`. See
+    /// [`Self::effective_grants`].
+    last_effective_grants: Option<Vec<String>>,
 }
 
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and Awaiting* is acceptable.
@@ -565,9 +572,22 @@ impl Initiator {
                     session_id,
                     my_pop_nonce: pop_nonce,
                 },
+                last_effective_grants: None,
             },
             payload,
         ))
+    }
+
+    /// Effective grant restriction from the most recent successful
+    /// `on_commit_ack`. Returns `None` when the held TCT's full grant
+    /// set is in force; returns `Some(g)` when the configured
+    /// revocation hook returned `SoftFailSafeSubset` for the received
+    /// TCT — in which case the local session SHOULD honor only
+    /// `held_tct.grants ∩ g`. The state machine has already verified
+    /// that this intersection is non-empty and that any
+    /// `required_peer_capabilities` are satisfied by it.
+    pub fn effective_grants(&self) -> Option<&[String]> {
+        self.last_effective_grants.as_deref()
     }
 
     /// Process MUTUAL_HELLO_ACK; produce MUTUAL_COMMIT.
@@ -666,15 +686,17 @@ impl Initiator {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &ack.pop_signature)?;
-        // Soft-fail safe subset (when returned) is enforced inside
-        // `verify_received_tct` (required-caps check); the caller can
-        // re-derive it by re-running the hook if needed.
-        let _effective_grants = verify_received_tct(
+        // Soft-fail safe subset, when returned, is enforced inside
+        // `verify_received_tct` (intersection non-empty + required-
+        // caps check). Stash on the Initiator so callers can read it
+        // back via `effective_grants` after the handshake completes.
+        let effective_grants = verify_received_tct(
             &ack.tct_for_peer.tct,
             cfg,
             &peer_pubkey,
             Some(peer_manifest_expires_at),
         )?;
+        self.last_effective_grants = effective_grants;
         let tct = ack.tct_for_peer.tct.clone();
         self.state = InitiatorState::Done;
         Ok(tct)
@@ -686,6 +708,9 @@ impl Initiator {
 /// Responder-side handshake driver.
 pub struct Responder {
     state: ResponderState,
+    /// Stashed effective-grants restriction from the most recent
+    /// `on_commit`. See [`Self::effective_grants`].
+    last_effective_grants: Option<Vec<String>>,
 }
 
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and AwaitingCommit is acceptable.
@@ -714,6 +739,16 @@ enum ResponderState {
 }
 
 impl Responder {
+    /// Effective grant restriction from the most recent successful
+    /// `on_commit`. Returns `None` when the held TCT's full grant set
+    /// is in force; returns `Some(g)` when the configured revocation
+    /// hook returned `SoftFailSafeSubset` for the received TCT — in
+    /// which case the local session SHOULD honor only
+    /// `held_tct.grants ∩ g`. Mirrors [`Initiator::effective_grants`].
+    pub fn effective_grants(&self) -> Option<&[String]> {
+        self.last_effective_grants.as_deref()
+    }
+
     /// Process MUTUAL_HELLO; return (responder, MUTUAL_HELLO_ACK payload).
     pub fn on_hello(
         envelope: &AitpEnvelope,
@@ -767,6 +802,7 @@ impl Responder {
                     peer_identity: hello.identity.clone(),
                     peer_manifest_expires_at: hello.manifest.expires_at,
                 },
+                last_effective_grants: None,
             },
             ack,
         ))
@@ -824,12 +860,15 @@ impl Responder {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &commit.pop_signature)?;
-        let _effective_grants = verify_received_tct(
+        // Stash effective-grants on success so callers can read via
+        // `Responder::effective_grants` after the handshake completes.
+        let effective_grants = verify_received_tct(
             &commit.tct_for_peer.tct,
             cfg,
             &peer_pubkey,
             Some(peer_manifest_expires_at),
         )?;
+        self.last_effective_grants = effective_grants;
         let received_tct = commit.tct_for_peer.tct.clone();
 
         // Issue our TCT for the initiator using the peer's verified

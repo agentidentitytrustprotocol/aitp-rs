@@ -305,6 +305,43 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("soft-fail with overlapping safe_grants must accept");
+    // The Responder MUST expose the safe-subset restriction so the
+    // caller can locally enforce the degraded grant set.
+    let effective = staged
+        .bob_resp
+        .effective_grants()
+        .expect("soft-fail must surface a safe subset");
+    assert_eq!(
+        effective,
+        &["demo.echo".to_string()],
+        "effective_grants should reflect tct.grants ∩ safe_grants"
+    );
+}
+
+/// Sanity: without a revocation hook, `effective_grants` is `None` —
+/// the full TCT grant set is in force.
+#[test]
+fn no_hook_yields_no_effective_grant_restriction() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: None,
+        now: NOW,
+    };
+    let _ = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect("commit succeeds");
+    assert!(
+        staged.bob_resp.effective_grants().is_none(),
+        "no soft-fail → no grant restriction"
+    );
 }
 
 /// SoftFailSafeSubset whose `safe_grants` is disjoint from the

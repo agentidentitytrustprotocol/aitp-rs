@@ -351,48 +351,17 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` when no policy is configured.
+    /// Returns `Allow` when no policy is configured. The handshake
+    /// endpoints (`handle_hello`, `handle_commit`) already call this
+    /// internally; expose for operator-mounted endpoints that share
+    /// the same `HandshakeServer` rate-limit budget.
     pub fn enforce_rate_limit(
         &self,
         client_ip: Option<&str>,
         peer_aid: Option<&aitp_core::Aid>,
     ) -> RateLimitOutcome {
-        let config = match self.state.rate_limit_config.lock().clone() {
-            Some(c) => c,
-            None => return RateLimitOutcome::Allow,
-        };
-        let mut events = self.state.rate_limit_events.lock();
-        let now = Instant::now();
-        let window = Duration::from_secs(60);
-        // Tentative event additions, to be committed only if both
-        // gates pass. Avoids partial-state under contention.
-        let mut additions: Vec<String> = Vec::new();
-        if let (Some(limit), Some(ip)) = (config.requests_per_ip_per_60s, client_ip) {
-            let key = format!("ip:{ip}");
-            let entry = events.entry(key.clone()).or_default();
-            entry.retain(|t| now.duration_since(*t) < window);
-            if entry.len() as u32 >= limit {
-                return RateLimitOutcome::DenyTooManyRequests {
-                    reason: format!("rate limit exceeded for IP {ip}"),
-                };
-            }
-            additions.push(key);
-        }
-        if let (Some(limit), Some(aid)) = (config.requests_per_aid_per_60s, peer_aid) {
-            let key = format!("aid:{}", aid.as_str());
-            let entry = events.entry(key.clone()).or_default();
-            entry.retain(|t| now.duration_since(*t) < window);
-            if entry.len() as u32 >= limit {
-                return RateLimitOutcome::DenyTooManyRequests {
-                    reason: format!("rate limit exceeded for AID {}", aid.as_str()),
-                };
-            }
-            additions.push(key);
-        }
-        for k in additions {
-            events.entry(k).or_default().push(now);
-        }
-        RateLimitOutcome::Allow
+        enforce_rate_limit_for_state(&self.state, client_ip, peer_aid)
+            .unwrap_or(RateLimitOutcome::Allow)
     }
 
     /// Verify a DPoP-bound request against the configured policy.
@@ -513,8 +482,9 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
+    let client_ip = client_ip_from_request(&request);
     let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
-    enforce_envelope_boundary_checks(&state, &envelope)?;
+    enforce_envelope_boundary_checks(&state, &envelope, client_ip.as_deref())?;
     let payload: MutualHelloPayload =
         serde_json::from_value(envelope.payload.clone()).map_err(|e| {
             ResponseError::aitp(
@@ -612,8 +582,9 @@ async fn handle_commit<R: JwksResolver + Send + Sync + 'static>(
     request: Request,
 ) -> Result<Response, ResponseError> {
     let headers = request.headers().clone();
+    let client_ip = client_ip_from_request(&request);
     let envelope = parse_envelope_request(request, MessageType::MutualCommit).await?;
-    enforce_envelope_boundary_checks(&state, &envelope)?;
+    enforce_envelope_boundary_checks(&state, &envelope, client_ip.as_deref())?;
     let session_id = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -699,6 +670,11 @@ struct ResponseError {
     status: StatusCode,
     code: ErrorCode,
     message: String,
+    /// When true, [`IntoResponse`] emits a bare HTTP status response
+    /// with no AITP error-envelope body. Used for rate-limit denials
+    /// (RFC-AITP-0009 §3.1) so an attacker can't extract per-AID or
+    /// per-IP signal from a structured response body.
+    no_body: bool,
 }
 
 impl ResponseError {
@@ -710,6 +686,19 @@ impl ResponseError {
             status: StatusCode::BAD_REQUEST,
             code,
             message,
+            no_body: false,
+        }
+    }
+
+    /// Bare HTTP 429 with no body — RFC-AITP-0009 §3.1: rate-limit
+    /// denials don't carry an AITP error envelope. `message` is
+    /// preserved for telemetry only.
+    fn too_many_requests(message: String) -> Self {
+        Self {
+            status: StatusCode::TOO_MANY_REQUESTS,
+            code: ErrorCode::InvalidEnvelope,
+            message,
+            no_body: true,
         }
     }
 
@@ -720,12 +709,33 @@ impl ResponseError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: ErrorCode::InvalidEnvelope,
             message: "internal error signing reply envelope".into(),
+            no_body: false,
         }
     }
 }
 
 impl IntoResponse for ResponseError {
     fn into_response(self) -> Response {
+        if self.no_body {
+            // RFC-AITP-0009 §3.1: rate-limit denial is a bare status
+            // with no body. Log for ops dashboards but ship nothing
+            // to the client.
+            warn!(
+                target: "aitp.error.ratelimit",
+                status = self.status.as_u16(),
+                message = %self.message,
+                "rate-limit denial"
+            );
+            let mut resp = Response::builder()
+                .status(self.status)
+                .body(Body::empty())
+                .expect("empty body response builds");
+            resp.headers_mut().insert(
+                header::CACHE_CONTROL,
+                header::HeaderValue::from_static("no-store"),
+            );
+            return resp;
+        }
         // Emit a structured event for every error envelope we ship.
         // Operators dashboarding on AITP error rates key off
         // `aitp.error.envelope` event names.
@@ -821,17 +831,26 @@ async fn parse_envelope_request(
     Ok(envelope)
 }
 
-/// Boundary checks applied to every accepted envelope: timestamp
-/// tolerance + replay-deny-list. Done before payload parsing so a
-/// flood of stale or replayed envelopes does not exercise the
-/// downstream parser path.
+/// Boundary checks applied to every accepted envelope before payload
+/// parsing or crypto. Order per RFC-AITP-0009 §3.1:
+///   version → replay → rate limit → timestamp → (crypto downstream)
+///
+/// Reasoning:
+/// - Version first: a peer speaking a forward version learns about the
+///   mismatch before anything else.
+/// - Replay second: record the `message_id` even on stale envelopes
+///   so an attacker can't probe the deny list with timestamp-rejected
+///   probes.
+/// - Rate-limit third: cap traffic per source before doing any work
+///   that scales with body size or crypto cost.
+/// - Timestamp last among non-crypto: rejects stale envelopes before
+///   signature verification (the heavy work).
 fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     state: &Arc<HandshakeState<R>>,
     envelope: &AitpEnvelope,
+    client_ip: Option<&str>,
 ) -> Result<(), ResponseError> {
-    // RFC-AITP-0001 §5.6: "Verifiers receiving an unknown `version` MUST
-    // respond with `UNKNOWN_VERSION`." Done before any other check so a
-    // peer using a forward version learns about the mismatch first.
+    // 1. Version
     if envelope.version != "aitp/0.1" {
         return Err(ResponseError::aitp(
             ErrorCode::UnknownVersion,
@@ -841,6 +860,15 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
             ),
         ));
     }
+    // 2. Replay
+    check_and_record_message_id(state, &envelope.message_id)?;
+    // 3. Rate limit (per-IP + per-AID where configured)
+    if let Some(RateLimitOutcome::DenyTooManyRequests { reason }) =
+        enforce_rate_limit_for_state(state, client_ip, Some(&envelope.sender.agent_id))
+    {
+        return Err(ResponseError::too_many_requests(reason));
+    }
+    // 4. Timestamp drift
     let now = Timestamp::now();
     let drift = (envelope.timestamp.0 - now.0).abs();
     if drift > DEFAULT_TIMESTAMP_TOLERANCE_SECS {
@@ -851,8 +879,93 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
             ),
         ));
     }
-    check_and_record_message_id(state, &envelope.message_id)?;
     Ok(())
+}
+
+/// Stateless wrapper around the rate-limit logic so per-request
+/// handlers can call it without needing the public `HandshakeServer`
+/// wrapper. Returns `None` when no policy is configured.
+fn enforce_rate_limit_for_state<R: JwksResolver + Send + Sync>(
+    state: &HandshakeState<R>,
+    client_ip: Option<&str>,
+    peer_aid: Option<&aitp_core::Aid>,
+) -> Option<RateLimitOutcome> {
+    let config = state.rate_limit_config.lock().clone()?;
+    let mut events = state.rate_limit_events.lock();
+    let now = Instant::now();
+    let window = Duration::from_secs(60);
+    let mut additions: Vec<String> = Vec::new();
+    if let (Some(limit), Some(ip)) = (config.requests_per_ip_per_60s, client_ip) {
+        let key = format!("ip:{ip}");
+        let entry = events.entry(key.clone()).or_default();
+        entry.retain(|t| now.duration_since(*t) < window);
+        if entry.len() as u32 >= limit {
+            return Some(RateLimitOutcome::DenyTooManyRequests {
+                reason: format!("rate limit exceeded for IP {ip}"),
+            });
+        }
+        additions.push(key);
+    }
+    if let (Some(limit), Some(aid)) = (config.requests_per_aid_per_60s, peer_aid) {
+        let key = format!("aid:{}", aid.as_str());
+        let entry = events.entry(key.clone()).or_default();
+        entry.retain(|t| now.duration_since(*t) < window);
+        if entry.len() as u32 >= limit {
+            return Some(RateLimitOutcome::DenyTooManyRequests {
+                reason: format!("rate limit exceeded for AID {}", aid.as_str()),
+            });
+        }
+        additions.push(key);
+    }
+    for k in additions {
+        events.entry(k).or_default().push(now);
+    }
+    Some(RateLimitOutcome::Allow)
+}
+
+/// Extract a client IP from the incoming request. Order:
+/// 1. `Forwarded` header (RFC 7239, `for=...` form) — only honored
+///    when the operator has marked the upstream proxy as trusted by
+///    forwarding it.
+/// 2. `X-Forwarded-For` header (first hop) — common reverse-proxy
+///    convention. Only the leftmost address is taken; downstream
+///    proxy chains would need a configurable trust model.
+/// 3. `axum::extract::ConnectInfo<SocketAddr>` extension — present
+///    when the server was started with
+///    `into_make_service_with_connect_info::<SocketAddr>()`.
+///
+/// Returns `None` when none of the above is available. Per-IP rate
+/// limiting then silently degrades to per-AID-only — which is
+/// acceptable when the operator hasn't opted into IP gating either.
+fn client_ip_from_request(request: &Request) -> Option<String> {
+    let headers = request.headers();
+    if let Some(v) = headers.get("forwarded").and_then(|v| v.to_str().ok()) {
+        // Parse the first `for=` token. RFC 7239 allows quoted-string
+        // and bracketed IPv6 forms; a coarse split is sufficient for
+        // rate-limit-keying.
+        if let Some(rest) = v.split(';').find(|s| s.trim_start().starts_with("for=")) {
+            let raw = rest.trim().trim_start_matches("for=");
+            let trimmed = raw.trim_matches(&['"', '[', ']'][..]);
+            if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+            }
+        }
+    }
+    if let Some(v) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
+        if let Some(first) = v.split(',').next() {
+            let t = first.trim();
+            if !t.is_empty() {
+                return Some(t.to_string());
+            }
+        }
+    }
+    if let Some(addr) = request
+        .extensions()
+        .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+    {
+        return Some(addr.ip().to_string());
+    }
+    None
 }
 
 /// Map a `HandshakeError` into the closest registered AITP error code.

@@ -10,7 +10,7 @@ use aitp_core::{MessageType, Sender, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp_transport_http::{sign_envelope_with, HandshakeServer};
+use aitp_transport_http::{sign_envelope_with, HandshakeServer, RateLimitConfig};
 use serde_json::Value;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -192,4 +192,74 @@ async fn unknown_message_type_returns_invalid_envelope() {
         .await
         .unwrap();
     assert_error_code(resp, "INVALID_ENVELOPE").await;
+}
+
+async fn spawn_rate_limited_server(per_aid: u32) -> u16 {
+    let server_key = AitpSigningKey::from_seed(&[0xCD; 32]);
+    let manifest = manifest_for(&server_key, "responder");
+    let server = HandshakeServer::new(
+        server_key,
+        manifest,
+        vec!["https://idp.example.com".parse().unwrap()],
+        NoOpResolver,
+        vec!["demo.echo".into()],
+    )
+    .with_rate_limit(RateLimitConfig {
+        requests_per_ip_per_60s: None,
+        requests_per_aid_per_60s: Some(per_aid),
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, server.router()).await.ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    port
+}
+
+#[tokio::test]
+async fn rate_limited_aid_returns_429_with_empty_body() {
+    // Per-AID limit of 2; the 3rd request from the same AID must be
+    // rejected with HTTP 429 and no AITP error envelope body.
+    let port = spawn_rate_limited_server(2).await;
+    let key = AitpSigningKey::from_seed(&[0xAF; 32]);
+    let url = format!("http://127.0.0.1:{port}/aitp/handshake/hello");
+    let client = reqwest::Client::new();
+    // First two requests pass the rate gate (they may still fail
+    // downstream — we send `{}` payloads, so the handler will reject
+    // for malformed payload — but the rate-limit gate admits them).
+    for _ in 0..2 {
+        let envelope = sign_envelope_with(
+            &key,
+            MessageType::MutualHello,
+            serde_json::json!({}),
+            Uuid::new_v4(),
+            Timestamp::now(),
+        )
+        .unwrap();
+        let resp = client.post(&url).json(&envelope).send().await.unwrap();
+        // Allowed by rate gate but rejected downstream (`{}` is not a
+        // valid hello payload) → 400 with AITP envelope, NOT 429.
+        assert_ne!(
+            resp.status().as_u16(),
+            429,
+            "expected non-429 within rate budget"
+        );
+    }
+    // 3rd request from the same AID: rate-limited.
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let resp = client.post(&url).json(&envelope).send().await.unwrap();
+    assert_eq!(resp.status().as_u16(), 429, "expected 429");
+    let body = resp.bytes().await.unwrap();
+    assert!(
+        body.is_empty(),
+        "RFC-AITP-0009 §3.1: rate-limit denial has no AITP error envelope body; got {body:?}"
+    );
 }
