@@ -167,13 +167,33 @@ impl AitpVerifyingKey {
 
     /// The 32-byte raw Ed25519 public key. **Panics** if this is a
     /// P-256 key — callers that may hold either should branch on
-    /// [`Self::algorithm`] or use [`Self::to_compressed`].
+    /// [`Self::algorithm`] or use [`Self::try_to_ed25519_bytes`] /
+    /// [`Self::to_compressed`].
+    ///
+    /// Preserved for source-compat with the pre-rc.2 Ed25519-only
+    /// `AitpVerifyingKey`. New code SHOULD prefer
+    /// [`Self::try_to_ed25519_bytes`] to surface the algorithm gap
+    /// instead of panicking.
     pub fn to_bytes(&self) -> [u8; 32] {
         match self {
             Self::Ed25519(vk) => vk.to_bytes(),
             Self::P256(_) => {
-                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed()")
+                panic!(
+                    "AitpVerifyingKey::to_bytes called on P-256 key; \
+                     use try_to_ed25519_bytes() / to_compressed()"
+                )
             }
+        }
+    }
+
+    /// Fallible Ed25519-bytes accessor. Returns `Some(bytes)` for
+    /// Ed25519 keys and `None` for P-256, so callers can branch
+    /// without panicking. New code SHOULD prefer this over
+    /// [`Self::to_bytes`].
+    pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Ed25519(vk) => Some(vk.to_bytes()),
+            Self::P256(_) => None,
         }
     }
 
@@ -441,6 +461,23 @@ mod tests {
             .verify(msg, &parsed)
             .expect("P-256 signature verifies");
         assert!(verifier.verify(b"tampered", &parsed).is_err());
+    }
+
+    #[test]
+    fn try_to_ed25519_bytes_returns_none_for_p256() {
+        use p256::ecdsa::SigningKey as P256SigningKey;
+        let signing_key = P256SigningKey::from_bytes(&[5u8; 32].into()).unwrap();
+        let pk = signing_key.verifying_key();
+        let pk_compressed = pk.to_encoded_point(true);
+        let mut pk_arr = [0u8; 33];
+        pk_arr.copy_from_slice(pk_compressed.as_bytes());
+        let aid = aitp_core::Aid::from_p256(&pk_arr);
+        let verifier = AitpVerifyingKey::from_aid(&aid).unwrap();
+        assert!(verifier.try_to_ed25519_bytes().is_none());
+        // And the Ed25519 case still works.
+        let ed = AitpSigningKey::from_seed(&[0u8; 32]);
+        let vk = ed.verifying_key();
+        assert_eq!(vk.try_to_ed25519_bytes().unwrap().len(), 32);
     }
 
     #[test]
