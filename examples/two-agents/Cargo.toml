@@ -23,10 +23,14 @@ path = "src/bin/revocation-demo.rs"
 [[bin]]
 name = "tct-renewal-demo"
 path = "src/bin/tct-renewal-demo.rs"
+required-features = ["experimental-renewal"]
 
 [[bin]]
 name = "oidc-demo"
 path = "src/bin/oidc-demo.rs"
+
+[features]
+experimental-renewal = ["aitp/experimental-renewal"]
 
 [dependencies]
 aitp = { path = "../../crates/aitp", version = "0.1.0-rc.1", features = ["all"] }

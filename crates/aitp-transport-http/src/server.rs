@@ -7,7 +7,9 @@ use aitp_handshake::{
     JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig, PresentedIdentity, Responder,
 };
 use aitp_manifest::{Manifest, ManifestEnvelope};
-use aitp_tct::{process_renewal_request, RevocationListEnvelope, TctEnvelope, TctRenewalPayload};
+use aitp_tct::RevocationListEnvelope;
+#[cfg(feature = "experimental-renewal")]
+use aitp_tct::{process_renewal_request, TctEnvelope, TctRenewalPayload};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -21,7 +23,9 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tracing::{debug, instrument, warn};
+#[cfg(feature = "experimental-renewal")]
+use tracing::instrument;
+use tracing::{debug, warn};
 use uuid::Uuid;
 
 /// Default period after which an in-progress handshake session is
@@ -96,6 +100,70 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
 }
 
+/// Sliding-window rate-limit policy (RFC-AITP-0009 §3.1). Off by
+/// default. When configured, [`HandshakeServer::enforce_rate_limit`]
+/// counts events keyed by IP and (optionally) AID over the most
+/// recent 60-second window and rejects with HTTP 429 once a key
+/// crosses its limit.
+#[derive(Clone, Debug)]
+pub struct RateLimitConfig {
+    /// Max requests per source IP in any rolling 60s window. `None`
+    /// disables the per-IP gate.
+    pub requests_per_ip_per_60s: Option<u32>,
+    /// Max requests per peer AID (extracted from envelope sender)
+    /// in any rolling 60s window. `None` disables the per-AID gate.
+    pub requests_per_aid_per_60s: Option<u32>,
+}
+
+impl Default for RateLimitConfig {
+    fn default() -> Self {
+        Self {
+            requests_per_ip_per_60s: Some(120),
+            requests_per_aid_per_60s: Some(60),
+        }
+    }
+}
+
+/// Outcome of a [`HandshakeServer::enforce_rate_limit`] check.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RateLimitOutcome {
+    /// Both keys (IP and AID, where supplied) are within their windows.
+    Allow,
+    /// At least one key exceeded its 60s window — HTTP 429.
+    DenyTooManyRequests {
+        /// Free-form reason for telemetry — names the key that
+        /// triggered the deny.
+        reason: String,
+    },
+}
+
+/// Configures DPoP enforcement for protected endpoints surfaced via
+/// [`HandshakeServer`] (RFC 9449). Off by default — the handshake
+/// endpoints themselves are not DPoP-protected. Operators wiring up a
+/// session-bundle or other DPoP-bound endpoint (RFC-AITP-0010 §X)
+/// install a policy via [`HandshakeServer::with_dpop_policy`] and gate
+/// requests with [`HandshakeServer::verify_dpop_request`].
+#[derive(Clone, Debug)]
+pub struct DpopPolicy {
+    /// When `true`, requests routed through
+    /// [`HandshakeServer::verify_dpop_request`] MUST carry an
+    /// `Authorization: DPoP <token>` and a `DPoP` proof header.
+    pub required: bool,
+    /// Permitted absolute drift (seconds) between the proof's `iat`
+    /// and the server clock (RFC 9449 §4.3). Common production
+    /// default: 60.
+    pub iat_tolerance_secs: i64,
+}
+
+impl Default for DpopPolicy {
+    fn default() -> Self {
+        Self {
+            required: false,
+            iat_tolerance_secs: 60,
+        }
+    }
+}
+
 struct HandshakeState<R: JwksResolver + Send + Sync> {
     signing_key: AitpSigningKey,
     manifest: Manifest,
@@ -116,6 +184,27 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// check, so the map size is bounded by traffic in the window.
     seen_message_ids: Mutex<HashMap<Uuid, Instant>>,
     replay_window: Duration,
+    /// Optional DPoP enforcement policy. Off by default; when set,
+    /// protected endpoints (operator-mounted) MUST present a valid
+    /// DPoP proof via [`HandshakeServer::verify_dpop_request`].
+    /// Stored under interior mutability so [`HandshakeServer::
+    /// with_dpop_policy`] can be called on a built server without
+    /// reconstructing the Arc.
+    dpop_policy: Mutex<Option<DpopPolicy>>,
+    /// Shared DPoP `jti` replay cache. Always allocated even when
+    /// `dpop_policy` is `None` so that callers can opportunistically
+    /// validate DPoP-bound requests in middleware without re-creating
+    /// the cache.
+    dpop_replay_cache: Arc<crate::dpop::DpopReplayCache>,
+    /// Optional rate-limit configuration. Off by default; operators
+    /// install via [`HandshakeServer::with_rate_limit`]. Enforcement
+    /// is per-key sliding 60s windows backed by `rate_limit_events`.
+    rate_limit_config: Mutex<Option<RateLimitConfig>>,
+    /// Per-key event timestamps for the rolling rate-limit window.
+    /// Keyed by either `ip:<ip>` or `aid:<aid>`. Bounded by the
+    /// configured limit; entries older than 60s are swept on every
+    /// check.
+    rate_limit_events: Mutex<HashMap<String, Vec<Instant>>>,
 }
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
@@ -218,6 +307,10 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 session_ttl,
                 seen_message_ids: Mutex::new(HashMap::new()),
                 replay_window,
+                dpop_policy: Mutex::new(None),
+                dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
+                rate_limit_config: Mutex::new(None),
+                rate_limit_events: Mutex::new(HashMap::new()),
             }),
             revocation_producer: None,
         }
@@ -230,13 +323,136 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
+    /// Attach a DPoP enforcement policy. The handshake endpoints
+    /// themselves are not DPoP-protected, but operators mounting
+    /// additional DPoP-bound routes (e.g. session bundles) can use
+    /// [`Self::verify_dpop_request`] from middleware or per-route
+    /// handlers to enforce the policy. Pre-rc.2 the server allocated
+    /// a `DpopReplayCache` but never consulted it; this method gives
+    /// callers a way to opt into RFC 9449 §4.3 enforcement.
+    pub fn with_dpop_policy(self, policy: DpopPolicy) -> Self {
+        *self.state.dpop_policy.lock() = Some(policy);
+        self
+    }
+
+    /// Attach a rate-limit configuration (RFC-AITP-0009 §3.1). The
+    /// per-key sliding window is 60 seconds; entries older than that
+    /// are evicted on every check, so the in-memory bound is roughly
+    /// (active sources × limit).
+    pub fn with_rate_limit(self, config: RateLimitConfig) -> Self {
+        *self.state.rate_limit_config.lock() = Some(config);
+        self
+    }
+
+    /// Test whether a single event from `client_ip` (optionally tied
+    /// to `peer_aid`) would exceed the configured per-key 60s window.
+    /// On `Allow`, the event is recorded; on `DenyTooManyRequests`,
+    /// no event is recorded (so a denied caller doesn't accelerate
+    /// its own deny — the limit hold window is exactly 60s of
+    /// admitted traffic).
+    ///
+    /// Returns `Allow` when no policy is configured.
+    pub fn enforce_rate_limit(
+        &self,
+        client_ip: Option<&str>,
+        peer_aid: Option<&aitp_core::Aid>,
+    ) -> RateLimitOutcome {
+        let config = match self.state.rate_limit_config.lock().clone() {
+            Some(c) => c,
+            None => return RateLimitOutcome::Allow,
+        };
+        let mut events = self.state.rate_limit_events.lock();
+        let now = Instant::now();
+        let window = Duration::from_secs(60);
+        // Tentative event additions, to be committed only if both
+        // gates pass. Avoids partial-state under contention.
+        let mut additions: Vec<String> = Vec::new();
+        if let (Some(limit), Some(ip)) = (config.requests_per_ip_per_60s, client_ip) {
+            let key = format!("ip:{ip}");
+            let entry = events.entry(key.clone()).or_default();
+            entry.retain(|t| now.duration_since(*t) < window);
+            if entry.len() as u32 >= limit {
+                return RateLimitOutcome::DenyTooManyRequests {
+                    reason: format!("rate limit exceeded for IP {ip}"),
+                };
+            }
+            additions.push(key);
+        }
+        if let (Some(limit), Some(aid)) = (config.requests_per_aid_per_60s, peer_aid) {
+            let key = format!("aid:{}", aid.as_str());
+            let entry = events.entry(key.clone()).or_default();
+            entry.retain(|t| now.duration_since(*t) < window);
+            if entry.len() as u32 >= limit {
+                return RateLimitOutcome::DenyTooManyRequests {
+                    reason: format!("rate limit exceeded for AID {}", aid.as_str()),
+                };
+            }
+            additions.push(key);
+        }
+        for k in additions {
+            events.entry(k).or_default().push(now);
+        }
+        RateLimitOutcome::Allow
+    }
+
+    /// Verify a DPoP-bound request against the configured policy.
+    /// Returns `Err` with the appropriate [`crate::dpop::DpopError`]
+    /// mapped to HTTP 401 if the policy is `required` and the request
+    /// is missing or invalid headers. When policy is not configured or
+    /// `required == false` and headers are absent, returns `Ok(None)`.
+    pub fn verify_dpop_request(
+        &self,
+        request: &Request,
+        expected_jkt: &str,
+        expected_method: &str,
+        expected_url: &str,
+    ) -> Result<Option<crate::dpop::DpopProof>, crate::dpop::DpopError> {
+        let policy = self.state.dpop_policy.lock().clone().unwrap_or_default();
+        let authz = request
+            .headers()
+            .get(header::AUTHORIZATION)
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        let dpop_hdr = request
+            .headers()
+            .get("dpop")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or_default();
+        if authz.is_empty() || dpop_hdr.is_empty() {
+            if policy.required {
+                return Err(crate::dpop::DpopError::MalformedHeader);
+            }
+            return Ok(None);
+        }
+        let parsed = crate::dpop::DpopHeader::parse(authz, dpop_hdr)?;
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs() as i64)
+            .unwrap_or(0);
+        let proof = crate::dpop::verify_dpop_proof_full(
+            &parsed,
+            &crate::dpop::DpopVerifyContext {
+                expected_method,
+                expected_url,
+                expected_jkt,
+                expected_access_token: Some(parsed.access_token.as_bytes()),
+                replay_cache: &self.state.dpop_replay_cache,
+                iat_tolerance_secs: policy.iat_tolerance_secs,
+                now_unix_secs: now,
+                expected_nonce: None,
+            },
+        )?;
+        Ok(Some(proof))
+    }
+
     /// The axum router for this handshake server.
     pub fn router(self) -> Router {
-        let mut router = Router::new()
+        let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
-            .route("/aitp/handshake/commit", post(handle_commit::<R>))
-            .route("/aitp/handshake/renew", post(handle_renew::<R>))
-            .with_state(self.state);
+            .route("/aitp/handshake/commit", post(handle_commit::<R>));
+        #[cfg(feature = "experimental-renewal")]
+        let router = router.route("/aitp/handshake/renew", post(handle_renew::<R>));
+        let mut router = router.with_state(self.state);
         if let Some(producer) = self.revocation_producer {
             router = router.merge(revocation_router(producer));
         }
@@ -245,8 +461,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 }
 
 /// `POST /aitp/handshake/renew` accepts a [`TctRenewalPayload`] and
-/// returns a fresh [`TctEnvelope`]. The renewal handler does NOT
-/// drive the full state machine — see [`aitp_tct::process_renewal_request`].
+/// returns a fresh [`TctEnvelope`]. Gated behind the
+/// `experimental-renewal` Cargo feature (RFC-AITP-0004 §8.1).
+#[cfg(feature = "experimental-renewal")]
 #[instrument(level = "debug", skip(state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,

@@ -16,7 +16,8 @@ use aitp_crypto::AitpSigningKey;
 use aitp_handshake::error::HandshakeError;
 use aitp_handshake::state_machine::RevocationCheckFn;
 use aitp_handshake::{
-    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
+    HandshakeRevocationDecision, Initiator, JwkPublicKey, JwksResolver, PeerConfig,
+    PresentedIdentity, ResolveError, Responder,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp_tct::TctError;
@@ -191,7 +192,7 @@ fn revoked_tct_in_mutual_commit_aborts_handshake() {
     let resolver = NoOpResolver;
     let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
         CALLS.fetch_add(1, Ordering::Relaxed);
-        Ok(true)
+        Ok(HandshakeRevocationDecision::Revoked)
     });
     let hook_ref: &RevocationCheckFn = &*hook;
 
@@ -275,4 +276,66 @@ fn missing_hook_preserves_default_acceptance() {
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("commit succeeds without revocation hook");
+}
+
+/// SoftFailSafeSubset whose `safe_grants` overlaps the received TCT's
+/// `grants` must let the handshake proceed (degraded — local enforcement
+/// restricts the session to the intersection).
+#[test]
+fn soft_fail_safe_subset_with_intersection_accepts() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+        Ok(HandshakeRevocationDecision::SoftFailSafeSubset {
+            safe_grants: vec!["demo.echo".into()],
+        })
+    });
+    let hook_ref: &RevocationCheckFn = &*hook;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: Some(hook_ref),
+        now: NOW,
+    };
+    let _ = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect("soft-fail with overlapping safe_grants must accept");
+}
+
+/// SoftFailSafeSubset whose `safe_grants` is disjoint from the
+/// received TCT's `grants` must fail with `PolicyViolation` —
+/// degrading to a zero-grant session is not useful.
+#[test]
+fn soft_fail_safe_subset_with_empty_intersection_rejects() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+        Ok(HandshakeRevocationDecision::SoftFailSafeSubset {
+            safe_grants: vec!["unrelated.cap".into()],
+        })
+    });
+    let hook_ref: &RevocationCheckFn = &*hook;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: Some(hook_ref),
+        now: NOW,
+    };
+    let err = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect_err("empty safe-grants intersection must fail");
+    assert!(
+        matches!(err, HandshakeError::PolicyViolation),
+        "expected PolicyViolation, got {err:?}"
+    );
 }

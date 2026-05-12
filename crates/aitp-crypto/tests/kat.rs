@@ -27,7 +27,14 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
     assert!(!vectors.is_empty(), "keypairs.json has no vectors");
     for v in vectors {
         let id = v["id"].as_str().unwrap();
-        let seed_hex = v["seed_hex"].as_str().unwrap();
+        // Non-Ed25519 entries (e.g. kat-keypair-005-p256) use a
+        // different seed encoding (`private_scalar_hex` for ECDSA)
+        // and aren't derived through `AitpSigningKey::from_seed`.
+        // Skip them; algorithm-specific KAT tests live with the
+        // matching verifier.
+        let Some(seed_hex) = v["seed_hex"].as_str() else {
+            continue;
+        };
         let expected_pubkey = v["pubkey_b64url"].as_str().unwrap();
         let expected_aid = v["aid"].as_str().unwrap();
 

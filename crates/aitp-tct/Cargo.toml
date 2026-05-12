@@ -10,6 +10,16 @@ keywords.workspace = true
 categories.workspace = true
 homepage.workspace = true
 
+[features]
+default = []
+# In-band TCT renewal (RFC-AITP-0004 §8.1, post-v0.1). RFC-AITP-0004 §8
+# states v0.1 implementations MUST NOT use an expired peer TCT and that
+# there is no in-band renewal message in v0.1. The renewal flow is
+# preserved here as an opt-in convenience for deployments that have
+# upgraded to a post-v0.1 profile and want to skip a fresh handshake on
+# TCT expiry. Off by default.
+experimental-renewal = []
+
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
 aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-rc.1" }

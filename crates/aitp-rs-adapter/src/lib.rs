@@ -53,6 +53,20 @@ pub struct AdapterState {
     /// must return REPLAY_DETECTED. Single-set (no TTL) since
     /// fixture runs are short-lived.
     seen_message_ids: HashSet<String>,
+    /// Feature flags the runner has told us are enabled. The
+    /// adapter consults this when deciding whether to opt into
+    /// post-v0.1 RFC behavior. Examples:
+    ///   `experimental-multihop-delegation` → verify_delegation
+    ///       uses `max_hops = DEFAULT_MAX_HOPS` instead of strict 0.
+    ///   `experimental-session-bundle` → bundle ops accept work.
+    enabled_features: HashSet<String>,
+}
+
+impl AdapterState {
+    /// Whether the runner has enabled the named feature.
+    pub fn has_feature(&self, name: &str) -> bool {
+        self.enabled_features.contains(name)
+    }
 }
 
 impl AdapterState {
@@ -144,6 +158,7 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
 
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
+        "set_features" => set_features_op(state, id, params),
         "inject_revocation" => revoke_tct_op(state, id, params),
         "dump_session" => dump_session_op(state, id, params),
 
@@ -185,6 +200,7 @@ fn init(id: &str) -> Value {
         "verify_pop_response",
         // Tier D
         "set_clock",
+        "set_features",
         "inject_revocation",
         "dump_session",
     ];
@@ -1055,11 +1071,21 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         Some(&revocation_check_closure)
     };
 
+    // Multi-hop opt-in. Per RFC-AITP-0006 §4.4 the v0.1 default
+    // MUST reject any non-empty chain; the runner enables RFC-0011
+    // semantics by sending `set_features` with
+    // `experimental-multihop-delegation`. Without that feature
+    // we use the strict v0.1 cap (`V0_1_STRICT_MAX_HOPS = 0`).
+    let max_hops = if state.has_feature("experimental-multihop-delegation") {
+        aitp_delegation::DEFAULT_MAX_HOPS
+    } else {
+        aitp_delegation::V0_1_STRICT_MAX_HOPS
+    };
     let ctx = aitp_delegation::VerifyDelegationContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
-        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
+        max_hops,
     };
     match aitp_delegation::verify_delegation(&token, &ctx) {
         Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
@@ -2239,6 +2265,28 @@ fn set_clock_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     };
     state.now_override = Some(now);
     json!({"id": id, "ok": true, "result": {"now_unix_secs": now}})
+}
+
+/// `set_features`: the runner declares which optional features
+/// it has opted into. The adapter consults this to flip post-v0.1
+/// RFC behaviors (e.g. multi-hop delegation, session bundles) that
+/// default off in the strict v0.1 posture.
+fn set_features_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
+    let features: Vec<String> = match params.get("features").and_then(|v| v.as_array()) {
+        Some(arr) => arr
+            .iter()
+            .filter_map(|v| v.as_str().map(String::from))
+            .collect(),
+        None => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'features' (array of strings)",
+            )
+        }
+    };
+    state.enabled_features = features.iter().cloned().collect();
+    json!({"id": id, "ok": true, "result": {"enabled": features}})
 }
 
 fn dump_session_op(state: &AdapterState, id: &str, params: Value) -> Value {

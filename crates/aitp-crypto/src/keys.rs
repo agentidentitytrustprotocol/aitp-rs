@@ -1,11 +1,22 @@
-//! Ed25519 signing keys and verifying keys.
+//! Ed25519 and P-256 ECDSA signing/verifying keys.
+//!
+//! `AitpSigningKey` is Ed25519-only (the only signing algorithm in v0.1).
+//! `AitpVerifyingKey` is an algorithm-agile enum: Ed25519 keys come from
+//! the legacy untagged AID form and the `aid:pubkey:ed25519:<43>` form;
+//! P-256 keys come from `aid:pubkey:p256:<44>`. Verifier dispatch is
+//! driven by the algorithm tag on the [`Signature`] passed to
+//! [`AitpVerifyingKey::verify`].
 
 use crate::CryptoError;
-use aitp_core::{Aid, ED25519_SIGNATURE_BASE64URL_LEN};
+use aitp_core::{Aid, AidAlgorithm, ED25519_SIGNATURE_BASE64URL_LEN};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{
     Signature as DalekSignature, Signer, SigningKey as DalekSigningKey,
     VerifyingKey as DalekVerifyingKey,
+};
+use p256::ecdsa::{
+    signature::Verifier as P256Verifier, Signature as P256Signature,
+    VerifyingKey as P256VerifyingKey,
 };
 
 /// An Ed25519 signing key, with cached AID derivation.
@@ -42,7 +53,7 @@ impl AitpSigningKey {
 
     /// Return the corresponding verifying (public) key.
     pub fn verifying_key(&self) -> AitpVerifyingKey {
-        AitpVerifyingKey(self.inner.verifying_key())
+        AitpVerifyingKey::Ed25519(self.inner.verifying_key())
     }
 
     /// Sign a message (typically the JCS canonicalization of an AITP object).
@@ -60,63 +71,128 @@ impl std::fmt::Debug for AitpSigningKey {
     }
 }
 
-/// An Ed25519 verifying (public) key.
+/// An AITP verifying (public) key. Algorithm-agile: holds either an
+/// Ed25519 key (the v0.1 default) or a P-256 ECDSA key (post-v0.1
+/// algorithm-agile wire format, RFC-AITP-0001 §5.4.3).
 #[derive(Debug, Clone)]
-pub struct AitpVerifyingKey(DalekVerifyingKey);
+pub enum AitpVerifyingKey {
+    /// Ed25519 public key.
+    Ed25519(DalekVerifyingKey),
+    /// P-256 (secp256r1) ECDSA public key, parsed from a SEC1-
+    /// compressed encoding.
+    P256(P256VerifyingKey),
+}
 
 impl AitpVerifyingKey {
-    /// Construct from the 32-byte raw public key embedded in an AID.
+    /// Construct from the public key embedded in an AID. Dispatches by
+    /// [`AidAlgorithm`].
     pub fn from_aid(aid: &Aid) -> Result<Self, CryptoError> {
-        let bytes = aid.to_ed25519_bytes();
-        DalekVerifyingKey::from_bytes(&bytes)
-            .map(Self)
-            .map_err(|e| CryptoError::AidNotEd25519(e.to_string()))
+        match aid.algorithm() {
+            AidAlgorithm::Ed25519 => {
+                let bytes = aid.to_ed25519_bytes();
+                DalekVerifyingKey::from_bytes(&bytes)
+                    .map(Self::Ed25519)
+                    .map_err(|e| CryptoError::AidNotEd25519(e.to_string()))
+            }
+            AidAlgorithm::P256 => {
+                let bytes = aid.to_p256_bytes();
+                P256VerifyingKey::from_sec1_bytes(&bytes)
+                    .map(Self::P256)
+                    .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
+            }
+        }
     }
 
-    /// Construct from raw 32-byte public-key bytes.
+    /// Construct an Ed25519 verifier from raw 32-byte public-key bytes.
+    /// (Convenience for callers carrying explicit Ed25519 bytes — e.g.
+    /// the TCT `cnf` field.)
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, CryptoError> {
         DalekVerifyingKey::from_bytes(bytes)
-            .map(Self)
+            .map(Self::Ed25519)
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
     }
 
     /// Verify a signature over `message`.
     ///
-    /// Uses `verify_strict`, which rejects non-canonical signatures and
-    /// weak public keys (low-order points, identity element). Cross-impl
-    /// interop depends on this — non-strict verification accepts
-    /// signatures that other implementations reject, leading to silent
-    /// validity disagreements.
+    /// Ed25519 path uses `verify_strict` to reject non-canonical
+    /// signatures and weak public keys (low-order points, identity).
+    /// P-256 path verifies an `R || S` (64-byte) raw signature against
+    /// `SHA-256(message)`. The algorithm tag on the [`Signature`] MUST
+    /// match the verifier's algorithm — mismatched algorithm/key
+    /// combinations are rejected (algorithm confusion defense).
     pub fn verify(&self, message: &[u8], sig: &Signature) -> Result<(), CryptoError> {
-        // Reject `p256.`-tagged signatures here: this verifier holds
-        // an Ed25519 key. Crypto-agility callers MUST resolve the
-        // verifier from the signing AID's algorithm tag first.
-        if !matches!(sig.algorithm(), SignatureAlgorithm::Ed25519) {
-            return Err(CryptoError::SignatureInvalid);
+        match (self, sig.algorithm()) {
+            (Self::Ed25519(vk), SignatureAlgorithm::Ed25519) => {
+                let raw = Base64UrlUnpadded::decode_vec(sig.payload())
+                    .map_err(|_| CryptoError::SignatureInvalid)?;
+                if raw.len() != 64 {
+                    return Err(CryptoError::SignatureInvalid);
+                }
+                let mut buf = [0u8; 64];
+                buf.copy_from_slice(&raw);
+                let dalek_sig = DalekSignature::from_bytes(&buf);
+                vk.verify_strict(message, &dalek_sig)
+                    .map_err(|_| CryptoError::SignatureInvalid)
+            }
+            (Self::P256(vk), SignatureAlgorithm::P256) => {
+                let raw = Base64UrlUnpadded::decode_vec(sig.payload())
+                    .map_err(|_| CryptoError::SignatureInvalid)?;
+                if raw.len() != 64 {
+                    return Err(CryptoError::SignatureInvalid);
+                }
+                // p256::ecdsa::Signature accepts R||S as 64 bytes.
+                let p256_sig =
+                    P256Signature::from_slice(&raw).map_err(|_| CryptoError::SignatureInvalid)?;
+                vk.verify(message, &p256_sig)
+                    .map_err(|_| CryptoError::SignatureInvalid)
+            }
+            // Algorithm-confusion guard: refuse to verify a P-256
+            // signature with an Ed25519 key, and vice versa.
+            _ => Err(CryptoError::SignatureInvalid),
         }
-        // Decode the b64url payload (everything after the optional
-        // algorithm tag — `Signature::payload` strips it).
-        let raw = Base64UrlUnpadded::decode_vec(sig.payload())
-            .map_err(|_| CryptoError::SignatureInvalid)?;
-        if raw.len() != 64 {
-            return Err(CryptoError::SignatureInvalid);
-        }
-        let mut buf = [0u8; 64];
-        buf.copy_from_slice(&raw);
-        let dalek_sig = DalekSignature::from_bytes(&buf);
-        self.0
-            .verify_strict(message, &dalek_sig)
-            .map_err(|_| CryptoError::SignatureInvalid)
     }
 
     /// Compute the RFC 7638 JWK thumbprint per RFC-AITP-0002 §2.2.1.
-    pub fn to_jwk_thumbprint(&self) -> String {
-        crate::thumbprint::compute_jwk_thumbprint(&self.to_bytes())
+    /// Only defined for Ed25519 keys in v0.1; P-256 callers should
+    /// derive a JWK thumbprint from the SEC1-compressed bytes via
+    /// `aitp_crypto::thumbprint`.
+    pub fn to_jwk_thumbprint(&self) -> Result<String, CryptoError> {
+        match self {
+            Self::Ed25519(vk) => Ok(crate::thumbprint::compute_jwk_thumbprint(&vk.to_bytes())),
+            Self::P256(_) => Err(CryptoError::KeyParseFailed(
+                "JWK thumbprint for P-256 not implemented; use thumbprint module directly".into(),
+            )),
+        }
     }
 
-    /// The 32-byte raw public key.
+    /// The 32-byte raw Ed25519 public key. **Panics** if this is a
+    /// P-256 key — callers that may hold either should branch on
+    /// [`Self::algorithm`] or use [`Self::to_compressed`].
     pub fn to_bytes(&self) -> [u8; 32] {
-        self.0.to_bytes()
+        match self {
+            Self::Ed25519(vk) => vk.to_bytes(),
+            Self::P256(_) => {
+                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed()")
+            }
+        }
+    }
+
+    /// The encoded public key bytes — 32 bytes for Ed25519, 33 bytes
+    /// SEC1-compressed for P-256. Use this instead of
+    /// [`Self::to_bytes`] when handling algorithm-agile flows.
+    pub fn to_compressed(&self) -> Vec<u8> {
+        match self {
+            Self::Ed25519(vk) => vk.to_bytes().to_vec(),
+            Self::P256(vk) => vk.to_encoded_point(true).as_bytes().to_vec(),
+        }
+    }
+
+    /// Which algorithm this key represents.
+    pub fn algorithm(&self) -> AidAlgorithm {
+        match self {
+            Self::Ed25519(_) => AidAlgorithm::Ed25519,
+            Self::P256(_) => AidAlgorithm::P256,
+        }
     }
 }
 
@@ -334,5 +410,52 @@ mod tests {
         let s = format!("p256.{}", "A".repeat(86));
         let sig = Signature::parse(&s).unwrap();
         assert!(key.verifying_key().verify(b"msg", &sig).is_err());
+    }
+
+    #[test]
+    fn p256_verifier_round_trip() {
+        use p256::ecdsa::{signature::Signer as _, SigningKey as P256SigningKey};
+        // Deterministic P-256 keypair for KAT-style assertions.
+        let signing_key = P256SigningKey::from_bytes(&[7u8; 32].into()).unwrap();
+        let p256_pk = signing_key.verifying_key();
+        let pk_compressed = p256_pk.to_encoded_point(true);
+        let pk_bytes = pk_compressed.as_bytes();
+        assert_eq!(pk_bytes.len(), 33);
+        let mut pk_arr = [0u8; 33];
+        pk_arr.copy_from_slice(pk_bytes);
+
+        let aid = aitp_core::Aid::from_p256(&pk_arr);
+        let verifier = AitpVerifyingKey::from_aid(&aid).expect("P-256 AID parses");
+        assert_eq!(verifier.algorithm(), AidAlgorithm::P256);
+        assert_eq!(verifier.to_compressed(), pk_bytes);
+
+        let msg = b"aitp p256 round-trip";
+        let sig: p256::ecdsa::Signature = signing_key.sign(msg);
+        let sig_bytes = sig.to_bytes();
+        let sig_b64 = Base64UrlUnpadded::encode_string(&sig_bytes);
+        let wire = format!("p256.{sig_b64}");
+        let parsed = Signature::parse(&wire).unwrap();
+        assert_eq!(parsed.algorithm(), SignatureAlgorithm::P256);
+
+        verifier
+            .verify(msg, &parsed)
+            .expect("P-256 signature verifies");
+        assert!(verifier.verify(b"tampered", &parsed).is_err());
+    }
+
+    #[test]
+    fn p256_verify_rejects_ed25519_signature() {
+        use p256::ecdsa::SigningKey as P256SigningKey;
+        let signing_key = P256SigningKey::from_bytes(&[9u8; 32].into()).unwrap();
+        let pk = signing_key.verifying_key();
+        let pk_compressed = pk.to_encoded_point(true);
+        let mut pk_arr = [0u8; 33];
+        pk_arr.copy_from_slice(pk_compressed.as_bytes());
+        let aid = aitp_core::Aid::from_p256(&pk_arr);
+        let verifier = AitpVerifyingKey::from_aid(&aid).unwrap();
+        // Try to verify an Ed25519 signature against the P-256 key.
+        let ed_key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let ed_sig = ed_key.sign(b"msg");
+        assert!(verifier.verify(b"msg", &ed_sig).is_err());
     }
 }

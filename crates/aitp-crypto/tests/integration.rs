@@ -110,8 +110,8 @@ fn from_aid_round_trips_through_pubkey_bytes() {
 #[test]
 fn thumbprint_is_43_chars_and_deterministic() {
     let key = AitpSigningKey::from_seed(&[9u8; 32]);
-    let t1 = key.verifying_key().to_jwk_thumbprint();
-    let t2 = key.verifying_key().to_jwk_thumbprint();
+    let t1 = key.verifying_key().to_jwk_thumbprint().unwrap();
+    let t2 = key.verifying_key().to_jwk_thumbprint().unwrap();
     assert_eq!(t1, t2);
     assert_eq!(t1.len(), 43);
     // Charset is base64url-unpadded.

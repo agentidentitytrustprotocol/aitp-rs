@@ -39,7 +39,7 @@ use url::Url;
 /// every source.
 ///
 /// Peer Manifest resolution does not honor this — see module docs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyResolutionFailMode {
     /// Resolution miss → `ResolveError`. Default.
     FailClosed,
@@ -48,11 +48,46 @@ pub enum KeyResolutionFailMode {
     /// already-cached pinned key is expected to satisfy verification
     /// even when the network source is unreachable.
     FailOpen,
-    /// Same wire behavior as `FailOpen`; reserved for callers that
-    /// want a distinct telemetry signal for "network down vs. truly
-    /// unknown issuer". The current implementation does not log
-    /// directly — wrap with your own observability layer.
-    SoftFail,
+    /// Degraded mode (RFC-AITP-0007): when resolution falls through
+    /// all sources, return an empty key set and signal to callers
+    /// that they MUST restrict the session's effective grants to
+    /// `safe_grants`. Callers retrieve the safe-grant signal via
+    /// [`KeyResolutionPolicy::resolve_outcome`].
+    ///
+    /// An empty `safe_grants` vector is rejected as fail-closed —
+    /// there is no safe way to degrade if no safe subset has been
+    /// declared.
+    SoftFail {
+        /// Capability identifiers the operator has pre-declared as
+        /// safe to honor when the issuer's keys cannot be resolved.
+        /// Typically a minimal read-only or status-only subset.
+        safe_grants: Vec<String>,
+    },
+}
+
+/// Outcome of a `resolve_outcome` call.
+///
+/// Use this when the caller needs to distinguish a clean resolution
+/// (where signature verification can proceed) from a soft-fail
+/// degradation (where signature verification is impossible but the
+/// session may continue with a restricted grant subset).
+///
+/// [`JwkPublicKey`] is not `PartialEq` (its `DecodingKey` field
+/// deliberately hides internals), so this enum doesn't derive
+/// equality. Match on the variants instead.
+#[derive(Clone, Debug)]
+pub enum KeyResolutionOutcome {
+    /// Keys resolved cleanly; downstream signature verification
+    /// proceeds normally with this set.
+    Resolved(Vec<JwkPublicKey>),
+    /// Resolution exhausted all sources; the configured
+    /// `safe_grants` are the only grants the session should honor.
+    /// Signature verification of issuer-signed claims (OIDC JWTs)
+    /// MUST be considered failed by the caller.
+    SoftFailDegraded {
+        /// Subset of capabilities the operator pre-declared as safe.
+        safe_grants: Vec<String>,
+    },
 }
 
 impl Default for KeyResolutionFailMode {
@@ -148,11 +183,57 @@ impl KeyResolutionPolicy {
         issuer: &Url,
         err_msg: String,
     ) -> Result<Vec<JwkPublicKey>, ResolveError> {
-        match self.fail_mode {
+        match &self.fail_mode {
             KeyResolutionFailMode::FailClosed => Err(ResolveError::NetworkError(format!(
                 "key resolution exhausted all sources for {issuer}: {err_msg}"
             ))),
-            KeyResolutionFailMode::FailOpen | KeyResolutionFailMode::SoftFail => Ok(Vec::new()),
+            KeyResolutionFailMode::FailOpen => Ok(Vec::new()),
+            KeyResolutionFailMode::SoftFail { safe_grants } => {
+                if safe_grants.is_empty() {
+                    Err(ResolveError::NoPinnedKeys)
+                } else {
+                    // Empty key vec; the caller is expected to consult
+                    // `resolve_outcome` for the safe-grants list.
+                    Ok(Vec::new())
+                }
+            }
+        }
+    }
+
+    /// Resolution with richer outcome semantics. Use this instead of
+    /// the bare `JwksResolver::resolve` when the caller needs to
+    /// distinguish a clean signature-verifiable resolution from a
+    /// soft-fail degradation that restricts grants to a safe subset.
+    ///
+    /// The contract:
+    /// - `KeyResolutionOutcome::Resolved(keys)` — keys were found
+    ///   (from cache, pinned store, or network).
+    /// - `KeyResolutionOutcome::SoftFailDegraded { safe_grants }` —
+    ///   resolution exhausted all sources, the configured fail mode
+    ///   is `SoftFail { safe_grants }` with a non-empty subset, and
+    ///   the caller MUST restrict the session's effective grants to
+    ///   that subset (and treat issuer-signature checks as failed).
+    /// - `Err(ResolveError::NoPinnedKeys)` — `SoftFail` with no
+    ///   safe-grants subset; fail-closed.
+    /// - `Err(_)` — other configured fail-modes (`FailClosed`,
+    ///   network errors) bubble up as before.
+    pub fn resolve_outcome(&self, issuer: &Url) -> Result<KeyResolutionOutcome, ResolveError> {
+        match <Self as JwksResolver>::resolve(self, issuer) {
+            Ok(keys) if !keys.is_empty() => Ok(KeyResolutionOutcome::Resolved(keys)),
+            Ok(_) => {
+                if let KeyResolutionFailMode::SoftFail { safe_grants } = &self.fail_mode {
+                    if !safe_grants.is_empty() {
+                        return Ok(KeyResolutionOutcome::SoftFailDegraded {
+                            safe_grants: safe_grants.clone(),
+                        });
+                    }
+                }
+                // FailOpen with no keys: keep the empty-Resolved
+                // semantics so callers' downstream signature step
+                // fails (matching the legacy behavior).
+                Ok(KeyResolutionOutcome::Resolved(Vec::new()))
+            }
+            Err(e) => Err(e),
         }
     }
 }
@@ -342,6 +423,39 @@ mod tests {
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         let got = policy.resolve(&issuer).unwrap();
         assert!(got.is_empty());
+    }
+
+    #[test]
+    fn soft_fail_with_safe_grants_returns_degraded_outcome() {
+        let policy = KeyResolutionPolicy::builder()
+            .offline(true)
+            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+                safe_grants: vec!["status.read".into()],
+            })
+            .build();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        match policy.resolve_outcome(&issuer).unwrap() {
+            KeyResolutionOutcome::SoftFailDegraded { safe_grants } => {
+                assert_eq!(safe_grants, vec!["status.read"]);
+            }
+            other => panic!("expected SoftFailDegraded, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn soft_fail_with_empty_safe_grants_is_fail_closed() {
+        let policy = KeyResolutionPolicy::builder()
+            .offline(true)
+            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+                safe_grants: Vec::new(),
+            })
+            .build();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        let err = policy.resolve(&issuer).unwrap_err();
+        assert!(
+            matches!(err, ResolveError::NoPinnedKeys),
+            "expected NoPinnedKeys, got {err:?}"
+        );
     }
 
     #[test]

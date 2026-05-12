@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.1/aitp-conformance-fixture.schema.json",
+  "title": "AITP Conformance Fixture (metadata block)",
+  "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a v0.1 conformance runner relies on.",
+  "type": "object",
+  "required": [
+    "id",
+    "rfc",
+    "status",
+    "required_for_v0_1",
+    "feature"
+  ],
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Fixture id (e.g. mh-success-001, del-004-multihop-rejected-v01)."
+    },
+    "rfc": {
+      "type": "string",
+      "pattern": "^RFC-AITP-[0-9]{4}$",
+      "description": "Most-specific RFC the fixture exercises."
+    },
+    "status": {
+      "enum": ["core", "draft", "extension", "reserved"],
+      "description": "Conformance tier. See schemas/conformance/README.md."
+    },
+    "required_for_v0_1": {
+      "type": "boolean",
+      "description": "Whether a v0.1 implementation MUST pass this fixture. Always false when status != 'core'."
+    },
+    "feature": {
+      "type": ["string", "null"],
+      "description": "Opt-in feature flag for non-core fixtures (null for core)."
+    },
+    "description": { "type": "string" },
+    "tags": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "input": { "type": "object" },
+    "expected": { "type": "object" }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "status": { "const": "core" } } },
+      "then": {
+        "properties": {
+          "required_for_v0_1": { "const": true },
+          "feature": { "const": null }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "status": { "enum": ["draft", "extension", "reserved"] }
+        }
+      },
+      "then": {
+        "properties": {
+          "required_for_v0_1": { "const": false }
+        }
+      }
+    }
+  ],
+  "additionalProperties": true
+}

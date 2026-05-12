@@ -40,6 +40,10 @@ serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_jcs = "0.2"
 thiserror = "1.0"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+# P-256 ECDSA — RFC-AITP-0001 §5.4.3 / §5.5.2 wire format for the
+# `p256` algorithm tag. Verifier-only by default; signing wired
+# through `ecdsa` feature when needed.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
 base64ct = { version = "1.6", features = ["std"] }
 secrecy = "0.8"
 uuid = { version = "1.7", features = ["v4", "serde"] }

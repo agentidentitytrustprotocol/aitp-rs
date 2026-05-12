@@ -9,15 +9,65 @@ use crate::core::{AitpEnvelope, MessageType, Timestamp};
 use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
 use crate::handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig,
-    PresentedIdentity,
+    PinnedKeyStore, PresentedIdentity,
 };
 use crate::manifest::Manifest;
-use crate::tct::{build_renewal_request, Tct, TctEnvelope, TctRenewalPayload};
+#[cfg(feature = "experimental-renewal")]
+use crate::tct::{build_renewal_request, TctRenewalPayload};
+use crate::tct::{Tct, TctEnvelope};
 use crate::transport::{
     sign_envelope_with, verify_envelope_signature, FetchError, ManifestFetcher,
 };
 use std::time::Duration;
 use uuid::Uuid;
+
+/// Explicit trust posture for the high-level [`run_initiator_handshake`].
+///
+/// Pre-v0.1.0-rc.2 the facade silently accepted any pinned-key peer that
+/// proved possession of the key matching its AID — no "is this key one
+/// I trust?" gate. RFC-AITP-0002 §3.2 step 1 requires that gate. This
+/// enum forces callers to choose explicitly:
+///
+/// - [`TrustMode::PinnedKeys`] — production pinned-key deployments;
+///   peers MUST appear in the supplied [`PinnedKeyStore`].
+/// - [`TrustMode::Oidc`] — production OIDC deployments; peers are
+///   authenticated by an issuer in `trust_anchors` whose JWKS is
+///   resolved by `jwks_resolver`.
+/// - [`TrustMode::UnsafeNoTrustEnforcement`] — development/testing only.
+///   The name is intentionally long and alarming so it shows up in code
+///   review.
+pub enum TrustMode<'a> {
+    /// Require all pinned-key peers to appear in this store.
+    PinnedKeys(&'a dyn PinnedKeyStore),
+    /// Accept peers authenticated by any issuer in `trust_anchors`,
+    /// with JWKS resolved by `jwks_resolver`.
+    Oidc {
+        /// Trust anchors (issuer URLs) the verifying peer accepts.
+        trust_anchors: &'a [aitp_core::RawUrl],
+        /// Resolver for issuer JWKS (typically a
+        /// [`aitp_transport_http::key_resolution::KeyResolutionPolicy`]).
+        jwks_resolver: &'a dyn JwksResolver,
+    },
+    /// Skip pinned-key trust enforcement. **INSECURE** — development
+    /// and testing only. A peer using any Ed25519 key whose hash
+    /// matches its AID will be accepted.
+    UnsafeNoTrustEnforcement,
+}
+
+/// No-op JWKS resolver. Used for the pinned-key trust mode where OIDC
+/// resolution is never invoked.
+struct NoOpJwksResolver;
+
+impl JwksResolver for NoOpJwksResolver {
+    fn resolve(
+        &self,
+        _issuer: &url::Url,
+    ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError> {
+        Err(crate::handshake::ResolveError::NetworkError(
+            "no JWKS resolver configured (TrustMode::PinnedKeys / UnsafeNoTrustEnforcement)".into(),
+        ))
+    }
+}
 
 /// Output of [`run_initiator_handshake`] — the peer's AID, the
 /// peer-issued TCT we now hold, and the peer's verifying key (so the
@@ -70,8 +120,8 @@ pub enum FacadeError {
 /// Identity is presented as pinned-key by default — the caller's
 /// signing key is bound. Callers wanting OIDC should drive the lower-
 /// level [`Initiator`] state machine directly.
-pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
-    config: InitiatorConfig<'_, R>,
+pub async fn run_initiator_handshake(
+    config: InitiatorConfig<'_>,
 ) -> Result<SessionContext, FacadeError> {
     let manifest_fetcher = ManifestFetcher::new();
     let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
@@ -81,12 +131,26 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
     // call below). Skipping the round trip here produces a cleaner
     // error than letting the responder reject the HELLO.
     aitp_manifest::check_identity_type_compatibility(&peer_manifest, "pinned_key")?;
+    let no_op_resolver = NoOpJwksResolver;
+    let empty_anchors: &[aitp_core::RawUrl] = &[];
+    let (trust_anchors, jwks_resolver, pinned_key_store): (
+        &[aitp_core::RawUrl],
+        &dyn JwksResolver,
+        Option<&dyn PinnedKeyStore>,
+    ) = match &config.trust_mode {
+        TrustMode::PinnedKeys(store) => (empty_anchors, &no_op_resolver, Some(*store)),
+        TrustMode::Oidc {
+            trust_anchors,
+            jwks_resolver,
+        } => (*trust_anchors, *jwks_resolver, None),
+        TrustMode::UnsafeNoTrustEnforcement => (empty_anchors, &no_op_resolver, None),
+    };
     let cfg = PeerConfig {
         signing_key: config.signing_key,
         manifest: config.own_manifest,
-        trust_anchors: config.trust_anchors,
-        jwks_resolver: config.jwks_resolver,
-        pinned_key_store: None,
+        trust_anchors,
+        jwks_resolver,
+        pinned_key_store,
         grant_policy: None,
         revocation_check: None,
         now: Timestamp::now(),
@@ -185,7 +249,11 @@ pub async fn run_initiator_handshake<R: JwksResolver + Send + Sync>(
 }
 
 /// Configuration for [`run_initiator_handshake`].
-pub struct InitiatorConfig<'a, R: JwksResolver + Send + Sync> {
+///
+/// Trust posture is supplied via [`TrustMode`] — the facade refuses to
+/// silently default to "no trust enforcement". See [`TrustMode`] for the
+/// three available modes.
+pub struct InitiatorConfig<'a> {
     /// Our long-term signing key.
     pub signing_key: &'a AitpSigningKey,
     /// Our published Manifest.
@@ -193,17 +261,20 @@ pub struct InitiatorConfig<'a, R: JwksResolver + Send + Sync> {
     /// Peer's origin URL — `peer_origin/.well-known/aitp-manifest` will
     /// be fetched.
     pub peer_origin: url::Url,
-    /// Accepted OIDC trust anchors.
-    pub trust_anchors: &'a [aitp_core::RawUrl],
-    /// JWKS resolver (no-op for pinned-key-only deployments).
-    pub jwks_resolver: &'a R,
+    /// Trust posture for the peer (RFC-AITP-0002 §3.2 step 1 +
+    /// RFC-AITP-0007). Choose [`TrustMode::PinnedKeys`] for production
+    /// pinned-key, [`TrustMode::Oidc`] for OIDC, or
+    /// [`TrustMode::UnsafeNoTrustEnforcement`] only for tests.
+    pub trust_mode: TrustMode<'a>,
     /// Capabilities to request from the peer.
     pub requested_grants: Vec<String>,
 }
 
 /// Send a TCT renewal request to a peer's `/aitp/handshake/renew`.
+/// Gated behind the `experimental-renewal` Cargo feature.
 ///
 /// Returns the freshly-issued [`TctEnvelope`].
+#[cfg(feature = "experimental-renewal")]
 pub async fn renew_tct(
     holder_key: &AitpSigningKey,
     current: TctEnvelope,
@@ -229,6 +300,7 @@ pub async fn renew_tct(
     Ok(envelope)
 }
 
+#[cfg(feature = "experimental-renewal")]
 fn rand_bytes_16() -> [u8; 16] {
     use rand::RngCore;
     let mut buf = [0u8; 16];

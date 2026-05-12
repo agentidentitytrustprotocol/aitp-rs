@@ -2,12 +2,51 @@
 
 use serde::{Deserialize, Serialize};
 
+/// Conformance tier per the spec's
+/// `aitp-conformance-fixture.schema.json` metadata block.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FixtureStatus {
+    /// MUST pass for any v0.1-conformant implementation.
+    Core,
+    /// Draft-tier RFC (e.g. RFC-AITP-0010 session bundle,
+    /// RFC-AITP-0011 multi-hop). v0.1 runners SKIP unless the
+    /// implementation opts into the matching `feature`.
+    Draft,
+    /// Optional extension (e.g. RFC-AITP-0004 §8.1 renewal).
+    Extension,
+    /// Reserved for future spec work; no implementation is
+    /// expected to handle the fixture yet.
+    Reserved,
+}
+
 /// A conformance test fixture.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Fixture {
     /// Unique fixture ID, e.g. `mh-006-audience-mismatch`.
     pub id: String,
+    /// Most-specific RFC the fixture exercises
+    /// (e.g. `RFC-AITP-0011`). Captured for telemetry; the runner
+    /// keys off `status` and `feature` for dispatch.
+    #[serde(default)]
+    pub rfc: Option<String>,
+    /// Conformance tier. Absent in legacy fixtures (treated as
+    /// `Core` for backward compat).
+    #[serde(default = "default_status")]
+    pub status: FixtureStatus,
+    /// Whether a v0.1 implementation MUST pass this fixture.
+    /// Always `false` when `status != Core`.
+    #[serde(default = "default_required_for_v0_1")]
+    pub required_for_v0_1: bool,
+    /// Opt-in feature flag for non-core fixtures (null/None for
+    /// core). Examples: `experimental-multihop-delegation`,
+    /// `experimental-session-bundle`. The runner matches this
+    /// against the runtime's enabled feature set; non-core
+    /// fixtures whose feature isn't enabled SKIP.
+    #[serde(default)]
+    pub feature: Option<String>,
     /// Human-readable description.
+    #[serde(default)]
     pub description: String,
     /// Tags for filtering (e.g. "security", "tct", "mutual-handshake").
     #[serde(default)]
@@ -20,6 +59,14 @@ pub struct Fixture {
     /// Expected outcome.
     #[serde(default)]
     pub expected: Option<FixtureExpected>,
+}
+
+fn default_status() -> FixtureStatus {
+    FixtureStatus::Core
+}
+
+fn default_required_for_v0_1() -> bool {
+    true
 }
 
 /// Operation input. Most fixtures use a flat object with `operation` and

@@ -81,7 +81,10 @@ pub use key_resolution::{
 };
 
 #[cfg(feature = "server")]
-pub use server::{HandshakeServer, ManifestServer, RevocationListProducer, DEFAULT_SESSION_TTL};
+pub use server::{
+    DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome,
+    RevocationListProducer, DEFAULT_SESSION_TTL,
+};
 
 #[cfg(feature = "server")]
 pub use server_limits::{

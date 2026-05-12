@@ -54,6 +54,7 @@ pub use aitp_crypto as crypto;
 pub use aitp_delegation as delegation;
 pub use aitp_handshake as handshake;
 pub use aitp_manifest as manifest;
+#[cfg(feature = "experimental-session-bundle")]
 pub use aitp_session_bundle as session_bundle;
 pub use aitp_tct as tct;
 
