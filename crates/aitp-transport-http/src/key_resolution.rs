@@ -20,8 +20,13 @@
 //!   network failure (callers will then fail at signature verification
 //!   anyway). Useful for "we have a pinned key in the store, the network
 //!   is just down" deployments.
-//! - [`KeyResolutionFailMode::SoftFail`] — log + return empty. Identical
-//!   on the wire to FailOpen; observability differs.
+//! - [`KeyResolutionFailMode::SoftFail`] — the plain `resolve()` path
+//!   fails closed with [`ResolveError::SoftFailRequiresOutcome`]. A
+//!   degraded session restricted to `safe_grants` is reachable only via
+//!   [`KeyResolutionPolicy::resolve_outcome`], which surfaces the
+//!   subset explicitly. Unlike `FailOpen`, `SoftFail` never returns an
+//!   empty key set from `resolve()` — that would silently drop the
+//!   safe-grants signal.
 //!
 //! Peer Manifest resolution failure is **always** fail-closed regardless
 //! of policy — a verifying peer with no key cannot compute the
@@ -48,11 +53,16 @@ pub enum KeyResolutionFailMode {
     /// already-cached pinned key is expected to satisfy verification
     /// even when the network source is unreachable.
     FailOpen,
-    /// Degraded mode (RFC-AITP-0007): when resolution falls through
-    /// all sources, return an empty key set and signal to callers
-    /// that they MUST restrict the session's effective grants to
-    /// `safe_grants`. Callers retrieve the safe-grant signal via
-    /// [`KeyResolutionPolicy::resolve_outcome`].
+    /// Degraded mode (RFC-AITP-0007 §3.2): when resolution falls
+    /// through all sources, the session MAY continue but MUST restrict
+    /// its effective grants to `safe_grants`. The plain `resolve()`
+    /// path fails closed ([`ResolveError::SoftFailRequiresOutcome`]);
+    /// the degraded outcome is reachable only via
+    /// [`KeyResolutionPolicy::resolve_outcome`], which returns
+    /// [`KeyResolutionOutcome::SoftFailDegraded`] carrying the subset.
+    /// This keeps `SoftFail` distinguishable from `FailOpen` — a caller
+    /// that only ever calls `resolve()` can never silently enter a
+    /// degraded session.
     ///
     /// An empty `safe_grants` vector is rejected as fail-closed —
     /// there is no safe way to degrade if no safe subset has been
@@ -192,9 +202,14 @@ impl KeyResolutionPolicy {
                 if safe_grants.is_empty() {
                     Err(ResolveError::NoPinnedKeys)
                 } else {
-                    // Empty key vec; the caller is expected to consult
-                    // `resolve_outcome` for the safe-grants list.
-                    Ok(Vec::new())
+                    // Fail closed on the plain `resolve()` path. A
+                    // degraded session restricted to `safe_grants` is
+                    // only reachable via `resolve_outcome()`, which
+                    // surfaces the subset explicitly. Returning an
+                    // empty key vec here would be wire-indistinguishable
+                    // from `FailOpen` and would silently drop the
+                    // safe-grants signal (RFC-AITP-0007 §3.2).
+                    Err(ResolveError::SoftFailRequiresOutcome)
                 }
             }
         }
@@ -220,19 +235,27 @@ impl KeyResolutionPolicy {
     pub fn resolve_outcome(&self, issuer: &Url) -> Result<KeyResolutionOutcome, ResolveError> {
         match <Self as JwksResolver>::resolve(self, issuer) {
             Ok(keys) if !keys.is_empty() => Ok(KeyResolutionOutcome::Resolved(keys)),
-            Ok(_) => {
-                if let KeyResolutionFailMode::SoftFail { safe_grants } = &self.fail_mode {
-                    if !safe_grants.is_empty() {
-                        return Ok(KeyResolutionOutcome::SoftFailDegraded {
-                            safe_grants: safe_grants.clone(),
-                        });
-                    }
+            // `FailOpen` with no keys: keep the empty-`Resolved`
+            // semantics so the caller's downstream signature step
+            // fails (matching the legacy behavior).
+            Ok(empty) => Ok(KeyResolutionOutcome::Resolved(empty)),
+            // `SoftFail` with a non-empty safe-grants subset:
+            // `resolve()` fails closed with `SoftFailRequiresOutcome`.
+            // `resolve_outcome()` is the one path allowed to enter a
+            // degraded session, so it converts that error into the
+            // explicit `SoftFailDegraded` outcome carrying the subset.
+            Err(ResolveError::SoftFailRequiresOutcome) => match &self.fail_mode {
+                KeyResolutionFailMode::SoftFail { safe_grants } if !safe_grants.is_empty() => {
+                    Ok(KeyResolutionOutcome::SoftFailDegraded {
+                        safe_grants: safe_grants.clone(),
+                    })
                 }
-                // FailOpen with no keys: keep the empty-Resolved
-                // semantics so callers' downstream signature step
-                // fails (matching the legacy behavior).
-                Ok(KeyResolutionOutcome::Resolved(Vec::new()))
-            }
+                // `SoftFailRequiresOutcome` is only produced by the
+                // SoftFail-with-non-empty-subset branch of
+                // `apply_fail_mode`; this arm is unreachable. Fail
+                // closed defensively rather than panicking.
+                _ => Err(ResolveError::SoftFailRequiresOutcome),
+            },
             Err(e) => Err(e),
         }
     }
@@ -287,13 +310,101 @@ impl JwksResolver for KeyResolutionPolicy {
 
         let issuer_for_task = issuer.clone();
         let fetcher_for_task = fetcher.clone();
-        let result = tokio::task::block_in_place(|| {
-            rt.block_on(async move { fetcher_for_task.resolve(&issuer_for_task).await })
-        });
+        let result = match rt.runtime_flavor() {
+            tokio::runtime::RuntimeFlavor::MultiThread => {
+                // Safe on a multi-thread runtime: `block_in_place`
+                // moves the current worker out of the async pool while
+                // it blocks, so other tasks keep making progress.
+                tokio::task::block_in_place(|| {
+                    rt.block_on(async move { fetcher_for_task.resolve(&issuer_for_task).await })
+                })
+            }
+            _ => {
+                // Current-thread runtime: `block_in_place` would panic,
+                // and a sync→async bridge would deadlock the single
+                // worker regardless. Direct the caller to the async
+                // path instead of panicking (RFC-AITP-0007 — this is a
+                // deployment/runtime misconfiguration, surfaced as a
+                // hard error rather than a degraded resolution).
+                return Err(ResolveError::NetworkError(
+                    "sync JwksResolver::resolve cannot bridge JWKS network I/O into a \
+                     current-thread tokio runtime; call AsyncJwksResolver::resolve_async \
+                     from async context (e.g. to pre-warm the cache) instead"
+                        .into(),
+                ));
+            }
+        };
 
         match result {
             Ok(keys) => {
                 debug!(%issuer, source = "network", "JWKS resolved");
+                self.store(issuer, keys.clone());
+                Ok(keys)
+            }
+            Err(e) => self.apply_fail_mode(issuer, e.to_string()),
+        }
+    }
+}
+
+/// Async JWKS resolution — the non-blocking counterpart to
+/// [`JwksResolver`].
+///
+/// The sync `JwksResolver::resolve` bridges into async network I/O via
+/// `tokio::task::block_in_place`, which **panics on a current-thread
+/// tokio runtime** (and would deadlock there anyway). Async callers —
+/// e.g. an axum handler resolving an issuer's keys — should use this
+/// trait instead: `resolve_async` awaits the fetch directly on the
+/// caller's runtime, with no `block_in_place`.
+///
+/// A common pattern is to call `resolve_async` once from async context
+/// to pre-warm the resolver's cache, after which the sync
+/// `JwksResolver::resolve` path (used by the synchronous handshake
+/// verification crates) is a pure cache hit and never reaches
+/// `block_in_place`.
+pub trait AsyncJwksResolver: Send + Sync {
+    /// Resolve `issuer`'s JWKS, awaiting any network I/O directly on
+    /// the caller's runtime. Resolution order matches
+    /// [`JwksResolver::resolve`]: cache → pinned store → network.
+    fn resolve_async(
+        &self,
+        issuer: &Url,
+    ) -> impl std::future::Future<Output = Result<Vec<JwkPublicKey>, ResolveError>> + Send;
+}
+
+impl AsyncJwksResolver for KeyResolutionPolicy {
+    async fn resolve_async(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
+        // 1. Cache.
+        if let Some(keys) = self.cached(issuer) {
+            debug!(%issuer, source = "cache", "JWKS resolved (async)");
+            return Ok(keys);
+        }
+
+        // 2. Pinned issuer key store. (The async path intentionally
+        // skips the `inflight_lock` coalescing used by the sync path —
+        // a `std::sync::Mutex` must not be held across an `.await`. The
+        // cache below de-duplicates any concurrent resolutions.)
+        if let Some(pinned) = self.pinned.as_ref() {
+            if let Some(keys) = pinned.get(issuer) {
+                debug!(%issuer, source = "pinned_store", "JWKS resolved (async)");
+                self.store(issuer, keys.clone());
+                return Ok(keys);
+            }
+        }
+
+        if self.offline {
+            return self.apply_fail_mode(issuer, "offline mode and no pinned keys".into());
+        }
+
+        // 3 + 4. Network — awaited directly, no `block_in_place`.
+        let Some(fetcher) = self.fetcher.as_ref() else {
+            return self.apply_fail_mode(
+                issuer,
+                "no JwksFetcher configured for network resolution".into(),
+            );
+        };
+        match fetcher.resolve(issuer).await {
+            Ok(keys) => {
+                debug!(%issuer, source = "network", "JWKS resolved (async)");
                 self.store(issuer, keys.clone());
                 Ok(keys)
             }
@@ -443,6 +554,28 @@ mod tests {
     }
 
     #[test]
+    fn soft_fail_plain_resolve_fails_closed() {
+        // RFC-AITP-0007 §3.2 / BUG-2: the plain `resolve()` path under
+        // `SoftFail` with a non-empty subset must fail closed rather
+        // than return `Ok(vec![])`. An empty key set would be
+        // wire-indistinguishable from `FailOpen` and would let a caller
+        // that never calls `resolve_outcome()` silently lose the
+        // safe-grants restriction.
+        let policy = KeyResolutionPolicy::builder()
+            .offline(true)
+            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+                safe_grants: vec!["status.read".into()],
+            })
+            .build();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        let err = policy.resolve(&issuer).unwrap_err();
+        assert!(
+            matches!(err, ResolveError::SoftFailRequiresOutcome),
+            "plain resolve() under SoftFail must fail closed, got {err:?}"
+        );
+    }
+
+    #[test]
     fn soft_fail_with_empty_safe_grants_is_fail_closed() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
@@ -455,6 +588,36 @@ mod tests {
         assert!(
             matches!(err, ResolveError::NoPinnedKeys),
             "expected NoPinnedKeys, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn resolve_async_uses_pinned_store() {
+        let mut map = HashMap::new();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        map.insert(issuer.clone(), vec![fake_jwk()]);
+        let policy = KeyResolutionPolicy::builder()
+            .with_pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
+            .offline(true)
+            .build();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let got = rt
+            .block_on(async { policy.resolve_async(&issuer).await })
+            .unwrap();
+        assert_eq!(got.len(), 1);
+    }
+
+    #[test]
+    fn resolve_async_fail_closed_when_no_sources() {
+        let policy = KeyResolutionPolicy::builder().offline(true).build();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let err = rt
+            .block_on(async { policy.resolve_async(&issuer).await })
+            .unwrap_err();
+        assert!(
+            matches!(err, ResolveError::NetworkError(_)),
+            "expected NetworkError, got {err:?}"
         );
     }
 

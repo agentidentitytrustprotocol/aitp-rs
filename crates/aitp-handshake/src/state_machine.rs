@@ -171,6 +171,7 @@ pub struct IdentityPresentationContext<'a> {
 }
 
 /// What identity this peer will present.
+#[derive(Debug)]
 pub enum PresentedIdentity {
     /// Self-sign a pinned-key proof over `message_id|timestamp` of the
     /// envelope being sent.
@@ -189,7 +190,72 @@ pub enum PresentedIdentity {
     },
 }
 
+/// Extract the `nonce` claim from a compact JWT **without** verifying
+/// its signature. Returns `Ok(None)` when the claim is absent.
+///
+/// This reads only the (base64url) claims segment; signature
+/// verification is the receiving peer's responsibility against the
+/// issuer's resolved key.
+fn jwt_nonce_claim(jwt: &str) -> Result<Option<String>, HandshakeError> {
+    let mut parts = jwt.split('.');
+    let payload = match (parts.next(), parts.next(), parts.next(), parts.next()) {
+        (Some(_header), Some(payload), Some(_sig), None) => payload,
+        _ => {
+            return Err(HandshakeError::Identity(
+                "OIDC proof_jwt is not a compact JWS (expected three dot-separated segments)"
+                    .into(),
+            ))
+        }
+    };
+    let decoded = base64url::decode_strict(payload).map_err(|_| {
+        HandshakeError::Identity("OIDC proof_jwt claims segment is not valid base64url".into())
+    })?;
+    let claims: serde_json::Value = serde_json::from_slice(&decoded).map_err(|_| {
+        HandshakeError::Identity("OIDC proof_jwt claims segment is not valid JSON".into())
+    })?;
+    Ok(claims
+        .get("nonce")
+        .and_then(|v| v.as_str())
+        .map(String::from))
+}
+
 impl PresentedIdentity {
+    /// Construct an OIDC `PresentedIdentity`, validating at construction
+    /// time that the JWT's `nonce` claim equals `pop_nonce` — the
+    /// handshake nonce the proof will be bound to (RFC-AITP-0002 §3.1).
+    ///
+    /// This is a defensive check *in addition to* the receiving peer's
+    /// `verify_oidc`: it surfaces a stale or mismatched JWT before the
+    /// HELLO is sent rather than after a network round trip. The JWT's
+    /// **signature is not verified here** — that remains the receiving
+    /// peer's responsibility against the issuer's resolved key.
+    ///
+    /// Use this when the handshake `pop_nonce` is known before the JWT
+    /// is minted (e.g. the caller drives [`Initiator`] and re-mints the
+    /// JWT once the nonce is available). The plain
+    /// [`PresentedIdentity::Oidc`] variant skips the construction-time
+    /// check.
+    pub fn oidc_checked(
+        proof_jwt: &str,
+        pop_nonce: &str,
+        issuer: url::Url,
+        subject: String,
+    ) -> Result<Self, HandshakeError> {
+        match jwt_nonce_claim(proof_jwt)? {
+            Some(nonce) if nonce == pop_nonce => Ok(Self::Oidc {
+                issuer,
+                subject,
+                proof_jwt: proof_jwt.to_string(),
+            }),
+            Some(other) => Err(HandshakeError::Identity(format!(
+                "OIDC proof_jwt nonce claim `{other}` does not match handshake pop_nonce"
+            ))),
+            None => Err(HandshakeError::Identity(
+                "OIDC proof_jwt has no `nonce` claim to bind to the handshake pop_nonce".into(),
+            )),
+        }
+    }
+
     /// Mint the `IdentityDescriptor` to embed in an outbound payload.
     ///
     /// For pinned-key, this signs over the full RFC-AITP-0002 §3.1
@@ -433,9 +499,32 @@ fn verify_received_tct(
     issuer_pubkey: &AitpVerifyingKey,
     issuer_manifest_expires_at: Option<Timestamp>,
 ) -> Result<Option<Vec<String>>, HandshakeError> {
-    // Revocation runs before signature/expiry — a revoked TCT MUST be
-    // rejected even when its signature and timestamps are otherwise
-    // valid (RFC-AITP-0008 §1).
+    // RFC-AITP-0008 §3.3: the TCT signature MUST be verified before any
+    // remote revocation lookup. `tct.issuer` and `tct.jti` are
+    // attacker-controlled bytes until `verify_tct` succeeds; routing a
+    // revocation lookup through them first turns the verifier into a
+    // reflector for network-amplification DoS and lets an off-path
+    // attacker pollute the revocation cache and skew telemetry against
+    // arbitrary AIDs. A purely local, side-effect-free deny-list is
+    // exempt per §3.3, but `RevocationCheckFn` is opaque here — it may
+    // perform network I/O — so the signature is always verified first.
+    let ctx = TctVerifyContext {
+        expected_audience: &cfg.manifest.aid,
+        issuer_pubkey,
+        now: cfg.now,
+        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: issuer manifest's
+        // expiry caps the TCT's expiry. We have it in scope from
+        // bootstrap_verify_peer (initiator) or from hello.manifest
+        // (responder), so always pass it through during the
+        // handshake.
+        issuer_manifest_expires_at,
+        revocation_check: None,
+    };
+    verify_tct(tct, &ctx)?;
+
+    // Revocation — `tct.issuer` and `tct.jti` are authenticated now
+    // that `verify_tct` has returned success, so a hook keyed off them
+    // cannot be steered by an attacker presenting an unsigned TCT.
     let mut safe_subset: Option<Vec<String>> = None;
     if let Some(check) = cfg.revocation_check {
         match check(&tct.issuer, &tct.jti)? {
@@ -461,19 +550,7 @@ fn verify_received_tct(
             }
         }
     }
-    let ctx = TctVerifyContext {
-        expected_audience: &cfg.manifest.aid,
-        issuer_pubkey,
-        now: cfg.now,
-        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: issuer manifest's
-        // expiry caps the TCT's expiry. We have it in scope from
-        // bootstrap_verify_peer (initiator) or from hello.manifest
-        // (responder), so always pass it through during the
-        // handshake.
-        issuer_manifest_expires_at,
-        revocation_check: None,
-    };
-    verify_tct(tct, &ctx)?;
+
     // `required_peer_capabilities` is checked against the effective
     // grant set — under soft-fail, the safe subset must cover every
     // required cap. This prevents a degraded session from silently
@@ -852,5 +929,71 @@ impl Responder {
         };
         self.state = ResponderState::Done;
         Ok((ack, received_tct))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Build a compact JWT (`header.payload.sig`) with the given claims
+    /// JSON. Header and signature are placeholders — `oidc_checked`
+    /// reads only the claims segment.
+    fn jwt_with_claims(claims_json: &str) -> String {
+        let header = base64url::encode(br#"{"alg":"EdDSA","typ":"JWT"}"#);
+        let payload = base64url::encode(claims_json.as_bytes());
+        let sig = base64url::encode(&[0u8; 64]);
+        format!("{header}.{payload}.{sig}")
+    }
+
+    #[test]
+    fn oidc_checked_accepts_matching_nonce() {
+        let jwt = jwt_with_claims(r#"{"nonce":"abc123","sub":"alice"}"#);
+        let id = PresentedIdentity::oidc_checked(
+            &jwt,
+            "abc123",
+            "https://idp.example.com".parse().unwrap(),
+            "alice".into(),
+        )
+        .expect("a matching nonce must be accepted");
+        assert!(matches!(id, PresentedIdentity::Oidc { .. }));
+    }
+
+    #[test]
+    fn oidc_checked_rejects_mismatched_nonce() {
+        let jwt = jwt_with_claims(r#"{"nonce":"stale-nonce"}"#);
+        let err = PresentedIdentity::oidc_checked(
+            &jwt,
+            "fresh-nonce",
+            "https://idp.example.com".parse().unwrap(),
+            "alice".into(),
+        )
+        .expect_err("a mismatched nonce must be rejected");
+        assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn oidc_checked_rejects_missing_nonce() {
+        let jwt = jwt_with_claims(r#"{"sub":"alice"}"#);
+        let err = PresentedIdentity::oidc_checked(
+            &jwt,
+            "x",
+            "https://idp.example.com".parse().unwrap(),
+            "alice".into(),
+        )
+        .expect_err("a JWT with no nonce claim must be rejected");
+        assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn oidc_checked_rejects_malformed_jwt() {
+        let err = PresentedIdentity::oidc_checked(
+            "not-a-compact-jwt",
+            "x",
+            "https://idp.example.com".parse().unwrap(),
+            "alice".into(),
+        )
+        .expect_err("a non-JWS string must be rejected");
+        assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
     }
 }

@@ -179,7 +179,39 @@ fn run(
         OutputFormat::Tap => println!("{}", render_tap(&results)),
     }
 
-    if any_fail {
+    // v0.1 conformance gate: a fixture marked `required_for_v0_1` MUST
+    // pass — it may neither fail nor be SKIPped because the adapter
+    // lacks the op (OP_NOT_SUPPORTED). A skip whose v0.1 assertion was
+    // negated by an opted-in experimental feature (e.g. `del-004`
+    // under `experimental-multihop-delegation`) is exempt — that is a
+    // deliberate post-v0.1 run, not a missing v0.1 capability.
+    let mut v0_1_violations: Vec<String> = Vec::new();
+    for r in &results {
+        let (id, kind, detail) = match r {
+            FixtureResult::Pass { .. } => continue,
+            FixtureResult::Fail { id, reason, .. } => (id, "FAIL", reason.as_str()),
+            FixtureResult::Skip { id, reason } => {
+                if reason.contains("no longer applies") {
+                    continue; // feature-negation skip — not a v0.1 gap
+                }
+                (id, "SKIP", reason.as_str())
+            }
+        };
+        if fixtures.iter().any(|f| &f.id == id && f.required_for_v0_1) {
+            v0_1_violations.push(format!("  {id}: {kind} — {detail}"));
+        }
+    }
+    if !v0_1_violations.is_empty() {
+        eprintln!(
+            "\nv0.1 conformance gate FAILED — {} required fixture(s) did not pass:",
+            v0_1_violations.len()
+        );
+        for v in &v0_1_violations {
+            eprintln!("{v}");
+        }
+    }
+
+    if any_fail || !v0_1_violations.is_empty() {
         1
     } else {
         0

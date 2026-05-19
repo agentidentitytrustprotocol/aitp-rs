@@ -59,7 +59,7 @@ aitp-rs/
 | `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. |
 | `aitp` (facade)       | ✅ complete   | Re-exports + `run_initiator_handshake` + `renew_tct` + `TctStore`. |
 | `aitp-conformance`    | ✅ Tier A     | Subprocess adapter, fixture loader, runner. |
-| `aitp-rs-adapter`     | ✅ Tier A–C   | `verify_envelope` (with tolerance), `verify_manifest`, `verify_tct` (with revocation list), `verify_delegation_token`, `verify_revocation_snapshot` (with policy), `set_clock`, `inject_revocation`. 12/15 spec fixtures pass; 3 (`env-002`, `env-003`, `mh-001`) use scenario shapes the adapter wire format does not yet express. 16 (`id-*`, `mh-*`) skip until `verify_handshake_payload` is implemented. The same RFC behaviors are covered by in-process integration tests. |
+| `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). All 37 `core` spec fixtures pass; the 7 `draft` fixtures pass under their opt-in features. |
 
 ## RFC compliance matrix
 
@@ -87,21 +87,13 @@ aitp-rs/
 - **Session Trust Bundle is opt-in.** N-party trust artifacts (RFC-0010,
   Draft) are gated behind the `experimental-session-bundle` Cargo
   feature on the `aitp` facade.
-- **`verify_handshake_payload` adapter op** not implemented in
-  `aitp-rs-adapter`, so the spec's `id-*` / `mh-*` (single-step)
-  fixtures SKIP through the conformance runner. The underlying
-  verification logic is in `crates/aitp-handshake/src/identity_*.rs`
-  and exhaustively unit-tested.
-- **Three scenario-shaped spec fixtures fail through the conformance
-  runner** — `env-002` (POLICY_VIOLATION over an envelope+TCT pair),
-  `env-003` (KEY_RESOLUTION_FAILED across multiple discovery sources),
-  and `mh-001` (sequence-form replay). The corresponding RFC behaviors
-  are covered in-process by `crates/aitp-transport-http/tests/` and
-  `crates/aitp-transport-http/src/key_resolution.rs::tests`.
-- **No multi-runtime support in the JWKS resolver.** The
-  `KeyResolutionPolicy` sync→async bridge requires a multi-thread tokio
-  runtime in the calling thread context; pure sync deployments must
-  rely on the pinned-issuer store.
+- **JWKS resolution from a current-thread runtime.** The synchronous
+  `JwksResolver::resolve` sync→async bridge uses `block_in_place`,
+  which requires a multi-thread tokio runtime; on a current-thread
+  runtime `resolve` now fails closed with a descriptive error rather
+  than panicking. Async callers should use
+  `AsyncJwksResolver::resolve_async` (e.g. to pre-warm the resolver
+  cache); pure-sync deployments rely on the pinned-issuer store.
 
 ## Conformance matrix
 
@@ -111,13 +103,21 @@ opt-in modes.
 
 | Mode | Command | Result |
 |------|---------|--------|
-| v0.1 strict (default) | `aitp-conformance run --target <adapter> --fixtures-dir <spec>/schemas/conformance` | 35 PASS / 7 SKIP / 0 FAIL |
-| Opt-in (Draft RFCs) | `… --feature experimental-multihop-delegation --feature experimental-session-bundle` | 41 PASS / 1 SKIP / 0 FAIL |
+| v0.1 strict (default) | `aitp-conformance run --target <adapter> --fixtures-dir <spec>/schemas/conformance` | 37 PASS / 7 SKIP / 0 FAIL |
+| Opt-in (Draft RFCs) | `… --feature experimental-multihop-delegation --feature experimental-session-bundle` | 43 PASS / 1 SKIP / 0 FAIL |
 
-The single SKIP in opt-in mode is `del-004`, which asserts the v0.1
-strict rejection (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) and is auto-
-skipped by the runner's negative-feature rule when multi-hop is opted
-in. See `crates/aitp-conformance/src/runner/executor.rs:negated_by_feature`.
+The 7 SKIPs in strict mode are the `draft`-tier fixtures (3 session
+bundle + 4 multi-hop delegation), all `required_for_v0_1: false`. The
+single SKIP in opt-in mode is `del-004`, which asserts the v0.1 strict
+rejection (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) and is auto-skipped by
+the runner's negative-feature rule when multi-hop is opted in. See
+`crates/aitp-conformance/src/runner/executor.rs:negated_by_feature`.
+
+The runner enforces a **v0.1 conformance gate**: a fixture marked
+`required_for_v0_1` that fails — or is SKIPped because the adapter
+lacks the op — makes `aitp-conformance run` exit non-zero, so CI
+cannot regress required coverage to a silent SKIP. A full per-fixture
+breakdown is in [`docs/conformance-matrix.md`](docs/conformance-matrix.md).
 
 ## Quick start
 

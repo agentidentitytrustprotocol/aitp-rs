@@ -8,10 +8,11 @@ use aitp_core::{AitpEnvelope, MessageType, Sender, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_handshake::{
     Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
-    PeerConfig, PresentedIdentity, ResolveError,
+    PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp_transport_http::{sign_envelope_with, HandshakeServer, ManifestServer};
+use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -186,6 +187,96 @@ async fn full_pinned_key_handshake_over_http() {
     let _ = Sender {
         agent_id: alice.aid().clone(),
     };
+}
+
+/// GAP-3: a `HandshakeServer` configured with a pinned-key trust store
+/// rejects an initiator whose Ed25519 key is absent from the store with
+/// `IDENTITY_FAILED` (RFC-AITP-0002 §3.2 step 1). Before rc.2 the
+/// handlers hardcoded `pinned_key_store: None`, so any key-possessing
+/// peer was accepted regardless of the server's trust configuration.
+#[tokio::test]
+async fn pinned_key_store_rejects_untrusted_initiator() {
+    let alice = AitpSigningKey::from_seed(&[0x81; 32]);
+    let bob = AitpSigningKey::from_seed(&[0x82; 32]);
+
+    let bob_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let bob_port = bob_listener.local_addr().unwrap().port();
+    let bob_endpoint = format!("http://localhost:{bob_port}/aitp/handshake");
+    let bob_manifest = manifest_for(&bob, "bob", &bob_endpoint);
+    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
+
+    // Bob's pinned-key store trusts a stranger — NOT Alice.
+    let stranger = AitpSigningKey::from_seed(&[0x99; 32]);
+    let store = StaticPinnedKeyStore::new(vec![stranger.aid().to_ed25519_bytes()]);
+    let handshake_router = HandshakeServer::new(
+        AitpSigningKey::from_seed(&[0x82; 32]),
+        bob_manifest.clone(),
+        vec![],
+        NoOpResolver,
+        vec!["demo.echo".into()],
+    )
+    .with_pinned_key_store(Arc::new(store))
+    .router();
+    let server = tokio::spawn(async move {
+        axum::serve(bob_listener, handshake_router.into_make_service())
+            .await
+            .ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let resolver = NoOpResolver;
+    let cfg = PeerConfig {
+        signing_key: &alice,
+        manifest: &alice_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: None,
+        now: Timestamp::now(),
+    };
+    let hello_mid = Uuid::new_v4();
+    let hello_ts = Timestamp::now();
+    let (_initiator, hello_payload) = Initiator::start(
+        &cfg,
+        PresentedIdentity::PinnedKey {
+            subject: "alice".into(),
+        },
+        bob.aid(),
+        &hello_mid,
+        hello_ts,
+        vec!["demo.echo".into()],
+    )
+    .unwrap();
+    let hello_envelope = sign_envelope_with(
+        &alice,
+        MessageType::MutualHello,
+        serde_json::to_value(&hello_payload).unwrap(),
+        hello_mid,
+        hello_ts,
+    )
+    .unwrap();
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://localhost:{bob_port}/aitp/handshake/hello"))
+        .json(&hello_envelope)
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(
+        resp.status().as_u16(),
+        400,
+        "an untrusted pinned key must be rejected"
+    );
+    let body: serde_json::Value = resp.json().await.unwrap();
+    let code = body
+        .get("error")
+        .and_then(|e| e.get("code"))
+        .and_then(|c| c.as_str());
+    assert_eq!(code, Some("IDENTITY_FAILED"), "got body: {body}");
+
+    server.abort();
+    let _ = server.await;
 }
 
 // `AitpSigningKey` is not `Clone`, by design. The test needs to give the

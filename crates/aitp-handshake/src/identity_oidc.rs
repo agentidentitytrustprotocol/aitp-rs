@@ -59,6 +59,18 @@ pub enum ResolveError {
     /// (RFC-AITP-0007).
     #[error("no pinned keys available and SoftFail has no safe_grants")]
     NoPinnedKeys,
+    /// Configured fail mode is `SoftFail` with a non-empty safe-grants
+    /// subset. The plain `resolve()` path fails closed and returns this
+    /// error: entering a degraded session restricted to that subset
+    /// requires explicitly opting in via the resolver's
+    /// `resolve_outcome()` method, which surfaces the safe-grant subset
+    /// to the caller. Returning an empty key set from `resolve()` would
+    /// be wire-indistinguishable from `FailOpen` and would silently drop
+    /// the safe-grants signal (RFC-AITP-0007 §3.2). A caller that sees
+    /// this error from `resolve()` MUST switch to `resolve_outcome()`
+    /// rather than treating it as an unrecoverable failure.
+    #[error("SoftFail degradation requires resolve_outcome(); plain resolve() fails closed")]
+    SoftFailRequiresOutcome,
 }
 
 /// Inputs for verifying an OIDC identity proof.

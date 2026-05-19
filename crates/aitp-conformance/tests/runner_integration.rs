@@ -49,6 +49,7 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
         expected: Some(FixtureExpected {
             outcome: "success".into(),
             error_code: None,
+            side_effects: None,
         }),
     };
     let r = runner.run(&f);
@@ -87,6 +88,7 @@ fn unsupported_op_yields_skip() {
         expected: Some(FixtureExpected {
             outcome: "success".into(),
             error_code: None,
+            side_effects: None,
         }),
     };
     let r = runner.run(&f);
@@ -138,6 +140,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         expected: Some(FixtureExpected {
             outcome: "failure".into(),
             error_code: Some("TCT_SIGNATURE_INVALID".into()),
+            side_effects: None,
         }),
     };
     let r = runner.run(&f);
