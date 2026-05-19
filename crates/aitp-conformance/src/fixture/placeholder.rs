@@ -26,6 +26,16 @@ pub const REFERENCE_NOW: i64 = 1_711_900_000;
 /// can identify it unambiguously.
 const SIG_PENDING_SENTINEL: &str = "__RUNNER_SIG_PENDING__";
 
+/// Internal sentinel: written by the scalar pass for the spec's
+/// `__TAMPERED_SIG__` / `__TAMPERED_SIGNATURE__` placeholders
+/// (PLACEHOLDERS.md §129–130). The signature pass replaces it with a
+/// real signature over the body, then flips the least-significant bit
+/// of the last raw signature byte. The result is a syntactically
+/// valid 86-char base64url signature that fails `verify_strict()` —
+/// so fixtures like `rev-004` exercise the cryptographic-failure code
+/// path rather than a base64url decode error.
+const SIG_TAMPER_PENDING_SENTINEL: &str = "__RUNNER_SIG_TAMPER_PENDING__";
+
 /// Per-run substitution context. Holds known-answer keypair seeds
 /// (so signatures are reproducible) and a rolling cache of generated
 /// nonces so that `__VALID_NONCE_ECHO__` can recall the most recent
@@ -174,7 +184,10 @@ impl RunnerContext {
                     }
                 }
                 if let Some(sig_value) = map.get("signature").cloned() {
-                    if sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
+                    let pending = sig_value.as_str();
+                    let tamper = pending == Some(SIG_TAMPER_PENDING_SENTINEL);
+                    let want_sign = pending == Some(SIG_PENDING_SENTINEL) || tamper;
+                    if want_sign {
                         // Pick the right signing-input convention
                         // based on object shape:
                         //
@@ -189,15 +202,31 @@ impl RunnerContext {
                         // - **Generic body** — TCT, manifest,
                         //   delegation, bundle. Sign the JCS
                         //   canonicalization of the body excluding
-                        //   `signature`, with `kat-keypair-001`
-                        //   (the spec's pinned issuer).
+                        //   `signature` with the keypair matching the
+                        //   `issuer` AID (falling back to
+                        //   `kat-keypair-001` when none can be
+                        //   resolved, which preserves earlier behavior
+                        //   for fixtures that don't carry an issuer).
                         let signed = if is_envelope_shape(map) {
                             sign_envelope_shape(map)
                         } else {
-                            sign_generic_body(&self.kp_001_seed, map)
+                            let seed = map
+                                .get("issuer")
+                                .and_then(|v| v.as_str())
+                                .and_then(kat_seed_for_aid)
+                                .unwrap_or(self.kp_001_seed);
+                            sign_generic_body(&seed, map)
                         };
                         if let Some(s) = signed {
-                            map.insert("signature".into(), Value::from(s));
+                            // PLACEHOLDERS.md §129–130: sign properly,
+                            // then flip the LSB of the last raw
+                            // signature byte. The tampered value is
+                            // a syntactically valid 86-char base64url
+                            // string but fails `verify_strict()` —
+                            // so `rev-004` reaches the crypto layer
+                            // rather than decoding off at the parser.
+                            let final_sig = if tamper { tamper_signature(&s) } else { s };
+                            map.insert("signature".into(), Value::from(final_sig));
                         }
                     }
                 }
@@ -273,6 +302,16 @@ impl RunnerContext {
             return Some(Value::from(SIG_PENDING_SENTINEL));
         }
 
+        // Tampered signature placeholders (PLACEHOLDERS.md §129–130).
+        // The second pass signs properly then flips the LSB of the
+        // last raw signature byte to produce a syntactically valid
+        // base64url signature that fails `verify_strict()`. Used by
+        // `rev-004` to assert that revocation lookup is NOT called
+        // when TCT signature verification fails.
+        if s == "__TAMPERED_SIG__" || s == "__TAMPERED_SIGNATURE__" {
+            return Some(Value::from(SIG_TAMPER_PENDING_SENTINEL));
+        }
+
         // Unknown placeholder — surface it as a sentinel so the
         // adapter fails loudly rather than treating the literal
         // token as a real value.
@@ -295,6 +334,23 @@ fn is_envelope_shape(map: &serde_json::Map<String, Value>) -> bool {
         && map.contains_key("sender")
         && map.contains_key("payload")
         && map.contains_key("signature")
+}
+
+/// Apply the spec's LSB-flip tamper recipe (PLACEHOLDERS.md §129–130)
+/// to a base64url-encoded Ed25519 signature: decode, flip the LSB of
+/// the last raw signature byte, re-encode. The result is a
+/// syntactically valid 86-char base64url signature that fails
+/// `Ed25519::verify_strict()`. If decode fails (caller fed a
+/// malformed string), the input is returned verbatim so downstream
+/// callers surface a parse error rather than masking it.
+fn tamper_signature(sig: &str) -> String {
+    let Ok(mut bytes) = base64url::decode_strict(sig) else {
+        return sig.to_string();
+    };
+    if let Some(last) = bytes.last_mut() {
+        *last ^= 0x01;
+    }
+    base64url::encode(&bytes)
 }
 
 fn sign_generic_body(seed: &[u8; 32], map: &serde_json::Map<String, Value>) -> Option<String> {
@@ -489,6 +545,84 @@ mod tests {
         let sig = aitp_crypto::Signature::parse(&sig_b64).unwrap();
         pubkey.verify(&digest, &sig).expect("signature verifies");
         let _ = base64url::encode(b"");
+    }
+
+    #[test]
+    fn tampered_sig_placeholder_is_syntactically_valid_but_fails_verify() {
+        // `__TAMPERED_SIG__` (PLACEHOLDERS.md §129–130): the second
+        // pass signs properly with kp-001, then flips the LSB of the
+        // last raw signature byte. The resulting string MUST parse
+        // as a 86-char base64url Ed25519 signature AND MUST fail
+        // `verify_strict()` — that's precisely what `rev-004` needs
+        // to reach the crypto layer instead of bouncing at the
+        // base64url parser.
+        use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+        use sha2::{Digest, Sha256};
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "version": "aitp/0.1",
+            "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+            "signature": "__TAMPERED_SIG__",
+        });
+        ctx.substitute(&mut v);
+        let sig_b64 = v["signature"].as_str().unwrap().to_string();
+
+        // Syntactically valid base64url signature (parses cleanly).
+        let sig = aitp_crypto::Signature::parse(&sig_b64).expect("parses as base64url sig");
+
+        // But fails Ed25519 verify_strict() under kp-001 (the key
+        // that signed before the tamper).
+        let mut body = v.clone();
+        body.as_object_mut().unwrap().remove("signature");
+        let canon = aitp_core::jcs::canonicalize(&body).unwrap();
+        let digest = Sha256::digest(&canon);
+        let key = AitpSigningKey::from_seed(&[0u8; 32]);
+        let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
+        assert!(
+            pubkey.verify(&digest, &sig).is_err(),
+            "tampered signature must fail verify_strict"
+        );
+    }
+
+    #[test]
+    fn tampered_signature_alias_long_form() {
+        // `__TAMPERED_SIGNATURE__` is the spec's primary token;
+        // `__TAMPERED_SIG__` is the alias. Both MUST resolve to the
+        // sign-then-flip-LSB recipe.
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "version": "aitp/0.1",
+            "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+            "signature": "__TAMPERED_SIGNATURE__",
+        });
+        ctx.substitute(&mut v);
+        let sig_b64 = v["signature"].as_str().unwrap();
+        assert_eq!(sig_b64.len(), 86, "Ed25519 sig is 86 base64url chars");
+        assert!(
+            aitp_crypto::Signature::parse(sig_b64).is_ok(),
+            "tampered sig must remain syntactically valid base64url"
+        );
+    }
+
+    #[test]
+    fn tamper_signature_flips_last_lsb() {
+        // Unit-level recipe check: encoding(decode(x) with LSB
+        // flipped on the last byte) round-trips correctly and only
+        // touches the last byte.
+        let original =
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+        let tampered = tamper_signature(original);
+        let orig_bytes = base64url::decode_strict(original).unwrap();
+        let tamp_bytes = base64url::decode_strict(&tampered).unwrap();
+        assert_eq!(orig_bytes.len(), tamp_bytes.len());
+        assert_eq!(
+            &orig_bytes[..orig_bytes.len() - 1],
+            &tamp_bytes[..tamp_bytes.len() - 1]
+        );
+        assert_eq!(
+            orig_bytes.last().unwrap() ^ tamp_bytes.last().unwrap(),
+            0x01
+        );
     }
 
     #[test]

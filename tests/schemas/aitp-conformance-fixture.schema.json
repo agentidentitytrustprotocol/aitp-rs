@@ -34,13 +34,55 @@
       "type": ["string", "null"],
       "description": "Opt-in feature flag for non-core fixtures (null for core)."
     },
+    "dynamic": {
+      "type": "boolean",
+      "description": "Optional. When true, the fixture carries placeholder values in time-sensitive fields that cannot be statically minted; a conformance runner MUST regenerate them with the pinned KAT keypairs before execution. See schemas/conformance/README.md 'Dynamic fixtures'. Absent means the fixture is statically mintable."
+    },
+    "dynamic_fields": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Optional. Names of the fields a runner MUST regenerate when `dynamic` is true (e.g. issued_at, expires_at, signature, timestamp, nonce, nonce_echo, pop_signature)."
+    },
+    "$comment": {
+      "type": "string",
+      "description": "Optional human-readable note. Ignored by conformance runners."
+    },
     "description": { "type": "string" },
     "tags": {
       "type": "array",
       "items": { "type": "string" }
     },
     "input": { "type": "object" },
-    "expected": { "type": "object" }
+    "expected": {
+      "type": "object",
+      "description": "Per-fixture expected outcome. Shape is fixture-shape-specific; this schema validates only the optional, cross-cutting `side_effects` block. All other fields (outcome, error_code, grants, rationale, etc.) are scenario-defined and NOT validated here.",
+      "properties": {
+        "side_effects": {
+          "type": "object",
+          "description": "Optional assertion on side effects the implementation MUST or MUST NOT produce while evaluating the fixture. Conformance runners that instrument these side effects MUST assert the value matches; runners that do not instrument a given side effect MUST report SKIP for that assertion (NOT silent pass). Existing fixtures without `side_effects` are unaffected — this is an additive field.",
+          "properties": {
+            "revocation_lookup_called": {
+              "type": "boolean",
+              "description": "Whether the implementation called the network revocation source (e.g. `ListRevoked` fetch) during fixture evaluation. Used by rev-004 to pin the RFC-AITP-0008 §3.3 ordering requirement: TCT signature verification MUST precede any network revocation lookup."
+            },
+            "network_fetch_called": {
+              "type": "boolean",
+              "description": "Whether the implementation made ANY outbound network fetch (HTTP, DNS, etc.) during fixture evaluation. Broader than `revocation_lookup_called`; useful for DoS-amplification assertions where any outbound traffic is the failure mode."
+            },
+            "pop_challenge_issued": {
+              "type": "boolean",
+              "description": "Whether the verifier issued a `pop_challenge` during fixture evaluation. Used by tct-007 to assert PoP enforcement for grants marked as requiring PoP (RFC-AITP-0005 §6.2)."
+            },
+            "capability_authorized": {
+              "type": "boolean",
+              "description": "Whether the verifier authorized a capability invocation during fixture evaluation. Used by tct-007 to assert that an invocation against a PoP-required grant MUST NOT be authorized in the absence of a valid `pop_response`."
+            }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    }
   },
   "allOf": [
     {
