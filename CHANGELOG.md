@@ -9,6 +9,72 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 Tracked in `plans/v0.2-roadmap.md`. Phase 1 first.
 
+### Security — rc.1 → rc.2 hardening
+
+- **Revocation ordering (RFC-AITP-0008 §3.3).** `verify_received_tct`
+  in the handshake state machine now verifies the TCT signature
+  *before* consulting the revocation hook. `tct.issuer` / `tct.jti`
+  are attacker-controlled bytes until the signature checks out; the
+  prior order let an unsigned TCT steer revocation network I/O
+  (amplification DoS, cache pollution, telemetry skew).
+- **`SoftFail` key resolution fails closed through `resolve()`.** The
+  plain `JwksResolver::resolve` path now returns the new
+  `ResolveError::SoftFailRequiresOutcome` under
+  `KeyResolutionFailMode::SoftFail` instead of an empty key set
+  (which was wire-indistinguishable from `FailOpen`). The degraded
+  outcome is reachable only via `KeyResolutionPolicy::resolve_outcome`.
+
+### Added — server & facade hardening
+
+- **Rate limiting wired into the handshake handlers** (RFC-AITP-0009
+  §3.1): the normative `replay → rate-limit → timestamp` check order
+  is enforced in `enforce_envelope_boundary_checks`; over-quota
+  requests get HTTP 429 with no AITP error envelope.
+- **Distinct TCT error codes** during the handshake — `TCT_REVOKED` /
+  `TCT_EXPIRED` / `TCT_EXPIRES_AFTER_MANIFEST` instead of collapsing
+  every `TctError` to `TCT_SIGNATURE_INVALID`.
+- **`HandshakeServer::with_pinned_key_store`** wires a `PinnedKeyStore`
+  into the responder handlers (RFC-AITP-0002 §3.2 step 1); an
+  untrusted pinned-key initiator gets `IDENTITY_FAILED`.
+- **Facade response handling**: `run_initiator_handshake` / `renew_tct`
+  validate HTTP status, Content-Type and body size, and surface a
+  peer's AITP error envelope as the new `FacadeError::Protocol`. The
+  body is read under a hard cap — a `Content-Length` over the limit is
+  rejected before any read, and the streaming read aborts the moment
+  the running total exceeds it — so a malicious peer cannot exhaust
+  initiator memory with an unbounded response.
+- **`IdentityMode`** on `InitiatorConfig` — the facade presents the
+  configured identity type (pinned-key or OIDC) and pre-checks it
+  against the peer Manifest's `accepted_identity_types` before the
+  handshake (previously always presented pinned-key).
+
+### Added — RFC-AITP-0007 / 0010 surface
+
+- `PresentedIdentity::oidc_checked` — construction-time validation
+  that an OIDC JWT's `nonce` claim matches the handshake `pop_nonce`.
+- `AsyncJwksResolver` trait + impl for `KeyResolutionPolicy`; the sync
+  `resolve()` bridge detects a current-thread runtime and fails closed
+  with a descriptive error instead of panicking in `block_in_place`.
+- Session-bundle HTTP transport (RFC-AITP-0010 §4.3.1) behind the
+  `experimental-session-bundle` feature: `SessionBundleServer` with
+  `POST /aitp/session/bundle` + `GET /aitp/session/bundle/:session_id`,
+  and the `aitp_session_bundle::RFC_AITP_0010_BUNDLE_URI` Manifest
+  extension key.
+
+### Added — conformance
+
+- Adapter ops `authorize_capability_invocation`,
+  `expect_pop_challenge_issued`, `withhold_pop_response` — the new
+  `tct-007` PoP-enforcement fixture (RFC-AITP-0005 §6.2) now passes.
+- `aitp-conformance run` enforces a **v0.1 conformance gate**: a
+  `required_for_v0_1` fixture that fails or is SKIPped for an
+  adapter-capability reason makes the run exit non-zero.
+- The runner now honors fixture `side_effects` assertions — any side
+  effect the adapter reports in its result is asserted against the
+  fixture, and a reported mismatch fails the fixture.
+- `docs/conformance-matrix.md` — per-fixture status (44 fixtures:
+  37 `core` PASS, 7 `draft` PASS under their opt-in features).
+
 ### Added — DPoP scaffolding (Phase 6, RFC 9449)
 
 - **`aitp-transport-http::dpop`** module with `DpopProof`,

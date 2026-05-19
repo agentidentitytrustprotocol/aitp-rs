@@ -174,4 +174,12 @@ pub struct FixtureExpected {
     /// Expected error code on failure.
     #[serde(default)]
     pub error_code: Option<String>,
+    /// Optional side-effect assertions (conformance README,
+    /// "Side-effect assertions"). Each key the adapter reports in its
+    /// result's `side_effects` object is asserted equal; keys the
+    /// adapter does not report are treated as un-instrumented and
+    /// skipped. The runner never silently passes a *reported*
+    /// mismatch.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub side_effects: Option<serde_json::Map<String, serde_json::Value>>,
 }

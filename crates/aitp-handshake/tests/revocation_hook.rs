@@ -6,10 +6,15 @@
 //! handshake verifiers to consult revocation state for every TCT they
 //! receive.
 //!
-//! These tests exercise the new `PeerConfig::revocation_check` hook
+//! These tests exercise the `PeerConfig::revocation_check` hook
 //! end-to-end: a TCT whose JTI is reported revoked must fail
 //! `MUTUAL_COMMIT` with `TctError::Revoked`, and a fail-closed lookup
 //! error from the hook must propagate as a `HandshakeError`.
+//!
+//! They also pin the RFC-AITP-0008 §3.3 ordering requirement: the TCT
+//! signature MUST be verified before the revocation hook is consulted,
+//! so a tampered, wrong-audience, or expired TCT never triggers a
+//! revocation lookup. Those tests install a hook that panics if called.
 
 use aitp_core::{Aid, AitpEnvelope, MessageType, Sender, Timestamp};
 use aitp_crypto::AitpSigningKey;
@@ -305,6 +310,107 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("soft-fail with overlapping safe_grants must accept");
+}
+
+/// RFC-AITP-0008 §3.3: a TCT whose signature does not validate MUST be
+/// rejected *before* any remote revocation lookup. The hook here panics
+/// if invoked — the test passes only if the handshake fails at
+/// signature verification without the revocation source ever being
+/// consulted (no panic).
+#[test]
+fn invalid_tct_signature_skips_revocation_lookup() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    // Tamper the signature on the TCT carried in MUTUAL_COMMIT. It
+    // still parses as a 64-byte Ed25519 signature but cannot verify.
+    staged.commit_payload.tct_for_peer.tct.signature = aitp_core::base64url::encode(&[0u8; 64]);
+    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+        panic!("revocation hook called before TCT signature verification");
+    });
+    let hook_ref: &RevocationCheckFn = &*hook;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: Some(hook_ref),
+        now: NOW,
+    };
+    let err = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect_err("tampered TCT signature must fail commit");
+    assert!(
+        matches!(err, HandshakeError::Tct(TctError::SignatureInvalid)),
+        "expected Tct(SignatureInvalid), got {err:?}"
+    );
+}
+
+/// A TCT whose `audience` does not match the verifier MUST be rejected
+/// before revocation — `verify_tct` checks audience ahead of both the
+/// signature and the revocation hook (RFC-AITP-0005 §9 + RFC-AITP-0008
+/// §3.3). The panicking hook proves the lookup never runs.
+#[test]
+fn wrong_audience_skips_revocation_lookup() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    let stranger = AitpSigningKey::from_seed(&[0xCC; 32]);
+    staged.commit_payload.tct_for_peer.tct.audience = stranger.aid().clone();
+    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+        panic!("revocation hook called for a TCT with the wrong audience");
+    });
+    let hook_ref: &RevocationCheckFn = &*hook;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: Some(hook_ref),
+        now: NOW,
+    };
+    let err = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect_err("wrong audience must fail commit");
+    assert!(
+        matches!(err, HandshakeError::Tct(TctError::AudienceMismatch)),
+        "expected Tct(AudienceMismatch), got {err:?}"
+    );
+}
+
+/// An expired TCT MUST be rejected before revocation — `verify_tct`
+/// checks expiry ahead of the revocation hook (RFC-AITP-0008 §3.3).
+#[test]
+fn expired_tct_skips_revocation_lookup() {
+    let mut staged = stage_through_commit();
+    let resolver = NoOpResolver;
+    staged.commit_payload.tct_for_peer.tct.expires_at = Timestamp(NOW.0 - 100);
+    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+        panic!("revocation hook called for an expired TCT");
+    });
+    let hook_ref: &RevocationCheckFn = &*hook;
+    let bob_cfg = PeerConfig {
+        signing_key: &staged.bob,
+        manifest: &staged.bob_manifest,
+        trust_anchors: &[],
+        jwks_resolver: &resolver,
+        pinned_key_store: None,
+        grant_policy: None,
+        revocation_check: Some(hook_ref),
+        now: NOW,
+    };
+    let err = staged
+        .bob_resp
+        .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
+        .expect_err("expired TCT must fail commit");
+    assert!(
+        matches!(err, HandshakeError::Tct(TctError::Expired)),
+        "expected Tct(Expired), got {err:?}"
+    );
 }
 
 /// SoftFailSafeSubset whose `safe_grants` is disjoint from the

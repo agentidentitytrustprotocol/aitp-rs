@@ -21,6 +21,10 @@ client-spki-pinning = ["client", "dep:rustls", "dep:rustls-pki-types", "dep:x509
 # Mount the `/aitp/handshake/renew` endpoint on the HandshakeServer
 # (RFC-AITP-0004 §8.1, post-v0.1). Requires `server`.
 experimental-renewal = ["aitp-tct/experimental-renewal"]
+# Mount the session-bundle HTTP endpoints — `POST /aitp/session/bundle`
+# and `GET /aitp/session/bundle/:session_id` (RFC-AITP-0010 §4.3.1,
+# Draft / non-normative). Requires `server`.
+experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
 
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "0.1.0-rc.1" }
@@ -28,6 +32,7 @@ aitp-crypto = { path = "../aitp-crypto", version = "0.1.0-rc.1" }
 aitp-manifest = { path = "../aitp-manifest", version = "0.1.0-rc.1" }
 aitp-handshake = { path = "../aitp-handshake", version = "0.1.0-rc.1" }
 aitp-tct = { path = "../aitp-tct", version = "0.1.0-rc.1" }
+aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.1.0-rc.1", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

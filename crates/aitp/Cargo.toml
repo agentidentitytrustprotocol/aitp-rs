@@ -24,7 +24,10 @@ experimental-renewal = [
 # Session Trust Bundle (RFC-AITP-0010, Draft). Gates the
 # `aitp::session_bundle` re-export. Bundle conformance fixtures and
 # adapter ops require the matching runner-side opt-in.
-experimental-session-bundle = ["dep:aitp-session-bundle"]
+experimental-session-bundle = [
+    "dep:aitp-session-bundle",
+    "aitp-transport-http/experimental-session-bundle",
+]
 all = ["http-client", "http-server"]
 
 [dependencies]
@@ -36,6 +39,7 @@ aitp-tct = { path = "../aitp-tct", version = "0.1.0-rc.1" }
 aitp-delegation = { path = "../aitp-delegation", version = "0.1.0-rc.1" }
 aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.1.0-rc.1", optional = true }
 aitp-transport-http = { path = "../aitp-transport-http", version = "0.1.0-rc.1", optional = false }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 url = { workspace = true }

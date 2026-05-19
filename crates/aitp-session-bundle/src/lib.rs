@@ -34,3 +34,13 @@ pub use builder::{SessionBundleBuilder, DEFAULT_BUNDLE_VERSION};
 pub use error::SessionBundleError;
 pub use types::{ParticipantEntry, SessionBundleEnvelope, SessionTrustBundle};
 pub use verifier::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+
+/// Manifest `extensions` key under which a coordinator advertises the
+/// concrete HTTPS URL of its session-bundle endpoint (RFC-AITP-0010
+/// §4.3.1; registered in the spec's `registries/extension-keys.md`).
+///
+/// The §4.3.1 paths (`/aitp/session/bundle` and
+/// `/aitp/session/bundle/{session_id}`) are RECOMMENDED, not reserved:
+/// participants MUST discover the actual endpoint via this extension
+/// key and MUST NOT probe the default paths when the key is absent.
+pub const RFC_AITP_0010_BUNDLE_URI: &str = "rfc-aitp-0010.bundle_uri";

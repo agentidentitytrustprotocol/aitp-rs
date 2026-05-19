@@ -355,30 +355,62 @@ impl<A: Adapter> Runner<A> {
 
 fn assert_outcome(actual: &OpResult, expected: &FixtureExpected) -> Result<(), StepError> {
     match (expected.outcome.as_str(), actual) {
-        ("success", OpResult::Ok { ok, .. }) if *ok => Ok(()),
-        ("success", OpResult::Err { error_code, .. }) => Err(StepError::Fail(format!(
-            "expected success, got error {error_code}"
-        ))),
+        ("success", OpResult::Ok { ok, .. }) if *ok => {}
+        ("success", OpResult::Err { error_code, .. }) => {
+            return Err(StepError::Fail(format!(
+                "expected success, got error {error_code}"
+            )))
+        }
         ("failure", OpResult::Err { error_code, .. }) => {
             if let Some(want) = &expected.error_code {
-                if want == error_code {
-                    Ok(())
-                } else {
-                    Err(StepError::Fail(format!(
+                if want != error_code {
+                    return Err(StepError::Fail(format!(
                         "expected error {want}, got {error_code}"
-                    )))
+                    )));
                 }
-            } else {
-                Ok(())
             }
         }
         ("failure", OpResult::Ok { .. }) => {
-            Err(StepError::Fail("expected failure, got success".into()))
+            return Err(StepError::Fail("expected failure, got success".into()))
         }
-        (other, _) => Err(StepError::Fail(format!(
-            "fixture expected.outcome = {other} (must be 'success' or 'failure')"
-        ))),
+        (other, _) => {
+            return Err(StepError::Fail(format!(
+                "fixture expected.outcome = {other} (must be 'success' or 'failure')"
+            )))
+        }
     }
+    assert_side_effects(actual, expected)
+}
+
+/// Assert any side effect the adapter *reported* matches the fixture's
+/// `expected.side_effects`. Side-effect keys the adapter did not report
+/// are un-instrumented and skipped — but a *reported* value that
+/// disagrees with the fixture is a hard failure (conformance README,
+/// "Side-effect assertions": a runner MUST NOT silently pass).
+fn assert_side_effects(actual: &OpResult, expected: &FixtureExpected) -> Result<(), StepError> {
+    let Some(want) = &expected.side_effects else {
+        return Ok(());
+    };
+    // Only an `Ok` result carries a `result` body that can carry a
+    // `side_effects` object; an `Err` result reports none.
+    let reported = match actual {
+        OpResult::Ok { result, .. } => result.get("side_effects").and_then(|v| v.as_object()),
+        OpResult::Err { .. } => None,
+    };
+    let Some(reported) = reported else {
+        return Ok(()); // adapter instrumented no side effect — skip
+    };
+    for (key, want_val) in want {
+        if let Some(got_val) = reported.get(key) {
+            if got_val != want_val {
+                return Err(StepError::Fail(format!(
+                    "side effect `{key}`: expected {want_val}, adapter reported {got_val}"
+                )));
+            }
+        }
+        // key absent from the adapter's report → un-instrumented → skip
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

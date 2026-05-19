@@ -45,6 +45,9 @@ pub mod server;
 #[cfg(feature = "server")]
 pub mod server_limits;
 
+#[cfg(feature = "experimental-session-bundle")]
+pub mod session_bundle_server;
+
 #[cfg(feature = "client")]
 pub use client::{FetchError, JwksFetcher, JwksFetcherError, ManifestFetcher};
 
@@ -76,8 +79,8 @@ pub use dpop::verify_dpop_proof;
 
 #[cfg(feature = "client")]
 pub use key_resolution::{
-    KeyResolutionFailMode, KeyResolutionPolicy, KeyResolutionPolicyBuilder, PinnedIssuerKeyStore,
-    StaticPinnedIssuerKeyStore,
+    AsyncJwksResolver, KeyResolutionFailMode, KeyResolutionOutcome, KeyResolutionPolicy,
+    KeyResolutionPolicyBuilder, PinnedIssuerKeyStore, StaticPinnedIssuerKeyStore,
 };
 
 #[cfg(feature = "server")]
@@ -91,6 +94,9 @@ pub use server_limits::{
     with_request_body_limit, with_request_body_limit_default, DEFAULT_REQUEST_BODY_LIMIT,
     RECOMMENDED_MAX_HEADER_BYTES,
 };
+
+#[cfg(feature = "experimental-session-bundle")]
+pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};

@@ -54,6 +54,80 @@ pub enum TrustMode<'a> {
     UnsafeNoTrustEnforcement,
 }
 
+/// Identity this initiator *presents* to the peer during the handshake.
+///
+/// Orthogonal to [`TrustMode`]: `TrustMode` configures how the
+/// initiator *verifies* the peer, while `IdentityMode` configures what
+/// the initiator *presents*. A deployment may verify peers via OIDC
+/// while presenting a pinned key, or any other combination.
+///
+/// Pre-v0.1.0-rc.2 the facade always presented a pinned-key identity
+/// regardless of configuration, so an OIDC-only peer
+/// (`accepted_identity_types: ["oidc"]`) rejected the HELLO. The facade
+/// now presents the configured type and pre-checks it against the peer
+/// Manifest's `accepted_identity_types` before the handshake starts.
+pub enum IdentityMode<'a> {
+    /// Present a pinned-key identity: the facade self-signs a
+    /// proof-of-possession over the outbound HELLO envelope.
+    PinnedKey {
+        /// Subject identifier — MUST equal the initiator Manifest's
+        /// `identity_hint.subject` (the responder's `bootstrap_verify_peer`
+        /// rejects a mismatch).
+        subject: String,
+    },
+    /// Present an OIDC identity: the caller supplies a compact JWT
+    /// minted by the issuer.
+    ///
+    /// **Nonce constraint.** The JWT's `nonce` claim MUST equal the
+    /// handshake `pop_nonce` the facade generates for the HELLO, or the
+    /// peer rejects the proof (RFC-AITP-0002 §3.1). Because the facade
+    /// generates that nonce internally, a JWT minted entirely ahead of
+    /// time cannot satisfy this. Callers that need OIDC presentation
+    /// with a facade-generated nonce should drive the lower-level
+    /// [`Initiator`] state machine, where the nonce is visible before
+    /// the identity proof is built (see also the planned
+    /// `PresentedIdentity::oidc_checked` construction-time helper).
+    Oidc {
+        /// OIDC issuer URI — MUST match the initiator Manifest's
+        /// `identity_hint.issuer`.
+        issuer: url::Url,
+        /// Subject identifier at the issuer.
+        subject: String,
+        /// Compact-serialized JWT minted by the issuer.
+        proof_jwt: &'a str,
+    },
+}
+
+impl IdentityMode<'_> {
+    /// Wire identity-type string (`"pinned_key"` / `"oidc"`) used for
+    /// the `accepted_identity_types` compatibility check
+    /// (RFC-AITP-0003 §3.2).
+    fn presented_type(&self) -> &'static str {
+        match self {
+            IdentityMode::PinnedKey { .. } => "pinned_key",
+            IdentityMode::Oidc { .. } => "oidc",
+        }
+    }
+
+    /// Lower into the handshake-layer [`PresentedIdentity`].
+    fn to_presented_identity(&self) -> PresentedIdentity {
+        match self {
+            IdentityMode::PinnedKey { subject } => PresentedIdentity::PinnedKey {
+                subject: subject.clone(),
+            },
+            IdentityMode::Oidc {
+                issuer,
+                subject,
+                proof_jwt,
+            } => PresentedIdentity::Oidc {
+                issuer: issuer.clone(),
+                subject: subject.clone(),
+                proof_jwt: proof_jwt.to_string(),
+            },
+        }
+    }
+}
+
 /// No-op JWKS resolver. Used for the pinned-key trust mode where OIDC
 /// resolution is never invoked.
 struct NoOpJwksResolver;
@@ -92,9 +166,22 @@ pub enum FacadeError {
     /// Handshake-level error.
     #[error("handshake failed: {0}")]
     Handshake(#[from] aitp_handshake::HandshakeError),
-    /// HTTP transport error.
+    /// HTTP transport error — connection failure, non-AITP error
+    /// status, wrong Content-Type, oversized body, or malformed JSON.
     #[error("HTTP error: {0}")]
     Http(String),
+    /// The peer returned an AITP error envelope (`{"error": {...}}`) —
+    /// a protocol-level rejection (e.g. `IDENTITY_FAILED`,
+    /// `POLICY_VIOLATION`) rather than a transport failure. Callers can
+    /// branch on `code` to distinguish "the peer rejected us" from
+    /// "the network/HTTP layer failed".
+    #[error("peer returned AITP error {code}: {message}")]
+    Protocol {
+        /// Registered AITP error code from the peer's `error.code`.
+        code: String,
+        /// Human-readable detail from the peer's `error.message`.
+        message: String,
+    },
     /// JSON serialization error.
     #[error("serialization: {0}")]
     Serde(#[from] serde_json::Error),
@@ -109,6 +196,123 @@ pub enum FacadeError {
     ManifestVerify(#[from] aitp_manifest::ManifestError),
 }
 
+/// Maximum size of a handshake or renewal response body the facade
+/// will accept. AITP handshake payloads and TCTs are small; 256 KB
+/// matches the server's `DEFAULT_MAX_BODY_BYTES` ceiling.
+const MAX_RESPONSE_BYTES: usize = 256 * 1024;
+
+/// Shape of an AITP error envelope — `{"error": {"code", "message"}}`
+/// (RFC-AITP-0001 §6). Used to recognize a peer's protocol-level
+/// rejection inside a non-2xx response body.
+#[derive(serde::Deserialize)]
+struct AitpErrorEnvelope {
+    error: AitpErrorBody,
+}
+
+#[derive(serde::Deserialize)]
+struct AitpErrorBody {
+    code: String,
+    message: String,
+}
+
+/// Interpret an HTTP response's status, Content-Type and body for an
+/// AITP JSON endpoint. Factored out of [`read_aitp_json_response`] so
+/// the status / content-type / size / parse logic is unit-testable
+/// without an HTTP round trip.
+///
+/// - oversized body → [`FacadeError::Http`]
+/// - non-2xx carrying an AITP `error` envelope → [`FacadeError::Protocol`]
+/// - other non-2xx → [`FacadeError::Http`] with status + body excerpt
+/// - 2xx with a non-JSON Content-Type → [`FacadeError::Http`]
+/// - 2xx JSON → deserialized `T` (parse failure → [`FacadeError::Http`])
+fn interpret_aitp_response<T: serde::de::DeserializeOwned>(
+    status: reqwest::StatusCode,
+    content_type: &str,
+    body: &[u8],
+    max_bytes: usize,
+) -> Result<T, FacadeError> {
+    if body.len() > max_bytes {
+        return Err(FacadeError::Http(format!(
+            "response body {} bytes exceeds {max_bytes}-byte limit",
+            body.len()
+        )));
+    }
+    if !status.is_success() {
+        // A conformant AITP peer rejecting the request returns a
+        // registered error envelope; surface its code distinctly so
+        // callers can tell a protocol rejection from a transport fault.
+        if let Ok(env) = serde_json::from_slice::<AitpErrorEnvelope>(body) {
+            return Err(FacadeError::Protocol {
+                code: env.error.code,
+                message: env.error.message,
+            });
+        }
+        let excerpt: String = String::from_utf8_lossy(body).chars().take(256).collect();
+        return Err(FacadeError::Http(format!(
+            "HTTP {} from peer: {excerpt}",
+            status.as_u16()
+        )));
+    }
+    if !content_type
+        .to_ascii_lowercase()
+        .contains("application/json")
+    {
+        return Err(FacadeError::Http(format!(
+            "unexpected Content-Type `{content_type}` on a 2xx response (expected application/json)"
+        )));
+    }
+    serde_json::from_slice(body)
+        .map_err(|e| FacadeError::Http(format!("malformed JSON in response body: {e}")))
+}
+
+/// Read and validate an AITP JSON response: status, Content-Type and
+/// size are checked before the body is deserialized. A peer's AITP
+/// error envelope is surfaced as [`FacadeError::Protocol`]; every other
+/// failure is [`FacadeError::Http`]. See [`interpret_aitp_response`].
+///
+/// The body is read with a hard cap: a `Content-Length` declaring more
+/// than `max_bytes` is rejected before a single byte is read, and the
+/// streaming read aborts the moment the running total exceeds the cap.
+/// This stops a malicious handshake peer from exhausting initiator
+/// memory with an unbounded (or Content-Length-lying) response.
+async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<T, FacadeError> {
+    let status = resp.status();
+    let content_type = resp
+        .headers()
+        .get(reqwest::header::CONTENT_TYPE)
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("")
+        .to_string();
+    // Fast-path: reject a declared-oversize body before reading it.
+    if let Some(declared) = resp.content_length() {
+        if declared > max_bytes as u64 {
+            return Err(FacadeError::Http(format!(
+                "response Content-Length {declared} exceeds {max_bytes}-byte limit"
+            )));
+        }
+    }
+    // Stream the body, aborting as soon as the running total exceeds
+    // the cap — `Content-Length` may be absent (chunked) or untrue.
+    let mut resp = resp;
+    let mut body: Vec<u8> = Vec::new();
+    while let Some(chunk) = resp
+        .chunk()
+        .await
+        .map_err(|e| FacadeError::Http(e.to_string()))?
+    {
+        if body.len() + chunk.len() > max_bytes {
+            return Err(FacadeError::Http(format!(
+                "response body exceeds {max_bytes}-byte limit"
+            )));
+        }
+        body.extend_from_slice(&chunk);
+    }
+    interpret_aitp_response(status, &content_type, &body, max_bytes)
+}
+
 /// Drive a complete initiator-side Mutual Handshake against a peer
 /// reachable over HTTPS.
 ///
@@ -117,20 +321,21 @@ pub enum FacadeError {
 /// 3. Drives the state machine through HELLO_ACK → COMMIT → COMMIT_ACK.
 /// 4. Returns the [`SessionContext`] with the peer-issued TCT.
 ///
-/// Identity is presented as pinned-key by default — the caller's
-/// signing key is bound. Callers wanting OIDC should drive the lower-
-/// level [`Initiator`] state machine directly.
+/// The identity presented to the peer is selected by
+/// [`InitiatorConfig::identity_mode`]; the type is checked against the
+/// peer Manifest's `accepted_identity_types` before the handshake
+/// starts. See [`IdentityMode`] for the OIDC nonce constraint.
 pub async fn run_initiator_handshake(
     config: InitiatorConfig<'_>,
 ) -> Result<SessionContext, FacadeError> {
     let manifest_fetcher = ManifestFetcher::new();
     let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
-    // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake
-    // if the peer doesn't accept the type we'd present. The high-
-    // level facade always presents pinned-key (see `Initiator::start`
-    // call below). Skipping the round trip here produces a cleaner
-    // error than letting the responder reject the HELLO.
-    aitp_manifest::check_identity_type_compatibility(&peer_manifest, "pinned_key")?;
+    // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake if
+    // the peer doesn't accept the identity type we'd present. Checking
+    // here — right after the Manifest fetch, before the HELLO — yields
+    // a cleaner error than letting the responder reject the HELLO.
+    let presented_type = config.identity_mode.presented_type();
+    aitp_manifest::check_identity_type_compatibility(&peer_manifest, presented_type)?;
     let no_op_resolver = NoOpJwksResolver;
     let empty_anchors: &[aitp_core::RawUrl] = &[];
     let (trust_anchors, jwks_resolver, pinned_key_store): (
@@ -160,13 +365,7 @@ pub async fn run_initiator_handshake(
     let ts = Timestamp::now();
     let (mut initiator, hello) = Initiator::start(
         &cfg,
-        PresentedIdentity::PinnedKey {
-            subject: config
-                .own_manifest
-                .display_name
-                .clone()
-                .unwrap_or_else(|| "initiator".into()),
-        },
+        config.identity_mode.to_presented_identity(),
         &peer_manifest.aid,
         &mid,
         ts,
@@ -203,10 +402,8 @@ pub async fn run_initiator_handshake(
         .and_then(|v| v.to_str().ok())
         .map(String::from)
         .unwrap_or_default();
-    let hello_ack_envelope: AitpEnvelope = resp
-        .json()
-        .await
-        .map_err(|e| FacadeError::Http(e.to_string()))?;
+    let hello_ack_envelope: AitpEnvelope =
+        read_aitp_json_response(resp, MAX_RESPONSE_BYTES).await?;
     let peer_pk = AitpVerifyingKey::from_aid(&hello_ack_envelope.sender.agent_id)
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     verify_envelope_signature(&hello_ack_envelope, &peer_pk)
@@ -225,16 +422,15 @@ pub async fn run_initiator_handshake(
     .map_err(FacadeError::Http)?;
 
     let commit_url = endpoint_url.join("commit").unwrap();
-    let commit_ack_envelope: AitpEnvelope = client
+    let commit_resp = client
         .post(commit_url)
         .header("x-aitp-session-id", session_header)
         .json(&commit_envelope)
         .send()
         .await
-        .map_err(|e| FacadeError::Http(e.to_string()))?
-        .json()
-        .await
         .map_err(|e| FacadeError::Http(e.to_string()))?;
+    let commit_ack_envelope: AitpEnvelope =
+        read_aitp_json_response(commit_resp, MAX_RESPONSE_BYTES).await?;
     verify_envelope_signature(&commit_ack_envelope, &peer_pk)
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     let commit_ack: MutualCommitAckPayload =
@@ -266,6 +462,11 @@ pub struct InitiatorConfig<'a> {
     /// pinned-key, [`TrustMode::Oidc`] for OIDC, or
     /// [`TrustMode::UnsafeNoTrustEnforcement`] only for tests.
     pub trust_mode: TrustMode<'a>,
+    /// Identity this initiator presents to the peer
+    /// ([`IdentityMode::PinnedKey`] or [`IdentityMode::Oidc`]).
+    /// Independent of `trust_mode`: presentation and verification are
+    /// configured separately.
+    pub identity_mode: IdentityMode<'a>,
     /// Capabilities to request from the peer.
     pub requested_grants: Vec<String>,
 }
@@ -288,15 +489,13 @@ pub async fn renew_tct(
         .timeout(Duration::from_secs(10))
         .build()
         .map_err(|e| FacadeError::Http(e.to_string()))?;
-    let envelope: TctEnvelope = client
+    let renew_resp = client
         .post(url)
         .json(&request)
         .send()
         .await
-        .map_err(|e| FacadeError::Http(e.to_string()))?
-        .json()
-        .await
         .map_err(|e| FacadeError::Http(e.to_string()))?;
+    let envelope: TctEnvelope = read_aitp_json_response(renew_resp, MAX_RESPONSE_BYTES).await?;
     Ok(envelope)
 }
 
@@ -484,5 +683,135 @@ mod tct_store_tests {
         assert!(store.get(&issuer).is_some());
         store.remove(&issuer);
         assert!(store.get(&issuer).is_none());
+    }
+}
+
+#[cfg(test)]
+mod facade_http_tests {
+    //! GAP-4: the facade now validates handshake/renewal responses
+    //! (status, Content-Type, size) and recognizes AITP error
+    //! envelopes before deserializing, instead of feeding every body
+    //! straight to `.json()`.
+    use super::*;
+    use reqwest::StatusCode;
+
+    #[test]
+    fn http_500_with_non_aitp_body_is_http_error() {
+        let err = interpret_aitp_response::<serde_json::Value>(
+            StatusCode::INTERNAL_SERVER_ERROR,
+            "text/html",
+            b"<html><body>500 Internal Server Error</body></html>",
+            MAX_RESPONSE_BYTES,
+        )
+        .unwrap_err();
+        match err {
+            FacadeError::Http(msg) => assert!(msg.contains("HTTP 500"), "got {msg}"),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn non_json_content_type_on_success_is_http_error() {
+        let err = interpret_aitp_response::<serde_json::Value>(
+            StatusCode::OK,
+            "text/html; charset=utf-8",
+            b"<html>not json</html>",
+            MAX_RESPONSE_BYTES,
+        )
+        .unwrap_err();
+        match err {
+            FacadeError::Http(msg) => assert!(msg.contains("Content-Type"), "got {msg}"),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn aitp_error_envelope_is_protocol_error() {
+        let body = br#"{"error":{"code":"IDENTITY_FAILED","message":"pinned key not trusted"}}"#;
+        let err = interpret_aitp_response::<serde_json::Value>(
+            StatusCode::BAD_REQUEST,
+            "application/json",
+            body,
+            MAX_RESPONSE_BYTES,
+        )
+        .unwrap_err();
+        match err {
+            FacadeError::Protocol { code, message } => {
+                assert_eq!(code, "IDENTITY_FAILED");
+                assert_eq!(message, "pinned key not trusted");
+            }
+            other => panic!("expected Protocol, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn oversized_body_is_http_error() {
+        let big = vec![b'x'; 64];
+        let err = interpret_aitp_response::<serde_json::Value>(
+            StatusCode::OK,
+            "application/json",
+            &big,
+            16, // tiny cap to force the overflow path
+        )
+        .unwrap_err();
+        match err {
+            FacadeError::Http(msg) => assert!(msg.contains("exceeds"), "got {msg}"),
+            other => panic!("expected Http, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn valid_json_success_deserializes() {
+        let v: serde_json::Value = interpret_aitp_response(
+            StatusCode::OK,
+            "application/json",
+            br#"{"ok":true}"#,
+            MAX_RESPONSE_BYTES,
+        )
+        .unwrap();
+        assert_eq!(v, serde_json::json!({"ok": true}));
+    }
+}
+
+#[cfg(test)]
+mod identity_mode_tests {
+    //! GAP-5: the facade presents the identity type selected by
+    //! `InitiatorConfig::identity_mode` instead of always presenting
+    //! pinned-key.
+    use super::*;
+
+    #[test]
+    fn pinned_key_mode_presents_pinned_key_type() {
+        let m = IdentityMode::PinnedKey {
+            subject: "alice".into(),
+        };
+        assert_eq!(m.presented_type(), "pinned_key");
+        match m.to_presented_identity() {
+            PresentedIdentity::PinnedKey { subject } => assert_eq!(subject, "alice"),
+            _ => panic!("expected a PinnedKey PresentedIdentity"),
+        }
+    }
+
+    #[test]
+    fn oidc_mode_presents_oidc_type() {
+        let issuer: url::Url = "https://idp.example.com/".parse().unwrap();
+        let m = IdentityMode::Oidc {
+            issuer: issuer.clone(),
+            subject: "alice@example.com".into(),
+            proof_jwt: "eyJ.fake.jwt",
+        };
+        assert_eq!(m.presented_type(), "oidc");
+        match m.to_presented_identity() {
+            PresentedIdentity::Oidc {
+                issuer: got_issuer,
+                subject,
+                proof_jwt,
+            } => {
+                assert_eq!(got_issuer, issuer);
+                assert_eq!(subject, "alice@example.com");
+                assert_eq!(proof_jwt, "eyJ.fake.jwt");
+            }
+            _ => panic!("expected an Oidc PresentedIdentity"),
+        }
     }
 }

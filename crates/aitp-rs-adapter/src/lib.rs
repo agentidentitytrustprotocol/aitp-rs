@@ -60,6 +60,13 @@ pub struct AdapterState {
     ///       uses `max_hops = DEFAULT_MAX_HOPS` instead of strict 0.
     ///   `experimental-session-bundle` → bundle ops accept work.
     enabled_features: HashSet<String>,
+    /// PoP-enforcement state for the `tct-007` capability-invocation
+    /// sequence (RFC-AITP-0005 §6.2). `authorize_capability_invocation`
+    /// sets it: `Some(true)` when the invoked grant was marked
+    /// PoP-required (a `pop_challenge` was issued), `Some(false)` when
+    /// it was not. `expect_pop_challenge_issued` and
+    /// `withhold_pop_response` read it.
+    pop_enforcement: Option<bool>,
 }
 
 impl AdapterState {
@@ -155,6 +162,9 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "issue_pop_challenge" => issue_pop_challenge_op(state, id, params),
         "produce_pop_response" => produce_pop_response_op(state, id, params),
         "verify_pop_response" => verify_pop_response_op(state, id, params),
+        "authorize_capability_invocation" => authorize_capability_invocation_op(state, id, params),
+        "expect_pop_challenge_issued" => expect_pop_challenge_issued_op(state, id, params),
+        "withhold_pop_response" => withhold_pop_response_op(state, id, params),
 
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
@@ -198,6 +208,9 @@ fn init(id: &str) -> Value {
         "issue_pop_challenge",
         "produce_pop_response",
         "verify_pop_response",
+        "authorize_capability_invocation",
+        "expect_pop_challenge_issued",
+        "withhold_pop_response",
         // Tier D
         "set_clock",
         "set_features",
@@ -215,6 +228,119 @@ fn init(id: &str) -> Value {
             "supported_features": supported_features
         }
     })
+}
+
+/// `authorize_capability_invocation` — first step of the `tct-007`
+/// PoP-enforcement sequence (RFC-AITP-0005 §6.2). The verifier accepts
+/// the invocation *request*; when the issuing peer's policy
+/// (`issuer_policy.pop_required_grants`) marks the invoked grant as
+/// requiring downstream PoP it issues a `pop_challenge` instead of
+/// authorizing the capability outright. The PoP-required decision is
+/// recorded in `state.pop_enforcement` for the following two steps.
+fn authorize_capability_invocation_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
+    let capability = match params
+        .get("envelope")
+        .and_then(|e| e.get("payload"))
+        .and_then(|p| p.get("capability"))
+        .and_then(|v| v.as_str())
+    {
+        Some(c) => c.to_string(),
+        None => {
+            return err(
+                id,
+                "INVALID_ENVELOPE",
+                "capability_invocation envelope has no payload.capability",
+            )
+        }
+    };
+    let pop_required: Vec<String> = params
+        .get("issuer_policy")
+        .and_then(|p| p.get("pop_required_grants"))
+        .and_then(|v| v.as_array())
+        .map(|a| {
+            a.iter()
+                .filter_map(|v| v.as_str().map(String::from))
+                .collect()
+        })
+        .unwrap_or_default();
+    let pop_required_for_grant = pop_required.contains(&capability);
+    state.pop_enforcement = Some(pop_required_for_grant);
+    if pop_required_for_grant {
+        // Marked grant: the verifier MUST NOT authorize without a valid
+        // downstream PoP. It accepts the request and issues a
+        // `pop_challenge` (RFC-AITP-0005 §6.2).
+        json!({
+            "id": id,
+            "ok": true,
+            "result": {
+                "pop_challenge_issued": true,
+                "capability_authorized": false,
+                "side_effects": { "pop_challenge_issued": true }
+            }
+        })
+    } else {
+        // Unmarked grant: the issuing peer's policy does not require
+        // PoP for this grant; the invocation may be authorized.
+        json!({
+            "id": id,
+            "ok": true,
+            "result": {
+                "pop_challenge_issued": false,
+                "capability_authorized": true,
+                "side_effects": { "capability_authorized": true }
+            }
+        })
+    }
+}
+
+/// `expect_pop_challenge_issued` — `tct-007` step 2: asserts the
+/// preceding `authorize_capability_invocation` issued a `pop_challenge`
+/// because the invoked grant was marked PoP-required.
+fn expect_pop_challenge_issued_op(state: &AdapterState, id: &str, _params: Value) -> Value {
+    match state.pop_enforcement {
+        Some(true) => json!({
+            "id": id,
+            "ok": true,
+            "result": { "side_effects": { "pop_challenge_issued": true } }
+        }),
+        Some(false) => err(
+            id,
+            "POP_CHALLENGE_INVALID",
+            "no pop_challenge was issued — the invoked grant was not marked PoP-required",
+        ),
+        None => err(
+            id,
+            "INVALID_REQUEST",
+            "expect_pop_challenge_issued with no preceding authorize_capability_invocation",
+        ),
+    }
+}
+
+/// `withhold_pop_response` — `tct-007` step 3: no valid `pop_response`
+/// is returned within the challenge's freshness window. For a grant the
+/// issuer marked PoP-required the verifier MUST reject the invocation
+/// with `POP_RESPONSE_INVALID` and MUST NOT authorize the capability —
+/// silently skipping PoP for a marked grant is non-conformant
+/// (RFC-AITP-0005 §6.2).
+fn withhold_pop_response_op(state: &mut AdapterState, id: &str, _params: Value) -> Value {
+    match state.pop_enforcement.take() {
+        Some(true) => err(
+            id,
+            "POP_RESPONSE_INVALID",
+            "no valid pop_response within the challenge freshness window; capability \
+             invocation rejected (RFC-AITP-0005 §6.2)",
+        ),
+        Some(false) => json!({
+            "id": id,
+            "ok": true,
+            "result": { "side_effects": { "capability_authorized": true } }
+        }),
+        None => err(
+            id,
+            "INVALID_REQUEST",
+            "withhold_pop_response with no preceding authorize_capability_invocation",
+        ),
+    }
 }
 
 // ── Tier A ──────────────────────────────────────────────────────────────
