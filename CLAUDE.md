@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Repo at a glance
 
-`aitp-rs` is the Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**: a transport- and identity-agnostic, JCS-canonicalized, Ed25519-signed protocol where two agents establish bilateral trust by exchanging peer-issued **Trust Context Tokens** (TCTs). The wire spec lives in the sibling [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol) repo; this implementation tracks **v0.1.0-rc.1**.
+`aitp-rs` is the Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**: a transport- and identity-agnostic, JCS-canonicalized, Ed25519-signed protocol where two agents establish bilateral trust by exchanging peer-issued **Trust Context Tokens** (TCTs). The wire spec lives in the sibling [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol) repo; this implementation tracks **AITP v0.1.0** (spec commit pinned in `tests/schemas/SPEC_VERSION`).
 
 It is a Cargo workspace (no Node, no Vercel, no JS tooling). MSRV is **1.88** and the toolchain is pinned to `1.89.0` via `rust-toolchain.toml`. Every crate sets `#![forbid(unsafe_code)]`.
 
@@ -93,4 +93,5 @@ Wire-affecting changes are **`semver-major`** for the published crates — `carg
 - `docs/design/01-jcs.md` — JSON canonicalization strategy and test vectors
 - `docs/design/02-conformance-adapter.md` — runner design and adapter contract
 - `docs/design/03-handshake-transcripts.md` — the four-message exchange in detail
-- `docs/design/PENDING.md` — open work and known limitations
+- `docs/conformance-matrix.md` — per-fixture conformance status (44/44 pass)
+- `plans/defered/deferred.md` — declined / out-of-scope items (won't-fix register)

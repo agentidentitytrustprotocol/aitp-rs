@@ -7,7 +7,59 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased] — v0.2 (in progress)
 
-Tracked in `plans/v0.2-roadmap.md`. Phase 1 first.
+Tracked in `plans/v0.2-roadmap.md`. Forward-looking work that did not
+land in 0.1.0.
+
+### Added — DPoP scaffolding (Phase 6, RFC 9449)
+
+- **`aitp-transport-http::dpop`** module with `DpopProof`,
+  `DpopHeader::parse`, and a `verify_dpop_proof` stub returning
+  `DpopError::NotImplemented`. 4 unit tests cover header parsing.
+- Full DPoP verification (signature, htm/htu/iat binding,
+  replay-cache, `cnf.jkt` thumbprint check) is **deferred** — see
+  `plans/v0.2-closeout.md` Phase 6.
+
+### Added — CI hardening (Phase 8)
+
+- New CI jobs: `semver` (cargo-semver-checks vs PR base ref),
+  `msrv` (cargo-msrv verify), `coverage` (cargo-tarpaulin → Cobertura
+  artifact).
+- Fuzz scaffolding under `fuzz/` (excluded from the main workspace
+  for cargo-fuzz's nightly profile): targets for envelope parsing,
+  manifest parsing, delegation parsing. Run via
+  `cd fuzz && cargo +nightly fuzz run <target>`.
+
+### Documented — design / follow-ups
+
+- `plans/v0.2-roadmap.md` — full 9-phase plan with dependencies.
+- `plans/v0.2-closeout.md` — what landed, what's deferred, exact
+  pickup order for the next session.
+- `plans/v0.2-crypto-agility-design.md` — Phase 7 implementation
+  sketch. Implementation blocked on spec-side algorithm identifier.
+- (Spec repo) `plans/v0.2-conformance-followups.md` — concrete
+  list of KATs and conformance fixtures still to mint.
+
+### Deferred — production posture (to Phase 9)
+
+These items were in the original Phase 2 scope but moved to Phase 9
+polish since they are deployment-tunable rather than library-level
+concerns:
+
+- TLS root-CA override / certificate pinning (currently uses
+  `reqwest`'s system roots).
+- HTTP header-size cap and per-chunk slow-loris read timeout
+  (axum/hyper provides `http1_max_buf_size`; deployment tunable).
+- OIDC discovery cache + `iss` URL normalization (will land with
+  Phase 6 OIDC DPoP work).
+
+## [0.1.0] — YYYY-MM-DD
+
+First stable release. Tracks AITP specification v0.1.0-rc.1.
+Closes the rc.1 → rc.2 hardening cycle: revocation ordering,
+fail-mode strictness, server rate-limiting, facade response handling,
+RFC-AITP-0007/0010 surface, multi-hop delegation under feature flag,
+and the v0.1 conformance gate. 44/44 fixtures pass (37 `core` + 7
+`draft` under their opt-in features).
 
 ### Security — rc.1 → rc.2 hardening
 
@@ -74,35 +126,15 @@ Tracked in `plans/v0.2-roadmap.md`. Phase 1 first.
   fixture, and a reported mismatch fails the fixture.
 - `docs/conformance-matrix.md` — per-fixture status (44 fixtures:
   37 `core` PASS, 7 `draft` PASS under their opt-in features).
-
-### Added — DPoP scaffolding (Phase 6, RFC 9449)
-
-- **`aitp-transport-http::dpop`** module with `DpopProof`,
-  `DpopHeader::parse`, and a `verify_dpop_proof` stub returning
-  `DpopError::NotImplemented`. 4 unit tests cover header parsing.
-- Full DPoP verification (signature, htm/htu/iat binding,
-  replay-cache, `cnf.jkt` thumbprint check) is **deferred** — see
-  `plans/v0.2-closeout.md` Phase 6.
-
-### Added — CI hardening (Phase 8)
-
-- New CI jobs: `semver` (cargo-semver-checks vs PR base ref),
-  `msrv` (cargo-msrv verify), `coverage` (cargo-tarpaulin → Cobertura
-  artifact).
-- Fuzz scaffolding under `fuzz/` (excluded from the main workspace
-  for cargo-fuzz's nightly profile): targets for envelope parsing,
-  manifest parsing, delegation parsing. Run via
-  `cd fuzz && cargo +nightly fuzz run <target>`.
-
-### Documented — design / follow-ups
-
-- `plans/v0.2-roadmap.md` — full 9-phase plan with dependencies.
-- `plans/v0.2-closeout.md` — what landed, what's deferred, exact
-  pickup order for the next session.
-- `plans/v0.2-crypto-agility-design.md` — Phase 7 implementation
-  sketch. Implementation blocked on spec-side algorithm identifier.
-- (Spec repo) `plans/v0.2-conformance-followups.md` — concrete
-  list of KATs and conformance fixtures still to mint.
+- Runner placeholder resolver wires the spec's `__TAMPERED_SIG__` /
+  `__TAMPERED_SIGNATURE__` recipe (PLACEHOLDERS.md §129–130 — sign
+  properly, then flip the least-significant bit of the last raw
+  signature byte) so `rev-004` exercises `Ed25519::verify_strict()`
+  failure rather than a base64url decode error.
+- Vendored spec schemas advanced to spec commit
+  `4bb933a4ade85eb36b12b64cc66c11b636722c19` (RFC normative-hardening
+  pass + `expected.side_effects` block in
+  `aitp-conformance-fixture.schema.json`).
 
 ### Added — Session Trust Bundle (Phase 5, RFC-AITP-0010)
 
@@ -173,19 +205,6 @@ Tracked in `plans/v0.2-roadmap.md`. Phase 1 first.
   retried; verification, oversize, and content-type errors are not.
   Default is no retry (rc.1 behavior preserved).
 
-### Deferred — production posture (to Phase 9)
-
-These items were in the original Phase 2 scope but moved to Phase 9
-polish since they are deployment-tunable rather than library-level
-concerns:
-
-- TLS root-CA override / certificate pinning (currently uses
-  `reqwest`'s system roots).
-- HTTP header-size cap and per-chunk slow-loris read timeout
-  (axum/hyper provides `http1_max_buf_size`; deployment tunable).
-- OIDC discovery cache + `iss` URL normalization (will land with
-  Phase 6 OIDC DPoP work).
-
 ### Fixed — production safety (Phase 1)
 
 - **HTTP server mutex poisoning DoS** (post-rc.1 audit P0). `HandshakeState`
@@ -200,6 +219,16 @@ concerns:
   Swapped to `parking_lot::Mutex` (no poison state, drop-in API)
   workspace-wide; all `.lock().unwrap()` call sites are gone. No
   observable behavior change in the happy path.
+
+### Fixed — production hygiene
+
+- Replaced five infallible `.unwrap()` calls in `crates/aitp/src/facade.rs`
+  (`run_initiator_handshake` and `renew_tct` payload-serialization +
+  URL-join sites) with `?`-propagated `FacadeError::Http` results so
+  `cargo clippy -- -D clippy::unwrap_used` stays clean in production
+  paths.
+
+[0.1.0]: https://github.com/agentidentitytrustprotocol/aitp-rs/compare/v0.1.0-rc.1...v0.1.0
 
 ## [v0.1.0-rc.1]
 

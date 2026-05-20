@@ -1077,11 +1077,21 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         }
     }
     let check = move |jti: &Uuid| revoked_jtis.contains(&jti.to_string());
+    // Honor the spec's `issuer_manifest.expires_at` field (RFC-AITP-0005
+    // §9.4). tct-005 (post-spec-sync) supplies this via
+    // `input.issuer_manifest`; older fixtures may supply
+    // `input.issuer_manifest_expires_at` as a bare integer.
+    let issuer_manifest_expires_at: Option<Timestamp> = params
+        .get("issuer_manifest")
+        .and_then(|m| m.get("expires_at"))
+        .or_else(|| params.get("issuer_manifest_expires_at"))
+        .and_then(|v| v.as_i64())
+        .map(Timestamp);
     let ctx = aitp_tct::TctVerifyContext {
         expected_audience: &expected_audience,
         issuer_pubkey: &issuer_pubkey,
         now,
-        issuer_manifest_expires_at: None,
+        issuer_manifest_expires_at,
         revocation_check: Some(&check),
     };
     match aitp_tct::verify_tct(&tct, &ctx) {

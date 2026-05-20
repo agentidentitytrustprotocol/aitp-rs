@@ -2,33 +2,34 @@
 
 ## Supported versions
 
-aitp-rs is in pre-alpha. Only the latest `0.1.0-alpha.x` is supported with
-security fixes.
+| Version | Supported |
+|---|---|
+| 0.1.x | ✅ Active security fixes |
+| < 0.1.0 | ❌ End of life |
 
 ## Reporting a vulnerability
 
-**Do not open a public issue.** Email
+**Do not open a public GitHub issue.** Email
 [security@agentidentitytrustprotocol.org](mailto:security@agentidentitytrustprotocol.org)
-or use GitHub's "Report a vulnerability" workflow on this repository's
-*Security* tab.
+or use GitHub's "Report a vulnerability" workflow on this repository's *Security* tab.
 
-We aim to acknowledge reports within 72 hours and to issue a fix or
-mitigation within 30 days. Coordinated disclosure is preferred for
-issues that affect on-the-wire trust decisions or signature handling.
+We aim to acknowledge within 72 hours and issue a fix within 30 days.
+Coordinated disclosure is preferred for issues affecting on-the-wire trust
+decisions, signature handling, or cryptographic verification.
 
-## Scope
+## In scope
 
-In scope:
+- Signature forgery or acceptance bugs; JCS canonicalization divergence from RFC 8785
+- Key handling; memory hygiene of secret material (`AitpSigningKey`, `secretbox`)
+- Replay, downgrade, or audience-confusion attacks against handshake, TCT
+  verification, or delegation flows
+- Parser denial-of-service in any AITP protocol message
+- Policy bypass in revocation, soft-fail grant restriction, or trust-mode enforcement
 
-- Signature forgery, signature-acceptance bugs, JCS canonicalization
-  divergence from RFC 8785.
-- Key handling, including memory hygiene of secret material.
-- Replay, downgrade, or audience-confusion attacks against the handshake,
-  TCT verification, or delegation flows.
-- Parser denial-of-service in any AITP message.
+## Out of scope
 
-Out of scope:
-
-- Denial-of-service that requires control of the transport layer below
-  `aitp-transport-http`.
-- Issues in third-party dependencies — please report those upstream.
+- Denial-of-service requiring transport-layer control below `aitp-transport-http`
+- Third-party dependency issues — report those upstream
+- P-256 ECDSA signing (verifier is implemented; signer is deferred)
+- Experimental features (`experimental-renewal`, `experimental-session-bundle`,
+  `experimental-multihop-delegation`) — report issues but no patching SLA

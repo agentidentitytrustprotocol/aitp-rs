@@ -26,7 +26,7 @@ dependencies = [
 
 [[package]]
 name = "aitp"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -47,7 +47,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-conformance"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -65,7 +65,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-core"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "base64ct",
  "chrono",
@@ -83,7 +83,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-crypto"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "base64ct",
@@ -98,7 +98,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-delegation"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -113,7 +113,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-example-two-agents"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp",
  "axum",
@@ -132,7 +132,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-handshake"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -154,7 +154,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-manifest"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -170,7 +170,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-rs-adapter"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -190,7 +190,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-session-bundle"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -204,7 +204,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-tct"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -219,7 +219,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-transport-http"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -1409,7 +1409,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 
 [[package]]
 name = "mint-conformance-fixtures"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -1427,7 +1427,7 @@ dependencies = [
 
 [[package]]
 name = "mint-signed-examples"
-version = "0.1.0-rc.1"
+version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",

@@ -371,10 +371,12 @@ pub async fn run_initiator_handshake(
         ts,
         config.requested_grants.clone(),
     )?;
+    let hello_payload = serde_json::to_value(&hello)
+        .map_err(|e| FacadeError::Http(format!("serialize hello: {e}")))?;
     let hello_envelope = sign_envelope_with(
         config.signing_key,
         MessageType::MutualHello,
-        serde_json::to_value(&hello).unwrap(),
+        hello_payload,
         mid,
         ts,
     )
@@ -389,7 +391,9 @@ pub async fn run_initiator_handshake(
         .handshake_endpoint
         .parse_url()
         .map_err(|e| FacadeError::Http(format!("handshake_endpoint not a URL: {e}")))?;
-    let hello_url = endpoint_url.join("hello").unwrap();
+    let hello_url = endpoint_url
+        .join("hello")
+        .map_err(|e| FacadeError::Http(format!("build hello URL: {e}")))?;
     let resp = client
         .post(hello_url)
         .json(&hello_envelope)
@@ -412,16 +416,20 @@ pub async fn run_initiator_handshake(
         serde_json::from_value(hello_ack_envelope.payload.clone())?;
     let commit = initiator.on_hello_ack(&hello_ack_envelope, &hello_ack, &cfg)?;
 
+    let commit_payload = serde_json::to_value(&commit)
+        .map_err(|e| FacadeError::Http(format!("serialize commit: {e}")))?;
     let commit_envelope = sign_envelope_with(
         config.signing_key,
         MessageType::MutualCommit,
-        serde_json::to_value(&commit).unwrap(),
+        commit_payload,
         Uuid::new_v4(),
         Timestamp::now(),
     )
     .map_err(FacadeError::Http)?;
 
-    let commit_url = endpoint_url.join("commit").unwrap();
+    let commit_url = endpoint_url
+        .join("commit")
+        .map_err(|e| FacadeError::Http(format!("build commit URL: {e}")))?;
     let commit_resp = client
         .post(commit_url)
         .header("x-aitp-session-id", session_header)
@@ -484,7 +492,9 @@ pub async fn renew_tct(
     let pop_nonce = aitp_core::base64url::encode(&rand_bytes_16());
     let request: TctRenewalPayload = build_renewal_request(holder_key, current, pop_nonce)?;
 
-    let url = peer_handshake_endpoint.join("renew").unwrap();
+    let url = peer_handshake_endpoint
+        .join("renew")
+        .map_err(|e| FacadeError::Http(format!("build renew URL: {e}")))?;
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(10))
         .build()

@@ -2,16 +2,10 @@
 
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
-> **Status: v0.1.0-beta.1 (unreleased).** All ten protocol crates plus
-> the high-level `aitp` facade, HTTP transport, and conformance runner
-> are implemented and tested. The two-agent demo runs end-to-end with a
-> real four-message handshake. P0–P3 of the unified hardening plan are
-> complete: pinned-key proof format, key-resolution policy, manifest
-> cache correctness, revocation end-to-end, HTTP transport hardening,
-> TCT renewal, and high-level facade. See
-> [`docs/design/PENDING.md`](docs/design/PENDING.md) for what's still
-> open and `CHANGELOG.md` / `RELEASE_NOTES_v0.1.0-beta.1.md` for what
-> landed.
+> **Status: v0.1.0** — Tracks AITP specification v0.1.0-rc.1.
+> 44/44 conformance fixtures pass (37 core + 7 draft under feature flags).
+> See [`docs/conformance-matrix.md`](docs/conformance-matrix.md) for the
+> per-fixture breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 ## What is AITP?
 
@@ -22,7 +16,7 @@ each peer as the audience and bind capabilities to the holder's key.
 
 The protocol specification lives in the
 [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol)
-repository. This implementation tracks v0.1.0-rc.1.
+repository. This implementation tracks AITP v0.1.0.
 
 ## Workspace layout
 
@@ -153,7 +147,9 @@ Read these before contributing:
 - [`docs/design/00-architecture.md`](docs/design/00-architecture.md) — workspace structure rationale
 - [`docs/design/01-jcs.md`](docs/design/01-jcs.md) — JSON canonicalization strategy and test vectors
 - [`docs/design/02-conformance-adapter.md`](docs/design/02-conformance-adapter.md) — conformance runner design
-- [`docs/design/PENDING.md`](docs/design/PENDING.md) — pending tasks and open questions
+- [`docs/design/03-handshake-transcripts.md`](docs/design/03-handshake-transcripts.md) — four-message exchange in detail
+- [`docs/conformance-matrix.md`](docs/conformance-matrix.md) — per-fixture conformance status
+- [`plans/defered/deferred.md`](plans/defered/deferred.md) — declined / out-of-scope items
 
 ## Roadmap
 
@@ -164,7 +160,7 @@ complete. Subsequent work followed the unified hardening plan in
 - **alpha.5** — Phases 1–9: pinned-key proof v1, identity type
   enforcement, `PinnedKeyStore`, grant policy hook, replay deny list,
   JwksFetcher hardening.
-- **beta.1** *(this release)* — Phases 10–16: key resolution policy,
+- **beta.1** — Phases 10–16: key resolution policy,
   manifest cache correctness, revocation end-to-end, HTTP transport
   hardening, conformance fixture expansion, TCT renewal + facade.
 - **post-beta** — RFC-0010 (Session Trust Bundle) and RFC-0011

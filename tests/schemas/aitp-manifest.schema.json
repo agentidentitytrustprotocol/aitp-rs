@@ -87,7 +87,19 @@
             ]
           },
           "uniqueItems": true,
-          "description": "Identity binding types this agent accepts from peers (RFC-AITP-0002). Default semantics per RFC-AITP-0003 §3.2: an absent field defaults to [\"oidc\"]; an explicitly empty [] means 'accept no identity type' (rejects every peer with INCOMPATIBLE_TRUST_ANCHORS). Publishers SHOULD omit the field when the default is desired."
+          "description": "Identity binding types this agent accepts from peers (RFC-AITP-0002). Default semantics per RFC-AITP-0003 §3.2: an absent field defaults to [\"oidc\"]; an explicitly empty [] means 'accept no identity type' (rejects every peer with INCOMPATIBLE_IDENTITY_TYPE — distinct from INCOMPATIBLE_TRUST_ANCHORS, which signals an OIDC trust-anchor overlap failure). Publishers SHOULD omit the field when the default is desired."
+        },
+        "accepted_signature_algorithms": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "enum": [
+              "ed25519",
+              "p256"
+            ]
+          },
+          "uniqueItems": true,
+          "description": "Signature algorithms this agent accepts from peers (RFC-AITP-0001 §5.4.3). Default semantics per RFC-AITP-0003 §3.2: absent defaults to the mandatory algorithm set for the Manifest's `version` — [\"ed25519\"] for aitp/0.1 (Ed25519-only per RFC-AITP-0009 §4), [\"ed25519\", \"p256\"] for aitp/0.2. An explicit [] rejects every peer's envelope signature. Preserve absent vs explicit-empty in the JCS signing bytes."
         },
         "proof_of_possession": {
           "type": "object",
