@@ -56,7 +56,7 @@ signed `AitpEnvelope` and verifying an envelope's outer signature depends
 only on `aitp-core` and `aitp-crypto` — no HTTP, no async, no I/O. It lives
 in its own crate so language bindings and other sync consumers can reuse the
 signing helpers without inheriting a transport stack.
-`aitp-transport-http::common` re-exports `sign_envelope` /
+`aitp-transport-http::common` keeps thin wrappers over `sign_envelope` /
 `sign_envelope_with` / `verify_envelope_signature`, so callers that imported
 them from the transport crate keep compiling unchanged.
 

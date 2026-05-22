@@ -6,9 +6,10 @@
 //! async, no I/O — so they can be reused by language bindings and other
 //! sync consumers without inheriting a transport stack.
 //!
-//! `aitp-transport-http::common` re-exports this crate, so existing
-//! callers that imported `sign_envelope*` / `verify_envelope_signature`
-//! from the transport crate keep compiling unchanged.
+//! `aitp-transport-http::common` keeps thin wrappers over these
+//! functions, so existing callers that imported `sign_envelope*` /
+//! `verify_envelope_signature` from the transport crate keep compiling
+//! unchanged.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

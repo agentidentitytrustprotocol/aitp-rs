@@ -54,7 +54,7 @@ aitp-rs/
 |-----------------------|---------------|--------------------------------------------------------|
 | `aitp-core`           | ✅ complete   | AID, JCS, base64url, timestamps, envelope, error codes. |
 | `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`), JWK thumbprint.              |
-| `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; re-exported by `aitp-transport-http`. |
+| `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal.          |
 | `aitp-delegation`     | ✅ complete   | Builder + 11-check verifier (single-hop).               |

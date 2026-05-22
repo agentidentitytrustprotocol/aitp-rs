@@ -17,8 +17,8 @@ land in 0.1.0.
   `aitp-transport-http::common` into a standalone crate depending only
   on `aitp-core` + `aitp-crypto` — no HTTP, no async, no I/O. This lets
   the language bindings (below) sign and verify envelopes without
-  inheriting a transport stack. `aitp-transport-http::common`
-  re-exports the three functions, so existing
+  inheriting a transport stack. `aitp-transport-http::common` keeps thin
+  wrappers over the three functions, so existing
   `aitp_transport_http::common::*` imports keep compiling unchanged.
 
 ### Added — language SDKs (`bindings/`)
