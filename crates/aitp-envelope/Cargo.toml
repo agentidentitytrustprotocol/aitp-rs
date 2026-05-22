@@ -1,0 +1,17 @@
+[package]
+name = "aitp-envelope"
+description = "AITP envelope signing and verification (no I/O, no HTTP)"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[dependencies]
+aitp-core = { path = "../aitp-core", version = "0.1.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.1.0" }
+serde_json = { workspace = true }
+uuid = { workspace = true }

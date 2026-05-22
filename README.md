@@ -23,21 +23,29 @@ repository. This implementation tracks AITP v0.1.0.
 ```
 aitp-rs/
 ├── crates/
-│   ├── aitp-core/          types, JCS, base64url, AID — pure, no I/O
-│   ├── aitp-crypto/        Ed25519, JWK thumbprint, signature ops
-│   ├── aitp-manifest/      Manifest issuance and verification
-│   ├── aitp-handshake/     Mutual handshake state machine
-│   ├── aitp-tct/           TCT issuance and verification, PoP exchange
-│   ├── aitp-delegation/    Single-hop delegation tokens
-│   ├── aitp-transport-http/ HTTP client/server bindings (feature-gated)
-│   ├── aitp/               facade re-exporting the protocol crates
-│   ├── aitp-conformance/   conformance test runner with adapter trait
-│   └── aitp-rs-adapter/    canonical Rust adapter for conformance testing
+│   ├── aitp-core/           types, JCS, base64url, AID — pure, no I/O
+│   ├── aitp-crypto/         Ed25519, JWK thumbprint, signature ops
+│   ├── aitp-envelope/       envelope signing and verification — sync, no I/O
+│   ├── aitp-manifest/       Manifest issuance and verification
+│   ├── aitp-handshake/      Mutual handshake state machine
+│   ├── aitp-tct/            TCT issuance and verification, PoP exchange
+│   ├── aitp-delegation/     Single-hop delegation tokens
+│   ├── aitp-session-bundle/ Session Trust Bundle (RFC-0010, opt-in draft)
+│   ├── aitp-transport-http/ HTTP client/server (feature-gated, async)
+│   ├── aitp/                facade re-exporting the protocol crates
+│   ├── aitp-conformance/    conformance test runner with adapter trait
+│   └── aitp-rs-adapter/     canonical Rust adapter for conformance testing
+├── bindings/                language SDKs — excluded from the Cargo workspace
+│   ├── aitp-py/             Python SDK (PyO3)
+│   ├── aitp-node/           Node.js SDK (NAPI-rs)
+│   └── interop/             cross-language interop tests — `make interop`
 ├── examples/
-│   └── two-agents/         standalone demo: two agents establishing trust
-├── adapters/               example adapters in other languages (Python, etc.)
-├── docs/design/            architectural decisions and design notes
-└── scripts/                build and release helpers
+│   ├── two-agents/          standalone demo: two agents establishing trust
+│   └── observability/       tracing / metrics integration example
+├── tools/                   fixture- and example-minting binaries
+├── adapters/                example conformance adapters in other languages
+├── docs/design/             architectural decisions and design notes
+└── scripts/                 build and release helpers
 ```
 
 ## Status by crate
@@ -46,14 +54,30 @@ aitp-rs/
 |-----------------------|---------------|--------------------------------------------------------|
 | `aitp-core`           | ✅ complete   | AID, JCS, base64url, timestamps, envelope, error codes. |
 | `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`), JWK thumbprint.              |
+| `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; re-exported by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal.          |
 | `aitp-delegation`     | ✅ complete   | Builder + 11-check verifier (single-hop).               |
 | `aitp-handshake`      | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy). |
+| `aitp-session-bundle` | ✅ Draft (opt-in) | Session Trust Bundle (RFC-0010): builder + verifier; gated behind `experimental-session-bundle`. |
 | `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. |
 | `aitp` (facade)       | ✅ complete   | Re-exports + `run_initiator_handshake` + `renew_tct` + `TctStore`. |
 | `aitp-conformance`    | ✅ Tier A     | Subprocess adapter, fixture loader, runner. |
 | `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). All 37 `core` spec fixtures pass; the 7 `draft` fixtures pass under their opt-in features. |
+
+### Language SDKs (`bindings/`)
+
+| SDK         | Path                 | Built with | Tests                                  |
+|-------------|----------------------|------------|----------------------------------------|
+| `aitp-py`   | `bindings/aitp-py`   | PyO3 / maturin | `pytest` (in-process handshake)     |
+| `aitp-node` | `bindings/aitp-node` | NAPI-rs    | `node --test` (in-process handshake)   |
+
+Thin SDKs over the protocol crates: an `AitpAgent` plus initiator/responder
+session types whose methods exchange JSON strings (HTTP request/response
+bodies), so agent code never touches a Rust type. They are **excluded** from
+the Cargo workspace — `cargo test --workspace` does not build them.
+`bindings/interop/` cross-checks the two SDKs against each other; see
+[Cross-language interop](#cross-language-interop) below.
 
 ## RFC compliance matrix
 
@@ -125,6 +149,19 @@ You should see the four-message handshake complete and an `/echo`
 capability invocation succeed. See
 [`examples/two-agents/README.md`](examples/two-agents/README.md) for the
 walkthrough.
+
+## Cross-language interop
+
+```bash
+make interop
+```
+
+Builds the Python and Node SDKs, then runs a real four-message AITP
+handshake *between the two runtimes* — in both directions — proving the
+two implementations emit wire-compatible envelopes. The Python side runs
+in-process under `pytest`; the Node side runs as a subprocess worker.
+See [`bindings/interop/README.md`](bindings/interop/README.md) for the
+design.
 
 ## Building
 

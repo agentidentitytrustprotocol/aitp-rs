@@ -1,0 +1,38 @@
+# Standalone package: NOT a member of the aitp-rs workspace (it is in
+# the workspace `exclude` list). Built by `@napi-rs/cli` against an
+# external Node.js, so it carries its own `[workspace]` table.
+[package]
+name = "aitp-node"
+version = "0.1.0"
+edition = "2021"
+description = "Agent Identity Trust Protocol — Node.js SDK"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+crate-type = ["cdylib"]
+
+[build-dependencies]
+napi-build = "2"
+
+[dependencies]
+aitp-core = { path = "../../crates/aitp-core" }
+aitp-crypto = { path = "../../crates/aitp-crypto" }
+aitp-envelope = { path = "../../crates/aitp-envelope" }
+aitp-manifest = { path = "../../crates/aitp-manifest" }
+aitp-handshake = { path = "../../crates/aitp-handshake" }
+aitp-tct = { path = "../../crates/aitp-tct" }
+
+napi = { version = "2.16", features = ["napi8"] }
+napi-derive = "2.16"
+
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

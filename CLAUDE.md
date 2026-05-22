@@ -6,7 +6,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 `aitp-rs` is the Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**: a transport- and identity-agnostic, JCS-canonicalized, Ed25519-signed protocol where two agents establish bilateral trust by exchanging peer-issued **Trust Context Tokens** (TCTs). The wire spec lives in the sibling [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol) repo; this implementation tracks **AITP v0.1.0** (spec commit pinned in `tests/schemas/SPEC_VERSION`).
 
-It is a Cargo workspace (no Node, no Vercel, no JS tooling). MSRV is **1.88** and the toolchain is pinned to `1.89.0` via `rust-toolchain.toml`. Every crate sets `#![forbid(unsafe_code)]`.
+It is a Cargo workspace; the protocol crates carry no JS tooling. The `bindings/` tree holds language SDKs (PyO3 Python, NAPI-rs Node) that are **excluded** from the workspace and built separately by maturin / napi-cli. MSRV is **1.88** and the toolchain is pinned to `1.89.0` via `rust-toolchain.toml`. Every workspace crate sets `#![forbid(unsafe_code)]` — the binding crates omit it, since the PyO3 / NAPI-rs export macros expand to `unsafe` glue.
 
 ## Common commands
 
@@ -19,6 +19,10 @@ cargo doc --workspace --no-deps --all-features      # RUSTDOCFLAGS="-D warnings"
 
 # Run the end-to-end two-agent demo (real four-message handshake + /echo)
 make demo
+
+# Cross-language interop: a real Python <-> Node handshake through the bindings
+# (builds aitp-py + aitp-node, then runs the pytest suite in bindings/interop/)
+make interop
 
 # Single test by name (substring match against test path)
 cargo test -p aitp-tct verifier::tests::rejects_expired
@@ -46,6 +50,7 @@ The workspace split is **load-bearing** — it exists so a TCT-only consumer (e.
 ```
 aitp-core             pure: wire types, JCS, base64url, AID, error codes (no crypto, no I/O)
   └─ aitp-crypto      Ed25519 (verify_strict), JWK thumbprint — no protocol awareness
+       ├─ aitp-envelope        Envelope sign/verify — sync, no I/O (reused by the bindings)
        ├─ aitp-manifest        Manifest issuance + verification
        ├─ aitp-tct             TCT issuance/verification + downstream PoP + renewal
        │    ├─ aitp-handshake  Mutual handshake state machine (depends on tct + manifest)
@@ -54,13 +59,19 @@ aitp-core             pure: wire types, JCS, base64url, AID, error codes (no cry
   └─ aitp                      Facade re-exporting the above + run_initiator_handshake / renew_tct / TctStore
   └─ aitp-conformance          Language-agnostic runner with Adapter trait (subprocess + in-process)
   └─ aitp-rs-adapter           Canonical Rust adapter exercised by the runner
-  └─ aitp-session-bundle       RFC-0010 stub (reserved; not wired into facade yet)
+  └─ aitp-session-bundle       Session Trust Bundle (RFC-0010 draft) — re-exported as aitp::session_bundle under the experimental-session-bundle feature
+
+bindings/aitp-py             PyO3 Python SDK — cdylib, excluded from the workspace
+bindings/aitp-node           NAPI-rs Node SDK — cdylib, excluded from the workspace
+bindings/interop             Cross-language interop integration tests — `make interop`
 ```
 
 ### Hard rules these crate boundaries enforce
 
 - **Protocol crates are sync.** `aitp-transport-http` is the only async crate (`reqwest`, `axum`, `tokio`). Do not pull async into `aitp-core`/`aitp-tct`/`aitp-handshake`.
 - **`aitp-core` has no crypto** — it must remain importable by tools that only parse/canonicalize wire data.
+- **`aitp-envelope` is the sync envelope codec.** `sign_envelope` / `sign_envelope_with` / `verify_envelope_signature` live here, depending only on `aitp-core` + `aitp-crypto` — no HTTP, no async. `aitp-transport-http::common` re-exports them so existing `aitp_transport_http::common::*` imports keep compiling; the language bindings depend on `aitp-envelope` directly.
+- **`bindings/*` are excluded from the workspace.** `aitp-py` (PyO3) and `aitp-node` (NAPI-rs) are `cdylib`s built against an external Python / Node toolchain — never pulled into `cargo test --workspace`. They carry their own `Cargo.lock`. Their per-language tests run via `pytest` / `node --test`; the cross-language interop suite runs via `make interop`.
 - **`aitp-tct` does NOT depend on `aitp-handshake`.** TCT verification is the per-request hot path; reversing this dependency would force every verifier to compile the state machine.
 - **`aitp-transport-http` features are split**: `client` (reqwest), `server` (axum), `client-spki-pinning` (rustls + x509-parser, off by default to avoid pulling in a CryptoProvider unnecessarily). The `aitp` facade exposes them as `http-client` / `http-server` / `all`.
 - **Workspace deps only.** New third-party crates go in root `[workspace.dependencies]` and are referenced via `{ workspace = true }` so the lock has exactly one version of each.
@@ -75,6 +86,28 @@ aitp-core             pure: wire types, JCS, base64url, AID, error codes (no cry
 ### Where async lives in `aitp-transport-http`
 
 `KeyResolutionPolicy` (RFC-0007) bridges sync verification into async JWKS fetches via a tokio runtime; **a multi-thread tokio context is required** in the calling thread. Pure-sync deployments must use the pinned-issuer store instead. Other notable subsystems: `client_config.rs`, `dpop.rs`, `retry.rs`, `revocation.rs`, `server_limits.rs`, `tls_pinning.rs`, `token_exchange.rs` — each one corresponds to a hardening item in `plans/aitp-rs-unified-claude-code-plan.md`.
+
+### Language bindings (`bindings/`)
+
+`aitp-py` (PyO3) and `aitp-node` (NAPI-rs) are thin SDKs over the
+protocol crates. Each exposes an `AitpAgent` plus initiator/responder
+session types whose methods consume and produce **JSON strings** — the
+HTTP request/response bodies — so agent code never sees a Rust type
+across the FFI boundary. The two SDKs are intentionally symmetric
+(`build_manifest` ↔ `buildManifest`, etc.).
+
+- Per-language tests: `bindings/aitp-py/tests/` (`pytest`) and
+  `bindings/aitp-node/tests/` (`node --test`) — in-process handshakes.
+- `bindings/interop/` holds the **cross-language** integration tests:
+  a real four-message handshake driven between the Python and Node
+  SDKs in both directions, proving the two emit wire-compatible
+  envelopes. The Python side runs in-process under `pytest`; the Node
+  side runs as a JSON-RPC subprocess worker (`node_worker.mjs`). Run
+  the whole thing with `make interop`.
+
+If you change a binding's public API, update **both** SDKs to keep them
+symmetric, and update `bindings/interop/test_interop.py` plus each
+SDK's own test file.
 
 ## When changes touch the wire format or signing inputs
 

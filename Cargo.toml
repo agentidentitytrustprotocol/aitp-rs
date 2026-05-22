@@ -3,10 +3,15 @@ resolver = "2"
 # Exclude `fuzz/` — cargo-fuzz uses its own profile and nightly-only
 # features. Run via `cargo +nightly fuzz run <target>` from the
 # `fuzz/` directory.
-exclude = ["fuzz"]
+#
+# `bindings/*` are excluded: the PyO3 / NAPI-rs crates are `cdylib`s
+# built by maturin / napi-cli against an external Python / Node
+# toolchain, so they must not be pulled into `cargo test --workspace`.
+exclude = ["fuzz", "bindings/aitp-py", "bindings/aitp-node"]
 members = [
     "crates/aitp-core",
     "crates/aitp-crypto",
+    "crates/aitp-envelope",
     "crates/aitp-manifest",
     "crates/aitp-handshake",
     "crates/aitp-tct",

@@ -60,18 +60,26 @@ aitp                       facade — re-exports the protocol surface
 ├── aitp-core              primitives: Aid, JCS, base64url, Timestamp,
 │                          ExtensionsMap, AitpEnvelope, ErrorCode
 ├── aitp-crypto            Ed25519 (verify_strict) + JWK thumbprint
+├── aitp-envelope          sign_envelope + verify_envelope_signature —
+│                          sync, no I/O; reused by the language bindings
 ├── aitp-manifest          ManifestBuilder + verify_manifest
 ├── aitp-tct               TctBuilder + verify_tct + PoP exchange +
 │                          revocation snapshots
 ├── aitp-delegation        DelegationBuilder + verify_delegation
 ├── aitp-handshake         Initiator/Responder state machines, OIDC
 │                          and pinned-key identity proofs
+├── aitp-session-bundle    SessionBundleBuilder + verify_session_bundle
+│                          (RFC-0010 draft, opt-in feature)
 └── aitp-transport-http    ManifestServer + HandshakeServer (axum) +
                            ManifestFetcher + JwksFetcher (reqwest)
 
 aitp-conformance           runner + Adapter trait + SubprocessAdapter
                            + InProcessRustAdapter
 aitp-rs-adapter            subprocess conformance adapter, Tier A/B/C/D
+
+bindings/aitp-py           Python SDK (PyO3)     — excluded from the workspace
+bindings/aitp-node         Node.js SDK (NAPI-rs) — excluded from the workspace
+bindings/interop           cross-language interop tests — `make interop`
 
 examples/two-agents        end-to-end demo — `make demo`
 tools/mint-signed-examples       mint signed artifacts from spec KAT seeds
@@ -154,6 +162,27 @@ Cross-language adapters in any language need only implement the
 NDJSON protocol from
 [`design/02-conformance-adapter.md`](design/02-conformance-adapter.md);
 the runner, fixtures, and assertion machinery are shared.
+
+## Language bindings
+
+[`bindings/aitp-py`](../bindings/aitp-py) (PyO3) and
+[`bindings/aitp-node`](../bindings/aitp-node) (NAPI-rs) are thin SDKs
+over the protocol crates — an `AitpAgent` plus initiator/responder
+session types whose methods take and return JSON strings (the HTTP
+request/response bodies), so agent code never handles a Rust type.
+Both depend on `aitp-envelope` directly; that crate was split out of
+`aitp-transport-http` precisely so a binding can sign and verify
+envelopes without an HTTP stack.
+
+The bindings are **excluded from the Cargo workspace** — they are
+`cdylib`s built by maturin / napi-cli against an external toolchain.
+Each SDK has its own in-process handshake tests
+([`aitp-py/tests`](../bindings/aitp-py/tests),
+[`aitp-node/tests`](../bindings/aitp-node/tests)).
+[`bindings/interop`](../bindings/interop) goes further: it runs a real
+four-message handshake *between* the two SDKs, in both directions, to
+prove they emit wire-compatible envelopes. `make interop` builds both
+bindings and runs that suite.
 
 ## Where to read further
 

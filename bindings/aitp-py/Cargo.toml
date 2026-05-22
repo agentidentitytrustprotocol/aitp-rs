@@ -1,0 +1,42 @@
+# Standalone package: NOT a member of the aitp-rs workspace (it is in
+# the workspace `exclude` list). Built by maturin against an external
+# CPython, so it carries its own `[workspace]` table and `Cargo.lock`.
+[package]
+name = "aitp-py"
+version = "0.1.0"
+edition = "2021"
+description = "Agent Identity Trust Protocol — Python SDK"
+license = "MIT OR Apache-2.0"
+publish = false
+
+[workspace]
+
+[lib]
+name = "aitp"
+crate-type = ["cdylib"]
+
+# `extension-module` is opt-in so `cargo check` / `cargo build` work
+# standalone. maturin enables it via pyproject.toml `[tool.maturin]`.
+# A plain `cargo build` (feature off) links libpython for local
+# testing; the importable wheel must be built with the feature on.
+[features]
+extension-module = ["pyo3/extension-module"]
+
+[dependencies]
+aitp-core = { path = "../../crates/aitp-core" }
+aitp-crypto = { path = "../../crates/aitp-crypto" }
+aitp-envelope = { path = "../../crates/aitp-envelope" }
+aitp-manifest = { path = "../../crates/aitp-manifest" }
+aitp-handshake = { path = "../../crates/aitp-handshake" }
+aitp-tct = { path = "../../crates/aitp-tct" }
+
+pyo3 = "0.22"
+
+serde_json = "1"
+uuid = { version = "1", features = ["v4"] }
+url = "2"
+
+[profile.release]
+lto = true
+codegen-units = 1
+strip = "symbols"

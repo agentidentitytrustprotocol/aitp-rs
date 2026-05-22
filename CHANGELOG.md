@@ -10,6 +10,46 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 Tracked in `plans/v0.2-roadmap.md`. Forward-looking work that did not
 land in 0.1.0.
 
+### Added — `aitp-envelope` crate
+
+- **New crate `aitp-envelope`.** `sign_envelope`, `sign_envelope_with`,
+  and `verify_envelope_signature` moved out of
+  `aitp-transport-http::common` into a standalone crate depending only
+  on `aitp-core` + `aitp-crypto` — no HTTP, no async, no I/O. This lets
+  the language bindings (below) sign and verify envelopes without
+  inheriting a transport stack. `aitp-transport-http::common`
+  re-exports the three functions, so existing
+  `aitp_transport_http::common::*` imports keep compiling unchanged.
+
+### Added — language SDKs (`bindings/`)
+
+- **`bindings/aitp-py`** — Python SDK built with PyO3 / maturin. An
+  `AitpAgent` plus `InitiatorSession` / `ResponderSession` /
+  `TctIdentity` classes; every method takes and returns JSON strings
+  (HTTP request/response bodies), so agent code never handles a Rust
+  type. In-process handshake tests under `bindings/aitp-py/tests/`.
+- **`bindings/aitp-node`** — Node.js SDK built with NAPI-rs, the
+  API-symmetric counterpart of `aitp-py` (`buildManifest` ↔
+  `build_manifest`, etc.). In-process handshake tests under
+  `bindings/aitp-node/tests/`.
+- Both binding crates are **excluded from the Cargo workspace**: they
+  are `cdylib`s built against an external Python / Node toolchain and
+  must not be pulled into `cargo test --workspace`. Each carries its
+  own `Cargo.lock`.
+
+### Added — cross-language interop tests
+
+- **`bindings/interop/`** — integration tests that drive a real
+  four-message AITP handshake between the Python and Node SDKs in both
+  directions, proving the two emit wire-compatible envelopes. The
+  Python end runs in-process under `pytest`; the Node end runs as a
+  line-delimited JSON-RPC subprocess worker (`node_worker.mjs`). Four
+  tests cover both handshake directions plus cross-language TCT
+  scope-rejection.
+- **`make interop`** / **`scripts/interop.sh`** build both bindings
+  (maturin + napi), then run the interop suite. Exits non-zero on any
+  failure, so it can gate CI.
+
 ### Added — DPoP scaffolding (Phase 6, RFC 9449)
 
 - **`aitp-transport-http::dpop`** module with `DpopProof`,
@@ -52,7 +92,7 @@ concerns:
 - OIDC discovery cache + `iss` URL normalization (will land with
   Phase 6 OIDC DPoP work).
 
-## [0.1.0] — YYYY-MM-DD
+## [0.1.0] — 2026-05-19
 
 First stable release. Tracks AITP specification v0.1.0-rc.1.
 Closes the rc.1 → rc.2 hardening cycle: revocation ordering,
