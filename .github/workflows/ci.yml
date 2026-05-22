@@ -122,7 +122,10 @@ jobs:
           # Skip the workspace-only crates that aren't published, plus
           # any crate that's brand-new in this PR (semver-checks needs
           # a baseline to compare against; new crates have none).
-          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }}
+          # `aitp-envelope` is new in this PR — it is a published crate,
+          # so it stays out of PUBLISH_EXCLUDE_CRATES; drop the inline
+          # append below once it has a released baseline to compare to.
+          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope
 
   msrv:
     name: cargo-msrv (workspace)

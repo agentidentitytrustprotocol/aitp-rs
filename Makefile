@@ -1,4 +1,4 @@
-.PHONY: demo demo-build test fmt clippy doc clean
+.PHONY: demo demo-build test interop fmt clippy doc clean
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -22,6 +22,12 @@ test:
 	cargo fmt --all -- --check
 	cargo clippy --workspace --all-targets --all-features -- -D warnings
 	cargo test --workspace --all-features
+
+# Cross-language interop: a real Python <-> Node AITP handshake exercised
+# through the native bindings. Builds aitp-py and aitp-node, then runs
+# the pytest suite in bindings/interop/.
+interop:
+	./scripts/interop.sh
 
 fmt:
 	cargo fmt --all

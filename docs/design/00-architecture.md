@@ -25,14 +25,19 @@ layout below is the minimum split that satisfies them all.
 ```
 aitp-core             types, JCS, base64url, AID — pure, no I/O
   └─ aitp-crypto      Ed25519, JWK thumbprint
+       ├─ aitp-envelope    Envelope sign/verify — sync, no I/O
        ├─ aitp-manifest    Manifest issuance + verification
        ├─ aitp-tct         TCT issuance + verification, PoP exchange
-       │    └─ aitp-handshake   Mutual handshake state machine
-       │    └─ aitp-delegation  Single-hop delegation
+       │    ├─ aitp-handshake       Mutual handshake state machine
+       │    ├─ aitp-delegation      Single-hop delegation
+       │    └─ aitp-session-bundle  Session Trust Bundle (RFC-0010, opt-in)
        └─ aitp-transport-http   HTTP client/server (feature-gated)
   └─ aitp                facade re-exporting the above
   └─ aitp-conformance    runner with Adapter trait
   └─ aitp-rs-adapter     subprocess adapter for the runner
+
+bindings/aitp-py       Python SDK (PyO3)    — excluded from the workspace
+bindings/aitp-node     Node.js SDK (NAPI-rs) — excluded from the workspace
 ```
 
 ## Why this split
@@ -45,6 +50,15 @@ dependency.
 **`aitp-crypto` has no protocol.** It wraps `ed25519-dalek` with AITP-specific
 key handling and the JWK thumbprint computation, but nothing else. It does
 not know what a Manifest or TCT is.
+
+**`aitp-envelope` is the sync envelope codec.** Wrapping a payload in a
+signed `AitpEnvelope` and verifying an envelope's outer signature depends
+only on `aitp-core` and `aitp-crypto` — no HTTP, no async, no I/O. It lives
+in its own crate so language bindings and other sync consumers can reuse the
+signing helpers without inheriting a transport stack.
+`aitp-transport-http::common` keeps thin wrappers over `sign_envelope` /
+`sign_envelope_with` / `verify_envelope_signature`, so callers that imported
+them from the transport crate keep compiling unchanged.
 
 **`aitp-tct` does not depend on `aitp-handshake`.** TCT verification is the
 hottest path in the protocol — every consumer of AITP capabilities runs
@@ -79,6 +93,23 @@ The protocol crates are sync. `aitp-transport-http` is async because
 If we ever need an async-by-default API, we add async wrappers in the
 facade crate without changing the protocol crates.
 
+## Language bindings
+
+`bindings/aitp-py` (PyO3) and `bindings/aitp-node` (NAPI-rs) are thin SDKs
+over the protocol crates. They are **excluded from the Cargo workspace**:
+both are `cdylib` crates built by maturin / napi-cli against an external
+Python / Node toolchain, so pulling them into `cargo test --workspace`
+would couple the workspace build to those toolchains. Each carries its own
+`Cargo.lock`.
+
+Both SDKs depend on `aitp-envelope` directly — the reason that crate was
+split out of `aitp-transport-http`. They expose JSON-string-in /
+JSON-string-out methods so agent code never sees a Rust type across the FFI
+boundary, and they are kept API-symmetric (`build_manifest` ↔
+`buildManifest`). `bindings/interop/` holds cross-language integration
+tests that run a real handshake between the two SDKs in both directions;
+`make interop` builds both and runs them.
+
 ## Workspace dependencies
 
 All third-party deps are pinned in the root `Cargo.toml` under
@@ -86,11 +117,13 @@ All third-party deps are pinned in the root `Cargo.toml` under
 `{ workspace = true }`. This guarantees one version of every dependency
 across the workspace and makes upgrades a one-line change.
 
-## Why MSRV 1.75
+## Why MSRV 1.88
 
-Old enough to be in Linux distros and CI runners. New enough for
-`async fn in trait`, modern lifetime improvements, and `let-else`.
-We will not bump MSRV without a strong reason.
+The workspace declares `rust-version = "1.88"`; the toolchain is pinned to
+`1.89.0` in `rust-toolchain.toml`. MSRV moved up from 1.75 once transitive
+dependencies (`time`, `icu_*`, `idna_adapter`, `clap_lex`) began requiring
+edition 2024. `cargo msrv verify` runs in CI. We will not bump MSRV without
+a strong reason.
 
 ## Why dual MIT OR Apache-2.0
 

@@ -29,6 +29,7 @@ experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "0.1.0" }
 aitp-crypto = { path = "../aitp-crypto", version = "0.1.0" }
+aitp-envelope = { path = "../aitp-envelope", version = "0.1.0" }
 aitp-manifest = { path = "../aitp-manifest", version = "0.1.0" }
 aitp-handshake = { path = "../aitp-handshake", version = "0.1.0" }
 aitp-tct = { path = "../aitp-tct", version = "0.1.0" }

@@ -67,3 +67,13 @@ result-*
 pkg/
 wasm-pack.log
 plans/
+
+# Language-binding build artifacts (bindings/aitp-py, bindings/aitp-node)
+bindings/**/*.node
+bindings/**/*.so
+bindings/aitp-node/index.js
+bindings/aitp-node/index.d.ts
+bindings/aitp-node/node_modules/
+bindings/aitp-py/.venv/
+__pycache__/
+.pytest_cache/

@@ -1,6 +1,12 @@
 //! Shared client/server helpers.
+//!
+//! Envelope signing/verification is implemented in the `aitp-envelope`
+//! crate (no HTTP, no async) so language bindings and other sync
+//! consumers can reuse it without a transport stack. The thin wrappers
+//! below delegate to it while keeping the `aitp_transport_http::common`
+//! API surface stable for existing callers.
 
-use aitp_core::{envelope_signing_digest, AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp_core::{AitpEnvelope, MessageType, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use uuid::Uuid;
 
@@ -19,20 +25,7 @@ pub fn sign_envelope_with(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> Result<AitpEnvelope, String> {
-    let digest = envelope_signing_digest(&message_id, timestamp, signing_key.aid(), &payload)
-        .map_err(|e| e.to_string())?;
-    let signature = signing_key.sign(&digest).into_string();
-    Ok(AitpEnvelope {
-        version: "aitp/0.1".into(),
-        message_type,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: signing_key.aid().clone(),
-        },
-        payload,
-        signature,
-    })
+    aitp_envelope::sign_envelope_with(signing_key, message_type, payload, message_id, timestamp)
 }
 
 /// Convenience: sign with a freshly generated `message_id` and
@@ -43,13 +36,7 @@ pub fn sign_envelope(
     message_type: MessageType,
     payload: serde_json::Value,
 ) -> Result<AitpEnvelope, String> {
-    sign_envelope_with(
-        signing_key,
-        message_type,
-        payload,
-        Uuid::new_v4(),
-        Timestamp::now(),
-    )
+    aitp_envelope::sign_envelope(signing_key, message_type, payload)
 }
 
 /// Verify an envelope's outer signature given the sender's verifying key.
@@ -57,13 +44,5 @@ pub fn verify_envelope_signature(
     envelope: &AitpEnvelope,
     sender_pubkey: &aitp_crypto::AitpVerifyingKey,
 ) -> Result<(), aitp_crypto::CryptoError> {
-    let digest = envelope_signing_digest(
-        &envelope.message_id,
-        envelope.timestamp,
-        &envelope.sender.agent_id,
-        &envelope.payload,
-    )
-    .map_err(|e| aitp_crypto::CryptoError::SignatureMalformed(e.to_string()))?;
-    let sig = aitp_crypto::Signature::parse(&envelope.signature)?;
-    sender_pubkey.verify(&digest, &sig)
+    aitp_envelope::verify_envelope_signature(envelope, sender_pubkey)
 }
