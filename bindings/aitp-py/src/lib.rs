@@ -15,11 +15,13 @@
 #![allow(clippy::useless_conversion)]
 
 mod agent;
+mod delegation;
 mod helpers;
 mod session;
 mod tct;
 
 use pyo3::prelude::*;
+use pyo3::wrap_pyfunction;
 
 /// The `aitp` Python module.
 #[pymodule]
@@ -28,5 +30,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<session::PyInitiatorSession>()?;
     m.add_class::<session::PyResponderSession>()?;
     m.add_class::<tct::PyTctIdentity>()?;
+    m.add_class::<delegation::PyDelegationVerified>()?;
+    m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
     Ok(())
 }
