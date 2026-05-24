@@ -2,13 +2,29 @@
 
 use std::sync::Arc;
 
+use aitp_core::Timestamp;
 use aitp_crypto::AitpSigningKey;
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use uuid::Uuid;
 
 use crate::session::{JsInitiatorSession, JsResponderSession};
 use crate::tct::{js_verify_tct, JsTctIdentity};
+
+/// Input shape for `signRevocationList`. Field names map to spec
+/// `RevocationEntry` (jti, revoked_at, reason).
+#[napi(object)]
+pub struct RevocationEntryInput {
+    /// JTI of the revoked TCT (UUID string).
+    pub jti: String,
+    /// Unix seconds when the issuing peer revoked the TCT.
+    /// Defaults to the current time when omitted.
+    pub revoked_at: Option<f64>,
+    /// Optional human-readable reason. Not used in trust decisions.
+    pub reason: Option<String>,
+}
 
 /// Options for `buildManifest`.
 #[napi(object)]
@@ -120,6 +136,53 @@ impl AitpAgent {
     #[napi]
     pub fn verify_tct(&self, tct_json: String, required_grant: String) -> Result<JsTctIdentity> {
         js_verify_tct(&self.key, &tct_json, &required_grant)
+    }
+
+    /// Sign a `RevocationList` with this agent's key. `entries` carries
+    /// the revoked-TCT records; `expiresInSecs` defaults to 3600 s.
+    /// Returns the on-wire `RevocationListEnvelope` JSON.
+    #[napi]
+    pub fn sign_revocation_list(
+        &self,
+        entries: Vec<RevocationEntryInput>,
+        expires_in_secs: Option<i64>,
+    ) -> Result<String> {
+        let now = Timestamp::now();
+        let rust_entries: Vec<RevocationEntry> = entries
+            .iter()
+            .map(|e| {
+                let jti = Uuid::parse_str(&e.jti)
+                    .map_err(|_| Error::from_reason(format!("invalid jti uuid: {}", e.jti)))?;
+                // Guard the f64→i64 cast: NaN/±inf would saturate to 0
+                // or i64::MIN/MAX, producing nonsense timestamps that
+                // still round-trip through the signed list and confuse
+                // verifying peers downstream.
+                let revoked_at = match e.revoked_at {
+                    None => now,
+                    Some(v) if v.is_finite() => Timestamp(v as i64),
+                    Some(v) => {
+                        return Err(Error::from_reason(format!(
+                            "revoked_at must be finite seconds-since-epoch (got {v})"
+                        )));
+                    }
+                };
+                Ok::<_, Error>(RevocationEntry {
+                    jti,
+                    revoked_at,
+                    reason: e.reason.clone(),
+                })
+            })
+            .collect::<Result<_>>()?;
+        let body = RevocationList {
+            version: "aitp/0.1".into(),
+            issuer: self.key.aid().clone(),
+            published_at: now,
+            expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
+            entries: rust_entries,
+        };
+        let envelope = sign_revocation_list(body, &self.key)
+            .map_err(|e| Error::from_reason(format!("sign_revocation_list failed: {e}")))?;
+        serde_json::to_string(&envelope).map_err(|e| Error::from_reason(e.to_string()))
     }
 }
 

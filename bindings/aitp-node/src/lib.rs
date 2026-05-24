@@ -13,3 +13,25 @@ mod agent;
 mod helpers;
 mod session;
 mod tct;
+
+use aitp_core::Timestamp;
+use aitp_manifest::{verify_manifest, ManifestEnvelope, VerifyManifestContext};
+use napi::bindgen_prelude::*;
+use napi_derive::napi;
+
+/// Verify a `ManifestEnvelope` JSON string. Throws on signature,
+/// proof-of-possession, expiry, or identity-hint shape failures.
+/// Used by the AITP Control Plane during agent enrollment.
+#[napi]
+pub fn verify_manifest_json(manifest_envelope_json: String) -> Result<()> {
+    let envelope: ManifestEnvelope = serde_json::from_str(&manifest_envelope_json)
+        .map_err(|e| Error::from_reason(format!("invalid manifest JSON: {e}")))?;
+    verify_manifest(
+        &envelope.manifest,
+        &VerifyManifestContext {
+            now: Timestamp::now(),
+        },
+    )
+    .map_err(|e| Error::from_reason(format!("manifest verification failed: {e}")))?;
+    Ok(())
+}
