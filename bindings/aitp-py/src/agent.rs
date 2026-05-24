@@ -7,6 +7,9 @@ use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, M
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
+use crate::delegation::{
+    build_delegation_token_json, issue_tct_for_delegatee_json, PyDelegationVerified,
+};
 use crate::session::{PyInitiatorSession, PyResponderSession};
 use crate::tct::{py_verify_tct, PyTctIdentity};
 
@@ -106,8 +109,59 @@ impl PyAitpAgent {
 
     /// Verify a TCT JSON string and require `required_grant`. Raises on
     /// an invalid, mis-audienced, expired, or under-scoped TCT.
-    fn verify_tct(&self, tct_json: &str, required_grant: &str) -> PyResult<PyTctIdentity> {
-        py_verify_tct(&self.key, tct_json, required_grant)
+    ///
+    /// `expected_audience` defaults to `None`, which means "verify as the
+    /// holder" (RFC-AITP-0005 §9 receipt model — `our_key.aid()` is used).
+    /// Resource servers verifying a TCT presented by a peer should pass
+    /// the TCT's own `audience` field as `expected_audience` (in v0.1
+    /// this equals `subject`); the signature check then proves the TCT
+    /// was issued by us, which is the real security gate for that
+    /// direction.
+    #[pyo3(signature = (tct_json, required_grant, expected_audience=None))]
+    fn verify_tct(
+        &self,
+        tct_json: &str,
+        required_grant: &str,
+        expected_audience: Option<&str>,
+    ) -> PyResult<PyTctIdentity> {
+        py_verify_tct(&self.key, tct_json, required_grant, expected_audience)
+    }
+
+    /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).
+    ///
+    /// The caller (delegator B) signs the resulting token; the audience is
+    /// fixed to the held TCT's issuer (A). The recipient (C) is identified
+    /// by `delegatee_aid` and bound by `delegatee_pubkey_b64u` (raw Ed25519
+    /// public key, base64url 43 chars).
+    #[pyo3(signature = (held_tct_envelope_json, delegatee_aid, delegatee_pubkey_b64u, scope, ttl_secs = None))]
+    fn build_delegation(
+        &self,
+        held_tct_envelope_json: &str,
+        delegatee_aid: &str,
+        delegatee_pubkey_b64u: &str,
+        scope: Vec<String>,
+        ttl_secs: Option<i64>,
+    ) -> PyResult<String> {
+        build_delegation_token_json(
+            &self.key,
+            held_tct_envelope_json,
+            delegatee_aid,
+            delegatee_pubkey_b64u,
+            scope,
+            ttl_secs,
+        )
+    }
+
+    /// Mint a fresh `TctEnvelope` JSON for a delegatee after the verifier has
+    /// confirmed the delegation. The subject_pubkey binding is taken from the
+    /// verified token's `cnf` field.
+    #[pyo3(signature = (verified, ttl_secs = None))]
+    fn issue_tct_for_delegatee(
+        &self,
+        verified: &PyDelegationVerified,
+        ttl_secs: Option<i64>,
+    ) -> PyResult<String> {
+        issue_tct_for_delegatee_json(&self.key, verified, ttl_secs)
     }
 }
 

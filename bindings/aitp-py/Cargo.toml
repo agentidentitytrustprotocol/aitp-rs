@@ -29,6 +29,7 @@ aitp-envelope = { path = "../../crates/aitp-envelope" }
 aitp-manifest = { path = "../../crates/aitp-manifest" }
 aitp-handshake = { path = "../../crates/aitp-handshake" }
 aitp-tct = { path = "../../crates/aitp-tct" }
+aitp-delegation = { path = "../../crates/aitp-delegation" }
 
 pyo3 = "0.22"
 

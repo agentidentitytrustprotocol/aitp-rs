@@ -33,6 +33,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "aitp-delegation"
+version = "0.1.0"
+dependencies = [
+ "aitp-core",
+ "aitp-crypto",
+ "aitp-tct",
+ "serde",
+ "serde_json",
+ "sha2",
+ "thiserror 1.0.69",
+ "uuid",
+]
+
+[[package]]
 name = "aitp-envelope"
 version = "0.1.0"
 dependencies = [
@@ -81,6 +95,7 @@ version = "0.1.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
+ "aitp-delegation",
  "aitp-envelope",
  "aitp-handshake",
  "aitp-manifest",
