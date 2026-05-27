@@ -32,7 +32,10 @@ pub enum TctError {
     /// (forbidden by RFC-AITP-0005 §4.2).
     #[error("TCT grant must not contain whitespace: `{0}`")]
     GrantWhitespace(String),
-    /// `binding.cnf` is not 43-char base64url or does not decode to 32 bytes.
+    /// `binding.cnf` is not valid base64url, does not decode to the
+    /// algorithm-agile compressed pubkey shape (32 B Ed25519 raw or
+    /// 33 B SEC1-compressed P-256), or does not match the pubkey
+    /// bytes embedded in the subject AID.
     #[error("TCT binding.cnf is malformed")]
     CnfMalformed,
     /// Builder was missing a required field.

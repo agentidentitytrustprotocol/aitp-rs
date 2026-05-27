@@ -88,18 +88,16 @@ pub fn verify_pop_response(
         return Err(TctError::PopChallengeExpired);
     }
 
-    // Decode cnf → pubkey, and confirm it matches the pubkey encoded in subject.
+    // Decode cnf → pubkey, and confirm it matches the algorithm-agile
+    // pubkey encoded in `subject` (RFC-AITP-0005 §6.2 step 4). Handles
+    // 32-byte Ed25519 raw and 33-byte SEC1-compressed P-256.
     let cnf_bytes =
         base64url::decode_strict(&tct.binding.cnf).map_err(|_| TctError::CnfMalformed)?;
-    if cnf_bytes.len() != 32 {
+    if cnf_bytes != tct.subject.pubkey_compressed_bytes() {
         return Err(TctError::CnfMalformed);
     }
-    let mut cnf_arr = [0u8; 32];
-    cnf_arr.copy_from_slice(&cnf_bytes);
-    if cnf_arr != tct.subject.to_ed25519_bytes() {
-        return Err(TctError::CnfMalformed);
-    }
-    let holder_pk = AitpVerifyingKey::from_bytes(&cnf_arr)?;
+    let holder_pk =
+        AitpVerifyingKey::from_compressed(&cnf_bytes).map_err(|_| TctError::CnfMalformed)?;
     let nonce_bytes =
         base64url::decode_strict(&challenge.nonce).map_err(|_| TctError::PopFailed)?;
     let digest = Sha256::digest(&nonce_bytes);

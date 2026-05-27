@@ -735,7 +735,12 @@ def test_p256_aid_minted_by_python_recognised_by_node(node):
 def test_p256_handshake_via_oidc_python_to_node(node):
     """End-to-end interop: a P-256 Python initiator runs an OIDC
     handshake against a Node Ed25519 responder. Both ends produce + verify
-    a TCT, exercising the cross-suite, cross-language signature path."""
+    a TCT, exercising the cross-suite, cross-language signature path.
+
+    Exercises `aitp.compute_aid_jkt` for the P-256 subject — the Node-side
+    OIDC verifier (in aitp-handshake) now derives the EC JWK thumbprint
+    from the subject AID via the same crypto crate, so the Python-minted
+    JWT's `cnf.jkt` matches without any in-Python curve arithmetic."""
     import time
     import base64 as b64
 
@@ -795,23 +800,52 @@ def test_p256_handshake_via_oidc_python_to_node(node):
     )["handle"]
 
     now = int(time.time())
-    # For P-256 cnf.jkt, the Rust verifier expects the Ed25519-style
-    # thumbprint of the subject key. For a P-256 AID, `to_jwk_thumbprint`
-    # currently returns Err in aitp-crypto, so the OIDC verifier path
-    # rejects "subject AID not Ed25519 (jkt)". This is a v0.1 limitation
-    # surfaced by the test — explicitly mark and skip rather than silently
-    # passing a malformed jkt.
-    try:
-        _ = _aid_jkt_local(py_agent.aid)
-    except Exception:
-        pytest.skip(
-            "P-256 OIDC requires a JWK thumbprint for the P-256 subject key; "
-            "aitp-crypto's to_jwk_thumbprint is Ed25519-only in v0.1, so "
-            "P-256-via-OIDC is not end-to-end interoperable yet."
-        )
-    pytest.skip(
-        "Cross-suite OIDC handshake is gated by the same aitp-crypto "
-        "Ed25519-only JWK thumbprint constraint — see crates/aitp-crypto/"
-        "src/keys.rs::to_jwk_thumbprint (returns Err for P-256). Once "
-        "lifted, this test can be re-enabled by removing the skip."
+    # Both sides derive their `cnf.jkt` via the binding helper so the
+    # P-256 / Ed25519 split is handled by the same code in aitp-crypto.
+    py_jkt = aitp.compute_aid_jkt(py_agent.aid)
+    node_jkt = aitp.compute_aid_jkt(node_resp_aid)
+
+    def py_mint(nonce: str) -> str:
+        import json as json_mod
+
+        header = {"alg": "EdDSA", "typ": "JWT", "kid": "py-p256-kid"}
+        claims = {
+            "iss": OIDC_ISSUER,
+            "sub": "py-p256",
+            "aud": node_resp_aid,
+            "iat": now,
+            "exp": now + 3600,
+            "nonce": nonce,
+            "cnf": {"jkt": py_jkt},
+        }
+        h = _b64u(json_mod.dumps(header, separators=(",", ":")).encode())
+        p = _b64u(json_mod.dumps(claims, separators=(",", ":")).encode())
+        sig = py_priv.sign(f"{h}.{p}".encode())
+        return f"{h}.{p}.{_b64u(sig)}"
+
+    # ── Four messages ───────────────────────────────────────────────
+    hello = py_sess.build_hello(nd_manifest, [PING_CAP], oidc_mint_jwt=py_mint)
+    ack_result = node.call(
+        "process_hello_oidc",
+        responder=node_resp,
+        hello=hello,
+        mint_kid="node-p256-kid",
+        mint_sub="node-p256",
+        mint_aud=py_agent.aid,
+        mint_cnf_jkt=node_jkt,
+        mint_now=now,
     )
+    commit = py_sess.process_hello_ack(ack_result["hello_ack"], ack_result["session_id"])
+    commit_result = node.call("process_commit", responder=node_resp, commit=commit)
+    py_held_tct = py_sess.complete(commit_result["commit_ack"])
+
+    # Each side holds the other's TCT under the cross-suite combination.
+    py_ident = py_agent.verify_tct(py_held_tct, PING_CAP)
+    assert py_ident.peer_aid == node_resp_aid
+    nd_ident = node.call(
+        "verify_tct",
+        agent=node_agent,
+        tct=commit_result["tct"],
+        required_grant=PING_CAP,
+    )
+    assert nd_ident["peer_aid"] == py_agent.aid

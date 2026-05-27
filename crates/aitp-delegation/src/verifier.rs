@@ -185,10 +185,14 @@ fn verify_singlehop<'a>(
         .verify(&digest, &outer_sig)
         .map_err(|_| DelegationError::InvalidSignature)?;
 
-    // 10. cnf well-formedness.
+    // 10. cnf well-formedness: must be the algorithm-agile compressed
+    // pubkey embedded in the delegatee AID (32 B Ed25519 raw or
+    // 33 B SEC1-compressed P-256). This both validates the encoding
+    // and prevents a P-256 delegatee from carrying an unrelated
+    // Ed25519 pubkey (or vice versa).
     let cnf_bytes =
         base64url::decode_strict(&token.cnf).map_err(|_| DelegationError::CnfMalformed)?;
-    if cnf_bytes.len() != 32 {
+    if cnf_bytes != token.delegatee.pubkey_compressed_bytes() {
         return Err(DelegationError::CnfMalformed);
     }
 
@@ -372,10 +376,11 @@ fn verify_multihop<'a>(
         .verify(&digest, &outer_sig)
         .map_err(|_| DelegationError::InvalidSignature)?;
 
-    // cnf well-formedness.
+    // cnf well-formedness: same algorithm-agile check as the single-hop
+    // path. Must match the delegatee AID's compressed pubkey.
     let cnf_bytes =
         base64url::decode_strict(&token.cnf).map_err(|_| DelegationError::CnfMalformed)?;
-    if cnf_bytes.len() != 32 {
+    if cnf_bytes != token.delegatee.pubkey_compressed_bytes() {
         return Err(DelegationError::CnfMalformed);
     }
 
@@ -399,8 +404,11 @@ fn verify_source_tct_projection(
     subject_for_binding: &Aid,
 ) -> Result<(), DelegationError> {
     let issuer_pubkey = AitpVerifyingKey::from_aid(&proj.issuer)?;
-    let cnf_bytes = subject_for_binding.to_ed25519_bytes();
-    let cnf = base64url::encode(&cnf_bytes);
+    // Reconstruct the source TCT's binding.cnf using the algorithm-
+    // agile encoding for the subject AID (32 B Ed25519 raw or
+    // 33 B SEC1-compressed P-256). Matches the builder side, where
+    // cnf is `subject_pk.to_compressed()`.
+    let cnf = base64url::encode(&subject_for_binding.pubkey_compressed_bytes());
     let source_view = SourceTctView {
         version: "aitp/0.1",
         jti: &proj.source_tct_jti,

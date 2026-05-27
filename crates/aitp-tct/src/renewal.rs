@@ -81,14 +81,13 @@ pub fn process_renewal_request(
     };
     verify_tct(&request.current_tct.tct, &ctx)?;
 
+    // Algorithm-agile cnf decode: handles Ed25519 raw (32 B) and
+    // P-256 SEC1-compressed (33 B). `verify_tct` above already
+    // cross-checked `cnf` against the subject AID, so we trust the
+    // length dispatch here without re-comparing to the subject.
     let cnf_bytes = base64url::decode_strict(&request.current_tct.tct.binding.cnf)
         .map_err(|_| TctError::CnfMalformed)?;
-    if cnf_bytes.len() != 32 {
-        return Err(TctError::CnfMalformed);
-    }
-    let mut cnf_arr = [0u8; 32];
-    cnf_arr.copy_from_slice(&cnf_bytes);
-    let holder_pk = AitpVerifyingKey::from_bytes(&cnf_arr).map_err(TctError::Crypto)?;
+    let holder_pk = AitpVerifyingKey::from_compressed(&cnf_bytes).map_err(TctError::Crypto)?;
 
     let nonce_bytes = base64url::decode_strict(&request.pop_nonce)
         .map_err(|e| TctError::Canonicalization(format!("pop_nonce: {e}")))?;

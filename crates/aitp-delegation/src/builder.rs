@@ -116,8 +116,11 @@ impl<'a> DelegationBuilder<'a> {
             signature: self.held_tct.signature.clone(),
         };
 
-        let cnf = base64url::encode(&delegatee_pk.to_bytes());
-        debug_assert_eq!(cnf.len(), 43);
+        // Algorithm-agile cnf: matches `Aid::pubkey_compressed_bytes` for
+        // the delegatee — 32 B Ed25519 raw → 43 b64u chars, or
+        // 33 B P-256 SEC1-compressed → 44 b64u chars.
+        let cnf = base64url::encode(&delegatee_pk.to_compressed());
+        debug_assert!(matches!(cnf.len(), 43 | 44));
 
         let now = self.now_override.unwrap_or_else(Timestamp::now);
         let max_expiry = self.held_tct.expires_at;

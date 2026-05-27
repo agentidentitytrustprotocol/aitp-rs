@@ -116,8 +116,11 @@ impl<'a> TctBuilder<'a> {
             return Err(TctError::AudienceMismatch);
         }
 
-        let cnf = base64url::encode(&subject_pk.to_bytes());
-        debug_assert_eq!(cnf.len(), 43);
+        // Algorithm-agile cnf: Ed25519 raw (32 B → 43 b64u chars) for
+        // Ed25519 subjects, SEC1-compressed (33 B → 44 b64u chars) for
+        // P-256 subjects. Matches `Aid::pubkey_compressed_bytes`.
+        let cnf = base64url::encode(&subject_pk.to_compressed());
+        debug_assert!(matches!(cnf.len(), 43 | 44));
 
         let jti = self.jti_override.unwrap_or_else(Uuid::new_v4);
         let issued_at = self.now_override.unwrap_or_else(Timestamp::now);

@@ -143,6 +143,12 @@ def verify_manifest_json(manifest_envelope_json: str) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure."""
     ...
 
+def compute_aid_jkt(aid: str) -> str:
+    """RFC 7638 JWK thumbprint of the pubkey embedded in an AID — the
+    value to place in an OIDC JWT's `cnf.jkt` claim (RFC-AITP-0002
+    §2.2.1). Supports both Ed25519 and P-256 AIDs."""
+    ...
+
 # ── experimental-bundle (Cargo feature) ─────────────────────────────────
 
 class SessionBundleBuilder:
