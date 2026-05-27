@@ -167,6 +167,21 @@ impl Aid {
         out
     }
 
+    /// Decode the identifier back to the AID's algorithm-agile
+    /// compressed public-key bytes — 32 bytes for Ed25519 (raw
+    /// pubkey) or 33 bytes for P-256 (SEC1-compressed). This is the
+    /// canonical encoding embedded in `TctBinding.cnf` /
+    /// `DelegationBinding.cnf` for algorithm-agile signing-key
+    /// bindings; callers verifying a `cnf` against an AID should
+    /// byte-compare against this value rather than the legacy
+    /// Ed25519-only [`Self::to_ed25519_bytes`].
+    pub fn pubkey_compressed_bytes(&self) -> Vec<u8> {
+        match self.algorithm() {
+            AidAlgorithm::Ed25519 => self.to_ed25519_bytes().to_vec(),
+            AidAlgorithm::P256 => self.to_p256_bytes().to_vec(),
+        }
+    }
+
     /// Return the full AID string verbatim.
     pub fn as_str(&self) -> &str {
         &self.0

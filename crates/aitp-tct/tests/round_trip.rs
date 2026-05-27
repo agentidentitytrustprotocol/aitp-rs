@@ -287,3 +287,89 @@ fn builder_rejects_grant_with_tab() {
         .unwrap_err();
     assert!(matches!(err, TctError::GrantWhitespace(_)));
 }
+
+#[test]
+fn p256_subject_round_trip_and_pop() {
+    // Algorithm-agile round-trip: P-256 issuer + P-256 subject.
+    // cnf encodes the subject as 33-byte SEC1-compressed (44 b64u chars);
+    // verifier accepts on the length-dispatched algorithm-agile path;
+    // PoP signature is tagged `p256.<86b64u>`.
+    use aitp_core::base64url;
+
+    let now = Timestamp(1_700_000_000);
+    let issuer = AitpSigningKey::generate_p256();
+    let subject = AitpSigningKey::generate_p256();
+    let tct = TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(["demo.echo"])
+        .ttl_secs(3600)
+        .subject_pubkey(subject.verifying_key())
+        .issued_at(now)
+        .build()
+        .expect("p256 builder ok");
+
+    // cnf is 33-byte SEC1-compressed encoded → 44 b64u characters.
+    assert_eq!(tct.binding.cnf.len(), 44);
+
+    let ctx = TctVerifyContext {
+        expected_audience: subject.aid(),
+        issuer_pubkey: &issuer.verifying_key(),
+        now,
+        issuer_manifest_expires_at: None,
+        revocation_check: None,
+    };
+    verify_tct(&tct, &ctx).expect("p256 TCT verifies");
+
+    // PoP round-trips: holder signs with P-256, verifier decodes the
+    // cnf via the algorithm-agile from_compressed path.
+    let nonce_bytes = [0x55u8; 32];
+    let challenge = PopChallenge {
+        tct_jti: tct.jti,
+        nonce: base64url::encode(&nonce_bytes),
+        expires_at: Timestamp(now.0 + 60),
+    };
+    let response = sign_pop_response(&challenge, &subject).expect("p256 pop sign ok");
+    verify_pop_response(&challenge, &response, &tct, now).expect("p256 pop verifies");
+}
+
+#[test]
+fn p256_subject_rejects_tampered_cnf_length() {
+    // A TCT with a P-256 subject MUST NOT verify if cnf is reshaped
+    // to the 32-byte Ed25519 form — guards against algorithm
+    // confusion in the cnf channel.
+    use aitp_core::base64url;
+
+    let now = Timestamp(1_700_000_000);
+    let issuer = AitpSigningKey::generate_p256();
+    let subject = AitpSigningKey::generate_p256();
+    let mut tct = TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(["demo.echo"])
+        .ttl_secs(3600)
+        .subject_pubkey(subject.verifying_key())
+        .issued_at(now)
+        .build()
+        .unwrap();
+
+    // Tamper: replace cnf with the 32-byte Ed25519 form of arbitrary key.
+    let bogus = [0x77u8; 32];
+    tct.binding.cnf = base64url::encode(&bogus);
+
+    let ctx = TctVerifyContext {
+        expected_audience: subject.aid(),
+        issuer_pubkey: &issuer.verifying_key(),
+        now,
+        issuer_manifest_expires_at: None,
+        revocation_check: None,
+    };
+    let err = verify_tct(&tct, &ctx).unwrap_err();
+    // Length-mismatched cnf may be rejected as CnfMalformed OR
+    // SignatureInvalid (since the signed body covers the cnf field) —
+    // both are correct refusals; assert it's one of those, not Ok.
+    assert!(
+        matches!(err, TctError::CnfMalformed | TctError::SignatureInvalid),
+        "got {err:?}"
+    );
+}

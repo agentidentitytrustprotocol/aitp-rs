@@ -26,7 +26,10 @@ pub enum DelegationError {
     /// Proof-of-possession verification failed.
     #[error("delegation PoP verification failed")]
     PopFailed,
-    /// `binding.cnf` malformed (not 43-char base64url decoding to 32 bytes).
+    /// `cnf` is not valid base64url, does not decode to the algorithm-
+    /// agile compressed pubkey shape (32 B Ed25519 raw or 33 B SEC1-
+    /// compressed P-256), or does not match the pubkey bytes embedded
+    /// in the delegatee AID.
     #[error("delegation cnf is malformed")]
     CnfMalformed,
     /// Token attempts multi-hop but the verifier was constructed with

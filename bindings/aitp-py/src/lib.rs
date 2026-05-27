@@ -43,6 +43,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<oidc::PyJwksProvider>()?;
     m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
     m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
+    m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
     #[cfg(feature = "experimental-bundle")]
     {
         m.add_class::<bundle::PySessionBundleBuilder>()?;

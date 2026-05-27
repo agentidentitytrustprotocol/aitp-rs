@@ -56,8 +56,10 @@ impl<'a> TctVerifyContext<'a> {
 ///    `expires_at` MUST NOT exceed it — else
 ///    [`TctError::ExpiresAfterManifest`].
 /// 5. `grants` non-empty — else [`TctError::EmptyGrants`].
-/// 6. `binding.cnf` is 43-char base64url decoding to 32 bytes — else
-///    [`TctError::CnfMalformed`].
+/// 6. `binding.cnf` base64url-decodes to the algorithm-agile pubkey
+///    encoding for `subject` (32 B Ed25519 raw or 33 B SEC1-compressed
+///    P-256), and equals the pubkey bytes the subject AID embeds —
+///    else [`TctError::CnfMalformed`].
 /// 7. JCS-canonicalize the TCT minus signature. SHA-256. Verify with
 ///    `ctx.issuer_pubkey`. Else [`TctError::SignatureInvalid`].
 /// 8. If `ctx.revocation_check` is `Some`, call it with `tct.jti`. If
@@ -91,7 +93,11 @@ pub fn verify_tct<'a>(tct: &'a Tct, ctx: &TctVerifyContext<'_>) -> Result<&'a Tc
 
     let cnf_bytes =
         base64url::decode_strict(&tct.binding.cnf).map_err(|_| TctError::CnfMalformed)?;
-    if cnf_bytes.len() != 32 {
+    // Subject-AID binding (RFC-AITP-0005 §6.2 step 4): cnf MUST be the
+    // exact algorithm-agile compressed pubkey embedded in `subject`.
+    // This both rejects wrong lengths and prevents a P-256 subject
+    // from carrying an unrelated Ed25519 pubkey (or vice versa).
+    if cnf_bytes != tct.subject.pubkey_compressed_bytes() {
         return Err(TctError::CnfMalformed);
     }
 

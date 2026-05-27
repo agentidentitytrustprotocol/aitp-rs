@@ -202,11 +202,37 @@ impl AitpVerifyingKey {
 
     /// Construct an Ed25519 verifier from raw 32-byte public-key bytes.
     /// (Convenience for callers carrying explicit Ed25519 bytes — e.g.
-    /// the TCT `cnf` field.)
+    /// the TCT `cnf` field on an Ed25519 subject.)
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, CryptoError> {
         DalekVerifyingKey::from_bytes(bytes)
             .map(Self::Ed25519)
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
+    }
+
+    /// Construct an algorithm-agile verifier from the AITP compressed
+    /// public-key encoding: **32 bytes ⇒ Ed25519 raw pubkey**, **33
+    /// bytes ⇒ P-256 SEC1-compressed**. This is the encoding embedded
+    /// in `TctBinding.cnf` / `DelegationBinding.cnf` for
+    /// algorithm-agile signing-key bindings, and the canonical output
+    /// of [`Self::to_compressed`].
+    ///
+    /// Other lengths are rejected as `KeyParseFailed` — callers
+    /// SHOULD NOT pass uncompressed (65-byte) SEC1 encodings here,
+    /// since that form is not what flows on the wire.
+    pub fn from_compressed(bytes: &[u8]) -> Result<Self, CryptoError> {
+        match bytes.len() {
+            32 => {
+                let mut arr = [0u8; 32];
+                arr.copy_from_slice(bytes);
+                Self::from_bytes(&arr)
+            }
+            33 => P256VerifyingKey::from_sec1_bytes(bytes)
+                .map(Self::P256)
+                .map_err(|e| CryptoError::KeyParseFailed(e.to_string())),
+            other => Err(CryptoError::KeyParseFailed(format!(
+                "unsupported compressed pubkey length: {other} (expected 32 for Ed25519 or 33 for P-256 SEC1-compressed)",
+            ))),
+        }
     }
 
     /// Verify a signature over `message`.
@@ -250,15 +276,34 @@ impl AitpVerifyingKey {
     }
 
     /// Compute the RFC 7638 JWK thumbprint per RFC-AITP-0002 §2.2.1.
-    /// Only defined for Ed25519 keys in v0.1; P-256 callers should
-    /// derive a JWK thumbprint from the SEC1-compressed bytes via
-    /// `aitp_crypto::thumbprint`.
+    ///
+    /// Ed25519 (`OKP`) keys hash `{"crv":"Ed25519","kty":"OKP","x":...}`;
+    /// P-256 (`EC`) keys hash `{"crv":"P-256","kty":"EC","x":...,"y":...}`
+    /// with the affine coordinates as 32-byte big-endian unsigned
+    /// integers (RFC 7518 §6.2.1.2 / §6.2.1.3, RFC 7638 §3.2). Both
+    /// canonical forms are lex-ordered with no whitespace.
     pub fn to_jwk_thumbprint(&self) -> Result<String, CryptoError> {
         match self {
             Self::Ed25519(vk) => Ok(crate::thumbprint::compute_jwk_thumbprint(&vk.to_bytes())),
-            Self::P256(_) => Err(CryptoError::KeyParseFailed(
-                "JWK thumbprint for P-256 not implemented; use thumbprint module directly".into(),
-            )),
+            Self::P256(vk) => {
+                // SEC1 uncompressed: 0x04 || x(32) || y(32). For any valid
+                // P-256 public key (which excludes the point at infinity)
+                // this is always 65 bytes.
+                let pt = vk.to_encoded_point(false);
+                let bytes = pt.as_bytes();
+                if bytes.len() != 65 || bytes[0] != 0x04 {
+                    return Err(CryptoError::KeyParseFailed(format!(
+                        "P-256 verifying key did not encode to SEC1 uncompressed form (len={}, tag={:#x})",
+                        bytes.len(),
+                        bytes.first().copied().unwrap_or(0),
+                    )));
+                }
+                let mut x = [0u8; 32];
+                let mut y = [0u8; 32];
+                x.copy_from_slice(&bytes[1..33]);
+                y.copy_from_slice(&bytes[33..65]);
+                Ok(crate::thumbprint::compute_jwk_thumbprint_p256(&x, &y))
+            }
         }
     }
 
@@ -579,6 +624,56 @@ mod tests {
         assert!(!sig.as_str().starts_with("ed25519."));
         assert!(!sig.as_str().starts_with("p256."));
         assert_eq!(sig.as_str().len(), ED25519_SIGNATURE_BASE64URL_LEN);
+    }
+
+    #[test]
+    fn p256_jwk_thumbprint_round_trip() {
+        // P-256 keys now produce a JWK thumbprint over the
+        // RFC 7638 §3.2 EC form; check it round-trips and is the
+        // same value the AID-derived verifier sees.
+        let key = AitpSigningKey::generate_p256();
+        let from_signer = key.verifying_key().to_jwk_thumbprint().expect("p256 jkt");
+        let from_aid = AitpVerifyingKey::from_aid(key.aid())
+            .unwrap()
+            .to_jwk_thumbprint()
+            .expect("p256 jkt via aid");
+        assert_eq!(from_signer, from_aid);
+        assert_eq!(from_signer.len(), 43);
+    }
+
+    #[test]
+    fn p256_jwk_thumbprint_matches_thumbprint_module() {
+        // The AitpVerifyingKey::to_jwk_thumbprint dispatch must agree
+        // with calling the thumbprint module directly with the same
+        // affine coordinates.
+        use p256::ecdsa::SigningKey as P256SigningKey;
+        let signer = P256SigningKey::from_bytes(&[3u8; 32].into()).unwrap();
+        let pk = signer.verifying_key();
+        let pt = pk.to_encoded_point(false);
+        let bytes = pt.as_bytes();
+        assert_eq!(bytes.len(), 65);
+        assert_eq!(bytes[0], 0x04);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(&bytes[1..33]);
+        y.copy_from_slice(&bytes[33..65]);
+
+        let expected = crate::thumbprint::compute_jwk_thumbprint_p256(&x, &y);
+        let actual = AitpVerifyingKey::P256(*pk).to_jwk_thumbprint().unwrap();
+        assert_eq!(actual, expected);
+    }
+
+    #[test]
+    fn p256_and_ed25519_thumbprints_disagree_even_with_identical_seed() {
+        // Same 32-byte seed under each suite produces different keys
+        // (and obviously different JWKs), so the thumbprints must
+        // differ — a sanity check against accidental conflation.
+        let seed = [0x9Cu8; 32];
+        let ed = AitpSigningKey::from_ed25519_seed(&seed);
+        let p = AitpSigningKey::from_p256_seed(&seed).unwrap();
+        let ed_t = ed.verifying_key().to_jwk_thumbprint().unwrap();
+        let p_t = p.verifying_key().to_jwk_thumbprint().unwrap();
+        assert_ne!(ed_t, p_t);
     }
 
     #[test]

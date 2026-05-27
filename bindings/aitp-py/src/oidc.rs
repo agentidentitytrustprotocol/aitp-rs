@@ -16,6 +16,8 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
+use aitp_core::Aid;
+use aitp_crypto::AitpVerifyingKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
 use jsonwebtoken::{jwk::Jwk, Algorithm, DecodingKey};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -23,6 +25,25 @@ use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
 use serde_json::Value as JsonValue;
 use url::Url;
+
+/// Compute the RFC 7638 JWK thumbprint of the public key embedded in
+/// an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
+/// claim when proving the key binding (RFC-AITP-0002 §2.2.1).
+///
+/// Works for both Ed25519 (`aid:pubkey:ed25519:...`) and P-256
+/// (`aid:pubkey:p256:...`) AIDs. Use this from your OIDC minter
+/// closure so the bound peer correctly verifies the cnf binding —
+/// implementing curve arithmetic by hand to derive the thumbprint
+/// in Python is both error-prone and a divergence risk.
+#[pyfunction]
+pub fn compute_aid_jkt(aid: &str) -> PyResult<String> {
+    let parsed = Aid::parse(aid)
+        .map_err(|e| PyValueError::new_err(format!("invalid AID '{aid}': {e}")))?;
+    let vk = AitpVerifyingKey::from_aid(&parsed)
+        .map_err(|e| PyValueError::new_err(format!("AID has invalid key bytes: {e}")))?;
+    vk.to_jwk_thumbprint()
+        .map_err(|e| PyValueError::new_err(format!("jkt computation failed: {e}")))
+}
 
 /// In-memory OIDC JWKS provider — issuer URL → list of JWK dicts.
 ///
