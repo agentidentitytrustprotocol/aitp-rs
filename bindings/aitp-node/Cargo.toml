@@ -17,6 +17,18 @@ crate-type = ["cdylib"]
 [build-dependencies]
 napi-build = "2"
 
+# `experimental` is an umbrella over post-v0.1 capabilities:
+# - `experimental-renewal` — in-band TCT renewal (RFC-AITP-0005 §10).
+# Each sub-feature can also be enabled individually. Wire via:
+#   napi build --release -- --features experimental
+[features]
+default = []
+experimental = ["experimental-renewal", "experimental-bundle", "experimental-pinning"]
+experimental-renewal = ["aitp-tct/experimental-renewal"]
+experimental-bundle = ["dep:aitp-session-bundle"]
+# SPKI cert pinning — see aitp-py Cargo.toml for the rationale.
+experimental-pinning = ["dep:x509-parser"]
+
 [dependencies]
 aitp-core = { path = "../../crates/aitp-core" }
 aitp-crypto = { path = "../../crates/aitp-crypto" }
@@ -24,6 +36,10 @@ aitp-envelope = { path = "../../crates/aitp-envelope" }
 aitp-manifest = { path = "../../crates/aitp-manifest" }
 aitp-handshake = { path = "../../crates/aitp-handshake" }
 aitp-tct = { path = "../../crates/aitp-tct" }
+aitp-delegation = { path = "../../crates/aitp-delegation" }
+aitp-session-bundle = { path = "../../crates/aitp-session-bundle", optional = true }
+x509-parser = { version = "0.17", optional = true }
+sha2 = "0.10"
 
 napi = { version = "2.16", features = ["napi8"] }
 napi-derive = "2.16"
@@ -31,6 +47,8 @@ napi-derive = "2.16"
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
+jsonwebtoken = "9.2"
+rand = "0.8"
 
 [profile.release]
 lto = true

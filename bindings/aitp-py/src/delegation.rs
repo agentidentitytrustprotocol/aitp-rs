@@ -61,7 +61,11 @@ pub fn verify_delegation_py(
     let verifier = Aid::parse(verifier_aid)
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))?;
 
-    let hops = if max_hops == 0 { DEFAULT_MAX_HOPS } else { max_hops };
+    let hops = if max_hops == 0 {
+        DEFAULT_MAX_HOPS
+    } else {
+        max_hops
+    };
     let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_hops(hops);
 
     verify_delegation(&token, &ctx)
@@ -151,18 +155,14 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .build()
         .map_err(|e| PyRuntimeError::new_err(format!("TCT mint failed: {e}")))?;
 
-    serde_json::to_string(&TctEnvelope { tct })
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    serde_json::to_string(&TctEnvelope { tct }).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 fn decode_pubkey_b64u(b64u: &str) -> PyResult<AitpVerifyingKey> {
     let bytes = base64url::decode_strict(b64u)
         .map_err(|e| PyValueError::new_err(format!("invalid base64url pubkey: {e}")))?;
     let arr: [u8; 32] = bytes.as_slice().try_into().map_err(|_| {
-        PyValueError::new_err(format!(
-            "pubkey must be 32 bytes (got {})",
-            bytes.len(),
-        ))
+        PyValueError::new_err(format!("pubkey must be 32 bytes (got {})", bytes.len(),))
     })?;
     AitpVerifyingKey::from_bytes(&arr)
         .map_err(|e| PyValueError::new_err(format!("invalid Ed25519 pubkey: {e}")))

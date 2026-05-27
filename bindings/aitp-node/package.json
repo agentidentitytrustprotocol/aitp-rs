@@ -11,12 +11,18 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "build:experimental": "napi build --platform --release --features experimental",
+    "build:experimental:debug": "napi build --platform --features experimental",
     "test": "node --test tests/*.mjs"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0"
+    "@napi-rs/cli": "^2.18.0",
+    "node-forge": "^1.4.0"
   },
   "engines": {
     "node": ">=16"
+  },
+  "dependencies": {
+    "jose": "^6.2.3"
   }
 }

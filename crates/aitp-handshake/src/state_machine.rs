@@ -170,8 +170,17 @@ pub struct IdentityPresentationContext<'a> {
     pub pop_nonce: &'a str,
 }
 
+/// Callback signature for [`PresentedIdentity::OidcMinter`]: receives the
+/// handshake-generated `pop_nonce` and returns a freshly-minted compact
+/// JWT whose `nonce` claim equals that nonce. Held as `Box<dyn Fn>` —
+/// the state machine consumes the `PresentedIdentity` inline during
+/// `Initiator::start` / `Responder::on_hello`, so the closure is never
+/// stored across calls or moved across threads. Dropping `Send + Sync`
+/// here lets language bindings (PyO3, NAPI-rs) wrap host-runtime
+/// callables that aren't trivially thread-safe.
+pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, String> + 'static;
+
 /// What identity this peer will present.
-#[derive(Debug)]
 pub enum PresentedIdentity {
     /// Self-sign a pinned-key proof over `message_id|timestamp` of the
     /// envelope being sent.
@@ -179,7 +188,13 @@ pub enum PresentedIdentity {
         /// Subject identifier (free-form; bound to the AID's pubkey).
         subject: String,
     },
-    /// Use a JWT supplied by the caller (already minted by the IdP).
+    /// Use a JWT supplied by the caller (already minted by the IdP). The
+    /// caller is responsible for ensuring the JWT's `nonce` claim matches
+    /// the handshake-generated nonce; for use cases where the nonce is
+    /// known up-front (e.g. fixture-driven tests), prefer
+    /// [`PresentedIdentity::oidc_checked`] which validates this at
+    /// construction time. For use cases where the JWT must be minted with
+    /// the handshake-generated nonce, use [`PresentedIdentity::OidcMinter`].
     Oidc {
         /// OIDC issuer URI.
         issuer: url::Url,
@@ -188,6 +203,51 @@ pub enum PresentedIdentity {
         /// Compact-serialized JWT to embed.
         proof_jwt: String,
     },
+    /// Defer JWT minting until the handshake nonce is generated. The
+    /// state machine calls `mint_jwt(&pop_nonce)` while building the
+    /// outbound payload; the returned JWT must have its `nonce` claim
+    /// equal to that nonce (the receiving peer's `verify_oidc` enforces
+    /// this).
+    ///
+    /// This is the production-grade OIDC presentation path — it removes
+    /// the need to pre-mint a JWT with a guessed nonce and re-mint on
+    /// state-machine output (the awkward dance the `Oidc` variant
+    /// otherwise requires).
+    OidcMinter {
+        /// OIDC issuer URI.
+        issuer: url::Url,
+        /// Subject identifier at the issuer.
+        subject: String,
+        /// Callback that receives the just-generated `pop_nonce` and
+        /// returns a freshly-minted compact JWT. Errors bubble out as
+        /// `HandshakeError::Identity`.
+        mint_jwt: Box<OidcMintJwtFn>,
+    },
+}
+
+impl std::fmt::Debug for PresentedIdentity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PinnedKey { subject } => f
+                .debug_struct("PinnedKey")
+                .field("subject", subject)
+                .finish(),
+            Self::Oidc {
+                issuer, subject, ..
+            } => f
+                .debug_struct("Oidc")
+                .field("issuer", issuer)
+                .field("subject", subject)
+                .finish_non_exhaustive(),
+            Self::OidcMinter {
+                issuer, subject, ..
+            } => f
+                .debug_struct("OidcMinter")
+                .field("issuer", issuer)
+                .field("subject", subject)
+                .finish_non_exhaustive(),
+        }
+    }
 }
 
 /// Extract the `nonce` claim from a compact JWT **without** verifying
@@ -306,6 +366,22 @@ impl PresentedIdentity {
                     issuer: Some(aitp_core::RawUrl::from(issuer.clone())),
                     subject: subject.clone(),
                     proof: proof_jwt.clone(),
+                    public_key: None,
+                })
+            }
+            Self::OidcMinter {
+                issuer,
+                subject,
+                mint_jwt,
+            } => {
+                let proof = mint_jwt(ctx.pop_nonce).map_err(|e| {
+                    HandshakeError::Identity(format!("oidc mint_jwt callback failed: {e}"))
+                })?;
+                Ok(IdentityDescriptor {
+                    kind: IdentityKind::Oidc,
+                    issuer: Some(aitp_core::RawUrl::from(issuer.clone())),
+                    subject: subject.clone(),
+                    proof,
                     public_key: None,
                 })
             }

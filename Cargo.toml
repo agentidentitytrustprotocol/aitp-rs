@@ -7,7 +7,12 @@ resolver = "2"
 # `bindings/*` are excluded: the PyO3 / NAPI-rs crates are `cdylib`s
 # built by maturin / napi-cli against an external Python / Node
 # toolchain, so they must not be pulled into `cargo test --workspace`.
-exclude = ["fuzz", "bindings/aitp-py", "bindings/aitp-node"]
+#
+# `tests/e2e-llm` is excluded: it talks to live LLM provider APIs
+# (OpenAI / Anthropic) gated on `AITP_RUN_LLM_TESTS=1`, and must not
+# run under `cargo test --workspace` so CI never burns API credits.
+# Run it explicitly from `tests/e2e-llm/`.
+exclude = ["fuzz", "bindings/aitp-py", "bindings/aitp-node", "tests/e2e-llm"]
 members = [
     "crates/aitp-core",
     "crates/aitp-crypto",
@@ -46,9 +51,11 @@ serde_jcs = "0.2"
 thiserror = "1.0"
 ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # P-256 ECDSA — RFC-AITP-0001 §5.4.3 / §5.5.2 wire format for the
-# `p256` algorithm tag. Verifier-only by default; signing wired
-# through `ecdsa` feature when needed.
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std"] }
+# `p256` algorithm tag. `ecdsa` enables both verifying and signing
+# (the latter is used by `AitpSigningKey::P256` once an agent picks
+# the P-256 suite). `arithmetic` is required to derive the public
+# point from a freshly-generated scalar.
+p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
 base64ct = { version = "1.6", features = ["std"] }
 secrecy = "0.8"
 uuid = { version = "1.7", features = ["v4", "serde"] }

@@ -13,8 +13,14 @@ classifiers = [
 ]
 
 [project.optional-dependencies]
-dev = ["pytest", "httpx"]
+dev = ["pytest", "httpx", "pyjwt[crypto]>=2.8", "cryptography>=41"]
 
 [tool.maturin]
 features = ["extension-module"]
 module-name = "aitp"
+# Ship the hand-maintained type stubs in the wheel so editors can
+# autocomplete `aitp.AitpAgent`, `aitp.JwksProvider`, etc.
+include = [
+    { path = "aitp.pyi", format = "sdist" },
+    { path = "aitp.pyi", format = "wheel" },
+]
