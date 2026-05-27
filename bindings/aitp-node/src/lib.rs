@@ -10,7 +10,15 @@
 //! crates keep the forbid attribute.
 
 mod agent;
+#[cfg(feature = "experimental-bundle")]
+mod bundle;
+mod delegation;
 mod helpers;
+mod oidc;
+#[cfg(feature = "experimental-pinning")]
+mod pinning;
+#[cfg(feature = "experimental-renewal")]
+mod renewal;
 mod session;
 mod tct;
 

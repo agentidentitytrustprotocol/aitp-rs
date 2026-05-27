@@ -76,3 +76,23 @@ test('fromSeed rejects a wrong-length seed', () => {
 test('newSession before buildManifest throws', () => {
   assert.throws(() => AitpAgent.generate().newSession());
 });
+
+test('verifyTct presented-TCT mode honors expectedAudience', () => {
+  const { initiator, responder, respManifest } = agents();
+  const sess = initiator.newSession();
+  const rsess = responder.newResponder();
+  const hello = sess.buildHello(respManifest, ['demo.write']);
+  const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
+  const commit = sess.processHelloAck(helloAck, sessionId);
+  const { ackJson: commitAck } = rsess.processCommit(commit);
+  const tct = sess.complete(commitAck);
+
+  // In v0.1 the TCT's audience equals its subject (initiator.aid). A resource
+  // server verifying a TCT presented by the initiator passes initiator.aid as
+  // expectedAudience.
+  const presented = initiator.verifyTct(tct, 'demo.write', initiator.aid);
+  assert.equal(presented.peerAid, responder.aid);
+
+  // Wrong expectedAudience must reject.
+  assert.throws(() => initiator.verifyTct(tct, 'demo.write', responder.aid));
+});

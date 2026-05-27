@@ -15,8 +15,17 @@
 #![allow(clippy::useless_conversion)]
 
 mod agent;
+#[cfg(feature = "experimental-bundle")]
+mod bundle;
 mod delegation;
 mod helpers;
+mod manifest;
+mod oidc;
+#[cfg(feature = "experimental-pinning")]
+mod pinning;
+#[cfg(feature = "experimental-renewal")]
+mod renewal;
+mod revocation;
 mod session;
 mod tct;
 
@@ -31,6 +40,18 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<session::PyResponderSession>()?;
     m.add_class::<tct::PyTctIdentity>()?;
     m.add_class::<delegation::PyDelegationVerified>()?;
+    m.add_class::<oidc::PyJwksProvider>()?;
     m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
+    m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
+    #[cfg(feature = "experimental-bundle")]
+    {
+        m.add_class::<bundle::PySessionBundleBuilder>()?;
+        m.add_function(wrap_pyfunction!(bundle::verify_session_bundle_py, m)?)?;
+    }
+    #[cfg(feature = "experimental-pinning")]
+    {
+        m.add_class::<pinning::PySpkiPinVerifier>()?;
+        m.add_function(wrap_pyfunction!(pinning::compute_spki_hash, m)?)?;
+    }
     Ok(())
 }

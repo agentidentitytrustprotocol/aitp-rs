@@ -1,8 +1,8 @@
-//! `AitpAgent` — an Ed25519 identity plus its published Manifest.
+//! `AitpAgent` — an Ed25519 or P-256 identity plus its published Manifest.
 
 use std::sync::Arc;
 
-use aitp_core::Timestamp;
+use aitp_core::{RawUrl, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
@@ -10,7 +10,13 @@ use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use uuid::Uuid;
 
-use crate::session::{JsInitiatorSession, JsResponderSession};
+use crate::delegation::{
+    build_delegation_token_json, issue_tct_for_delegatee_json, JsDelegationVerified,
+};
+use crate::oidc::JwksProvider;
+#[cfg(feature = "experimental-renewal")]
+use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
+use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
 use crate::tct::{js_verify_tct, JsTctIdentity};
 
 /// Input shape for `signRevocationList`. Field names map to spec
@@ -39,9 +45,29 @@ pub struct ManifestOpts {
     pub required_caps: Option<Vec<String>>,
     /// Manifest TTL in seconds (optional; defaults to 3600).
     pub ttl_secs: Option<i32>,
+    /// Identity presentation type — `"pinned_key"` (default) or `"oidc"`.
+    pub identity_type: Option<String>,
+    /// OIDC issuer URL (required when `identityType="oidc"`).
+    pub oidc_issuer: Option<String>,
+    /// OIDC subject identifier (required when `identityType="oidc"`).
+    pub oidc_subject: Option<String>,
+    /// Override the manifest's accepted_trust_anchors list. Defaults to
+    /// `[oidc_issuer]` for OIDC mode and `[]` for pinned-key mode.
+    pub accepted_trust_anchors: Option<Vec<String>>,
 }
 
-/// An AITP agent: an Ed25519 signing key and (once built) its Manifest.
+/// Trust-anchor override for `newSession` / `newResponder`.
+///
+/// JWKS provider is passed as a separate argument (napi-rs can't put a
+/// class reference inside an `#[napi(object)]` struct).
+#[napi(object)]
+pub struct SessionOpts {
+    /// Override the agent manifest's accepted_trust_anchors. `null`
+    /// reuses the manifest's list.
+    pub trust_anchors: Option<Vec<String>>,
+}
+
+/// An AITP agent: a signing key and (once built) its Manifest.
 #[napi]
 pub struct AitpAgent {
     key: Arc<AitpSigningKey>,
@@ -54,7 +80,16 @@ impl AitpAgent {
     #[napi(factory)]
     pub fn generate() -> Self {
         Self {
-            key: Arc::new(AitpSigningKey::generate()),
+            key: Arc::new(AitpSigningKey::generate_ed25519()),
+            manifest: None,
+        }
+    }
+
+    /// Generate an agent with a fresh random P-256 key.
+    #[napi(factory)]
+    pub fn generate_p256() -> Self {
+        Self {
+            key: Arc::new(AitpSigningKey::generate_p256()),
             manifest: None,
         }
     }
@@ -67,7 +102,24 @@ impl AitpAgent {
             .try_into()
             .map_err(|_| Error::from_reason("seed must be exactly 32 bytes"))?;
         Ok(Self {
-            key: Arc::new(AitpSigningKey::from_seed(&arr)),
+            key: Arc::new(AitpSigningKey::from_ed25519_seed(&arr)),
+            manifest: None,
+        })
+    }
+
+    /// Construct an agent from a 32-byte P-256 private scalar. Most
+    /// 32-byte inputs are valid scalars; pathological values (zero,
+    /// ≥ curve order) raise.
+    #[napi(factory)]
+    pub fn from_p256_seed(seed: Buffer) -> Result<Self> {
+        let arr: [u8; 32] = seed
+            .as_ref()
+            .try_into()
+            .map_err(|_| Error::from_reason("seed must be exactly 32 bytes"))?;
+        let key = AitpSigningKey::from_p256_seed(&arr)
+            .map_err(|e| Error::from_reason(format!("invalid P-256 seed: {e}")))?;
+        Ok(Self {
+            key: Arc::new(key),
             manifest: None,
         })
     }
@@ -80,6 +132,8 @@ impl AitpAgent {
 
     /// Build and sign the agent's Manifest. Returns `ManifestEnvelope`
     /// JSON and caches the Manifest for `newSession` / `newResponder`.
+    ///
+    /// See `ManifestOpts.identityType` for the OIDC switch.
     #[napi]
     pub fn build_manifest(&mut self, opts: ManifestOpts) -> Result<String> {
         let endpoint: url::Url = opts
@@ -87,19 +141,75 @@ impl AitpAgent {
             .parse()
             .map_err(|e| Error::from_reason(format!("invalid handshakeEndpoint URL: {e}")))?;
 
+        let identity_type = opts.identity_type.as_deref().unwrap_or("pinned_key");
+        let (hint, accepted_type, default_anchors) = match identity_type {
+            "pinned_key" => {
+                let pk = self.key.verifying_key();
+                if pk.algorithm() != aitp_core::AidAlgorithm::Ed25519 {
+                    return Err(Error::from_reason(
+                        "pinned_key identity_hint with a P-256 agent key is not supported; \
+                         the manifest's identity_hint.public_key is Ed25519-only in v0.1",
+                    ));
+                }
+                (
+                    IdentityHint {
+                        kind: IdentityHintKind::PinnedKey,
+                        subject: opts.display_name.clone(),
+                        issuer: None,
+                        public_key: Some(aitp_core::base64url::encode(&pk.to_bytes())),
+                    },
+                    "pinned_key",
+                    Vec::<url::Url>::new(),
+                )
+            }
+            "oidc" => {
+                let iss_str = opts.oidc_issuer.as_ref().ok_or_else(|| {
+                    Error::from_reason("oidcIssuer is required when identityType='oidc'")
+                })?;
+                let sub = opts.oidc_subject.as_ref().ok_or_else(|| {
+                    Error::from_reason("oidcSubject is required when identityType='oidc'")
+                })?;
+                let iss: url::Url = iss_str
+                    .parse()
+                    .map_err(|e| Error::from_reason(format!("invalid oidcIssuer URL: {e}")))?;
+                (
+                    IdentityHint {
+                        kind: IdentityHintKind::Oidc,
+                        subject: sub.to_string(),
+                        issuer: Some(RawUrl::from(iss.clone())),
+                        public_key: None,
+                    },
+                    "oidc",
+                    vec![iss],
+                )
+            }
+            other => {
+                return Err(Error::from_reason(format!(
+                    "unknown identityType '{other}': expected 'pinned_key' or 'oidc'"
+                )))
+            }
+        };
+
         let mut builder = ManifestBuilder::new(&self.key)
             .display_name(&opts.display_name)
             .handshake_endpoint(endpoint)
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
-                subject: opts.display_name.clone(),
-                issuer: None,
-                public_key: Some(aitp_core::base64url::encode(
-                    &self.key.verifying_key().to_bytes(),
-                )),
-            })
-            .accept_identity_type("pinned_key")
+            .identity_hint(hint)
+            .accept_identity_type(accepted_type)
             .ttl_secs(opts.ttl_secs.unwrap_or(3600) as i64);
+
+        let anchors: Vec<url::Url> = match opts.accepted_trust_anchors {
+            Some(list) => list
+                .into_iter()
+                .map(|s| s.parse::<url::Url>())
+                .collect::<std::result::Result<_, _>>()
+                .map_err(|e| {
+                    Error::from_reason(format!("invalid acceptedTrustAnchors URL: {e}"))
+                })?,
+            None => default_anchors,
+        };
+        for a in anchors {
+            builder = builder.accept_trust_anchor(a);
+        }
 
         for cap in opts.offered_caps {
             builder = builder.offer(cap);
@@ -118,24 +228,87 @@ impl AitpAgent {
     }
 
     /// Create a new outbound (initiator) handshake session.
+    ///
+    /// `jwks` is an optional `JwksProvider` used when the peer's
+    /// manifest advertises an OIDC identity. `opts.trustAnchors`
+    /// overrides the manifest's `accepted_trust_anchors`.
     #[napi]
-    pub fn new_session(&self) -> Result<JsInitiatorSession> {
+    pub fn new_session(
+        &self,
+        jwks: Option<&JwksProvider>,
+        opts: Option<SessionOpts>,
+    ) -> Result<JsInitiatorSession> {
         let manifest = self.cached_manifest()?;
-        Ok(JsInitiatorSession::new(self.key.clone(), manifest))
+        let ctx = build_session_context(&manifest, jwks, opts)?;
+        Ok(JsInitiatorSession::new(self.key.clone(), manifest, ctx))
     }
 
-    /// Create a new inbound (responder) handshake session.
+    /// Create a new inbound (responder) handshake session. Mirror of
+    /// `newSession`.
     #[napi]
-    pub fn new_responder(&self) -> Result<JsResponderSession> {
+    pub fn new_responder(
+        &self,
+        jwks: Option<&JwksProvider>,
+        opts: Option<SessionOpts>,
+    ) -> Result<JsResponderSession> {
         let manifest = self.cached_manifest()?;
-        Ok(JsResponderSession::new(self.key.clone(), manifest))
+        let ctx = build_session_context(&manifest, jwks, opts)?;
+        Ok(JsResponderSession::new(self.key.clone(), manifest, ctx))
     }
 
     /// Verify a TCT JSON string and require `requiredGrant`. Rejects on
     /// an invalid, mis-audienced, expired, or under-scoped TCT.
+    ///
+    /// `expectedAudience` defaults to `null`, which means "verify as the
+    /// holder" (RFC-AITP-0005 §9 receipt model — `this.aid` is used).
+    /// Resource servers verifying a TCT presented by a peer should pass
+    /// the TCT's own `audience` field as `expectedAudience` (in v0.1 this
+    /// equals `subject`).
     #[napi]
-    pub fn verify_tct(&self, tct_json: String, required_grant: String) -> Result<JsTctIdentity> {
-        js_verify_tct(&self.key, &tct_json, &required_grant)
+    pub fn verify_tct(
+        &self,
+        tct_json: String,
+        required_grant: String,
+        expected_audience: Option<String>,
+    ) -> Result<JsTctIdentity> {
+        js_verify_tct(
+            &self.key,
+            &tct_json,
+            &required_grant,
+            expected_audience.as_deref(),
+        )
+    }
+
+    /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).
+    #[napi]
+    pub fn build_delegation(
+        &self,
+        held_tct_envelope_json: String,
+        delegatee_aid: String,
+        delegatee_pubkey_b64u: String,
+        scope: Vec<String>,
+        ttl_secs: Option<i64>,
+    ) -> Result<String> {
+        build_delegation_token_json(
+            &self.key,
+            &held_tct_envelope_json,
+            &delegatee_aid,
+            &delegatee_pubkey_b64u,
+            scope,
+            ttl_secs,
+        )
+    }
+
+    /// Mint a fresh `TctEnvelope` JSON for a delegatee after the verifier has
+    /// confirmed the delegation. The subject_pubkey binding is taken from the
+    /// verified token's `cnf` field.
+    #[napi]
+    pub fn issue_tct_for_delegatee(
+        &self,
+        verified: JsDelegationVerified,
+        ttl_secs: Option<i64>,
+    ) -> Result<String> {
+        issue_tct_for_delegatee_json(&self.key, &verified, ttl_secs)
     }
 
     /// Sign a `RevocationList` with this agent's key. `entries` carries
@@ -153,10 +326,6 @@ impl AitpAgent {
             .map(|e| {
                 let jti = Uuid::parse_str(&e.jti)
                     .map_err(|_| Error::from_reason(format!("invalid jti uuid: {}", e.jti)))?;
-                // Guard the f64→i64 cast: NaN/±inf would saturate to 0
-                // or i64::MIN/MAX, producing nonsense timestamps that
-                // still round-trip through the signed list and confuse
-                // verifying peers downstream.
                 let revoked_at = match e.revoked_at {
                     None => now,
                     Some(v) if v.is_finite() => Timestamp(v as i64),
@@ -184,13 +353,79 @@ impl AitpAgent {
             .map_err(|e| Error::from_reason(format!("sign_revocation_list failed: {e}")))?;
         serde_json::to_string(&envelope).map_err(|e| Error::from_reason(e.to_string()))
     }
+
+    /// Holder side: build a `TctRenewalPayload` JSON for an in-band
+    /// renewal of `currentTctEnvelopeJson` (RFC-AITP-0005 §10).
+    ///
+    /// **Gated by the `experimental-renewal` Cargo feature.** Off in
+    /// the default `.node` artifact; build with
+    /// `napi build --release -- --features experimental-renewal`.
+    #[cfg(feature = "experimental-renewal")]
+    #[napi]
+    pub fn build_renewal_request(&self, current_tct_envelope_json: String) -> Result<String> {
+        build_renewal_request_js(&self.key, &current_tct_envelope_json)
+    }
+
+    /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
+    /// fresh `TctEnvelope` JSON.
+    ///
+    /// **Gated by the `experimental-renewal` Cargo feature.**
+    #[cfg(feature = "experimental-renewal")]
+    #[napi]
+    pub fn process_renewal_request(
+        &self,
+        request_payload_json: String,
+        manifest_exp_unix_secs: i64,
+        new_ttl_secs: i64,
+    ) -> Result<String> {
+        process_renewal_request_js(
+            &self.key,
+            &request_payload_json,
+            manifest_exp_unix_secs,
+            new_ttl_secs,
+        )
+    }
 }
 
 impl AitpAgent {
+    /// Crate-internal accessor used by bundle / renewal modules that
+    /// need to sign with the agent's long-term key.
+    pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
+        self.key.clone()
+    }
+
     fn cached_manifest(&self) -> Result<Arc<Manifest>> {
         self.manifest
             .clone()
             .map(Arc::new)
             .ok_or_else(|| Error::from_reason("call buildManifest() before creating a session"))
     }
+}
+
+/// Build the per-session OIDC/trust-anchor context from the manifest,
+/// JWKS provider, and optional caller overrides.
+fn build_session_context(
+    manifest: &Manifest,
+    jwks: Option<&JwksProvider>,
+    opts: Option<SessionOpts>,
+) -> Result<SessionContext> {
+    let trust_anchors = opts.and_then(|o| o.trust_anchors);
+    let anchors: Vec<RawUrl> = match trust_anchors {
+        Some(list) => list
+            .into_iter()
+            .map(|s| {
+                s.parse::<url::Url>()
+                    .map(RawUrl::from)
+                    .map_err(|e| Error::from_reason(format!("invalid trustAnchors URL: {e}")))
+            })
+            .collect::<Result<_>>()?,
+        None => manifest.accepted_trust_anchors.clone(),
+    };
+    Ok(SessionContext {
+        jwks: jwks.map(|p| p.as_resolver()),
+        trust_anchors: anchors,
+        identity_kind: manifest.identity_hint.kind,
+        identity_subject: manifest.identity_hint.subject.clone(),
+        identity_issuer: manifest.identity_hint.issuer.clone(),
+    })
 }

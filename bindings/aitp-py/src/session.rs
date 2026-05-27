@@ -3,23 +3,110 @@
 //! Each method consumes/produces JSON strings that are HTTP request /
 //! response bodies; agent code passes them straight to/from its HTTP
 //! layer.
+//!
+//! Sessions are constructed with a [`SessionContext`] carrying the JWKS
+//! provider (for OIDC verification), accepted trust anchors, and the
+//! agent's own identity-hint kind (which determines whether HELLO /
+//! HELLO_ACK should present a pinned-key or OIDC proof). When the agent
+//! is in OIDC mode, `build_hello` / `process_hello` require an
+//! `oidc_mint_jwt` callable that mints the JWT with the handshake-
+//! generated nonce.
 
 use std::sync::Arc;
 
-use aitp_core::{AitpEnvelope, MessageType, Timestamp};
+use aitp_core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
-    Initiator, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
+    Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
     MutualHelloPayload, PresentedIdentity, Responder,
 };
-use aitp_manifest::{Manifest, ManifestEnvelope};
+use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
 use aitp_tct::TctEnvelope;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
 
 use crate::helpers::{make_peer_config, NoOpJwksResolver};
+use crate::oidc::make_oidc_minter;
+
+/// Per-session configuration cached at agent.new_session() time.
+pub struct SessionContext {
+    /// JWKS resolver — `None` ⇒ no resolver was wired in (pinned-key-only).
+    pub jwks: Option<Arc<dyn JwksResolver + Send + Sync + 'static>>,
+    /// Accepted OIDC issuer trust anchors for verifying peer identity.
+    pub trust_anchors: Vec<RawUrl>,
+    /// Our own manifest's identity_hint.kind — drives whether we present
+    /// pinned-key or OIDC in outbound payloads.
+    pub identity_kind: IdentityHintKind,
+    /// Our own manifest identity_hint.subject — used as the OIDC `sub`
+    /// claim placeholder and pinned-key `subject` field.
+    pub identity_subject: String,
+    /// Our own manifest identity_hint.issuer — for OIDC, the URL the
+    /// IdP will sign tokens for. None for pinned-key.
+    pub identity_issuer: Option<RawUrl>,
+}
+
+impl SessionContext {
+    /// Build a `PresentedIdentity` for an outbound HELLO / HELLO_ACK.
+    ///
+    /// In pinned-key mode, returns `PinnedKey { subject }`. In OIDC mode,
+    /// requires an `oidc_mint_jwt` callable and returns `OidcMinter`.
+    fn presented_identity(&self, oidc_mint_jwt: Option<Py<PyAny>>) -> PyResult<PresentedIdentity> {
+        match self.identity_kind {
+            IdentityHintKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
+                subject: self.identity_subject.clone(),
+            }),
+            IdentityHintKind::Oidc => {
+                let cb = oidc_mint_jwt.ok_or_else(|| {
+                    PyValueError::new_err(
+                        "agent manifest is OIDC; `oidc_mint_jwt` callable is required",
+                    )
+                })?;
+                let issuer_raw = self.identity_issuer.as_ref().ok_or_else(|| {
+                    PyRuntimeError::new_err(
+                        "OIDC identity_hint missing issuer (build_manifest invariant violated)",
+                    )
+                })?;
+                let issuer_url = issuer_raw.parse_url().map_err(|e| {
+                    PyRuntimeError::new_err(format!("identity_hint.issuer not a URL: {e}"))
+                })?;
+                Ok(PresentedIdentity::OidcMinter {
+                    issuer: issuer_url,
+                    subject: self.identity_subject.clone(),
+                    mint_jwt: make_oidc_minter(cb),
+                })
+            }
+        }
+    }
+
+    fn jwks_for_call(&self) -> Box<dyn JwksResolver + '_> {
+        match &self.jwks {
+            Some(arc) => {
+                // Re-borrow the trait object behind the Arc for the
+                // lifetime of this call. PeerConfig only needs &dyn for
+                // one synchronous step.
+                Box::new(SessionJwksRef { inner: arc.clone() })
+            }
+            None => Box::new(NoOpJwksResolver),
+        }
+    }
+}
+
+/// Adapter that lets an `Arc<dyn JwksResolver>` be borrowed as a
+/// `&dyn JwksResolver` for one PeerConfig construction.
+struct SessionJwksRef {
+    inner: Arc<dyn JwksResolver + Send + Sync + 'static>,
+}
+
+impl JwksResolver for SessionJwksRef {
+    fn resolve(
+        &self,
+        issuer: &url::Url,
+    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, aitp_handshake::ResolveError> {
+        self.inner.resolve(issuer)
+    }
+}
 
 // ── Initiator ───────────────────────────────────────────────────────────
 
@@ -28,14 +115,20 @@ use crate::helpers::{make_peer_config, NoOpJwksResolver};
 pub struct PyInitiatorSession {
     key: Arc<AitpSigningKey>,
     manifest: Arc<Manifest>,
+    ctx: SessionContext,
     inner: Option<Initiator>,
 }
 
 impl PyInitiatorSession {
-    pub(crate) fn new(key: Arc<AitpSigningKey>, manifest: Arc<Manifest>) -> Self {
+    pub(crate) fn new(
+        key: Arc<AitpSigningKey>,
+        manifest: Arc<Manifest>,
+        ctx: SessionContext,
+    ) -> Self {
         Self {
             key,
             manifest,
+            ctx,
             inner: None,
         }
     }
@@ -48,10 +141,17 @@ impl PyInitiatorSession {
     /// `peer_manifest_json` is the `ManifestEnvelope` JSON from the peer's
     /// `GET /.well-known/aitp-manifest`. Returns the envelope JSON to
     /// `POST` to `/aitp/handshake/hello`.
+    ///
+    /// `oidc_mint_jwt` is required when this agent's manifest is OIDC;
+    /// the callable receives the handshake-generated `pop_nonce` and
+    /// must return a freshly-minted JWT whose `nonce` claim equals
+    /// that nonce. Ignored for pinned-key agents.
+    #[pyo3(signature = (peer_manifest_json, requested_grants, oidc_mint_jwt=None))]
     fn build_hello(
         &mut self,
         peer_manifest_json: &str,
         requested_grants: Vec<String>,
+        oidc_mint_jwt: Option<Py<PyAny>>,
     ) -> PyResult<String> {
         let ManifestEnvelope {
             manifest: peer_manifest,
@@ -63,13 +163,18 @@ impl PyInitiatorSession {
         // machine used to mint the proof.
         let msg_id = Uuid::new_v4();
         let ts = Timestamp::now();
-        let jwks = NoOpJwksResolver;
-        let cfg = make_peer_config(&self.key, &self.manifest, &jwks);
-        let subject = self.manifest.identity_hint.subject.clone();
+        let jwks = self.ctx.jwks_for_call();
+        let cfg = make_peer_config(
+            &self.key,
+            &self.manifest,
+            jwks.as_ref(),
+            &self.ctx.trust_anchors,
+        );
+        let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
 
         let (initiator, hello) = Initiator::start(
             &cfg,
-            PresentedIdentity::PinnedKey { subject },
+            presented,
             &peer_manifest.aid,
             &msg_id,
             ts,
@@ -86,19 +191,19 @@ impl PyInitiatorSession {
     }
 
     /// Step 2 — process `MUTUAL_HELLO_ACK`, produce `MUTUAL_COMMIT`.
-    ///
-    /// `hello_ack_json` is the response body from `/aitp/handshake/hello`.
-    /// `session_id` is the `X-Aitp-Session-Id` response header (echoed
-    /// back on the commit `POST`). Returns the `MUTUAL_COMMIT` envelope
-    /// JSON.
     fn process_hello_ack(&mut self, hello_ack_json: &str, _session_id: &str) -> PyResult<String> {
         let envelope: AitpEnvelope = serde_json::from_str(hello_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualHelloAckPayload = serde_json::from_value(envelope.payload.clone())
             .map_err(|e| PyValueError::new_err(format!("invalid hello_ack payload: {e}")))?;
 
-        let jwks = NoOpJwksResolver;
-        let cfg = make_peer_config(&self.key, &self.manifest, &jwks);
+        let jwks = self.ctx.jwks_for_call();
+        let cfg = make_peer_config(
+            &self.key,
+            &self.manifest,
+            jwks.as_ref(),
+            &self.ctx.trust_anchors,
+        );
         let commit = self
             .inner
             .as_mut()
@@ -116,16 +221,20 @@ impl PyInitiatorSession {
     }
 
     /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the `TctEnvelope`
-    /// JSON: the TCT the peer issued to us. Store it and present it as
-    /// `X-AITP-TCT` on subsequent capability calls.
+    /// JSON: the TCT the peer issued to us.
     fn complete(&mut self, commit_ack_json: &str) -> PyResult<String> {
         let envelope: AitpEnvelope = serde_json::from_str(commit_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualCommitAckPayload = serde_json::from_value(envelope.payload.clone())
             .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
 
-        let jwks = NoOpJwksResolver;
-        let cfg = make_peer_config(&self.key, &self.manifest, &jwks);
+        let jwks = self.ctx.jwks_for_call();
+        let cfg = make_peer_config(
+            &self.key,
+            &self.manifest,
+            jwks.as_ref(),
+            &self.ctx.trust_anchors,
+        );
         let tct = self
             .inner
             .as_mut()
@@ -145,14 +254,20 @@ impl PyInitiatorSession {
 pub struct PyResponderSession {
     key: Arc<AitpSigningKey>,
     manifest: Arc<Manifest>,
+    ctx: SessionContext,
     inner: Option<Responder>,
 }
 
 impl PyResponderSession {
-    pub(crate) fn new(key: Arc<AitpSigningKey>, manifest: Arc<Manifest>) -> Self {
+    pub(crate) fn new(
+        key: Arc<AitpSigningKey>,
+        manifest: Arc<Manifest>,
+        ctx: SessionContext,
+    ) -> Self {
         Self {
             key,
             manifest,
+            ctx,
             inner: None,
         }
     }
@@ -162,11 +277,14 @@ impl PyResponderSession {
 impl PyResponderSession {
     /// Process an incoming `MUTUAL_HELLO` envelope.
     ///
-    /// `hello_json` is the `POST /aitp/handshake/hello` request body.
-    /// Returns `(hello_ack_json, session_id)` — set `hello_ack_json` as
-    /// the response body and `session_id` as the `X-Aitp-Session-Id`
-    /// response header.
-    fn process_hello(&mut self, hello_json: &str) -> PyResult<(String, String)> {
+    /// `oidc_mint_jwt` is required when this agent's manifest is OIDC;
+    /// see `InitiatorSession.build_hello` for semantics.
+    #[pyo3(signature = (hello_json, oidc_mint_jwt=None))]
+    fn process_hello(
+        &mut self,
+        hello_json: &str,
+        oidc_mint_jwt: Option<Py<PyAny>>,
+    ) -> PyResult<(String, String)> {
         let envelope: AitpEnvelope = serde_json::from_str(hello_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let hello: MutualHelloPayload = serde_json::from_value(envelope.payload.clone())
@@ -176,9 +294,14 @@ impl PyResponderSession {
         // sign the ack envelope with the same pair.
         let ack_msg_id = Uuid::new_v4();
         let ack_ts = Timestamp::now();
-        let jwks = NoOpJwksResolver;
-        let cfg = make_peer_config(&self.key, &self.manifest, &jwks);
-        let subject = self.manifest.identity_hint.subject.clone();
+        let jwks = self.ctx.jwks_for_call();
+        let cfg = make_peer_config(
+            &self.key,
+            &self.manifest,
+            jwks.as_ref(),
+            &self.ctx.trust_anchors,
+        );
+        let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
         // Mutual handshake: the responder must also receive a TCT, so it
         // requests every capability the initiator's manifest offers.
         let requested = hello.manifest.offered_capabilities.clone();
@@ -186,7 +309,7 @@ impl PyResponderSession {
         let (responder, ack) = Responder::on_hello(
             &envelope,
             &hello,
-            PresentedIdentity::PinnedKey { subject },
+            presented,
             &ack_msg_id,
             ack_ts,
             &cfg,
@@ -213,19 +336,19 @@ impl PyResponderSession {
     }
 
     /// Process an incoming `MUTUAL_COMMIT` envelope.
-    ///
-    /// `commit_json` is the `POST /aitp/handshake/commit` request body.
-    /// Returns `(commit_ack_json, tct_json)` — set `commit_ack_json` as
-    /// the response body; `tct_json` is the `TctEnvelope` JSON the
-    /// initiator issued to us.
     fn process_commit(&mut self, commit_json: &str) -> PyResult<(String, String)> {
         let envelope: AitpEnvelope = serde_json::from_str(commit_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let commit: MutualCommitPayload = serde_json::from_value(envelope.payload.clone())
             .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
 
-        let jwks = NoOpJwksResolver;
-        let cfg = make_peer_config(&self.key, &self.manifest, &jwks);
+        let jwks = self.ctx.jwks_for_call();
+        let cfg = make_peer_config(
+            &self.key,
+            &self.manifest,
+            jwks.as_ref(),
+            &self.ctx.trust_anchors,
+        );
         let (ack, held_tct) = self
             .inner
             .as_mut()

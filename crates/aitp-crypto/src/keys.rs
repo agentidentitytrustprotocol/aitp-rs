@@ -1,72 +1,169 @@
 //! Ed25519 and P-256 ECDSA signing/verifying keys.
 //!
-//! `AitpSigningKey` is Ed25519-only (the only signing algorithm in v0.1).
-//! `AitpVerifyingKey` is an algorithm-agile enum: Ed25519 keys come from
-//! the legacy untagged AID form and the `aid:pubkey:ed25519:<43>` form;
-//! P-256 keys come from `aid:pubkey:p256:<44>`. Verifier dispatch is
-//! driven by the algorithm tag on the [`Signature`] passed to
-//! [`AitpVerifyingKey::verify`].
+//! Both `AitpSigningKey` and `AitpVerifyingKey` are algorithm-agile enums.
+//! Ed25519 keys come from the legacy untagged AID form and the
+//! `aid:pubkey:ed25519:<43>` form; P-256 keys come from
+//! `aid:pubkey:p256:<44>`. Verifier dispatch is driven by the algorithm tag
+//! on the [`Signature`] passed to [`AitpVerifyingKey::verify`]; signer
+//! dispatch is driven by the variant of [`AitpSigningKey`] in hand.
+//!
+//! Untagged Ed25519 signatures are produced by Ed25519 signing keys for
+//! wire compatibility with v0.1 verifiers; P-256 signing keys always emit
+//! `p256.<86-char-b64url>` tagged signatures (RFC-AITP-0001 §5.4.3).
 
 use crate::CryptoError;
 use aitp_core::{Aid, AidAlgorithm, ED25519_SIGNATURE_BASE64URL_LEN};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{
-    Signature as DalekSignature, Signer, SigningKey as DalekSigningKey,
+    Signature as DalekSignature, Signer as Ed25519Signer, SigningKey as DalekSigningKey,
     VerifyingKey as DalekVerifyingKey,
 };
 use p256::ecdsa::{
-    signature::Verifier as P256Verifier, Signature as P256Signature,
-    VerifyingKey as P256VerifyingKey,
+    signature::{Signer as P256Signer, Verifier as P256Verifier},
+    Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
 
-/// An Ed25519 signing key, with cached AID derivation.
+/// An AITP signing key. Algorithm-agile: holds either an Ed25519 key (the
+/// v0.1 default) or a P-256 ECDSA key (post-v0.1 algorithm-agile wire
+/// format, RFC-AITP-0001 §5.4.3).
 ///
-/// `ed25519_dalek::SigningKey` implements `ZeroizeOnDrop`, so the secret
-/// scalar is wiped from memory when this value is dropped.
-pub struct AitpSigningKey {
-    inner: DalekSigningKey,
-    aid: Aid,
+/// Both `ed25519_dalek::SigningKey` and `p256::ecdsa::SigningKey` zeroize
+/// their secret scalar on drop, so this value's secret material is wiped
+/// from memory when the enum is dropped.
+pub enum AitpSigningKey {
+    /// Ed25519 signing key with cached AID derivation.
+    Ed25519 {
+        /// The underlying ed25519-dalek key (secret + public). Zeroized on drop.
+        inner: DalekSigningKey,
+        /// AID derived from the public key. Cached at construction time.
+        aid: Aid,
+    },
+    /// P-256 (secp256r1) ECDSA signing key with cached AID derivation. The
+    /// AID embeds the SEC1-compressed (33-byte) public key.
+    P256 {
+        /// The underlying p256 ECDSA signing key. Zeroized on drop.
+        inner: P256SigningKey,
+        /// AID derived from the SEC1-compressed public key. Cached at construction time.
+        aid: Aid,
+    },
 }
 
 impl AitpSigningKey {
-    /// Generate a fresh keypair using OS randomness.
+    /// Generate a fresh Ed25519 keypair using OS randomness. Equivalent to
+    /// [`Self::generate_ed25519`] — the default suite for v0.1 deployments.
     pub fn generate() -> Self {
-        let inner = DalekSigningKey::generate(&mut rand::rngs::OsRng);
-        let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
-        Self { inner, aid }
+        Self::generate_ed25519()
     }
 
-    /// Construct from a raw 32-byte seed.
+    /// Generate a fresh Ed25519 keypair using OS randomness.
+    pub fn generate_ed25519() -> Self {
+        let inner = DalekSigningKey::generate(&mut rand::rngs::OsRng);
+        let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
+        Self::Ed25519 { inner, aid }
+    }
+
+    /// Generate a fresh P-256 keypair using OS randomness.
+    pub fn generate_p256() -> Self {
+        let inner = P256SigningKey::random(&mut rand::rngs::OsRng);
+        let aid = Self::p256_aid_for(&inner);
+        Self::P256 { inner, aid }
+    }
+
+    /// Construct an Ed25519 signing key from a raw 32-byte seed. Always
+    /// succeeds (every 32-byte value is a valid Ed25519 seed). Equivalent
+    /// to [`Self::from_ed25519_seed`].
     ///
     /// Useful for tests with pinned key material and for restoring a key
     /// from secure storage. Production callers SHOULD use [`Self::generate`].
     pub fn from_seed(seed: &[u8; 32]) -> Self {
+        Self::from_ed25519_seed(seed)
+    }
+
+    /// Construct an Ed25519 signing key from a raw 32-byte seed. Always
+    /// succeeds (every 32-byte value is a valid Ed25519 seed).
+    pub fn from_ed25519_seed(seed: &[u8; 32]) -> Self {
         let inner = DalekSigningKey::from_bytes(seed);
         let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
-        Self { inner, aid }
+        Self::Ed25519 { inner, aid }
+    }
+
+    /// Construct a P-256 signing key from a 32-byte private scalar.
+    ///
+    /// Returns `Err(CryptoError::KeyParseFailed(_))` for the (vanishingly
+    /// rare) inputs that are not a valid P-256 private scalar (zero or
+    /// >= curve order). Production callers SHOULD use [`Self::generate_p256`].
+    pub fn from_p256_seed(seed: &[u8; 32]) -> Result<Self, CryptoError> {
+        let inner = P256SigningKey::from_bytes(seed.into())
+            .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))?;
+        let aid = Self::p256_aid_for(&inner);
+        Ok(Self::P256 { inner, aid })
     }
 
     /// Return the AID derived from this key's public component.
     pub fn aid(&self) -> &Aid {
-        &self.aid
+        match self {
+            Self::Ed25519 { aid, .. } => aid,
+            Self::P256 { aid, .. } => aid,
+        }
     }
 
     /// Return the corresponding verifying (public) key.
     pub fn verifying_key(&self) -> AitpVerifyingKey {
-        AitpVerifyingKey::Ed25519(self.inner.verifying_key())
+        match self {
+            Self::Ed25519 { inner, .. } => AitpVerifyingKey::Ed25519(inner.verifying_key()),
+            Self::P256 { inner, .. } => AitpVerifyingKey::P256(*inner.verifying_key()),
+        }
     }
 
-    /// Sign a message (typically the JCS canonicalization of an AITP object).
+    /// Which signing algorithm this key implements.
+    pub fn algorithm(&self) -> AidAlgorithm {
+        match self {
+            Self::Ed25519 { .. } => AidAlgorithm::Ed25519,
+            Self::P256 { .. } => AidAlgorithm::P256,
+        }
+    }
+
+    /// Sign a message (typically the JCS canonicalization of an AITP
+    /// object).
+    ///
+    /// Ed25519 signing emits the **untagged** legacy v0.1 form (86
+    /// base64url characters with no algorithm prefix) for wire
+    /// compatibility with v0.1 verifiers. P-256 signing always emits the
+    /// tagged `p256.<86-char-b64url>` form per RFC-AITP-0001 §5.4.3 — a
+    /// v0.1 verifier rejects it on the tag, an algorithm-agile verifier
+    /// dispatches on it.
     pub fn sign(&self, message: &[u8]) -> Signature {
-        let sig = self.inner.sign(message);
-        Signature(Base64UrlUnpadded::encode_string(&sig.to_bytes()))
+        match self {
+            Self::Ed25519 { inner, .. } => {
+                let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
+                Signature(Base64UrlUnpadded::encode_string(&sig.to_bytes()))
+            }
+            Self::P256 { inner, .. } => {
+                // p256's Signer impl uses RFC6979 deterministic-k, so the
+                // wire output is reproducible for a given (key, message).
+                let sig: P256Signature =
+                    <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
+                let encoded = Base64UrlUnpadded::encode_string(&sig.to_bytes());
+                Signature(format!("p256.{encoded}"))
+            }
+        }
+    }
+
+    fn p256_aid_for(inner: &P256SigningKey) -> Aid {
+        let encoded = inner.verifying_key().to_encoded_point(true);
+        let bytes = encoded.as_bytes();
+        debug_assert_eq!(bytes.len(), 33, "P-256 SEC1-compressed must be 33 bytes");
+        let mut arr = [0u8; 33];
+        arr.copy_from_slice(bytes);
+        Aid::from_p256(&arr)
     }
 }
 
 impl std::fmt::Debug for AitpSigningKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AitpSigningKey")
-            .field("aid", &self.aid)
+            .field("algorithm", &self.algorithm())
+            .field("aid", &self.aid())
             .finish_non_exhaustive()
     }
 }
@@ -441,6 +538,47 @@ mod tests {
             .verify(msg, &parsed)
             .expect("P-256 signature verifies");
         assert!(verifier.verify(b"tampered", &parsed).is_err());
+    }
+
+    #[test]
+    fn p256_signing_key_round_trip() {
+        let key = AitpSigningKey::generate_p256();
+        assert_eq!(key.algorithm(), AidAlgorithm::P256);
+        assert!(matches!(key.aid().algorithm(), AidAlgorithm::P256));
+
+        let msg = b"aitp p256 signing key round-trip";
+        let sig = key.sign(msg);
+        assert_eq!(sig.algorithm(), SignatureAlgorithm::P256);
+        assert!(sig.as_str().starts_with("p256."));
+
+        let vk = key.verifying_key();
+        vk.verify(msg, &sig).expect("p256 round-trip verifies");
+        assert!(vk.verify(b"tampered", &sig).is_err());
+
+        // The cached AID matches one freshly derived from from_aid.
+        let derived = AitpVerifyingKey::from_aid(key.aid()).unwrap();
+        assert_eq!(derived.to_compressed(), vk.to_compressed());
+    }
+
+    #[test]
+    fn p256_from_seed_is_deterministic() {
+        let a = AitpSigningKey::from_p256_seed(&[5u8; 32]).expect("valid p256 seed");
+        let b = AitpSigningKey::from_p256_seed(&[5u8; 32]).expect("valid p256 seed");
+        assert_eq!(a.aid(), b.aid());
+        let msg = b"deterministic";
+        // RFC6979 makes the signatures deterministic too.
+        assert_eq!(a.sign(msg).as_str(), b.sign(msg).as_str());
+    }
+
+    #[test]
+    fn ed25519_signing_key_produces_untagged_signature() {
+        // Wire compatibility: Ed25519 signing must still emit the legacy
+        // untagged 86-char form so v0.1 verifiers accept it.
+        let key = AitpSigningKey::generate();
+        let sig = key.sign(b"compat");
+        assert!(!sig.as_str().starts_with("ed25519."));
+        assert!(!sig.as_str().starts_with("p256."));
+        assert_eq!(sig.as_str().len(), ED25519_SIGNATURE_BASE64URL_LEN);
     }
 
     #[test]
