@@ -62,6 +62,12 @@ impl SessionContext {
                     mint_jwt,
                 })
             }
+            // `IdentityHintKind` is `#[non_exhaustive]`; reject any
+            // future variant the Node SDK hasn't yet wired up.
+            other => Err(Error::from_reason(format!(
+                "unsupported identity_hint kind {other:?}; \
+                 update the Node SDK to handle this variant"
+            ))),
         }
     }
 

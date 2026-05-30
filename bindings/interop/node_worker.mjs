@@ -102,14 +102,12 @@ const methods = {
 
   new_agent: (p) => {
     const suite = p.suite ?? 'ed25519';
+    const opts = { suite };
     let agent;
     if (p.seed) {
-      const buf = Buffer.from(p.seed);
-      agent = suite === 'p256'
-        ? AitpAgent.fromP256Seed(buf)
-        : AitpAgent.fromSeed(buf);
+      agent = AitpAgent.fromSeed(Buffer.from(p.seed), opts);
     } else {
-      agent = suite === 'p256' ? AitpAgent.generateP256() : AitpAgent.generate();
+      agent = AitpAgent.generate(opts);
     }
     return { handle: store(agent), aid: agent.aid };
   },

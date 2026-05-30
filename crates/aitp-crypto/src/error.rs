@@ -2,6 +2,7 @@
 
 /// Errors returned by signing, verifying, and key parsing operations.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum CryptoError {
     /// Signature verification returned a cryptographic failure.
     #[error("signature verification failed")]

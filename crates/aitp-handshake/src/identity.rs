@@ -44,8 +44,11 @@ pub struct IdentityDescriptor {
 }
 
 /// Identity mechanism discriminator.
+///
+/// Marked `#[non_exhaustive]` (matches [`aitp_manifest::IdentityHintKind`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IdentityKind {
     /// OIDC OpenID Connect provider.
     Oidc,

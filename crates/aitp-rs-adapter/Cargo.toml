@@ -9,13 +9,13 @@ rust-version.workspace = true
 publish = false
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.1.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.1.0" }
-aitp-manifest = { path = "../aitp-manifest", version = "0.1.0" }
-aitp-handshake = { path = "../aitp-handshake", version = "0.1.0" }
-aitp-tct = { path = "../aitp-tct", version = "0.1.0" }
-aitp-delegation = { path = "../aitp-delegation", version = "0.1.0" }
-aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.1.0" }
+aitp-core = { path = "../aitp-core", version = "0.2.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.2.0" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.2.0" }
+aitp-handshake = { path = "../aitp-handshake", version = "0.2.0" }
+aitp-tct = { path = "../aitp-tct", version = "0.2.0" }
+aitp-delegation = { path = "../aitp-delegation", version = "0.2.0" }
+aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.2.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }

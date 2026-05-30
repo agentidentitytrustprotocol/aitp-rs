@@ -2,6 +2,7 @@
 
 /// Errors from running the Mutual Handshake.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum HandshakeError {
     /// Envelope-level rejection (sender mismatch, bad timestamp, replay).
     #[error("invalid envelope: {0}")]

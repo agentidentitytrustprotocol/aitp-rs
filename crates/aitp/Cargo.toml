@@ -31,14 +31,14 @@ experimental-session-bundle = [
 all = ["http-client", "http-server"]
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.1.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.1.0" }
-aitp-manifest = { path = "../aitp-manifest", version = "0.1.0" }
-aitp-handshake = { path = "../aitp-handshake", version = "0.1.0" }
-aitp-tct = { path = "../aitp-tct", version = "0.1.0" }
-aitp-delegation = { path = "../aitp-delegation", version = "0.1.0" }
-aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.1.0", optional = true }
-aitp-transport-http = { path = "../aitp-transport-http", version = "0.1.0", optional = false }
+aitp-core = { path = "../aitp-core", version = "0.2.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.2.0" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.2.0" }
+aitp-handshake = { path = "../aitp-handshake", version = "0.2.0" }
+aitp-tct = { path = "../aitp-tct", version = "0.2.0" }
+aitp-delegation = { path = "../aitp-delegation", version = "0.2.0" }
+aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.2.0", optional = true }
+aitp-transport-http = { path = "../aitp-transport-http", version = "0.2.0", optional = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -46,3 +46,10 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true }
 rand = { workspace = true }
+# Used by `TctStore` for non-poisoning lock semantics — a poisoned
+# `std::sync::RwLock` would silently turn every subsequent
+# `insert`/`get`/`remove` into a no-op (the prior `if let Ok(..)`
+# pattern), masking bugs and degrading the store to "TCT cache always
+# misses" without any error path. parking_lot's locks never poison, so
+# a panic in one critical section does not corrupt subsequent ones.
+parking_lot = { workspace = true }

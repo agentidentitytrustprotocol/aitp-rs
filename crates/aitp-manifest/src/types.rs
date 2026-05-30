@@ -101,8 +101,12 @@ pub struct IdentityHint {
 }
 
 /// Identity provider type.
+///
+/// Marked `#[non_exhaustive]` so future identity-hint kinds (e.g.
+/// did, mtls) added to the spec can ship without a major bump.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum IdentityHintKind {
     /// OIDC OpenID Connect issuer.
     Oidc,

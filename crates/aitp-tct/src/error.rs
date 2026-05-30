@@ -2,6 +2,7 @@
 
 /// Errors from TCT issuance and verification.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum TctError {
     /// Version is not supported by this implementation.
     #[error("TCT version is not supported")]

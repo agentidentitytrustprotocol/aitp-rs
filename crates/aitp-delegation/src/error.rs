@@ -2,6 +2,7 @@
 
 /// Errors from delegation token issuance and verification.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum DelegationError {
     /// `audience` did not equal verifier's AID, or `delegator` did not
     /// equal verifier's AID.

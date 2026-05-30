@@ -72,8 +72,13 @@ pub struct Sender {
 }
 
 /// Wire-level message type discriminant.
+///
+/// Marked `#[non_exhaustive]` so future protocol extensions (new
+/// envelope message types added in RFC-AITP minor revisions) do not
+/// break downstream `match` arms.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum MessageType {
     /// Initiating peer's handshake opener (RFC-AITP-0004).
     MutualHello,

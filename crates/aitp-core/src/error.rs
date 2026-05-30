@@ -11,7 +11,12 @@ use serde::{Deserialize, Serialize};
 /// Protocol-specific crates have their own narrower error types
 /// (e.g. `TctError`, `ManifestError`) that flatten into this with
 /// `From` impls.
+///
+/// Marked `#[non_exhaustive]` so future error categories can be added
+/// without a semver-major bump. Downstream matches must include a
+/// fall-through arm.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum AitpError {
     /// Replay-protection or envelope-level rejection.
     #[error("envelope rejected: {0}")]
@@ -45,8 +50,14 @@ pub enum AitpError {
 /// Wire-level error code as it appears on the protocol.
 ///
 /// Serialized as `SCREAMING_SNAKE_CASE` strings matching the registry.
+///
+/// Marked `#[non_exhaustive]` so new codes added to the spec's error
+/// registry can ship in a future minor version without breaking
+/// downstream `match` statements. Downstream matches must include a
+/// fall-through arm.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
+#[non_exhaustive]
 pub enum ErrorCode {
     // ── Envelope-level ──────────────────────────────────────────────────
     /// Envelope JSON failed schema validation.

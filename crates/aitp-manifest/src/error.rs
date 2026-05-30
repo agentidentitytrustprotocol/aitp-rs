@@ -2,6 +2,7 @@
 
 /// Errors from Manifest issuance and verification.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ManifestError {
     /// `expires_at` is in the past.
     #[error("manifest has expired")]

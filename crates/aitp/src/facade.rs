@@ -531,7 +531,7 @@ fn rand_bytes_16() -> [u8; 16] {
 /// share across tasks.
 #[derive(Clone)]
 pub struct TctStore {
-    inner: std::sync::Arc<std::sync::RwLock<std::collections::HashMap<aitp_core::Aid, Stored>>>,
+    inner: std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<aitp_core::Aid, Stored>>>,
     refresh_threshold: f64,
 }
 
@@ -556,7 +556,7 @@ impl TctStore {
     /// Default is 0.20 (20 %).
     pub fn new(refresh_threshold: f64) -> Self {
         Self {
-            inner: std::sync::Arc::new(std::sync::RwLock::new(std::collections::HashMap::new())),
+            inner: std::sync::Arc::new(parking_lot::RwLock::new(std::collections::HashMap::new())),
             refresh_threshold,
         }
     }
@@ -565,40 +565,31 @@ impl TctStore {
     pub fn insert(&self, envelope: TctEnvelope) {
         let issuer = envelope.tct.issuer.clone();
         let original_ttl_secs = envelope.tct.expires_at.0 - envelope.tct.issued_at.0;
-        if let Ok(mut map) = self.inner.write() {
-            map.insert(
-                issuer,
-                Stored {
-                    envelope,
-                    original_ttl_secs,
-                },
-            );
-        }
+        let mut map = self.inner.write();
+        map.insert(
+            issuer,
+            Stored {
+                envelope,
+                original_ttl_secs,
+            },
+        );
     }
 
     /// Fetch a stored TCT for `peer_aid`, if any.
     pub fn get(&self, peer_aid: &aitp_core::Aid) -> Option<TctEnvelope> {
-        self.inner
-            .read()
-            .ok()?
-            .get(peer_aid)
-            .map(|s| s.envelope.clone())
+        self.inner.read().get(peer_aid).map(|s| s.envelope.clone())
     }
 
     /// Remove a stored TCT (e.g. after revocation).
     pub fn remove(&self, peer_aid: &aitp_core::Aid) {
-        if let Ok(mut map) = self.inner.write() {
-            map.remove(peer_aid);
-        }
+        self.inner.write().remove(peer_aid);
     }
 
     /// Whether the held TCT for `peer_aid` is approaching expiry and
     /// SHOULD be refreshed by the caller. Returns `false` when no TCT
     /// is stored.
     pub fn needs_refresh(&self, peer_aid: &aitp_core::Aid, now: Timestamp) -> bool {
-        let Ok(map) = self.inner.read() else {
-            return false;
-        };
+        let map = self.inner.read();
         let Some(entry) = map.get(peer_aid) else {
             return false;
         };
@@ -616,10 +607,7 @@ impl TctStore {
     /// Snapshot of every stored peer AID (e.g. for a periodic refresh
     /// scan).
     pub fn peer_aids(&self) -> Vec<aitp_core::Aid> {
-        self.inner
-            .read()
-            .map(|m| m.keys().cloned().collect())
-            .unwrap_or_default()
+        self.inner.read().keys().cloned().collect()
     }
 }
 

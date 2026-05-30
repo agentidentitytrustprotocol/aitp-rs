@@ -10,8 +10,8 @@ use aitp_core::{Aid, Timestamp};
 use aitp_tct::{
     verify_revocation_list, RevocationListEnvelope, TctError, VerifyRevocationListContext,
 };
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::time::Duration;
 use tracing::debug;
 use uuid::Uuid;
@@ -292,7 +292,7 @@ impl<P: RevocationProvider> RevocationCache<P> {
     }
 
     fn cached_fresh(&self, issuer: &Aid, now: Timestamp) -> Option<RevocationListEnvelope> {
-        let cache = self.inner.read().ok()?;
+        let cache = self.inner.read();
         let entry = cache.get(issuer)?;
         let cache_age = now.0.saturating_sub(entry.cached_at.0);
         if cache_age <= self.policy.cache_ttl_secs as i64
@@ -309,15 +309,14 @@ impl<P: RevocationProvider> RevocationCache<P> {
     }
 
     fn store(&self, issuer: Aid, envelope: RevocationListEnvelope, now: Timestamp) {
-        if let Ok(mut cache) = self.inner.write() {
-            cache.insert(
-                issuer,
-                CachedSnapshot {
-                    envelope,
-                    cached_at: now,
-                },
-            );
-        }
+        let mut cache = self.inner.write();
+        cache.insert(
+            issuer,
+            CachedSnapshot {
+                envelope,
+                cached_at: now,
+            },
+        );
     }
 }
 

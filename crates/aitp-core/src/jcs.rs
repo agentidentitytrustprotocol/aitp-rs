@@ -17,6 +17,7 @@ use sha2::{Digest, Sha256};
 
 /// Errors that can occur during canonicalization.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JcsError {
     /// JSON contained a non-finite number (NaN or Infinity); RFC 8785 forbids these.
     #[error("number is not finite (NaN or Infinity is not permitted in JSON)")]

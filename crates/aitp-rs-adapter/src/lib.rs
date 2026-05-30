@@ -985,6 +985,9 @@ fn handshake_error_code(e: &aitp_handshake::HandshakeError) -> String {
         Crypto(_) => "INVALID_SIGNATURE".to_string(),
         Rng(_) => "INTERNAL_ERROR".to_string(),
         Canonicalization(_) => "INTERNAL_ERROR".to_string(),
+        // HandshakeError is #[non_exhaustive]; future variants default
+        // to INTERNAL_ERROR so the adapter never panics on a new variant.
+        _ => "INTERNAL_ERROR".to_string(),
     }
 }
 
@@ -1025,6 +1028,7 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         Canonicalization(_) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         Rng(_) => "INTERNAL_ERROR",
+        _ => "INTERNAL_ERROR",
     }
     .to_string()
 }
@@ -1118,6 +1122,7 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
             "POP_RESPONSE_INVALID"
         }
         Crypto(_) => "INVALID_SIGNATURE",
+        _ => "INTERNAL_ERROR",
     }
     .to_string()
 }
@@ -1246,6 +1251,7 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         EmptyScope | CnfMalformed | MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
+        _ => "INTERNAL_ERROR",
     }
     .to_string()
 }

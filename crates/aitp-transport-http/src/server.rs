@@ -36,6 +36,24 @@ use uuid::Uuid;
 /// half-finished state.
 pub const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(60);
 
+/// Default upper bound on the number of in-progress handshake sessions
+/// retained server-side. Once exceeded, the oldest sessions are evicted
+/// preemptively even if their TTL has not elapsed. This defends against
+/// a HELLO flood that would otherwise grow the session table without
+/// bound until the next sweep. 10 000 in-flight sessions covers a
+/// realistic peak for a single-host responder; operators with higher
+/// throughput should raise this via [`HandshakeServer::with_max_sessions`].
+pub const DEFAULT_MAX_SESSIONS: usize = 10_000;
+
+/// Default period for the background session sweeper. Sweep-on-request
+/// alone is insufficient: a HELLO flood that goes quiet leaves stale
+/// sessions occupying memory until the next request arrives. A periodic
+/// sweep evicts those entries on a bounded schedule independent of
+/// traffic. The default is half the [`DEFAULT_SESSION_TTL`] so any
+/// expired session is reclaimed within at most `TTL + period` from
+/// its creation. Disabled by [`Duration::ZERO`].
+pub const DEFAULT_SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
+
 /// Producer of the local issuer's [`RevocationListEnvelope`] for the
 /// outbound `/.well-known/aitp-revocation-list` endpoint
 /// (RFC-AITP-0008 §1.5).
@@ -178,6 +196,12 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     requested_grants: Vec<String>,
     sessions: Mutex<HashMap<Uuid, SessionEntry>>,
     session_ttl: Duration,
+    /// Hard cap on the number of in-progress sessions retained
+    /// server-side. When an insert would exceed this, the oldest
+    /// entry is evicted regardless of its TTL. Atomic so
+    /// [`HandshakeServer::with_max_sessions`] can configure it after
+    /// the `Arc<HandshakeState>` is already built.
+    max_sessions: std::sync::atomic::AtomicUsize,
     /// Replay deny list (RFC-AITP-0001 §5.5). Every accepted envelope's
     /// `message_id` is recorded for `replay_window`; a duplicate within
     /// that window is rejected with `REPLAY_DETECTED`. Entries older
@@ -315,6 +339,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 requested_grants,
                 sessions: Mutex::new(HashMap::new()),
                 session_ttl,
+                max_sessions: std::sync::atomic::AtomicUsize::new(DEFAULT_MAX_SESSIONS),
                 seen_message_ids: Mutex::new(HashMap::new()),
                 replay_window,
                 dpop_policy: Mutex::new(None),
@@ -325,6 +350,58 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
             }),
             revocation_producer: None,
         }
+    }
+
+    /// Override the in-flight session cap (default
+    /// [`DEFAULT_MAX_SESSIONS`]). When the cap is reached, every new
+    /// HELLO evicts the oldest in-flight session before inserting, so
+    /// the server's session-table memory footprint stays bounded
+    /// under adversarial HELLO floods. `max_sessions` MUST be > 0.
+    pub fn with_max_sessions(self, max_sessions: usize) -> Self {
+        assert!(max_sessions > 0, "max_sessions must be > 0");
+        self.state
+            .max_sessions
+            .store(max_sessions, std::sync::atomic::Ordering::Relaxed);
+        self
+    }
+
+    /// Spawn a background task on the current Tokio runtime that
+    /// periodically evicts sessions older than the configured TTL.
+    /// Without this, sweep happens only on the next request, so a
+    /// HELLO burst that goes quiet retains memory until the next
+    /// request arrives.
+    ///
+    /// Returns a [`tokio::task::JoinHandle`] the caller can keep to
+    /// abort the sweeper on shutdown, or `Err` if no Tokio runtime
+    /// is currently active. The returned handle is detached if
+    /// dropped — the task aborts implicitly when the
+    /// `Arc<HandshakeState>` it weakly references is dropped, so a
+    /// caller that does not need fine-grained shutdown control may
+    /// safely discard it.
+    pub fn spawn_session_sweeper(
+        &self,
+        interval: Duration,
+    ) -> Result<tokio::task::JoinHandle<()>, tokio::runtime::TryCurrentError> {
+        let handle = tokio::runtime::Handle::try_current()?;
+        let weak = Arc::downgrade(&self.state);
+        let ttl = self.state.session_ttl;
+        let join = handle.spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            // Don't fire a spurious immediate tick: the first call to
+            // `tick()` always returns instantly, which would log a
+            // zero-eviction sweep at startup. Consume that first tick.
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                let Some(state) = weak.upgrade() else {
+                    debug!("HandshakeState dropped; session sweeper exiting");
+                    return;
+                };
+                let mut sessions = state.sessions.lock();
+                sweep_expired(&mut sessions, ttl);
+            }
+        });
+        Ok(join)
     }
 
     /// Attach a [`RevocationListProducer`] so the server's router will
@@ -547,9 +624,9 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
     };
     // Server uses pinned-key identity by default (the demo). Production
     // deployments wanting OIDC should construct PresentedIdentity::Oidc
-    // outside and use a custom server.
-    let pubkey_b64 = aitp_core::base64url::encode(&state.signing_key.verifying_key().to_bytes());
-    let _ = pubkey_b64; // captured by PresentedIdentity below
+    // outside and use a custom server. The public key is materialized
+    // inside `Responder::on_hello` from `state.signing_key`; no need to
+    // compute it here.
     let ack_mid = Uuid::new_v4();
     let ack_ts = aitp_core::Timestamp::now();
     let (responder, ack_payload) = Responder::on_hello(
@@ -573,6 +650,14 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
     {
         let mut sessions = state.sessions.lock();
         sweep_expired(&mut sessions, state.session_ttl);
+        let cap = state
+            .max_sessions
+            .load(std::sync::atomic::Ordering::Relaxed);
+        // Enforce the cap by evicting the oldest entries until the
+        // insert will leave us at or below the cap. This bounds memory
+        // under HELLO floods even when every retained session is still
+        // within its TTL.
+        evict_to_capacity(&mut sessions, cap.saturating_sub(1));
         sessions.insert(
             session_id,
             SessionEntry {
@@ -1044,6 +1129,10 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
             ErrorCode::InvalidEnvelope
         }
         HE::Crypto(_) => ErrorCode::InvalidSignature,
+        // `HandshakeError` is `#[non_exhaustive]`; any future variant
+        // we haven't yet mapped to a specific wire code defaults to
+        // INVALID_ENVELOPE rather than panicking.
+        _ => ErrorCode::InvalidEnvelope,
     }
 }
 
@@ -1074,6 +1163,38 @@ fn sweep_expired(sessions: &mut HashMap<Uuid, SessionEntry>, ttl: Duration) {
     if evicted > 0 {
         debug!(evicted, "swept expired handshake sessions");
     }
+}
+
+/// Evict the oldest sessions until `sessions.len() <= cap`. Logs at
+/// WARN when entries within their TTL are evicted, because that
+/// signals load above the configured cap — operators should investigate
+/// either a HELLO flood or a too-low cap.
+fn evict_to_capacity(sessions: &mut HashMap<Uuid, SessionEntry>, cap: usize) {
+    evict_oldest_to_capacity(sessions, cap, |entry| entry.created_at);
+}
+
+/// Generic eviction helper. Drops the entries with the smallest
+/// `instant_of(entry)` until `map.len() <= cap`. Pulled out so unit
+/// tests can exercise the eviction logic on a simpler value type.
+fn evict_oldest_to_capacity<V>(
+    map: &mut HashMap<Uuid, V>,
+    cap: usize,
+    instant_of: impl Fn(&V) -> Instant,
+) {
+    if map.len() <= cap {
+        return;
+    }
+    let mut by_age: Vec<(Uuid, Instant)> = map.iter().map(|(k, v)| (*k, instant_of(v))).collect();
+    by_age.sort_by_key(|(_, t)| *t);
+    let to_evict = map.len() - cap;
+    let evicted = to_evict;
+    for (key, _) in by_age.into_iter().take(to_evict) {
+        map.remove(&key);
+    }
+    warn!(
+        evicted,
+        cap, "evicted oldest in-flight sessions to enforce max_sessions cap"
+    );
 }
 
 #[cfg(test)]
@@ -1111,5 +1232,37 @@ mod tests {
             handshake_error_code(&HandshakeError::Tct(TctError::AudienceMismatch)),
             ErrorCode::TctSignatureInvalid,
         );
+    }
+
+    #[test]
+    fn evict_oldest_to_capacity_drops_oldest_first() {
+        use std::thread::sleep;
+        use std::time::Duration as StdDuration;
+
+        let mut map: HashMap<Uuid, Instant> = HashMap::new();
+        let oldest = Uuid::new_v4();
+        map.insert(oldest, Instant::now());
+        sleep(StdDuration::from_millis(2));
+        let middle = Uuid::new_v4();
+        map.insert(middle, Instant::now());
+        sleep(StdDuration::from_millis(2));
+        let newest = Uuid::new_v4();
+        map.insert(newest, Instant::now());
+
+        evict_oldest_to_capacity(&mut map, 2, |t| *t);
+        assert_eq!(map.len(), 2, "should retain exactly cap entries");
+        assert!(!map.contains_key(&oldest), "oldest must be evicted");
+        assert!(map.contains_key(&middle));
+        assert!(map.contains_key(&newest));
+    }
+
+    #[test]
+    fn evict_oldest_to_capacity_is_noop_when_under_cap() {
+        let mut map: HashMap<Uuid, Instant> = HashMap::new();
+        for _ in 0..5 {
+            map.insert(Uuid::new_v4(), Instant::now());
+        }
+        evict_oldest_to_capacity(&mut map, 10, |t| *t);
+        assert_eq!(map.len(), 5);
     }
 }
