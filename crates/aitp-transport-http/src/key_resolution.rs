@@ -34,8 +34,9 @@
 
 use crate::client::JwksFetcher;
 use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use parking_lot::{Mutex, RwLock};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tracing::debug;
 use url::Url;
@@ -141,6 +142,26 @@ struct CacheEntry {
     expires_at: Instant,
 }
 
+/// Negative-cache entry — remembers that a recent resolution attempt
+/// failed, suppresses retries until `expires_at`. Defends against
+/// retry-storm amplification when an upstream JWKS is hard-down: an
+/// active deployment would otherwise hit the network on every single
+/// signature check until the next successful resolution. The error
+/// message is preserved so subsequent callers receive the same
+/// structured failure rather than a generic "no keys" placeholder.
+struct NegativeCacheEntry {
+    message: String,
+    expires_at: Instant,
+}
+
+/// Default lifetime of a negative-cache entry: cache failed
+/// resolutions for 30 seconds. Short enough to recover quickly when
+/// the upstream comes back, long enough to amortize per-request
+/// retries during a sustained outage. Tunable via
+/// [`KeyResolutionPolicyBuilder::with_negative_cache_ttl`]; set to
+/// [`Duration::ZERO`] to disable.
+pub const DEFAULT_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(30);
+
 /// Configurable key resolution policy implementing RFC-AITP-0007.
 ///
 /// Construct with [`Self::builder`].
@@ -150,6 +171,13 @@ pub struct KeyResolutionPolicy {
     runtime: Option<tokio::runtime::Handle>,
     cache: RwLock<HashMap<Url, CacheEntry>>,
     cache_ttl: Duration,
+    /// Negative cache: short-lived record of recent resolution
+    /// failures, used to bound retry rate against a hard-down
+    /// upstream. Keyed by issuer URL; entries expire after
+    /// `negative_cache_ttl`. Disabled when `negative_cache_ttl` is
+    /// [`Duration::ZERO`].
+    negative_cache: RwLock<HashMap<Url, NegativeCacheEntry>>,
+    negative_cache_ttl: Duration,
     fail_mode: KeyResolutionFailMode,
     /// Suppresses [`fetcher`] use; only the pinned store + cache are
     /// consulted. Useful for tests and air-gapped deployments.
@@ -168,7 +196,7 @@ impl KeyResolutionPolicy {
 
     fn cached(&self, issuer: &Url) -> Option<Vec<JwkPublicKey>> {
         let now = Instant::now();
-        let cache = self.cache.read().ok()?;
+        let cache = self.cache.read();
         cache
             .get(issuer)
             .filter(|e| e.expires_at > now)
@@ -176,7 +204,8 @@ impl KeyResolutionPolicy {
     }
 
     fn store(&self, issuer: &Url, keys: Vec<JwkPublicKey>) {
-        if let Ok(mut cache) = self.cache.write() {
+        {
+            let mut cache = self.cache.write();
             cache.insert(
                 issuer.clone(),
                 CacheEntry {
@@ -185,6 +214,47 @@ impl KeyResolutionPolicy {
                 },
             );
         }
+        // A successful resolution invalidates any prior negative-cache
+        // entry for the same issuer, so callers see the fresh keys
+        // rather than the stale failure record.
+        if self.negative_cache_ttl > Duration::ZERO {
+            self.negative_cache.write().remove(issuer);
+        }
+    }
+
+    /// Look up a fresh negative-cache entry for `issuer`. Returns
+    /// `Some(err_msg)` if a failed resolution is currently being
+    /// suppressed, otherwise `None`. Lazily drops expired entries on
+    /// hit; bulk eviction happens on `store_failure`.
+    fn cached_failure(&self, issuer: &Url) -> Option<String> {
+        if self.negative_cache_ttl == Duration::ZERO {
+            return None;
+        }
+        let now = Instant::now();
+        let cache = self.negative_cache.read();
+        cache
+            .get(issuer)
+            .filter(|e| e.expires_at > now)
+            .map(|e| e.message.clone())
+    }
+
+    /// Record that resolution failed for `issuer`. Suppresses retries
+    /// until the negative-cache TTL elapses. No-op when the negative
+    /// cache is disabled.
+    fn store_failure(&self, issuer: &Url, message: &str) {
+        if self.negative_cache_ttl == Duration::ZERO {
+            return;
+        }
+        let mut neg = self.negative_cache.write();
+        let now = Instant::now();
+        neg.retain(|_, e| e.expires_at > now);
+        neg.insert(
+            issuer.clone(),
+            NegativeCacheEntry {
+                message: message.to_string(),
+                expires_at: now + self.negative_cache_ttl,
+            },
+        );
     }
 
     /// Apply the configured fail mode to a fall-through.
@@ -269,14 +339,29 @@ impl JwksResolver for KeyResolutionPolicy {
             return Ok(keys);
         }
 
+        // 1b. Negative cache: short-circuit a recent failure rather
+        // than re-hammering the upstream. Checked before the inflight
+        // mutex so each request returns immediately during a sustained
+        // outage instead of serializing on the coalesce lock.
+        if let Some(msg) = self.cached_failure(issuer) {
+            debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed");
+            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
+        }
+
         // Coalesce concurrent resolutions for the same call.
-        let _guard = self.inflight_lock.lock().unwrap_or_else(|e| e.into_inner());
+        // parking_lot::Mutex is non-poisoning, so no recovery dance is
+        // needed if a prior holder panicked.
+        let _guard = self.inflight_lock.lock();
 
         // Re-check cache after acquiring the lock — another caller may
         // have populated it.
         if let Some(keys) = self.cached(issuer) {
             debug!(%issuer, source = "cache", "JWKS resolved (after lock)");
             return Ok(keys);
+        }
+        if let Some(msg) = self.cached_failure(issuer) {
+            debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed (after lock)");
+            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
         }
 
         // 2. Pinned issuer key store.
@@ -341,7 +426,11 @@ impl JwksResolver for KeyResolutionPolicy {
                 self.store(issuer, keys.clone());
                 Ok(keys)
             }
-            Err(e) => self.apply_fail_mode(issuer, e.to_string()),
+            Err(e) => {
+                let msg = e.to_string();
+                self.store_failure(issuer, &msg);
+                self.apply_fail_mode(issuer, msg)
+            }
         }
     }
 }
@@ -379,10 +468,17 @@ impl AsyncJwksResolver for KeyResolutionPolicy {
             return Ok(keys);
         }
 
+        // 1b. Negative cache.
+        if let Some(msg) = self.cached_failure(issuer) {
+            debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed (async)");
+            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
+        }
+
         // 2. Pinned issuer key store. (The async path intentionally
         // skips the `inflight_lock` coalescing used by the sync path —
-        // a `std::sync::Mutex` must not be held across an `.await`. The
-        // cache below de-duplicates any concurrent resolutions.)
+        // holding any non-Send mutex across an `.await` is unsound,
+        // and parking_lot::Mutex is not Send. The cache below
+        // de-duplicates any concurrent resolutions.)
         if let Some(pinned) = self.pinned.as_ref() {
             if let Some(keys) = pinned.get(issuer) {
                 debug!(%issuer, source = "pinned_store", "JWKS resolved (async)");
@@ -408,7 +504,11 @@ impl AsyncJwksResolver for KeyResolutionPolicy {
                 self.store(issuer, keys.clone());
                 Ok(keys)
             }
-            Err(e) => self.apply_fail_mode(issuer, e.to_string()),
+            Err(e) => {
+                let msg = e.to_string();
+                self.store_failure(issuer, &msg);
+                self.apply_fail_mode(issuer, msg)
+            }
         }
     }
 }
@@ -420,6 +520,7 @@ pub struct KeyResolutionPolicyBuilder {
     fetcher: Option<Arc<JwksFetcher>>,
     runtime: Option<tokio::runtime::Handle>,
     cache_ttl: Option<Duration>,
+    negative_cache_ttl: Option<Duration>,
     fail_mode: Option<KeyResolutionFailMode>,
     offline: bool,
 }
@@ -449,6 +550,21 @@ impl KeyResolutionPolicyBuilder {
         self
     }
 
+    /// Override the negative-cache TTL — the window for which a
+    /// failed resolution suppresses retries. Default
+    /// [`DEFAULT_NEGATIVE_CACHE_TTL`] (30 seconds). Set to
+    /// [`Duration::ZERO`] to disable the negative cache and retry
+    /// the upstream on every signature check (legacy rc.1 behavior).
+    ///
+    /// Recommended: keep enabled. Without negative caching, an
+    /// upstream JWKS that is hard-down causes every TCT verification
+    /// to re-attempt the network, which both slows the local request
+    /// path and prolongs the upstream's recovery.
+    pub fn with_negative_cache_ttl(mut self, ttl: Duration) -> Self {
+        self.negative_cache_ttl = Some(ttl);
+        self
+    }
+
     /// Override the fail mode. Default `FailClosed`.
     pub fn with_fail_mode(mut self, mode: KeyResolutionFailMode) -> Self {
         self.fail_mode = Some(mode);
@@ -470,6 +586,10 @@ impl KeyResolutionPolicyBuilder {
             runtime: self.runtime,
             cache: RwLock::new(HashMap::new()),
             cache_ttl: self.cache_ttl.unwrap_or(Duration::from_secs(600)),
+            negative_cache: RwLock::new(HashMap::new()),
+            negative_cache_ttl: self
+                .negative_cache_ttl
+                .unwrap_or(DEFAULT_NEGATIVE_CACHE_TTL),
             fail_mode: self.fail_mode.unwrap_or_default(),
             offline: self.offline,
             inflight_lock: Mutex::new(()),
@@ -523,6 +643,62 @@ mod tests {
             ResolveError::NetworkError(_) => {}
             _ => panic!("expected NetworkError, got {err:?}"),
         }
+    }
+
+    #[test]
+    fn negative_cache_short_circuits_repeat_failures() {
+        // Verify that a stored failure is returned from the negative
+        // cache rather than re-attempting the (absent) network. Uses
+        // `offline=true` so any retry would surface a clean error,
+        // letting us assert on the cached-failure message.
+        let policy = KeyResolutionPolicy::builder()
+            .offline(true)
+            .with_negative_cache_ttl(Duration::from_secs(30))
+            .build();
+        let issuer: Url = "https://down.example.com".parse().unwrap();
+        // Seed a failure directly so we don't need a live fetcher.
+        policy.store_failure(&issuer, "upstream 503");
+        let err = policy.resolve(&issuer).unwrap_err();
+        let msg = match err {
+            ResolveError::NetworkError(s) => s,
+            other => panic!("expected NetworkError, got {other:?}"),
+        };
+        assert!(
+            msg.contains("negative-cached"),
+            "expected negative-cache message, got: {msg}"
+        );
+        assert!(
+            msg.contains("upstream 503"),
+            "expected original failure message preserved, got: {msg}"
+        );
+    }
+
+    #[test]
+    fn negative_cache_can_be_disabled() {
+        let policy = KeyResolutionPolicy::builder()
+            .offline(true)
+            .with_negative_cache_ttl(Duration::ZERO)
+            .build();
+        let issuer: Url = "https://down.example.com".parse().unwrap();
+        policy.store_failure(&issuer, "should be ignored");
+        // With ttl=0, store_failure is a no-op; cached_failure returns None.
+        assert!(policy.cached_failure(&issuer).is_none());
+    }
+
+    #[test]
+    fn negative_cache_cleared_by_successful_resolution() {
+        let policy = KeyResolutionPolicy::builder()
+            .with_cache_ttl(Duration::from_secs(60))
+            .with_negative_cache_ttl(Duration::from_secs(60))
+            .build();
+        let issuer: Url = "https://flapping.example.com".parse().unwrap();
+        policy.store_failure(&issuer, "transient 502");
+        assert!(policy.cached_failure(&issuer).is_some());
+        policy.store(&issuer, vec![fake_jwk()]);
+        assert!(
+            policy.cached_failure(&issuer).is_none(),
+            "a successful resolution must clear the negative-cache entry"
+        );
     }
 
     #[test]

@@ -67,6 +67,23 @@ pub struct SessionOpts {
     pub trust_anchors: Option<Vec<String>>,
 }
 
+/// Options for `AitpAgent.generate` and `AitpAgent.fromSeed`.
+///
+/// Mirrors the Python SDK's `suite="ed25519"|"p256"` keyword argument so
+/// the two SDKs share one shape per operation. `null`/omitted defaults
+/// to `"ed25519"`.
+#[napi(object)]
+pub struct GenerateOpts {
+    /// Signing suite. Accepted values: `"ed25519"` (default) or
+    /// `"p256"` (RFC-AITP-0001 §5.4.3).
+    pub suite: Option<String>,
+}
+
+fn suite_from_opts(opts: Option<GenerateOpts>) -> String {
+    opts.and_then(|o| o.suite)
+        .unwrap_or_else(|| "ed25519".to_string())
+}
+
 /// An AITP agent: a signing key and (once built) its Manifest.
 #[napi]
 pub struct AitpAgent {
@@ -76,48 +93,61 @@ pub struct AitpAgent {
 
 #[napi]
 impl AitpAgent {
-    /// Generate an agent with a fresh random Ed25519 key.
+    /// Generate an agent with a fresh random signing key.
+    ///
+    /// `opts.suite` selects the algorithm — `"ed25519"` (default) or
+    /// `"p256"`. Symmetric with the Python SDK's
+    /// `AitpAgent.generate(suite="ed25519")`.
+    ///
+    /// ```ts
+    /// const ed = AitpAgent.generate();                       // Ed25519
+    /// const p  = AitpAgent.generate({ suite: 'p256' });      // P-256
+    /// ```
     #[napi(factory)]
-    pub fn generate() -> Self {
-        Self {
-            key: Arc::new(AitpSigningKey::generate_ed25519()),
-            manifest: None,
-        }
-    }
-
-    /// Generate an agent with a fresh random P-256 key.
-    #[napi(factory)]
-    pub fn generate_p256() -> Self {
-        Self {
-            key: Arc::new(AitpSigningKey::generate_p256()),
-            manifest: None,
-        }
-    }
-
-    /// Construct an agent from a 32-byte Ed25519 seed (deterministic).
-    #[napi(factory)]
-    pub fn from_seed(seed: Buffer) -> Result<Self> {
-        let arr: [u8; 32] = seed
-            .as_ref()
-            .try_into()
-            .map_err(|_| Error::from_reason("seed must be exactly 32 bytes"))?;
+    pub fn generate(opts: Option<GenerateOpts>) -> Result<Self> {
+        let suite = suite_from_opts(opts);
+        let key = match suite.as_str() {
+            "ed25519" => AitpSigningKey::generate_ed25519(),
+            "p256" => AitpSigningKey::generate_p256(),
+            other => {
+                return Err(Error::from_reason(format!(
+                    "unknown suite '{other}': expected 'ed25519' or 'p256'"
+                )))
+            }
+        };
         Ok(Self {
-            key: Arc::new(AitpSigningKey::from_ed25519_seed(&arr)),
+            key: Arc::new(key),
             manifest: None,
         })
     }
 
-    /// Construct an agent from a 32-byte P-256 private scalar. Most
-    /// 32-byte inputs are valid scalars; pathological values (zero,
-    /// ≥ curve order) raise.
+    /// Construct an agent from a 32-byte seed (deterministic).
+    ///
+    /// `opts.suite` matches `AitpAgent.generate`. For `"p256"`, a tiny
+    /// fraction of 32-byte seeds are not valid private scalars (zero
+    /// or ≥ curve order) and raise.
+    ///
+    /// Note: the prior `AitpAgent.fromP256Seed` factory and the
+    /// no-arg `AitpAgent.generate*` variants were removed in favor of
+    /// this parameterized API so the Node SDK matches the Python SDK
+    /// surface (CLAUDE.md mandates SDK symmetry).
     #[napi(factory)]
-    pub fn from_p256_seed(seed: Buffer) -> Result<Self> {
+    pub fn from_seed(seed: Buffer, opts: Option<GenerateOpts>) -> Result<Self> {
         let arr: [u8; 32] = seed
             .as_ref()
             .try_into()
             .map_err(|_| Error::from_reason("seed must be exactly 32 bytes"))?;
-        let key = AitpSigningKey::from_p256_seed(&arr)
-            .map_err(|e| Error::from_reason(format!("invalid P-256 seed: {e}")))?;
+        let suite = suite_from_opts(opts);
+        let key = match suite.as_str() {
+            "ed25519" => AitpSigningKey::from_ed25519_seed(&arr),
+            "p256" => AitpSigningKey::from_p256_seed(&arr)
+                .map_err(|e| Error::from_reason(format!("invalid P-256 seed: {e}")))?,
+            other => {
+                return Err(Error::from_reason(format!(
+                    "unknown suite '{other}': expected 'ed25519' or 'p256'"
+                )))
+            }
+        };
         Ok(Self {
             key: Arc::new(key),
             manifest: None,
@@ -145,18 +175,21 @@ impl AitpAgent {
         let (hint, accepted_type, default_anchors) = match identity_type {
             "pinned_key" => {
                 let pk = self.key.verifying_key();
-                if pk.algorithm() != aitp_core::AidAlgorithm::Ed25519 {
-                    return Err(Error::from_reason(
+                // try_to_ed25519_bytes returns None for P-256 keys —
+                // surface that as a clean structured error rather than
+                // panicking inside the now-safe accessor.
+                let pk_bytes = pk.try_to_ed25519_bytes().ok_or_else(|| {
+                    Error::from_reason(
                         "pinned_key identity_hint with a P-256 agent key is not supported; \
                          the manifest's identity_hint.public_key is Ed25519-only in v0.1",
-                    ));
-                }
+                    )
+                })?;
                 (
                     IdentityHint {
                         kind: IdentityHintKind::PinnedKey,
                         subject: opts.display_name.clone(),
                         issuer: None,
-                        public_key: Some(aitp_core::base64url::encode(&pk.to_bytes())),
+                        public_key: Some(aitp_core::base64url::encode(&pk_bytes)),
                     },
                     "pinned_key",
                     Vec::<url::Url>::new(),

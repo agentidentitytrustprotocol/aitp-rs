@@ -46,3 +46,10 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true }
 rand = { workspace = true }
+# Used by `TctStore` for non-poisoning lock semantics — a poisoned
+# `std::sync::RwLock` would silently turn every subsequent
+# `insert`/`get`/`remove` into a no-op (the prior `if let Ok(..)`
+# pattern), masking bugs and degrading the store to "TCT cache always
+# misses" without any error path. parking_lot's locks never poison, so
+# a panic in one critical section does not corrupt subsequent ones.
+parking_lot = { workspace = true }

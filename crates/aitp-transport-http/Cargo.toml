@@ -47,6 +47,10 @@ parking_lot = { workspace = true }
 tracing = { workspace = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
+# Used by `retry::RetryPolicy::apply_jitter` to sample a uniform delay
+# inside the symmetric jitter window. Lightweight — no need for a crypto
+# RNG here, `rand::thread_rng()` is appropriate.
+rand = { workspace = true }
 rustls = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }

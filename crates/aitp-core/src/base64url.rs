@@ -8,6 +8,7 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 
 /// Errors from strict base64url decoding.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Base64UrlError {
     /// Input contained `=` padding, which is forbidden in AITP.
     #[error("base64url padding is forbidden in AITP")]

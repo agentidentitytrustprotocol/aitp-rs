@@ -28,7 +28,12 @@ const AID_PUBKEY_P256_PREFIX: &str = "aid:pubkey:p256:";
 const AID_P256_IDENTIFIER_LEN: usize = 44;
 
 /// Algorithm of the public key bound to an AID.
+///
+/// Marked `#[non_exhaustive]` so future suites (e.g. Ed448, post-quantum
+/// candidates) can be added in a minor release without forcing
+/// downstream code to upgrade.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
 pub enum AidAlgorithm {
     /// Ed25519 (RFC 8032). Identifier is the 32-byte raw public key.
     Ed25519,
@@ -237,7 +242,11 @@ impl From<Aid> for String {
 }
 
 /// Reasons an AID string can be rejected.
+///
+/// Marked `#[non_exhaustive]`: new parse-failure modes added by future
+/// AID grammar revisions land as new variants without a major bump.
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum AidParseError {
     /// Missing the `aid:` URI scheme prefix.
     #[error("AID does not start with 'aid:'")]

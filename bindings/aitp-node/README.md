@@ -87,7 +87,7 @@ is a summary. All `*Json` parameters and return values are JSON strings.
 
 | Type                      | Default? | Notes                                                                                                          |
 |---------------------------|:--------:|----------------------------------------------------------------------------------------------------------------|
-| `AitpAgent`               |    ✅    | `generate()`, `generateP256()`, `fromSeed(buffer)`, `fromP256Seed(buffer)`, `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)`, `verifyTct(...)`, `buildDelegation(...)`, `issueTctForDelegatee(...)`, `signRevocationList(...)` |
+| `AitpAgent`               |    ✅    | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)`, `verifyTct(...)`, `buildDelegation(...)`, `issueTctForDelegatee(...)`, `signRevocationList(...)` |
 | `InitiatorSession`        |    ✅    | `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)`                       |
 | `ResponderSession`        |    ✅    | `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, tctJson }` |
 | `TctIdentity`             |    ✅    | `peerAid`, `grants`, `expiresAt`, `jti`                                                                          |
@@ -126,9 +126,20 @@ const hello = sess.buildHello(peerManifest, ['demo.echo'], mintJwt);
 ### P-256 signing (RFC-AITP-0001 §5.4.3)
 
 ```javascript
-const agent = AitpAgent.generateP256();    // aid:pubkey:p256:<44>
+const agent = AitpAgent.generate({ suite: 'p256' });   // aid:pubkey:p256:<44>
+// Deterministic from a seed:
+const seeded = AitpAgent.fromSeed(seed, { suite: 'p256' });
 // All other methods identical; signatures emitted as `p256.<86b64u>`.
 ```
+
+> **Breaking change in v0.2:** `AitpAgent.generateP256()` and
+> `AitpAgent.fromP256Seed(seed)` were removed in favor of the
+> parameterized `generate({ suite })` / `fromSeed(seed, { suite })`
+> API. This matches the Python SDK's
+> `AitpAgent.generate(suite="p256")` shape — CLAUDE.md mandates SDK
+> symmetry. Migration: replace `generateP256()` with
+> `generate({ suite: 'p256' })` and `fromP256Seed(seed)` with
+> `fromSeed(seed, { suite: 'p256' })`.
 
 > **Note.** In v0.1 the `pinned_key` identity_hint embeds an Ed25519 raw
 > public key. P-256 agents must therefore use `identityType: 'oidc'` until

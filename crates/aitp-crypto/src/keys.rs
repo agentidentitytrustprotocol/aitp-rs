@@ -197,6 +197,13 @@ impl AitpVerifyingKey {
                     .map(Self::P256)
                     .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
             }
+            // `AidAlgorithm` is `#[non_exhaustive]`; a future variant
+            // added to `aitp-core` would otherwise silently compile as
+            // an unreachable arm. Surface it as a clean parse error
+            // so a forgotten dispatch update fails fast in tests.
+            other => Err(CryptoError::KeyParseFailed(format!(
+                "AID algorithm {other:?} not supported by this AitpVerifyingKey build"
+            ))),
         }
     }
 
@@ -309,13 +316,33 @@ impl AitpVerifyingKey {
 
     /// The 32-byte raw Ed25519 public key. **Panics** if this is a
     /// P-256 key — callers that may hold either should branch on
-    /// [`Self::algorithm`] or use [`Self::to_compressed`].
+    /// [`Self::algorithm`] or use [`Self::try_to_ed25519_bytes`] /
+    /// [`Self::to_compressed`].
+    ///
+    /// Prefer [`Self::try_to_ed25519_bytes`] for new code: it returns
+    /// `None` for P-256 instead of panicking, so an algorithm-agile
+    /// caller cannot inadvertently crash the process.
     pub fn to_bytes(&self) -> [u8; 32] {
         match self {
             Self::Ed25519(vk) => vk.to_bytes(),
             Self::P256(_) => {
-                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed()")
+                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed() or try_to_ed25519_bytes()")
             }
+        }
+    }
+
+    /// The 32-byte raw Ed25519 public key, or `None` if this is a
+    /// P-256 key.
+    ///
+    /// Non-panicking counterpart to [`Self::to_bytes`]. Callers that
+    /// require Ed25519-shaped bytes (e.g. the v0.1 pinned-key identity
+    /// wire format, which encodes the raw 32-byte public key) should
+    /// use this and return a structured error on `None` rather than
+    /// risking a process-wide panic from an algorithm-agile path.
+    pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
+        match self {
+            Self::Ed25519(vk) => Some(vk.to_bytes()),
+            Self::P256(_) => None,
         }
     }
 
@@ -355,7 +382,12 @@ impl AitpVerifyingKey {
 pub struct Signature(String);
 
 /// Signature algorithm tag.
+///
+/// Marked `#[non_exhaustive]` so future signature suites (mirroring
+/// future [`aitp_core::AidAlgorithm`] additions) can be added without
+/// a major bump.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum SignatureAlgorithm {
     /// Ed25519 (RFC 8032). Legacy untagged signatures default to this.
     Ed25519,
@@ -613,6 +645,20 @@ mod tests {
         let msg = b"deterministic";
         // RFC6979 makes the signatures deterministic too.
         assert_eq!(a.sign(msg).as_str(), b.sign(msg).as_str());
+    }
+
+    #[test]
+    fn try_to_ed25519_bytes_returns_some_for_ed25519_and_none_for_p256() {
+        let ed = AitpSigningKey::from_seed(&[9u8; 32]);
+        let p256 = AitpSigningKey::generate_p256();
+        let ed_bytes = ed.verifying_key().try_to_ed25519_bytes();
+        let p256_bytes = p256.verifying_key().try_to_ed25519_bytes();
+        assert!(ed_bytes.is_some());
+        assert_eq!(ed_bytes.unwrap().len(), 32);
+        assert!(
+            p256_bytes.is_none(),
+            "P-256 key must not yield Ed25519-shaped bytes"
+        );
     }
 
     #[test]

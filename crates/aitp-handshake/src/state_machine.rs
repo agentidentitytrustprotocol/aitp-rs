@@ -331,6 +331,21 @@ impl PresentedIdentity {
     ) -> Result<IdentityDescriptor, HandshakeError> {
         match self {
             Self::PinnedKey { subject } => {
+                // Pinned-key identity (RFC-AITP-0002 §3.2) wire-encodes
+                // the raw 32-byte Ed25519 public key. P-256 keys do not
+                // fit that wire shape; fail fast with a structured
+                // error rather than panicking deep inside the codec.
+                let pk_bytes = signing_key
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .ok_or_else(|| {
+                        HandshakeError::Identity(
+                            "pinned_key identity requires an Ed25519 signing key (v0.1 wire \
+                             format encodes a 32-byte raw public key); use OIDC identity for \
+                             P-256 agents"
+                                .into(),
+                        )
+                    })?;
                 let proof = sign_pinned_key_proof(
                     signing_key,
                     ctx.sender_aid,
@@ -344,7 +359,7 @@ impl PresentedIdentity {
                     issuer: None,
                     subject: subject.clone(),
                     proof,
-                    public_key: Some(base64url::encode(&signing_key.verifying_key().to_bytes())),
+                    public_key: Some(base64url::encode(&pk_bytes)),
                 })
             }
             Self::Oidc {
@@ -428,6 +443,15 @@ pub fn bootstrap_verify_peer(
     let expected_kind = match payload_manifest.identity_hint.kind {
         aitp_manifest::IdentityHintKind::Oidc => IdentityKind::Oidc,
         aitp_manifest::IdentityHintKind::PinnedKey => IdentityKind::PinnedKey,
+        // `IdentityHintKind` is `#[non_exhaustive]`; if a future
+        // variant lands without a matching `IdentityKind` mapping,
+        // fail closed so we never silently accept an unrecognized
+        // identity mechanism.
+        other => {
+            return Err(HandshakeError::Identity(format!(
+                "unknown identity_hint kind {other:?}; cannot map to a known IdentityKind"
+            )))
+        }
     };
     if payload_identity.kind != expected_kind {
         return Err(HandshakeError::Identity(
@@ -1071,5 +1095,35 @@ mod tests {
         )
         .expect_err("a non-JWS string must be rejected");
         assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
+    }
+
+    #[test]
+    fn pinned_key_descriptor_rejects_p256_signing_key() {
+        // Regression: previously, building a PinnedKey identity
+        // descriptor with a P-256 signing key panicked deep inside
+        // `AitpVerifyingKey::to_bytes()`. The descriptor builder
+        // must surface a clean HandshakeError::Identity instead.
+        let p256 = AitpSigningKey::generate_p256();
+        let other = AitpSigningKey::from_seed(&[1u8; 32]);
+        let mid = Uuid::new_v4();
+        let ts = Timestamp(1_700_000_000);
+        let nonce = base64url::encode(&[42u8; 32]);
+        let ctx = IdentityPresentationContext {
+            sender_aid: p256.aid(),
+            receiver_aid: other.aid(),
+            envelope_message_id: &mid,
+            envelope_timestamp: ts,
+            pop_nonce: &nonce,
+        };
+        let id = PresentedIdentity::PinnedKey {
+            subject: "p256-agent".into(),
+        };
+        let err = id
+            .build_descriptor(&ctx, &p256)
+            .expect_err("pinned-key identity must reject P-256 signing keys");
+        assert!(
+            matches!(err, HandshakeError::Identity(_)),
+            "expected Identity error variant, got {err:?}"
+        );
     }
 }

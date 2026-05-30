@@ -161,7 +161,7 @@ impl ManifestFetcher {
         let max_attempts = self.retry_policy.max_attempts();
         let mut last_err: Option<FetchError> = None;
         for attempt in 1..=max_attempts {
-            let delay = self.retry_policy.delay_before(attempt);
+            let delay = self.retry_policy.jittered_delay_before(attempt);
             if !delay.is_zero() {
                 debug!(?delay, attempt, "manifest fetch retry sleep");
                 tokio::time::sleep(delay).await;

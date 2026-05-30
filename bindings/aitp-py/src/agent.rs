@@ -133,18 +133,22 @@ impl PyAitpAgent {
             match identity_type {
                 "pinned_key" => {
                     let pk = self.key.verifying_key();
-                    if pk.algorithm() != aitp_core::AidAlgorithm::Ed25519 {
-                        return Err(PyRuntimeError::new_err(
+                    // try_to_ed25519_bytes() is the non-panicking
+                    // accessor; None signals the agent uses a P-256
+                    // key, which the pinned-key wire shape cannot
+                    // encode in v0.1.
+                    let pk_bytes = pk.try_to_ed25519_bytes().ok_or_else(|| {
+                        PyRuntimeError::new_err(
                             "pinned_key identity_hint with a P-256 agent key is not supported; \
                          the manifest's identity_hint.public_key is Ed25519-only in v0.1",
-                        ));
-                    }
+                        )
+                    })?;
                     (
                         IdentityHint {
                             kind: IdentityHintKind::PinnedKey,
                             subject: display_name.to_string(),
                             issuer: None,
-                            public_key: Some(aitp_core::base64url::encode(&pk.to_bytes())),
+                            public_key: Some(aitp_core::base64url::encode(&pk_bytes)),
                         },
                         "pinned_key",
                         vec![],

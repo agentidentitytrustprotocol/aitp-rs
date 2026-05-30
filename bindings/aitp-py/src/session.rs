@@ -77,6 +77,12 @@ impl SessionContext {
                     mint_jwt: make_oidc_minter(cb),
                 })
             }
+            // `IdentityHintKind` is `#[non_exhaustive]`; reject any
+            // future variant the Python SDK hasn't yet wired up.
+            other => Err(PyRuntimeError::new_err(format!(
+                "unsupported identity_hint kind {other:?}; \
+                 update the Python SDK to handle this variant"
+            ))),
         }
     }
 

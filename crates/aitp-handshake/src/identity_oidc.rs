@@ -44,6 +44,7 @@ impl std::fmt::Debug for JwkPublicKey {
 
 /// Errors from JWKS resolution.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum ResolveError {
     /// Issuer URI is not in the acceptable trust anchors.
     #[error("issuer not trusted: {0}")]
