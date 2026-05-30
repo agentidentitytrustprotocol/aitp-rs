@@ -82,7 +82,7 @@ rustls-pki-types = "1.10"
 x509-parser = "0.17"
 
 # OIDC (used by aitp-handshake and aitp-transport-http)
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 
 # Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
 # a poisoned state on a panic in a locked section — std::sync::Mutex would,
