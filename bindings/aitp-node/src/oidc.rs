@@ -32,8 +32,8 @@ use crate::helpers::JsFnRef;
 /// in JavaScript is both error-prone and a divergence risk.
 #[napi(js_name = "computeAidJkt")]
 pub fn compute_aid_jkt(aid: String) -> Result<String> {
-    let parsed = Aid::parse(&aid)
-        .map_err(|e| Error::from_reason(format!("invalid AID '{aid}': {e}")))?;
+    let parsed =
+        Aid::parse(&aid).map_err(|e| Error::from_reason(format!("invalid AID '{aid}': {e}")))?;
     let vk = AitpVerifyingKey::from_aid(&parsed)
         .map_err(|e| Error::from_reason(format!("AID has invalid key bytes: {e}")))?;
     vk.to_jwk_thumbprint()

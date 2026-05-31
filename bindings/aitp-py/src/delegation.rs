@@ -136,9 +136,9 @@ fn to_verified(token: &DelegationToken) -> PyDelegationVerified {
     }
 }
 
-/// Helpers used by `agent.rs` — exported as crate-private so the
-/// `AitpAgent.build_delegation` / `issue_tct_for_delegatee` methods can call
-/// them with a borrowed `&AitpSigningKey`.
+// Helpers used by `agent.rs` — exported as crate-private so the
+// `AitpAgent.build_delegation` / `issue_tct_for_delegatee` methods can call
+// them with a borrowed `&AitpSigningKey`.
 
 /// Build a `DelegationToken` and serialize it as a `DelegationEnvelope` JSON.
 ///

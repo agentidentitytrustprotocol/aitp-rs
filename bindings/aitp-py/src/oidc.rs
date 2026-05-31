@@ -37,8 +37,8 @@ use url::Url;
 /// in Python is both error-prone and a divergence risk.
 #[pyfunction]
 pub fn compute_aid_jkt(aid: &str) -> PyResult<String> {
-    let parsed = Aid::parse(aid)
-        .map_err(|e| PyValueError::new_err(format!("invalid AID '{aid}': {e}")))?;
+    let parsed =
+        Aid::parse(aid).map_err(|e| PyValueError::new_err(format!("invalid AID '{aid}': {e}")))?;
     let vk = AitpVerifyingKey::from_aid(&parsed)
         .map_err(|e| PyValueError::new_err(format!("AID has invalid key bytes: {e}")))?;
     vk.to_jwk_thumbprint()
@@ -66,7 +66,7 @@ impl JwksResolver for JwksMap {
             .lock()
             .map_err(|e| ResolveError::NetworkError(format!("jwks mutex poisoned: {e}")))?;
         match map.get(issuer.as_str()) {
-            Some(v) if !v.is_empty() => Ok(v.iter().cloned().collect()),
+            Some(v) if !v.is_empty() => Ok(v.to_vec()),
             Some(_) | None => Err(ResolveError::NotTrusted(issuer.clone())),
         }
     }
