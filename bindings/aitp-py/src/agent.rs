@@ -17,7 +17,7 @@ use crate::oidc::PyJwksProvider;
 use crate::renewal::{build_renewal_request_py, process_renewal_request_py};
 use crate::revocation::sign_revocation_list_py;
 use crate::session::{PyInitiatorSession, PyResponderSession, SessionContext};
-use crate::tct::{py_verify_tct, PyTctIdentity};
+use crate::tct::{py_verify_tct, py_verify_tct_cached, PyTctIdentity, PyTctStore};
 
 /// An AITP agent: an Ed25519 or P-256 signing key plus (once built) its
 /// Manifest.
@@ -267,6 +267,28 @@ impl PyAitpAgent {
         expected_audience: Option<&str>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct(&self.key, tct_json, required_grant, expected_audience)
+    }
+
+    /// Like [`verify_tct`], but consults a `TctStore` first: a byte-identical,
+    /// already-verified, still-valid TCT skips the signature check (the
+    /// verification hot path for an agent that sees the same TCT on many
+    /// requests). All cheap policy checks (expiry, audience, required grant)
+    /// still run on every call; only the signature check is elided.
+    #[pyo3(signature = (tct_json, required_grant, store, expected_audience = None))]
+    fn verify_tct_cached(
+        &self,
+        tct_json: &str,
+        required_grant: &str,
+        store: &PyTctStore,
+        expected_audience: Option<&str>,
+    ) -> PyResult<PyTctIdentity> {
+        py_verify_tct_cached(
+            &self.key,
+            tct_json,
+            required_grant,
+            store,
+            expected_audience,
+        )
     }
 
     /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).

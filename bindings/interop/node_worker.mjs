@@ -26,6 +26,9 @@ const mod = await import(
 );
 const AitpAgent = mod.AitpAgent ?? mod.default?.AitpAgent;
 const verifyDelegation = mod.verifyDelegation ?? mod.default?.verifyDelegation;
+const verifyDelegationExperimentalMultihop =
+  mod.verifyDelegationExperimentalMultihop ??
+  mod.default?.verifyDelegationExperimentalMultihop;
 const verifyManifestJson = mod.verifyManifestJson ?? mod.default?.verifyManifestJson;
 const JwksProvider = mod.JwksProvider ?? mod.default?.JwksProvider;
 const SessionBundleBuilder =
@@ -180,7 +183,13 @@ const methods = {
   }),
 
   verify_delegation: (p) => {
-    const v = verifyDelegation(p.envelope, p.verifier_aid, p.max_hops ?? 0);
+    // Strict v0.1 by default; route to the experimental opt-in only when the
+    // caller explicitly requests a multi-hop ceiling (draft RFC-AITP-0011).
+    const hops = p.max_hops ?? 0;
+    const v =
+      hops > 0
+        ? verifyDelegationExperimentalMultihop(p.envelope, p.verifier_aid, hops)
+        : verifyDelegation(p.envelope, p.verifier_aid);
     return {
       delegator: v.delegator,
       delegatee: v.delegatee,

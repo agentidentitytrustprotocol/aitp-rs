@@ -85,7 +85,7 @@ bindings/interop             Cross-language interop integration tests — `make 
 
 ### Where async lives in `aitp-transport-http`
 
-`KeyResolutionPolicy` (RFC-0007) bridges sync verification into async JWKS fetches via a tokio runtime; **a multi-thread tokio context is required** in the calling thread. Pure-sync deployments must use the pinned-issuer store instead. Other notable subsystems: `client_config.rs`, `dpop.rs`, `retry.rs`, `revocation.rs`, `server_limits.rs`, `tls_pinning.rs`, `token_exchange.rs` — each one corresponds to a hardening item in `plans/aitp-rs-unified-claude-code-plan.md`.
+`KeyResolutionPolicy` (RFC-0007) bridges sync verification into async JWKS fetches via a tokio runtime; **a multi-thread tokio context is required** in the calling thread. Pure-sync deployments must use the pinned-issuer store instead. Other notable subsystems: `client_config.rs`, `dpop.rs`, `retry.rs`, `revocation.rs`, `server_limits.rs`, `tls_pinning.rs`, `token_exchange.rs` — each one corresponds to a hardening item in `docs/transport-hardening.md`.
 
 ### Language bindings (`bindings/`)
 
@@ -126,5 +126,8 @@ Wire-affecting changes are **`semver-major`** for the published crates — `carg
 - `docs/design/01-jcs.md` — JSON canonicalization strategy and test vectors
 - `docs/design/02-conformance-adapter.md` — runner design and adapter contract
 - `docs/design/03-handshake-transcripts.md` — the four-message exchange in detail
+- `docs/design/04-session-bundle.md` — RFC-AITP-0010 bundle design (draft, opt-in)
+- `docs/design/05-multihop-delegation.md` — RFC-AITP-0011 chain encoding + verification (draft, opt-in)
+- `docs/design/06-tct-renewal.md` — shortened TCT renewal exchange (draft, opt-in)
 - `docs/conformance-matrix.md` — per-fixture conformance status (44/44 pass)
 - `plans/defered/deferred.md` — declined / out-of-scope items (won't-fix register)

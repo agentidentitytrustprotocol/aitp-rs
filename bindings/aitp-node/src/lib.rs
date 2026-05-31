@@ -9,6 +9,13 @@
 //! export macros expand to `unsafe` glue. The underlying protocol
 //! crates keep the forbid attribute.
 
+// In a `cfg(test)` build of this cdylib the NAPI-rs registration glue —
+// which is what actually references the `#[napi]` exports — is not emitted,
+// so those FFI entry points look unused. They are exercised from JS via
+// `node --test tests/*.mjs`, not Rust unit tests, so silence dead-code in
+// test builds rather than littering each export with `#[allow]`.
+#![cfg_attr(test, allow(dead_code))]
+
 mod agent;
 #[cfg(feature = "experimental-bundle")]
 mod bundle;

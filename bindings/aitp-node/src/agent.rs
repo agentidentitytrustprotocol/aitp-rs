@@ -17,7 +17,7 @@ use crate::oidc::JwksProvider;
 #[cfg(feature = "experimental-renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
 use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
-use crate::tct::{js_verify_tct, JsTctIdentity};
+use crate::tct::{js_verify_tct, js_verify_tct_cached, JsTctIdentity, JsTctStore};
 
 /// Input shape for `signRevocationList`. Field names map to spec
 /// `RevocationEntry` (jti, revoked_at, reason).
@@ -312,6 +312,28 @@ impl AitpAgent {
         )
     }
 
+    /// Like `verifyTct`, but consults a `TctStore` first: a byte-identical,
+    /// already-verified, still-valid TCT skips the signature check (the
+    /// verification hot path for an agent that sees the same TCT on many
+    /// requests). All cheap policy checks (expiry, audience, required grant)
+    /// still run on every call; only the signature check is elided.
+    #[napi]
+    pub fn verify_tct_cached(
+        &self,
+        tct_json: String,
+        required_grant: String,
+        store: &JsTctStore,
+        expected_audience: Option<String>,
+    ) -> Result<JsTctIdentity> {
+        js_verify_tct_cached(
+            &self.key,
+            &tct_json,
+            &required_grant,
+            store,
+            expected_audience.as_deref(),
+        )
+    }
+
     /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).
     #[napi]
     pub fn build_delegation(
@@ -386,14 +408,23 @@ impl AitpAgent {
             .map_err(|e| Error::from_reason(format!("sign_revocation_list failed: {e}")))?;
         serde_json::to_string(&envelope).map_err(|e| Error::from_reason(e.to_string()))
     }
+}
 
+// Renewal methods live in their own feature-gated `#[napi] impl` block.
+// Keeping `#[cfg]` on individual methods *inside* the main `#[napi] impl`
+// breaks the default (feature-off) build: the impl-level `#[napi]` macro
+// emits a `__napi__build_renewal_request` registration from the token
+// stream, but the method definition is `cfg`-stripped — a dangling
+// reference. Gating the whole impl block removes both together.
+#[cfg(feature = "experimental-renewal")]
+#[napi]
+impl AitpAgent {
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
     /// renewal of `currentTctEnvelopeJson` (RFC-AITP-0005 §10).
     ///
     /// **Gated by the `experimental-renewal` Cargo feature.** Off in
     /// the default `.node` artifact; build with
     /// `napi build --release -- --features experimental-renewal`.
-    #[cfg(feature = "experimental-renewal")]
     #[napi]
     pub fn build_renewal_request(&self, current_tct_envelope_json: String) -> Result<String> {
         build_renewal_request_js(&self.key, &current_tct_envelope_json)
@@ -403,7 +434,6 @@ impl AitpAgent {
     /// fresh `TctEnvelope` JSON.
     ///
     /// **Gated by the `experimental-renewal` Cargo feature.**
-    #[cfg(feature = "experimental-renewal")]
     #[napi]
     pub fn process_renewal_request(
         &self,
@@ -421,8 +451,10 @@ impl AitpAgent {
 }
 
 impl AitpAgent {
-    /// Crate-internal accessor used by bundle / renewal modules that
-    /// need to sign with the agent's long-term key.
+    /// Crate-internal accessor used by the session-bundle module, which
+    /// needs to sign with the agent's long-term key. Gated to match its
+    /// only caller so the default (feature-off) build stays warning-free.
+    #[cfg(feature = "experimental-bundle")]
     pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
         self.key.clone()
     }
