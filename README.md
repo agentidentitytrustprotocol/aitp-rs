@@ -191,8 +191,9 @@ Read these before contributing:
 ## Roadmap
 
 The original five-sprint bootstrap (alpha.1 through alpha.4) is
-complete. Subsequent work followed the unified hardening plan in
-[`plans/aitp-rs-unified-claude-code-plan.md`](plans/aitp-rs-unified-claude-code-plan.md):
+complete. Subsequent hardening is summarized below; the transport-layer
+items are tracked in
+[`docs/transport-hardening.md`](docs/transport-hardening.md):
 
 - **alpha.5** — Phases 1–9: pinned-key proof v1, identity type
   enforcement, `PinnedKeyStore`, grant policy hook, replay deny list,

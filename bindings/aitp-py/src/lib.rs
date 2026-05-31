@@ -39,9 +39,15 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<session::PyInitiatorSession>()?;
     m.add_class::<session::PyResponderSession>()?;
     m.add_class::<tct::PyTctIdentity>()?;
+    m.add_class::<tct::PyTctStore>()?;
     m.add_class::<delegation::PyDelegationVerified>()?;
     m.add_class::<oidc::PyJwksProvider>()?;
     m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
+    #[cfg(feature = "experimental-multihop-delegation")]
+    m.add_function(wrap_pyfunction!(
+        delegation::verify_delegation_experimental_multihop_py,
+        m
+    )?)?;
     m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
     #[cfg(feature = "experimental-bundle")]

@@ -23,11 +23,23 @@ napi-build = "2"
 #   napi build --release -- --features experimental
 [features]
 default = []
-experimental = ["experimental-renewal", "experimental-bundle", "experimental-pinning"]
+experimental = [
+    "experimental-renewal",
+    "experimental-bundle",
+    "experimental-pinning",
+    "experimental-multihop-delegation",
+]
 experimental-renewal = ["aitp-tct/experimental-renewal"]
 experimental-bundle = ["dep:aitp-session-bundle"]
 # SPKI cert pinning — see aitp-py Cargo.toml for the rationale.
 experimental-pinning = ["dep:x509-parser"]
+# Draft RFC-AITP-0011 multi-hop delegation. Off by default so the strict
+# v0.1 single-hop `verifyDelegation` is the only delegation verifier in a
+# default build; enabling it additionally exposes
+# `verifyDelegationExperimentalMultihop`. aitp-delegation has no feature of
+# its own (multi-hop is always compiled, gated at runtime by max_hops), so
+# this is a binding-level surface gate only.
+experimental-multihop-delegation = []
 
 [dependencies]
 aitp-core = { path = "../../crates/aitp-core" }

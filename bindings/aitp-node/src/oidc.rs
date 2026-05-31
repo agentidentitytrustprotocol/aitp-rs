@@ -66,7 +66,7 @@ impl JwksResolver for JwksMapAdapter {
             .lock()
             .map_err(|e| ResolveError::NetworkError(format!("jwks mutex poisoned: {e}")))?;
         match map.get(issuer.as_str()) {
-            Some(v) if !v.is_empty() => Ok(v.iter().cloned().collect()),
+            Some(v) if !v.is_empty() => Ok(v.to_vec()),
             _ => Err(ResolveError::NotTrusted(issuer.clone())),
         }
     }

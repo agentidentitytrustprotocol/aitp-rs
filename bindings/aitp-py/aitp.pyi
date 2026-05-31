@@ -18,6 +18,16 @@ class TctIdentity:
     expires_at: int  # unix seconds
     jti: str  # UUID string
 
+class TctStore:
+    """Bounded in-memory cache of successful TCT verifications, keyed by the
+    SHA-256 of the exact TCT envelope bytes. Lets a high-throughput verifier
+    skip the signature check when it re-sees a byte-identical, still-valid TCT.
+    Cheap policy checks (expiry, audience, grant) still run on every hit."""
+
+    def __init__(self, max_entries: int) -> None: ...
+    def len(self) -> int: ...
+    def clear(self) -> None: ...
+
 class DelegationVerified:
     """Verified delegation token (RFC-AITP-0006)."""
 
@@ -102,6 +112,13 @@ class AitpAgent:
         required_grant: str,
         expected_audience: Optional[str] = ...,
     ) -> TctIdentity: ...
+    def verify_tct_cached(
+        self,
+        tct_json: str,
+        required_grant: str,
+        store: TctStore,
+        expected_audience: Optional[str] = ...,
+    ) -> TctIdentity: ...
     def build_delegation(
         self,
         held_tct_envelope_json: str,
@@ -137,8 +154,23 @@ class AitpAgent:
 # ── Free functions ──────────────────────────────────────────────────────
 
 def verify_delegation(
-    envelope_json: str, verifier_aid: str, max_hops: int = 0
-) -> DelegationVerified: ...
+    envelope_json: str, verifier_aid: str
+) -> DelegationVerified:
+    """Verify a delegation envelope under strict AITP v0.1 (RFC-AITP-0006
+    single-hop). A token carrying a non-empty `chain` (draft RFC-AITP-0011
+    multi-hop) is rejected with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To opt
+    into multi-hop, build with the `experimental-multihop-delegation`
+    feature and use `verify_delegation_experimental_multihop`."""
+    ...
+
+def verify_delegation_experimental_multihop(
+    envelope_json: str, verifier_aid: str, max_hops: int = 3
+) -> DelegationVerified:
+    """Verify a delegation envelope allowing draft RFC-AITP-0011 multi-hop
+    chains up to `max_hops` total hops (`chain.len() + 1`). NOT part of AITP
+    v0.1; only present when built with the `experimental-multihop-delegation`
+    Cargo feature. `max_hops=0` reverts to strict v0.1."""
+    ...
 def verify_manifest_json(manifest_envelope_json: str) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure."""
     ...
