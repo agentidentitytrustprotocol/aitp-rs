@@ -79,3 +79,20 @@ its v0.1-strict assertion no longer applies.
   vendored schemas track the spec commit pinned in
   `tests/schemas/SPEC_VERSION`; re-run `scripts/sync-schemas.sh` after
   the spec commit advances.
+- **P-256 (RFC-AITP-0001 §5.4.3) has no dedicated *conformance fixture*
+  yet** — the `env-001`–`env-004` envelope fixtures are Ed25519. P-256 is
+  instead covered locally by: the `kat-keypair-005-p256` vector
+  (`tests/schemas/known-answer/keypairs.json`) exercised by
+  `aitp-crypto`'s `p256_keypair_kat_scalar_pubkey_aid_and_signature`
+  (scalar → pubkey → AID + tagged sign/verify); `aitp-tct`'s
+  `p256_subject_round_trip_and_pop`; the pure-Rust OIDC handshakes
+  `oidc_minter_handshake_p256_initiator` / `_p256_responder`
+  (`aitp-handshake`); and the cross-language
+  `test_p256_handshake_via_oidc_python_to_node` interop test.
+  - **Adapter readiness:** `aitp-rs-adapter`'s `p256_readiness_tests`
+    drive a P-256-signed envelope through the very `verify_envelope` op
+    the `env-*` fixtures use (accept + tamper-reject), so this adapter
+    will pass a P-256 envelope fixture the moment the spec defines one.
+  - A future spec-repo `env-005` P-256 envelope fixture would fold this
+    into the conformance gate; until then the drift check rides on
+    `keypairs.json` and the adapter-readiness tests above.

@@ -37,6 +37,28 @@ land in 0.1.0.
   must not be pulled into `cargo test --workspace`. Each carries its
   own `Cargo.lock`.
 
+### Changed — language SDKs `0.1.0` → `0.2.0` (BREAKING)
+
+- **Strict-by-default delegation.** `verify_delegation` /
+  `verifyDelegation` now verify under strict AITP v0.1 single-hop and
+  **reject** any token carrying a non-empty `chain`
+  (`DELEGATION_MULTIHOP_NOT_SUPPORTED`), matching the Rust core default.
+  Previously both SDKs silently defaulted to draft RFC-AITP-0011
+  multi-hop (`max_hops = 3`). The `max_hops` parameter was removed from
+  these functions. **Migration:** to accept multi-hop, build with the
+  new `experimental-multihop-delegation` feature and call
+  `verify_delegation_experimental_multihop` /
+  `verifyDelegationExperimentalMultihop`.
+- **OIDC mint-callback** presentation path (`IdentityMode::OidcWithMintCallback`
+  in the facade; bindings already wrapped host callables as the minter).
+- **`TctStore` / `verify_tct_cached`** — a hot-path cache that skips the
+  signature check for a byte-identical, still-valid TCT (keyed by the
+  SHA-256 of the envelope; tampered bytes miss and are fully verified).
+- **Node binding now compiles with all features off** — the default
+  v0.1-core-only build previously failed to compile.
+- Published SDK versions bumped `0.1.0` → `0.2.0` to signal the breaking
+  delegation change (pre-1.0 minor bump).
+
 ### Added — cross-language interop tests
 
 - **`bindings/interop/`** — integration tests that drive a real

@@ -18,6 +18,9 @@ use uuid::Uuid;
 
 use crate::agent::PyAitpAgent;
 
+/// Revocation-check closure: maps a TCT `jti` to "is it revoked?".
+type RevocationFn = Box<dyn Fn(&Uuid) -> bool>;
+
 /// Fluent builder for issuing a `SessionBundleEnvelope`. Constructed
 /// from the coordinator's [`AitpAgent`]; chain `participant()` calls for
 /// each participant, then `build()` to sign + serialize.
@@ -134,9 +137,9 @@ pub fn verify_session_bundle_py<'py>(
     // Translate the optional Python callback into the borrowed closure
     // the Rust API expects.
     let cb_holder = revocation_check;
-    let cb_fn: Option<Box<dyn Fn(&Uuid) -> bool>> = cb_holder.as_ref().map(|callable| {
+    let cb_fn: Option<RevocationFn> = cb_holder.as_ref().map(|callable| {
         let callable = callable.clone_ref(py);
-        let f: Box<dyn Fn(&Uuid) -> bool> = Box::new(move |jti: &Uuid| {
+        let f: RevocationFn = Box::new(move |jti: &Uuid| {
             Python::with_gil(|py| {
                 let bound = callable.bind(py);
                 match bound.call1((jti.to_string(),)) {

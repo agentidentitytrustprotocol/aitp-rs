@@ -19,6 +19,9 @@ use uuid::Uuid;
 use crate::agent::AitpAgent;
 use crate::helpers::JsFnRef;
 
+/// Revocation-check closure: maps a TCT `jti` to "is it revoked?".
+type RevocationFn = Box<dyn Fn(&Uuid) -> bool>;
+
 /// Outcome shape returned by `verifySessionBundle`. `kind` is `"clear"`
 /// or `"degraded"`; `droppedAids` is empty in the `"clear"` case.
 #[napi(object)]
@@ -131,11 +134,11 @@ pub fn verify_session_bundle_js(
     // exit), the guard drops and unrefs the napi Ref. The verifier may
     // never invoke the closure (e.g. version mismatch returns before
     // iterating participants) — the guard handles that case cleanly.
-    let closure: Option<Box<dyn Fn(&Uuid) -> bool>> = match revocation_check {
+    let closure: Option<RevocationFn> = match revocation_check {
         Some(cb) => {
             let guard = JsFnRef::new(env, cb)?;
             let env_raw = env.raw();
-            let f: Box<dyn Fn(&Uuid) -> bool> = Box::new(move |jti: &Uuid| {
+            let f: RevocationFn = Box::new(move |jti: &Uuid| {
                 // SAFETY: env_raw is valid for the duration of this
                 // `#[napi]` method call; the closure is never sent
                 // across threads.

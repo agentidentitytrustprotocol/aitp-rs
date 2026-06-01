@@ -7,8 +7,10 @@
 //! handshake / TCT verifiers.
 
 use aitp_core::{Aid, Timestamp};
+use aitp_crypto::AitpSigningKey;
 use aitp_tct::{
-    verify_revocation_list, RevocationListEnvelope, TctError, VerifyRevocationListContext,
+    sign_revocation_list, verify_revocation_list, RevocationList, RevocationListEnvelope, TctError,
+    VerifyRevocationListContext,
 };
 use parking_lot::RwLock;
 use std::collections::HashMap;
@@ -23,6 +25,61 @@ use uuid::Uuid;
 pub trait RevocationProvider: Send + Sync {
     /// Fetch the latest signed snapshot for `issuer`.
     fn fetch(&self, issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError>;
+}
+
+/// A [`RevocationProvider`] that always returns a freshly-signed, **empty**
+/// revocation list for its configured issuer — i.e. "this issuer has revoked
+/// nothing."
+///
+/// Intended for tests and local/dev wiring that need a working provider
+/// without standing up an HTTP revocation source (the previous alternative
+/// was hand-rolling a signed empty envelope in every test). Because a
+/// snapshot must be signed by the issuer (RFC-AITP-0008), the provider is
+/// built from that issuer's signing key and only speaks for `key.aid()`: a
+/// `fetch` produces a list signed by this key, which the verifier checks
+/// against the *requested* issuer, so using it for a different issuer fails
+/// closed (correct — the provider cannot vouch for an issuer whose key it
+/// does not hold).
+///
+/// This is NOT a "skip revocation" switch — for that, configure
+/// [`RevocationPolicy`] with no provider plus [`RevocationFailMode::FailOpen`].
+pub struct EmptyRevocationProvider {
+    issuer_key: AitpSigningKey,
+    ttl_secs: i64,
+}
+
+impl EmptyRevocationProvider {
+    /// New provider that signs empty lists as `issuer_key`'s AID, each valid
+    /// for one hour from issuance.
+    pub fn new(issuer_key: AitpSigningKey) -> Self {
+        Self {
+            issuer_key,
+            ttl_secs: 3600,
+        }
+    }
+
+    /// Override the validity window (seconds) of the signed empty lists.
+    pub fn with_ttl_secs(mut self, ttl_secs: i64) -> Self {
+        self.ttl_secs = ttl_secs;
+        self
+    }
+}
+
+impl RevocationProvider for EmptyRevocationProvider {
+    fn fetch(&self, _issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError> {
+        let now = Timestamp::now();
+        sign_revocation_list(
+            RevocationList {
+                version: "aitp/0.1".into(),
+                issuer: self.issuer_key.aid().clone(),
+                published_at: now,
+                expires_at: Timestamp(now.0 + self.ttl_secs),
+                entries: vec![],
+            },
+            &self.issuer_key,
+        )
+        .map_err(RevocationError::SignatureInvalid)
+    }
 }
 
 /// Errors raised when fetching or applying a revocation snapshot.
@@ -348,9 +405,11 @@ pub const DEFAULT_REVOCATION_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 mod tests {
+    // `super::*` already brings `AitpSigningKey`, `sign_revocation_list`,
+    // and `RevocationList` (top-level imports); only `RevocationEntry` is
+    // additionally needed here.
     use super::*;
-    use aitp_crypto::AitpSigningKey;
-    use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
+    use aitp_tct::RevocationEntry;
 
     fn make_envelope(
         jti: Uuid,
@@ -389,6 +448,21 @@ mod tests {
         fn fetch(&self, _issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError> {
             Err(RevocationError::Network("offline".into()))
         }
+    }
+
+    #[test]
+    fn empty_provider_reads_everything_as_unrevoked() {
+        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let issuer = key.aid().clone();
+        let cache = RevocationCache::new(
+            EmptyRevocationProvider::new(key),
+            RevocationPolicy::default(),
+        );
+        // Any jti is unrevoked because the issuer's signed snapshot is empty.
+        let revoked = cache
+            .is_revoked(&Uuid::new_v4(), &issuer, Timestamp::now())
+            .unwrap();
+        assert!(!revoked, "empty signed snapshot ⇒ nothing is revoked");
     }
 
     #[test]

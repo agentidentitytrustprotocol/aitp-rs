@@ -9,7 +9,41 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { AitpAgent, verifyDelegation } from '../index.js';
+import {
+  AitpAgent,
+  verifyDelegation,
+  verifyDelegationExperimentalMultihop,
+} from '../index.js';
+
+const HAS_MULTIHOP =
+  typeof verifyDelegationExperimentalMultihop === 'function';
+
+// Take a valid single-hop envelope and inject a non-empty `chain`. A
+// `DelegationStep` shares the wire shape of `grant_proof`, so reusing the
+// envelope's own `grant_proof` keeps the JSON deserializable while turning the
+// token into a (structurally bogus) multi-hop one — enough to exercise the
+// strict-vs-experimental gate, which fires before signature/structure checks.
+function injectMultihopChain(delegationEnv) {
+  const env = JSON.parse(delegationEnv);
+  env.delegation.chain = [env.delegation.grant_proof];
+  return JSON.stringify(env);
+}
+
+function buildDelegationEnv() {
+  const { agent: a, manifest: aManifest } = buildPeer('A', 8301, ['demo.write']);
+  const { agent: b } = buildPeer('B', 8302, ['demo.echo']);
+  const { agent: c } = buildPeer('C', 8303, ['demo.read']);
+
+  const bHeldTctFromA = fullHandshake(b, a, aManifest, ['demo.write']);
+  const cManifestEnv = JSON.parse(c.buildManifest({
+    displayName: 'C',
+    handshakeEndpoint: 'http://localhost:8303/aitp/handshake/',
+    offeredCaps: ['demo.read'],
+  }));
+  const cPubKey = cManifestEnv.manifest.identity_hint.public_key;
+  const delegationEnv = b.buildDelegation(bHeldTctFromA, c.aid, cPubKey, ['demo.write']);
+  return { a, delegationEnv };
+}
 
 function buildPeer(name, port, offers) {
   const agent = AitpAgent.generate();
@@ -96,3 +130,30 @@ test('verifyDelegation rejects a wrong verifier AID', () => {
   // A different agent's AID should be rejected as the verifier.
   assert.throws(() => verifyDelegation(delegationEnv, other.aid));
 });
+
+test('verifyDelegation (strict default) rejects a multi-hop chain', () => {
+  // RFC-AITP-0006 §4.4: any non-empty chain is rejected with
+  // DELEGATION_MULTIHOP_NOT_SUPPORTED before any per-hop work.
+  const { a, delegationEnv } = buildDelegationEnv();
+  const tampered = injectMultihopChain(delegationEnv);
+  assert.throws(
+    () => verifyDelegation(tampered, a.aid),
+    /multi-hop delegation is not supported/,
+  );
+});
+
+test(
+  'verifyDelegationExperimentalMultihop opts past the hop gate',
+  { skip: !HAS_MULTIHOP ? 'built without experimental-multihop-delegation' : false },
+  () => {
+    // The opt-in verifier must get PAST the hop gate the strict path rejects
+    // at — proven by failing with a *different* error (structure/signature)
+    // rather than MULTIHOP_NOT_SUPPORTED.
+    const { a, delegationEnv } = buildDelegationEnv();
+    const tampered = injectMultihopChain(delegationEnv);
+    assert.throws(() => verifyDelegationExperimentalMultihop(tampered, a.aid, 3), (err) => {
+      assert.doesNotMatch(String(err.message), /multi-hop delegation is not supported/);
+      return true;
+    });
+  },
+);

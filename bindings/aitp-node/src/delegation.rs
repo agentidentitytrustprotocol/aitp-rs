@@ -10,8 +10,13 @@ use aitp_core::{base64url, Aid, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp_delegation::{
     verify_delegation, DelegationBuilder, DelegationEnvelope, DelegationToken,
-    VerifyDelegationContext, DEFAULT_MAX_HOPS,
+    VerifyDelegationContext,
 };
+// RFC-AITP-0011 multi-hop ceiling — only referenced by the experimental
+// opt-in verifier, so the import is feature-gated to avoid an unused-import
+// warning in the default (strict v0.1) build.
+#[cfg(feature = "experimental-multihop-delegation")]
+use aitp_delegation::DEFAULT_MAX_HOPS;
 use aitp_tct::{Tct, TctEnvelope};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -38,38 +43,85 @@ pub struct JsDelegationVerified {
     pub cnf: String,
 }
 
-/// Verify a `DelegationEnvelope` JSON. `verifierAid` is the verifier's own
-/// AID string — verification fails if it doesn't match the token's
-/// `delegator` field. `maxHops` defaults to `DEFAULT_MAX_HOPS` (3) when 0;
-/// pass a positive value to override.
+/// Verify a `DelegationEnvelope` JSON under **strict AITP v0.1**
+/// (RFC-AITP-0006 single-hop). `verifierAid` is the verifier's own AID
+/// string — verification fails if it doesn't match the token's `delegator`
+/// field.
+///
+/// Any token carrying a non-empty `chain` (a draft RFC-AITP-0011 multi-hop
+/// delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
+/// matching the Rust core default. To opt into multi-hop, build the SDK with
+/// the `experimental-multihop-delegation` feature and call
+/// `verifyDelegationExperimentalMultihop`.
 #[napi(js_name = "verifyDelegation")]
 pub fn verify_delegation_js(
     envelope_json: String,
     verifier_aid: String,
+) -> Result<JsDelegationVerified> {
+    let token = parse_envelope(&envelope_json)?;
+    let verifier = parse_verifier(&verifier_aid)?;
+
+    // `VerifyDelegationContext::new` ships `max_hops = V0_1_STRICT_MAX_HOPS`
+    // (0), so a non-empty chain fails before any per-hop work runs.
+    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+
+    verify_delegation(&token, &ctx)
+        .map_err(|e| Error::from_reason(format!("delegation verification failed: {e}")))?;
+
+    Ok(to_verified(&token))
+}
+
+/// Verify a `DelegationEnvelope` JSON allowing **draft RFC-AITP-0011
+/// multi-hop** chains up to `maxHops` total hops (`chain.length + 1`).
+///
+/// This opts into behavior that is **not** part of AITP v0.1. It is only
+/// compiled in under the `experimental-multihop-delegation` feature; a
+/// default build exposes only the strict `verifyDelegation`.
+///
+/// `maxHops` defaults to `DEFAULT_MAX_HOPS` (3, the RFC-AITP-0011 §2
+/// recommended ceiling). Pass a smaller value for a tighter bound;
+/// `maxHops = 0` reverts to strict v0.1 (rejects any non-empty chain).
+#[cfg(feature = "experimental-multihop-delegation")]
+#[napi(js_name = "verifyDelegationExperimentalMultihop")]
+pub fn verify_delegation_experimental_multihop_js(
+    envelope_json: String,
+    verifier_aid: String,
     max_hops: Option<u32>,
 ) -> Result<JsDelegationVerified> {
-    let DelegationEnvelope { delegation: token } = serde_json::from_str(&envelope_json)
-        .map_err(|e| Error::from_reason(format!("invalid delegation envelope JSON: {e}")))?;
-    let verifier = Aid::parse(&verifier_aid)
-        .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
+    let token = parse_envelope(&envelope_json)?;
+    let verifier = parse_verifier(&verifier_aid)?;
 
-    let hops = match max_hops {
-        Some(0) | None => DEFAULT_MAX_HOPS,
-        Some(n) => n,
-    };
+    let hops = max_hops.unwrap_or(DEFAULT_MAX_HOPS);
     let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_hops(hops);
 
     verify_delegation(&token, &ctx)
         .map_err(|e| Error::from_reason(format!("delegation verification failed: {e}")))?;
 
-    Ok(JsDelegationVerified {
+    Ok(to_verified(&token))
+}
+
+/// Parse a `DelegationEnvelope` JSON into its inner token.
+fn parse_envelope(envelope_json: &str) -> Result<DelegationToken> {
+    let DelegationEnvelope { delegation } = serde_json::from_str(envelope_json)
+        .map_err(|e| Error::from_reason(format!("invalid delegation envelope JSON: {e}")))?;
+    Ok(delegation)
+}
+
+/// Parse the verifier's own AID string.
+fn parse_verifier(verifier_aid: &str) -> Result<Aid> {
+    Aid::parse(verifier_aid).map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))
+}
+
+/// Project a verified token's salient fields into the Node-facing type.
+fn to_verified(token: &DelegationToken) -> JsDelegationVerified {
+    JsDelegationVerified {
         delegator: token.delegator.to_string(),
         delegatee: token.delegatee.to_string(),
         issued_by: token.issued_by.to_string(),
         grants: token.scope.clone(),
         expires_at: token.expires_at.0 as f64,
         cnf: token.cnf.clone(),
-    })
+    }
 }
 
 /// Build a `DelegationToken` and serialize it as a `DelegationEnvelope` JSON.

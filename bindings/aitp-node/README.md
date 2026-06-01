@@ -37,7 +37,8 @@ capabilities live behind opt-in Cargo features:
 | `experimental-renewal`    | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0005 §10    |
 | `experimental-bundle`     | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010        |
 | `experimental-pinning`    | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
-| `experimental` (umbrella) | All three above                                                          |                      |
+| `experimental-multihop-delegation` | `verifyDelegationExperimentalMultihop`                          | RFC-AITP-0011        |
+| `experimental` (umbrella) | All four above                                                           |                      |
 
 Each post-v0.1 capability does **not** promise wire stability until the
 underlying RFC graduates.
@@ -93,11 +94,13 @@ is a summary. All `*Json` parameters and return values are JSON strings.
 | `TctIdentity`             |    ✅    | `peerAid`, `grants`, `expiresAt`, `jti`                                                                          |
 | `DelegationVerified`      |    ✅    | `delegator`, `delegatee`, `issuedBy`, `grants`, `expiresAt`, `cnf`                                              |
 | `JwksProvider`            |    ✅    | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()`                                            |
-| `verifyDelegation()`      |    ✅    | RFC-AITP-0006                                                                                                   |
+| `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the envelope) |
+| `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict v0.1 single-hop; rejects any multi-hop `chain`                                          |
 | `verifyManifestJson()`    |    ✅    | Control-plane manifest enrollment                                                                               |
 | `buildRenewalRequest()` / `processRenewalRequest()`           | `experimental-renewal` | RFC-AITP-0005 §10 |
 | `SessionBundleBuilder`, `verifySessionBundle()`               | `experimental-bundle`  | RFC-AITP-0010      |
 | `computeSpkiHash()`, `SpkiPinVerifier`                        | `experimental-pinning` | HPKP outbound pinning |
+| `verifyDelegationExperimentalMultihop()`                      | `experimental-multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
 
 ### OIDC identity (RFC-AITP-0002)
 
