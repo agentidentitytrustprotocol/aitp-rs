@@ -8,17 +8,34 @@
 //!
 //! # Examples
 //!
-//! ```rust,ignore
+//! Size the connection pool for a fetcher that talks to many distinct
+//! hosts — cap idle connections per host so the pool doesn't grow
+//! unbounded, but keep them warm with a TCP keep-alive behind a load
+//! balancer that silently drops idle sockets:
+//!
+//! ```no_run
 //! use aitp_transport_http::{ClientConfig, ManifestFetcher};
 //! use std::time::Duration;
 //!
 //! let cfg = ClientConfig::default()
 //!     .with_pool_idle_timeout(Duration::from_secs(90))
-//!     .with_pool_max_idle_per_host(8)
-//!     .with_tcp_keepalive(Duration::from_secs(60))
-//!     .with_extra_root_cert_pem(my_ca_pem);
+//!     .with_pool_max_idle_per_host(4)
+//!     .with_tcp_keepalive(Duration::from_secs(60));
 //!
 //! let fetcher = ManifestFetcher::new().with_client_config(cfg);
+//! # let _ = fetcher;
+//! ```
+//!
+//! A single `ClientConfig` can be cloned across several fetchers so the
+//! pool tuning lives in one place:
+//!
+//! ```no_run
+//! use aitp_transport_http::{ClientConfig, JwksFetcher, ManifestFetcher};
+//!
+//! let cfg = ClientConfig::default().with_pool_max_idle_per_host(2);
+//! let manifests = ManifestFetcher::new().with_client_config(cfg.clone());
+//! let jwks = JwksFetcher::new().with_client_config(cfg);
+//! # let _ = (manifests, jwks);
 //! ```
 
 use std::time::Duration;

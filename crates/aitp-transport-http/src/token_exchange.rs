@@ -164,6 +164,18 @@ pub struct TokenExchangeRequest {
     pub resource: Option<Url>,
     /// Space-separated scope string requested for the new token.
     pub scope: Option<String>,
+    /// Optional DPoP proof JWT (RFC 9449) for this request, sent in the
+    /// `DPoP` header. When the IdP supports DPoP, presenting a proof
+    /// bound to `POST <endpoint>` makes the IdP issue a **DPoP-bound**
+    /// token (the response's `token_type` is then `DPoP`), tying the new
+    /// token to the agent's key — see [`crate::dpop`].
+    ///
+    /// The proof is minted and signed by the caller (the same model as
+    /// the subject JWT): its `htm` MUST be `POST`, its `htu` MUST be
+    /// `endpoint`, and it carries a fresh `jti`. This crate verifies
+    /// proofs ([`crate::dpop::verify_dpop_proof_full`]) but does not mint
+    /// them.
+    pub dpop_proof: Option<String>,
 }
 
 impl TokenExchangeRequest {
@@ -180,6 +192,7 @@ impl TokenExchangeRequest {
             audience: None,
             resource: None,
             scope: None,
+            dpop_proof: None,
         }
     }
 
@@ -187,6 +200,14 @@ impl TokenExchangeRequest {
     /// over the public `client_auth` field.
     pub fn with_client_auth(mut self, auth: ClientAuthentication) -> Self {
         self.client_auth = auth;
+        self
+    }
+
+    /// Attach a DPoP proof JWT (RFC 9449) so the IdP issues a
+    /// DPoP-bound token. Convenience builder over the public
+    /// `dpop_proof` field; see that field for the proof requirements.
+    pub fn with_dpop_proof(mut self, proof_jwt: impl Into<String>) -> Self {
+        self.dpop_proof = Some(proof_jwt.into());
         self
     }
 
@@ -265,6 +286,38 @@ struct OauthError {
     error_description: Option<String>,
 }
 
+/// Build the (unsent) token-exchange HTTP request: form body, `Accept`
+/// header, HttpBasic auth header (when configured), and the DPoP proof
+/// header (when present). Split out from [`exchange_token`] so request
+/// construction — especially the DPoP binding — is unit-testable without
+/// a live IdP.
+fn build_exchange_request(
+    client: &reqwest::Client,
+    request: &TokenExchangeRequest,
+) -> reqwest::RequestBuilder {
+    let body = request.form_body();
+    let mut builder = client
+        .post(request.endpoint.clone())
+        .header(reqwest::header::ACCEPT, "application/json")
+        .form(&body);
+    // HttpBasic is the only auth scheme that lives outside the form
+    // body — RFC 6749 §2.3.1 puts it in the Authorization header.
+    if let ClientAuthentication::HttpBasic {
+        client_id,
+        client_secret,
+    } = &request.client_auth
+    {
+        builder = builder.basic_auth(client_id, Some(client_secret));
+    }
+    // RFC 9449 §5: a DPoP-bound token request carries the proof JWT in
+    // the `DPoP` header; the IdP then issues a token with
+    // `token_type: DPoP`.
+    if let Some(proof) = &request.dpop_proof {
+        builder = builder.header("DPoP", proof);
+    }
+    builder
+}
+
 /// Execute an RFC 8693 token-exchange against `request.endpoint`,
 /// returning the new token on 2xx.
 ///
@@ -275,21 +328,7 @@ pub async fn exchange_token(
     client: &reqwest::Client,
     request: &TokenExchangeRequest,
 ) -> Result<TokenExchangeResponse, TokenExchangeError> {
-    let body = request.form_body();
-    let mut builder = client
-        .post(request.endpoint.clone())
-        .header(reqwest::header::ACCEPT, "application/json")
-        .form(&body);
-    // HttpBasic is the only scheme that lives outside the form
-    // body — RFC 6749 §2.3.1 puts it in the Authorization header.
-    if let ClientAuthentication::HttpBasic {
-        client_id,
-        client_secret,
-    } = &request.client_auth
-    {
-        builder = builder.basic_auth(client_id, Some(client_secret));
-    }
-    let resp = builder.send().await?;
+    let resp = build_exchange_request(client, request).send().await?;
 
     let status = resp.status();
     let bytes = resp.bytes().await?;
@@ -375,6 +414,85 @@ mod tests {
         assert_eq!(r.access_token, "new-jwt");
         assert_eq!(r.token_type, "Bearer");
         assert_eq!(r.expires_in, Some(3600));
+    }
+
+    #[test]
+    fn exchanged_token_binds_to_agent_aid_via_cnf_jkt() {
+        use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+
+        // A token-exchange caller bootstraps an OIDC token that it later
+        // presents in an AITP handshake. For the verifying peer to bind
+        // that token to this agent's AID (RFC-AITP-0002 §2.3), the IdP
+        // MUST set the token's `cnf.jkt` to the RFC 7638 thumbprint of the
+        // agent's AID key. This pins the mapping the token-exchange flow
+        // relies on: the value the agent asks the IdP to embed must equal
+        // the one the verifier independently derives from the presented
+        // AID — for both Ed25519 and P-256 agents.
+        //
+        // (The full JWT-signature → identity verification is exercised
+        // end-to-end in aitp-handshake's `oidc_handshake` tests; here we
+        // pin just the AID↔jkt binding contract at the bootstrap boundary.)
+        let keys = [
+            AitpSigningKey::from_seed(&[3u8; 32]),
+            AitpSigningKey::from_p256_seed(&[3u8; 32]).expect("valid P-256 scalar"),
+        ];
+        for key in &keys {
+            let aid = key.aid().clone();
+            // What the verifying peer derives from the presented AID:
+            let verifier_jkt = AitpVerifyingKey::from_aid(&aid)
+                .unwrap()
+                .to_jwk_thumbprint()
+                .unwrap();
+            // What the agent must have the IdP embed as the token's cnf.jkt:
+            let agent_jkt = key.verifying_key().to_jwk_thumbprint().unwrap();
+            assert_eq!(
+                agent_jkt, verifier_jkt,
+                "exchanged token's cnf.jkt must bind it to the agent's AID"
+            );
+        }
+
+        // The binding is AID-specific: a different agent's key yields a
+        // different jkt, so an exchanged token cannot be bound to an
+        // unrelated AID.
+        let a = AitpSigningKey::from_seed(&[1u8; 32]);
+        let b = AitpSigningKey::from_seed(&[2u8; 32]);
+        assert_ne!(
+            a.verifying_key().to_jwk_thumbprint().unwrap(),
+            b.verifying_key().to_jwk_thumbprint().unwrap(),
+        );
+    }
+
+    #[test]
+    fn dpop_proof_attached_as_header() {
+        let client = reqwest::Client::new();
+        let req = TokenExchangeRequest::new(
+            ep(),
+            SubjectCredential {
+                token: "the-jwt".into(),
+                token_type: SUBJECT_TYPE_JWT.into(),
+            },
+        )
+        .with_dpop_proof("proof-header.proof-body.proof-sig");
+        let built = build_exchange_request(&client, &req).build().unwrap();
+        assert_eq!(built.method(), reqwest::Method::POST);
+        assert_eq!(
+            built.headers().get("dpop").map(|v| v.to_str().unwrap()),
+            Some("proof-header.proof-body.proof-sig"),
+        );
+    }
+
+    #[test]
+    fn no_dpop_header_when_absent() {
+        let client = reqwest::Client::new();
+        let req = TokenExchangeRequest::new(
+            ep(),
+            SubjectCredential {
+                token: "the-jwt".into(),
+                token_type: SUBJECT_TYPE_JWT.into(),
+            },
+        );
+        let built = build_exchange_request(&client, &req).build().unwrap();
+        assert!(built.headers().get("dpop").is_none());
     }
 
     #[test]

@@ -2670,3 +2670,83 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
     }
     .to_string()
 }
+
+#[cfg(test)]
+mod p256_readiness_tests {
+    //! P-256 conformance readiness (RFC-AITP-0001 §5.4.3).
+    //!
+    //! Conformance fixtures live in the spec repo (`schemas/conformance/`,
+    //! passed to the runner via `--fixtures-dir`), so a P-256 envelope
+    //! fixture — a future `env-005` — cannot be authored in this repo. The
+    //! `env-001`..`env-004` fixtures are Ed25519. These tests instead drive
+    //! a P-256-signed envelope through the **same `verify_envelope` op** the
+    //! `env-*` fixtures use, proving this adapter will pass such a fixture
+    //! the moment the spec defines it (the verifier resolves the key via
+    //! the algorithm-agile `AitpVerifyingKey::from_aid`).
+    use super::*;
+
+    fn p256_signed_envelope() -> Value {
+        let key = AitpSigningKey::from_p256_seed(&[0x42; 32]).expect("valid P-256 scalar");
+        assert!(
+            key.aid().as_str().starts_with("aid:pubkey:p256:"),
+            "expected a P-256 AID"
+        );
+        let message_id = Uuid::from_u128(0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10);
+        let timestamp = Timestamp(1_700_000_000);
+        let payload = json!({"hello": "p256"});
+        let digest =
+            aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
+                .unwrap();
+        let envelope = AitpEnvelope {
+            version: "aitp/0.1".into(),
+            message_type: MessageType::MutualHello,
+            message_id,
+            timestamp,
+            sender: Sender {
+                agent_id: key.aid().clone(),
+            },
+            payload,
+            signature: key.sign(&digest).into_string(),
+        };
+        serde_json::to_value(&envelope).unwrap()
+    }
+
+    #[test]
+    fn adapter_verifies_p256_envelope() {
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "env-p256-readiness",
+            "verify_envelope",
+            json!({ "envelope": p256_signed_envelope() }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(true),
+            "adapter must verify a P-256 envelope: {out}"
+        );
+        assert_eq!(out["result"]["verified"], json!(true));
+    }
+
+    #[test]
+    fn adapter_rejects_tampered_p256_envelope() {
+        let mut env = p256_signed_envelope();
+        // Mutate the payload after signing — the P-256 signature must no
+        // longer verify (the same failure mode `env-*` tamper fixtures
+        // expect).
+        env["payload"] = json!({"hello": "tampered"});
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "env-p256-readiness-neg",
+            "verify_envelope",
+            json!({ "envelope": env }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(false),
+            "tampered envelope must fail: {out}"
+        );
+        assert_eq!(out["error_code"], json!("INVALID_SIGNATURE"));
+    }
+}

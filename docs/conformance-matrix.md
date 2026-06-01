@@ -88,6 +88,11 @@ its v0.1-strict assertion no longer applies.
   `p256_subject_round_trip_and_pop`; the pure-Rust OIDC handshakes
   `oidc_minter_handshake_p256_initiator` / `_p256_responder`
   (`aitp-handshake`); and the cross-language
-  `test_p256_handshake_via_oidc_python_to_node` interop test. A future
-  spec-repo `env-005` P-256 envelope fixture would fold this into the
-  conformance gate; until then the drift check rides on `keypairs.json`.
+  `test_p256_handshake_via_oidc_python_to_node` interop test.
+  - **Adapter readiness:** `aitp-rs-adapter`'s `p256_readiness_tests`
+    drive a P-256-signed envelope through the very `verify_envelope` op
+    the `env-*` fixtures use (accept + tamper-reject), so this adapter
+    will pass a P-256 envelope fixture the moment the spec defines one.
+  - A future spec-repo `env-005` P-256 envelope fixture would fold this
+    into the conformance gate; until then the drift check rides on
+    `keypairs.json` and the adapter-readiness tests above.

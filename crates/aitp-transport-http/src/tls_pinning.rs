@@ -48,6 +48,32 @@
 //!   | xxd -p -c 64
 //! ```
 //!
+//! # Wiring into an HTTP client
+//!
+//! Compute the pin once (offline, from the server's certificate DER),
+//! then register it on a [`crate::ClientConfig`] so a fetcher's client
+//! accepts only that SPKI — or build a raw `rustls::ClientConfig` for
+//! use with `reqwest` directly:
+//!
+//! ```ignore
+//! use aitp_transport_http::{
+//!     build_pinning_client_config, compute_spki_hash, ClientConfig, ManifestFetcher,
+//! };
+//!
+//! // `server_cert_der` is the DER-encoded server certificate.
+//! let pin = compute_spki_hash(&server_cert_der).expect("valid certificate");
+//!
+//! // Option A — let a fetcher own the pinned client:
+//! let cfg = ClientConfig::default().with_spki_pin(pin);
+//! let fetcher = ManifestFetcher::new().with_client_config(cfg);
+//!
+//! // Option B — build a rustls config and hand it to reqwest yourself:
+//! let tls = build_pinning_client_config(vec![pin]);
+//! let client = reqwest::Client::builder()
+//!     .use_preconfigured_tls(tls)
+//!     .build()?;
+//! ```
+//!
 //! [RFC 7469]: https://www.rfc-editor.org/rfc/rfc7469
 
 use std::sync::Arc;
@@ -64,6 +90,16 @@ pub type SpkiHash = [u8; 32];
 /// Compute the SPKI hash for an X.509 certificate (DER bytes).
 ///
 /// Returns `None` if `cert_der` is not a parseable certificate.
+///
+/// # Example
+///
+/// ```
+/// use aitp_transport_http::compute_spki_hash;
+///
+/// // Pass the server certificate's DER bytes; a non-certificate input
+/// // yields `None` rather than panicking.
+/// assert!(compute_spki_hash(b"not a certificate").is_none());
+/// ```
 pub fn compute_spki_hash(cert_der: &[u8]) -> Option<SpkiHash> {
     let (_, cert) = x509_parser::parse_x509_certificate(cert_der).ok()?;
     let spki = cert.tbs_certificate.subject_pki.raw;
