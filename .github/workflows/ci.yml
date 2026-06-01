@@ -52,6 +52,34 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
+  bindings-lint:
+    name: bindings fmt + clippy
+    runs-on: ubuntu-latest
+    # The language bindings (bindings/aitp-py, bindings/aitp-node) are
+    # excluded from the workspace, so the `fmt` and `clippy` jobs above do
+    # NOT cover them. Lint them here — fmt + clippy only, no maturin/napi
+    # wheel build, so no Python/Node toolchain is needed. The pyo3/napi
+    # crates type-check (and pyo3's build script finds the runner's
+    # preinstalled python3) without an extension build.
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            bindings/aitp-py
+            bindings/aitp-node
+      - name: rustfmt — aitp-py
+        run: cargo fmt --manifest-path bindings/aitp-py/Cargo.toml -- --check
+      - name: rustfmt — aitp-node
+        run: cargo fmt --manifest-path bindings/aitp-node/Cargo.toml -- --check
+      - name: clippy — aitp-py
+        run: cargo clippy --manifest-path bindings/aitp-py/Cargo.toml --all-targets --all-features -- -D warnings
+      - name: clippy — aitp-node
+        run: cargo clippy --manifest-path bindings/aitp-node/Cargo.toml --all-targets --all-features -- -D warnings
+
   test:
     name: test (${{ matrix.os }} / ${{ matrix.toolchain }})
     runs-on: ${{ matrix.os }}
