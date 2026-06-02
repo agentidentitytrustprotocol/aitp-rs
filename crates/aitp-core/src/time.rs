@@ -24,8 +24,19 @@ impl Timestamp {
     }
 
     /// True if `self` is within `±tolerance` seconds of `reference`.
+    ///
+    /// `self.0` is deserialized verbatim from the wire, so the difference
+    /// is computed with `checked_sub` + `unsigned_abs` to avoid an `i64`
+    /// overflow (e.g. `i64::MIN - reference`, or `i64::MIN.abs()`) on
+    /// attacker-controlled extremes — a debug panic / release wraparound.
+    /// A negative `tolerance_secs` is treated as zero tolerance.
     pub fn is_within_tolerance_of(self, reference: Timestamp, tolerance_secs: i64) -> bool {
-        (self.0 - reference.0).abs() <= tolerance_secs
+        let tolerance = tolerance_secs.max(0) as u64;
+        match self.0.checked_sub(reference.0) {
+            Some(diff) => diff.unsigned_abs() <= tolerance,
+            // Difference doesn't fit in i64 → far outside any tolerance.
+            None => false,
+        }
     }
 
     /// True if `self` is within the default ±300s window of `reference`.
@@ -66,6 +77,19 @@ mod tests {
         assert!(Timestamp(1_700_000_100).is_fresh(now));
         assert!(Timestamp(1_699_999_900).is_fresh(now));
         assert!(!Timestamp(1_700_000_400).is_fresh(now));
+    }
+
+    #[test]
+    fn tolerance_does_not_overflow_on_extremes() {
+        let now = Timestamp(1_700_000_000);
+        // These would panic in debug / wrap in release with naive
+        // `(a - b).abs()`. Must simply be "not fresh".
+        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(now, 300));
+        assert!(!Timestamp(i64::MAX).is_within_tolerance_of(now, 300));
+        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(Timestamp(i64::MAX), 300));
+        // A negative tolerance is clamped to zero.
+        assert!(!Timestamp(1_700_000_001).is_within_tolerance_of(now, -5));
+        assert!(now.is_within_tolerance_of(now, -5));
     }
 
     #[test]

@@ -27,8 +27,8 @@ use aitp_handshake::identity_pinned::{
 };
 use aitp_handshake::state_machine::{GrantPolicyFn, StaticPinnedKeyStore};
 use aitp_handshake::{
-    bootstrap_verify_peer, HandshakeError, IdentityDescriptor, IdentityKind, JwkPublicKey,
-    JwksResolver, PeerConfig, PresentedIdentity, ResolveError,
+    bootstrap_verify_peer, verify_oidc, HandshakeError, IdentityDescriptor, IdentityKind,
+    JwkPublicKey, JwksResolver, OidcVerifyContext, PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use uuid::Uuid;
@@ -169,6 +169,41 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
     };
     let err = verify_pinned_key(&descriptor, &ctx).unwrap_err();
     assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
+}
+
+// ── RFC-0002 errata — OIDC descriptor MUST NOT carry public_key ─────────
+
+#[test]
+fn oidc_descriptor_with_public_key_rejected() {
+    // RFC-AITP-0002 (v0.1 RC errata): an `oidc` identity descriptor that
+    // carries `public_key` MUST be rejected by verifiers — the key is
+    // already encoded in the AID and a second copy is ambiguous w.r.t.
+    // the JWT `cnf.jkt` binding.
+    let sender = AitpSigningKey::from_seed(&[0x70; 32]);
+    let receiver = AitpSigningKey::from_seed(&[0x71; 32]);
+    let resolver = NoOpResolver;
+    let descriptor = IdentityDescriptor {
+        kind: IdentityKind::Oidc,
+        issuer: Some("https://idp.example.com".parse().unwrap()),
+        subject: "sender".into(),
+        proof: "eyJhbGc.placeholder.sig".into(),
+        // Forbidden for oidc:
+        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+    };
+    let ctx = OidcVerifyContext {
+        expected_audience: receiver.aid(),
+        expected_nonce: "nonce",
+        trust_anchors: &["https://idp.example.com".parse().unwrap()],
+        jwks_resolver: &resolver,
+        subject_aid: sender.aid(),
+        iat_tolerance_secs: 300,
+        now_unix_secs: 1_700_000_000,
+    };
+    let err = verify_oidc(&descriptor, &ctx).unwrap_err();
+    assert!(
+        matches!(err, HandshakeError::Identity(ref s) if s.contains("public_key")),
+        "got {err:?} — oidc descriptor with public_key must be rejected"
+    );
 }
 
 // ── P3 — pinned-key store enforcement ───────────────────────────────────

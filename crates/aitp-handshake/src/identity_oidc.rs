@@ -99,6 +99,16 @@ pub fn verify_oidc(
     proof: &IdentityDescriptor,
     ctx: &OidcVerifyContext<'_>,
 ) -> Result<(), HandshakeError> {
+    // RFC-AITP-0002 §identity-descriptor: for `oidc`, `public_key` MUST
+    // be absent — the agent's key is already encoded in the AID, and a
+    // second copy creates ambiguity over what the JWT's `cnf.jkt` binds.
+    // v0.1 verifiers MUST reject an OIDC descriptor carrying it.
+    if proof.public_key.is_some() {
+        return Err(HandshakeError::Identity(
+            "oidc descriptor must not carry public_key".into(),
+        ));
+    }
+
     let issuer = proof
         .issuer
         .as_ref()

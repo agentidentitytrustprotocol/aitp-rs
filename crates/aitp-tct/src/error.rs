@@ -10,6 +10,14 @@ pub enum TctError {
     /// Signature did not verify against issuer's public key.
     #[error("TCT signature is invalid")]
     SignatureInvalid,
+    /// The verifying key supplied by the caller does not correspond to
+    /// the key embedded in `tct.issuer`. RFC-AITP-0008 §3.3 requires
+    /// verifiers to establish this issuer-key binding before consulting
+    /// any revocation source; without it `tct.issuer` stays
+    /// attacker-controlled even after a valid signature, enabling
+    /// revocation evasion and steering of per-issuer revocation lookups.
+    #[error("TCT issuer does not match the verifying key")]
+    IssuerMismatch,
     /// `audience` did not equal expected audience or did not equal subject.
     #[error("TCT audience does not match")]
     AudienceMismatch,

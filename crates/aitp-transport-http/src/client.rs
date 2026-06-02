@@ -316,7 +316,21 @@ pub enum JwksFetcherError {
     /// JWK is unsupported (e.g. `kty` other than `OKP`/`RSA`).
     #[error("unsupported JWK: {0}")]
     UnsupportedJwk(String),
+    /// Response body exceeded the configured size cap. Defends against a
+    /// hostile (or MITM'd) issuer endpoint returning an unbounded body
+    /// during key resolution (RFC-AITP-0009 §3.1 resource exhaustion).
+    #[error("response body exceeded {limit} bytes")]
+    OversizedResponse {
+        /// The configured cap, in bytes.
+        limit: usize,
+    },
 }
+
+/// Default cap on a discovery / JWKS response body (256 KiB). The issuer
+/// host is peer-derived during key resolution, so the body is treated as
+/// untrusted and read with a hard cap (RFC-AITP-0009 §3.1). Override with
+/// [`JwksFetcher::with_max_bytes`].
+pub const DEFAULT_MAX_JWKS_BYTES: usize = 256 * 1024;
 
 /// Default OIDC discovery cache TTL (1 hour). The
 /// `.well-known/openid-configuration` document changes very rarely;
@@ -338,8 +352,12 @@ struct DiscoveryCacheEntry {
 /// - Configurable per-request timeout (default 10 s).
 /// - Non-2xx responses produce a structured error rather than a JSON
 ///   parse failure.
-/// - On OIDC discovery failure, falls back to AITP's native
-///   `/.well-known/aitp-keys` endpoint (RFC-AITP-0007 §2.3).
+/// - OIDC-vs-non-OIDC is a branch (RFC-AITP-0007 §2.3), not a priority
+///   list: the AITP-native `/.well-known/aitp-keys` endpoint is consulted
+///   ONLY when OIDC discovery is not validly exposed — never after a
+///   valid discovery document yields a usable `jwks_uri`.
+/// - Discovery and JWKS bodies are read with a hard size cap
+///   ([`DEFAULT_MAX_JWKS_BYTES`]); the issuer host is peer-derived.
 /// - Discovery responses are cached for [`DEFAULT_OIDC_DISCOVERY_TTL`];
 ///   override with [`Self::with_discovery_ttl`].
 /// - `iss` claim and the requested issuer URL are compared using a
@@ -353,6 +371,7 @@ pub struct JwksFetcher {
     timeout: Duration,
     discovery_cache: Mutex<HashMap<Url, DiscoveryCacheEntry>>,
     discovery_ttl: Duration,
+    max_bytes: usize,
 }
 
 impl JwksFetcher {
@@ -377,7 +396,16 @@ impl JwksFetcher {
             timeout,
             discovery_cache: Mutex::new(HashMap::new()),
             discovery_ttl: DEFAULT_OIDC_DISCOVERY_TTL,
+            max_bytes: DEFAULT_MAX_JWKS_BYTES,
         }
+    }
+
+    /// Override the per-response body cap (default
+    /// [`DEFAULT_MAX_JWKS_BYTES`]). Applies to both the discovery
+    /// document and the JWKS body.
+    pub fn with_max_bytes(mut self, max_bytes: usize) -> Self {
+        self.max_bytes = max_bytes;
+        self
     }
 
     /// Override the OIDC discovery cache TTL. Defaults to
@@ -444,8 +472,13 @@ impl JwksFetcher {
     }
 
     /// Resolve `issuer/.well-known/openid-configuration`, then its
-    /// `jwks_uri`, returning every parseable JWK. On any OIDC discovery
-    /// failure, falls back to AITP's `<issuer>/.well-known/aitp-keys`.
+    /// `jwks_uri`, returning every parseable JWK. Per RFC-AITP-0007 §2.3
+    /// this is a branch, not a priority list: the AITP-native
+    /// `<issuer>/.well-known/aitp-keys` fallback is consulted ONLY when
+    /// OIDC discovery is not validly exposed (non-2xx, network error,
+    /// invalid document, or no usable `jwks_uri`). Once discovery yields
+    /// a usable `jwks_uri`, a failure fetching/parsing the JWKS itself is
+    /// surfaced directly — the fallback is never used.
     #[instrument(level = "debug", skip(self), fields(issuer = %issuer))]
     pub async fn resolve(
         &self,
@@ -454,27 +487,34 @@ impl JwksFetcher {
         if issuer.scheme() != "https" {
             return Err(JwksFetcherError::InsecureUrl);
         }
-        match self.resolve_via_oidc_discovery(issuer).await {
-            Ok(keys) => Ok(keys),
-            Err(oidc_err) => {
-                // Fall back to AITP-native discovery. If that also
-                // fails, surface the original OIDC error since callers
-                // will more likely recognize it.
+        // RFC-AITP-0007 §2.3 resolution decision logic is a BRANCH, not a
+        // priority list. `resolve_jwks_uri` performs the discovery step
+        // (fetch + validate `/.well-known/openid-configuration`); its
+        // success means the issuer is a confirmed OIDC issuer with a
+        // usable `jwks_uri`.
+        match self.resolve_jwks_uri(issuer).await {
+            Ok(jwks_url) => {
+                // §2.3 rule 1: discovery is reachable and valid, so the
+                // implementation MUST follow the OIDC flow and MUST NOT
+                // consult `/.well-known/aitp-keys` for this issuer in the
+                // same attempt — even if the JWKS fetch/parse below
+                // fails. Falling back here would let an attacker who
+                // controls the aitp-keys endpoint substitute keys
+                // whenever the legitimate `jwks_uri` transiently fails.
+                let jwks = self.fetch_https_json(&jwks_url).await?;
+                parse_jwks(&jwks)
+            }
+            Err(discovery_err) => {
+                // §2.3 rule 2: discovery is NOT validly exposed (non-2xx,
+                // network error, invalid document, or no usable
+                // `jwks_uri`), so the AITP-native fallback is permitted.
+                // If it also fails, surface the discovery error.
                 match self.resolve_via_aitp_keys(issuer).await {
                     Ok(keys) => Ok(keys),
-                    Err(_) => Err(oidc_err),
+                    Err(_) => Err(discovery_err),
                 }
             }
         }
-    }
-
-    async fn resolve_via_oidc_discovery(
-        &self,
-        issuer: &Url,
-    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, JwksFetcherError> {
-        let jwks_url = self.resolve_jwks_uri(issuer).await?;
-        let jwks: serde_json::Value = self.fetch_https_json(&jwks_url).await?;
-        parse_jwks(&jwks)
     }
 
     /// Two-stage `jwks_uri` resolution: cache hit → use cached;
@@ -565,9 +605,24 @@ impl JwksFetcher {
                 "non-2xx response from {url}: {status}"
             )));
         }
-        resp.json::<serde_json::Value>()
+        // Stream with a hard cap. `resp.json()` would buffer the entire
+        // body unbounded; the issuer host is peer-derived during key
+        // resolution, so an oversized body is a resource-exhaustion
+        // vector (RFC-AITP-0009 §3.1). Bail early on overflow.
+        let max_bytes = self.max_bytes;
+        let mut body: Vec<u8> = Vec::with_capacity(8192);
+        let mut stream = resp;
+        while let Some(chunk) = stream
+            .chunk()
             .await
-            .map_err(|e| JwksFetcherError::MalformedJson(e.to_string()))
+            .map_err(|e| JwksFetcherError::Network(e.to_string()))?
+        {
+            if body.len() + chunk.len() > max_bytes {
+                return Err(JwksFetcherError::OversizedResponse { limit: max_bytes });
+            }
+            body.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice(&body).map_err(|e| JwksFetcherError::MalformedJson(e.to_string()))
     }
 }
 

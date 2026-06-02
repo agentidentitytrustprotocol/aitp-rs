@@ -598,6 +598,7 @@ fn verify_received_tct(
     cfg: &PeerConfig<'_>,
     issuer_pubkey: &AitpVerifyingKey,
     issuer_manifest_expires_at: Option<Timestamp>,
+    issuer_offered_capabilities: &[String],
 ) -> Result<Option<Vec<String>>, HandshakeError> {
     // RFC-AITP-0008 §3.3: the TCT signature MUST be verified before any
     // remote revocation lookup. `tct.issuer` and `tct.jti` are
@@ -622,9 +623,24 @@ fn verify_received_tct(
     };
     verify_tct(tct, &ctx)?;
 
+    // Grant-overflow (RFC-AITP-0004 §5.3/§5.4 step 4): a peer's TCT MUST
+    // NOT grant capabilities outside that peer's own advertised
+    // `offered_capabilities`. `verify_tct` has bound `tct.issuer` to the
+    // issuer key (§3.3), and the issuer Manifest is the one we resolved
+    // for that peer, so this compares the granted set against the
+    // authentic issuer's offer. Maps to `GRANT_OVERFLOW`.
+    for grant in &tct.grants {
+        if !issuer_offered_capabilities.contains(grant) {
+            return Err(HandshakeError::GrantOverflow);
+        }
+    }
+
     // Revocation — `tct.issuer` and `tct.jti` are authenticated now
-    // that `verify_tct` has returned success, so a hook keyed off them
-    // cannot be steered by an attacker presenting an unsigned TCT.
+    // that `verify_tct` has returned success: `verify_tct` enforces the
+    // RFC-AITP-0008 §3.3 issuer-key binding (`issuer_pubkey` MUST be the
+    // key embedded in `tct.issuer`), so a hook keyed off `tct.issuer`
+    // cannot be steered by an attacker presenting a TCT with a spoofed
+    // issuer AID.
     let mut safe_subset: Option<Vec<String>> = None;
     if let Some(check) = cfg.revocation_check {
         match check(&tct.issuer, &tct.jti)? {
@@ -679,6 +695,11 @@ enum InitiatorState {
     AwaitingHelloAck {
         session_id: SessionId,
         my_pop_nonce: String,
+        // The AID the initiator intends to authenticate (the peer whose
+        // Manifest was fetched and whose `handshake_endpoint` the HELLO
+        // was POSTed to). The HELLO_ACK's identity MUST belong to this
+        // AID — see `on_hello_ack`.
+        intended_peer_aid: Aid,
     },
     AwaitingCommitAck {
         session_id: SessionId,
@@ -690,6 +711,10 @@ enum InitiatorState {
         // TCT's `expires_at` can be capped by the issuer Manifest's
         // expiry per RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9.
         peer_manifest_expires_at: Timestamp,
+        // The peer Manifest's `offered_capabilities`, captured during
+        // HELLO_ACK. Used on COMMIT_ACK to reject a peer-issued TCT that
+        // grants more than the peer advertises (GRANT_OVERFLOW).
+        peer_offered_capabilities: Vec<String>,
     },
     Done,
     Failed,
@@ -741,6 +766,7 @@ impl Initiator {
                 state: InitiatorState::AwaitingHelloAck {
                     session_id,
                     my_pop_nonce: pop_nonce,
+                    intended_peer_aid: peer_aid.clone(),
                 },
             },
             payload,
@@ -754,11 +780,12 @@ impl Initiator {
         ack: &MutualHelloAckPayload,
         cfg: &PeerConfig<'_>,
     ) -> Result<MutualCommitPayload, HandshakeError> {
-        let (session_id, my_pop_nonce) = match &self.state {
+        let (session_id, my_pop_nonce, intended_peer_aid) = match &self.state {
             InitiatorState::AwaitingHelloAck {
                 session_id,
                 my_pop_nonce,
-            } => (*session_id, my_pop_nonce.clone()),
+                intended_peer_aid,
+            } => (*session_id, my_pop_nonce.clone(), intended_peer_aid.clone()),
             _ => return Err(HandshakeError::State("on_hello_ack out of order")),
         };
         debug!(
@@ -766,6 +793,24 @@ impl Initiator {
             message_id = %envelope.message_id,
             "Initiator: AwaitingHelloAck → AwaitingCommitAck"
         );
+        // Peer-AID binding (RFC-AITP-0004): the initiator authenticates the
+        // peer it *intended* to reach. A malicious or compromised responder
+        // at the peer's endpoint must not be able to answer as a different
+        // AID — otherwise the initiator would issue its TCT to, and end the
+        // session bound to, an unintended peer. Both the signed envelope
+        // sender and the presented Manifest MUST be the intended peer.
+        if envelope.sender.agent_id != intended_peer_aid {
+            self.state = InitiatorState::Failed;
+            return Err(HandshakeError::InvalidEnvelope(
+                "HELLO_ACK sender AID does not match the intended peer".into(),
+            ));
+        }
+        if ack.manifest.aid != intended_peer_aid {
+            self.state = InitiatorState::Failed;
+            return Err(HandshakeError::InvalidEnvelope(
+                "HELLO_ACK manifest AID does not match the intended peer".into(),
+            ));
+        }
         if ack.pop_nonce_echo != my_pop_nonce {
             self.state = InitiatorState::Failed;
             return Err(HandshakeError::NonceMismatch);
@@ -802,6 +847,7 @@ impl Initiator {
             peer_aid: ack.manifest.aid.clone(),
             peer_pubkey,
             peer_manifest_expires_at: ack.manifest.expires_at,
+            peer_offered_capabilities: ack.manifest.offered_capabilities.clone(),
         };
         Ok(commit)
     }
@@ -817,21 +863,24 @@ impl Initiator {
             message_id = %envelope.message_id,
             "Initiator: AwaitingCommitAck → Done"
         );
-        let (peer_aid, peer_pubkey, my_pop_nonce, peer_manifest_expires_at) = match &self.state {
-            InitiatorState::AwaitingCommitAck {
-                peer_aid,
-                peer_pubkey,
-                my_pop_nonce,
-                peer_manifest_expires_at,
-                ..
-            } => (
-                peer_aid.clone(),
-                peer_pubkey.clone(),
-                my_pop_nonce.clone(),
-                *peer_manifest_expires_at,
-            ),
-            _ => return Err(HandshakeError::State("on_commit_ack out of order")),
-        };
+        let (peer_aid, peer_pubkey, my_pop_nonce, peer_manifest_expires_at, peer_offered_caps) =
+            match &self.state {
+                InitiatorState::AwaitingCommitAck {
+                    peer_aid,
+                    peer_pubkey,
+                    my_pop_nonce,
+                    peer_manifest_expires_at,
+                    peer_offered_capabilities,
+                    ..
+                } => (
+                    peer_aid.clone(),
+                    peer_pubkey.clone(),
+                    my_pop_nonce.clone(),
+                    *peer_manifest_expires_at,
+                    peer_offered_capabilities.clone(),
+                ),
+                _ => return Err(HandshakeError::State("on_commit_ack out of order")),
+            };
         if envelope.sender.agent_id != peer_aid {
             self.state = InitiatorState::Failed;
             return Err(HandshakeError::InvalidEnvelope(
@@ -851,6 +900,7 @@ impl Initiator {
             cfg,
             &peer_pubkey,
             Some(peer_manifest_expires_at),
+            &peer_offered_caps,
         )?;
         let tct = ack.tct_for_peer.tct.clone();
         self.state = InitiatorState::Done;
@@ -885,6 +935,10 @@ enum ResponderState {
         // `expires_at` can be capped by the issuer Manifest's expiry
         // (RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9).
         peer_manifest_expires_at: Timestamp,
+        // The peer Manifest's `offered_capabilities` from MUTUAL_HELLO.
+        // Used on COMMIT to reject a peer-issued TCT that grants more
+        // than the peer advertises (GRANT_OVERFLOW).
+        peer_offered_capabilities: Vec<String>,
     },
     Done,
     Failed,
@@ -943,6 +997,7 @@ impl Responder {
                     peer_requested_grants: hello.requested_grants.clone(),
                     peer_identity: hello.identity.clone(),
                     peer_manifest_expires_at: hello.manifest.expires_at,
+                    peer_offered_capabilities: hello.manifest.offered_capabilities.clone(),
                 },
             },
             ack,
@@ -969,6 +1024,7 @@ impl Responder {
             peer_requested_grants,
             peer_identity,
             peer_manifest_expires_at,
+            peer_offered_caps,
         ) = match &self.state {
             ResponderState::AwaitingCommit {
                 peer_aid,
@@ -978,6 +1034,7 @@ impl Responder {
                 peer_requested_grants,
                 peer_identity,
                 peer_manifest_expires_at,
+                peer_offered_capabilities,
                 ..
             } => (
                 peer_aid.clone(),
@@ -987,6 +1044,7 @@ impl Responder {
                 peer_requested_grants.clone(),
                 peer_identity.clone(),
                 *peer_manifest_expires_at,
+                peer_offered_capabilities.clone(),
             ),
             _ => return Err(HandshakeError::State("on_commit out of order")),
         };
@@ -1006,6 +1064,7 @@ impl Responder {
             cfg,
             &peer_pubkey,
             Some(peer_manifest_expires_at),
+            &peer_offered_caps,
         )?;
         let received_tct = commit.tct_for_peer.tct.clone();
 

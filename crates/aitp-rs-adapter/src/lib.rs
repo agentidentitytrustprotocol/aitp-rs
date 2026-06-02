@@ -1238,7 +1238,7 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
     use aitp_delegation::DelegationError::*;
     match e {
         Expired => "DELEGATION_EXPIRED",
-        InvalidSignature => "DELEGATION_INVALID",
+        InvalidSignature => "DELEGATION_INVALID_SIGNATURE",
         ScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
         InvalidGrantProof => "DELEGATION_INVALID_GRANT_PROOF",
         SourceTctRevoked => "DELEGATION_SOURCE_TCT_REVOKED",
@@ -1247,7 +1247,9 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
         HopLimitExceeded => "DELEGATION_HOP_LIMIT_EXCEEDED",
         ChainHashMismatch => "DELEGATION_CHAIN_HASH_MISMATCH",
-        SelfDelegation => "INVALID_REQUEST",
+        // RFC-AITP-0006 §4.4 step 10: self-delegation maps to
+        // DELEGATION_INVALID_SIGNATURE (same code as a bad outer sig).
+        SelfDelegation => "DELEGATION_INVALID_SIGNATURE",
         EmptyScope | CnfMalformed | MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",

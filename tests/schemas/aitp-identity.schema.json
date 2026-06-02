@@ -54,7 +54,12 @@
   "then": {
     "required": [
       "issuer"
-    ]
+    ],
+    "not": {
+      "required": [
+        "public_key"
+      ]
+    }
   },
   "else": {
     "required": [
