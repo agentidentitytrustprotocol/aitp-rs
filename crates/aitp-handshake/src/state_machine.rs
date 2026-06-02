@@ -144,6 +144,12 @@ pub type RevocationCheckFn =
 /// Receives the peer's identity descriptor and the
 /// `peer_requested ∩ self.offered` intersection; returns the subset
 /// the policy permits. Returning empty triggers `PolicyViolation`.
+///
+/// The return value MUST be a subset of the supplied intersection — i.e.
+/// the policy may only *narrow* the grant set, never add a capability the
+/// issuer does not offer. A capability outside the issuer's
+/// `offered_capabilities` will be rejected by the verifying peer with
+/// [`HandshakeError::GrantOverflow`] (RFC-AITP-0004 §5.3/§5.4).
 pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> + Send + Sync;
 
 /// Inputs the issuing side needs to mint a fresh identity proof bound
