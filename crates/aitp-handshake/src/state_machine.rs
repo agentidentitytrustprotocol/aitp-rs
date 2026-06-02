@@ -494,7 +494,12 @@ pub fn bootstrap_verify_peer(
             // this gate, the proof only proves key possession — it
             // doesn't prove we should *honor* keys we've never seen.
             if let Some(store) = cfg.pinned_key_store {
-                let pk_bytes = payload_manifest.aid.to_ed25519_bytes();
+                // `verify_pinned_key` above already rejects a non-Ed25519
+                // sender AID, but use the non-panicking accessor here too
+                // so this lookup never depends on that ordering.
+                let pk_bytes = payload_manifest.aid.try_to_ed25519_bytes().ok_or_else(|| {
+                    HandshakeError::Identity("pinned_key requires an Ed25519 sender AID".into())
+                })?;
                 if !store.is_trusted(&pk_bytes) {
                     return Err(HandshakeError::Identity(
                         "pinned_key not in local trust store".into(),
