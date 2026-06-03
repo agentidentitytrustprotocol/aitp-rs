@@ -145,31 +145,47 @@ impl Aid {
         }
     }
 
-    /// Decode the identifier back to the raw 32-byte Ed25519 public key.
-    /// Panics if the AID is not an Ed25519 AID. Use
-    /// [`Aid::algorithm`] to discriminate first.
-    pub fn to_ed25519_bytes(&self) -> [u8; 32] {
-        assert!(
-            matches!(self.algorithm(), AidAlgorithm::Ed25519),
-            "Aid::to_ed25519_bytes called on non-Ed25519 AID"
-        );
+    /// Decode the identifier back to the raw 32-byte Ed25519 public key,
+    /// or `None` if this AID is not an Ed25519 AID. Prefer this over the
+    /// panicking [`Aid::to_ed25519_bytes`] on any path that can receive an
+    /// AID of attacker-controlled algorithm (e.g. handshake verification).
+    pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
+        if !matches!(self.algorithm(), AidAlgorithm::Ed25519) {
+            return None;
+        }
         let mut out = [0u8; 32];
         Base64UrlUnpadded::decode(self.identifier(), &mut out)
             .expect("Aid is validated on construction; identifier MUST decode to 32 bytes");
-        out
+        Some(out)
     }
 
-    /// Decode the identifier back to the 33-byte SEC1 compressed
-    /// P-256 public key. Panics if the AID is not a P-256 AID.
-    pub fn to_p256_bytes(&self) -> [u8; 33] {
-        assert!(
-            matches!(self.algorithm(), AidAlgorithm::P256),
-            "Aid::to_p256_bytes called on non-P-256 AID"
-        );
+    /// Decode the identifier back to the raw 32-byte Ed25519 public key.
+    /// Panics if the AID is not an Ed25519 AID. Use
+    /// [`Aid::algorithm`] to discriminate first, or
+    /// [`Aid::try_to_ed25519_bytes`] for a non-panicking variant.
+    pub fn to_ed25519_bytes(&self) -> [u8; 32] {
+        self.try_to_ed25519_bytes()
+            .expect("Aid::to_ed25519_bytes called on non-Ed25519 AID")
+    }
+
+    /// Decode the identifier back to the 33-byte SEC1 compressed P-256
+    /// public key, or `None` if this AID is not a P-256 AID.
+    pub fn try_to_p256_bytes(&self) -> Option<[u8; 33]> {
+        if !matches!(self.algorithm(), AidAlgorithm::P256) {
+            return None;
+        }
         let mut out = [0u8; 33];
         Base64UrlUnpadded::decode(self.identifier(), &mut out)
             .expect("Aid is validated on construction; identifier MUST decode to 33 bytes");
-        out
+        Some(out)
+    }
+
+    /// Decode the identifier back to the 33-byte SEC1 compressed
+    /// P-256 public key. Panics if the AID is not a P-256 AID. Use
+    /// [`Aid::try_to_p256_bytes`] for a non-panicking variant.
+    pub fn to_p256_bytes(&self) -> [u8; 33] {
+        self.try_to_p256_bytes()
+            .expect("Aid::to_p256_bytes called on non-P-256 AID")
     }
 
     /// Decode the identifier back to the AID's algorithm-agile

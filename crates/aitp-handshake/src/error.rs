@@ -28,6 +28,12 @@ pub enum HandshakeError {
     /// Peer-issued TCT did not satisfy own `required_peer_capabilities`.
     #[error("insufficient grants in peer-issued TCT")]
     InsufficientGrants,
+    /// Peer-issued TCT grants a capability outside the issuer's own
+    /// `offered_capabilities` (RFC-AITP-0004 §5.3/§5.4 step 4 ⇒
+    /// `GRANT_OVERFLOW`). The TCT claims more authority than the issuing
+    /// peer's Manifest advertises.
+    #[error("peer-issued TCT grants exceed the issuer's offered_capabilities")]
+    GrantOverflow,
     /// Peer-issued TCT failed verification.
     #[error("TCT verification failed: {0}")]
     Tct(#[from] aitp_tct::TctError),

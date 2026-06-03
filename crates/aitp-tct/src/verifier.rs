@@ -60,9 +60,12 @@ impl<'a> TctVerifyContext<'a> {
 ///    encoding for `subject` (32 B Ed25519 raw or 33 B SEC1-compressed
 ///    P-256), and equals the pubkey bytes the subject AID embeds —
 ///    else [`TctError::CnfMalformed`].
-/// 7. JCS-canonicalize the TCT minus signature. SHA-256. Verify with
+/// 7. Issuer-key binding (RFC-AITP-0008 §3.3): `ctx.issuer_pubkey` MUST
+///    be the key embedded in `tct.issuer` — else
+///    [`TctError::IssuerMismatch`].
+/// 8. JCS-canonicalize the TCT minus signature. SHA-256. Verify with
 ///    `ctx.issuer_pubkey`. Else [`TctError::SignatureInvalid`].
-/// 8. If `ctx.revocation_check` is `Some`, call it with `tct.jti`. If
+/// 9. If `ctx.revocation_check` is `Some`, call it with `tct.jti`. If
 ///    true, [`TctError::Revoked`].
 ///
 /// On success returns a reference to the verified TCT.
@@ -99,6 +102,18 @@ pub fn verify_tct<'a>(tct: &'a Tct, ctx: &TctVerifyContext<'_>) -> Result<&'a Tc
     // from carrying an unrelated Ed25519 pubkey (or vice versa).
     if cnf_bytes != tct.subject.pubkey_compressed_bytes() {
         return Err(TctError::CnfMalformed);
+    }
+
+    // Issuer-key binding (RFC-AITP-0008 §3.3): the supplied verifying
+    // key MUST be the key embedded in `tct.issuer`. A valid signature
+    // alone only proves "signed by `ctx.issuer_pubkey`"; without this
+    // check `tct.issuer` is attacker-controlled even after verification,
+    // letting a malicious issuer set an arbitrary `issuer` AID that a
+    // later per-issuer revocation lookup is keyed on (revocation evasion
+    // + DoS reflection). Checked before signature verification so it
+    // holds unconditionally on every path and before any revocation I/O.
+    if ctx.issuer_pubkey.to_compressed() != tct.issuer.pubkey_compressed_bytes() {
+        return Err(TctError::IssuerMismatch);
     }
 
     let view = TctSigningView {

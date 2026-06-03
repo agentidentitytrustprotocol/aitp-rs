@@ -64,6 +64,41 @@ test('verifyTct rejects a missing grant', () => {
   assert.throws(() => initiator.verifyTct(tct, 'demo.not-granted'));
 });
 
+test('initiator rejects peer substitution', () => {
+  // RFC-AITP-0004 peer-AID binding: the initiator authenticates the peer
+  // it targeted. A HELLO_ACK from a different (well-signed) peer must be
+  // rejected — the session must not silently bind to the wrong AID.
+  const initiator = AitpAgent.generate();
+  const real = AitpAgent.generate();
+  const mallory = AitpAgent.generate();
+  const realManifest = real.buildManifest({
+    displayName: 'real',
+    handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+  });
+  const malloryManifest = mallory.buildManifest({
+    displayName: 'mallory',
+    handshakeEndpoint: 'http://localhost:8300/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+  });
+
+  // Session s1 targets `real`.
+  const s1 = initiator.newSession();
+  s1.buildHello(realManifest, ['demo.write']);
+
+  // Mallory legitimately answers a DIFFERENT session that targeted her,
+  // producing a fully-valid HELLO_ACK signed under her own AID.
+  const s2 = initiator.newSession();
+  const helloForMallory = s2.buildHello(malloryManifest, ['demo.write']);
+  const malloryResp = mallory.newResponder();
+  const { ackJson: malloryAck, sessionId: mallorySession } =
+    malloryResp.processHello(helloForMallory);
+
+  // Feeding Mallory's HELLO_ACK into s1 (which targeted `real`) must be
+  // rejected: the signed sender AID is not the intended peer.
+  assert.throws(() => s1.processHelloAck(malloryAck, mallorySession));
+});
+
 test('fromSeed is deterministic', () => {
   const seed = Buffer.alloc(32, 7);
   assert.equal(AitpAgent.fromSeed(seed).aid, AitpAgent.fromSeed(seed).aid);

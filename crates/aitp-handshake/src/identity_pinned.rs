@@ -108,6 +108,14 @@ pub fn verify_pinned_key(
     descriptor: &IdentityDescriptor,
     ctx: &PinnedKeyVerifyContext<'_>,
 ) -> Result<(), HandshakeError> {
+    // The `pinned_key` mechanism is Ed25519-only in v0.1. The sender AID
+    // is attacker-controlled (from the peer's Manifest), and since the
+    // v0.2 P-256 work it may legitimately be a P-256 AID — guard the
+    // algorithm before the Ed25519-only decode below, which would
+    // otherwise panic on a non-Ed25519 AID.
+    let sender_ed25519 = ctx.sender_aid.try_to_ed25519_bytes().ok_or_else(|| {
+        HandshakeError::Identity("pinned_key requires an Ed25519 sender AID".into())
+    })?;
     let public_key = descriptor
         .public_key
         .as_ref()
@@ -121,7 +129,7 @@ pub fn verify_pinned_key(
     }
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pk_bytes);
-    if buf != ctx.sender_aid.to_ed25519_bytes() {
+    if buf != sender_ed25519 {
         return Err(HandshakeError::Identity(
             "public_key does not match sender AID".into(),
         ));
@@ -211,6 +219,42 @@ mod tests {
             },
         )
         .expect("proof verifies under the same five-tuple");
+    }
+
+    #[test]
+    fn p256_sender_aid_rejected_without_panic() {
+        // Regression: a P-256 sender AID must be rejected with a clean
+        // error, not panic. `Aid::to_ed25519_bytes()` asserts on a
+        // non-Ed25519 AID; `verify_pinned_key` guards the algorithm
+        // first. Attacker-reachable from MUTUAL_HELLO / HELLO_ACK.
+        let p256 = AitpSigningKey::generate_p256();
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let ts = Timestamp(1);
+        let desc = IdentityDescriptor {
+            kind: IdentityKind::PinnedKey,
+            issuer: None,
+            subject: "agent-x".into(),
+            // Any 32-byte value — the algorithm guard fires before this
+            // is even compared.
+            proof: base64url::encode(&[0u8; 64]),
+            public_key: Some(base64url::encode(&[0u8; 32])),
+        };
+        let err = verify_pinned_key(
+            &desc,
+            &PinnedKeyVerifyContext {
+                sender_aid: p256.aid(),
+                receiver_aid: receiver.aid(),
+                message_id: &mid,
+                timestamp: ts,
+                pop_nonce: fixed_nonce(),
+            },
+        )
+        .unwrap_err();
+        assert!(
+            matches!(err, HandshakeError::Identity(ref s) if s.contains("Ed25519")),
+            "got {err:?}"
+        );
     }
 
     #[test]

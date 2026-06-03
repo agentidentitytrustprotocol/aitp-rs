@@ -47,6 +47,33 @@ fn happy_path_round_trip() {
 }
 
 #[test]
+fn spoofed_issuer_rejected_before_signature() {
+    // RFC-AITP-0008 §3.3 issuer-key binding: a TCT genuinely signed by
+    // one key MUST NOT pass verification while claiming a different
+    // `issuer` AID. This is the revocation-evasion / DoS-reflection
+    // vector — the per-issuer revocation lookup is keyed on `tct.issuer`.
+    let now = Timestamp(1_700_000_000);
+    let issuer = issuer_key();
+    let mut tct = build_tct_at(now);
+    // Splice the issuer field to an unrelated AID while leaving the
+    // signature (made by `issuer`) intact.
+    let victim = AitpSigningKey::from_seed(&[0xDD; 32]);
+    tct.issuer = victim.aid().clone();
+    let subject = subject_key();
+    let ctx = TctVerifyContext {
+        expected_audience: subject.aid(),
+        issuer_pubkey: &issuer.verifying_key(),
+        now,
+        issuer_manifest_expires_at: None,
+        revocation_check: None,
+    };
+    let err = verify_tct(&tct, &ctx).unwrap_err();
+    // MUST be IssuerMismatch (binding checked before signature), not
+    // SignatureInvalid — proving the binding holds unconditionally.
+    assert!(matches!(err, TctError::IssuerMismatch), "got {err:?}");
+}
+
+#[test]
 fn wrong_audience_rejected() {
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();

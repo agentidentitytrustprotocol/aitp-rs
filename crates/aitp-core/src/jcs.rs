@@ -23,7 +23,15 @@ pub enum JcsError {
     #[error("number is not finite (NaN or Infinity is not permitted in JSON)")]
     NonFiniteNumber,
 
-    /// JSON contained duplicate object keys; RFC 8785 forbids these.
+    /// Reserved. Duplicate object keys are *not* detected here: this
+    /// module canonicalizes an already-parsed [`serde_json::Value`], and
+    /// `serde_json` (built with `preserve_order`) collapses duplicate
+    /// keys last-wins at parse time, before canonicalization. Since both
+    /// signer and verifier canonicalize the same parsed value, there is
+    /// no signature split-brain (RFC 8785 operates on parsed JSON). This
+    /// variant is retained for API stability and is never constructed by
+    /// [`canonicalize`]; reject duplicate keys at a raw-bytes
+    /// deserialization step if a deployment's threat model requires it.
     #[error("duplicate key '{0}' in JSON object")]
     DuplicateKey(String),
 
