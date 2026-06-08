@@ -27,7 +27,9 @@ def _self_signed_der():
     name = x509.Name(
         [x509.NameAttribute(NameOID.COMMON_NAME, "pinning-test.example")]
     )
-    now = datetime.datetime.now(datetime.UTC)
+    # datetime.timezone.utc, not datetime.UTC — the latter is 3.11+ only
+    # and the package supports Python 3.9.
+    now = datetime.datetime.now(datetime.timezone.utc)
     cert = (
         x509.CertificateBuilder()
         .subject_name(name)
