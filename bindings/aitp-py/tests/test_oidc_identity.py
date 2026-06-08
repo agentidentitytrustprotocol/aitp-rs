@@ -5,6 +5,10 @@ and the SDK's `JwksProvider` + `oidc_mint_jwt` callback to drive both
 sides of the handshake without any HTTP I/O.
 """
 
+# Defer annotation evaluation so PEP 604 unions (`bytes | None`) parse on
+# Python 3.9, which the package still supports (requires-python >=3.9).
+from __future__ import annotations
+
 import base64
 import hashlib
 import json
