@@ -1,0 +1,128 @@
+name: aitp-py-release
+
+# Publishes the `aitp` Python SDK (abi3 wheels) to PyPI and attaches the
+# wheels + sdist to a GitHub Release.
+#
+# Trigger: push a tag of the form `aitp-py-v0.2.0`. The build matrix
+# cross-builds one cp39-abi3 wheel per OS/arch (matching the Node SDK's
+# platform set) plus a source distribution; the publish job uploads them
+# all to PyPI in one shot.
+#
+# Built with the STABLE default feature set (the v0.1 surface). To ship
+# the experimental surface instead, add `experimental` to the maturin
+# `args` below (e.g. `--release --features experimental --out dist`).
+#
+# Publishing uses PyPI Trusted Publishing (OIDC) — NO API token or secret.
+# One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
+#   - PyPI project name: aitp-sdk   (the bare `aitp` name is taken; the
+#                                    import name stays `aitp` via maturin
+#                                    module-name in pyproject.toml)
+#   - Owner:       agentidentitytrustprotocol
+#   - Repository:  aitp-rs
+#   - Workflow:    aitp-py-release.yml
+#   - Environment: pypi
+# To use an API token instead, drop the `id-token`/`environment` lines on
+# the publish job and set `password: ${{ secrets.PYPI_API_TOKEN }}` on the
+# pypa/gh-action-pypi-publish step.
+#
+# NOTE: the tag version must match `version` in both bindings/aitp-py/
+# pyproject.toml and bindings/aitp-py/Cargo.toml.
+
+on:
+  push:
+    tags:
+      - 'aitp-py-v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build only; skip PyPI publish + GitHub release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  wheels:
+    name: wheel ${{ matrix.target }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-latest
+            target: x86_64-apple-darwin
+          - runner: macos-latest
+            target: aarch64-apple-darwin
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            manylinux: auto
+          - runner: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            manylinux: auto
+    steps:
+      - uses: actions/checkout@v4
+      # maturin-action picks up `abi3-py39` from Cargo.toml and emits a
+      # single cp39-abi3 wheel per target; `manylinux: auto` builds the
+      # Linux wheels in a manylinux container (and cross-compiles aarch64).
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/aitp-py
+          target: ${{ matrix.target }}
+          manylinux: ${{ matrix.manylinux }}
+          args: --release --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wheel-${{ matrix.target }}
+          path: bindings/aitp-py/dist/*.whl
+          if-no-files-found: error
+
+  sdist:
+    name: sdist
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: PyO3/maturin-action@v1
+        with:
+          working-directory: bindings/aitp-py
+          command: sdist
+          args: --out dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdist
+          path: bindings/aitp-py/dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    name: publish to PyPI
+    runs-on: ubuntu-latest
+    needs: [wheels, sdist]
+    # Skip on a dry-run workflow_dispatch; always publish on a tag push.
+    if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    environment: pypi
+    permissions:
+      contents: write   # create the GitHub release
+      id-token: write   # PyPI trusted publishing (OIDC)
+    steps:
+      - name: Download all wheels + sdist
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: List what will be published
+        run: ls -la dist
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: dist
+      - name: Attach wheels + sdist to GitHub Release
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist/*.whl
+            dist/*.tar.gz
+          fail_on_unmatched_files: true

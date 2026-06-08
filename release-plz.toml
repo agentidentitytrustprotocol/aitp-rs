@@ -1,0 +1,32 @@
+# release-plz configuration.
+#
+# These crates are part of the Cargo workspace but must NOT be published
+# to crates.io — they mirror the CI `PUBLISH_EXCLUDE_CRATES` list in
+# .github/workflows/ci.yml. The conformance runner + adapter are internal
+# test harnesses, the mint-* tools and the example are binaries, and
+# aitp-session-bundle is a draft RFC surface that isn't part of the v0.1
+# published API yet. Keep this list and ci.yml's in sync.
+
+[[package]]
+name = "aitp-conformance"
+release = false
+
+[[package]]
+name = "aitp-rs-adapter"
+release = false
+
+[[package]]
+name = "aitp-session-bundle"
+release = false
+
+[[package]]
+name = "aitp-example-two-agents"
+release = false
+
+[[package]]
+name = "mint-signed-examples"
+release = false
+
+[[package]]
+name = "mint-conformance-fixtures"
+release = false

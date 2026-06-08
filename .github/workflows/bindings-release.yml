@@ -1,0 +1,148 @@
+name: bindings-release
+
+# Publishes the `@agentidentitytrustprotocol/aitp` Node.js SDK (NAPI
+# prebuilts) to npm, and attaches the native `.node` binaries to a GitHub
+# Release.
+#
+# Trigger: push a tag of the form `aitp-node-v0.2.0`. The job matrix
+# cross-builds the native `.node` for every target in
+# `bindings/aitp-node/package.json`'s `napi.triples`, then a single
+# publish job assembles the per-platform npm packages
+# (`@agentidentitytrustprotocol/aitp-darwin-arm64`, …) plus the loader
+# package (`@agentidentitytrustprotocol/aitp`) via `napi prepublish` and
+# `npm publish`.
+#
+# Built with the STABLE default feature set (the v0.1 surface). To ship
+# the experimental surface instead, add `--features experimental` to the
+# two `napi build` steps below.
+#
+# Requires repo secret `NPM_TOKEN`: an npm automation token with publish
+# rights to the `@agentidentitytrustprotocol` scope. The tag version must
+# match `version` in package.json and Cargo.toml.
+
+on:
+  push:
+    tags:
+      - 'aitp-node-v*'
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Build only; skip npm publish + GitHub release'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    working-directory: bindings/aitp-node
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: build ${{ matrix.target }}
+    runs-on: ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-apple-darwin
+            host: macos-latest
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-latest
+            # Cross-compiled with zig so we don't need an arm64 runner.
+            zig: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bindings/aitp-node
+      - name: Install zig (cross targets)
+        if: ${{ matrix.zig }}
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.13.0
+      - name: Install dependencies
+        run: npm install
+      - name: Build (native)
+        if: ${{ !matrix.zig }}
+        run: npx napi build --platform --release --target ${{ matrix.target }}
+      - name: Build (zig cross)
+        if: ${{ matrix.zig }}
+        run: npx napi build --platform --release --target ${{ matrix.target }} --zig
+      - name: Upload .node artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: bindings-${{ matrix.target }}
+          path: bindings/aitp-node/*.node
+          if-no-files-found: error
+
+  publish:
+    name: publish to npm
+    runs-on: ubuntu-latest
+    needs: build
+    permissions:
+      contents: write   # create the GitHub release
+      id-token: write   # npm provenance
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+      - name: Install dependencies
+        run: npm install
+      - name: Download all .node artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: bindings/aitp-node/artifacts
+          pattern: bindings-*
+          merge-multiple: true
+      - name: Scaffold per-platform npm package dirs
+        run: npx napi create-npm-dir -t .
+      - name: Assemble per-platform npm dirs
+        run: npx napi artifacts --dir artifacts
+      - name: List what will be published
+        run: ls -R npm && ls -la *.node 2>/dev/null || true
+      # `napi prepublish` only publishes the per-platform binary packages
+      # (@agentidentitytrustprotocol/aitp-darwin-arm64, …). It does NOT
+      # publish the root loader package — that needs `npm publish`. Do
+      # both, as two steps.
+      - name: Publish platform packages
+        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        run: npx napi prepublish -t npm --skip-gh-release
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+      # `if: always()` so re-running a partially-completed release (where
+      # the platform packages already exist and the step above errors with
+      # "cannot publish over existing version") still publishes the root.
+      # `--ignore-scripts` stops npm from re-running `prepublishOnly`
+      # (which is `napi prepublish`) and republishing the platform packages.
+      - name: Publish root loader package
+        if: ${{ always() && (github.event_name == 'push' || !inputs.dry_run) }}
+        run: npm publish --access public --ignore-scripts
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+          NPM_CONFIG_PROVENANCE: 'true'
+      - name: Attach native binaries to GitHub Release
+        if: ${{ github.event_name == 'push' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          files: bindings/aitp-node/artifacts/*.node
+          fail_on_unmatched_files: true

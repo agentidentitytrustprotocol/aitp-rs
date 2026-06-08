@@ -2,8 +2,12 @@
 requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
+# Distribution name is `aitp-sdk` (the bare `aitp` name is already taken
+# on PyPI by an unrelated project). The IMPORT name stays `aitp` via
+# `[tool.maturin] module-name` below — so it's `pip install aitp-sdk`
+# then `import aitp`.
 [project]
-name = "aitp"
+name = "aitp-sdk"
 version = "0.2.0"
 description = "Agent Identity Trust Protocol — Python SDK"
 requires-python = ">=3.9"

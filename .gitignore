@@ -71,8 +71,11 @@ plans/
 # Language-binding build artifacts (bindings/aitp-py, bindings/aitp-node)
 bindings/**/*.node
 bindings/**/*.so
-bindings/aitp-node/index.js
-bindings/aitp-node/index.d.ts
+# index.js + index.d.ts are the napi-generated loader / type defs. They
+# are COMMITTED (not ignored): the npm publish job ships them verbatim in
+# the root loader package (`files` in package.json) and never re-runs
+# `napi build` to regenerate them. Re-run `napi build` and commit the
+# result whenever the Node SDK's exported surface changes.
 bindings/aitp-node/node_modules/
 bindings/aitp-py/.venv/
 __pycache__/
