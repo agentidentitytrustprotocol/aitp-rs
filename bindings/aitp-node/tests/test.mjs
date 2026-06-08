@@ -71,6 +71,12 @@ test('initiator rejects peer substitution', () => {
   const initiator = AitpAgent.generate();
   const real = AitpAgent.generate();
   const mallory = AitpAgent.generate();
+  // The initiator needs its own manifest before it can open a session.
+  initiator.buildManifest({
+    displayName: 'initiator',
+    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+  });
   const realManifest = real.buildManifest({
     displayName: 'real',
     handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
