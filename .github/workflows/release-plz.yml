@@ -1,0 +1,43 @@
+name: release-plz
+
+# Publishes the Rust protocol crates (aitp-core, aitp-crypto, …, aitp) to
+# crates.io and cuts a GitHub Release per crate.
+#
+# release-plz runs on every push to main and opens/updates a "release PR"
+# that bumps versions + changelogs. Merging that PR triggers the actual
+# `cargo publish` (in dependency order) + git tags + GitHub releases.
+#
+# Crates that must NOT hit crates.io (conformance runner, adapter, draft
+# session-bundle, examples, mint-* tools) are excluded via release-plz.toml.
+#
+# Requires repo secrets:
+#   - CARGO_REGISTRY_TOKEN — a crates.io API token with publish rights.
+#   - (GITHUB_TOKEN is provided automatically.)
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-plz-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-plz:
+    name: release-plz
+    runs-on: ubuntu-latest
+    if: ${{ github.repository_owner == 'agentidentitytrustprotocol' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: MarcoIeni/release-plz-action@v0.5
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

@@ -46,7 +46,7 @@ underlying RFC graduates.
 ## Usage
 
 ```javascript
-import { AitpAgent } from 'aitp';
+import { AitpAgent } from '@agentidentitytrustprotocol/aitp';
 
 const initiator = AitpAgent.generate();
 const responder = AitpAgent.generate();
@@ -105,7 +105,7 @@ is a summary. All `*Json` parameters and return values are JSON strings.
 ### OIDC identity (RFC-AITP-0002)
 
 ```javascript
-import { AitpAgent, JwksProvider } from 'aitp';
+import { AitpAgent, JwksProvider } from '@agentidentitytrustprotocol/aitp';
 
 const jwks = new JwksProvider({
   'https://idp.example/': [{ kty: 'OKP', crv: 'Ed25519', x: '...', kid: 'k1', alg: 'EdDSA' }],

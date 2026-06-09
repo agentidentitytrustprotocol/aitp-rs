@@ -71,6 +71,12 @@ def test_initiator_rejects_peer_substitution():
     initiator = aitp.AitpAgent.generate()
     real = aitp.AitpAgent.generate()
     mallory = aitp.AitpAgent.generate()
+    # The initiator needs its own manifest before it can open a session.
+    initiator.build_manifest(
+        display_name="initiator",
+        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        offered_caps=["demo.write"],
+    )
     real_manifest = real.build_manifest(
         display_name="real",
         handshake_endpoint="http://localhost:8200/aitp/handshake/",

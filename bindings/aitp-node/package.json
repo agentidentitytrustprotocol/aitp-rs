@@ -1,18 +1,41 @@
 {
-  "name": "aitp",
+  "name": "@agentidentitytrustprotocol/aitp",
   "version": "0.2.0",
   "description": "Agent Identity Trust Protocol — Node.js SDK",
+  "license": "MIT OR Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/agentidentitytrustprotocol/aitp-rs.git",
+    "directory": "bindings/aitp-node"
+  },
+  "homepage": "https://github.com/agentidentitytrustprotocol/aitp-rs/tree/main/bindings/aitp-node",
   "main": "index.js",
   "types": "index.d.ts",
   "type": "commonjs",
+  "files": [
+    "index.js",
+    "index.d.ts"
+  ],
   "napi": {
-    "name": "aitp"
+    "name": "aitp",
+    "triples": {
+      "defaults": false,
+      "additional": [
+        "x86_64-apple-darwin",
+        "aarch64-apple-darwin",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu"
+      ]
+    }
   },
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
     "build:experimental": "napi build --platform --release --features experimental",
     "build:experimental:debug": "napi build --platform --features experimental",
+    "artifacts": "napi artifacts",
+    "prepublishOnly": "napi prepublish -t npm",
+    "version": "napi version",
     "test": "node --test tests/*.mjs"
   },
   "devDependencies": {
@@ -24,5 +47,15 @@
   },
   "dependencies": {
     "jose": "^6.2.3"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org/"
+  },
+  "optionalDependencies": {
+    "@agentidentitytrustprotocol/aitp-darwin-x64": "0.2.0",
+    "@agentidentitytrustprotocol/aitp-darwin-arm64": "0.2.0",
+    "@agentidentitytrustprotocol/aitp-linux-x64-gnu": "0.2.0",
+    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.2.0"
   }
 }

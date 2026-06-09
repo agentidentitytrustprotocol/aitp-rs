@@ -57,7 +57,11 @@ aitp-session-bundle = { path = "../../crates/aitp-session-bundle", optional = tr
 x509-parser = { version = "0.17", optional = true }
 sha2 = "0.10"
 
-pyo3 = "0.22"
+# abi3-py39: build a single forward-compatible wheel (cp39-abi3) per
+# platform that runs on CPython 3.9+ via the stable ABI, instead of one
+# wheel per interpreter version. Keeps the release matrix to one build
+# per OS/arch and matches `requires-python = ">=3.9"` in pyproject.toml.
+pyo3 = { version = "0.22", features = ["abi3-py39"] }
 
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
