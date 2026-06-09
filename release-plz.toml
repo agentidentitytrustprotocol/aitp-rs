@@ -6,6 +6,11 @@
 # test harnesses, the mint-* tools and the example are binaries, and
 # aitp-session-bundle is a draft RFC surface that isn't part of the v0.1
 # published API yet. Keep this list and ci.yml's in sync.
+#
+# Crates whose own Cargo.toml sets `publish = false` (the adapter, the
+# example, and the mint-* tools) must ALSO set `publish = false` here, or
+# release-plz aborts with a "publish = false in Cargo.toml but publish =
+# true in the release-plz configuration" consistency error.
 
 [[package]]
 name = "aitp-conformance"
@@ -14,6 +19,7 @@ release = false
 [[package]]
 name = "aitp-rs-adapter"
 release = false
+publish = false
 
 [[package]]
 name = "aitp-session-bundle"
@@ -22,11 +28,14 @@ release = false
 [[package]]
 name = "aitp-example-two-agents"
 release = false
+publish = false
 
 [[package]]
 name = "mint-signed-examples"
 release = false
+publish = false
 
 [[package]]
 name = "mint-conformance-fixtures"
 release = false
+publish = false
