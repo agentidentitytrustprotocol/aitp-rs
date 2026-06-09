@@ -48,41 +48,36 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        # Each target builds on a NATIVE runner. Cross-compiling these
+        # with napi tripped over the repo's 1.89.0 toolchain pin (the
+        # cross target's std landed on `stable`, not 1.89.0) and the zig
+        # path; native runners sidestep both. `ubuntu-24.04-arm` is a
+        # GitHub-hosted arm64 runner, free for public repos.
         include:
           - target: x86_64-apple-darwin
-            host: macos-latest
+            host: macos-13          # native Intel
           - target: aarch64-apple-darwin
-            host: macos-latest
+            host: macos-latest      # native Apple silicon
           - target: x86_64-unknown-linux-gnu
             host: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
-            host: ubuntu-latest
-            # Cross-compiled with zig so we don't need an arm64 runner.
-            zig: true
+            host: ubuntu-24.04-arm  # native arm64
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: '20'
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: dtolnay/rust-toolchain@master
         with:
+          toolchain: "1.89.0"        # match rust-toolchain.toml
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@v2
         with:
           workspaces: bindings/aitp-node
-      - name: Install zig (cross targets)
-        if: ${{ matrix.zig }}
-        uses: mlugg/setup-zig@v1
-        with:
-          version: 0.13.0
       - name: Install dependencies
         run: npm install
       - name: Build (native)
-        if: ${{ !matrix.zig }}
         run: npx napi build --platform --release --target ${{ matrix.target }}
-      - name: Build (zig cross)
-        if: ${{ matrix.zig }}
-        run: npx napi build --platform --release --target ${{ matrix.target }} --zig
       - name: Upload .node artifact
         uses: actions/upload-artifact@v4
         with:

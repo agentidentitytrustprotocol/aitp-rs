@@ -60,7 +60,11 @@ jobs:
           - runner: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             manylinux: auto
-          - runner: ubuntu-latest
+          # Native arm64 runner: build the aarch64 wheel natively so
+          # `ring`'s ARM asm assembles (cross-compiling it in the x86
+          # manylinux container fails with "ARM assembler must define
+          # __ARM_ARCH"). Free GitHub-hosted runner for public repos.
+          - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             manylinux: auto
     steps:
