@@ -48,14 +48,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # Each target builds on a NATIVE runner. Cross-compiling these
-        # with napi tripped over the repo's 1.89.0 toolchain pin (the
-        # cross target's std landed on `stable`, not 1.89.0) and the zig
-        # path; native runners sidestep both. `ubuntu-24.04-arm` is a
-        # GitHub-hosted arm64 runner, free for public repos.
+        # napi cross-compiling tripped over the repo's 1.89.0 toolchain
+        # pin (the cross target's std landed on `stable`, not 1.89.0)
+        # and the zig path. The toolchain step below now pins 1.89.0 and
+        # adds the target's std there, so the macOS x86_64 cross (arm ->
+        # x86, same OS) builds reliably without a scarce Intel runner.
+        # Linux arm64 builds on a native `ubuntu-24.04-arm` runner (free
+        # for public repos) — cross-assembling `ring` for aarch64 from
+        # x86 is the part that doesn't work.
         include:
           - target: x86_64-apple-darwin
-            host: macos-13          # native Intel
+            host: macos-latest      # cross arm -> x86 (std pinned below)
           - target: aarch64-apple-darwin
             host: macos-latest      # native Apple silicon
           - target: x86_64-unknown-linux-gnu
