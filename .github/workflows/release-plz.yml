@@ -38,6 +38,15 @@ jobs:
           token: ${{ secrets.GITHUB_TOKEN }}
       - uses: dtolnay/rust-toolchain@stable
       - uses: MarcoIeni/release-plz-action@v0.5
+        with:
+          # One-time bootstrap of the first crates.io release: `release`
+          # publishes (in dependency order) + tags + cuts GitHub releases
+          # directly, with no release PR — so it does NOT need the org
+          # "Allow GitHub Actions to create and approve pull requests"
+          # policy that blocks the default release-pr command. Reverted to
+          # the default (release-pr + release) right after; re-enabling the
+          # org policy restores the automated PR flow for future releases.
+          command: release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
