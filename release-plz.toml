@@ -3,9 +3,15 @@
 # These crates are part of the Cargo workspace but must NOT be published
 # to crates.io — they mirror the CI `PUBLISH_EXCLUDE_CRATES` list in
 # .github/workflows/ci.yml. The conformance runner + adapter are internal
-# test harnesses, the mint-* tools and the example are binaries, and
-# aitp-session-bundle is a draft RFC surface that isn't part of the v0.1
-# published API yet. Keep this list and ci.yml's in sync.
+# test harnesses and the mint-* tools and the example are binaries. Keep
+# this list and ci.yml's in sync.
+#
+# NOTE: aitp-session-bundle is a draft RFC surface but it IS published —
+# `aitp` and `aitp-transport-http` carry an optional, versioned dependency
+# on it, and `cargo publish` requires every versioned dependency (optional
+# or not) to resolve on the crates.io index. Excluding it here blocked
+# those two crates from ever publishing. It stays opt-in for consumers via
+# the `experimental-session-bundle` feature.
 #
 # Crates whose own Cargo.toml sets `publish = false` (the adapter, the
 # example, and the mint-* tools) must ALSO set `publish = false` here, or
@@ -20,10 +26,6 @@ release = false
 name = "aitp-rs-adapter"
 release = false
 publish = false
-
-[[package]]
-name = "aitp-session-bundle"
-release = false
 
 [[package]]
 name = "aitp-example-two-agents"
