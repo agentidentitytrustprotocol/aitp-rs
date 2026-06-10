@@ -20,7 +20,7 @@ env:
   # subprocess-driven entry point isn't part of the published
   # surface, but it IS in the coverage scope because its
   # integration tests exercise other crates' public APIs.
-  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-session-bundle"
+  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
   COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents"
 
 permissions:
@@ -148,12 +148,14 @@ jobs:
           # is unambiguous and present after `fetch-depth: 0`.
           baseline-rev: ${{ github.event.pull_request.base.sha }}
           # Skip the workspace-only crates that aren't published, plus
-          # any crate that's brand-new in this PR (semver-checks needs
-          # a baseline to compare against; new crates have none).
-          # `aitp-envelope` is new in this PR — it is a published crate,
-          # so it stays out of PUBLISH_EXCLUDE_CRATES; drop the inline
-          # append below once it has a released baseline to compare to.
-          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope
+          # any crate that lacks a released baseline to compare against
+          # (semver-checks needs a prior crates.io version; brand-new
+          # publishes have none).
+          # `aitp-envelope` and `aitp-session-bundle` are published crates
+          # with no crates.io baseline yet, so they stay out of
+          # PUBLISH_EXCLUDE_CRATES but are appended inline here; drop each
+          # one once its first version is released and can be compared to.
+          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope,aitp-session-bundle
 
   msrv:
     name: cargo-msrv (workspace)
