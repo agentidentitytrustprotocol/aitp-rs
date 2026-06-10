@@ -1,0 +1,22 @@
+name: Notify Website of Doc Changes
+
+# When docs or the README land on main, ping the website repo so it
+# re-runs scripts/sync-content.sh and opens a docs-sync PR. The website's
+# sync-docs.yml workflow listens for the `docs-updated` repository_dispatch.
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'docs/**'
+      - 'README.md'
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger website sync
+        uses: peter-evans/repository-dispatch@v4
+        with:
+          token: ${{ secrets.WEBSITE_SYNC_TOKEN }}
+          repository: agentidentitytrustprotocol/aitp-website
+          event-type: docs-updated
