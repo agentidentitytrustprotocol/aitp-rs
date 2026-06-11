@@ -101,6 +101,54 @@ land in 0.1.0.
 - (Spec repo) `plans/v0.2-conformance-followups.md` — concrete
   list of KATs and conformance fixtures still to mint.
 
+### Fixed — documentation
+
+- **Corrected the handshake signing-input recipes in
+  `docs/handshake-transcripts.md`.** The page (written for
+  cross-language implementers) documented the PoP/nonce preimage as the
+  ASCII bytes of the base64url nonce string and the pinned-key proof as
+  `message_id|timestamp` — both wrong. Per the code and
+  RFC-AITP-0001 §5.4.2 / RFC-AITP-0002 §3.1, PoP inputs hash the
+  **base64url-decoded** nonce bytes (hashing the string form is explicitly
+  non-conformant), and the pinned-key proof is the 5-field domain-prefixed
+  structure. The tables now defer to the normative RFC sections.
+- **Fixed the TCT-renewal RFC reference** (`docs/tct-renewal.md`,
+  `docs/sdk-node.md`, `docs/sdk-python.md`): renewal is RFC-AITP-0013
+  (+ RFC-AITP-0004 §8.1, non-normative), not "RFC-AITP-0005 §10" (which is
+  the Verification API).
+- **Repaired dangling links to `docs/design/PENDING.md`** (a file that
+  never existed) in `architecture.md`, `jcs.md`, `handshake-transcripts.md`,
+  and a `state_machine.rs` comment — now pointing at
+  `plans/defered/deferred.md`.
+- **Refreshed stale design docs:** `conformance.md` ("13 fixtures"
+  → 44; op vocabulary reconciled with `aitp-rs-adapter`); `jcs.md` (spec
+  KAT hashes now exist and are CI-pinned, no longer a de-facto local value).
+
+### Added — documentation
+
+- **`docs/README.md`** — a documentation index establishing the
+  "implementation docs here / normative protocol in the spec RFCs" boundary
+  and linking the spec-side guides, so the implementation docs point rather
+  than duplicate.
+
+### Changed — documentation structure
+
+- **Flattened `docs/design/` into `docs/`** and dropped the numeric
+  filename prefixes — every page now lives directly under `docs/` with a
+  descriptive name (`jcs.md`, `handshake-transcripts.md`,
+  `session-bundle.md`, `multihop-delegation.md`, `tct-renewal.md`).
+- **Merged the topology guide and the workspace rationale** into a single
+  `docs/architecture.md` (former `docs/architecture.md` +
+  `docs/design/00-architecture.md`), de-duplicating the crate map and
+  bindings sections.
+- **Merged the conformance matrix into the adapter-design doc** as
+  `docs/conformance.md` (former `docs/design/02-conformance-adapter.md` +
+  `docs/conformance-matrix.md`); `architecture.md`'s conformance section now
+  points there instead of restating the op tables.
+- Updated all inbound references (README, CONTRIBUTING,
+  `adapters/README.md`, and the `//!` doc-comments in `aitp-core`,
+  `aitp-conformance`, and `aitp-rs-adapter`).
+
 ### Deferred — production posture (to Phase 9)
 
 These items were in the original Phase 2 scope but moved to Phase 9

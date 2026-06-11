@@ -1,4 +1,4 @@
-# 05 — Multi-hop delegation (RFC-AITP-0011)
+# Multi-hop delegation (RFC-AITP-0011)
 
 > **Status: draft / opt-in.** The multi-hop verifier always compiles in
 > `aitp-delegation`, but is **gated at runtime**: `VerifyDelegationContext`
@@ -6,7 +6,7 @@
 > unless a caller explicitly raises the cap. The language bindings expose it
 > only under the `experimental-multihop-delegation` feature, via
 > `verify_delegation_experimental_multihop` /
-> `verifyDelegationExperimentalMultihop`. See [00](00-architecture.md) for why
+> `verifyDelegationExperimentalMultihop`. See [architecture](architecture.md) for why
 > draft behavior must never be reachable from a default build.
 
 ## Motivation

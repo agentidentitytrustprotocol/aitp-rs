@@ -9,7 +9,7 @@
 //! crate if we discover correctness gaps; the public API here is the stable
 //! contract that protocol crates depend on.
 //!
-//! See [`docs/design/01-jcs.md`](../../../../docs/design/01-jcs.md) for
+//! See [`docs/jcs.md`](../../../../docs/jcs.md) for
 //! the test vector strategy.
 
 use serde_json::Value;

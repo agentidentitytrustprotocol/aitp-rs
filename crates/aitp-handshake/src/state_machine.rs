@@ -381,7 +381,7 @@ impl PresentedIdentity {
                 // conflicts with the common test pattern of
                 // pre-minting a JWT then re-minting once the
                 // handshake-generated nonce is known. Left to a
-                // future logging-aware revisit (PENDING.md).
+                // future logging-aware revisit (plans/defered/deferred.md).
                 Ok(IdentityDescriptor {
                     kind: IdentityKind::Oidc,
                     issuer: Some(aitp_core::RawUrl::from(issuer.clone())),

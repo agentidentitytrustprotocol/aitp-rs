@@ -10,7 +10,7 @@ Each adapter is an executable that speaks NDJSON over stdin/stdout.
 
 ## Protocol
 
-See [`../docs/design/02-conformance-adapter.md`](../docs/design/02-conformance-adapter.md)
+See [`../docs/conformance.md`](../docs/conformance.md)
 for the full request/response specification.
 
 ## Testing your adapter

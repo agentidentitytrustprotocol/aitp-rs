@@ -117,7 +117,7 @@ agents must use `identityType: 'oidc'`.
 
 ## Experimental surface (Cargo `--features experimental`)
 
-### TCT renewal (RFC-AITP-0005 §10, feature `experimental-renewal`)
+### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `experimental-renewal`)
 
 ```javascript
 const req = holder.buildRenewalRequest(currentTctEnvelopeJson);
