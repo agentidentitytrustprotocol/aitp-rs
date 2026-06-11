@@ -3,8 +3,8 @@
 //! The entire four-message Mutual Handshake is driven by one call to
 //! [`aitp::facade::run_initiator_handshake`]: it fetches B's Manifest,
 //! sends HELLO, drives HELLO_ACK → COMMIT → COMMIT_ACK, and hands back a
-//! [`SessionContext`] holding the TCT B issued us. We then use that TCT
-//! to invoke B's `/echo` capability.
+//! [`SessionContext`](aitp::facade::SessionContext) holding the TCT B
+//! issued us. We then use that TCT to invoke B's `/echo` capability.
 //!
 //! Trust posture: we pin B's key (TOFU — pin-on-first-fetch) and pass it
 //! via [`TrustMode::PinnedKeys`]. A production initiator pins the peer
