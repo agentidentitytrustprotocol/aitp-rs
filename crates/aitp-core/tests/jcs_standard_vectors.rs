@@ -1,4 +1,4 @@
-//! JCS standard vectors per `docs/design/01-jcs.md`.
+//! JCS standard vectors per `docs/jcs.md`.
 //!
 //! These are the vectors every conformant AITP implementation MUST agree on.
 //! Adding a vector is encouraged; deleting one is not.

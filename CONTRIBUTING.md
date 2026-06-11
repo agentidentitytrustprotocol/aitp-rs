@@ -24,7 +24,7 @@ cargo doc --workspace --no-deps --all-features
 
 ## Workspace layout
 
-See [`docs/design/00-architecture.md`](docs/design/00-architecture.md).
+See [`docs/architecture.md`](docs/architecture.md).
 The short version: protocol crates are pure and synchronous;
 `aitp-transport-http` is the only crate that speaks HTTP and is
 feature-gated.
@@ -43,6 +43,19 @@ feature-gated.
   transitive deps — `time`, `time-macros`, `icu_*`, `idna_adapter`,
   `clap_lex`). Do not use newer language features without a follow-up
   bump in `rust-toolchain.toml` and `Cargo.toml` (`rust-version`).
+
+## Documentation
+
+- [`docs/README.md`](docs/README.md) is the index. Implementation guides
+  and design notes live under `docs/`; the protocol itself is defined
+  **normatively** by the [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs).
+- **Point to the RFC; don't restate it.** When a doc needs a wire detail
+  (a signing-input recipe, a field invariant), cite the RFC section
+  rather than copying the bytes — duplicated normative text silently
+  drifts from the spec. If both must show it, make the doc defer to the
+  RFC as the source of truth.
+- If you change a binding's public API, update **both** SDK guides
+  (`docs/sdk-python.md`, `docs/sdk-node.md`) so they stay symmetric.
 
 ## Commit messages
 

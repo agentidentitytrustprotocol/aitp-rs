@@ -8,7 +8,7 @@
 //! clock override, revocation list) — callers construct one
 //! [`AdapterState`] and reuse it for the lifetime of the test run.
 //!
-//! See `docs/design/02-conformance-adapter.md` for the wire
+//! See `docs/conformance.md` for the wire
 //! protocol the binary speaks; this library is the layer below it.
 
 #![forbid(unsafe_code)]

@@ -9,10 +9,11 @@ two agents perform a Mutual Handshake, exchange signed Trust
 Context Tokens (TCTs), and then invoke each other's capabilities
 under those TCTs.
 
-This document is the topology — what the pieces are and how they
-fit. For the *why* behind specific design decisions, read
-[`design/00-architecture.md`](design/00-architecture.md) and the
-sibling design notes.
+This document covers the topology — what the pieces are and how they
+fit — and then the rationale for why the workspace is split the way it
+is. For the deeper, topic-specific dives, see the sibling docs:
+[`jcs.md`](jcs.md), [`handshake-transcripts.md`](handshake-transcripts.md),
+and [`conformance.md`](conformance.md).
 
 ## The four signed wire types
 
@@ -92,11 +93,77 @@ dependencies; every other crate depends on it. Protocol crates
 `crypto` only. `aitp-transport-http` is the only crate with
 async/HTTP/network surface; everything below it is sync.
 
+## Why the workspace is split this way
+
+The split is load-bearing — it exists to serve three audiences with
+different needs from one codebase:
+
+1. **TCT-only consumers** (e.g. the MACP runtime) want to verify TCTs and
+   nothing else — no HTTP client, no handshake state machine, no OIDC JWT
+   library.
+2. **Standalone agents** want the full handshake, TCT exchange, manifest
+   fetch, and HTTP serving behind a one-line dependency.
+3. **The conformance runner** needs an in-process adapter that can call
+   into every layer.
+
+A monolithic crate can't serve all three. The boundaries that follow are
+the minimum split that does:
+
+- **`aitp-core` has no crypto.** Wire types, JCS, base64url, AID parsing —
+  importable by anything that handles AITP data (storage, logging,
+  analysis) without inheriting an Ed25519 dependency.
+- **`aitp-crypto` has no protocol.** It wraps `ed25519-dalek` with AITP
+  key handling and the JWK thumbprint; it does not know what a Manifest or
+  TCT is.
+- **`aitp-envelope` is the sync envelope codec.** `sign_envelope` /
+  `verify_envelope_signature` depend only on `core` + `crypto` — no HTTP,
+  no async. It was split out of `aitp-transport-http` precisely so the
+  language bindings (and other sync consumers) can sign/verify without a
+  transport stack; `aitp-transport-http::common` keeps thin wrappers so
+  older `aitp_transport_http::common::*` imports still compile.
+- **`aitp-tct` does not depend on `aitp-handshake`.** TCT verification is
+  the per-request hot path; reversing this would force every verifier to
+  compile the state machine. `aitp-handshake` depends on `tct` +
+  `manifest` — it issues TCTs and verifies Manifests, so that direction is
+  correct.
+- **`aitp-transport-http` is feature-gated and the only async crate.** Its
+  `client` feature pulls `reqwest`, `server` pulls `axum`. No protocol
+  crate depends on it, so a consumer on a different transport (gRPC,
+  MessagePack) can implement just the wire layer and reuse every protocol
+  crate.
+- **`aitp` (the facade) re-exports the protocol crates** plus a `prelude` —
+  this is what most users depend on.
+- **`aitp-conformance` and `aitp-rs-adapter` stay separate.** The runner is
+  language-agnostic; the adapter is `aitp-rs`-specific. Keeping them apart
+  lets future-language adapters live alongside the Rust one.
+
+### Async story
+
+The protocol crates are sync; only `aitp-transport-http` is async (because
+`reqwest` / `axum` are). This keeps TCT verification callable from sync
+codebases and from non-Rust runtimes via FFI, and leaves room to add async
+wrappers in the facade later without changing the protocol crates.
+
+## Workspace conventions
+
+- **Workspace deps only.** Every third-party crate is pinned once in the
+  root `[workspace.dependencies]` and referenced via `{ workspace = true }`,
+  so the lock holds exactly one version of each — upgrades are one-line.
+- **MSRV 1.88**, toolchain pinned to `1.89.0` in `rust-toolchain.toml`.
+  MSRV rose from 1.75 once transitive deps (`time`, `icu_*`,
+  `idna_adapter`, `clap_lex`) began requiring edition 2024; `cargo msrv
+  verify` gates it in CI.
+- **Dual MIT OR Apache-2.0** — standard Rust convention (same as `tokio`,
+  `serde`, `tower`), friendlier to enterprise adoption than either alone.
+- **`#![forbid(unsafe_code)]`** on every workspace crate (the binding
+  crates omit it — the PyO3 / NAPI-rs export macros expand to `unsafe`
+  glue) and **`#![warn(missing_docs)]`** on public crates.
+
 ## What's anchored to the spec, not just self-consistent
 
 A common failure mode for early protocol implementations is
 "works against itself, fails against any other implementation."
-Three test families pin `aitp-rs` against spec-published reference
+Four test families pin `aitp-rs` against spec-published reference
 values rather than its own output:
 
 - **Keypair derivation** (`crates/aitp-crypto/tests/kat.rs`) —
@@ -135,33 +202,18 @@ When the spec moves, the workflow is:
 
 ## Conformance
 
-[`aitp-conformance`](../crates/aitp-conformance) defines the runner
-and the `Adapter` trait. Two adapters today:
+[`aitp-conformance`](../crates/aitp-conformance) defines the runner and the
+`Adapter` trait. Two adapters ship: `SubprocessAdapter` (speaks NDJSON over
+stdin/stdout to any binary that implements the protocol — the
+[`aitp-rs-adapter`](../crates/aitp-rs-adapter) is the Rust one) and
+`InProcessRustAdapter` (calls the crates directly, for fast local dev). The
+op vocabulary spans four tiers — verification, issuance, stateful flows,
+and test-only.
 
-- `SubprocessAdapter` — speaks NDJSON over stdin/stdout to any
-  binary that implements the protocol. The
-  [`aitp-rs-adapter`](../crates/aitp-rs-adapter) binary is the
-  Rust implementation
-- `InProcessRustAdapter` — calls into the `aitp-*` crates directly
-  for fast local development. Tier A only
-
-The conformance op vocabulary covers four tiers:
-
-- **Tier A** (verification): `verify_envelope`, `verify_manifest`,
-  `verify_tct`, `verify_delegation_token`,
-  `verify_revocation_snapshot`, `verify_jcs`,
-  `compute_jwk_thumbprint`
-- **Tier B** (issuance): `generate_keypair`, `issue_manifest`,
-  `issue_tct`, `issue_delegation_token`, `sign_envelope`
-- **Tier C** (stateful flows): `start_handshake` (initiator and
-  responder roles), `process_handshake_message`, `revoke_tct`
-- **Tier D** (test-only): `set_clock`, `inject_revocation`,
-  `dump_session`
-
-Cross-language adapters in any language need only implement the
-NDJSON protocol from
-[`design/02-conformance-adapter.md`](design/02-conformance-adapter.md);
-the runner, fixtures, and assertion machinery are shared.
+A cross-language adapter need only implement that NDJSON protocol; the
+runner, fixtures, and assertion machinery are shared. The full wire
+protocol, the per-tier op table, and the live 44-fixture matrix all live in
+[`conformance.md`](conformance.md).
 
 ## Language bindings
 
@@ -186,17 +238,20 @@ bindings and runs that suite.
 
 ## Where to read further
 
-- [`design/00-architecture.md`](design/00-architecture.md) —
-  workspace structure rationale (sync core, async at HTTP edges,
-  why `aitp-jcs` doesn't exist as its own crate, etc.)
-- [`design/01-jcs.md`](design/01-jcs.md) — JSON canonicalization
-  strategy, test vectors, the surrogate-pair history
-- [`design/02-conformance-adapter.md`](design/02-conformance-adapter.md)
-  — full NDJSON protocol the subprocess adapter speaks
-- [`design/03-handshake-transcripts.md`](design/03-handshake-transcripts.md)
-  — handshake transcript format
-- [`design/PENDING.md`](design/PENDING.md) — live tracker for
-  open items, deferred work, spec-side dependencies
+- [`jcs.md`](jcs.md) — JSON canonicalization strategy, test vectors, the
+  surrogate-pair history
+- [`conformance.md`](conformance.md) — the full NDJSON adapter protocol
+  and the per-fixture matrix
+- [`handshake-transcripts.md`](handshake-transcripts.md) — the four-message
+  exchange, byte by byte
+- [`session-bundle.md`](session-bundle.md),
+  [`multihop-delegation.md`](multihop-delegation.md),
+  [`tct-renewal.md`](tct-renewal.md) — the draft, opt-in extensions
+- [`sdk-python.md`](sdk-python.md) / [`sdk-node.md`](sdk-node.md) and
+  [`transport-hardening.md`](transport-hardening.md) — SDK guides and the
+  HTTP-transport hardening register
+- [`../plans/defered/deferred.md`](../plans/defered/deferred.md) — live
+  tracker for open items, deferred work, and spec-side dependencies
 - The [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs)
   themselves — the protocol is normatively defined there; this
   implementation tracks them
@@ -209,8 +264,8 @@ bindings and runs that suite.
   Read [`examples/two-agents/`](../examples/two-agents) or run
   `make demo`
 - Writing an adapter in another language? Read
-  [`design/02-conformance-adapter.md`](design/02-conformance-adapter.md)
-  and look at [`crates/aitp-rs-adapter/src/main.rs`](../crates/aitp-rs-adapter/src/main.rs)
+  [`conformance.md`](conformance.md) and look at
+  [`crates/aitp-rs-adapter/src/main.rs`](../crates/aitp-rs-adapter/src/main.rs)
   for a working reference
 - Curious about a specific signed wire type? Each
   `crates/aitp-<type>/src/types.rs` has rustdoc plus

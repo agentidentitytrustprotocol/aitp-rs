@@ -1,4 +1,4 @@
-# 03 — Handshake wire transcripts
+# Handshake wire transcripts
 
 This document captures the exact bytes flowing between two peers during a
 successful four-message Mutual Handshake (RFC-AITP-0004), and the bytes
@@ -42,7 +42,7 @@ deterministic per the seed.
     "identity": {
       "type": "pinned_key",
       "subject": "alice",
-      "proof": "<base64url(sign(alice_priv, sha256(<message_id>|<timestamp>)))>",
+      "proof": "<base64url(sign(alice_priv, sha256(pinned_key_proof_input)))>",
       "public_key": "<base64url(alice_pubkey_bytes)>"
     },
     "manifest": { /* alice's full Manifest, inline */ },
@@ -53,17 +53,30 @@ deterministic per the seed.
 }
 ```
 
-**Signed inputs in M1:**
+**Signed inputs in M1.** Every entry below is hashed with SHA-256 and
+then Ed25519-signed. The preimage definitions are **normative in the
+spec** — reproduced here only as a debugging aid. The authoritative
+section is in the last column; if this table and the RFC ever disagree,
+the RFC wins. (`||` is byte concatenation, `\0` a single null byte; the
+`|` inside the envelope `format!` is a literal pipe character.)
 
-| Signature field | Bytes signed (then SHA-256'd, then Ed25519-signed) |
-|---|---|
-| `payload.identity.proof` (pinned-key) | `format!("{}|{}", message_id, timestamp.0).as_bytes()` |
-| `payload.manifest.proof_of_possession.signature` | `<challenge>.as_bytes()` (the 22-char base64url challenge string itself) |
-| `payload.manifest.signature` | `JCS(manifest_without_signature_field)` |
-| `signature` (envelope) | `format!("{}|{}|{}|{}", message_id, timestamp.0, sender_aid_str, hex(sha256(JCS(payload))))` |
+| Signature field | Preimage (hashed with SHA-256, then signed) | Normative source |
+|---|---|---|
+| `payload.identity.proof` (pinned-key) | `"aitp-pinned-key-v1\0" \|\| sender_aid \|\| "\0" \|\| receiver_aid \|\| "\0" \|\| message_id \|\| "\0" \|\| timestamp_be_8 \|\| "\0" \|\| base64url_decode(pop_nonce)` | RFC-AITP-0002 §3.1 |
+| `payload.manifest.proof_of_possession.signature` | `base64url_decode(challenge)` — the raw decoded nonce bytes, **not** the base64url string | RFC-AITP-0001 §5.4.2 |
+| `payload.manifest.signature` | `JCS(manifest_without_signature_field)` | RFC-AITP-0001 §5.4.1 |
+| `signature` (envelope) | `format!("{}|{}|{}|{}", message_id, timestamp, sender_aid, hex(sha256(JCS(payload))))` | RFC-AITP-0001 §5.4.1 |
 
-JCS canonicalisation per RFC 8785: lex-sorted keys at every depth, no
-whitespace, ECMAScript number formatting.
+Two byte-encoding rules cause most cross-language interop failures, so
+they are called out explicitly:
+
+- **JCS canonicalisation** (RFC 8785): lex-sorted keys at every depth, no
+  whitespace, ECMAScript number formatting. See [JCS](jcs.md).
+- **PoP / nonce inputs are hashed over the *decoded* nonce bytes**, never
+  the base64url string. RFC-AITP-0001 §5.4.2 is the unified rule for all
+  four PoP sites (pinned-key proof, manifest PoP, handshake
+  `pop_signature`, downstream PoP) and explicitly marks hashing the
+  base64url form as non-conformant.
 
 ### M2 — `mutual_hello_ack` (Bob → Alice)
 
@@ -85,13 +98,13 @@ whitespace, ECMAScript number formatting.
 }
 ```
 
-**Critical interop note.** Bob's identity proof in M2 is signed over
-Bob's **ack** envelope's `message_id` and `timestamp` — not over M1's.
-The two-agent demo originally got this wrong because the helper that
-wrapped envelopes generated fresh `message_id` / `timestamp` after the
-identity proof was already built. Build the proof and the envelope with
-the **same** `(message_id, timestamp)` pair. See
-`examples/two-agents/src/lib.rs::sign_envelope_with`.
+**Critical interop note.** Bob's identity proof in M2 binds Bob's **ack**
+envelope's `message_id` and `timestamp` (and `sender_aid = Bob`,
+`receiver_aid = Alice`) — not M1's. The two-agent demo originally got this
+wrong because the helper that wrapped envelopes generated fresh
+`message_id` / `timestamp` after the identity proof was already built.
+Build the proof and the envelope with the **same** `(message_id,
+timestamp)` pair. See `examples/two-agents/src/lib.rs::sign_envelope_with`.
 
 ## Round 2
 
@@ -119,31 +132,33 @@ the **same** `(message_id, timestamp)` pair. See
         "signature": "<alice_sig over JCS(tct_without_signature)>"
       }
     },
-    "pop_signature": "<base64url(sign(alice_priv, sha256(bob_pop_nonce.as_bytes())))>",
+    "pop_signature": "<base64url(sign(alice_priv, sha256(base64url_decode(bob_pop_nonce))))>",
     "pop_nonce_echo": "<bob's pop_nonce from M2>"
   },
   "signature": "<alice envelope sig>"
 }
 ```
 
-**Signed inputs in M3:**
+**Signed inputs in M3** (each hashed with SHA-256, then Ed25519-signed):
 
-| Field | Signing input |
-|---|---|
-| `payload.tct_for_peer.tct.signature` | `JCS(tct_without_signature_field)` |
-| `payload.pop_signature` | `sha256(bob_pop_nonce.as_bytes())` |
-| `signature` (envelope) | same recipe as M1 |
+| Field | Preimage | Normative source |
+|---|---|---|
+| `payload.tct_for_peer.tct.signature` | `JCS(tct_without_signature_field)` | RFC-AITP-0001 §5.4.1 |
+| `payload.pop_signature` | `base64url_decode(bob_pop_nonce)` — the raw decoded nonce bytes | RFC-AITP-0001 §5.4.2 |
+| `signature` (envelope) | same recipe as M1 | RFC-AITP-0001 §5.4.1 |
 
-`bob_pop_nonce.as_bytes()` is the **ASCII bytes of the 22-char base64url
-nonce string**, not the 16 bytes the nonce decodes to. This is the
-choice this implementation pins; spec ambiguity recorded in
-`docs/design/PENDING.md`.
+The `pop_signature` preimage is the **raw bytes obtained by
+base64url-decoding the 22-char nonce string** — *not* the ASCII bytes of
+the base64url form. RFC-AITP-0001 §5.4.2 makes this the unified,
+normative rule across every PoP site and explicitly flags hashing the
+base64url string as non-conformant. (The shortened renewal exchange,
+[TCT renewal](tct-renewal.md), uses the identical construction.)
 
 ### M4 — `mutual_commit_ack` (Bob → Alice)
 
 Mirror image of M3. Bob's TCT for Alice; Bob's `pop_signature` over
-`sha256(alice_pop_nonce.as_bytes())`; `pop_nonce_echo` equals Alice's
-M1 nonce.
+`sha256(base64url_decode(alice_pop_nonce))`; `pop_nonce_echo` equals
+Alice's M1 nonce.
 
 ## Outcome
 

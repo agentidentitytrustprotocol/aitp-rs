@@ -1,4 +1,4 @@
-# 01 — JSON Canonicalization Scheme (JCS)
+# JSON Canonicalization (JCS)
 
 AITP signatures are computed over RFC 8785 JCS canonical JSON. Two
 implementations that disagree on canonicalization will produce mutually
@@ -74,30 +74,28 @@ above. Examples:
 **Discipline: never delete a test vector.** New edge cases are added; old
 ones stay forever.
 
-### Layer 2: AITP signing vectors (`tests/aitp_signing_vectors.rs`)
+### Layer 2: AITP signing vectors (`crates/aitp-core/tests/kat.rs`)
 
-Take a known TCT, canonicalize it, hash it, and assert against a hash
-pinned in the AITP spec.
+Take a known wire object, canonicalize it, hash it, and assert against a
+known-answer hash **pinned in the spec**, not against our own output.
 
 ```rust
-let tct = json!({
-    "version": "aitp/0.1",
-    "jti": "550e8400-e29b-41d4-a716-446655440000",
-    "issuer": "aid:pubkey:11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
-    // ...
-});
 let canonical = jcs::canonicalize(&tct)?;
 let hash = sha256(&canonical);
-assert_eq!(hex::encode(hash), "<value pinned in RFC-AITP-0001 KAT>");
+assert_eq!(hex::encode(hash), "<value pinned in the spec's jcs-sha256 KAT>");
 ```
 
-This is the test that catches drift across implementations. Once the spec
-publishes its known-answer hashes (SPEC-005 in `PENDING.md`), every
-conformant implementation must produce the same hash. Until then, we run
-this test once with our reference implementation, capture the hash, and
-treat it as the de facto answer for our test suite.
+This is the test that catches drift across implementations. The spec now
+publishes these known-answer hashes — vendored into
+`tests/schemas/known-answer/jcs-sha256.json` and pinned by commit SHA in
+`tests/schemas/SPEC_VERSION`, with the `spec-schemas` CI job failing on
+any drift. So every conformant implementation must produce the same
+hashes; this is no longer a de-facto value captured from our own
+reference run.
 
-We need this for: TCT, Manifest, delegation token, revocation snapshot.
+We pin this for all four signed types: TCT, Manifest, delegation token,
+and revocation snapshot (the revocation KAT is checked separately in
+`crates/aitp-tct/src/revocation.rs`).
 
 ### Layer 3: Property tests (`tests/jcs_properties.rs`)
 

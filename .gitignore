@@ -80,3 +80,7 @@ bindings/aitp-node/node_modules/
 bindings/aitp-py/.venv/
 __pycache__/
 .pytest_cache/
+
+
+CLAUDE.md
+.claude/

@@ -1,9 +1,13 @@
-# 06 — TCT renewal (RFC-AITP-0005 §10)
+# TCT renewal (RFC-AITP-0013)
 
-> **Status: draft / opt-in.** Implemented in `aitp-tct` under the
-> `experimental-renewal` feature; the high-level driver `aitp::renew_tct` and
-> the binding methods (`build_renewal_request` / `process_renewal_request`)
-> ride the same flag. No wire-stability promise until ratified.
+> **Status: draft / opt-in.** The shortened renewal exchange is described
+> non-normatively in [RFC-AITP-0004 §8.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md)
+> and will be standardized in
+> [RFC-AITP-0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md)
+> (Planned). Implemented in `aitp-tct` under the `experimental-renewal`
+> feature; the high-level driver `aitp::renew_tct` and the binding methods
+> (`build_renewal_request` / `process_renewal_request`) ride the same flag.
+> No wire-stability promise until ratified.
 
 ## Motivation
 

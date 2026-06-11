@@ -2,7 +2,7 @@
 //!
 //! Reads NDJSON requests from stdin, dispatches via the library
 //! [`aitp_rs_adapter::handle`], writes NDJSON responses to stdout.
-//! See `docs/design/02-conformance-adapter.md` for the protocol.
+//! See `docs/conformance.md` for the protocol.
 //!
 //! The dispatch logic lives in `lib.rs` so that the in-process
 //! adapter in `aitp-conformance` can call into it without spawning

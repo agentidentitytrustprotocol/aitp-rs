@@ -1,6 +1,6 @@
 //! Operation name constants — the wire vocabulary of the conformance protocol.
 //!
-//! See `docs/design/02-conformance-adapter.md` for the full operation table.
+//! See `docs/conformance.md` for the full operation table.
 
 // ── Tier A: pure verification ───────────────────────────────────────────
 /// Verify an envelope's signature and structure.

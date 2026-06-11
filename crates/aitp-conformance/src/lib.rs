@@ -3,7 +3,7 @@
 //! Loads fixtures from `schemas/conformance/` (in the spec repo), executes
 //! them against an [`Adapter`], and reports pass/fail.
 //!
-//! See [`docs/design/02-conformance-adapter.md`](../../../../docs/design/02-conformance-adapter.md)
+//! See [`docs/conformance.md`](../../../../docs/conformance.md)
 //! for the architectural design.
 
 #![forbid(unsafe_code)]

@@ -1,4 +1,4 @@
-# 04 — Session Trust Bundle (RFC-AITP-0010)
+# Session Trust Bundle (RFC-AITP-0010)
 
 > **Status: draft / opt-in.** Implemented in `aitp-session-bundle`, re-exported
 > as `aitp::session_bundle` under the `experimental-session-bundle` feature
@@ -8,7 +8,7 @@
 ## Motivation
 
 AITP's core trust is **bilateral**: two agents exchange peer-issued TCTs during
-a Mutual Handshake (see [03](03-handshake-transcripts.md)). A multi-agent
+a Mutual Handshake (see [handshake transcripts](handshake-transcripts.md)). A multi-agent
 *session* (e.g. an orchestrator coordinating several workers) would otherwise
 require every pair to handshake — O(n²) exchanges.
 

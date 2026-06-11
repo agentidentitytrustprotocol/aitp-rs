@@ -109,7 +109,7 @@ agents must use `identity_type="oidc"`.
 
 ## Experimental surface (Cargo `--features experimental`)
 
-### TCT renewal (RFC-AITP-0005 §10, feature `experimental-renewal`)
+### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `experimental-renewal`)
 
 ```python
 req = holder.build_renewal_request(current_tct_envelope_json)
