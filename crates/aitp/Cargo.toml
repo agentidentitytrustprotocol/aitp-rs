@@ -53,3 +53,9 @@ rand = { workspace = true }
 # misses" without any error path. parking_lot's locks never poison, so
 # a panic in one critical section does not corrupt subsequent ones.
 parking_lot = { workspace = true }
+
+[dev-dependencies]
+# Integration tests stand up a real `HandshakeServer` and drive the
+# facade's `run_initiator_handshake` against it over loopback HTTP.
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
+axum = { workspace = true }

@@ -4,7 +4,7 @@
 //! `Signature` triangle, using both `from_seed` (for reproducibility) and
 //! `generate` (for "real" key flows).
 
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 
 #[test]
 fn happy_path_sign_then_verify_via_aid() {
@@ -74,21 +74,49 @@ fn from_seed_is_reproducible() {
 }
 
 #[test]
-fn signing_key_is_not_clone() {
-    // Compile-time check via a helper that requires `Clone`. If
-    // `AitpSigningKey: Clone` is ever added, this fn body won't compile
-    // and the test fails to build, which is the correct outcome.
-    fn _requires_clone<T: Clone>(_: &T) {}
-    fn _assertion(k: &AitpSigningKey) {
-        // This call would fail to typecheck if AitpSigningKey were Clone,
-        // making the cfg-gated assertion explicit at the type level.
-        let _ = k; // keep the binding alive
+fn from_compressed_round_trips_ed25519() {
+    // 32-byte input → Ed25519. The `cnf`/pinned-key wire form decodes
+    // through here, so a length-confusion bug is a key-substitution vector.
+    let key = AitpSigningKey::from_seed(&[0x21; 32]);
+    let compressed = key.verifying_key().to_compressed();
+    assert_eq!(compressed.len(), 32);
+    let parsed = AitpVerifyingKey::from_compressed(&compressed).expect("ed25519 compressed parses");
+    assert_eq!(parsed.to_compressed(), compressed);
+    assert_eq!(parsed.to_bytes(), key.verifying_key().to_bytes());
+}
+
+#[test]
+fn from_compressed_round_trips_p256() {
+    // 33-byte SEC1-compressed input → P-256.
+    let key = AitpSigningKey::generate_p256();
+    let compressed = key.verifying_key().to_compressed();
+    assert_eq!(compressed.len(), 33);
+    let parsed = AitpVerifyingKey::from_compressed(&compressed).expect("p256 compressed parses");
+    assert_eq!(parsed.to_compressed(), compressed);
+}
+
+#[test]
+fn from_compressed_rejects_wrong_lengths() {
+    for bad in [vec![], vec![0u8; 31], vec![0u8; 64], vec![0u8; 65]] {
+        assert!(
+            matches!(
+                AitpVerifyingKey::from_compressed(&bad),
+                Err(CryptoError::KeyParseFailed(_))
+            ),
+            "length {} must be rejected as KeyParseFailed",
+            bad.len()
+        );
     }
-    let k = AitpSigningKey::from_seed(&[0u8; 32]);
-    _assertion(&k);
-    // Quick negative compile-fail proof via static_assertions-style
-    // pattern: trait-objected version below would catch a regression.
-    // (We don't pull in `static_assertions`; this pattern is enough.)
+}
+
+#[test]
+#[should_panic]
+fn to_bytes_panics_on_p256() {
+    // `to_bytes` returns the 32-byte raw Ed25519 form and documents a
+    // panic for P-256 keys (which have no 32-byte raw encoding). Lock
+    // that contract so a regression can't silently return wrong bytes.
+    let key = AitpSigningKey::generate_p256();
+    let _ = key.verifying_key().to_bytes();
 }
 
 #[test]

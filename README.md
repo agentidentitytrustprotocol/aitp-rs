@@ -39,8 +39,8 @@ aitp-rs/
 │   ├── aitp-py/             Python SDK (PyO3)
 │   ├── aitp-node/           Node.js SDK (NAPI-rs)
 │   └── interop/             cross-language interop tests — `make interop`
-├── examples/
-│   ├── two-agents/          standalone demo: two agents establishing trust
+├── examples/                runnable demos — see examples/README.md
+│   ├── two-agents/          handshake demo + OIDC / revocation / renewal / delegation bins
 │   └── observability/       tracing / metrics integration example
 ├── tools/                   fixture- and example-minting binaries
 ├── adapters/                example conformance adapters in other languages
