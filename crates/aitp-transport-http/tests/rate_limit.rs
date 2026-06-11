@@ -293,3 +293,50 @@ async fn replayed_envelope_does_not_consume_rate_limit_budget() {
         .unwrap();
     assert_eq!(resp.status().as_u16(), 429);
 }
+
+#[test]
+fn allows_traffic_below_per_aid_limit_then_denies() {
+    // The per-AID gate (keyed on the envelope sender) is the stronger,
+    // payload-derived limiter; only the per-IP gate was previously tested.
+    let srv = server().with_rate_limit(RateLimitConfig {
+        requests_per_ip_per_60s: None,
+        requests_per_aid_per_60s: Some(3),
+    });
+    let aid = AitpSigningKey::from_seed(&[0x33; 32]);
+    for _ in 0..3 {
+        assert!(matches!(
+            srv.enforce_rate_limit(None, Some(aid.aid())),
+            RateLimitOutcome::Allow
+        ));
+    }
+    assert!(matches!(
+        srv.enforce_rate_limit(None, Some(aid.aid())),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+}
+
+#[test]
+fn per_aid_buckets_are_independent() {
+    let srv = server().with_rate_limit(RateLimitConfig {
+        requests_per_ip_per_60s: None,
+        requests_per_aid_per_60s: Some(2),
+    });
+    let alice = AitpSigningKey::from_seed(&[0x44; 32]);
+    let bob = AitpSigningKey::from_seed(&[0x55; 32]);
+    // Exhaust Alice's budget.
+    for _ in 0..2 {
+        assert!(matches!(
+            srv.enforce_rate_limit(None, Some(alice.aid())),
+            RateLimitOutcome::Allow
+        ));
+    }
+    assert!(matches!(
+        srv.enforce_rate_limit(None, Some(alice.aid())),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+    // Bob is unaffected — separate bucket.
+    assert!(matches!(
+        srv.enforce_rate_limit(None, Some(bob.aid())),
+        RateLimitOutcome::Allow
+    ));
+}

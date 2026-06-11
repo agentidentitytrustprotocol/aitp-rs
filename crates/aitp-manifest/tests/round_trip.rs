@@ -211,3 +211,25 @@ fn builder_rejects_pinned_without_pubkey() {
         .unwrap_err();
     assert!(matches!(err, ManifestError::IdentityHintMalformed(_)));
 }
+
+#[test]
+fn pop_corruption_surfaces_as_signature_invalid_not_pop_failed() {
+    // `proof_of_possession` is part of the outer-signed view, so
+    // corrupting only the PoP signature (without re-signing) breaks the
+    // OUTER signature too. The verifier checks the outer signature before
+    // the PoP (rc.4 ordering, conformance `mh-002`), so this MUST surface
+    // as `SignatureInvalid`, never `PopFailed`. This locks the ordering
+    // that the looser `tampered_pop_signature_fails` test leaves open.
+    let now = Timestamp(1_700_000_000);
+    let mut m = build_alice_manifest_at(now);
+    // Replace the PoP signature with a different, well-formed Ed25519
+    // signature (a self-sign over unrelated bytes) so it parses but does
+    // not match — isolating verification (not a parse) failure.
+    let other = AitpSigningKey::from_seed(&[2u8; 32]);
+    m.proof_of_possession.signature = other.sign(b"unrelated").into_string();
+    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    assert!(
+        matches!(err, ManifestError::SignatureInvalid),
+        "PoP corruption must surface as SignatureInvalid (outer-sig-first), got: {err:?}"
+    );
+}
