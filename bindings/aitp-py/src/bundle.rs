@@ -10,7 +10,6 @@ use aitp_session_bundle::{
     verify_session_bundle, BundleOutcome, ParticipantEntry, SessionBundleBuilder,
     SessionBundleEnvelope, VerifySessionBundleContext,
 };
-use aitp_tct::TctEnvelope;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
@@ -64,21 +63,19 @@ impl PySessionBundleBuilder {
         slf
     }
 
-    /// Add a participant entry. `tct_envelope_json` is a
-    /// `TctEnvelope` JSON; its issuer MUST equal the coordinator's AID
+    /// Add a participant entry. `tct_token` is the participant's TCT as a
+    /// compact-JWS string; its issuer MUST equal the coordinator's AID
     /// and its audience MUST equal `aid` (checked at `build()` time).
     fn participant<'py>(
         mut slf: PyRefMut<'py, Self>,
         aid: &str,
-        tct_envelope_json: &str,
+        tct_token: &str,
     ) -> PyResult<PyRefMut<'py, Self>> {
         let participant_aid = Aid::parse(aid)
             .map_err(|e| PyValueError::new_err(format!("invalid participant AID: {e}")))?;
-        let envelope: TctEnvelope = serde_json::from_str(tct_envelope_json)
-            .map_err(|e| PyValueError::new_err(format!("invalid participant TCT JSON: {e}")))?;
         slf.participants.push(ParticipantEntry {
             aid: participant_aid,
-            tct: envelope.tct,
+            tct: tct_token.to_string(),
         });
         Ok(slf)
     }

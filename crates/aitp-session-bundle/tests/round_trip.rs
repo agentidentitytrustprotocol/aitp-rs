@@ -13,7 +13,7 @@ use aitp_session_bundle::{
     verify_session_bundle, BundleOutcome, SessionBundleBuilder, SessionBundleError,
     VerifySessionBundleContext,
 };
-use aitp_tct::{Tct, TctBuilder};
+use aitp_tct::TctBuilder;
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -22,7 +22,7 @@ fn key(seed: u8) -> AitpSigningKey {
     AitpSigningKey::from_seed(&[seed; 32])
 }
 
-fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> Tct {
+fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> String {
     TctBuilder::new(coord)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
@@ -32,6 +32,7 @@ fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> 
         .issued_at(NOW)
         .build()
         .unwrap()
+        .token
 }
 
 #[test]
@@ -148,7 +149,10 @@ fn revoked_participant_degrades_subset() {
     let tct_a = issue_tct(&coord, &alice, 3600);
     let tct_b = issue_tct(&coord, &bob, 3600);
     let tct_c = issue_tct(&coord, &carol, 3600);
-    let bob_jti = tct_b.jti;
+    let bob_claims: aitp_tct::TctClaims =
+        serde_json::from_slice(&aitp_crypto::jws::decode_payload_unverified(&tct_b).unwrap())
+            .unwrap();
+    let bob_jti = bob_claims.jti;
     let bundle = SessionBundleBuilder::new(&coord)
         .issued_at(NOW)
         .participant(alice.aid().clone(), tct_a)

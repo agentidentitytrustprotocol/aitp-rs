@@ -6,7 +6,7 @@
 # index.d.ts` — every type here SHOULD have a camelCase counterpart there
 # (and vice versa), per CLAUDE.md's binding-symmetry rule.
 
-from typing import Callable, Literal, Optional
+from typing import AbstractSet, Callable, Literal, Optional
 
 # ── Core handshake surface ──────────────────────────────────────────────
 
@@ -20,9 +20,10 @@ class TctIdentity:
 
 class TctStore:
     """Bounded in-memory cache of successful TCT verifications, keyed by the
-    SHA-256 of the exact TCT envelope bytes. Lets a high-throughput verifier
+    SHA-256 of the exact TCT compact-JWS bytes. Lets a high-throughput verifier
     skip the signature check when it re-sees a byte-identical, still-valid TCT.
-    Cheap policy checks (expiry, audience, grant) still run on every hit."""
+    Cheap policy checks (expiry, audience, grant, revocation) still run on
+    every hit."""
 
     def __init__(self, max_entries: int) -> None: ...
     def len(self) -> int: ...
@@ -36,7 +37,7 @@ class DelegationVerified:
     issued_by: str
     grants: list[str]
     expires_at: int
-    cnf: str  # base64url Ed25519 / P-256 pubkey
+    cnf: str  # RFC 7638 JWK thumbprint (cnf.jkt) of the delegatee's key
 
 class InitiatorSession:
     """Outbound handshake session. Construct via `AitpAgent.new_session`."""
@@ -48,7 +49,11 @@ class InitiatorSession:
         oidc_mint_jwt: Optional[Callable[[str], str]] = ...,
     ) -> str: ...
     def process_hello_ack(self, hello_ack_json: str, session_id: str) -> str: ...
-    def complete(self, commit_ack_json: str) -> str: ...
+    def complete(self, commit_ack_json: str) -> str:
+        """Returns a JSON object string
+        `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`:
+        the TCT the peer issued to us plus the companion grant voucher."""
+        ...
 
 class ResponderSession:
     """Inbound handshake session. Construct via `AitpAgent.new_responder`."""
@@ -58,7 +63,11 @@ class ResponderSession:
         hello_json: str,
         oidc_mint_jwt: Optional[Callable[[str], str]] = ...,
     ) -> tuple[str, str]: ...
-    def process_commit(self, commit_json: str) -> tuple[str, str]: ...
+    def process_commit(self, commit_json: str) -> tuple[str, str]:
+        """Returns `(commit_ack_json, completed_json)` where `completed_json`
+        is `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`
+        — the TCT we issued to the peer plus its companion grant voucher."""
+        ...
 
 # ── OIDC identity (RFC-AITP-0002) ───────────────────────────────────────
 
@@ -108,39 +117,59 @@ class AitpAgent:
     ) -> ResponderSession: ...
     def verify_tct(
         self,
-        tct_json: str,
+        tct_token: str,
         required_grant: str,
         expected_audience: Optional[str] = ...,
-    ) -> TctIdentity: ...
+        revoked_jtis: Optional[AbstractSet[str]] = ...,
+    ) -> TctIdentity:
+        """Verify a TCT compact-JWS string. `revoked_jtis` is an OPTIONAL set
+        of revoked TCT `jti` strings (RFC-AITP-0008); when supplied, a TCT
+        whose jti is in the set is rejected after its signature checks pass.
+        Verifiers SHOULD supply it — omitting it silently honors a
+        revoked-but-unexpired TCT (F-1)."""
+        ...
     def verify_tct_cached(
         self,
-        tct_json: str,
+        tct_token: str,
         required_grant: str,
         store: TctStore,
         expected_audience: Optional[str] = ...,
-    ) -> TctIdentity: ...
+        revoked_jtis: Optional[AbstractSet[str]] = ...,
+    ) -> TctIdentity:
+        """Like `verify_tct` but consults `store` first. `revoked_jtis` (F-1)
+        is re-checked on every call, cache hits included."""
+        ...
     def build_delegation(
         self,
-        held_tct_envelope_json: str,
+        voucher_token: str,
         delegatee_aid: str,
-        delegatee_pubkey_b64u: str,
         scope: list[str],
         ttl_secs: Optional[int] = ...,
-    ) -> str: ...
+    ) -> str:
+        """Build a single-hop delegation token (compact JWS) from a held grant
+        voucher. `voucher_token` is the `grant_voucher` from a `complete()` /
+        `process_commit()` result; its `sub` MUST equal this agent's AID. The
+        delegatee's key binding is derived from its AID."""
+        ...
     def issue_tct_for_delegatee(
         self,
         verified: DelegationVerified,
         ttl_secs: Optional[int] = ...,
-    ) -> str: ...
+    ) -> str:
+        """Mint a fresh TCT for a verified delegatee. Returns a JSON object
+        string `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" |
+        null}`."""
+        ...
     def sign_revocation_list(
         self,
         entries: list[dict],
         expires_in_secs: Optional[int] = ...,
     ) -> str: ...
     # ── experimental-renewal (Cargo feature) ────────────────────────────
-    def build_renewal_request(self, current_tct_envelope_json: str) -> str:
-        """Holder side. Gated by `experimental-renewal` Cargo feature —
-        absent when the wheel is built without it."""
+    def build_renewal_request(self, current_tct_token: str) -> str:
+        """Holder side. `current_tct_token` is the held TCT compact JWS.
+        Gated by `experimental-renewal` Cargo feature — absent when the wheel
+        is built without it."""
         ...
     def process_renewal_request(
         self,
@@ -148,28 +177,32 @@ class AitpAgent:
         manifest_exp_unix_secs: int,
         new_ttl_secs: int,
     ) -> str:
-        """Issuer side. Gated by `experimental-renewal`."""
+        """Issuer side. Returns a JSON object string
+        `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
+        Gated by `experimental-renewal`."""
         ...
 
 # ── Free functions ──────────────────────────────────────────────────────
 
 def verify_delegation(
-    envelope_json: str, verifier_aid: str
+    delegation_token: str, verifier_aid: str
 ) -> DelegationVerified:
-    """Verify a delegation envelope under strict AITP v0.1 (RFC-AITP-0006
-    single-hop). A token carrying a non-empty `chain` (draft RFC-AITP-0011
-    multi-hop) is rejected with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To opt
-    into multi-hop, build with the `experimental-multihop-delegation`
-    feature and use `verify_delegation_experimental_multihop`."""
+    """Verify a delegation token (compact-JWS string) under strict AITP v0.1
+    (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain` (draft
+    RFC-AITP-0011 multi-hop) is rejected with
+    `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To opt into multi-hop, build with the
+    `experimental-multihop-delegation` feature and use
+    `verify_delegation_experimental_multihop`."""
     ...
 
 def verify_delegation_experimental_multihop(
-    envelope_json: str, verifier_aid: str, max_hops: int = 3
+    delegation_token: str, verifier_aid: str, max_hops: int = 3
 ) -> DelegationVerified:
-    """Verify a delegation envelope allowing draft RFC-AITP-0011 multi-hop
-    chains up to `max_hops` total hops (`chain.len() + 1`). NOT part of AITP
-    v0.1; only present when built with the `experimental-multihop-delegation`
-    Cargo feature. `max_hops=0` reverts to strict v0.1."""
+    """Verify a delegation token (compact-JWS string) allowing draft
+    RFC-AITP-0011 multi-hop chains up to `max_hops` total hops. NOT part of
+    AITP v0.1; only present when built with the
+    `experimental-multihop-delegation` Cargo feature. `max_hops=0` reverts to
+    strict v0.1."""
     ...
 def verify_manifest_json(manifest_envelope_json: str) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure."""
@@ -191,8 +224,10 @@ class SessionBundleBuilder:
     def session_id(self, uuid_str: str) -> "SessionBundleBuilder": ...
     def issued_at(self, unix_secs: int) -> "SessionBundleBuilder": ...
     def participant(
-        self, aid: str, tct_envelope_json: str
-    ) -> "SessionBundleBuilder": ...
+        self, aid: str, tct_token: str
+    ) -> "SessionBundleBuilder":
+        """`tct_token` is the participant's TCT as a compact-JWS string."""
+        ...
     def build(self) -> str: ...
 
 def verify_session_bundle(

@@ -2,6 +2,12 @@
 //!
 //! A TCT is a signed, audience-bound, capability-scoped grant. Each peer
 //! holds the TCT issued by its counterpart in a Mutual Handshake.
+//!
+//! In `aitp/0.2` the TCT and its companion grant voucher are **compact
+//! JWS strings** (RFC-AITP-0001 §5.4.5): signatures cover the exact
+//! transmitted bytes, so any off-the-shelf JOSE library can verify them
+//! given only the issuer public key. The revocation snapshot
+//! (RFC-AITP-0008) is protocol-internal and stays JCS-signed.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -29,8 +35,8 @@ pub use revocation::{
 };
 #[cfg(feature = "experimental-renewal")]
 pub use types::TctRenewalPayload;
-pub use types::{Tct, TctBinding, TctEnvelope};
-pub use verifier::{verify_tct, TctVerifyContext};
+pub use types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct};
+pub use verifier::{verify_tct, verify_voucher, TctVerifyContext};
 
 /// Recommended TCT TTL (1 hour).
 pub const DEFAULT_TCT_TTL_SECS: i64 = 3600;

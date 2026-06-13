@@ -5,10 +5,106 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — v0.2 (in progress)
+## [Unreleased] — 0.3.0 (AITP protocol `aitp/0.2`)
+
+> Crate version 0.3.0. The Rust API has breaking changes (the
+> compact-JWS migration below), so the crates bump their 0.x major
+> from 0.2 to 0.3; the **protocol** version is `aitp/0.2`. The two
+> version namespaces are independent.
 
 Tracked in `plans/v0.2-roadmap.md`. Forward-looking work that did not
 land in 0.1.0.
+
+### Changed — **BREAKING: compact-JWS portable trust artifacts (`aitp/0.2`)**
+
+The JWS/TCT migration (`plans/jws-tct-migration.md`; spec commit
+`52582bb`). The portable trust artifacts — the **TCT**, the new **grant
+voucher**, and the **delegation token** — are re-serialized as RFC 7515
+compact JWS strings with explicit typing (`aitp-tct+jwt`,
+`aitp-grant+jwt`, `aitp-delegation+jwt`). Signatures cover the exact
+transmitted bytes: verifiers never re-serialize, re-canonicalize, or
+reconstruct anything, and any off-the-shelf JOSE library verifies the
+tokens given only the issuer public key (proven in CI by a
+`jsonwebtoken` differential oracle and byte-for-byte reproduction of
+the spec's signed-example KAT vectors). Protocol-internal artifacts
+(envelopes, manifests, revocation snapshots) stay on the JCS
+embedded-signature profile; the protocol version literal is `aitp/0.2`
+everywhere. There is no wire migration path: v0.1 verifiers reject
+v0.2 artifacts on the version gate; re-handshake.
+
+Old → new claim mapping for TCTs: `version→ver`, `jti`, `issuer→iss`,
+`subject→sub`, `audience→aud`, `issued_at→iat`, `expires_at→exp`,
+`grants`, `binding.cnf` (raw key) → `cnf.jkt` (RFC 7638 thumbprint).
+
+- **`aitp-crypto`**: new `jws` module — `sign_compact` /
+  `verify_compact` with AID-derived algorithm pinning (`EdDSA`/`ES256`;
+  `alg: none` and confusion headers rejected with the new
+  `TOKEN_ALG_MISMATCH` code), RFC 8725 explicit-typing enforcement
+  (`TOKEN_TYP_MISMATCH`), and strict three-segment parsing.
+- **`aitp-tct`**: `Tct`/`TctEnvelope`/`TctBinding` replaced by
+  `TctClaims` / `IssuedTct { token, claims, voucher }` /
+  `VerifiedTct { token, claims }`. `TctBuilder::build()` also mints the
+  companion **grant voucher** (RFC-AITP-0005 §8) unless
+  `.without_voucher()`. `verify_tct` takes the compact string and the
+  expected issuer **AID** (which pins key and algorithm). New
+  `verify_voucher`. Renewal carries compact strings. The revocation
+  snapshot stays JCS but signs the wrapped `{"revocation_list": …}`
+  view per the v0.2 KAT.
+- **`aitp-delegation`**: `grant_proof` and its source-TCT byte
+  reconstruction (`verify_source_tct_projection`) are **gone** — a
+  delegation embeds the issuer's grant voucher verbatim and the
+  verifier checks its own past signature directly
+  (`DELEGATION_INVALID_VOUCHER` replaces
+  `DELEGATION_INVALID_GRANT_PROOF`). Multi-hop (RFC-AITP-0011) chains
+  carry verbatim delegation JWS strings with per-hop `jti`, voucher on
+  `chain[0]` only, and a digest-array `chain_hash`.
+- **`aitp-handshake`**: commit payloads carry `tct` + optional
+  `grant_voucher` as opaque strings; completions return
+  `CompletedHandshake { tct: VerifiedTct, grant_voucher }`. The
+  received voucher is verified to mirror its companion TCT.
+- **`aitp-session-bundle`**: participants embed TCT compact strings
+  verbatim; the bundle signs the wrapped `{"session_bundle": …}` view.
+- **`aitp` facade**: `SessionContext` exposes `held_tct: VerifiedTct` +
+  `grant_voucher`; `TctStore` stores token + claims + voucher;
+  `renew_tct` returns `RenewedTct { tct, grant_voucher }`.
+- **Conformance**: the runner materializes the spec's v0.2 placeholder
+  families (compact-JWS tokens with claims-sibling minting, computed
+  chain hashes, manifest PoP, P-256 envelope signatures, pinned
+  reference clock); the adapter was reworked op-by-op. Full spec
+  matrix: **46/46 core fixtures pass** (51/51 with the multihop +
+  session-bundle opt-ins; the remaining 2 are the v0.1-frozen
+  structural rejections, correctly skipped under opt-in).
+- **Adapter fixes**: the handshake round-2 PoP is verified under the
+  **sender** (TCT issuer) key per RFC-AITP-0004 §3, and HELLO-family
+  envelope signatures are checked after the Manifest/identity
+  bootstrap (RFC-AITP-0004 §5.1 step 6).
+- **Bindings (`bindings/aitp-py`, `bindings/aitp-node`)**: migrated to
+  the compact-JWS API — TCT/voucher/delegation cross the FFI boundary
+  as opaque strings; handshake completions expose `tct` (token) +
+  `claims` + optional `grant_voucher`; delegation issuance roots in the
+  grant voucher. **F-1 closed**: both `verify_tct` entry points now take
+  an optional set/array of revoked `jti` strings, wired into the
+  verifier's revocation check (previously hard-coded to `None`, silently
+  honoring revoked-but-unexpired TCTs).
+- **Interop**: the cross-runtime Python↔Node handshake harness migrated
+  to the JWS contract, plus a new **stock-JOSE acceptance check** — the
+  spec's signed-example TCT / voucher / delegation tokens are verified
+  by third-party `pyjwt` (Python) and `jose` (Node) given only the
+  issuer public key, and both corroborate the `alg: none` rejection.
+  This is the migration's headline property (off-the-shelf
+  verifiability), proven against independent JOSE stacks and runnable
+  without the native bindings.
+- **Docs**: `docs/` refreshed for v0.2 — signing-profile boundary
+  table, grant-voucher model, multi-hop rewrite, renewal/session-bundle
+  shapes, conformance placeholder conventions, and a "debugging a TCT
+  with jwt.io / jose / pyjwt" note.
+
+Full migration verified: workspace tests + clippy clean, both bindings
+`cargo check` clean, conformance **46/46 core (51/51 with opt-ins)**,
+stock-`jose`/`pyjwt` acceptance green. Not executed here: the native
+binding builds (maturin/napi absent) — their Rust compiles cleanly and
+the Python/JS test + interop migrations are faithful to the contract,
+to be confirmed in CI where the bindings build.
 
 ### Added — `aitp-envelope` crate
 

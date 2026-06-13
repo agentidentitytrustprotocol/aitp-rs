@@ -1,13 +1,20 @@
 //! TCT verification binding.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp_tct::{verify_tct, TctEnvelope, TctVerifyContext};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::sync::Mutex;
+
+use aitp_core::Aid;
+use aitp_core::Timestamp;
+use aitp_crypto::jws::decode_payload_unverified;
+use aitp_crypto::AitpSigningKey;
+use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use sha2::{Digest, Sha256};
-use std::collections::{HashMap, VecDeque};
-use std::sync::Mutex;
+use uuid::Uuid;
+
+/// An owned revocation-lookup closure: `true` if a `jti` is revoked.
+type RevocationClosure = Box<dyn Fn(&Uuid) -> bool>;
 
 /// The verified peer identity carried by a TCT.
 #[pyclass(name = "TctIdentity", frozen)]
@@ -26,31 +33,49 @@ pub struct PyTctIdentity {
     pub jti: String,
 }
 
-/// Verify `tct_json`, requiring `required_grant` to be present in its grants.
+/// Decode the *unverified* claims of a compact-JWS TCT.
+///
+/// Used only to learn the issuer AID before verification: `verify_tct`
+/// re-establishes the verifying key cryptographically from that AID
+/// (the AID encodes the pubkey), so a confused/forged `iss` cannot steer
+/// key resolution — a token whose signature does not match the key its
+/// own `iss` AID encodes is rejected.
+fn decode_tct_claims_unverified(tct_token: &str) -> PyResult<TctClaims> {
+    let payload = decode_payload_unverified(tct_token)
+        .map_err(|e| PyValueError::new_err(format!("malformed TCT compact JWS: {e}")))?;
+    serde_json::from_slice::<TctClaims>(&payload)
+        .map_err(|e| PyValueError::new_err(format!("invalid TCT claims: {e}")))
+}
+
+/// Verify `tct_token` (a compact-JWS string), requiring `required_grant`
+/// to be present in its grants.
 ///
 /// The audience check is controlled by `expected_audience`:
 /// - `None` (default): use `our_key.aid()` — the **holder-receipt** model
 ///   from RFC-AITP-0005 §9, where the holder verifies a TCT it received as
-///   its own receipt. Backward-compatible with v0.1 callers.
+///   its own receipt.
 /// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used
 ///   by resource servers verifying a TCT a peer presents in
 ///   `X-AITP-TCT`. The caller is responsible for asserting the
-///   presenter's AID (typically by reading the TCT's own `audience`
-///   field, which in v0.1 must equal `subject`).
+///   presenter's AID (typically by reading the TCT's own `aud`
+///   claim, which in v0.2 must equal `sub`).
 ///
 /// The signature check is the security gate in either mode: the TCT is
-/// verified against `tct.issuer`'s pubkey.
+/// verified against the key its `iss` AID encodes.
+///
+/// `revoked_jtis` is an OPTIONAL set of revoked TCT `jti` strings
+/// (RFC-AITP-0008). When supplied, a TCT whose `jti` is in the set is
+/// rejected *after* every signature check passes. **Verifiers SHOULD
+/// supply this** — omitting it silently honors a revoked-but-unexpired
+/// TCT.
 pub fn py_verify_tct(
     our_key: &AitpSigningKey,
-    tct_json: &str,
+    tct_token: &str,
     required_grant: &str,
     expected_audience: Option<&str>,
+    revoked_jtis: Option<&HashSet<String>>,
 ) -> PyResult<PyTctIdentity> {
-    let envelope: TctEnvelope = serde_json::from_str(tct_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid TCT JSON: {e}")))?;
-
-    let issuer_pk = AitpVerifyingKey::from_aid(&envelope.tct.issuer)
-        .map_err(|e| PyValueError::new_err(format!("bad issuer AID: {e}")))?;
+    let unverified = decode_tct_claims_unverified(tct_token)?;
 
     let audience_owned: Aid;
     let aud_ref: &Aid = match expected_audience {
@@ -63,29 +88,40 @@ pub fn py_verify_tct(
         None => our_key.aid(),
     };
 
+    // F-1: a `jti` set captured by value so the closure is `Fn` and lives
+    // entirely in Rust — no Python re-entrancy under the verify call.
+    let revocation_closure: Option<RevocationClosure> = revoked_jtis.map(|set| {
+        let owned: HashSet<String> = set.clone();
+        let f: RevocationClosure = Box::new(move |jti: &Uuid| owned.contains(&jti.to_string()));
+        f
+    });
+
     let ctx = TctVerifyContext {
         expected_audience: aud_ref,
-        issuer_pubkey: &issuer_pk,
+        issuer: &unverified.iss,
         now: Timestamp::now(),
         issuer_manifest_expires_at: None,
-        revocation_check: None,
+        revocation_check: revocation_closure
+            .as_deref()
+            .map(|b: &dyn Fn(&Uuid) -> bool| b),
     };
 
-    let tct = verify_tct(&envelope.tct, &ctx)
+    let verified = verify_tct(tct_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("TCT verification failed: {e}")))?;
+    let claims = verified.claims;
 
-    if !tct.grants.iter().any(|g| g == required_grant) {
+    if !claims.grants.iter().any(|g| g == required_grant) {
         return Err(PyRuntimeError::new_err(format!(
             "TCT does not grant '{required_grant}'; grants: {:?}",
-            tct.grants
+            claims.grants
         )));
     }
 
     Ok(PyTctIdentity {
-        peer_aid: tct.issuer.to_string(),
-        grants: tct.grants.clone(),
-        expires_at: tct.expires_at.0,
-        jti: tct.jti.to_string(),
+        peer_aid: claims.iss.to_string(),
+        grants: claims.grants.clone(),
+        expires_at: claims.exp.0,
+        jti: claims.jti.to_string(),
     })
 }
 
@@ -105,14 +141,14 @@ struct TctStoreInner {
 }
 
 /// A bounded, in-memory cache of **successful** TCT verifications, keyed by
-/// the SHA-256 of the exact TCT envelope JSON bytes.
+/// the SHA-256 of the exact TCT compact-JWS bytes.
 ///
 /// Purpose: a high-throughput verifier (e.g. a writer agent checking a
 /// capability on every request) that repeatedly sees the *same* TCT can skip
 /// the Ed25519/P-256 signature verification after the first time.
 ///
 /// **Safety.** The key is a cryptographic hash of the exact signed bytes, so
-/// only a byte-identical envelope — whose signature was already verified once
+/// only a byte-identical token — whose signature was already verified once
 /// — can hit. A tampered token hashes differently, misses, and is fully
 /// verified. The cheap policy checks (expiry, audience, required grant) are
 /// re-run on **every** hit; only the signature check is elided. Eviction is
@@ -180,24 +216,29 @@ impl PyTctStore {
     }
 }
 
-/// SHA-256 of the exact TCT envelope JSON bytes — the cache key.
-fn tct_envelope_key(tct_json: &str) -> [u8; 32] {
+/// SHA-256 of the exact TCT compact-JWS bytes — the cache key.
+fn tct_token_key(tct_token: &str) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(tct_json.as_bytes());
+    h.update(tct_token.as_bytes());
     h.finalize().into()
 }
 
-/// Verify `tct_json` like [`py_verify_tct`], but consult `store` first: on a
+/// Verify `tct_token` like [`py_verify_tct`], but consult `store` first: on a
 /// byte-identical, already-verified, still-valid TCT this skips the signature
 /// check. See [`PyTctStore`] for the safety argument.
+///
+/// `revoked_jtis` (F-1) is consulted on **every** call — including cache
+/// hits — so a freshly-revoked TCT stops verifying immediately even if its
+/// signature was cached.
 pub fn py_verify_tct_cached(
     our_key: &AitpSigningKey,
-    tct_json: &str,
+    tct_token: &str,
     required_grant: &str,
     store: &PyTctStore,
     expected_audience: Option<&str>,
+    revoked_jtis: Option<&HashSet<String>>,
 ) -> PyResult<PyTctIdentity> {
-    let key = tct_envelope_key(tct_json);
+    let key = tct_token_key(tct_token);
     let effective_aud: String = match expected_audience {
         Some(s) => s.to_string(),
         None => our_key.aid().to_string(),
@@ -206,7 +247,9 @@ pub fn py_verify_tct_cached(
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0;
-        if c.audience == effective_aud
+        let revoked = revoked_jtis.is_some_and(|set| set.contains(&c.jti));
+        if !revoked
+            && c.audience == effective_aud
             && c.expires_at > now
             && c.grants.iter().any(|g| g == required_grant)
         {
@@ -220,10 +263,15 @@ pub fn py_verify_tct_cached(
     }
 
     // Slow path: full verification (signature + every policy check).
-    let identity = py_verify_tct(our_key, tct_json, required_grant, expected_audience)?;
+    let identity = py_verify_tct(
+        our_key,
+        tct_token,
+        required_grant,
+        expected_audience,
+        revoked_jtis,
+    )?;
     // Capture the TCT's own audience for future fast-path policy re-checks.
-    let envelope: TctEnvelope = serde_json::from_str(tct_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid TCT JSON: {e}")))?;
+    let claims = decode_tct_claims_unverified(tct_token)?;
     store.insert(
         key,
         CachedVerification {
@@ -231,7 +279,7 @@ pub fn py_verify_tct_cached(
             grants: identity.grants.clone(),
             expires_at: identity.expires_at,
             jti: identity.jti.clone(),
-            audience: envelope.tct.audience.to_string(),
+            audience: claims.aud.to_string(),
         },
     );
     Ok(identity)

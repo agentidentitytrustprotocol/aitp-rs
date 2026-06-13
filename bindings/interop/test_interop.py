@@ -139,10 +139,14 @@ class PyEndpoint:
         return session.process_hello_ack(hello_ack, session_id)
 
     def process_commit(self, responder, commit):
-        return responder.process_commit(commit)  # (commit_ack, tct)
+        # v0.2: returns (commit_ack, completion_json) where completion_json is
+        # `{"tct": "<compact JWS>", "grant_voucher": <string|null>}`.
+        commit_ack, completion = responder.process_commit(commit)
+        return commit_ack, json.loads(completion)
 
     def complete(self, session, commit_ack):
-        return session.complete(commit_ack)
+        # v0.2: returns the same `{"tct", "grant_voucher"}` JSON string.
+        return json.loads(session.complete(commit_ack))
 
     def verify_tct(self, agent, tct, grant):
         ident = agent.verify_tct(tct, grant)
@@ -206,11 +210,17 @@ class NodeEndpoint:
         )["commit"]
 
     def process_commit(self, responder, commit):
+        # v0.2: worker returns {commit_ack, tct, grant_voucher}; mirror the
+        # Python endpoint's `(commit_ack, {"tct","grant_voucher"})` shape.
         result = self._w.call("process_commit", responder=responder, commit=commit)
-        return result["commit_ack"], result["tct"]
+        return result["commit_ack"], {
+            "tct": result["tct"],
+            "grant_voucher": result.get("grant_voucher"),
+        }
 
     def complete(self, session, commit_ack):
-        return self._w.call("complete", session=session, commit_ack=commit_ack)["tct"]
+        result = self._w.call("complete", session=session, commit_ack=commit_ack)
+        return {"tct": result["tct"], "grant_voucher": result.get("grant_voucher")}
 
     def verify_tct(self, agent, tct, grant):
         return self._w.call(
@@ -250,19 +260,23 @@ def _handshake(initiator, responder):
     rsession = responder.new_responder(resp_agent)
 
     # Four messages — each one crosses the language boundary as wire JSON.
+    # v0.2: each completion is a `{"tct", "grant_voucher"}` dict; the held TCT
+    # and (delegation-capable) grant voucher are opaque compact-JWS strings.
     hello = initiator.build_hello(isession, resp_manifest, [PING_CAP])
     hello_ack, session_id = responder.process_hello(rsession, hello)
     commit = initiator.process_hello_ack(isession, hello_ack, session_id)
-    commit_ack, responder_held_tct = responder.process_commit(rsession, commit)
-    initiator_held_tct = initiator.complete(isession, commit_ack)
+    commit_ack, responder_completed = responder.process_commit(rsession, commit)
+    initiator_completed = initiator.complete(isession, commit_ack)
 
     return {
         "init_agent": init_agent,
         "init_aid": init_aid,
         "resp_agent": resp_agent,
         "resp_aid": resp_aid,
-        "initiator_held_tct": initiator_held_tct,
-        "responder_held_tct": responder_held_tct,
+        "initiator_held_tct": initiator_completed["tct"],
+        "responder_held_tct": responder_completed["tct"],
+        "initiator_grant_voucher": initiator_completed["grant_voucher"],
+        "responder_grant_voucher": responder_completed["grant_voucher"],
     }
 
 
@@ -360,10 +374,14 @@ def test_python_presented_tct_verifies_via_node_audience(node):
 
 
 def test_delegation_python_issuer_node_chain(node):
-    """Python A issues a TCT to Python B via handshake; B mints a
-    DelegationEnvelope binding Node-C's pubkey; A (Python) verifies it
-    and mints a fresh TCT for C; C (Node) verifies the fresh TCT under
-    the presented-TCT model."""
+    """Python A issues a TCT (+ grant voucher) to Python B via handshake; B
+    mints a delegation token (compact JWS) rooted in A's grant voucher and
+    binding Node-C; A (Python) verifies it and mints a fresh TCT for C; C
+    (Node) verifies the fresh TCT under the presented-TCT model.
+
+    v0.2: B delegates against the *grant voucher* it received in its handshake
+    completion (not against its held TCT), and C's key binding is derived from
+    its AID — no pubkey argument."""
     py = PyEndpoint()
 
     # A and B both Python; C is Node.
@@ -376,30 +394,27 @@ def test_delegation_python_issuer_node_chain(node):
         b, "py-B", "http://localhost:8501/aitp/handshake/", [PING_CAP]
     )
 
-    # B handshakes against A → B holds A's TCT for PING_CAP.
+    # B handshakes against A → B holds A's TCT + grant voucher for PING_CAP.
     bsess = py.new_session(b)
     arsess = py.new_responder(a)
     hello = py.build_hello(bsess, a_manifest, [PING_CAP])
     hello_ack, sid = py.process_hello(arsess, hello)
     commit = py.process_hello_ack(bsess, hello_ack, sid)
     commit_ack, _ = py.process_commit(arsess, commit)
-    b_held_from_a = py.complete(bsess, commit_ack)
+    b_completed = py.complete(bsess, commit_ack)
+    b_voucher = b_completed["grant_voucher"]
+    assert b_voucher is not None
 
-    # C is a Node agent. Build C's manifest so we can pull its pubkey.
+    # C is a Node agent. Its AID alone carries C's key binding in v0.2.
     c_handle, c_aid = NodeEndpoint(node).new_agent()
-    c_manifest = NodeEndpoint(node).build_manifest(
-        c_handle, "node-C", "http://localhost:8502/aitp/handshake/", [PING_CAP]
-    )
-    c_pubkey = node.call("pubkey_from_manifest", manifest=c_manifest)["pubkey_b64u"]
 
-    # B (Python) builds a delegation envelope binding C.
-    delegation_env = b.build_delegation(
-        b_held_from_a, c_aid, c_pubkey, [PING_CAP]
-    )
+    # B (Python) builds a delegation token rooted in A's voucher, binding C.
+    delegation_token = b.build_delegation(b_voucher, c_aid, [PING_CAP])
 
-    # A (Python) verifies → mints fresh TCT for C.
-    verified = aitp.verify_delegation(delegation_env, a.aid)
-    fresh_tct_for_c = a.issue_tct_for_delegatee(verified)
+    # A (Python) verifies → mints fresh TCT for C. issue_tct_for_delegatee
+    # returns a `{"tct", "grant_voucher"}` JSON string.
+    verified = aitp.verify_delegation(delegation_token, a.aid)
+    fresh_tct_for_c = json.loads(a.issue_tct_for_delegatee(verified))["tct"]
 
     # C (Node) verifies the fresh TCT under presented-TCT mode.
     ident = node.call(
@@ -595,7 +610,8 @@ def test_oidc_python_initiator_node_responder(node):
     )
     commit = py_sess.process_hello_ack(ack_result["hello_ack"], ack_result["session_id"])
     commit_result = node.call("process_commit", responder=node_resp_handle, commit=commit)
-    py_held_tct = py_sess.complete(commit_result["commit_ack"])
+    # v0.2: complete() returns a `{"tct", "grant_voucher"}` JSON string.
+    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"]))["tct"]
 
     # Each side holds the other's TCT.
     py_ident = py_agent.verify_tct(py_held_tct, PING_CAP)
@@ -646,7 +662,9 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         hello_ack, sid = py.process_hello(rsess, hello)
         commit = py_or_nd_endpoint.process_hello_ack(sess, hello_ack, sid)
         commit_ack, _ = py.process_commit(rsess, commit)
-        return py_or_nd_endpoint.complete(sess, commit_ack)
+        # v0.2: complete() yields {"tct", "grant_voucher"}; the bundle binds the
+        # opaque TCT compact-JWS string.
+        return py_or_nd_endpoint.complete(sess, commit_ack)["tct"]
 
     py_part_tct = handshake_to(py, py_part)
     nd_part_tct = handshake_to(nd, nd_part_handle)
@@ -682,7 +700,7 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         hello_ack, sid = nd.process_hello(rsess, hello)
         commit = py_or_nd_endpoint.process_hello_ack(sess, hello_ack, sid)
         commit_ack, _ = nd.process_commit(rsess, commit)
-        return py_or_nd_endpoint.complete(sess, commit_ack)
+        return py_or_nd_endpoint.complete(sess, commit_ack)["tct"]
 
     # Fresh participants (one py, one nd).
     py_part2, py_part2_aid = py.new_agent()
@@ -837,7 +855,8 @@ def test_p256_handshake_via_oidc_python_to_node(node):
     )
     commit = py_sess.process_hello_ack(ack_result["hello_ack"], ack_result["session_id"])
     commit_result = node.call("process_commit", responder=node_resp, commit=commit)
-    py_held_tct = py_sess.complete(commit_result["commit_ack"])
+    # v0.2: complete() returns a `{"tct", "grant_voucher"}` JSON string.
+    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"]))["tct"]
 
     # Each side holds the other's TCT under the cross-suite combination.
     py_ident = py_agent.verify_tct(py_held_tct, PING_CAP)

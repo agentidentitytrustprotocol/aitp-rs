@@ -1,49 +1,90 @@
 //! TCT verification binding.
+//!
+//! In AITP v0.2 a TCT is an **opaque compact-JWS string** (`typ:
+//! aitp-tct+jwt`), not a JSON envelope. The binding receives the token
+//! verbatim, peeks at the unverified payload to learn the issuer AID,
+//! then re-establishes the issuer key from that AID inside `verify_tct`.
+
+use std::collections::HashSet;
 
 use aitp_core::{Aid, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp_tct::{verify_tct, TctEnvelope, TctVerifyContext};
+use aitp_crypto::jws::decode_payload_unverified;
+use aitp_crypto::AitpSigningKey;
+use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
+use uuid::Uuid;
 
 /// The verified peer identity carried by a TCT.
 #[napi(object)]
 pub struct JsTctIdentity {
-    /// AID of the agent that issued (and is bound by) the TCT.
+    /// AID of the agent that issued (and is bound by) the TCT (`iss`).
     pub peer_aid: String,
     /// Capability grants the TCT authorizes.
     pub grants: Vec<String>,
-    /// Expiry, Unix seconds.
+    /// Expiry, Unix seconds (`exp`).
     pub expires_at: f64,
     /// TCT unique identifier (`jti`).
     pub jti: String,
 }
 
-/// Verify `tct_json`, requiring `required_grant`.
+/// Decode the unverified payload of a compact-JWS TCT into its claims.
+///
+/// This is a structural peek **only** — it does no signature check. We
+/// use it to learn the issuer AID (`iss`) so `verify_tct` can
+/// re-establish the verifying key; every field is then re-validated by
+/// `verify_tct` under that key.
+fn peek_tct_claims(token: &str) -> Result<TctClaims> {
+    let payload = decode_payload_unverified(token)
+        .map_err(|e| Error::from_reason(format!("invalid TCT (not a compact JWS): {e}")))?;
+    serde_json::from_slice::<TctClaims>(&payload)
+        .map_err(|e| Error::from_reason(format!("invalid TCT claims: {e}")))
+}
+
+/// Build the `TctVerifyContext.revocation_check` closure from a list of
+/// revoked `jti` strings supplied by the JS caller.
+///
+/// **F-1 (SDK revocation callback).** Rather than calling back into the
+/// JS runtime per-`jti` (which is unsound under napi threading
+/// constraints), the JS caller passes the *set* of revoked `jti`s
+/// up-front. The closure returns `true` for any `jti` in the set, which
+/// `verify_tct` treats as a revoked-and-rejected TCT. Malformed `jti`
+/// strings in the list are ignored (they can never match a real UUID).
+fn parse_revoked_set(revoked: Option<Vec<String>>) -> HashSet<Uuid> {
+    revoked
+        .unwrap_or_default()
+        .into_iter()
+        .filter_map(|s| Uuid::parse_str(&s).ok())
+        .collect()
+}
+
+/// Verify a compact-JWS `tct_token`, requiring `required_grant`.
 ///
 /// The audience check is controlled by `expected_audience`:
 /// - `None`: use `our_key.aid()` — the **holder-receipt** model from
 ///   RFC-AITP-0005 §9, where the holder verifies a TCT it received as its
 ///   own receipt.
-/// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used by
-///   resource servers verifying a TCT a peer presents in `X-AITP-TCT`.
+/// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used
+///   by resource servers verifying a TCT a peer presents in `X-AITP-TCT`.
+///
+/// `revoked_jtis` is an optional list of revoked TCT `jti` strings (F-1):
+/// any TCT whose `jti` is in the set is rejected even if otherwise valid
+/// and unexpired. `None`/omitted disables the revocation gate.
 ///
 /// The signature check is the security gate in either mode: the TCT is
-/// verified against `tct.issuer`'s pubkey.
+/// verified against the issuer AID's pubkey, which is re-derived from the
+/// (now-trusted, post-verification) `iss` claim.
 pub fn js_verify_tct(
     our_key: &AitpSigningKey,
-    tct_json: &str,
+    tct_token: &str,
     required_grant: &str,
     expected_audience: Option<&str>,
+    revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsTctIdentity> {
-    let envelope: TctEnvelope = serde_json::from_str(tct_json)
-        .map_err(|e| Error::from_reason(format!("invalid TCT JSON: {e}")))?;
-
-    let issuer_pk = AitpVerifyingKey::from_aid(&envelope.tct.issuer)
-        .map_err(|e| Error::from_reason(format!("bad issuer AID: {e}")))?;
+    let peek = peek_tct_claims(tct_token)?;
 
     let audience_owned: Aid;
     let aud_ref: &Aid = match expected_audience {
@@ -55,29 +96,37 @@ pub fn js_verify_tct(
         None => our_key.aid(),
     };
 
+    let revoked = parse_revoked_set(revoked_jtis);
+    let revocation_closure = |jti: &Uuid| revoked.contains(jti);
+
     let ctx = TctVerifyContext {
         expected_audience: aud_ref,
-        issuer_pubkey: &issuer_pk,
+        issuer: &peek.iss,
         now: Timestamp::now(),
         issuer_manifest_expires_at: None,
-        revocation_check: None,
+        revocation_check: if revoked.is_empty() {
+            None
+        } else {
+            Some(&revocation_closure)
+        },
     };
 
-    let tct = verify_tct(&envelope.tct, &ctx)
+    let verified = verify_tct(tct_token, &ctx)
         .map_err(|e| Error::from_reason(format!("TCT verification failed: {e}")))?;
+    let claims = &verified.claims;
 
-    if !tct.grants.iter().any(|g| g == required_grant) {
+    if !claims.grants.iter().any(|g| g == required_grant) {
         return Err(Error::from_reason(format!(
             "TCT does not grant '{required_grant}'; grants: {:?}",
-            tct.grants
+            claims.grants
         )));
     }
 
     Ok(JsTctIdentity {
-        peer_aid: tct.issuer.to_string(),
-        grants: tct.grants.clone(),
-        expires_at: tct.expires_at.0 as f64,
-        jti: tct.jti.to_string(),
+        peer_aid: claims.iss.to_string(),
+        grants: claims.grants.clone(),
+        expires_at: claims.exp.0 as f64,
+        jti: claims.jti.to_string(),
     })
 }
 
@@ -97,14 +146,14 @@ struct TctStoreInner {
 }
 
 /// A bounded, in-memory cache of **successful** TCT verifications, keyed by
-/// the SHA-256 of the exact TCT envelope JSON bytes.
+/// the SHA-256 of the exact compact-JWS TCT token bytes.
 ///
 /// Purpose: a high-throughput verifier (e.g. a writer agent checking a
 /// capability on every request) that repeatedly sees the *same* TCT can skip
 /// the Ed25519/P-256 signature verification after the first time.
 ///
 /// **Safety.** The key is a cryptographic hash of the exact signed bytes, so
-/// only a byte-identical envelope — whose signature was already verified once
+/// only a byte-identical token — whose signature was already verified once
 /// — can hit. A tampered token hashes differently, misses, and is fully
 /// verified. The cheap policy checks (expiry, audience, required grant) are
 /// re-run on **every** hit; only the signature check is elided. Eviction is
@@ -174,33 +223,43 @@ impl JsTctStore {
     }
 }
 
-/// SHA-256 of the exact TCT envelope JSON bytes — the cache key.
-fn tct_envelope_key(tct_json: &str) -> [u8; 32] {
+/// SHA-256 of the exact compact-JWS TCT token bytes — the cache key.
+fn tct_token_key(tct_token: &str) -> [u8; 32] {
     let mut h = Sha256::new();
-    h.update(tct_json.as_bytes());
+    h.update(tct_token.as_bytes());
     h.finalize().into()
 }
 
-/// Verify `tct_json` like [`js_verify_tct`], but consult `store` first: on a
+/// Verify `tct_token` like [`js_verify_tct`], but consult `store` first: on a
 /// byte-identical, already-verified, still-valid TCT this skips the signature
 /// check. See [`JsTctStore`] for the safety argument.
+///
+/// `revoked_jtis` (F-1) is applied on **both** the fast and slow paths: a
+/// cache hit whose `jti` is in the revoked set is rejected and falls through
+/// to a full re-verification (which then also fails the revocation gate).
 pub fn js_verify_tct_cached(
     our_key: &AitpSigningKey,
-    tct_json: &str,
+    tct_token: &str,
     required_grant: &str,
     store: &JsTctStore,
     expected_audience: Option<&str>,
+    revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsTctIdentity> {
-    let key = tct_envelope_key(tct_json);
+    let key = tct_token_key(tct_token);
     let effective_aud: String = match expected_audience {
         Some(s) => s.to_string(),
         None => our_key.aid().to_string(),
     };
+    let revoked = parse_revoked_set(revoked_jtis.clone());
 
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0 as f64;
-        if c.audience == effective_aud
+        let jti_revoked = Uuid::parse_str(&c.jti)
+            .map(|u| revoked.contains(&u))
+            .unwrap_or(false);
+        if !jti_revoked
+            && c.audience == effective_aud
             && c.expires_at > now
             && c.grants.iter().any(|g| g == required_grant)
         {
@@ -213,11 +272,18 @@ pub fn js_verify_tct_cached(
         }
     }
 
-    // Slow path: full verification (signature + every policy check).
-    let identity = js_verify_tct(our_key, tct_json, required_grant, expected_audience)?;
+    // Slow path: full verification (signature + every policy check, incl.
+    // the F-1 revocation gate).
+    let identity = js_verify_tct(
+        our_key,
+        tct_token,
+        required_grant,
+        expected_audience,
+        revoked_jtis,
+    )?;
     // Capture the TCT's own audience for future fast-path policy re-checks.
-    let envelope: TctEnvelope = serde_json::from_str(tct_json)
-        .map_err(|e| Error::from_reason(format!("invalid TCT JSON: {e}")))?;
+    // The `aud` claim is read from the now-verified token's payload.
+    let claims = peek_tct_claims(tct_token)?;
     store.insert(
         key,
         CachedVerification {
@@ -225,7 +291,7 @@ pub fn js_verify_tct_cached(
             grants: identity.grants.clone(),
             expires_at: identity.expires_at,
             jti: identity.jti.clone(),
-            audience: envelope.tct.audience.to_string(),
+            audience: claims.aud.to_string(),
         },
     );
     Ok(identity)

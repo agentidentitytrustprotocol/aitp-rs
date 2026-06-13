@@ -26,13 +26,35 @@ python3 -m venv "$VENV"
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 # `pyjwt[crypto]` + `cryptography` are required by the OIDC interop
-# test (mock IdP signs Ed25519 JWTs in-process); the experimental
-# feature is needed for session-bundle interop.
+# test (mock IdP signs Ed25519 JWTs in-process) AND by the stock-JOSE
+# acceptance check (pyjwt verifies the spec's signed-example KATs); the
+# experimental feature is needed for session-bundle interop.
 pip install --quiet --upgrade pip maturin pytest 'pyjwt[crypto]>=2.8' 'cryptography>=41'
+
+# Install the Node deps first so the stock-JOSE acceptance check (which
+# resolves the third-party `jose` from aitp-node/node_modules) can run
+# *before* the native builds — it needs neither maturin nor napi, so it
+# provides value even if the native build is unavailable.
+echo "interop: installing Node dependencies..."
+( cd "$NODE_DIR" && npm install --silent )
+
+# ── Stock-JOSE acceptance checks (no native bindings required) ─────────
+# The headline property of the v0.2 compact-JWS migration: the spec's
+# signed-example TCT/voucher/delegation tokens verify under *third-party*
+# JOSE libraries. Both run here directly (fail the run on non-zero exit)
+# before the native builds, so they provide value even when the native
+# build is unavailable. They are deliberately NOT named `test_*.py` and
+# so are not collected by the pytest run below — these explicit,
+# build-free invocations are the canonical path.
+echo "interop: stock-JOSE acceptance check (Node, third-party jose)..."
+node "$INTEROP/stock_jose_acceptance.mjs"
+echo "interop: stock-JOSE acceptance check (Python, third-party pyjwt)..."
+python3 "$INTEROP/stock_jose_acceptance.py"
+
 maturin develop --release --features experimental -m "$PY_DIR/Cargo.toml"
 
 echo "interop: building the Node binding (napi build:experimental)..."
-( cd "$NODE_DIR" && npm install --silent && npm run build:experimental --silent )
+( cd "$NODE_DIR" && npm run build:experimental --silent )
 
-echo "interop: running cross-language handshake tests..."
+echo "interop: running cross-language handshake + pyjwt acceptance tests..."
 exec pytest -v "$INTEROP"

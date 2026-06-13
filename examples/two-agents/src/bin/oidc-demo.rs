@@ -188,12 +188,16 @@ fn main() {
     println!();
     println!("handshake complete:");
     println!(
-        "  alice holds TCT issued_by={} grants={:?}",
-        alice_holds_tct.issuer, alice_holds_tct.grants
+        "  alice holds TCT issued_by={} grants={:?} voucher={}",
+        alice_holds_tct.tct.claims.iss,
+        alice_holds_tct.tct.claims.grants,
+        alice_holds_tct.grant_voucher.is_some(),
     );
     println!(
-        "  bob   holds TCT issued_by={} grants={:?}",
-        bob_holds_tct.issuer, bob_holds_tct.grants
+        "  bob   holds TCT issued_by={} grants={:?} voucher={}",
+        bob_holds_tct.tct.claims.iss,
+        bob_holds_tct.tct.claims.grants,
+        bob_holds_tct.grant_voucher.is_some(),
     );
 }
 
@@ -228,7 +232,7 @@ fn envelope_with(
 ) -> AitpEnvelope {
     let digest = aitp::core::envelope_signing_digest(&mid, ts, key.aid(), &payload).unwrap();
     AitpEnvelope {
-        version: "aitp/0.1".into(),
+        version: aitp::core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id: mid,
         timestamp: ts,

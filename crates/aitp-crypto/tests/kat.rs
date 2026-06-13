@@ -3,7 +3,7 @@
 //! byte-identical Ed25519 derivations and JWK thumbprints to the
 //! reference values defined by the AITP spec.
 
-use aitp_crypto::{compute_jwk_thumbprint, AitpSigningKey, SignatureAlgorithm};
+use aitp_crypto::{AitpSigningKey, SignatureAlgorithm};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -134,10 +134,13 @@ fn jwk_thumbprint_kat() {
             .unwrap_or_else(|| panic!("{id}: keypair_ref {kp_ref} not in keypairs.json"));
         let pubkey_b64 = kp["pubkey_b64url"].as_str().unwrap();
         let pubkey_bytes = aitp_core::base64url::decode_strict(pubkey_b64).unwrap();
-        let mut pk = [0u8; 32];
-        pk.copy_from_slice(&pubkey_bytes);
 
-        let actual_jkt = compute_jwk_thumbprint(&pk);
+        // 32 bytes → Ed25519 raw pubkey (OKP form); 33 bytes → P-256
+        // SEC1-compressed (EC form). The algorithm-agile dispatch in
+        // AitpVerifyingKey::to_jwk_thumbprint covers both.
+        let vk = aitp_crypto::AitpVerifyingKey::from_compressed(&pubkey_bytes)
+            .unwrap_or_else(|e| panic!("{id}: pubkey parse failed: {e}"));
+        let actual_jkt = vk.to_jwk_thumbprint().unwrap();
         assert_eq!(actual_jkt, expected_jkt, "{id}: JWK thumbprint mismatch");
     }
 }

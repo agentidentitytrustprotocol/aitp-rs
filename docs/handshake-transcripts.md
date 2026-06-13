@@ -33,7 +33,7 @@ deterministic per the seed.
 
 ```json
 {
-  "version": "aitp/0.1",
+  "version": "aitp/0.2",
   "message_type": "mutual_hello",
   "message_id": "<uuid v4 — alice picks>",
   "timestamp": 1700000000,
@@ -82,7 +82,7 @@ they are called out explicitly:
 
 ```json
 {
-  "version": "aitp/0.1",
+  "version": "aitp/0.2",
   "message_type": "mutual_hello_ack",
   "message_id": "<bob's mid>",
   "timestamp": 1700000000,
@@ -112,26 +112,14 @@ timestamp)` pair. See `examples/two-agents/src/lib.rs::sign_envelope_with`.
 
 ```json
 {
-  "version": "aitp/0.1",
+  "version": "aitp/0.2",
   "message_type": "mutual_commit",
   "message_id": "<alice's commit mid>",
   "timestamp": 1700000000,
   "sender": { "agent_id": "<alice AID>" },
   "payload": {
-    "tct_for_peer": {
-      "tct": {
-        "version": "aitp/0.1",
-        "jti": "<uuid>",
-        "issuer": "<alice AID>",
-        "subject": "<bob AID>",
-        "audience": "<bob AID>",
-        "issued_at": 1700000000,
-        "expires_at": 1700003600,
-        "grants": ["demo.echo"],
-        "binding": { "cnf": "<bob_pubkey_base64url>" },
-        "signature": "<alice_sig over JCS(tct_without_signature)>"
-      }
-    },
+    "tct": "<compact JWS string — Alice's TCT for Bob, opaque>",
+    "grant_voucher": "<compact JWS string — Alice's voucher for Bob, opaque>",
     "pop_signature": "<base64url(sign(alice_priv, sha256(base64url_decode(bob_pop_nonce))))>",
     "pop_nonce_echo": "<bob's pop_nonce from M2>"
   },
@@ -139,11 +127,23 @@ timestamp)` pair. See `examples/two-agents/src/lib.rs::sign_envelope_with`.
 }
 ```
 
+The `tct` (and the companion `grant_voucher`) are carried as **opaque
+compact JWS strings** (RFC-AITP-0001 §5.4.5). The envelope is still a
+JCS-profile object — its outer `signature` covers the JCS canonicalization of
+the payload, with the TCT and voucher strings included **verbatim** (the
+canonicalizer never parses or re-encodes them). Decoding the TCT yields the
+registered JWT claims `ver, jti, iss, sub, aud, iat, exp` plus `grants` and
+`cnf: {"jkt": …}` — see [Outcome](#outcome). The TCT's own signature is the
+third JWS segment, computed over `ASCII(header.payload)` by Alice's key — there
+is no embedded `signature` field and no JCS step for the TCT itself. An issuer
+that forbids the subject from delegating omits `grant_voucher`.
+
 **Signed inputs in M3** (each hashed with SHA-256, then Ed25519-signed):
 
 | Field | Preimage | Normative source |
 |---|---|---|
-| `payload.tct_for_peer.tct.signature` | `JCS(tct_without_signature_field)` | RFC-AITP-0001 §5.4.1 |
+| `payload.tct` (JWS signature segment) | `ASCII(base64url(header) \|\| "." \|\| base64url(claims))` — no canonicalization | RFC-AITP-0001 §5.4.5 |
+| `payload.grant_voucher` (JWS signature segment) | `ASCII(base64url(header) \|\| "." \|\| base64url(claims))` | RFC-AITP-0001 §5.4.5 |
 | `payload.pop_signature` | `base64url_decode(bob_pop_nonce)` — the raw decoded nonce bytes | RFC-AITP-0001 §5.4.2 |
 | `signature` (envelope) | same recipe as M1 | RFC-AITP-0001 §5.4.1 |
 
@@ -156,28 +156,36 @@ base64url string as non-conformant. (The shortened renewal exchange,
 
 ### M4 — `mutual_commit_ack` (Bob → Alice)
 
-Mirror image of M3. Bob's TCT for Alice; Bob's `pop_signature` over
-`sha256(base64url_decode(alice_pop_nonce))`; `pop_nonce_echo` equals
+Mirror image of M3. Bob's TCT (and voucher) for Alice; Bob's `pop_signature`
+over `sha256(base64url_decode(alice_pop_nonce))`; `pop_nonce_echo` equals
 Alice's M1 nonce.
 
 ## Outcome
 
-After M4 verifies on Alice's side:
+After M4 verifies on Alice's side (decoded TCT claims shown):
 
 ```
-Alice holds: TCT { issuer=Bob, subject=Alice, audience=Alice,
-                   grants=["demo.echo"], binding.cnf=alice_pubkey_b64 }
-Bob holds:   TCT { issuer=Alice, subject=Bob, audience=Bob,
-                   grants=["demo.echo"], binding.cnf=bob_pubkey_b64 }
+Alice holds: TCT { iss=Bob,   sub=Alice, aud=Alice,
+                   grants=["demo.echo"], cnf={"jkt": thumbprint(alice_key)} }
+             + grant voucher { iss=Bob,   sub=Alice, src_jti=<Alice's TCT jti> }
+Bob holds:   TCT { iss=Alice, sub=Bob,   aud=Bob,
+                   grants=["demo.echo"], cnf={"jkt": thumbprint(bob_key)} }
+             + grant voucher { iss=Alice, sub=Bob,   src_jti=<Bob's TCT jti> }
 ```
 
-Each peer verifies the other's TCT by:
+Note `aud == sub` on a v0.2 TCT (RFC-AITP-0005 §2). Each peer verifies the
+other's TCT by:
 
 1. resolving the issuer's public key from `manifest.aid` (the
    manifests exchanged inline in M1/M2 are cached for the duration of
-   `manifest.expires_at`);
-2. JCS-canonicalising the TCT minus its `signature` field, SHA-256'ing,
-   and Ed25519-verifying with the issuer's public key.
+   `manifest.expires_at`) — or, since the TCT is a standard compact JWS,
+   directly from the issuer AID with any JOSE library;
+2. checking the JWS `typ == aitp-tct+jwt` and deriving the sole acceptable
+   `alg` from the issuer AID, then Ed25519-verifying the signature segment over
+   the `ASCII(header.payload)` bytes **as transmitted** — no canonicalization,
+   no reconstruction;
+3. confirming `cnf.jkt` equals the RFC 7638 thumbprint of the key encoded in
+   `sub`.
 
 ## Bytes you can reproduce
 

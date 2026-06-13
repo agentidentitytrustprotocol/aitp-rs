@@ -149,6 +149,27 @@ impl AitpSigningKey {
         }
     }
 
+    /// Sign `message` and return the raw 64-byte signature with no
+    /// base64url encoding and no algorithm tag. Used by the compact-JWS
+    /// profile (RFC-AITP-0001 §5.4.5), where the algorithm rides in the
+    /// protected header `alg` parameter and the signature is the third
+    /// JWS segment. Ed25519 signs the message directly (RFC 8032);
+    /// ES256 hashes with SHA-256 internally and emits the JOSE raw
+    /// `R || S` fixed-length encoding (RFC 7518 §3.4).
+    pub(crate) fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
+        match self {
+            Self::Ed25519 { inner, .. } => {
+                let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
+                sig.to_bytes()
+            }
+            Self::P256 { inner, .. } => {
+                let sig: P256Signature =
+                    <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
+                sig.to_bytes().into()
+            }
+        }
+    }
+
     fn p256_aid_for(inner: &P256SigningKey) -> Aid {
         let encoded = inner.verifying_key().to_encoded_point(true);
         let bytes = encoded.as_bytes();
@@ -279,6 +300,33 @@ impl AitpVerifyingKey {
             // Algorithm-confusion guard: refuse to verify a P-256
             // signature with an Ed25519 key, and vice versa.
             _ => Err(CryptoError::SignatureInvalid),
+        }
+    }
+
+    /// Verify a raw 64-byte signature over `message`, with the
+    /// algorithm fixed by this key's variant. Used by the compact-JWS
+    /// profile (RFC-AITP-0001 §5.4.5), where the `alg` header has
+    /// already been pinned against the signer AID before this call.
+    /// Ed25519 uses `verify_strict`; ES256 expects the JOSE raw
+    /// `R || S` fixed-length encoding (RFC 7518 §3.4).
+    pub(crate) fn verify_raw(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+        if sig.len() != 64 {
+            return Err(CryptoError::SignatureInvalid);
+        }
+        match self {
+            Self::Ed25519(vk) => {
+                let mut buf = [0u8; 64];
+                buf.copy_from_slice(sig);
+                let dalek_sig = DalekSignature::from_bytes(&buf);
+                vk.verify_strict(message, &dalek_sig)
+                    .map_err(|_| CryptoError::SignatureInvalid)
+            }
+            Self::P256(vk) => {
+                let p256_sig =
+                    P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
+                vk.verify(message, &p256_sig)
+                    .map_err(|_| CryptoError::SignatureInvalid)
+            }
         }
     }
 

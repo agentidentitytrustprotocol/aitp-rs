@@ -1,123 +1,114 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/tct.json",
-  "title": "TrustContextToken",
-  "description": "AITP v0.1 Trust Context Token \u2014 the signed, peer-issued capability grant produced by the Mutual Handshake (RFC-AITP-0004). In AITP, TCTs are issued by one peer to another; `issuer` and `audience` are both peer AIDs.",
+  "$id": "https://aitp.dev/schema/v0.2/tct.json",
+  "title": "TrustContextTokenClaims",
+  "description": "AITP v0.2 Trust Context Token — decoded JWS payload claims (RFC-AITP-0005). On the wire a TCT is an opaque compact JWS string (typ 'aitp-tct+jwt', RFC-AITP-0001 §5.4.5); this schema validates the decoded claims object. The compact-string form is pinned by the $defs/CompactJws pattern, referenced by embedding schemas.",
   "type": "object",
-  "required": [
-    "tct"
-  ],
-  "properties": {
-    "tct": {
+  "$defs": {
+    "CompactJws": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "RFC 7515 compact JWS: exactly three non-empty unpadded-base64url segments. Strict parsing per RFC-AITP-0001 §5.4.5."
+    },
+    "Aid": {
+      "type": "string",
+      "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
+      "description": "Agent ID per RFC-AITP-0001 §5.3: legacy Ed25519 form, algorithm-tagged Ed25519 form, or P-256 form."
+    },
+    "Cnf": {
       "type": "object",
-      "required": [
-        "version",
-        "jti",
-        "issuer",
-        "subject",
-        "audience",
-        "issued_at",
-        "expires_at",
-        "grants",
-        "binding",
-        "signature"
-      ],
+      "description": "RFC 7800 confirmation claim, jkt form only (RFC-AITP-0001 §5.4.4).",
+      "required": ["jkt"],
       "properties": {
-        "version": {
+        "jkt": {
           "type": "string",
-          "const": "aitp/0.1",
-          "description": "Protocol version. MUST be 'aitp/0.1'."
-        },
-        "jti": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-          "description": "UUID v4 unique token identifier. Used for revocation."
-        },
-        "issuer": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the issuing peer."
-        },
-        "subject": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the agent this TCT was issued for (the subject peer)."
-        },
-        "audience": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the intended consuming peer. MUST equal the subject's AID for peer-issued TCTs."
-        },
-        "issued_at": {
-          "type": "integer",
-          "minimum": 0,
-          "description": "Unix timestamp (seconds) of issuance."
-        },
-        "expires_at": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Unix timestamp (seconds) of expiry. Consumers MUST enforce this."
-        },
-        "grants": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[^\\s]+$",
-            "description": "Capability string. No whitespace."
-          },
-          "minItems": 1,
-          "uniqueItems": true,
-          "description": "Capability strings granted to the subject. v0.1 forbids empty-grants TCTs (RFC-AITP-0004 \u00a74.1)."
-        },
-        "binding": {
-          "type": "object",
-          "description": "Proof-of-possession binding. REQUIRED for v0.1 peer-issued TCTs (RFC-AITP-0004 \u00a74.4). Wraps the subject's public key so consumers can challenge the holder for downstream PoP per RFC-AITP-0005 \u00a76.",
-          "properties": {
-            "cnf": {
-              "type": "string",
-              "description": "Subject's public key in unpadded base64url (RFC 4648 \u00a75). Used for proof-of-possession.",
-              "pattern": "^[A-Za-z0-9_-]{43}$"
-            }
-          },
-          "required": [
-            "cnf"
-          ],
-          "additionalProperties": false
-        },
-        "signature": {
-          "type": "string",
-          "minLength": 1,
-          "description": "Unpadded base64url signature (RFC 4648 \u00a75) by the issuing peer over the JCS-canonicalized TCT JSON (RFC 8785), excluding this field. See RFC-AITP-0001 \u00a75.4.",
-          "pattern": "^[A-Za-z0-9_-]{86}$"
-        },
-        "extensions": {
-          "type": "object",
-          "description": "Optional extension namespace per RFC-AITP-0001 \u00a77 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
+          "pattern": "^[A-Za-z0-9_-]{43}$",
+          "description": "RFC 7638 JWK thumbprint (SHA-256, unpadded base64url) of the bound public key. MUST match the key encoded in the token's sub AID."
         }
       },
       "additionalProperties": false
     }
   },
+  "required": [
+    "ver",
+    "jti",
+    "iss",
+    "sub",
+    "aud",
+    "iat",
+    "exp",
+    "grants",
+    "cnf"
+  ],
+  "properties": {
+    "ver": {
+      "type": "string",
+      "const": "aitp/0.2",
+      "description": "Protocol version private claim. MUST be 'aitp/0.2'."
+    },
+    "jti": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4 unique token identifier. The revocation handle (RFC-AITP-0008)."
+    },
+    "iss": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the issuing peer."
+    },
+    "sub": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the agent this TCT was issued for (the subject peer)."
+    },
+    "aud": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the intended consuming peer. MUST equal sub for peer-issued TCTs. Single string, never an array."
+    },
+    "iat": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix timestamp (seconds) of issuance."
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Unix timestamp (seconds) of expiry. Consumers MUST enforce this, and exp MUST NOT exceed the issuer Manifest's expires_at (RFC-AITP-0005 §10.4)."
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\s]+$",
+        "description": "Capability string. No whitespace."
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Capability strings granted to the subject. Empty-grants TCTs are forbidden (RFC-AITP-0004 §4.1). Private claim."
+    },
+    "cnf": {
+      "$ref": "#/$defs/Cnf"
+    },
+    "ext": {
+      "type": "object",
+      "description": "Optional extension namespace per RFC-AITP-0001 §5.4.5 and RFC-AITP-0012. Unknown keys inside ext MUST be ignored; unknown claims outside it are rejected by this schema."
+    }
+  },
   "additionalProperties": false,
   "examples": [
     {
-      "tct": {
-        "version": "aitp/0.1",
-        "jti": "550e8400-e29b-41d4-a716-446655440000",
-        "issuer": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
-        "subject": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
-        "audience": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
-        "issued_at": 1711900000,
-        "expires_at": 1711903600,
-        "grants": [
-          "macp.mode.task.v1",
-          "read_data"
-        ],
-        "binding": {
-          "cnf": "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB"
-        },
-        "signature": "sig_A_tct_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+      "ver": "aitp/0.2",
+      "jti": "550e8400-e29b-41d4-a716-446655440000",
+      "iss": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+      "sub": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+      "aud": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+      "iat": 1711900000,
+      "exp": 1711903600,
+      "grants": [
+        "macp.mode.task.v1",
+        "read_data"
+      ],
+      "cnf": {
+        "jkt": "jkt_agentB_thumbprint_placeholder_BBBBBBBBBB"
       }
     }
   ]

@@ -176,16 +176,22 @@ fn full_pinned_key_handshake() {
         .unwrap();
 
     // Each peer holds a TCT issued by the other.
-    assert_eq!(&bob_holds_tct.issuer, alice.aid());
-    assert_eq!(&bob_holds_tct.subject, bob.aid());
-    assert_eq!(&bob_holds_tct.audience, bob.aid());
+    assert_eq!(&bob_holds_tct.tct.claims.iss, alice.aid());
+    assert_eq!(&bob_holds_tct.tct.claims.sub, bob.aid());
+    assert_eq!(&bob_holds_tct.tct.claims.aud, bob.aid());
 
-    assert_eq!(&alice_holds_tct.issuer, bob.aid());
-    assert_eq!(&alice_holds_tct.subject, alice.aid());
-    assert_eq!(&alice_holds_tct.audience, alice.aid());
+    assert_eq!(&alice_holds_tct.tct.claims.iss, bob.aid());
+    assert_eq!(&alice_holds_tct.tct.claims.sub, alice.aid());
+    assert_eq!(&alice_holds_tct.tct.claims.aud, alice.aid());
 
-    assert_eq!(alice_holds_tct.grants, vec!["demo.echo".to_string()]);
-    assert_eq!(bob_holds_tct.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(
+        alice_holds_tct.tct.claims.grants,
+        vec!["demo.echo".to_string()]
+    );
+    assert_eq!(
+        bob_holds_tct.tct.claims.grants,
+        vec!["demo.echo".to_string()]
+    );
 }
 
 #[test]
@@ -410,7 +416,8 @@ fn grant_overflow_aborts() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    commit_ack_payload.tct_for_peer.tct = over_claimed;
+    commit_ack_payload.tct = over_claimed.token;
+    commit_ack_payload.grant_voucher = over_claimed.voucher;
 
     let commit_ack_mid = Uuid::new_v4();
     let commit_ack_envelope = envelope_with(

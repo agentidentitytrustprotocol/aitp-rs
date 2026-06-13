@@ -2,35 +2,41 @@
 //!
 //! Gated by the `experimental-renewal` Cargo feature: post-v0.1, no
 //! wire-stability guarantee until the feature graduates.
+//!
+//! In v0.2 the current TCT is an **opaque compact-JWS token string**, and
+//! the renewal request / fresh TCT are likewise tokens (the renewal
+//! payload is a small JSON object wrapping the token).
 
 use aitp_core::{base64url, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::{build_renewal_request, process_renewal_request, TctEnvelope, TctRenewalPayload};
+use aitp_tct::{build_renewal_request, process_renewal_request, TctRenewalPayload};
 use napi::bindgen_prelude::*;
 use rand::RngCore;
 
 /// Holder side: build a `TctRenewalPayload` JSON. SDK generates the
 /// fresh 128-bit `pop_nonce` internally.
+///
+/// `current_tct_token` is the holder's current TCT as a compact-JWS
+/// string (the `tct` field from `complete()` / `processCommit()`).
 pub(crate) fn build_renewal_request_js(
     holder_key: &AitpSigningKey,
-    current_tct_envelope_json: &str,
+    current_tct_token: &str,
 ) -> Result<String> {
-    let envelope: TctEnvelope = serde_json::from_str(current_tct_envelope_json)
-        .map_err(|e| Error::from_reason(format!("invalid current TCT JSON: {e}")))?;
     let mut nonce_bytes = [0u8; 16];
     rand::rngs::OsRng
         .try_fill_bytes(&mut nonce_bytes)
         .map_err(|e| Error::from_reason(format!("rng failure: {e}")))?;
     let pop_nonce = base64url::encode(&nonce_bytes);
 
-    let payload: TctRenewalPayload = build_renewal_request(holder_key, envelope, pop_nonce)
-        .map_err(|e| Error::from_reason(format!("renewal request build failed: {e}")))?;
+    let payload: TctRenewalPayload =
+        build_renewal_request(holder_key, current_tct_token.to_string(), pop_nonce)
+            .map_err(|e| Error::from_reason(format!("renewal request build failed: {e}")))?;
 
     serde_json::to_string(&payload).map_err(|e| Error::from_reason(e.to_string()))
 }
 
-/// Issuer side: verify a renewal request and mint a fresh `TctEnvelope`
-/// JSON.
+/// Issuer side: verify a renewal request and mint a fresh TCT. Returns
+/// the fresh TCT as a compact-JWS token string.
 pub(crate) fn process_renewal_request_js(
     issuer_key: &AitpSigningKey,
     request_payload_json: &str,
@@ -39,7 +45,7 @@ pub(crate) fn process_renewal_request_js(
 ) -> Result<String> {
     let request: TctRenewalPayload = serde_json::from_str(request_payload_json)
         .map_err(|e| Error::from_reason(format!("invalid renewal payload JSON: {e}")))?;
-    let tct = process_renewal_request(
+    let issued = process_renewal_request(
         &request,
         issuer_key,
         Timestamp(manifest_exp_unix_secs),
@@ -47,5 +53,5 @@ pub(crate) fn process_renewal_request_js(
         new_ttl_secs,
     )
     .map_err(|e| Error::from_reason(format!("renewal request rejected: {e}")))?;
-    serde_json::to_string(&TctEnvelope { tct }).map_err(|e| Error::from_reason(e.to_string()))
+    Ok(issued.token)
 }

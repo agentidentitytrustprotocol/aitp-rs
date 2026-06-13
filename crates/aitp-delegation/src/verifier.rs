@@ -1,501 +1,376 @@
-//! Delegation token verification (RFC-AITP-0006 §4 single-hop;
-//! RFC-AITP-0011 multi-hop).
+//! Delegation verification (RFC-AITP-0006 §4 single-hop;
+//! RFC-AITP-0011 §2–§6 multi-hop).
+//!
+//! No step of either algorithm reconstructs any byte sequence: every
+//! signature — outer token, every chain entry, the embedded voucher —
+//! is verified over bytes exactly as transmitted. (The v0.1
+//! `grant_proof` source-TCT reconstruction is gone.)
 
-use crate::builder::DelegationSigningView;
-use crate::types::{DelegationStep, DelegationToken, GrantProof};
+use crate::builder::compute_chain_hash;
+use crate::types::{DelegationClaims, VerifiedDelegation};
 use crate::DelegationError;
-use aitp_core::{base64url, jcs, Aid, Timestamp};
-use aitp_crypto::{AitpVerifyingKey, Signature};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_crypto::{jws, AitpVerifyingKey};
+use aitp_tct::GrantVoucherClaims;
 use uuid::Uuid;
 
-/// Default `max_hops` cap from RFC-AITP-0011 §2: orchestrator → planner →
-/// executor. The RFC-AITP-0011 ceiling — NOT a constructor default.
-/// `VerifyDelegationContext::new` ships `max_hops = 0` (strict v0.1)
-/// and callers opt into multi-hop with [`VerifyDelegationContext::with_max_hops`].
-pub const DEFAULT_MAX_HOPS: u32 = 3;
+/// Default `max_delegation_hops` once multi-hop is enabled
+/// (RFC-AITP-0011 §2): covers orchestrator → planner → executor.
+pub const DEFAULT_MAX_HOPS: usize = 3;
 
-/// Strict v0.1 default. RFC-AITP-0006 §4.4 says: "Until an
-/// implementation explicitly opts into RFC-AITP-0011, it MUST
-/// reject any token carrying a non-empty `chain` field with
-/// `DELEGATION_MULTIHOP_NOT_SUPPORTED`." Setting `max_hops = 0`
-/// realizes that behavior — any chain length > 0 fails the
-/// `total_hops > max_hops` check before per-hop work runs.
-pub const V0_1_STRICT_MAX_HOPS: u32 = 0;
+/// Per-hop revocation lookup (RFC-AITP-0011 §6): `(hop issuer, hop
+/// jti) → revoked?`, resolved against the hop issuer's deny list.
+pub type HopRevocationCheck<'a> = &'a dyn Fn(&Aid, &Uuid) -> bool;
 
 /// Inputs for verifying a delegation token.
+///
+/// `verifier` is A — the original grantor, voucher issuer, and the only
+/// party a delegation is presentable to.
 pub struct VerifyDelegationContext<'a> {
-    /// The verifier's own AID (A).
-    pub verifier_aid: &'a Aid,
-    /// Current time, for expiry checks.
+    /// The verifier's own AID (A). `aud` at every hop and `voucher.iss`
+    /// MUST equal this.
+    pub verifier: &'a Aid,
+    /// Current time.
     pub now: Timestamp,
-    /// Optional revocation lookup against the verifier's deny list.
-    /// Returns `true` if the JTI is revoked. For multi-hop tokens
-    /// every hop's `source_tct_jti` (including the top-level
-    /// `grant_proof`) is consulted (RFC-AITP-0011 §6).
+    /// Hop budget. `0` (the v0.2 default) means single-hop only: any
+    /// token carrying a `chain` claim is structurally rejected with
+    /// [`DelegationError::MultihopNotSupported`] before per-hop
+    /// processing (RFC-AITP-0006 §4 multi-hop guard). A non-zero value
+    /// opts into RFC-AITP-0011 with `total_hops = chain.len() + 2`
+    /// bounded by this cap.
+    pub max_hops: usize,
+    /// A's **own** deny list: returns `true` if a source-TCT `jti`
+    /// (`voucher.src_jti`) is revoked. The only stateful single-hop
+    /// check; runs after all signature checks (RFC-AITP-0008 §3.3).
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
-    /// Maximum total hop count permitted (RFC-AITP-0011 §2). The
-    /// total hop count is `chain.len() + 1`. **Default: 0** — any
-    /// non-empty chain is rejected with `MultihopNotSupported`,
-    /// matching the v0.1 strict posture (RFC-AITP-0006 §4.4).
-    /// Callers opting into multi-hop call
-    /// [`VerifyDelegationContext::with_max_hops`].
-    pub max_hops: u32,
+    /// Multi-hop per-hop revocation (RFC-AITP-0011 §6): returns `true`
+    /// if a hop's `jti` is revoked according to the deny list of the
+    /// hop's issuer (first argument). Consulted for every chain entry
+    /// and the outer token, after all signature checks.
+    pub hop_revocation_check: Option<HopRevocationCheck<'a>>,
 }
 
 impl<'a> VerifyDelegationContext<'a> {
-    /// Default context for verifier `verifier_aid` at time `now`. No
-    /// revocation lookup; `max_hops = 0` (v0.1 strict — rejects any
-    /// non-empty chain). Callers that want to opt into multi-hop
-    /// (RFC-AITP-0011) call [`Self::with_max_hops`] explicitly.
-    pub fn new(verifier_aid: &'a Aid, now: Timestamp) -> Self {
+    /// Single-hop-only context (the v0.2 default posture) with no
+    /// revocation sources.
+    pub fn new(verifier: &'a Aid, now: Timestamp) -> Self {
         Self {
-            verifier_aid,
+            verifier,
             now,
+            max_hops: 0,
             revocation_check: None,
-            max_hops: V0_1_STRICT_MAX_HOPS,
+            hop_revocation_check: None,
         }
     }
 
-    /// Opt into RFC-AITP-0011 multi-hop delegation by raising the
-    /// hop cap. The RFC's recommended ceiling is
-    /// [`DEFAULT_MAX_HOPS`] (3); deployments wanting tighter
-    /// bounds pass a smaller value. Setting back to 0 reverts to
-    /// v0.1 strict.
-    pub fn with_max_hops(mut self, max_hops: u32) -> Self {
+    /// Opt into multi-hop verification (RFC-AITP-0011) with the given
+    /// hop budget — use [`DEFAULT_MAX_HOPS`] unless the deployment
+    /// explicitly needs longer chains.
+    pub fn with_max_hops(mut self, max_hops: usize) -> Self {
         self.max_hops = max_hops;
         self
     }
-
-    /// Set the revocation check closure (builder).
-    pub fn with_revocation_check(mut self, check: &'a dyn Fn(&Uuid) -> bool) -> Self {
-        self.revocation_check = Some(check);
-        self
-    }
 }
 
-/// Verify a delegation token (RFC-AITP-0006 §4).
+/// Verify a delegation token presented to `ctx.verifier` (A).
 ///
-/// Order of checks:
+/// Single-hop (RFC-AITP-0006 §4, in order): outer JWS
+/// (typ / alg pin / signature / `ver`) → `aud` + `exp` → embedded
+/// voucher (typ `aitp-grant+jwt`, `voucher.iss` == A, signature under
+/// A's **own** key) → `voucher.sub` == outer `iss` → expiry
+/// monotonicity → `scope ⊆ voucher.grants` → self-delegation +
+/// `cnf.jkt` binding → revocation on `voucher.src_jti` (the only
+/// stateful check, last per RFC-AITP-0008 §3.3).
 ///
-/// 1. `audience == verifier_aid` and `delegator == verifier_aid`.
-/// 2. `expires_at` and `grant_proof.expires_at` in the future.
-/// 3. `delegation.expires_at <= grant_proof.expires_at`.
-/// 4. `grant_proof.issuer == verifier_aid` and `grant_proof.subject ==
-///    delegation.issued_by`.
-/// 5. Reject self-delegation (`issued_by == delegatee`).
-/// 6. Verify `grant_proof.signature` against the verifier's public key
-///    over the reconstructed source-TCT body. Failure ⇒ `InvalidGrantProof`.
-/// 7. `scope ⊆ grant_proof.capabilities`. Else `ScopeExceeded`.
-/// 8. Revocation check on `grant_proof.source_tct_jti`.
-/// 9. Verify outer `delegation.signature` against `delegation.issued_by`'s
-///    public key.
-/// 10. `cnf` decodes to a valid 32-byte pubkey. (Downstream PoP — proving
-///     C controls that key — is the caller's responsibility.)
-pub fn verify_delegation<'a>(
-    token: &'a DelegationToken,
+/// Multi-hop (RFC-AITP-0011, only when `ctx.max_hops > 0`): hop limit →
+/// chain-hash recomputation → per-hop JWS + claims + continuity +
+/// expiry monotonicity + transitive scope subsetting + nested-chain
+/// prefix consistency → per-hop revocation.
+///
+/// The downstream PoP exchange (RFC-AITP-0006 §4 step 9) is a separate
+/// challenge/response flow run by the caller against the presenting
+/// agent, with the bound key taken from the **outer** `sub` AID
+/// (`aitp_tct::sign_pop_response` / `verify_pop_response`).
+pub fn verify_delegation(
+    token: &str,
     ctx: &VerifyDelegationContext<'_>,
-) -> Result<&'a DelegationToken, DelegationError> {
-    let chain = token.chain.as_deref().filter(|c| !c.is_empty());
+) -> Result<VerifiedDelegation, DelegationError> {
+    // Peek (unverified) to learn the claimed shape; everything is
+    // re-established cryptographically below.
+    let peeked = peek_claims(token)?;
 
-    if let Some(chain) = chain {
-        verify_multihop(token, chain, ctx)
-    } else {
-        verify_singlehop(token, ctx)
-    }
-}
-
-/// v0.1 single-hop verification. The pre-rc.1 logic, unchanged. The
-/// outer signing view emits no `chain`/`chain_hash` (skip-if-none)
-/// so single-hop signing input bytes are byte-identical to pre-rc.1.
-fn verify_singlehop<'a>(
-    token: &'a DelegationToken,
-    ctx: &VerifyDelegationContext<'_>,
-) -> Result<&'a DelegationToken, DelegationError> {
-    // 1. Audience / delegator binding.
-    if &token.audience != ctx.verifier_aid {
-        return Err(DelegationError::AudienceMismatch);
-    }
-    if &token.delegator != ctx.verifier_aid {
-        return Err(DelegationError::AudienceMismatch);
-    }
-
-    // 2 + 3. Expiry checks.
-    if token.expires_at.is_in_the_past(ctx.now) {
-        return Err(DelegationError::Expired);
-    }
-    if token.grant_proof.expires_at.is_in_the_past(ctx.now) {
-        return Err(DelegationError::Expired);
-    }
-    if token.expires_at.0 > token.grant_proof.expires_at.0 {
-        return Err(DelegationError::Expired);
-    }
-
-    // 4. grant_proof identity binding.
-    if &token.grant_proof.issuer != ctx.verifier_aid {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-    if token.grant_proof.subject != token.issued_by {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-
-    // 5. Self-delegation check.
-    if token.issued_by == token.delegatee {
-        return Err(DelegationError::SelfDelegation);
-    }
-
-    // 6. Reconstruct source TCT body and verify A's signature.
-    verify_source_tct_projection(&token.grant_proof, &token.issued_by)?;
-
-    // 7. Scope ⊆ grant_proof.capabilities.
-    for cap in &token.scope {
-        if !token.grant_proof.capabilities.contains(cap) {
-            return Err(DelegationError::ScopeExceeded);
+    let chain_len = peeked.chain.as_ref().map_or(0, |c| c.len());
+    if ctx.max_hops == 0 {
+        if chain_len > 0 || peeked.chain.is_some() {
+            // Multi-hop guard: structural rejection before any per-hop
+            // processing (RFC-AITP-0006 §4).
+            return Err(DelegationError::MultihopNotSupported);
+        }
+        if peeked.jti.is_some() {
+            // RFC-AITP-0011 §1.1: `jti` is not part of the single-hop
+            // claims set; non-opted-in verifiers reject it under the
+            // strict-claims rule.
+            return Err(DelegationError::ClaimsMalformed(
+                "jti claim requires multi-hop opt-in".into(),
+            ));
         }
     }
 
-    // 8. Revocation lookup.
+    if chain_len == 0 {
+        verify_single_hop(token, ctx)
+    } else {
+        verify_multi_hop(token, &peeked, ctx)
+    }
+}
+
+fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
+    let payload = jws::decode_payload_unverified(token).map_err(DelegationError::Crypto)?;
+    serde_json::from_slice(&payload).map_err(|e| DelegationError::ClaimsMalformed(e.to_string()))
+}
+
+/// Strictly verify one delegation JWS under its own `iss` and return
+/// its claims. A forged `iss` fails the signature check — the claimed
+/// issuer's key is the only one tried, and the AID-derived alg pin
+/// forecloses algorithm confusion (RFC-AITP-0001 §5.4.5).
+fn verify_hop_jws(token: &str) -> Result<DelegationClaims, DelegationError> {
+    let claimed = peek_claims(token)?;
+    let payload =
+        jws::verify_compact(&claimed.iss, jws::TYP_DELEGATION, token).map_err(|e| match e {
+            aitp_crypto::CryptoError::SignatureInvalid => DelegationError::InvalidSignature,
+            other => DelegationError::Crypto(other),
+        })?;
+    let claims: DelegationClaims = serde_json::from_slice(&payload)
+        .map_err(|e| DelegationError::ClaimsMalformed(e.to_string()))?;
+    if claims.ver != PROTOCOL_VERSION {
+        return Err(DelegationError::VersionUnknown);
+    }
+    Ok(claims)
+}
+
+/// Common per-hop claim checks (RFC-AITP-0011 §3 step 2; the same
+/// invariants hold for the single-hop token).
+fn check_hop_claims(
+    claims: &DelegationClaims,
+    ctx: &VerifyDelegationContext<'_>,
+) -> Result<(), DelegationError> {
+    if &claims.aud != ctx.verifier {
+        return Err(DelegationError::AudienceMismatch);
+    }
+    if claims.iss == claims.sub {
+        return Err(DelegationError::SelfDelegation);
+    }
+    if claims.scope.is_empty() {
+        return Err(DelegationError::EmptyScope);
+    }
+    // cnf.jkt MUST match the key encoded in `sub` (RFC-AITP-0001 §5.4.4).
+    let sub_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(DelegationError::Crypto)?;
+    let expected_jkt = sub_key
+        .to_jwk_thumbprint()
+        .map_err(DelegationError::Crypto)?;
+    if claims.cnf.jkt != expected_jkt {
+        return Err(DelegationError::CnfMalformed);
+    }
+    Ok(())
+}
+
+/// Verify the embedded root voucher: typ `aitp-grant+jwt`, issued and
+/// signed by the verifier itself ("A is verifying its own past
+/// signature; no key resolution is needed" — RFC-AITP-0006 §4 step 3),
+/// entitling `expected_delegator` (step 4), still live (step 5, first
+/// half).
+fn verify_root_voucher(
+    voucher_token: &str,
+    expected_delegator: &Aid,
+    ctx: &VerifyDelegationContext<'_>,
+) -> Result<GrantVoucherClaims, DelegationError> {
+    let voucher = aitp_tct::verify_voucher(voucher_token, ctx.verifier).map_err(|e| match e {
+        aitp_tct::TctError::Crypto(c) => DelegationError::Crypto(c),
+        aitp_tct::TctError::VersionUnknown => DelegationError::VersionUnknown,
+        _ => DelegationError::InvalidVoucher,
+    })?;
+    if &voucher.sub != expected_delegator {
+        return Err(DelegationError::InvalidVoucher);
+    }
+    if voucher.exp.is_in_the_past(ctx.now) {
+        return Err(DelegationError::Expired);
+    }
+    Ok(voucher)
+}
+
+fn verify_single_hop(
+    token: &str,
+    ctx: &VerifyDelegationContext<'_>,
+) -> Result<VerifiedDelegation, DelegationError> {
+    // Step 1: outer JWS — strict parse, typ, alg pin, signature, ver.
+    let claims = verify_hop_jws(token)?;
+    // Step 2: addressing and freshness.
+    if &claims.aud != ctx.verifier {
+        return Err(DelegationError::AudienceMismatch);
+    }
+    if claims.exp.is_in_the_past(ctx.now) {
+        return Err(DelegationError::Expired);
+    }
+    // Steps 3–4: embedded voucher.
+    let voucher_token = claims
+        .voucher
+        .as_deref()
+        .ok_or(DelegationError::InvalidVoucher)?;
+    let voucher = verify_root_voucher(voucher_token, &claims.iss, ctx)?;
+    // Step 5 (second half): a delegated grant cannot outlive its source.
+    if claims.exp.0 > voucher.exp.0 {
+        return Err(DelegationError::Expired);
+    }
+    // Step 6: scope constraint.
+    for cap in &claims.scope {
+        if !voucher.grants.contains(cap) {
+            return Err(DelegationError::ScopeExceeded);
+        }
+    }
+    // Step 8 + cnf binding (everything stateless before the lookup).
+    check_hop_claims(&claims, ctx)?;
+    // Step 7: source-TCT revocation — the only stateful check, last
+    // (RFC-AITP-0008 §3.3).
     if let Some(check) = ctx.revocation_check {
-        if check(&token.grant_proof.source_tct_jti) {
+        if check(&voucher.src_jti) {
             return Err(DelegationError::SourceTctRevoked);
         }
     }
 
-    // 9. Outer signature.
-    let issued_by_pubkey = AitpVerifyingKey::from_aid(&token.issued_by)?;
-    let outer_view = DelegationSigningView {
-        delegator: &token.delegator,
-        delegatee: &token.delegatee,
-        issued_by: &token.issued_by,
-        audience: &token.audience,
-        scope: &token.scope,
-        expires_at: &token.expires_at,
-        cnf: &token.cnf,
-        grant_proof: &token.grant_proof,
-        chain: None,
-        chain_hash: None,
-    };
-    let canonical = jcs::canonicalize_serializable(&outer_view)
-        .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
-    let digest = Sha256::digest(&canonical);
-    let outer_sig =
-        Signature::parse(&token.signature).map_err(|_| DelegationError::InvalidSignature)?;
-    issued_by_pubkey
-        .verify(&digest, &outer_sig)
-        .map_err(|_| DelegationError::InvalidSignature)?;
-
-    // 10. cnf well-formedness: must be the algorithm-agile compressed
-    // pubkey embedded in the delegatee AID (32 B Ed25519 raw or
-    // 33 B SEC1-compressed P-256). This both validates the encoding
-    // and prevents a P-256 delegatee from carrying an unrelated
-    // Ed25519 pubkey (or vice versa).
-    let cnf_bytes =
-        base64url::decode_strict(&token.cnf).map_err(|_| DelegationError::CnfMalformed)?;
-    if cnf_bytes != token.delegatee.pubkey_compressed_bytes() {
-        return Err(DelegationError::CnfMalformed);
-    }
-
-    Ok(token)
+    Ok(VerifiedDelegation {
+        token: token.to_string(),
+        claims,
+        voucher,
+    })
 }
 
-/// Multi-hop verification (RFC-AITP-0011). `chain` is non-empty.
-fn verify_multihop<'a>(
-    token: &'a DelegationToken,
-    chain: &'a [DelegationStep],
+fn verify_multi_hop(
+    token: &str,
+    peeked: &DelegationClaims,
     ctx: &VerifyDelegationContext<'_>,
-) -> Result<&'a DelegationToken, DelegationError> {
-    // §2: hop limit. total_hops = chain.len() + 1.
-    if ctx.max_hops == 0 {
-        return Err(DelegationError::MultihopNotSupported);
-    }
-    let total_hops = chain.len() as u32 + 1;
+) -> Result<VerifiedDelegation, DelegationError> {
+    let chain: Vec<String> = peeked.chain.clone().unwrap_or_default();
+
+    // §2: hop limit, before any signature work.
+    let total_hops = chain.len() + 2;
     if total_hops > ctx.max_hops {
         return Err(DelegationError::HopLimitExceeded);
     }
 
-    // §1.4: the audience/delegator pair still binds to the verifier.
-    if &token.audience != ctx.verifier_aid {
-        return Err(DelegationError::AudienceMismatch);
-    }
-    if &token.delegator != ctx.verifier_aid {
-        return Err(DelegationError::AudienceMismatch);
-    }
-
-    // §3 step 3: chain[0].issuer MUST equal delegator (A).
-    if &chain[0].issuer != ctx.verifier_aid {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-
-    // §3 step 5: JTI uniqueness within `chain` (collision-space defense).
-    {
-        let mut seen = std::collections::HashSet::new();
-        for step in chain {
-            if !seen.insert(step.source_tct_jti) {
-                return Err(DelegationError::ChainHashMismatch);
-            }
-        }
-    }
-
-    // Token expiry; outer expires_at is in the future and bounded by
-    // grant_proof (the most-recent hop).
-    if token.expires_at.is_in_the_past(ctx.now) {
-        return Err(DelegationError::Expired);
-    }
-
-    // §3 step 4: per-hop expiry monotonicity. expires_at MUST be in
-    // the future at every hop and MUST be non-increasing across hops.
-    let mut prior_expires = chain[0].expires_at;
-    if chain[0].expires_at.is_in_the_past(ctx.now) {
-        return Err(DelegationError::Expired);
-    }
-    for step in &chain[1..] {
-        if step.expires_at.is_in_the_past(ctx.now) {
-            return Err(DelegationError::Expired);
-        }
-        if step.expires_at.0 > prior_expires.0 {
-            return Err(DelegationError::Expired);
-        }
-        prior_expires = step.expires_at;
-    }
-    if token.grant_proof.expires_at.is_in_the_past(ctx.now) {
-        return Err(DelegationError::Expired);
-    }
-    if token.grant_proof.expires_at.0 > prior_expires.0 {
-        return Err(DelegationError::Expired);
-    }
-    if token.expires_at.0 > token.grant_proof.expires_at.0 {
-        return Err(DelegationError::Expired);
-    }
-
-    // §3 step 2: audience continuity. The chain forms an unbroken
-    // authority lineage from the delegator (chain[0].issuer) to the
-    // outer signer (chain[n-2].subject). The top-level grant_proof
-    // is the *final* hop — the step where issued_by authorizes the
-    // delegatee to exercise the granted scope. So:
-    //
-    //   - chain[i].subject == chain[i+1].issuer for i < n-2
-    //   - chain[n-2].subject == grant_proof.issuer == token.issued_by
-    //   - grant_proof.subject == token.delegatee
-    //
-    // Note: this differs from single-hop, where grant_proof IS the
-    // peer-issued source TCT and grant_proof.subject == issued_by
-    // (RFC-AITP-0006). For multi-hop, grant_proof is a
-    // DelegationStep that carries the *final* hop, so its `subject`
-    // is the delegatee, not the issued_by.
-    for w in chain.windows(2) {
-        if w[0].subject != w[1].issuer {
-            return Err(DelegationError::InvalidGrantProof);
-        }
-    }
-    if chain[chain.len() - 1].subject != token.grant_proof.issuer {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-    if token.grant_proof.issuer != token.issued_by {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-    if token.grant_proof.subject != token.delegatee {
-        return Err(DelegationError::InvalidGrantProof);
-    }
-
-    // Self-delegation forbidden at the outer hop.
-    if token.issued_by == token.delegatee {
-        return Err(DelegationError::SelfDelegation);
-    }
-
-    // §3 step 1: per-hop signature verification.
-    // Hop 0: source TCT projection (same as v0.1 single-hop).
-    verify_source_tct_projection(&chain[0], &chain[0].subject)?;
-    // Hops 1..n-2 (== chain[1..]): signed step body.
-    for step in &chain[1..] {
-        verify_step_signature(step)?;
-    }
-    // Most-recent hop (top-level grant_proof): signed step body.
-    verify_step_signature(&token.grant_proof)?;
-
-    // §4: transitive scope subsetting.
-    // chain[0].capabilities ⊇ chain[1].capabilities ⊇ ... ⊇
-    // grant_proof.capabilities ⊇ token.scope.
-    let mut prior_caps: &[String] = &chain[0].capabilities;
-    for step in &chain[1..] {
-        if !is_subset(&step.capabilities, prior_caps) {
-            return Err(DelegationError::ScopeExceeded);
-        }
-        prior_caps = &step.capabilities;
-    }
-    if !is_subset(&token.grant_proof.capabilities, prior_caps) {
-        return Err(DelegationError::ScopeExceeded);
-    }
-    if !is_subset(&token.scope, &token.grant_proof.capabilities) {
-        return Err(DelegationError::ScopeExceeded);
-    }
-
-    // §6: per-hop revocation. Every hop's source_tct_jti (chain[*] +
-    // grant_proof) is consulted.
-    if let Some(check) = ctx.revocation_check {
-        for step in chain {
-            if check(&step.source_tct_jti) {
-                return Err(DelegationError::SourceTctRevoked);
-            }
-        }
-        if check(&token.grant_proof.source_tct_jti) {
-            return Err(DelegationError::SourceTctRevoked);
-        }
-    }
-
-    // §5: chain_hash truncation defense. Recompute and compare.
-    let stated_hash = token
+    // §5: chain-hash recomputation, before per-hop verification. (The
+    // peeked chain/chain_hash become trusted once the outer signature
+    // — which covers both claims — verifies below.)
+    let expected_hash = peeked
         .chain_hash
         .as_deref()
         .ok_or(DelegationError::ChainHashMismatch)?;
-    let recomputed = compute_chain_hash(chain)?;
-    if recomputed != stated_hash {
+    if compute_chain_hash(&chain)? != expected_hash {
         return Err(DelegationError::ChainHashMismatch);
     }
 
-    // Outer signature covers chain_hash via the signing view.
-    let issued_by_pubkey = AitpVerifyingKey::from_aid(&token.issued_by)?;
-    let outer_view = DelegationSigningView {
-        delegator: &token.delegator,
-        delegatee: &token.delegatee,
-        issued_by: &token.issued_by,
-        audience: &token.audience,
-        scope: &token.scope,
-        expires_at: &token.expires_at,
-        cnf: &token.cnf,
-        grant_proof: &token.grant_proof,
-        chain: Some(chain),
-        chain_hash: Some(stated_hash),
-    };
-    let canonical = jcs::canonicalize_serializable(&outer_view)
-        .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
-    let digest = Sha256::digest(&canonical);
-    let outer_sig =
-        Signature::parse(&token.signature).map_err(|_| DelegationError::InvalidSignature)?;
-    issued_by_pubkey
-        .verify(&digest, &outer_sig)
-        .map_err(|_| DelegationError::InvalidSignature)?;
+    // §3: verify every hop, oldest first; the outer token is last.
+    let mut voucher: Option<GrantVoucherClaims> = None;
+    let mut prev: Option<DelegationClaims> = None;
+    let mut hop_records: Vec<(Aid, Uuid)> = Vec::new();
 
-    // cnf well-formedness: same algorithm-agile check as the single-hop
-    // path. Must match the delegatee AID's compressed pubkey.
-    let cnf_bytes =
-        base64url::decode_strict(&token.cnf).map_err(|_| DelegationError::CnfMalformed)?;
-    if cnf_bytes != token.delegatee.pubkey_compressed_bytes() {
-        return Err(DelegationError::CnfMalformed);
+    let hop_count = chain.len() + 1;
+    for (i, hop_token) in chain
+        .iter()
+        .map(String::as_str)
+        .chain(std::iter::once(token))
+        .enumerate()
+    {
+        // Step 1: standard JWS verification (+ ver).
+        let hop = verify_hop_jws(hop_token)?;
+        // Step 2: common claims + per-hop jti (present, unique).
+        check_hop_claims(&hop, ctx)?;
+        let jti = hop.jti.ok_or(DelegationError::InvalidVoucher)?;
+        if hop_records.iter().any(|(_, seen)| *seen == jti) {
+            return Err(DelegationError::InvalidVoucher);
+        }
+        hop_records.push((hop.iss.clone(), jti));
+
+        if hop.exp.is_in_the_past(ctx.now) {
+            return Err(DelegationError::Expired);
+        }
+
+        if i == 0 {
+            // Step 3: root authority — chain[0] carries the voucher.
+            let voucher_token = hop
+                .voucher
+                .as_deref()
+                .ok_or(DelegationError::InvalidVoucher)?;
+            let v = verify_root_voucher(voucher_token, &hop.iss, ctx)?;
+            if hop.exp.0 > v.exp.0 {
+                return Err(DelegationError::Expired);
+            }
+            // §4: scope rooted in the voucher.
+            for cap in &hop.scope {
+                if !v.grants.contains(cap) {
+                    return Err(DelegationError::ScopeExceeded);
+                }
+            }
+            voucher = Some(v);
+        } else {
+            let prev_hop = prev.as_ref().expect("set after first iteration");
+            // Step 4: continuity — exactly one root of authority.
+            if hop.voucher.is_some() {
+                return Err(DelegationError::InvalidVoucher);
+            }
+            if hop.iss != prev_hop.sub {
+                return Err(DelegationError::InvalidVoucher);
+            }
+            // Step 5: expiry monotonically non-increasing.
+            if hop.exp.0 > prev_hop.exp.0 {
+                return Err(DelegationError::Expired);
+            }
+            // §4: adjacent-pair scope subsetting.
+            for cap in &hop.scope {
+                if !prev_hop.scope.contains(cap) {
+                    return Err(DelegationError::ScopeExceeded);
+                }
+            }
+        }
+
+        // Step 7 (§1.1): nested-chain prefix consistency for chain
+        // entries that were themselves minted as multi-hop tokens.
+        if i < hop_count - 1 {
+            if let Some(inner_chain) = &hop.chain {
+                if inner_chain.as_slice() != &chain[..i] {
+                    return Err(DelegationError::InvalidVoucher);
+                }
+                let inner_hash = hop
+                    .chain_hash
+                    .as_deref()
+                    .ok_or(DelegationError::InvalidVoucher)?;
+                if compute_chain_hash(inner_chain)? != inner_hash {
+                    return Err(DelegationError::InvalidVoucher);
+                }
+            }
+        }
+
+        prev = Some(hop);
     }
 
-    Ok(token)
-}
+    let voucher = voucher.expect("first hop sets the voucher");
+    let outer = prev.expect("loop ran for every hop");
 
-fn is_subset(needle: &[String], haystack: &[String]) -> bool {
-    needle.iter().all(|c| haystack.contains(c))
-}
+    // §6: per-hop revocation, only after every signature check.
+    if let Some(check) = ctx.revocation_check {
+        if check(&voucher.src_jti) {
+            return Err(DelegationError::SourceTctRevoked);
+        }
+    }
+    if let Some(check) = ctx.hop_revocation_check {
+        for (issuer, jti) in &hop_records {
+            if check(issuer, jti) {
+                return Err(DelegationError::SourceTctRevoked);
+            }
+        }
+    }
 
-/// Hop-0 / single-hop case: the step is a projection of a source TCT,
-/// and `step.signature` is reused verbatim from the source TCT. The
-/// verifier reconstructs the source TCT body and checks the signature
-/// against the issuer's pubkey.
-///
-/// `subject_for_binding` is the AID whose pubkey appears as the source
-/// TCT's `binding.cnf` — for single-hop this is `delegation.issued_by`,
-/// for multi-hop hop 0 it is `chain[0].subject`.
-fn verify_source_tct_projection(
-    proj: &GrantProof,
-    subject_for_binding: &Aid,
-) -> Result<(), DelegationError> {
-    let issuer_pubkey = AitpVerifyingKey::from_aid(&proj.issuer)?;
-    // Reconstruct the source TCT's binding.cnf using the algorithm-
-    // agile encoding for the subject AID (32 B Ed25519 raw or
-    // 33 B SEC1-compressed P-256). Matches the builder side, where
-    // cnf is `subject_pk.to_compressed()`.
-    let cnf = base64url::encode(&subject_for_binding.pubkey_compressed_bytes());
-    let source_view = SourceTctView {
-        version: "aitp/0.1",
-        jti: &proj.source_tct_jti,
-        issuer: &proj.issuer,
-        subject: &proj.subject,
-        // v0.1: TCT.audience == TCT.subject.
-        audience: &proj.subject,
-        issued_at: &proj.issued_at,
-        expires_at: &proj.expires_at,
-        grants: &proj.capabilities,
-        binding: SourceTctBinding { cnf: &cnf },
-    };
-    let canonical = jcs::canonicalize_serializable(&source_view)
-        .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
-    let digest = Sha256::digest(&canonical);
-    let sig = Signature::parse(&proj.signature).map_err(|_| DelegationError::InvalidGrantProof)?;
-    issuer_pubkey
-        .verify(&digest, &sig)
-        .map_err(|_| DelegationError::InvalidGrantProof)?;
-    Ok(())
+    Ok(VerifiedDelegation {
+        token: token.to_string(),
+        claims: outer,
+        voucher,
+    })
 }
-
-/// Hops i > 0 / top-level grant_proof in multi-hop: the step signature
-/// is the issuer's signature over the canonical step body excluding
-/// `signature`.
-fn verify_step_signature(step: &DelegationStep) -> Result<(), DelegationError> {
-    let issuer_pubkey = AitpVerifyingKey::from_aid(&step.issuer)?;
-    let view = StepSigningView {
-        issuer: &step.issuer,
-        subject: &step.subject,
-        capabilities: &step.capabilities,
-        issued_at: &step.issued_at,
-        expires_at: &step.expires_at,
-        source_tct_jti: &step.source_tct_jti,
-    };
-    let canonical = jcs::canonicalize_serializable(&view)
-        .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
-    let digest = Sha256::digest(&canonical);
-    let sig = Signature::parse(&step.signature).map_err(|_| DelegationError::InvalidGrantProof)?;
-    issuer_pubkey
-        .verify(&digest, &sig)
-        .map_err(|_| DelegationError::InvalidGrantProof)?;
-    Ok(())
-}
-
-/// `base64url(sha256(canonical_json([chain[i].source_tct_jti for i in
-/// 0..chain.len()])))`. RFC-AITP-0011 §5.
-pub fn compute_chain_hash(chain: &[DelegationStep]) -> Result<String, DelegationError> {
-    let jtis: Vec<String> = chain.iter().map(|s| s.source_tct_jti.to_string()).collect();
-    let canonical = jcs::canonicalize_serializable(&jtis)
-        .map_err(|e| DelegationError::Canonicalization(e.to_string()))?;
-    let digest = Sha256::digest(&canonical);
-    Ok(base64url::encode(&digest))
-}
-
-/// JCS canonicalization view for hops i > 0 (RFC-AITP-0011 §3 step 1
-/// second bullet). The body is the DelegationStep excluding `signature`.
-#[derive(Serialize)]
-struct StepSigningView<'a> {
-    issuer: &'a Aid,
-    subject: &'a Aid,
-    capabilities: &'a [String],
-    issued_at: &'a Timestamp,
-    expires_at: &'a Timestamp,
-    source_tct_jti: &'a Uuid,
-}
-
-/// View struct for reconstructing the source TCT body so we can verify
-/// A's `grant_proof.signature` against the same JCS bytes A originally
-/// signed.
-#[derive(Serialize)]
-struct SourceTctView<'a> {
-    version: &'a str,
-    jti: &'a Uuid,
-    issuer: &'a Aid,
-    subject: &'a Aid,
-    audience: &'a Aid,
-    issued_at: &'a Timestamp,
-    expires_at: &'a Timestamp,
-    grants: &'a [String],
-    binding: SourceTctBinding<'a>,
-}
-
-#[derive(Serialize)]
-struct SourceTctBinding<'a> {
-    cnf: &'a str,
-}
-
-#[allow(dead_code)] // re-exported via lib.rs for consumers.
-fn _gp_unused(_: &GrantProof) {}

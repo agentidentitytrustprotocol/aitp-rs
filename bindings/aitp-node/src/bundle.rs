@@ -10,7 +10,6 @@ use aitp_session_bundle::{
     verify_session_bundle, BundleOutcome, ParticipantEntry, SessionBundleBuilder,
     SessionBundleEnvelope, VerifySessionBundleContext,
 };
-use aitp_tct::TctEnvelope;
 use napi::bindgen_prelude::*;
 use napi::{Env, JsBoolean, JsFunction, JsString, JsUnknown};
 use napi_derive::napi;
@@ -75,16 +74,16 @@ impl SessionBundleBuilderJs {
         self
     }
 
-    /// Add a participant entry. `tctEnvelopeJson` is a TctEnvelope JSON.
+    /// Add a participant entry. `tctToken` is the participant's TCT as an
+    /// opaque compact-JWS string (the `tct` field returned by `complete()`
+    /// / `processCommit()`), carried into the bundle verbatim.
     #[napi]
-    pub fn participant(&mut self, aid: String, tct_envelope_json: String) -> Result<&Self> {
+    pub fn participant(&mut self, aid: String, tct_token: String) -> Result<&Self> {
         let participant_aid = Aid::parse(&aid)
             .map_err(|e| Error::from_reason(format!("invalid participant AID: {e}")))?;
-        let envelope: TctEnvelope = serde_json::from_str(&tct_envelope_json)
-            .map_err(|e| Error::from_reason(format!("invalid participant TCT JSON: {e}")))?;
         self.participants.push(ParticipantEntry {
             aid: participant_aid,
-            tct: envelope.tct,
+            tct: tct_token,
         });
         Ok(self)
     }

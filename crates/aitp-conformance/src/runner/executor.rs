@@ -218,6 +218,16 @@ impl<A: Adapter> Runner<A> {
             };
         }
 
+        // Pin the adapter's reference clock to the substitution clock
+        // (PLACEHOLDERS.md: `__NOW__` = 1711900000) so time-relative
+        // checks are deterministic. Tier-D op — adapters without it
+        // (or that reject it) just run on their own clock, matching
+        // the pre-v0.2 behavior.
+        let _ = self.adapter.execute(
+            "set_clock",
+            serde_json::json!({ "now_unix_secs": self.ctx.now }),
+        );
+
         // Reset per-fixture substitution state (nonce counter +
         // last_nonce) before walking the input.
         self.ctx.reset_per_fixture();

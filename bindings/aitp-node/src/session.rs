@@ -15,7 +15,7 @@ use aitp_handshake::{
     MutualHelloPayload, PresentedIdentity, Responder,
 };
 use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
-use aitp_tct::TctEnvelope;
+use aitp_tct::VerifiedTct;
 use napi::bindgen_prelude::*;
 use napi::{Env, JsFunction};
 use napi_derive::napi;
@@ -101,13 +101,66 @@ pub struct JsHelloAckResult {
     pub session_id: String,
 }
 
-/// Result of `processCommit`: response body plus the held TCT.
+/// The salient claims of a TCT obtained at handshake completion. Mirrors
+/// `aitp_tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
+#[napi(object)]
+pub struct JsHandshakeTctClaims {
+    /// Issuer AID (`iss`) — the peer that minted and is bound by the TCT.
+    pub iss: String,
+    /// Subject AID (`sub`) — the holder the TCT authorizes.
+    pub sub: String,
+    /// Audience AID (`aud`). In v0.2 this equals `sub`.
+    pub aud: String,
+    /// Capability grants the TCT authorizes.
+    pub grants: Vec<String>,
+    /// Issued-at, Unix seconds (`iat`).
+    pub iat: f64,
+    /// Expiry, Unix seconds (`exp`).
+    pub exp: f64,
+    /// TCT unique identifier (`jti`, UUID string).
+    pub jti: String,
+}
+
+impl JsHandshakeTctClaims {
+    fn from_verified(v: &VerifiedTct) -> Self {
+        let c = &v.claims;
+        Self {
+            iss: c.iss.to_string(),
+            sub: c.sub.to_string(),
+            aud: c.aud.to_string(),
+            grants: c.grants.clone(),
+            iat: c.iat.0 as f64,
+            exp: c.exp.0 as f64,
+            jti: c.jti.to_string(),
+        }
+    }
+}
+
+/// A completed handshake: the TCT the peer issued to us (as an opaque
+/// compact-JWS token plus its decoded claims) and the optional companion
+/// grant voucher (`typ: aitp-grant+jwt`) used to mint delegations
+/// (RFC-AITP-0005 §8). `grantVoucher` is `null` when the issuing peer's
+/// policy forbids us from delegating.
+#[napi(object)]
+pub struct JsCompletedHandshake {
+    /// The TCT as an opaque compact-JWS string. Pass verbatim to
+    /// `verifyTct` / `verifyTctCached`.
+    pub tct: String,
+    /// The decoded (already-verified) TCT claims.
+    pub claims: JsHandshakeTctClaims,
+    /// The companion grant voucher (compact JWS), or `null`. Pass to
+    /// `buildDelegation` to delegate the held grants.
+    pub grant_voucher: Option<String>,
+}
+
+/// Result of `processCommit`: response body plus the completed handshake
+/// (held TCT token, its claims, and the optional grant voucher).
 #[napi(object)]
 pub struct JsCommitAckResult {
     /// `MUTUAL_COMMIT_ACK` envelope JSON — set as the HTTP response body.
     pub ack_json: String,
-    /// `TctEnvelope` JSON the initiator issued to us.
-    pub tct_json: String,
+    /// The TCT (and voucher) the initiator issued to us.
+    pub completed: JsCompletedHandshake,
 }
 
 // ── Initiator ───────────────────────────────────────────────────────────
@@ -217,10 +270,11 @@ impl JsInitiatorSession {
         serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))
     }
 
-    /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the `TctEnvelope`
-    /// JSON the peer issued to us.
+    /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the completed
+    /// handshake: the TCT the peer issued to us (opaque compact-JWS
+    /// token plus its decoded claims) and the optional grant voucher.
     #[napi]
-    pub fn complete(&mut self, commit_ack_json: String) -> Result<String> {
+    pub fn complete(&mut self, commit_ack_json: String) -> Result<JsCompletedHandshake> {
         let envelope: AitpEnvelope = serde_json::from_str(&commit_ack_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualCommitAckPayload = serde_json::from_value(envelope.payload.clone())
@@ -233,14 +287,18 @@ impl JsInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
         );
-        let tct = self
+        let completed = self
             .inner
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHelloAck() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
             .map_err(|e| Error::from_reason(e.to_string()))?;
 
-        serde_json::to_string(&TctEnvelope { tct }).map_err(|e| Error::from_reason(e.to_string()))
+        Ok(JsCompletedHandshake {
+            tct: completed.tct.token.clone(),
+            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
+            grant_voucher: completed.grant_voucher,
+        })
     }
 }
 
@@ -345,7 +403,7 @@ impl JsResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
         );
-        let (ack, held_tct) = self
+        let (ack, completed) = self
             .inner
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHello() first"))?
@@ -357,8 +415,14 @@ impl JsResponderSession {
             .map_err(Error::from_reason)?;
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
-        let tct_json = serde_json::to_string(&TctEnvelope { tct: held_tct })
-            .map_err(|e| Error::from_reason(e.to_string()))?;
-        Ok(JsCommitAckResult { ack_json, tct_json })
+        let completed_js = JsCompletedHandshake {
+            tct: completed.tct.token.clone(),
+            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
+            grant_voucher: completed.grant_voucher,
+        };
+        Ok(JsCommitAckResult {
+            ack_json,
+            completed: completed_js,
+        })
     }
 }

@@ -90,7 +90,7 @@ async fn main() {
 
     let snapshot = sign_revocation_list(
         RevocationList {
-            version: "aitp/0.1".into(),
+            version: aitp::core::PROTOCOL_VERSION.into(),
             issuer: issuer.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + 3600),

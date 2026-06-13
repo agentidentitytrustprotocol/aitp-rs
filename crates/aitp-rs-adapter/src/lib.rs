@@ -14,14 +14,14 @@
 #![forbid(unsafe_code)]
 
 use aitp_core::{base64url, jcs, Aid, AitpEnvelope, MessageType, Sender, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
-use aitp_delegation::{DelegationBuilder, DelegationEnvelope};
+use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
+use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
     Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
-use aitp_tct::{TctBuilder, TctEnvelope};
+use aitp_tct::{TctBuilder, TctClaims};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -140,6 +140,7 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "verify_envelope" => verify_envelope_op(state, id, params),
         "verify_manifest" => verify_manifest_op(state, id, params),
         "verify_tct" => verify_tct_op(state, id, params),
+        "verify_grant_voucher" => verify_grant_voucher_op(state, id, params),
         "verify_delegation_token" => verify_delegation_op(state, id, params),
         "verify_handshake_payload" => verify_handshake_payload_op(state, id, params),
 
@@ -190,6 +191,7 @@ fn init(id: &str) -> Value {
         "verify_envelope",
         "verify_manifest",
         "verify_tct",
+        "verify_grant_voucher",
         "verify_delegation_token",
         "verify_handshake_payload",
         // Tier B
@@ -343,6 +345,84 @@ fn withhold_pop_response_op(state: &mut AdapterState, id: &str, _params: Value) 
     }
 }
 
+// ── Shared helpers (v0.2 compact-JWS conventions) ───────────────────────
+
+/// Strip `*_claims` companion fields (the spec PLACEHOLDERS.md
+/// claims-sibling convention) from a JSON value, recursively. The
+/// companions are minting inputs, never wire bytes — runners and
+/// adapters MUST ignore them when present.
+fn strip_claims_companions(v: &mut Value) {
+    match v {
+        Value::Object(map) => {
+            map.retain(|k, _| !k.ends_with("_claims"));
+            for val in map.values_mut() {
+                strip_claims_companions(val);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr.iter_mut() {
+                strip_claims_companions(val);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Decode a compact JWS payload WITHOUT verification, as loose JSON.
+/// Used only to discover routing facts (`iss`, `aud`) that are then
+/// re-established cryptographically by the real verifier.
+fn peek_token_claims(token: &str) -> Result<Value, CryptoError> {
+    let bytes = jws::decode_payload_unverified(token)?;
+    serde_json::from_slice(&bytes).map_err(|e| CryptoError::JwsMalformed(e.to_string()))
+}
+
+fn peek_token_aid_claim(token: &str, claim: &str) -> Option<Aid> {
+    peek_token_claims(token)
+        .ok()?
+        .get(claim)?
+        .as_str()
+        .and_then(|s| Aid::parse(s).ok())
+}
+
+/// Resolve the TCT claims an op needs, accepting either a compact JWS
+/// `tct_token` string (decoded unverified — fine for PoP bookkeeping,
+/// where the binding is re-checked against the subject key) or an
+/// explicit claims object under `tct` / `tct_claims` /
+/// `tct_token_claims`.
+fn tct_claims_from_params(params: &Value) -> Result<TctClaims, String> {
+    if let Some(tok) = params.get("tct_token").and_then(|v| v.as_str()) {
+        let bytes = jws::decode_payload_unverified(tok).map_err(|e| e.to_string())?;
+        return serde_json::from_slice(&bytes).map_err(|e| format!("tct_token claims: {e}"));
+    }
+    for key in ["tct", "tct_claims", "tct_token_claims"] {
+        if let Some(v) = params.get(key) {
+            if let Some(tok) = v.as_str() {
+                let bytes = jws::decode_payload_unverified(tok).map_err(|e| e.to_string())?;
+                return serde_json::from_slice(&bytes).map_err(|e| format!("{key} claims: {e}"));
+            }
+            return serde_json::from_value(v.clone()).map_err(|e| format!("{key}: {e}"));
+        }
+    }
+    Err("missing 'tct_token' (compact JWS) or 'tct' claims".into())
+}
+
+/// Map a [`CryptoError`] surfaced during compact-JWS verification to
+/// the conformance wire code. `sig_invalid_code` names the
+/// artifact-specific code for a plain bad signature
+/// (TCT_SIGNATURE_INVALID, DELEGATION_INVALID_VOUCHER, ...).
+fn crypto_error_code(e: &CryptoError, sig_invalid_code: &'static str) -> String {
+    match e {
+        CryptoError::AlgMismatch(_) => "TOKEN_ALG_MISMATCH".to_string(),
+        CryptoError::TypMismatch { .. } => "TOKEN_TYP_MISMATCH".to_string(),
+        CryptoError::JwsMalformed(_) => "INVALID_ENVELOPE".to_string(),
+        CryptoError::SignatureInvalid => sig_invalid_code.to_string(),
+        CryptoError::KeyParseFailed(_) | CryptoError::AidNotEd25519(_) => {
+            "KEY_RESOLUTION_FAILED".to_string()
+        }
+        _ => "INVALID_SIGNATURE".to_string(),
+    }
+}
+
 // ── Tier A ──────────────────────────────────────────────────────────────
 
 fn verify_jcs(id: &str, params: Value) -> Value {
@@ -433,7 +513,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     // envelope verification. When the fixture supplies `tolerance_seconds`
     // we enforce it relative to the verifier's clock (or the fixture's
     // explicit `now`).
-    if envelope.version != "aitp/0.1" {
+    if envelope.version != aitp_core::PROTOCOL_VERSION {
         return err(
             id,
             "UNKNOWN_VERSION",
@@ -444,7 +524,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         let now_secs = params
             .get("now")
             .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| Timestamp::now().0);
+            .unwrap_or_else(|| state.now().0);
         let drift = (now_secs - envelope.timestamp.0).abs();
         if drift > tolerance {
             return err(
@@ -622,19 +702,24 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         return verify_handshake_dual_peer(id, peer_a, peer_b, state.now());
     }
 
-    let envelope = match serde_json::from_value::<AitpEnvelope>(
+    let mut envelope = match serde_json::from_value::<AitpEnvelope>(
         params.get("envelope").cloned().unwrap_or_default(),
     ) {
         Ok(e) => e,
         Err(e) => return err(id, "INVALID_ENVELOPE", &format!("envelope parse: {e}")),
     };
+    // The spec fixtures may carry `*_claims` companion fields inside
+    // the payload (claims-sibling minting convention). They are never
+    // wire bytes — strip before signature verification and typed
+    // payload parsing.
+    strip_claims_companions(&mut envelope.payload);
 
     // Conformance convention: when a fixture omits `self_aid`,
     // the verifier defaults to the receiver implied by the
     // message shape:
     //
     // - For MUTUAL_COMMIT / MUTUAL_COMMIT_ACK envelopes the
-    //   payload carries `tct_for_peer.tct` whose `audience` IS
+    //   payload carries a `tct` compact JWS whose `aud` claim IS
     //   the recipient (the TCT was minted by the sender for the
     //   receiver). Use that as the default self_aid so mh-007 /
     //   mh-008 (which omit self_aid) verify against the right
@@ -644,15 +729,15 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     //   id-* fixtures supply self_aid explicitly.
     let default_self_aid = envelope
         .payload
-        .get("tct_for_peer")
-        .and_then(|t| t.get("tct"))
-        .and_then(|t| t.get("audience"))
+        .get("tct")
         .and_then(|v| v.as_str())
-        .unwrap_or("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik");
+        .and_then(|tok| peek_token_aid_claim(tok, "aud"))
+        .map(|a| a.as_str().to_string())
+        .unwrap_or_else(|| "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik".to_string());
     let self_aid_str = params
         .get("self_aid")
         .and_then(|v| v.as_str())
-        .unwrap_or(default_self_aid);
+        .unwrap_or(&default_self_aid);
     let self_seed = match kat_seed_for_aid(self_aid_str) {
         Some(s) => s,
         None => {
@@ -694,8 +779,12 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         Err(e) => return err(id, "INTERNAL_ERROR", &format!("verifier manifest: {e}")),
     };
 
-    // Step 1: envelope signature.
-    if let Err(e) = (|| -> Result<(), String> {
+    // Envelope-signature closure. For HELLO / HELLO_ACK this runs
+    // AFTER the Manifest + identity bootstrap (RFC-AITP-0004 §5.1
+    // step 6 — the envelope is verified with the *now-trusted* key);
+    // for COMMIT / COMMIT_ACK the sender key was established earlier
+    // in the handshake, so it runs first.
+    let verify_envelope_sig = |envelope: &AitpEnvelope| -> Result<(), String> {
         let pk = AitpVerifyingKey::from_aid(&envelope.sender.agent_id)
             .map_err(|e| format!("aid: {e}"))?;
         let digest = aitp_core::envelope_signing_digest(
@@ -707,12 +796,19 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         .map_err(|e| format!("digest: {e}"))?;
         let sig = Signature::parse(&envelope.signature).map_err(|e| format!("sig: {e}"))?;
         pk.verify(&digest, &sig).map_err(|_| "verify".to_string())
-    })() {
-        return err(id, "INVALID_SIGNATURE", &format!("envelope: {e}"));
+    };
+    if matches!(
+        envelope.message_type,
+        MessageType::MutualCommit | MessageType::MutualCommitAck
+    ) {
+        if let Err(e) = verify_envelope_sig(&envelope) {
+            return err(id, "INVALID_SIGNATURE", &format!("envelope: {e}"));
+        }
     }
 
-    // Step 2: parse payload as MutualHello / MutualHelloAck and run
-    // bootstrap_verify_peer.
+    // Parse payload as MutualHello / MutualHelloAck and run
+    // bootstrap_verify_peer (steps 3–5); HELLO-family envelope
+    // signatures are verified after it succeeds (step 6).
     let resolver = NoOpResolver;
     let cfg = PeerConfig {
         signing_key: &self_key,
@@ -734,6 +830,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     };
     use aitp_handshake::state_machine::bootstrap_verify_peer;
 
+    let hello_family = matches!(
+        envelope.message_type,
+        MessageType::MutualHello | MessageType::MutualHelloAck
+    );
     let result = match envelope.message_type {
         MessageType::MutualHello => {
             let p: MutualHelloPayload = match serde_json::from_value(envelope.payload.clone()) {
@@ -816,66 +916,78 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         }
     };
 
+    if result.is_ok() && hello_family {
+        if let Err(e) = verify_envelope_sig(&envelope) {
+            return err(id, "INVALID_SIGNATURE", &format!("envelope: {e}"));
+        }
+    }
     match result {
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &handshake_error_code(&e), &e.to_string()),
     }
 }
 
-/// Dual-peer verification mode for `mh-success-001`: each peer
-/// has a `self_aid` and `inbound_tct`; the TCT was minted by the
-/// other peer with `audience == self_aid`. Verifies both TCTs
-/// against each peer's expected audience using their respective
-/// issuer (the OTHER peer's AID).
+/// Dual-peer verification mode for `mh-success-001`: each peer block
+/// carries `self_aid` plus the commit payload it `received_payload`
+/// from the other peer (`tct` compact JWS + optional `grant_voucher` +
+/// `pop_signature` + `pop_nonce_echo`) and the pop_nonce it sent in
+/// its own HELLO / HELLO_ACK. Runs the full stateless commit check
+/// for each side and succeeds only when both pass.
 fn verify_handshake_dual_peer(
     id: &str,
     peer_a: &Value,
     peer_b: &Value,
     now: aitp_core::Timestamp,
 ) -> Value {
-    fn verify_one(peer: &Value, now: aitp_core::Timestamp) -> Result<(), String> {
+    fn verify_one(
+        peer: &Value,
+        now: aitp_core::Timestamp,
+    ) -> Result<Vec<String>, aitp_handshake::HandshakeError> {
+        use aitp_handshake::HandshakeError;
         let self_aid_str = peer
             .get("self_aid")
             .and_then(|v| v.as_str())
-            .ok_or_else(|| "missing self_aid".to_string())?;
-        let self_aid = Aid::parse(self_aid_str).map_err(|e| format!("self_aid: {e}"))?;
-        let tct_value = peer
-            .get("inbound_tct")
+            .ok_or_else(|| HandshakeError::InvalidEnvelope("missing self_aid".into()))?;
+        let self_aid = Aid::parse(self_aid_str)
+            .map_err(|e| HandshakeError::InvalidEnvelope(format!("self_aid: {e}")))?;
+        let mut payload_value = peer
+            .get("received_payload")
             .cloned()
-            .ok_or_else(|| "missing inbound_tct".to_string())?;
-        let tct: aitp_tct::Tct =
-            serde_json::from_value(tct_value).map_err(|e| format!("inbound_tct parse: {e}"))?;
-        let issuer_pubkey =
-            AitpVerifyingKey::from_aid(&tct.issuer).map_err(|e| format!("issuer key: {e}"))?;
-        let ctx = aitp_tct::TctVerifyContext {
-            expected_audience: &self_aid,
-            issuer_pubkey: &issuer_pubkey,
+            .ok_or_else(|| HandshakeError::InvalidEnvelope("missing received_payload".into()))?;
+        strip_claims_companions(&mut payload_value);
+        let payload: aitp_handshake::payloads::MutualCommitAckPayload =
+            serde_json::from_value(payload_value).map_err(|e| {
+                HandshakeError::InvalidEnvelope(format!("received_payload parse: {e}"))
+            })?;
+        // The issuer is the OTHER peer — there is no envelope in this
+        // mode, so take the (unverified) `iss` claim and let
+        // verify_tct re-establish it cryptographically.
+        let issuer = peek_token_aid_claim(&payload.tct, "iss")
+            .ok_or_else(|| HandshakeError::InvalidEnvelope("tct iss claim missing".into()))?;
+        let expected_pop_nonce = peer
+            .get("self_pop_nonce_sent_in_hello")
+            .or_else(|| peer.get("self_pop_nonce_sent_in_hello_ack"))
+            .and_then(|v| v.as_str());
+        let verified = verify_commit_ack_stateless(
+            &payload,
+            &issuer,
+            &self_aid,
             now,
-            issuer_manifest_expires_at: None,
-            revocation_check: None,
-        };
-        aitp_tct::verify_tct(&tct, &ctx).map_err(|e| format!("verify_tct: {e}"))?;
-        Ok(())
+            None,
+            expected_pop_nonce,
+        )?;
+        Ok(verified.claims.grants)
     }
-    if let Err(e) = verify_one(peer_a, now) {
-        return err(id, "INVALID_ENVELOPE", &format!("peer_a: {e}"));
-    }
+    let grants = match verify_one(peer_a, now) {
+        Ok(g) => g,
+        Err(e) => return err(id, &handshake_error_code(&e), &format!("peer_a: {e}")),
+    };
     if let Err(e) = verify_one(peer_b, now) {
-        return err(id, "INVALID_ENVELOPE", &format!("peer_b: {e}"));
+        return err(id, &handshake_error_code(&e), &format!("peer_b: {e}"));
     }
     // Report the grants from peer_a's TCT — the expected.grants
     // field on mh-success-001 checks that. Both peers' grants
     // match by construction in the fixture.
-    let grants: Vec<String> = peer_a
-        .get("inbound_tct")
-        .and_then(|t| t.get("grants"))
-        .and_then(|v| v.as_array())
-        .map(|a| {
-            a.iter()
-                .filter_map(|v| v.as_str().map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
     json!({"id": id, "ok": true, "result": {"verified": true, "grants": grants}})
 }
 
@@ -895,15 +1007,23 @@ fn verify_commit_ack_stateless(
     now: aitp_core::Timestamp,
     issuer_offered_capabilities: Option<&[String]>,
     expected_pop_nonce: Option<&str>,
-) -> Result<(), aitp_handshake::HandshakeError> {
+) -> Result<aitp_tct::VerifiedTct, aitp_handshake::HandshakeError> {
     use aitp_handshake::HandshakeError;
     use aitp_tct::{verify_tct, TctVerifyContext};
-    let tct = &payload.tct_for_peer.tct;
 
-    // RFC-AITP-0005 §9: the TCT's `audience` MUST equal the
-    // receiving peer's AID. Check first because that's the most
-    // specific identity-level error the receiver can produce.
-    if &tct.audience != self_aid {
+    // Peek the (unverified) claims for the policy-level checks; the
+    // full cryptographic verification runs last so the policy errors
+    // surface with their specific codes even when the fixture's
+    // pinned clock makes time-based checks ambiguous.
+    let claims_bytes =
+        jws::decode_payload_unverified(&payload.tct).map_err(HandshakeError::Crypto)?;
+    let claims: TctClaims = serde_json::from_slice(&claims_bytes)
+        .map_err(|e| HandshakeError::Tct(aitp_tct::TctError::ClaimsMalformed(e.to_string())))?;
+
+    // RFC-AITP-0005 §2: the TCT's `aud` MUST equal the receiving
+    // peer's AID. Check first because that's the most specific
+    // identity-level error the receiver can produce.
+    if &claims.aud != self_aid {
         return Err(HandshakeError::Tct(aitp_tct::TctError::AudienceMismatch));
     }
 
@@ -912,7 +1032,7 @@ fn verify_commit_ack_stateless(
     // before the cryptographic checks because grant overflow is a
     // policy decision that doesn't depend on signature validity.
     if let Some(offered) = issuer_offered_capabilities {
-        for g in &tct.grants {
+        for g in &claims.grants {
             if !offered.iter().any(|o| o == g) {
                 return Err(HandshakeError::InsufficientGrants);
             }
@@ -921,10 +1041,9 @@ fn verify_commit_ack_stateless(
 
     // PoP signature (RFC-AITP-0004 §5.1 step 4): the sender
     // signed `sha256(base64url_decode(pop_nonce))` with their
-    // AID-derived key. The fixture supplies the original HELLO_ACK
-    // nonce as `self_pop_nonce_sent_in_hello_ack`; if absent we
-    // can't run the crypto check (stateless fixtures lack the
-    // HELLO_ACK context).
+    // AID-derived key. The fixture supplies the original HELLO /
+    // HELLO_ACK nonce; if absent we can't run the crypto check
+    // (stateless fixtures lack the prior-message context).
     if let Some(expected_nonce) = expected_pop_nonce {
         if payload.pop_nonce_echo != expected_nonce {
             return Err(HandshakeError::NonceMismatch);
@@ -935,11 +1054,15 @@ fn verify_commit_ack_stateless(
         let pop_input = sha2::Sha256::digest(&nonce_bytes);
         let sig = aitp_crypto::Signature::parse(&payload.pop_signature)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
-        // The PoP is signed by the TCT subject (the holder), not
-        // the sender. RFC-AITP-0005 §6.2.
-        let subject_pubkey =
-            AitpVerifyingKey::from_aid(&tct.subject).map_err(HandshakeError::Crypto)?;
-        subject_pubkey
+        // The round-2 PoP is signed by the **sender** of the commit
+        // message — the peer that issued the TCT carried alongside —
+        // over `sha256(base64url_decode(receiver_nonce))`
+        // (RFC-AITP-0004 §3). The sender's AID equals the carried
+        // TCT's `iss` claim, re-established cryptographically by
+        // `verify_tct` below.
+        let sender_pubkey =
+            AitpVerifyingKey::from_aid(sender_aid).map_err(HandshakeError::Crypto)?;
+        sender_pubkey
             .verify(&pop_input, &sig)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
     } else if payload.pop_nonce_echo.is_empty() {
@@ -949,16 +1072,15 @@ fn verify_commit_ack_stateless(
     // TCT signature + expiry last. mh-007 deliberately uses an
     // unexpired TCT (relative to the runner's pinned clock) and
     // depends on this check happening AFTER grant-overflow.
-    let issuer_pubkey = AitpVerifyingKey::from_aid(sender_aid).map_err(HandshakeError::Crypto)?;
     let ctx = TctVerifyContext {
         expected_audience: self_aid,
-        issuer_pubkey: &issuer_pubkey,
+        issuer: sender_aid,
         now,
         issuer_manifest_expires_at: None,
         revocation_check: None,
     };
-    verify_tct(tct, &ctx).map_err(HandshakeError::Tct)?;
-    Ok(())
+    let verified = verify_tct(&payload.tct, &ctx).map_err(HandshakeError::Tct)?;
+    Ok(verified)
 }
 
 struct NoOpResolver;
@@ -980,9 +1102,9 @@ fn handshake_error_code(e: &aitp_handshake::HandshakeError) -> String {
         NonceMismatch => "NONCE_MISMATCH".to_string(),
         PopVerificationFailed => "POP_VERIFICATION_FAILED".to_string(),
         State(_) => "INVALID_STATE".to_string(),
-        InsufficientGrants => "GRANT_OVERFLOW".to_string(),
+        InsufficientGrants | GrantOverflow => "GRANT_OVERFLOW".to_string(),
         PolicyViolation => "POLICY_VIOLATION".to_string(),
-        Crypto(_) => "INVALID_SIGNATURE".to_string(),
+        Crypto(c) => crypto_error_code(c, "INVALID_SIGNATURE"),
         Rng(_) => "INTERNAL_ERROR".to_string(),
         Canonicalization(_) => "INTERNAL_ERROR".to_string(),
         // HandshakeError is #[non_exhaustive]; future variants default
@@ -1034,21 +1156,49 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
 }
 
 fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    // Accept both `tct` (alpha.4 vintage) and `tct_token` (spec rc.4
-    // vintage). The two are equivalent.
-    let tct_value = params
-        .get("tct")
-        .cloned()
-        .or_else(|| params.get("tct_token").cloned())
-        .unwrap_or_default();
-    let tct = match serde_json::from_value::<aitp_tct::Tct>(tct_value) {
-        Ok(t) => t,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct parse: {e}")),
+    use std::cell::Cell;
+    // The v0.2 TCT is an opaque compact JWS string, supplied as
+    // `tct_token` (preferred) or `tct`.
+    let token = match params
+        .get("tct_token")
+        .or_else(|| params.get("tct"))
+        .and_then(|v| v.as_str())
+    {
+        Some(t) => t.to_string(),
+        None => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'tct_token' (compact JWS string)",
+            )
+        }
     };
-    // expected_audience defaults to the TCT's own audience (v0.1
-    // mandates audience == subject; the holder is verifying its own
-    // TCT). Fixtures may also supply `self_aid` as an explicit
-    // verifier name.
+    // Issuer pin: prefer the resolved issuer Manifest's AID
+    // (tct-005's `input.issuer_manifest`); otherwise an explicit
+    // `issuer` param; otherwise fall back to the token's own
+    // (unverified) `iss` claim — equivalent to the v0.1 posture of
+    // deriving the key from the token's issuer field, and safe
+    // because verify_tct re-establishes `iss` cryptographically.
+    let issuer = match params
+        .get("issuer_manifest")
+        .and_then(|m| m.get("aid"))
+        .or_else(|| params.get("issuer"))
+        .and_then(|v| v.as_str())
+        .map(Aid::parse)
+    {
+        Some(Ok(a)) => Some(a),
+        Some(Err(e)) => return err(id, "INVALID_REQUEST", &format!("issuer: {e}")),
+        None => peek_token_aid_claim(&token, "iss"),
+    };
+    let Some(issuer) = issuer else {
+        return err(
+            id,
+            "INVALID_ENVELOPE",
+            "could not determine the issuer AID (no issuer_manifest.aid and no decodable iss claim)",
+        );
+    };
+    // expected_audience: explicit param, `self_aid`, or the token's
+    // own (unverified) `aud` claim as a last resort.
     let expected_audience = match params
         .get("expected_audience")
         .or_else(|| params.get("self_aid"))
@@ -1056,12 +1206,17 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .map(Aid::parse)
     {
         Some(Ok(a)) => a,
-        Some(Err(e)) => return err(id, "INVALID_ENVELOPE", &format!("expected_audience: {e}")),
-        None => tct.audience.clone(),
-    };
-    let issuer_pubkey = match AitpVerifyingKey::from_aid(&tct.issuer) {
-        Ok(p) => p,
-        Err(e) => return err(id, "KEY_RESOLUTION_FAILED", &e.to_string()),
+        Some(Err(e)) => return err(id, "INVALID_REQUEST", &format!("expected_audience: {e}")),
+        None => match peek_token_aid_claim(&token, "aud") {
+            Some(a) => a,
+            None => {
+                return err(
+                    id,
+                    "INVALID_REQUEST",
+                    "missing 'expected_audience' and no decodable aud claim",
+                )
+            }
+        },
     };
     let now = params
         .get("now")
@@ -1070,6 +1225,10 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or_else(|| state.now());
     // Honor a fixture-supplied issuer_revocation_list in addition to
     // any JTIs the adapter has been told to revoke via Tier-D inject.
+    // tct-004 supplies a signed snapshot
+    // (`issuer_revocation_list.snapshot`), which we verify against
+    // its declared issuer before honoring; older callers may supply
+    // a bare `revoked_jtis` array.
     let mut revoked_jtis = state.revoked_jtis.clone();
     if let Some(list) = params.get("issuer_revocation_list") {
         if let Some(jtis) = list.get("revoked_jtis").and_then(|v| v.as_array()) {
@@ -1079,10 +1238,33 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
                 }
             }
         }
+        if let Some(snapshot) = list.get("snapshot") {
+            if let Ok(env) =
+                serde_json::from_value::<aitp_tct::RevocationListEnvelope>(snapshot.clone())
+            {
+                let snapshot_issuer = env.revocation_list.issuer.clone();
+                let rev_ctx = aitp_tct::VerifyRevocationListContext {
+                    expected_issuer: &snapshot_issuer,
+                    now,
+                };
+                if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
+                    for entry in &env.revocation_list.entries {
+                        revoked_jtis.insert(entry.jti.to_string());
+                    }
+                }
+            }
+        }
     }
-    let check = move |jti: &Uuid| revoked_jtis.contains(&jti.to_string());
-    // Honor the spec's `issuer_manifest.expires_at` field (RFC-AITP-0005
-    // §9.4). tct-005 (post-spec-sync) supplies this via
+    // rev-004 instrumentation: record whether the revocation source
+    // was consulted at all, to pin the RFC-AITP-0008 §3.3 ordering
+    // (signature verification MUST precede any revocation lookup).
+    let lookup_called = Cell::new(false);
+    let check = |jti: &Uuid| {
+        lookup_called.set(true);
+        revoked_jtis.contains(&jti.to_string())
+    };
+    // Honor the spec's `issuer_manifest.expires_at` field
+    // (RFC-AITP-0005 §10.4). tct-005 supplies this via
     // `input.issuer_manifest`; older fixtures may supply
     // `input.issuer_manifest_expires_at` as a bare integer.
     let issuer_manifest_expires_at: Option<Timestamp> = params
@@ -1093,13 +1275,26 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .map(Timestamp);
     let ctx = aitp_tct::TctVerifyContext {
         expected_audience: &expected_audience,
-        issuer_pubkey: &issuer_pubkey,
+        issuer: &issuer,
         now,
         issuer_manifest_expires_at,
         revocation_check: Some(&check),
     };
-    match aitp_tct::verify_tct(&tct, &ctx) {
-        Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
+    let instrumented = params
+        .get("revocation_instrumented")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    match aitp_tct::verify_tct(&token, &ctx) {
+        Ok(v) => {
+            let mut result = json!({"verified": true, "grants": v.claims.grants});
+            if instrumented {
+                result["side_effects"] = json!({
+                    "revocation_lookup_called": lookup_called.get(),
+                    "network_fetch_called": false,
+                });
+            }
+            json!({"id": id, "ok": true, "result": result})
+        }
         Err(e) => err(id, &tct_error_code(&e), &e.to_string()),
     }
 }
@@ -1109,6 +1304,10 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
     match e {
         VersionUnknown => "UNKNOWN_VERSION",
         SignatureInvalid => "TCT_SIGNATURE_INVALID",
+        // The issuer pin failed: the token's `iss` is not the peer
+        // whose key it verifies under — same trust failure class as
+        // a bad signature.
+        IssuerMismatch => "TCT_SIGNATURE_INVALID",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
@@ -1116,32 +1315,130 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         EmptyGrants => "INVALID_ENVELOPE",
         GrantWhitespace(_) => "INVALID_ENVELOPE",
         CnfMalformed => "INVALID_ENVELOPE",
+        ClaimsMalformed(_) => "INVALID_ENVELOPE",
         MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
         PopNonceMismatch | PopFailed | PopChallengeExpired | PopJtiMismatch => {
             "POP_RESPONSE_INVALID"
         }
-        Crypto(_) => "INVALID_SIGNATURE",
+        Crypto(c) => return crypto_error_code(c, "TCT_SIGNATURE_INVALID"),
         _ => "INTERNAL_ERROR",
     }
     .to_string()
 }
 
+/// `verify_grant_voucher` — standalone grant-voucher verification
+/// (RFC-AITP-0005 §8 / RFC-AITP-0006 §4 step 3): strict compact-JWS
+/// parse, `typ aitp-grant+jwt`, AID-pinned `alg`, signature under the
+/// issuer's OWN key (`verifier_aid` — only the issuer ever verifies a
+/// voucher), claims checks. Voucher expiry surfaces as
+/// DELEGATION_EXPIRED — the voucher is only ever consumed in
+/// delegation context (vch-002).
+fn verify_grant_voucher_op(state: &AdapterState, id: &str, params: Value) -> Value {
+    let token = match params
+        .get("voucher_token")
+        .or_else(|| params.get("voucher"))
+        .and_then(|v| v.as_str())
+    {
+        Some(t) => t,
+        None => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'voucher_token' (compact JWS string)",
+            )
+        }
+    };
+    let verifier_aid = match params
+        .get("verifier_aid")
+        .or_else(|| params.get("self_aid"))
+        .and_then(|v| v.as_str())
+        .map(Aid::parse)
+    {
+        Some(Ok(a)) => a,
+        Some(Err(e)) => return err(id, "INVALID_REQUEST", &format!("verifier_aid: {e}")),
+        None => return err(id, "INVALID_REQUEST", "missing 'verifier_aid'"),
+    };
+    let now = params
+        .get("now")
+        .and_then(|v| v.as_i64())
+        .map(Timestamp)
+        .unwrap_or_else(|| state.now());
+    let claims = match aitp_tct::verify_voucher(token, &verifier_aid) {
+        Ok(c) => c,
+        Err(e) => return err(id, &voucher_error_code(&e), &e.to_string()),
+    };
+    // Expiry is contextual (delegation verification owns it) — apply
+    // it here so the standalone op pins the RFC-AITP-0006 §4 step 5
+    // mapping.
+    if claims.exp.is_in_the_past(now) {
+        return err(id, "DELEGATION_EXPIRED", "grant voucher is expired");
+    }
+    json!({"id": id, "ok": true, "result": {"verified": true, "grants": claims.grants}})
+}
+
+/// Error mapping for standalone voucher verification. A voucher that
+/// fails its signature / issuer pin is an invalid voucher
+/// (DELEGATION_INVALID_VOUCHER); JWS-layer header failures keep their
+/// token-generic codes.
+fn voucher_error_code(e: &aitp_tct::TctError) -> String {
+    use aitp_tct::TctError::*;
+    match e {
+        VersionUnknown => "UNKNOWN_VERSION".to_string(),
+        IssuerMismatch => "DELEGATION_INVALID_VOUCHER".to_string(),
+        EmptyGrants | ClaimsMalformed(_) | MissingField(_) => "INVALID_ENVELOPE".to_string(),
+        Crypto(c) => crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
+        other => tct_error_code(other),
+    }
+}
+
 fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value {
     // Accept both `delegation` and `delegation_token` field names per
-    // the spec PLACEHOLDERS convention.
+    // the spec PLACEHOLDERS convention. The v0.2 token is an opaque
+    // compact JWS string.
     let token_value = params
-        .get("delegation")
+        .get("delegation_token")
+        .or_else(|| params.get("delegation"))
         .cloned()
-        .or_else(|| params.get("delegation_token").cloned())
         .unwrap_or_default();
-    let token = match serde_json::from_value::<aitp_delegation::DelegationToken>(token_value) {
-        Ok(t) => t,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("delegation parse: {e}")),
+    let token = match &token_value {
+        Value::String(s) => s.clone(),
+        // del-004 stays frozen in the v0.1 object wire shape so v0.1
+        // runners keep coverage. A v0.2 implementation rejects any
+        // chain-bearing delegation structurally, before signature
+        // work — honor that here without parsing the legacy shape.
+        Value::Object(map) => {
+            let has_chain = map
+                .get("chain")
+                .and_then(|v| v.as_array())
+                .map(|a| !a.is_empty())
+                .unwrap_or(false);
+            if has_chain {
+                return err(
+                    id,
+                    "DELEGATION_MULTIHOP_NOT_SUPPORTED",
+                    "v0.1-shape delegation token carries a non-empty chain; \
+                     structural rejection (RFC-AITP-0006 §4)",
+                );
+            }
+            return err(
+                id,
+                "INVALID_ENVELOPE",
+                "v0.2 delegation token must be a compact JWS string",
+            );
+        }
+        _ => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'delegation_token' (compact JWS string)",
+            )
+        }
     };
-    // Spec fixtures carry `verifier_aid` OR they carry `audience`/`self_aid`
-    // — both name the receiver. Default to `audience` derived from the
-    // token if neither is supplied.
+    // Spec fixtures carry `verifier_aid` OR they carry `self_aid` /
+    // `audience` — all name the receiver (A, the original grantor).
+    // Default to the token's own (unverified) `aud` claim if none is
+    // supplied; verify_delegation re-establishes it.
     let verifier_aid = match params
         .get("verifier_aid")
         .or_else(|| params.get("self_aid"))
@@ -1150,8 +1447,17 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         .map(Aid::parse)
     {
         Some(Ok(a)) => a,
-        Some(Err(e)) => return err(id, "INVALID_ENVELOPE", &format!("verifier_aid: {e}")),
-        None => token.audience.clone(),
+        Some(Err(e)) => return err(id, "INVALID_REQUEST", &format!("verifier_aid: {e}")),
+        None => match peek_token_aid_claim(&token, "aud") {
+            Some(a) => a,
+            None => {
+                return err(
+                    id,
+                    "INVALID_REQUEST",
+                    "missing 'verifier_aid' and no decodable aud claim",
+                )
+            }
+        },
     };
     let now = params
         .get("now")
@@ -1161,13 +1467,12 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
 
     // RFC-AITP-0011 §6 + spec PLACEHOLDERS.md: multi-hop fixtures
     // may carry a `revocation_snapshots` array of {issuer_aid,
-    // snapshot} records. The runner verifies each snapshot's
-    // signature against the issuer's AID-derived key and flattens
-    // all revoked JTIs into a single deny list. The verifier
-    // consults this list per-hop on `source_tct_jti`. Plain UUIDs
-    // are unique across issuers so a flat set is safe even though
-    // the spec models per-issuer scoping.
-    let mut revoked_jtis: HashSet<Uuid> = HashSet::new();
+    // snapshot} records. Verify each snapshot's signature against
+    // its declared issuer and build per-issuer deny lists; the
+    // verifier consults the right issuer's list per hop
+    // (`hop_revocation_check`) and the verifier's OWN list for
+    // `voucher.src_jti` (`revocation_check`).
+    let mut deny_lists: HashMap<Aid, HashSet<Uuid>> = HashMap::new();
     if let Some(arr) = params
         .get("revocation_snapshots")
         .and_then(|v| v.as_array())
@@ -1200,36 +1505,58 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
             if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_err() {
                 continue;
             }
+            let set = deny_lists.entry(issuer_aid).or_default();
             for entry in &env.revocation_list.entries {
-                revoked_jtis.insert(entry.jti);
+                set.insert(entry.jti);
             }
         }
     }
-    let revocation_check_closure = |jti: &Uuid| revoked_jtis.contains(jti);
-    let revocation_check: Option<&dyn Fn(&Uuid) -> bool> = if revoked_jtis.is_empty() {
+    // The verifier's own deny list: Tier-D injected JTIs plus any
+    // snapshot published by the verifier itself.
+    let own_denied: HashSet<Uuid> = state
+        .revoked_jtis
+        .iter()
+        .filter_map(|s| Uuid::parse_str(s).ok())
+        .chain(deny_lists.get(&verifier_aid).into_iter().flatten().copied())
+        .collect();
+    let revocation_check_closure = |jti: &Uuid| own_denied.contains(jti);
+    let hop_revocation_closure =
+        |issuer: &Aid, jti: &Uuid| deny_lists.get(issuer).is_some_and(|s| s.contains(jti));
+    let revocation_check: Option<&dyn Fn(&Uuid) -> bool> = if own_denied.is_empty() {
         None
     } else {
         Some(&revocation_check_closure)
     };
+    let hop_revocation_check: Option<aitp_delegation::verifier::HopRevocationCheck<'_>> =
+        if deny_lists.is_empty() {
+            None
+        } else {
+            Some(&hop_revocation_closure)
+        };
 
-    // Multi-hop opt-in. Per RFC-AITP-0006 §4.4 the v0.1 default
-    // MUST reject any non-empty chain; the runner enables RFC-0011
+    // Multi-hop opt-in. Per RFC-AITP-0006 §4 the v0.2 default MUST
+    // reject any chain-bearing token; the runner enables RFC-0011
     // semantics by sending `set_features` with
-    // `experimental-multihop-delegation`. Without that feature
-    // we use the strict v0.1 cap (`V0_1_STRICT_MAX_HOPS = 0`).
+    // `experimental-multihop-delegation`. Without that feature we
+    // use the strict single-hop cap (max_hops = 0).
     let max_hops = if state.has_feature("experimental-multihop-delegation") {
         aitp_delegation::DEFAULT_MAX_HOPS
     } else {
-        aitp_delegation::V0_1_STRICT_MAX_HOPS
+        0
     };
     let ctx = aitp_delegation::VerifyDelegationContext {
-        verifier_aid: &verifier_aid,
+        verifier: &verifier_aid,
         now,
-        revocation_check,
         max_hops,
+        revocation_check,
+        hop_revocation_check,
     };
     match aitp_delegation::verify_delegation(&token, &ctx) {
-        Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
+        Ok(v) => json!({
+            "id": id,
+            "ok": true,
+            "result": {"verified": true, "grants": v.claims.scope}
+        }),
         Err(e) => err(id, &delegation_error_code(&e), &e.to_string()),
     }
 }
@@ -1240,19 +1567,24 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         Expired => "DELEGATION_EXPIRED",
         InvalidSignature => "DELEGATION_INVALID_SIGNATURE",
         ScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
-        InvalidGrantProof => "DELEGATION_INVALID_GRANT_PROOF",
+        InvalidVoucher => "DELEGATION_INVALID_VOUCHER",
         SourceTctRevoked => "DELEGATION_SOURCE_TCT_REVOKED",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
         HopLimitExceeded => "DELEGATION_HOP_LIMIT_EXCEEDED",
         ChainHashMismatch => "DELEGATION_CHAIN_HASH_MISMATCH",
-        // RFC-AITP-0006 §4.4 step 10: self-delegation maps to
+        VersionUnknown => "UNKNOWN_VERSION",
+        // RFC-AITP-0006 §4 step 10: self-delegation maps to
         // DELEGATION_INVALID_SIGNATURE (same code as a bad outer sig).
         SelfDelegation => "DELEGATION_INVALID_SIGNATURE",
-        EmptyScope | CnfMalformed | MissingField(_) => "INVALID_ENVELOPE",
+        EmptyScope | CnfMalformed | MissingField(_) | ClaimsMalformed(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
-        Crypto(_) => "INVALID_SIGNATURE",
+        // Crypto errors surface from JWS-layer verification. A plain
+        // bad signature here can only come from the embedded voucher
+        // (the outer token's bad signature maps to InvalidSignature
+        // in aitp-delegation) — hence DELEGATION_INVALID_VOUCHER.
+        Crypto(c) => return crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1482,20 +1814,40 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
 
-    let tct = match TctBuilder::new(key)
+    let mut builder = TctBuilder::new(key)
         .subject(subject)
         .audience(audience)
         .grants(grants)
         .ttl_secs(ttl)
         .subject_pubkey(subject_pubkey)
-        .issued_at(issued_at)
-        .build()
+        .issued_at(issued_at);
+    if let Some(jti) = params
+        .get("jti")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
     {
+        builder = builder.jti(jti);
+    }
+    if params
+        .get("without_voucher")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
+    {
+        builder = builder.without_voucher();
+    }
+    let issued = match builder.build() {
         Ok(t) => t,
         Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
     };
-    let env = TctEnvelope { tct };
-    json!({"id": id, "ok": true, "result": {"tct_envelope": env}})
+    json!({
+        "id": id,
+        "ok": true,
+        "result": {
+            "tct_token": issued.token,
+            "tct_claims": issued.claims,
+            "grant_voucher": issued.voucher,
+        }
+    })
 }
 
 fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
@@ -1508,12 +1860,6 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
         None => return err(id, "INVALID_REQUEST", &format!("unknown keypair {handle}")),
     };
     let delegator = &delegator;
-    let source_tct = match serde_json::from_value::<aitp_tct::Tct>(
-        params.get("source_tct").cloned().unwrap_or_default(),
-    ) {
-        Ok(t) => t,
-        Err(e) => return err(id, "INVALID_REQUEST", &format!("source_tct: {e}")),
-    };
     let delegatee = match params
         .get("delegatee")
         .and_then(|v| v.as_str())
@@ -1521,26 +1867,6 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
     {
         Some(Ok(a)) => a,
         _ => return err(id, "INVALID_REQUEST", "missing/invalid delegatee"),
-    };
-    let pk_b64 = match params.get("delegatee_public_key").and_then(|v| v.as_str()) {
-        Some(s) => s,
-        None => return err(id, "INVALID_REQUEST", "missing delegatee_public_key"),
-    };
-    let pk_bytes = match base64url::decode_strict(pk_b64) {
-        Ok(b) if b.len() == 32 => b,
-        _ => {
-            return err(
-                id,
-                "INVALID_REQUEST",
-                "delegatee_public_key not 32-byte b64url",
-            )
-        }
-    };
-    let mut buf = [0u8; 32];
-    buf.copy_from_slice(&pk_bytes);
-    let delegatee_pk = match AitpVerifyingKey::from_bytes(&buf) {
-        Ok(p) => p,
-        Err(e) => return err(id, "INVALID_REQUEST", &format!("delegatee_public_key: {e}")),
     };
     let scope: Vec<String> = params
         .get("scope")
@@ -1556,19 +1882,48 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
         .and_then(|v| v.as_i64())
         .unwrap_or(1800);
 
-    let token = match DelegationBuilder::new(delegator, &source_tct)
+    // Single-hop: the delegator presents the grant voucher its TCT
+    // issuer minted for it (`voucher` / `grant_voucher`, a compact
+    // JWS). Multi-hop extension: `prior_token` is the delegation the
+    // delegator received and is extending (requires
+    // experimental-multihop-delegation semantics on verification).
+    let builder = if let Some(voucher) = params
+        .get("voucher")
+        .or_else(|| params.get("grant_voucher"))
+        .or_else(|| params.get("voucher_token"))
+        .and_then(|v| v.as_str())
+    {
+        DelegationBuilder::new(delegator, voucher)
+    } else if let Some(prior) = params.get("prior_token").and_then(|v| v.as_str()) {
+        DelegationBuilder::extending(delegator, prior)
+    } else {
+        return err(
+            id,
+            "INVALID_REQUEST",
+            "missing 'voucher' (single-hop) or 'prior_token' (multi-hop extension)",
+        );
+    };
+    let mut builder = match builder {
+        Ok(b) => b,
+        Err(e) => return err(id, &delegation_error_code(&e), &e.to_string()),
+    };
+    builder = builder
         .delegatee(delegatee)
-        .delegatee_pubkey(delegatee_pk)
         .scope(scope)
         .ttl_secs(ttl)
-        .now(state.now())
-        .build()
+        .now(state.now());
+    if let Some(jti) = params
+        .get("jti")
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::parse_str(s).ok())
     {
+        builder = builder.jti(jti);
+    }
+    let token = match builder.build() {
         Ok(t) => t,
-        Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
+        Err(e) => return err(id, &delegation_error_code(&e), &e.to_string()),
     };
-    let env = DelegationEnvelope { delegation: token };
-    json!({"id": id, "ok": true, "result": {"delegation_envelope": env}})
+    json!({"id": id, "ok": true, "result": {"delegation_token": token}})
 }
 
 fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
@@ -1605,7 +1960,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
         };
     let sig = key.sign(&digest);
     let env = AitpEnvelope {
-        version: "aitp/0.1".into(),
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id,
         timestamp,
@@ -1903,7 +2258,7 @@ fn initiator_step(
                 "ok": true,
                 "result": {
                     "completed": true,
-                    "held_tct": held,
+                    "held_tct": completed_handshake_json(&held),
                 }
             })
         }
@@ -2062,8 +2417,19 @@ fn responder_step(
         "result": {
             "next_envelope": ack_env,
             "completed": true,
-            "held_tct": held_tct,
+            "held_tct": completed_handshake_json(&held_tct),
         }
+    })
+}
+
+/// JSON view of a [`aitp_handshake::CompletedHandshake`]: the verbatim
+/// peer-issued TCT token, its trusted claims, and the companion grant
+/// voucher (verbatim) when the peer's policy allowed delegation.
+fn completed_handshake_json(c: &aitp_handshake::CompletedHandshake) -> Value {
+    json!({
+        "tct_token": c.tct.token,
+        "tct_claims": c.tct.claims,
+        "grant_voucher": c.grant_voucher,
     })
 }
 
@@ -2079,7 +2445,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
         aitp_core::envelope_signing_digest(&mid, ts, key.aid(), &payload_value).expect("digest");
     let sig = key.sign(&digest);
     AitpEnvelope {
-        version: "aitp/0.1".into(),
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id: mid,
         timestamp: ts,
@@ -2171,17 +2537,14 @@ fn revoke_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
 /// challenge in adapter state so a later `verify_pop_response` can
 /// look it up.
 fn issue_pop_challenge_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
-    // tct-006 envelope-wrapped mode: the fixture supplies the TCT
-    // as a top-level `tct_token` (merged into step params by the
-    // runner) and the nonce inside the step's `envelope.payload`.
-    // Accept either explicit `tct` (rich CLI mode) or
-    // `tct_token` (fixture mode).
-    let tct_source = params
-        .get("tct")
-        .cloned()
-        .or_else(|| params.get("tct_token").cloned())
-        .unwrap_or_default();
-    let tct: aitp_tct::Tct = match serde_json::from_value(tct_source) {
+    // tct-006 envelope-wrapped mode: the fixture supplies the TCT as
+    // a top-level `tct_token` compact JWS (merged into step params by
+    // the runner) and the nonce inside the step's `envelope.payload`.
+    // Accept either `tct_token` (fixture mode) or explicit `tct`
+    // claims (rich CLI mode). The challenge only needs the JTI, so an
+    // unverified decode is fine — the PoP itself is what proves key
+    // possession.
+    let tct = match tct_claims_from_params(&params) {
         Ok(t) => t,
         Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct parse: {e}")),
     };
@@ -2245,12 +2608,11 @@ fn produce_pop_response_op(state: &mut AdapterState, id: &str, params: Value) ->
         let pop_sig = payload.get("pop_signature").and_then(|v| v.as_str());
         if let (Some(echo), Some(sig)) = (nonce_echo, pop_sig) {
             // Find the TCT for the holder pubkey lookup.
-            let tct_value = params.get("tct_token").cloned().unwrap_or_default();
-            let tct: aitp_tct::Tct = match serde_json::from_value(tct_value) {
+            let tct = match tct_claims_from_params(&params) {
                 Ok(t) => t,
                 Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct_token parse: {e}")),
             };
-            let holder_pubkey = match AitpVerifyingKey::from_aid(&tct.subject) {
+            let holder_pubkey = match AitpVerifyingKey::from_aid(&tct.sub) {
                 Ok(p) => p,
                 Err(e) => return err(id, "INVALID_REQUEST", &e.to_string()),
             };
@@ -2349,8 +2711,8 @@ fn verify_pop_response_op(state: &AdapterState, id: &str, params: Value) -> Valu
     // (or, if `tct_token` is supplied at the sequence level,
     // confirm at least one challenge was issued).
     if params.get("response").is_none() {
-        let stashed = if let Some(tct_value) = params.get("tct_token") {
-            if let Ok(tct) = serde_json::from_value::<aitp_tct::Tct>(tct_value.clone()) {
+        let stashed = if params.get("tct_token").is_some() {
+            if let Ok(tct) = tct_claims_from_params(&params) {
                 state.pop_challenges.contains_key(&tct.jti.to_string())
             } else {
                 false
@@ -2372,11 +2734,10 @@ fn verify_pop_response_op(state: &AdapterState, id: &str, params: Value) -> Valu
             Ok(r) => r,
             Err(e) => return err(id, "INVALID_ENVELOPE", &format!("response parse: {e}")),
         };
-    let tct: aitp_tct::Tct =
-        match serde_json::from_value(params.get("tct").cloned().unwrap_or_default()) {
-            Ok(t) => t,
-            Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct parse: {e}")),
-        };
+    let tct = match tct_claims_from_params(&params) {
+        Ok(t) => t,
+        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("tct parse: {e}")),
+    };
     let challenge: aitp_tct::PopChallenge = if let Some(v) = params.get("challenge") {
         match serde_json::from_value(v.clone()) {
             Ok(c) => c,
@@ -2502,11 +2863,16 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
             Some(Ok(a)) => a,
             _ => return err(id, "INVALID_REQUEST", "participant entry missing valid aid"),
         };
-        let tct = match serde_json::from_value::<aitp_tct::Tct>(
-            entry.get("tct").cloned().unwrap_or_default(),
-        ) {
-            Ok(t) => t,
-            Err(e) => return err(id, "INVALID_REQUEST", &format!("participant tct: {e}")),
+        // v0.2: the participant's TCT is an opaque compact JWS string.
+        let tct = match entry.get("tct").and_then(|v| v.as_str()) {
+            Some(t) => t.to_string(),
+            None => {
+                return err(
+                    id,
+                    "INVALID_REQUEST",
+                    "participant entry missing 'tct' (compact JWS string)",
+                )
+            }
         };
         builder = builder.participant(aid, tct);
     }
@@ -2538,7 +2904,7 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     //
     // Reassemble into the internal shape (signature inside body)
     // before deserialization.
-    let bundle_value = if let Some(inner) = params.get("session_bundle") {
+    let mut bundle_value = if let Some(inner) = params.get("session_bundle") {
         // Detect envelope form: outer object has exactly the
         // "session_bundle" + "signature" pair.
         if let Some(map) = inner.as_object() {
@@ -2569,6 +2935,9 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         return err(id, "INVALID_REQUEST", "missing 'session_bundle'");
     };
+    // Participant entries may carry `tct_claims` companions (the
+    // claims-sibling minting convention); they are never wire bytes.
+    strip_claims_companions(&mut bundle_value);
     let bundle: aitp_session_bundle::SessionTrustBundle = match serde_json::from_value(bundle_value)
     {
         Ok(b) => b,
@@ -2700,7 +3069,7 @@ mod p256_readiness_tests {
             aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
                 .unwrap();
         let envelope = AitpEnvelope {
-            version: "aitp/0.1".into(),
+            version: aitp_core::PROTOCOL_VERSION.into(),
             message_type: MessageType::MutualHello,
             message_id,
             timestamp,
@@ -2836,10 +3205,55 @@ mod error_code_mapping_tests {
             delegation_error_code(&DelegationError::MultihopNotSupported),
             "DELEGATION_MULTIHOP_NOT_SUPPORTED"
         );
+        assert_eq!(
+            delegation_error_code(&DelegationError::InvalidVoucher),
+            "DELEGATION_INVALID_VOUCHER"
+        );
         // Non-obvious: self-delegation reuses the bad-outer-signature code.
         assert_eq!(
             delegation_error_code(&DelegationError::SelfDelegation),
             "DELEGATION_INVALID_SIGNATURE"
+        );
+        // Non-obvious: a plain bad JWS signature inside delegation
+        // verification can only come from the embedded voucher (the
+        // outer token maps to InvalidSignature in aitp-delegation).
+        assert_eq!(
+            delegation_error_code(&DelegationError::Crypto(
+                aitp_crypto::CryptoError::SignatureInvalid
+            )),
+            "DELEGATION_INVALID_VOUCHER"
+        );
+    }
+
+    #[test]
+    fn jws_header_codes() {
+        // The compact-JWS header failures keep token-generic codes
+        // across every artifact kind (RFC-AITP-0001 §5.4.5).
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(aitp_crypto::CryptoError::AlgMismatch(
+                "none".into()
+            ))),
+            "TOKEN_ALG_MISMATCH"
+        );
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(aitp_crypto::CryptoError::TypMismatch {
+                expected: "aitp-tct+jwt".into(),
+                got: "aitp-grant+jwt".into(),
+            })),
+            "TOKEN_TYP_MISMATCH"
+        );
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(aitp_crypto::CryptoError::JwsMalformed(
+                "two segments".into()
+            ))),
+            "INVALID_ENVELOPE"
+        );
+        // A bad TCT signature surfaces through the Crypto variant.
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(
+                aitp_crypto::CryptoError::SignatureInvalid
+            )),
+            "TCT_SIGNATURE_INVALID"
         );
     }
 

@@ -38,7 +38,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AitpEnvelope {
-    /// Protocol version. MUST be `"aitp/0.1"`.
+    /// Protocol version. MUST be `"aitp/0.2"`.
     pub version: String,
 
     /// Wire-level message type.
@@ -170,7 +170,7 @@ mod tests {
 
     fn sample_envelope(mt: MessageType) -> AitpEnvelope {
         AitpEnvelope {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             message_type: mt,
             message_id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             timestamp: Timestamp(1_711_900_000),
@@ -213,7 +213,7 @@ mod tests {
     #[test]
     fn rejects_unknown_sender_field() {
         let bad = json!({
-            "version": "aitp/0.1",
+            "version": "aitp/0.2",
             "message_type": "tct",
             "message_id": "550e8400-e29b-41d4-a716-446655440000",
             "timestamp": 1711900000,

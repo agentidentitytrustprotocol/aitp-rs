@@ -20,8 +20,7 @@ use crate::TctError;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RevocationList {
-    /// MUST be `"aitp/0.1"`. Required as of spec rc.4 (the rc.2 KAT
-    /// body that omitted this field has been re-minted).
+    /// MUST be `"aitp/0.2"`.
     pub version: String,
     /// The issuing peer's AID. MUST equal the `issuer` of every TCT
     /// covered by `entries`.
@@ -49,10 +48,10 @@ pub struct RevocationEntry {
 
 /// On-wire envelope: `{"revocation_list": {...}, "signature": "..."}`.
 ///
-/// Per RFC-AITP-0008 §1.5 (rc.4), both `revocation_list` and
-/// `signature` are REQUIRED. `signature` is base64url over the JCS
-/// canonical bytes of `{"revocation_list": {...}}` — the wrapper
-/// minus the signature field — per the spec rc.4 KAT pattern.
+/// Per RFC-AITP-0008 §1.5, both `revocation_list` and `signature` are
+/// REQUIRED. `signature` is base64url over
+/// `sha256(JCS({"revocation_list": {...}}))` — the envelope minus the
+/// signature field — per the v0.2 `kat-revocation-001` vector.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RevocationListEnvelope {
@@ -63,25 +62,27 @@ pub struct RevocationListEnvelope {
     pub signature: String,
 }
 
-/// Internal signing view: the inner [`RevocationList`] body itself,
-/// **without** the `{"revocation_list": …}` wrapper key. The spec
-/// (rc.4 `kat-revocation-001` re-mint) signs the inner body directly
-/// — mirroring the multi-hop and session-bundle conventions where
-/// the wrapper key is HTTP-transport sugar but is not part of the
-/// canonical signing input.
-type RevocationListSigningView<'a> = &'a RevocationList;
+/// Signing view: the wrapped `{"revocation_list": {...}}` form (the
+/// envelope minus `signature`), per the v0.2 `kat-revocation-001`
+/// vector.
+#[derive(Serialize)]
+struct RevocationListSigningView<'a> {
+    revocation_list: &'a RevocationList,
+}
 
 /// Sign a [`RevocationList`] body with the issuer's signing key.
 ///
 /// Returns the on-wire [`RevocationListEnvelope`] with `signature`
 /// populated. The signing input is `sha256(JCS({"revocation_list": {...}}))`
-/// per spec rc.4 `kat-revocation-001`.
+/// per the v0.2 `kat-revocation-001` vector.
 pub fn sign_revocation_list(
     body: RevocationList,
     issuer_key: &AitpSigningKey,
 ) -> Result<RevocationListEnvelope, TctError> {
-    let view: RevocationListSigningView = &body;
-    let canonical = jcs::canonicalize_serializable(view)
+    let view = RevocationListSigningView {
+        revocation_list: &body,
+    };
+    let canonical = jcs::canonicalize_serializable(&view)
         .map_err(|e| TctError::Canonicalization(e.to_string()))?;
     let digest = Sha256::digest(&canonical);
     let sig = issuer_key.sign(&digest);
@@ -103,7 +104,7 @@ pub fn verify_revocation_list(
     envelope: &RevocationListEnvelope,
     ctx: &VerifyRevocationListContext<'_>,
 ) -> Result<(), TctError> {
-    if envelope.revocation_list.version != "aitp/0.1" {
+    if envelope.revocation_list.version != aitp_core::PROTOCOL_VERSION {
         return Err(TctError::VersionUnknown);
     }
     if envelope.revocation_list.expires_at.is_in_the_past(ctx.now) {
@@ -113,42 +114,17 @@ pub fn verify_revocation_list(
         return Err(TctError::CnfMalformed);
     }
 
-    // Reconstruct the canonical bytes the issuer signed.
-    //
-    // The spec's signing convention shifted between rc.3 and rc.4:
-    // older fixtures (rev-001, rev-002) sign over the **wrapped**
-    // `{"revocation_list": {...}}` envelope, newer fixtures
-    // (rev-003 and onward) sign over the **inner** body. We try
-    // the new form first (canonical going forward) and fall back
-    // to the legacy wrapped form to preserve interop with peers
-    // that haven't re-minted yet.
     let pubkey =
         AitpVerifyingKey::from_aid(&envelope.revocation_list.issuer).map_err(TctError::Crypto)?;
     let sig = Signature::parse(&envelope.signature).map_err(|_| TctError::SignatureInvalid)?;
 
-    let inner: RevocationListSigningView = &envelope.revocation_list;
-    let canonical_inner = jcs::canonicalize_serializable(inner)
-        .map_err(|e| TctError::Canonicalization(e.to_string()))?;
-    if pubkey
-        .verify(&Sha256::digest(&canonical_inner), &sig)
-        .is_ok()
-    {
-        return Ok(());
-    }
-
-    // Legacy wrapped form, signed bytes were
-    // `{"revocation_list": {...inner body...}}`.
-    #[derive(Serialize)]
-    struct LegacyWrapped<'a> {
-        revocation_list: &'a RevocationList,
-    }
-    let wrapped = LegacyWrapped {
+    let view = RevocationListSigningView {
         revocation_list: &envelope.revocation_list,
     };
-    let canonical_wrapped = jcs::canonicalize_serializable(&wrapped)
+    let canonical = jcs::canonicalize_serializable(&view)
         .map_err(|e| TctError::Canonicalization(e.to_string()))?;
     pubkey
-        .verify(&Sha256::digest(&canonical_wrapped), &sig)
+        .verify(&Sha256::digest(&canonical), &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
     Ok(())
 }
@@ -171,7 +147,7 @@ mod tests {
 
     fn sample_body(issuer: Aid) -> RevocationList {
         RevocationList {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             issuer,
             published_at: Timestamp(1_700_000_000),
             expires_at: Timestamp(1_700_003_600),
@@ -238,11 +214,12 @@ mod tests {
 
     #[test]
     fn rfc_kat_canonical_bytes_match() {
-        // Vector kat-revocation-001 from spec rc.4
-        // schemas/conformance/known-answer/jcs-sha256.json. Re-minted
-        // post-rc.3 to include the now-REQUIRED `version` field.
+        // Vector kat-revocation-001 from the v0.2 spec
+        // schemas/conformance/known-answer/jcs-sha256.json: signed view
+        // is the wrapped `{"revocation_list": {...}}` form, version
+        // literal `aitp/0.2`.
         let body = RevocationList {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             issuer: Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap(),
             published_at: Timestamp(1_711_900_000),
             expires_at: Timestamp(1_711_903_600),
@@ -252,21 +229,49 @@ mod tests {
                 reason: None,
             }],
         };
-        let view: RevocationListSigningView = &body;
-        let canonical = jcs::canonicalize_serializable(view).unwrap();
-        // Pinned canonical bytes: inner body (no `{"revocation_list":…}`
-        // wrapper) per the spec's rc.4-onward signing convention.
-        let expected_hex = "7b22656e7472696573223a5b7b226a7469223a2235353065383430302d653239622d343164342d613731362d343436363535343430303030222c227265766f6b65645f6174223a313731313930313030307d5d2c22657870697265735f6174223a313731313930333630302c22697373756572223a226169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b222c227075626c69736865645f6174223a313731313930303030302c2276657273696f6e223a22616974702f302e31227d";
+        let view = RevocationListSigningView {
+            revocation_list: &body,
+        };
+        let canonical = jcs::canonicalize_serializable(&view).unwrap();
+        let expected_hex = "7b227265766f636174696f6e5f6c697374223a7b22656e7472696573223a5b7b226a7469223a2235353065383430302d653239622d343164342d613731362d343436363535343430303030222c227265766f6b65645f6174223a313731313930313030307d5d2c22657870697265735f6174223a313731313930333630302c22697373756572223a226169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b222c227075626c69736865645f6174223a313731313930303030302c2276657273696f6e223a22616974702f302e32227d7d";
         assert_eq!(
             hex::encode(&canonical),
             expected_hex,
-            "canonical bytes diverge from spec rc.4 kat-revocation-001"
+            "canonical bytes diverge from spec v0.2 kat-revocation-001"
         );
         let digest = Sha256::digest(&canonical);
-        // SHA-256 of the inner-only canonical above.
         assert_eq!(
             hex::encode(digest),
-            "a825796920dcd964489b8417a92061664dccd976b8271e6b01d80b49973ace74"
+            "739feb36cc2530ad3188f6c3a9ee7459820533382ee24387a8c261787397e0d9"
         );
+    }
+
+    #[test]
+    fn spec_signed_example_snapshot_verifies() {
+        // signed-examples/revocation/kat-keypair-001-snapshot.json:
+        // re-mint from the pinned seed and verify byte-stable signature.
+        let key = AitpSigningKey::from_seed(&[0u8; 32]); // kat-keypair-001
+        let body = RevocationList {
+            version: "aitp/0.2".into(),
+            issuer: key.aid().clone(),
+            published_at: Timestamp(1_711_900_000),
+            expires_at: Timestamp(1_711_903_600),
+            entries: vec![RevocationEntry {
+                jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
+                revoked_at: Timestamp(1_711_900_060),
+                reason: Some("key_compromised".into()),
+            }],
+        };
+        let env = sign_revocation_list(body, &key).unwrap();
+        assert_eq!(
+            env.signature,
+            "2OYmur9NnrFsrz4Qeso_fGj2Bk0g2y6yNf4H7dqrqEvKZ-YfndY3GavquOIodWGs4EFdgmaHoer0NWc7sPF1DQ",
+            "signature diverges from the spec signed-example vector"
+        );
+        let ctx = VerifyRevocationListContext {
+            expected_issuer: key.aid(),
+            now: Timestamp(1_711_900_100),
+        };
+        verify_revocation_list(&env, &ctx).expect("spec vector verifies");
     }
 }

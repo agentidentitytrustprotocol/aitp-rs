@@ -3,10 +3,9 @@
 //! this confirms the signatures are real.
 
 use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpVerifyingKey;
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{
-    verify_revocation_list, verify_tct, RevocationListEnvelope, Tct, TctVerifyContext,
+    verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope, TctVerifyContext,
     VerifyRevocationListContext,
 };
 use std::path::PathBuf;
@@ -46,12 +45,19 @@ fn fixed_now() -> Timestamp {
     Timestamp(1_711_900_100)
 }
 
+fn kat_001_aid() -> Aid {
+    Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap()
+}
+
+fn kat_002_aid() -> Aid {
+    Aid::parse("aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg").unwrap()
+}
+
 #[test]
 fn minted_manifest_verifies() {
-    let Some(mut v) = try_load("manifest/kat-keypair-001-manifest.json") else {
+    let Some(v) = try_load("manifest/kat-keypair-001-manifest.json") else {
         return;
     };
-    v.as_object_mut().unwrap().remove("_kat_input");
     let m: Manifest = serde_json::from_value(v["manifest"].clone()).unwrap();
     verify_manifest(&m, &VerifyManifestContext { now: fixed_now() })
         .expect("minted manifest verifies");
@@ -59,41 +65,59 @@ fn minted_manifest_verifies() {
 
 #[test]
 fn minted_tct_verifies() {
-    let Some(mut v) = try_load("tct/kat-keypair-001-issues-002.json") else {
+    let Some(v) = try_load("tct/kat-keypair-001-issues-002.json") else {
         return;
     };
-    v.as_object_mut().unwrap().remove("_kat_input");
-    let tct: Tct = serde_json::from_value(v["tct"].clone()).unwrap();
-    let issuer_pk = AitpVerifyingKey::from_aid(&tct.issuer).unwrap();
-    let expected_audience = tct.subject.clone();
+    let token = v["tct_token"].as_str().expect("tct_token string");
+    // Holder receipt: subject == audience == kat-keypair-002.
+    let expected_audience = kat_002_aid();
+    let issuer = kat_001_aid();
     let ctx = TctVerifyContext {
         expected_audience: &expected_audience,
-        issuer_pubkey: &issuer_pk,
+        issuer: &issuer,
         now: fixed_now(),
         issuer_manifest_expires_at: None,
         revocation_check: None,
     };
-    verify_tct(&tct, &ctx).expect("minted TCT verifies");
+    let verified = verify_tct(token, &ctx).expect("minted TCT verifies");
+    assert_eq!(
+        serde_json::to_value(&verified.claims).unwrap(),
+        v["decoded_claims"],
+        "decoded_claims companion diverges from the token payload"
+    );
+}
+
+#[test]
+fn minted_grant_voucher_verifies() {
+    let Some(v) = try_load("grant-voucher/kat-voucher-001.json") else {
+        return;
+    };
+    let token = v["voucher_token"].as_str().expect("voucher_token string");
+    let claims = verify_voucher(token, &kat_001_aid()).expect("minted voucher verifies");
+    assert_eq!(claims.sub, kat_002_aid());
+    assert_eq!(
+        serde_json::to_value(&claims).unwrap(),
+        v["decoded_claims"],
+        "decoded_claims companion diverges from the token payload"
+    );
 }
 
 #[test]
 fn minted_delegation_verifies() {
-    let Some(mut v) = try_load("delegation/single-hop-001-002-003.json") else {
+    let Some(v) = try_load("delegation/single-hop-001-002-003.json") else {
         return;
     };
-    v.as_object_mut().unwrap().remove("_kat_input");
-    let token: aitp_delegation::DelegationToken =
-        serde_json::from_value(v["delegation"].clone()).unwrap();
-    // Verifier is the original grantor (A = kat-keypair-001).
-    let verifier_aid =
-        Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap();
-    let ctx = aitp_delegation::VerifyDelegationContext {
-        verifier_aid: &verifier_aid,
-        now: fixed_now(),
-        revocation_check: None,
-        max_hops: aitp_delegation::DEFAULT_MAX_HOPS,
-    };
-    aitp_delegation::verify_delegation(&token, &ctx).expect("minted delegation verifies");
+    let token = v["delegation_token"].as_str().expect("delegation_token");
+    // Verifier is the original grantor / voucher issuer (A = kat-keypair-001).
+    let verifier_aid = kat_001_aid();
+    let ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, fixed_now());
+    let verified =
+        aitp_delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
+    assert_eq!(
+        serde_json::to_value(&verified.claims).unwrap(),
+        v["decoded_claims"],
+        "decoded_claims companion diverges from the token payload"
+    );
 }
 
 #[test]

@@ -1,6 +1,6 @@
 [package]
 name = "aitp-crypto"
-description = "Ed25519 signing and JWK thumbprint primitives for AITP"
+description = "Ed25519/P-256 signing, JWK thumbprint, and compact-JWS primitives for AITP"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -11,14 +11,20 @@ categories.workspace = true
 homepage.workspace = true
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.2.0" }
+aitp-core = { path = "../aitp-core", version = "0.3.0" }
 ed25519-dalek = { workspace = true }
 p256 = { workspace = true }
 sha2 = { workspace = true }
 base64ct = { workspace = true }
 rand = { workspace = true }
+serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
 [dev-dependencies]
 hex = { workspace = true }
+# Differential oracle for the compact-JWS profile: every token we mint
+# must verify with an off-the-shelf JOSE library, and its rejection of
+# alg confusion must corroborate ours. Dev-dependency ONLY — protocol
+# crates stay on RustCrypto.
+jsonwebtoken = { workspace = true }

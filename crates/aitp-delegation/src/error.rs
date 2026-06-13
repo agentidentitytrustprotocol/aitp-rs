@@ -11,11 +11,15 @@ pub enum DelegationError {
     /// `scope` contains capabilities outside `grant_proof.capabilities`.
     #[error("delegation scope exceeds grant proof capabilities")]
     ScopeExceeded,
-    /// `grant_proof.signature` invalid, or `grant_proof.subject !=
-    /// delegation.issued_by`, or `grant_proof.issuer != verifier_aid`.
-    #[error("grant proof is invalid")]
-    InvalidGrantProof,
-    /// `grant_proof.source_tct_jti` is in the issuer's deny list.
+    /// Embedded voucher JWS invalid, `voucher.iss` ≠ verifier's AID,
+    /// `voucher.sub` ≠ the delegator-of-record, a missing/duplicate
+    /// per-hop `jti`, a continuity break, or a nested-chain prefix
+    /// inconsistency. Wire code `DELEGATION_INVALID_VOUCHER` (renamed
+    /// in v0.2 from `DELEGATION_INVALID_GRANT_PROOF`).
+    #[error("delegation voucher is invalid")]
+    InvalidVoucher,
+    /// `voucher.src_jti` (or a hop's `jti`) is in the relevant issuer's
+    /// deny list.
     #[error("source TCT has been revoked")]
     SourceTctRevoked,
     /// Outer signature did not verify.
@@ -27,12 +31,19 @@ pub enum DelegationError {
     /// Proof-of-possession verification failed.
     #[error("delegation PoP verification failed")]
     PopFailed,
-    /// `cnf` is not valid base64url, does not decode to the algorithm-
-    /// agile compressed pubkey shape (32 B Ed25519 raw or 33 B SEC1-
-    /// compressed P-256), or does not match the pubkey bytes embedded
-    /// in the delegatee AID.
+    /// `cnf.jkt` does not equal the RFC 7638 thumbprint of the key
+    /// encoded in the delegatee (`sub`) AID.
     #[error("delegation cnf is malformed")]
     CnfMalformed,
+    /// `ver` claim is not a supported protocol version.
+    #[error("delegation token version is not supported")]
+    VersionUnknown,
+    /// Decoded JWS payload did not deserialize as delegation claims —
+    /// unknown claim outside `ext`, duplicate claim, missing required
+    /// claim, or a claim not permitted in the current mode (e.g. `jti`
+    /// without multi-hop opt-in).
+    #[error("delegation claims malformed: {0}")]
+    ClaimsMalformed(String),
     /// Token attempts multi-hop but the verifier was constructed with
     /// `max_hops = 0` (single-hop only).
     #[error("multi-hop delegation is not supported")]

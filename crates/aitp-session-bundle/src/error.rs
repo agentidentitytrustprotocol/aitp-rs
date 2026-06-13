@@ -4,7 +4,7 @@
 /// Errors from session-bundle construction and verification.
 #[derive(Debug, thiserror::Error)]
 pub enum SessionBundleError {
-    /// `version` field was not `"aitp/0.1"`.
+    /// `version` field was not `"aitp/0.2"`.
     #[error("bundle version mismatch")]
     VersionMismatch,
     /// Outer bundle signature failed to verify against the

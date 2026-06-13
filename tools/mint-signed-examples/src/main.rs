@@ -1,23 +1,30 @@
 //! Mint cryptographically valid AITP signed examples from the spec's
 //! pinned known-answer keypairs.
 //!
-//! Output goes to `<base>/signed-examples/{manifest,tct,delegation,
-//! revocation}/...`. Default base is the sibling spec repo at
-//! `../agentidentitytrustprotocol/schemas/conformance/known-answer/`.
+//! Output goes to `<base>/signed-examples/{manifest,tct,grant-voucher,
+//! delegation,revocation}/...`. Default base is the sibling spec repo
+//! at `../agentidentitytrustprotocol/schemas/conformance/known-answer/`.
 //! Override with `AITP_SPEC_KAT_DIR=<path>`.
 //!
 //! Each output file carries a top-level `_kat_input` companion object
 //! per `signed-examples/README.md` so a re-minter can recover the
-//! exact byte sequence without out-of-band knowledge.
+//! exact byte sequence without out-of-band knowledge; the JWS artifact
+//! files additionally carry a `decoded_claims` companion for human
+//! review. Re-running this tool against the v0.2 vectors MUST
+//! reproduce every file byte-for-byte.
 //!
 //! Closes BLOCKED-SPEC-EXAMPLE (agentidentitytrustprotocol#5).
 
-use aitp_core::{base64url, Aid, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_delegation::{DelegationBuilder, DelegationEnvelope};
+use aitp_core::{base64url, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_crypto::{jws, AitpSigningKey};
+use aitp_delegation::{DelegationBuilder, DelegationClaims};
 use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
-use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder, TctEnvelope};
+use aitp_tct::{
+    sign_revocation_list, GrantVoucherClaims, IssuedTct, RevocationEntry, RevocationList,
+    TctBuilder,
+};
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -33,8 +40,27 @@ const TCT_TTL: i64 = 3_600; // 1 hour
 const DELEGATION_TTL: i64 = 1_800; // 30 minutes
 const REVOCATION_TTL: i64 = 3_600;
 
+/// JTI of the single-grant TCT KAT (`tct/kat-keypair-001-issues-002`).
 const FIXED_TCT_JTI: &str = "550e8400-e29b-41d4-a716-446655440000";
+/// JTI of the two-grant companion TCT whose voucher is the
+/// `grant-voucher/kat-voucher-001` artifact (and the delegation root).
+const FIXED_VOUCHER_SRC_JTI: &str = "550e8400-e29b-41d4-a716-446655440001";
 const FIXED_REVOKED_JTI: &str = "550e8400-e29b-41d4-a716-446655440099";
+
+/// Pinned 16-byte PoP challenge of the manifest KAT (22-char
+/// base64url). `ManifestBuilder` draws a random challenge, so the
+/// minter overwrites it with this value and re-signs to keep the
+/// vector byte-stable.
+const FIXED_MANIFEST_POP_CHALLENGE: &str = "DtcTFXEOpmcBtVhduQuJDQ";
+
+/// Grants of the two-grant companion TCT, in the pinned vector order.
+const VOUCHER_GRANTS: [&str; 2] = ["macp.mode.respond.v1", "macp.mode.task.v1"];
+
+/// Shared `$comment` tail about the byte-stability minting conventions.
+const JWS_CONVENTIONS: &str = "Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} \
+     in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims \
+     object — fixed here only so re-mints are byte-stable; verifiers operate on the transmitted \
+     bytes and never re-serialize (RFC-AITP-0001 §5.4.5).";
 
 fn key_from_hex(seed_hex: &str) -> AitpSigningKey {
     let bytes = hex::decode(seed_hex).expect("hex");
@@ -62,7 +88,7 @@ fn write_pretty(path: PathBuf, value: serde_json::Value) {
 fn mint_manifest() {
     let key = key_from_hex(KAT_001_SEED_HEX);
     let pubkey_b64 = base64url::encode(&key.verifying_key().to_bytes());
-    let manifest = ManifestBuilder::new(&key)
+    let mut manifest = ManifestBuilder::new(&key)
         .display_name("kat-keypair-001")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(IdentityHint {
@@ -78,6 +104,23 @@ fn mint_manifest() {
         .published_at(Timestamp(FIXED_NOW))
         .build()
         .expect("manifest");
+
+    // Pin the PoP challenge (the builder draws a random one) and
+    // re-sign, mirroring the builder's own conventions:
+    //  - PoP signature over `sha256(base64url_decode(challenge))`
+    //    (RFC-AITP-0001 §5.4.2 / RFC-AITP-0003 §3);
+    //  - manifest signature over `sha256(JCS(manifest sans signature))`.
+    let challenge_bytes = base64url::decode_strict_exact::<16>(FIXED_MANIFEST_POP_CHALLENGE)
+        .expect("pinned challenge decodes to 16 bytes");
+    manifest.proof_of_possession = aitp_manifest::ManifestPop {
+        challenge: FIXED_MANIFEST_POP_CHALLENGE.into(),
+        signature: key.sign(&Sha256::digest(challenge_bytes)).into_string(),
+    };
+    let mut unsigned = serde_json::to_value(&manifest).expect("manifest to value");
+    unsigned.as_object_mut().unwrap().remove("signature");
+    let canonical = aitp_core::jcs::canonicalize(&unsigned).expect("canonicalize manifest");
+    manifest.signature = key.sign(&Sha256::digest(&canonical)).into_string();
+
     let env = ManifestEnvelope { manifest };
     write_pretty(
         output_root().join("manifest/kat-keypair-001-manifest.json"),
@@ -98,7 +141,7 @@ fn mint_manifest() {
 fn mint_tct() {
     let issuer = key_from_hex(KAT_001_SEED_HEX);
     let subject = key_from_hex(KAT_002_SEED_HEX);
-    let tct = TctBuilder::new(&issuer)
+    let issued = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["macp.mode.task.v1"])
@@ -108,66 +151,110 @@ fn mint_tct() {
         .jti(Uuid::parse_str(FIXED_TCT_JTI).unwrap())
         .build()
         .expect("tct");
-    let env = TctEnvelope { tct };
     write_pretty(
         output_root().join("tct/kat-keypair-001-issues-002.json"),
         json!({
             "_kat_input": {
+                "$comment": format!(
+                    "Real Ed25519-signed compact JWS TCT (RFC-AITP-0005). {JWS_CONVENTIONS} \
+                     Any off-the-shelf JOSE library MUST verify this token given the issuer \
+                     public key."
+                ),
                 "issuer_seed_id": "kat-keypair-001",
                 "subject_seed_id": "kat-keypair-002",
+                "typ": jws::TYP_TCT,
                 "jti": FIXED_TCT_JTI,
-                "issued_at": FIXED_NOW,
+                "iat": FIXED_NOW,
                 "ttl_secs": TCT_TTL,
                 "grants": ["macp.mode.task.v1"],
             },
-            "tct": env.tct,
+            "tct_token": issued.token,
+            "decoded_claims": issued.claims,
         }),
     );
 }
 
-fn mint_delegation() {
-    // A=001 issues TCT to B=002; B delegates a subset to C=003.
-    let alice = key_from_hex(KAT_001_SEED_HEX);
+/// Mint the two-grant companion TCT (jti …440001) whose voucher is both
+/// the `grant-voucher/kat-voucher-001` artifact and the root of the
+/// delegation KAT.
+fn mint_companion_tct() -> IssuedTct {
+    let issuer = key_from_hex(KAT_001_SEED_HEX);
+    let subject = key_from_hex(KAT_002_SEED_HEX);
+    TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(VOUCHER_GRANTS)
+        .ttl_secs(TCT_TTL)
+        .subject_pubkey(subject.verifying_key())
+        .issued_at(Timestamp(FIXED_NOW))
+        .jti(Uuid::parse_str(FIXED_VOUCHER_SRC_JTI).unwrap())
+        .build()
+        .expect("companion tct")
+}
+
+fn mint_grant_voucher() -> String {
+    let voucher = mint_companion_tct().voucher.expect("voucher minted");
+    let payload = jws::decode_payload_unverified(&voucher).expect("voucher payload");
+    let claims: GrantVoucherClaims = serde_json::from_slice(&payload).expect("voucher claims");
+    write_pretty(
+        output_root().join("grant-voucher/kat-voucher-001.json"),
+        json!({
+            "_kat_input": {
+                "$comment": format!(
+                    "Real Ed25519-signed grant voucher (RFC-AITP-0005 §8). {JWS_CONVENTIONS} \
+                     Companion of a two-grant TCT (jti ...440001) so the delegation KAT can \
+                     delegate a strict subset."
+                ),
+                "issuer_seed_id": "kat-keypair-001",
+                "subject_seed_id": "kat-keypair-002",
+                "typ": jws::TYP_GRANT_VOUCHER,
+                "src_jti": FIXED_VOUCHER_SRC_JTI,
+                "iat": FIXED_NOW,
+                "ttl_secs": TCT_TTL,
+                "grants": VOUCHER_GRANTS,
+            },
+            "voucher_token": voucher,
+            "decoded_claims": claims,
+        }),
+    );
+    voucher
+}
+
+fn mint_delegation(voucher: &str) {
+    // A=001 issued B=002 the two-grant TCT + voucher; B delegates a
+    // strict subset to C=003, embedding A's voucher verbatim.
     let bob = key_from_hex(KAT_002_SEED_HEX);
     let carol = key_from_hex(KAT_003_SEED_HEX);
-    let source_tct = TctBuilder::new(&alice)
-        .subject(bob.aid().clone())
-        .audience(bob.aid().clone())
-        .grants(["macp.mode.task.v1", "macp.mode.respond.v1"])
-        .ttl_secs(TCT_TTL)
-        .subject_pubkey(bob.verifying_key())
-        .issued_at(Timestamp(FIXED_NOW))
-        .jti(Uuid::parse_str(FIXED_TCT_JTI).unwrap())
-        .build()
-        .expect("source tct");
 
-    let delegation = DelegationBuilder::new(&bob, &source_tct)
+    let delegation = DelegationBuilder::new(&bob, voucher)
+        .expect("voucher entitles B to delegate")
         .delegatee(carol.aid().clone())
-        .delegatee_pubkey(carol.verifying_key())
         .scope(["macp.mode.task.v1"])
         .ttl_secs(DELEGATION_TTL)
         .now(Timestamp(FIXED_NOW))
         .build()
         .expect("delegation");
-    let env = DelegationEnvelope { delegation };
+    let payload = jws::decode_payload_unverified(&delegation).expect("delegation payload");
+    let claims: DelegationClaims = serde_json::from_slice(&payload).expect("delegation claims");
     write_pretty(
         output_root().join("delegation/single-hop-001-002-003.json"),
         json!({
             "_kat_input": {
+                "$comment": format!(
+                    "Real single-hop delegation compact JWS (RFC-AITP-0006): B delegates a \
+                     strict subset to C, audience A, embedding kat-voucher-001 verbatim. \
+                     {JWS_CONVENTIONS}"
+                ),
                 "delegator_seed_id": "kat-keypair-002",
                 "delegatee_seed_id": "kat-keypair-003",
-                "source_tct": {
-                    "issuer_seed_id": "kat-keypair-001",
-                    "jti": FIXED_TCT_JTI,
-                    "issued_at": FIXED_NOW,
-                    "ttl_secs": TCT_TTL,
-                    "grants": ["macp.mode.task.v1", "macp.mode.respond.v1"],
-                },
-                "issued_at": FIXED_NOW,
+                "typ": jws::TYP_DELEGATION,
+                "voucher_ref": "grant-voucher/kat-voucher-001.json",
+                "iat": FIXED_NOW,
                 "ttl_secs": DELEGATION_TTL,
                 "scope": ["macp.mode.task.v1"],
             },
-            "delegation": env.delegation,
+            "delegation_token": delegation,
+            "decoded_claims": claims,
         }),
     );
 }
@@ -175,7 +262,7 @@ fn mint_delegation() {
 fn mint_revocation_snapshot() {
     let issuer = key_from_hex(KAT_001_SEED_HEX);
     let body = RevocationList {
-        version: "aitp/0.1".into(),
+        version: PROTOCOL_VERSION.into(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(FIXED_NOW),
         expires_at: Timestamp(FIXED_NOW + REVOCATION_TTL),
@@ -238,7 +325,8 @@ fn main() {
     println!("minting signed examples into {}", output_root().display());
     mint_manifest();
     mint_tct();
-    mint_delegation();
+    let voucher = mint_grant_voucher();
+    mint_delegation(&voucher);
     mint_revocation_snapshot();
     println!("done.");
 }

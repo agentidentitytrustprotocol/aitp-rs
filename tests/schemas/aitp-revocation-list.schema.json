@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/revocation-list.json",
+  "$id": "https://aitp.dev/schema/v0.2/revocation-list.json",
   "title": "AitpRevocationList",
-  "description": "AITP v0.1 signed revocation snapshot — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
+  "description": "AITP v0.2 signed revocation snapshot (JCS embedded-signature profile, unchanged by the JWS migration) — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
   "type": "object",
   "required": ["revocation_list", "signature"],
   "additionalProperties": false,
@@ -14,12 +14,12 @@
       "properties": {
         "version": {
           "type": "string",
-          "const": "aitp/0.1",
-          "description": "Protocol version. MUST be 'aitp/0.1'."
+          "const": "aitp/0.2",
+          "description": "Protocol version. MUST be 'aitp/0.2'."
         },
         "issuer": {
           "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
           "description": "The issuing peer's AID. MUST equal the `issuer` of every TCT covered by `entries`."
         },
         "published_at": {
@@ -65,14 +65,14 @@
     },
     "signature": {
       "type": "string",
-      "pattern": "^[A-Za-z0-9_-]{86}$",
+      "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$",
       "description": "Unpadded base64url signature (RFC 4648 §5) by the issuing peer over the JCS-canonical bytes of `revocation_list` (RFC 8785), excluding this field. See RFC-AITP-0001 §5.4. The known-answer body at `schemas/conformance/known-answer/jcs-sha256.json` (`kat-revocation-001`) pins the canonical bytes; a runtime-served snapshot MUST also carry this field."
     }
   },
   "examples": [
     {
       "revocation_list": {
-        "version": "aitp/0.1",
+        "version": "aitp/0.2",
         "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
         "published_at": 1711900000,
         "expires_at": 1711903600,

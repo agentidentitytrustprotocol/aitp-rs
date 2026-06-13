@@ -108,9 +108,14 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
         bob.aid(),
         "peer AID is Bob's (the TCT issuer)"
     );
-    assert_eq!(&session.held_tct.issuer, bob.aid());
+    assert_eq!(&session.held_tct.claims.iss, bob.aid());
     assert!(
-        session.held_tct.grants.iter().any(|g| g == "demo.echo"),
+        session
+            .held_tct
+            .claims
+            .grants
+            .iter()
+            .any(|g| g == "demo.echo"),
         "held TCT carries the requested grant"
     );
 }

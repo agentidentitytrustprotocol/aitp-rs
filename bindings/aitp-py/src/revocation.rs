@@ -4,7 +4,7 @@
 //! Plane uses this to publish a signed list of revoked TCT jtis a peer's
 //! verifiers should reject.
 
-use aitp_core::Timestamp;
+use aitp_core::{Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -78,7 +78,7 @@ pub fn sign_revocation_list_py(
     let now = Timestamp::now();
     let parsed = parse_entries(entries, now)?;
     let body = RevocationList {
-        version: "aitp/0.1".into(),
+        version: PROTOCOL_VERSION.into(),
         issuer: issuer_key.aid().clone(),
         published_at: now,
         expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),

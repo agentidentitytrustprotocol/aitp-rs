@@ -213,10 +213,10 @@ fn full_oidc_handshake_in_process() {
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &alice_cfg)
         .unwrap();
 
-    assert_eq!(&alice_holds.issuer, bob.aid());
-    assert_eq!(&bob_holds.issuer, alice.aid());
-    assert_eq!(alice_holds.grants, vec!["demo.echo".to_string()]);
-    assert_eq!(bob_holds.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
+    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
+    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(bob_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
 
     let _: MutualHelloAckPayload = ack_payload;
     let _: MutualCommitAckPayload = commit_ack_payload;
@@ -386,10 +386,10 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &alice_cfg)
         .unwrap();
 
-    assert_eq!(&alice_holds.issuer, bob.aid());
-    assert_eq!(&bob_holds.issuer, alice.aid());
-    assert_eq!(alice_holds.grants, vec!["demo.echo".to_string()]);
-    assert_eq!(bob_holds.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
+    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
+    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(bob_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
 
     let _: MutualCommitAckPayload = commit_ack_payload;
 }

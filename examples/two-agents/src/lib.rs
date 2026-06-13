@@ -8,9 +8,8 @@
 //! server ([`aitp::transport::HandshakeServer`]) own that.
 
 use aitp::core::{Aid, Timestamp};
-use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::crypto::AitpSigningKey;
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::tct::Tct;
 
 /// Build a pinned-key Manifest for an agent listening on `port`.
 ///
@@ -44,36 +43,41 @@ pub fn build_demo_manifest(
     builder.build().expect("demo manifest builds")
 }
 
-/// Verify a TCT presented to the `/echo` capability.
+/// Verify a TCT compact JWS presented to the `/echo` capability.
 ///
 /// The TCT was issued by this server during the handshake, so:
-/// - its issuer MUST be `server_aid` (we issued it),
-/// - it MUST still verify against the issuer key and be unexpired,
+/// - its issuer MUST be `server_aid` (we issued it — the verifying key
+///   and JWS `alg` are both pinned from that AID),
+/// - it MUST still verify and be unexpired,
 /// - it MUST carry the `demo.echo` grant.
 ///
 /// On success returns the caller's AID (the TCT subject) for the echo
 /// reply.
-pub fn verify_echo_tct(tct: &Tct, server_aid: &Aid) -> Result<Aid, String> {
-    use aitp::tct::{verify_tct, TctVerifyContext};
+pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
+    use aitp::crypto::jws;
+    use aitp::tct::{verify_tct, TctClaims, TctVerifyContext};
 
-    if &tct.issuer != server_aid {
+    // Peek (unverified) at the claims to learn the presented subject;
+    // `verify_tct` re-establishes everything cryptographically below.
+    let payload = jws::decode_payload_unverified(token).map_err(|e| e.to_string())?;
+    let peeked: TctClaims =
+        serde_json::from_slice(&payload).map_err(|e| format!("malformed TCT claims: {e}"))?;
+    if &peeked.iss != server_aid {
         return Err("TCT not issued by this server".into());
     }
-    let issuer_pk =
-        AitpVerifyingKey::from_aid(&tct.issuer).map_err(|e| format!("bad issuer aid: {e}"))?;
     let ctx = TctVerifyContext {
         // Holder receipt: subject == audience == caller.
-        expected_audience: &tct.subject,
-        issuer_pubkey: &issuer_pk,
+        expected_audience: &peeked.sub,
+        issuer: server_aid,
         now: Timestamp::now(),
         issuer_manifest_expires_at: None,
         revocation_check: None,
     };
-    verify_tct(tct, &ctx).map_err(|e| e.to_string())?;
-    if !tct.grants.iter().any(|g| g == "demo.echo") {
+    let verified = verify_tct(token, &ctx).map_err(|e| e.to_string())?;
+    if !verified.claims.grants.iter().any(|g| g == "demo.echo") {
         return Err("demo.echo not granted".into());
     }
-    Ok(tct.subject.clone())
+    Ok(verified.claims.sub)
 }
 
 /// Expand a short CLI seed string into a deterministic 32-byte key seed.

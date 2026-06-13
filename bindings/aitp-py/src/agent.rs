@@ -9,8 +9,10 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
 
+use std::collections::HashSet;
+
 use crate::delegation::{
-    build_delegation_token_json, issue_tct_for_delegatee_json, PyDelegationVerified,
+    build_delegation_token, issue_tct_for_delegatee_json, PyDelegationVerified,
 };
 use crate::oidc::PyJwksProvider;
 #[cfg(feature = "experimental-renewal")]
@@ -249,76 +251,92 @@ impl PyAitpAgent {
         Ok(PyResponderSession::new(self.key.clone(), manifest, ctx))
     }
 
-    /// Verify a TCT JSON string and require `required_grant`. Raises on
-    /// an invalid, mis-audienced, expired, or under-scoped TCT.
+    /// Verify a TCT compact-JWS string and require `required_grant`. Raises
+    /// on an invalid, mis-audienced, expired, revoked, or under-scoped TCT.
     ///
     /// `expected_audience` defaults to `None`, which means "verify as the
     /// holder" (RFC-AITP-0005 §9 receipt model — `our_key.aid()` is used).
     /// Resource servers verifying a TCT presented by a peer should pass
-    /// the TCT's own `audience` field as `expected_audience` (in v0.1
-    /// this equals `subject`); the signature check then proves the TCT
-    /// was issued by us, which is the real security gate for that
-    /// direction.
-    #[pyo3(signature = (tct_json, required_grant, expected_audience=None))]
+    /// the TCT's own `aud` claim as `expected_audience` (in v0.2 this
+    /// equals `sub`); the signature check then proves the TCT was issued by
+    /// us, which is the real security gate for that direction.
+    ///
+    /// `revoked_jtis` is an OPTIONAL set/iterable of revoked TCT `jti`
+    /// strings (RFC-AITP-0008). When supplied, a TCT whose `jti` is in the
+    /// set is rejected after its signature checks pass. **Verifiers SHOULD
+    /// supply this** — omitting it silently honors a revoked-but-unexpired
+    /// TCT (closes deferred gap F-1). A plain `set[str]` keeps the check
+    /// entirely in Rust, avoiding a Python callback under the verify path.
+    #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None))]
     fn verify_tct(
         &self,
-        tct_json: &str,
+        tct_token: &str,
         required_grant: &str,
         expected_audience: Option<&str>,
+        revoked_jtis: Option<HashSet<String>>,
     ) -> PyResult<PyTctIdentity> {
-        py_verify_tct(&self.key, tct_json, required_grant, expected_audience)
+        py_verify_tct(
+            &self.key,
+            tct_token,
+            required_grant,
+            expected_audience,
+            revoked_jtis.as_ref(),
+        )
     }
 
     /// Like [`verify_tct`], but consults a `TctStore` first: a byte-identical,
     /// already-verified, still-valid TCT skips the signature check (the
     /// verification hot path for an agent that sees the same TCT on many
-    /// requests). All cheap policy checks (expiry, audience, required grant)
-    /// still run on every call; only the signature check is elided.
-    #[pyo3(signature = (tct_json, required_grant, store, expected_audience = None))]
+    /// requests). All cheap policy checks (expiry, audience, required grant,
+    /// and revocation) still run on every call; only the signature check is
+    /// elided.
+    ///
+    /// `revoked_jtis` (F-1) is consulted on every call, cache hits included,
+    /// so a freshly-revoked TCT stops verifying immediately.
+    #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None))]
     fn verify_tct_cached(
         &self,
-        tct_json: &str,
+        tct_token: &str,
         required_grant: &str,
         store: &PyTctStore,
         expected_audience: Option<&str>,
+        revoked_jtis: Option<HashSet<String>>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct_cached(
             &self.key,
-            tct_json,
+            tct_token,
             required_grant,
             store,
             expected_audience,
+            revoked_jtis.as_ref(),
         )
     }
 
-    /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).
+    /// Build a single-hop delegation token (compact JWS) from a held grant
+    /// voucher (RFC-AITP-0006).
     ///
-    /// The caller (delegator B) signs the resulting token; the audience is
-    /// fixed to the held TCT's issuer (A). The recipient (C) is identified
-    /// by `delegatee_aid` and bound by `delegatee_pubkey_b64u` (raw Ed25519
-    /// public key, base64url 43 chars).
-    #[pyo3(signature = (held_tct_envelope_json, delegatee_aid, delegatee_pubkey_b64u, scope, ttl_secs = None))]
+    /// The caller (delegator B) signs the resulting token; its audience is
+    /// fixed to the voucher's issuer (A). `voucher_token` is the
+    /// grant-voucher compact JWS B received alongside its TCT in the
+    /// handshake commit (the `"grant_voucher"` field of `complete()` /
+    /// `process_commit()`); its `sub` MUST equal this agent's AID. The
+    /// recipient (C) is identified by `delegatee_aid` — its key binding is
+    /// derived from the AID itself, so no separate pubkey argument is
+    /// needed.
+    #[pyo3(signature = (voucher_token, delegatee_aid, scope, ttl_secs = None))]
     fn build_delegation(
         &self,
-        held_tct_envelope_json: &str,
+        voucher_token: &str,
         delegatee_aid: &str,
-        delegatee_pubkey_b64u: &str,
         scope: Vec<String>,
         ttl_secs: Option<i64>,
     ) -> PyResult<String> {
-        build_delegation_token_json(
-            &self.key,
-            held_tct_envelope_json,
-            delegatee_aid,
-            delegatee_pubkey_b64u,
-            scope,
-            ttl_secs,
-        )
+        build_delegation_token(&self.key, voucher_token, delegatee_aid, scope, ttl_secs)
     }
 
-    /// Mint a fresh `TctEnvelope` JSON for a delegatee after the verifier has
-    /// confirmed the delegation. The subject_pubkey binding is taken from the
-    /// verified token's `cnf` field.
+    /// Mint a fresh TCT (`{"tct", "grant_voucher"}` JSON) for a delegatee
+    /// after the verifier has confirmed the delegation. The subject_pubkey
+    /// binding is derived from the delegatee's AID.
     #[pyo3(signature = (verified, ttl_secs = None))]
     fn issue_tct_for_delegatee(
         &self,

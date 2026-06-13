@@ -70,11 +70,16 @@ const hello                   = sess.buildHello(respManifest, ['demo.write']);
 const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
 const commit                  = sess.processHelloAck(helloAck, sessionId);
 const { ackJson: commitAck }   = rsess.processCommit(commit);
-const initiatorHeldTct         = sess.complete(commitAck);
+const completed                = sess.complete(commitAck);
+// completed = { tct, claims, grantVoucher? }
+// `tct` is an opaque compact-JWS string; `claims` is the decoded TCT.
 
 // Each peer now holds a TCT the other issued it.
-const ident = initiator.verifyTct(initiatorHeldTct, 'demo.write');
+const ident = initiator.verifyTct(completed.tct, 'demo.write');
 console.log(ident.peerAid, ident.grants);
+
+// `completed.grantVoucher` (when present) is what you pass to
+// `buildDelegation(grantVoucher, delegateeAid, scope)` to delegate.
 ```
 
 In a real deployment each message moves over HTTP: `buildHello` returns the
@@ -84,23 +89,45 @@ plus the value for the `X-Aitp-Session-Id` header, and so on.
 ## API
 
 The full public surface is described in the generated `index.d.ts`; below
-is a summary. All `*Json` parameters and return values are JSON strings.
+is a summary. Manifests, revocation lists, and handshake envelopes cross
+the boundary as JSON strings; **TCTs, grant vouchers, and delegations are
+opaque compact-JWS token strings** (`header.payload.signature`).
 
 | Type                      | Default? | Notes                                                                                                          |
 |---------------------------|:--------:|----------------------------------------------------------------------------------------------------------------|
-| `AitpAgent`               |    ✅    | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)`, `verifyTct(...)`, `buildDelegation(...)`, `issueTctForDelegatee(...)`, `signRevocationList(...)` |
-| `InitiatorSession`        |    ✅    | `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)`                       |
-| `ResponderSession`        |    ✅    | `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, tctJson }` |
-| `TctIdentity`             |    ✅    | `peerAid`, `grants`, `expiresAt`, `jti`                                                                          |
-| `DelegationVerified`      |    ✅    | `delegator`, `delegatee`, `issuedBy`, `grants`, `expiresAt`, `cnf`                                              |
+| `AitpAgent`               |    ✅    | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)`, `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(...)`, `signRevocationList(...)` |
+| `InitiatorSession`        |    ✅    | `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
+| `ResponderSession`        |    ✅    | `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
+| `TctIdentity`             |    ✅    | `peerAid` (issuer), `grants`, `expiresAt`, `jti`                                                                |
+| `DelegationVerified`      |    ✅    | `delegator`, `delegatee`, `issuedBy`, `grants`, `expiresAt`, `cnfJkt`                                           |
 | `JwksProvider`            |    ✅    | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()`                                            |
-| `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the envelope) |
-| `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict v0.1 single-hop; rejects any multi-hop `chain`                                          |
+| `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
+| `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                                               |
 | `verifyManifestJson()`    |    ✅    | Control-plane manifest enrollment                                                                               |
 | `buildRenewalRequest()` / `processRenewalRequest()`           | `experimental-renewal` | RFC-AITP-0005 §10 |
 | `SessionBundleBuilder`, `verifySessionBundle()`               | `experimental-bundle`  | RFC-AITP-0010      |
 | `computeSpkiHash()`, `SpkiPinVerifier`                        | `experimental-pinning` | HPKP outbound pinning |
 | `verifyDelegationExperimentalMultihop()`                      | `experimental-multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
+
+### Revocation
+
+`verifyTct` / `verifyTctCached` accept an optional final `revokedJtis`
+argument — an array of revoked TCT `jti` strings. Any TCT whose `jti` is in
+the array is rejected even if its signature, audience, and expiry are
+otherwise valid:
+
+```javascript
+const revoked = ['11111111-2222-3333-4444-555555555555'];
+agent.verifyTct(tctToken, 'demo.write', null, revoked);  // throws if revoked
+```
+
+**Obligation.** The SDK does **not** fetch or maintain the revoked set for
+you; supplying it is the caller's responsibility. Source it from a
+`RevocationList` you fetched and verified out-of-band (issue one with
+`signRevocationList`). The set is passed up-front (rather than via a JS
+callback invoked per-`jti`) to stay sound under napi threading constraints.
+Omitting the argument leaves the revocation gate **off** — an unexpired but
+revoked TCT will pass, so wire `revokedJtis` in wherever revocation matters.
 
 ### OIDC identity (RFC-AITP-0002)
 

@@ -289,74 +289,82 @@ impl AitpAgent {
         Ok(JsResponderSession::new(self.key.clone(), manifest, ctx))
     }
 
-    /// Verify a TCT JSON string and require `requiredGrant`. Rejects on
-    /// an invalid, mis-audienced, expired, or under-scoped TCT.
+    /// Verify a compact-JWS TCT token and require `requiredGrant`.
+    /// Rejects on an invalid, mis-audienced, expired, revoked, or
+    /// under-scoped TCT.
     ///
     /// `expectedAudience` defaults to `null`, which means "verify as the
     /// holder" (RFC-AITP-0005 §9 receipt model — `this.aid` is used).
     /// Resource servers verifying a TCT presented by a peer should pass
-    /// the TCT's own `audience` field as `expectedAudience` (in v0.1 this
-    /// equals `subject`).
+    /// the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
+    /// equals `sub`).
+    ///
+    /// `revokedJtis` (F-1) is an optional list of revoked TCT `jti`
+    /// strings; any TCT whose `jti` is in the list is rejected even if
+    /// otherwise valid. Omit (or pass `null`) to disable the revocation
+    /// gate. The caller is responsible for sourcing the revoked set (e.g.
+    /// from a `RevocationList` it fetched and verified).
     #[napi]
     pub fn verify_tct(
         &self,
-        tct_json: String,
+        tct_token: String,
         required_grant: String,
         expected_audience: Option<String>,
+        revoked_jtis: Option<Vec<String>>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct(
             &self.key,
-            &tct_json,
+            &tct_token,
             &required_grant,
             expected_audience.as_deref(),
+            revoked_jtis,
         )
     }
 
     /// Like `verifyTct`, but consults a `TctStore` first: a byte-identical,
     /// already-verified, still-valid TCT skips the signature check (the
     /// verification hot path for an agent that sees the same TCT on many
-    /// requests). All cheap policy checks (expiry, audience, required grant)
-    /// still run on every call; only the signature check is elided.
+    /// requests). All cheap policy checks (expiry, audience, required grant,
+    /// and the optional `revokedJtis` gate) still run on every call; only the
+    /// signature check is elided.
     #[napi]
     pub fn verify_tct_cached(
         &self,
-        tct_json: String,
+        tct_token: String,
         required_grant: String,
         store: &JsTctStore,
         expected_audience: Option<String>,
+        revoked_jtis: Option<Vec<String>>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct_cached(
             &self.key,
-            &tct_json,
+            &tct_token,
             &required_grant,
             store,
             expected_audience.as_deref(),
+            revoked_jtis,
         )
     }
 
-    /// Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006).
+    /// Build a delegation compact-JWS token from a held **grant voucher**
+    /// (RFC-AITP-0006). `voucherToken` is the `grantVoucher` surfaced by
+    /// `complete()` / `processCommit()`. The delegatee's key binding is
+    /// derived from `delegateeAid` itself, so no separate public-key
+    /// argument is needed in v0.2.
     #[napi]
     pub fn build_delegation(
         &self,
-        held_tct_envelope_json: String,
+        voucher_token: String,
         delegatee_aid: String,
-        delegatee_pubkey_b64u: String,
         scope: Vec<String>,
         ttl_secs: Option<i64>,
     ) -> Result<String> {
-        build_delegation_token_json(
-            &self.key,
-            &held_tct_envelope_json,
-            &delegatee_aid,
-            &delegatee_pubkey_b64u,
-            scope,
-            ttl_secs,
-        )
+        build_delegation_token_json(&self.key, &voucher_token, &delegatee_aid, scope, ttl_secs)
     }
 
-    /// Mint a fresh `TctEnvelope` JSON for a delegatee after the verifier has
-    /// confirmed the delegation. The subject_pubkey binding is taken from the
-    /// verified token's `cnf` field.
+    /// Mint a fresh compact-JWS TCT for a delegatee after the verifier has
+    /// confirmed the delegation. The subject-key binding is derived from
+    /// the verified delegation's `delegatee` AID.
     #[napi]
     pub fn issue_tct_for_delegatee(
         &self,
@@ -398,7 +406,7 @@ impl AitpAgent {
             })
             .collect::<Result<_>>()?;
         let body = RevocationList {
-            version: "aitp/0.1".into(),
+            version: aitp_core::PROTOCOL_VERSION.into(),
             issuer: self.key.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
@@ -420,18 +428,19 @@ impl AitpAgent {
 #[napi]
 impl AitpAgent {
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
-    /// renewal of `currentTctEnvelopeJson` (RFC-AITP-0005 §10).
+    /// renewal of `currentTctToken` — the holder's current TCT as a
+    /// compact-JWS string (RFC-AITP-0005 §10).
     ///
     /// **Gated by the `experimental-renewal` Cargo feature.** Off in
     /// the default `.node` artifact; build with
     /// `napi build --release -- --features experimental-renewal`.
     #[napi]
-    pub fn build_renewal_request(&self, current_tct_envelope_json: String) -> Result<String> {
-        build_renewal_request_js(&self.key, &current_tct_envelope_json)
+    pub fn build_renewal_request(&self, current_tct_token: String) -> Result<String> {
+        build_renewal_request_js(&self.key, &current_tct_token)
     }
 
     /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-    /// fresh `TctEnvelope` JSON.
+    /// fresh TCT, returned as a compact-JWS token string.
     ///
     /// **Gated by the `experimental-renewal` Cargo feature.**
     #[napi]

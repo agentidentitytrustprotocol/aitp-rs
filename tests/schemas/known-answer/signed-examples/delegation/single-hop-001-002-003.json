@@ -1,0 +1,29 @@
+{
+  "_kat_input": {
+    "$comment": "Real single-hop delegation compact JWS (RFC-AITP-0006): B delegates a strict subset to C, audience A, embedding kat-voucher-001 verbatim. Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object — fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5).",
+    "delegator_seed_id": "kat-keypair-002",
+    "delegatee_seed_id": "kat-keypair-003",
+    "typ": "aitp-delegation+jwt",
+    "voucher_ref": "grant-voucher/kat-voucher-001.json",
+    "iat": 1711900000,
+    "ttl_secs": 1800,
+    "scope": [
+      "macp.mode.task.v1"
+    ]
+  },
+  "delegation_token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZGVsZWdhdGlvbitqd3QifQ.eyJhdWQiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJjbmYiOnsiamt0IjoiTGxzbWtYbUhKdVhXa1JaTHZfRktsX21wcmZJVjVhWVZuWHFDZ3NlYnNkVSJ9LCJleHAiOjE3MTE5MDE4MDAsImlzcyI6ImFpZDpwdWJrZXk6QTZFSHZfUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZyIsInNjb3BlIjpbIm1hY3AubW9kZS50YXNrLnYxIl0sInN1YiI6ImFpZDpwdWJrZXk6ZHFGWklFU201UFVSSmx2S2M2WUUyUXNGS2RIZllDdmpDaG1wSlhaZzBmVSIsInZlciI6ImFpdHAvMC4yIiwidm91Y2hlciI6ImV5SmhiR2NpT2lKRlpFUlRRU0lzSW5SNWNDSTZJbUZwZEhBdFozSmhiblFyYW5kMEluMC5leUpsZUhBaU9qRTNNVEU1TURNMk1EQXNJbWR5WVc1MGN5STZXeUp0WVdOd0xtMXZaR1V1Y21WemNHOXVaQzUyTVNJc0ltMWhZM0F1Ylc5a1pTNTBZWE5yTG5ZeElsMHNJbWxoZENJNk1UY3hNVGt3TURBd01Dd2lhWE56SWpvaVlXbGtPbkIxWW10bGVUcFBNbTl1ZGswMk1uQkRNV2x2Tm1wUlMyMDRUbU15VlhsR1dHTmtOR3RQYlU5elFrbHZXWFJhTW1scklpd2ljM0pqWDJwMGFTSTZJalUxTUdVNE5EQXdMV1V5T1dJdE5ERmtOQzFoTnpFMkxUUTBOalkxTlRRME1EQXdNU0lzSW5OMVlpSTZJbUZwWkRwd2RXSnJaWGs2UVRaRlNIWmZVRTlGVERSa1kwNHdXVFV3ZGtGdFYyWnJNV3BEWW5CUk1XWklaSGxIV2tKS1ZrMWlaeUlzSW5abGNpSTZJbUZwZEhBdk1DNHlJbjAudUt4V1FnNlRjbGhQc1dfXy1ZeUZxSndfWDMzUmJvMzV6bkVJcnNTcDVDSi1fSk5kd1VHS3hUR1Q5YTZaVFNPWDNpbmMxWkNpTEdWZlIzTV9veWxOQmcifQ.UKugx0f-zgVB86OZBgcpqaDaDe_Lcm0rn9VcBvGAIDhNMDxGAyeluSgy2IuatiYkygiAXsFyXckleV56c0NhDQ",
+  "decoded_claims": {
+    "ver": "aitp/0.2",
+    "iss": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "sub": "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
+    "aud": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+    "scope": [
+      "macp.mode.task.v1"
+    ],
+    "exp": 1711901800,
+    "cnf": {
+      "jkt": "LlsmkXmHJuXWkRZLv_FKl_mprfIV5aYVnXqCgsebsdU"
+    },
+    "voucher": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJleHAiOjE3MTE5MDM2MDAsImdyYW50cyI6WyJtYWNwLm1vZGUucmVzcG9uZC52MSIsIm1hY3AubW9kZS50YXNrLnYxIl0sImlhdCI6MTcxMTkwMDAwMCwiaXNzIjoiYWlkOnB1YmtleTpPMm9udk02MnBDMWlvNmpRS204TmMyVXlGWGNkNGtPbU9zQklvWXRaMmlrIiwic3JjX2p0aSI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMSIsInN1YiI6ImFpZDpwdWJrZXk6QTZFSHZfUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZyIsInZlciI6ImFpdHAvMC4yIn0.uKxWQg6TclhPsW__-YyFqJw_X33Rbo35znEIrsSp5CJ-_JNdwUGKxTGT9a6ZTSOX3inc1ZCiLGVfR3M_oylNBg"
+  }
+}

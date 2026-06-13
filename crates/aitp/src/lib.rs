@@ -13,7 +13,7 @@
 //! directly to avoid pulling in the handshake state machine and HTTP
 //! transport.
 //!
-//! # Example: issue and verify a TCT
+//! # Example: issue and verify a TCT (compact JWS)
 //!
 //! ```
 //! use aitp::core::Timestamp;
@@ -25,24 +25,27 @@
 //! let bob = AitpSigningKey::from_seed(&[0x22; 32]);
 //! let now = Timestamp(1_700_000_000);
 //!
-//! let tct = TctBuilder::new(&alice)
+//! // `issued.token` is the opaque compact JWS that goes on the wire;
+//! // `issued.voucher` is the companion grant voucher bob can later
+//! // delegate with.
+//! let issued = TctBuilder::new(&alice)
 //!     .subject(bob.aid().clone())
-//!     .audience(bob.aid().clone())  // v0.1: audience == subject
+//!     .audience(bob.aid().clone())  // v0.2: audience == subject
 //!     .grants(["demo.echo"])
 //!     .ttl_secs(3600)
 //!     .subject_pubkey(bob.verifying_key())
 //!     .issued_at(now)
 //!     .build()?;
 //!
-//! let alice_pubkey = AitpVerifyingKey::from_aid(alice.aid())?;
 //! let ctx = TctVerifyContext {
 //!     expected_audience: bob.aid(),
-//!     issuer_pubkey: &alice_pubkey,
+//!     issuer: alice.aid(),
 //!     now,
 //!     issuer_manifest_expires_at: None,
 //!     revocation_check: None,
 //! };
-//! verify_tct(&tct, &ctx)?;
+//! let verified = verify_tct(&issued.token, &ctx)?;
+//! assert_eq!(verified.claims.grants, vec!["demo.echo".to_string()]);
 //! # Ok(())
 //! # }
 //! ```
@@ -69,5 +72,5 @@ pub mod prelude {
     pub use crate::core::{Aid, AitpEnvelope, Timestamp};
     pub use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
     pub use crate::manifest::Manifest;
-    pub use crate::tct::{Tct, TctBuilder};
+    pub use crate::tct::{IssuedTct, TctBuilder, TctClaims, VerifiedTct};
 }

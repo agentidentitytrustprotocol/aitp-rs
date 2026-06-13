@@ -35,17 +35,21 @@ test('full handshake yields mutual TCTs', () => {
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck, tctJson: responderHeldTct } =
+  const { ackJson: commitAck, completed: responderHeld } =
     rsess.processCommit(commit);
-  const initiatorHeldTct = sess.complete(commitAck);
+  const initiatorHeld = sess.complete(commitAck);
+
+  // complete()/processCommit() now yield { tct, claims, grantVoucher? }.
+  assert.equal(initiatorHeld.claims.iss, responder.aid);
+  assert.equal(typeof initiatorHeld.tct, 'string');
 
   // The initiator holds a TCT issued by the responder for demo.write.
-  const ident = initiator.verifyTct(initiatorHeldTct, 'demo.write');
+  const ident = initiator.verifyTct(initiatorHeld.tct, 'demo.write');
   assert.equal(ident.peerAid, responder.aid);
   assert.ok(ident.grants.includes('demo.write'));
 
   // The responder holds a TCT issued by the initiator for demo.echo.
-  const respIdent = responder.verifyTct(responderHeldTct, 'demo.echo');
+  const respIdent = responder.verifyTct(responderHeld.tct, 'demo.echo');
   assert.equal(respIdent.peerAid, initiator.aid);
   assert.ok(respIdent.grants.includes('demo.echo'));
 });
@@ -59,7 +63,7 @@ test('verifyTct rejects a missing grant', () => {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  const tct = sess.complete(commitAck);
+  const { tct } = sess.complete(commitAck);
 
   assert.throws(() => initiator.verifyTct(tct, 'demo.not-granted'));
 });
@@ -126,9 +130,9 @@ test('verifyTct presented-TCT mode honors expectedAudience', () => {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  const tct = sess.complete(commitAck);
+  const { tct } = sess.complete(commitAck);
 
-  // In v0.1 the TCT's audience equals its subject (initiator.aid). A resource
+  // In v0.2 the TCT's audience equals its subject (initiator.aid). A resource
   // server verifying a TCT presented by the initiator passes initiator.aid as
   // expectedAudience.
   const presented = initiator.verifyTct(tct, 'demo.write', initiator.aid);

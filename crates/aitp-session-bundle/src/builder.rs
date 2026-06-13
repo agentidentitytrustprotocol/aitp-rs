@@ -7,13 +7,24 @@ use crate::error::SessionBundleError;
 use crate::types::{ParticipantEntry, SessionTrustBundle};
 use aitp_core::{jcs, Aid, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::Tct;
+use aitp_tct::TctClaims;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
-/// `version` constant for v0.1 bundles.
-pub const DEFAULT_BUNDLE_VERSION: &str = "aitp/0.1";
+/// `version` constant for v0.2 bundles.
+pub const DEFAULT_BUNDLE_VERSION: &str = "aitp/0.2";
+
+/// Decode a participant TCT's claims without verification. Builder- and
+/// invariant-level peeks only; full verification (signature, typ, alg
+/// pin) happens in [`crate::verify_session_bundle`] via
+/// [`aitp_tct::verify_tct`].
+pub(crate) fn peek_tct_claims(token: &str) -> Result<TctClaims, SessionBundleError> {
+    let payload = aitp_crypto::jws::decode_payload_unverified(token)
+        .map_err(|e| SessionBundleError::Canonicalization(format!("participant tct: {e}")))?;
+    serde_json::from_slice(&payload)
+        .map_err(|e| SessionBundleError::Canonicalization(format!("participant tct claims: {e}")))
+}
 
 /// Fluent builder for issuing a [`SessionTrustBundle`] as the
 /// coordinator.
@@ -48,10 +59,10 @@ impl<'a> SessionBundleBuilder<'a> {
         self
     }
 
-    /// Add a participant. The TCT MUST be coordinator-issued
-    /// (`tct.issuer == coordinator_key.aid()`) with `audience == aid`.
-    /// These invariants are checked in `build()`.
-    pub fn participant(mut self, aid: Aid, tct: Tct) -> Self {
+    /// Add a participant. The TCT (compact JWS, carried verbatim) MUST
+    /// be coordinator-issued (`iss == coordinator_key.aid()`) with
+    /// `aud == aid`. These invariants are checked in `build()`.
+    pub fn participant(mut self, aid: Aid, tct: String) -> Self {
         self.participants.push(ParticipantEntry { aid, tct });
         self
     }
@@ -67,31 +78,36 @@ impl<'a> SessionBundleBuilder<'a> {
         let issued_at = self.issued_at.unwrap_or_else(Timestamp::now);
 
         // Validate every participant entry up front so build() returns
-        // a structurally-correct bundle.
+        // a structurally-correct bundle. The coordinator minted these
+        // tokens itself; the peek is for invariant enforcement, not
+        // trust.
+        let mut min_exp: Option<Timestamp> = None;
         for entry in &self.participants {
-            if entry.tct.issuer != coordinator {
+            let claims = peek_tct_claims(&entry.tct)?;
+            if claims.iss != coordinator {
                 return Err(SessionBundleError::CoordinatorIssuerMismatch);
             }
-            if entry.tct.audience != entry.aid {
+            if claims.aud != entry.aid {
                 return Err(SessionBundleError::AudienceMismatch);
             }
+            min_exp = Some(match min_exp {
+                Some(m) if m.0 <= claims.exp.0 => m,
+                _ => claims.exp,
+            });
         }
 
         // expires_at = min(participant TCT expiries) per RFC §6.
-        let expires_at = self
-            .participants
-            .iter()
-            .map(|p| p.tct.expires_at)
-            .min_by_key(|t| t.0)
-            .ok_or(SessionBundleError::EmptyParticipants)?;
+        let expires_at = min_exp.ok_or(SessionBundleError::EmptyParticipants)?;
 
         let view = BundleSigningView {
-            version: DEFAULT_BUNDLE_VERSION,
-            session_id: &session_id,
-            coordinator: &coordinator,
-            issued_at: &issued_at,
-            expires_at: &expires_at,
-            participants: &self.participants,
+            session_bundle: BundleSigningBody {
+                version: DEFAULT_BUNDLE_VERSION,
+                session_id: &session_id,
+                coordinator: &coordinator,
+                issued_at: &issued_at,
+                expires_at: &expires_at,
+                participants: &self.participants,
+            },
         };
         let canonical = jcs::canonicalize_serializable(&view)
             .map_err(|e| SessionBundleError::Canonicalization(e.to_string()))?;
@@ -110,9 +126,18 @@ impl<'a> SessionBundleBuilder<'a> {
     }
 }
 
-/// Serialization view of [`SessionTrustBundle`] without `signature`.
+/// Signing view: the wrapped `{"session_bundle": {...}}` form (the
+/// envelope minus `signature`), per the v0.2 `kat-session-bundle-001`
+/// vector — same convention as the revocation snapshot.
 #[derive(Serialize)]
 pub(crate) struct BundleSigningView<'a> {
+    pub session_bundle: BundleSigningBody<'a>,
+}
+
+/// Inner body of [`BundleSigningView`] — every [`SessionTrustBundle`]
+/// field except `signature`.
+#[derive(Serialize)]
+pub(crate) struct BundleSigningBody<'a> {
     pub version: &'a str,
     pub session_id: &'a Uuid,
     pub coordinator: &'a Aid,

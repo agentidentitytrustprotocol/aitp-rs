@@ -178,9 +178,9 @@ async fn full_pinned_key_handshake_over_http() {
     let alice_holds = initiator
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &cfg)
         .unwrap();
-    assert_eq!(&alice_holds.issuer, bob.aid());
-    assert_eq!(&alice_holds.subject, alice.aid());
-    assert_eq!(alice_holds.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
+    assert_eq!(&alice_holds.tct.claims.sub, alice.aid());
+    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
 
     server.abort();
     let _ = server.await;

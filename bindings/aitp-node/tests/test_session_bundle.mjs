@@ -8,6 +8,7 @@ import {
   SessionBundleBuilder,
   verifySessionBundle,
 } from '../index.js';
+import { decodeJwsPayload } from './_jws.mjs';
 
 const HAS_BUNDLE = typeof SessionBundleBuilder === 'function';
 
@@ -18,7 +19,9 @@ function handshakeToCoordinator(participant, coordinator, coordManifest) {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  return sess.complete(commitAck);
+  // `complete()` yields { tct, claims, ... }; the bundle takes the
+  // opaque TCT token string.
+  return sess.complete(commitAck).tct;
 }
 
 function setup() {
@@ -93,7 +96,7 @@ test(
       .participant(alice.aid, aliceTct)
       .participant(bob.aid, bobTct)
       .build();
-    const revokedJti = JSON.parse(bobTct).tct.jti;
+    const revokedJti = decodeJwsPayload(bobTct).jti;
     const outcome = verifySessionBundle(
       envelope,
       alice.aid,

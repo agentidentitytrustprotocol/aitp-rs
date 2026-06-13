@@ -1,0 +1,41 @@
+{
+  "_kat_input": {
+    "issuer_seed_id": "kat-keypair-001",
+    "published_at": 1711900000,
+    "ttl_secs": 86400,
+    "identity_type": "pinned_key",
+    "offered_capabilities": [
+      "macp.mode.task.v1"
+    ],
+    "accepted_trust_anchors": [
+      "https://idp.example.com"
+    ]
+  },
+  "manifest": {
+    "version": "aitp/0.2",
+    "aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+    "display_name": "kat-keypair-001",
+    "identity_hint": {
+      "type": "pinned_key",
+      "subject": "kat-keypair-001",
+      "public_key": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik"
+    },
+    "handshake_endpoint": "https://example.com/aitp/handshake",
+    "accepted_trust_anchors": [
+      "https://idp.example.com/"
+    ],
+    "accepted_identity_types": [
+      "pinned_key"
+    ],
+    "offered_capabilities": [
+      "macp.mode.task.v1"
+    ],
+    "proof_of_possession": {
+      "challenge": "DtcTFXEOpmcBtVhduQuJDQ",
+      "signature": "sSQSQxGxMl6_gM1-8lWZVOOFx13pLVV-QF_dyvXKoWMSMlUSOYvk0hSVQTIN2b26FjCw-Xcwh0cMwN4cnLDnAA"
+    },
+    "published_at": 1711900000,
+    "expires_at": 1711986400,
+    "signature": "xpd4haK69GQAz7QopVupP-A4LvgDA73kFmJfHqpScgjsc4uqq7HQlmty_6H9drrdYQcImNgi4bMkebXSlr0KAA"
+  }
+}

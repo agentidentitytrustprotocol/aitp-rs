@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/mutual-handshake.json",
+  "$id": "https://aitp.dev/schema/v0.2/mutual-handshake.json",
   "title": "MutualHandshakeMessages",
-  "description": "AITP v0.1 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack.",
+  "description": "AITP v0.2 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack. Commit payloads carry the peer's TCT (and optional grant voucher) as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
   "$defs": {
     "IdentityDescriptor": {
       "type": "object",
@@ -54,94 +54,10 @@
       },
       "additionalProperties": false
     },
-    "TrustContextToken": {
-      "description": "Inline TCT. Full schema: aitp-tct.schema.json.",
-      "type": "object",
-      "required": [
-        "tct"
-      ],
-      "properties": {
-        "tct": {
-          "type": "object",
-          "required": [
-            "version",
-            "jti",
-            "issuer",
-            "subject",
-            "audience",
-            "issued_at",
-            "expires_at",
-            "grants",
-            "binding",
-            "signature"
-          ],
-          "properties": {
-            "version": {
-              "type": "string",
-              "const": "aitp/0.1"
-            },
-            "jti": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-            },
-            "issuer": {
-              "type": "string",
-              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$"
-            },
-            "subject": {
-              "type": "string",
-              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$"
-            },
-            "audience": {
-              "type": "string",
-              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-              "description": "MUST be the peer's AID."
-            },
-            "issued_at": {
-              "type": "integer",
-              "minimum": 0
-            },
-            "expires_at": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "grants": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "pattern": "^[^\\s]+$"
-              },
-              "minItems": 1,
-              "uniqueItems": true
-            },
-            "binding": {
-              "type": "object",
-              "required": [
-                "cnf"
-              ],
-              "properties": {
-                "cnf": {
-                  "type": "string",
-                  "minLength": 1,
-                  "pattern": "^[A-Za-z0-9_-]{43}$"
-                }
-              },
-              "additionalProperties": false
-            },
-            "signature": {
-              "type": "string",
-              "minLength": 1,
-              "pattern": "^[A-Za-z0-9_-]{86}$"
-            },
-            "extensions": {
-              "type": "object",
-              "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012."
-            }
-          },
-          "additionalProperties": false
-        }
-      },
-      "additionalProperties": false
+    "CompactJws": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "RFC 7515 compact JWS: exactly three non-empty unpadded-base64url segments. Embedded verbatim as an opaque string; the envelope layer never decodes or re-encodes it."
     },
     "PopNonce": {
       "type": "string",
@@ -152,8 +68,8 @@
     "PopSignature": {
       "type": "string",
       "minLength": 1,
-      "description": "base64url(sign(private_key, sha256(peer_pop_nonce))). Proves possession of the private key for this agent's AID.",
-      "pattern": "^[A-Za-z0-9_-]{86}$"
+      "description": "base64url(sign(private_key, sha256(peer_pop_nonce))). Proves possession of the private key for this agent's AID. MAY carry a v0.2 algorithm tag prefix (RFC-AITP-0001 §5.4.3).",
+      "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
     },
     "MutualHelloPayload": {
       "type": "object",
@@ -232,14 +148,18 @@
     "MutualCommitPayload": {
       "type": "object",
       "required": [
-        "tct_for_peer",
+        "tct",
         "pop_signature",
         "pop_nonce_echo"
       ],
       "properties": {
-        "tct_for_peer": {
-          "$ref": "#/$defs/TrustContextToken",
-          "description": "TCT initiator issues for target."
+        "tct": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "TCT the initiator issues for the target — compact JWS, typ 'aitp-tct+jwt' (RFC-AITP-0005). Decoded claims validate against aitp-tct.schema.json."
+        },
+        "grant_voucher": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "OPTIONAL grant voucher minted alongside the TCT — compact JWS, typ 'aitp-grant+jwt' (RFC-AITP-0005 §8). Omitted when issuer policy forbids the subject from delegating. Decoded claims validate against aitp-grant-voucher.schema.json."
         },
         "pop_signature": {
           "$ref": "#/$defs/PopSignature",
@@ -259,14 +179,18 @@
     "MutualCommitAckPayload": {
       "type": "object",
       "required": [
-        "tct_for_peer",
+        "tct",
         "pop_signature",
         "pop_nonce_echo"
       ],
       "properties": {
-        "tct_for_peer": {
-          "$ref": "#/$defs/TrustContextToken",
-          "description": "TCT target issues for initiator."
+        "tct": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "TCT the target issues for the initiator — compact JWS, typ 'aitp-tct+jwt' (RFC-AITP-0005)."
+        },
+        "grant_voucher": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "OPTIONAL grant voucher minted alongside the TCT — compact JWS, typ 'aitp-grant+jwt' (RFC-AITP-0005 §8)."
         },
         "pop_signature": {
           "$ref": "#/$defs/PopSignature",
@@ -304,7 +228,7 @@
   ],
   "examples": [
     {
-      "title": "MutualHello \u2014 OIDC",
+      "title": "MutualHello — OIDC",
       "identity": {
         "type": "oidc",
         "issuer": "https://auth.openai.com",
@@ -312,7 +236,7 @@
         "proof": "eyJhbGciOiJFZERTQSJ9..."
       },
       "manifest": {
-        "version": "aitp/0.1",
+        "version": "aitp/0.2",
         "aid": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
         "signature": "sig_A_manifest_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
       },
@@ -324,24 +248,8 @@
     },
     {
       "title": "MutualCommit",
-      "tct_for_peer": {
-        "tct": {
-          "version": "aitp/0.1",
-          "jti": "550e8400-e29b-41d4-a716-446655440001",
-          "issuer": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
-          "subject": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
-          "audience": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
-          "issued_at": 1711900200,
-          "expires_at": 1711903800,
-          "grants": [
-            "macp.mode.task.v1"
-          ],
-          "binding": {
-            "cnf": "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB"
-          },
-          "signature": "sig_A_tct_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
-        }
-      },
+      "tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJ2ZXIiOiJhaXRwLzAuMiJ9.tct_jws_signature_placeholder",
+      "grant_voucher": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJ2ZXIiOiJhaXRwLzAuMiJ9.voucher_jws_signature_placeholder",
       "pop_signature": "sig_A_pop_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "pop_nonce_echo": "nonce_B_pop_v01_aaannn"
     }

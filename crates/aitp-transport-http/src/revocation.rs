@@ -70,7 +70,7 @@ impl RevocationProvider for EmptyRevocationProvider {
         let now = Timestamp::now();
         sign_revocation_list(
             RevocationList {
-                version: "aitp/0.1".into(),
+                version: "aitp/0.2".into(),
                 issuer: self.issuer_key.aid().clone(),
                 published_at: now,
                 expires_at: Timestamp(now.0 + self.ttl_secs),
@@ -419,7 +419,7 @@ mod tests {
     ) -> RevocationListEnvelope {
         sign_revocation_list(
             RevocationList {
-                version: "aitp/0.1".into(),
+                version: "aitp/0.2".into(),
                 issuer: issuer_key.aid().clone(),
                 published_at,
                 expires_at,

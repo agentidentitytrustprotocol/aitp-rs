@@ -80,7 +80,7 @@ Take a known wire object, canonicalize it, hash it, and assert against a
 known-answer hash **pinned in the spec**, not against our own output.
 
 ```rust
-let canonical = jcs::canonicalize(&tct)?;
+let canonical = jcs::canonicalize(&manifest)?;
 let hash = sha256(&canonical);
 assert_eq!(hex::encode(hash), "<value pinned in the spec's jcs-sha256 KAT>");
 ```
@@ -93,9 +93,16 @@ any drift. So every conformant implementation must produce the same
 hashes; this is no longer a de-facto value captured from our own
 reference run.
 
-We pin this for all four signed types: TCT, Manifest, delegation token,
-and revocation snapshot (the revocation KAT is checked separately in
-`crates/aitp-tct/src/revocation.rs`).
+In **AITP v0.2** JCS only governs the protocol-internal artifacts, so we
+pin the jcs-sha256 KAT for the **JCS-profile** types: Manifest and
+revocation snapshot (the revocation KAT is checked separately in
+`crates/aitp-tct/src/revocation.rs`). The v0.1 TCT and delegation JCS
+vectors are **retired** — those artifacts are now compact JWS strings
+(RFC-AITP-0001 §5.4.5) verified over their exact transmitted bytes, not
+over a canonicalized form; their known-answer vectors live under
+`known-answer/signed-examples/` instead. See
+[architecture.md](architecture.md#the-two-signing-profiles) for the
+profile boundary.
 
 ### Layer 3: Property tests (`tests/jcs_properties.rs`)
 
@@ -121,11 +128,15 @@ omitted or `{}` — pick one. We pick: omit. Every protocol crate uses
 **No floats in protocol fields.** Timestamps are `i64`. UUIDs are strings.
 We never let a protocol field round-trip through `f64`.
 
-**Signed-object viewing.** When signing, we serialize a "view" struct that
-omits the `signature` field. After signing, we set the field on the full
-struct. This pattern repeats for every signed type (Manifest, TCT,
-delegation token, revocation snapshot). See the `SignedTctView` pattern in
-`crates/aitp-tct/src/builder.rs`.
+**Signed-object viewing.** When signing a **JCS-profile** object, we
+serialize a "view" struct that omits the `signature` field. After signing,
+we set the field on the full struct. This pattern repeats for every
+JCS-profile signed type (Manifest, revocation snapshot, the session-bundle
+outer signature). The compact-JWS artifacts (TCT, grant voucher, delegation
+token) do **not** use this pattern — they have no embedded `signature`
+field; the signature is the third compact-JWS segment, computed over the
+`header.payload` bytes (see `crates/aitp-tct/src/` for the JWS minting
+path).
 
 ## Why we may fork `serde_jcs` later
 

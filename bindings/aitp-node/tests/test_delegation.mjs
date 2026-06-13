@@ -1,9 +1,10 @@
-// Delegation (RFC-AITP-0006) round-trip — Node SDK.
+// Delegation (RFC-AITP-0006, voucher-based v0.2) round-trip — Node SDK.
 //
 // Three agents: A (issuer/verifier), B (delegator), C (delegatee).
-//   1. A issues a TCT to B for ["demo.write"] via the four-message handshake.
-//   2. B mints a DelegationEnvelope binding C's pubkey.
-//   3. A verifies the envelope, then mints a fresh TCT for C.
+//   1. A issues a TCT + grant voucher to B for ["demo.write"] via the
+//      four-message handshake.
+//   2. B mints a delegation token from its grant voucher, binding C's AID.
+//   3. A verifies the delegation, then mints a fresh TCT for C.
 //   4. C verifies the fresh TCT under the presented-TCT model.
 
 import test from 'node:test';
@@ -14,35 +15,33 @@ import {
   verifyDelegation,
   verifyDelegationExperimentalMultihop,
 } from '../index.js';
+import { withClaims } from './_jws.mjs';
 
 const HAS_MULTIHOP =
   typeof verifyDelegationExperimentalMultihop === 'function';
 
-// Take a valid single-hop envelope and inject a non-empty `chain`. A
-// `DelegationStep` shares the wire shape of `grant_proof`, so reusing the
-// envelope's own `grant_proof` keeps the JSON deserializable while turning the
-// token into a (structurally bogus) multi-hop one — enough to exercise the
-// strict-vs-experimental gate, which fires before signature/structure checks.
-function injectMultihopChain(delegationEnv) {
-  const env = JSON.parse(delegationEnv);
-  env.delegation.chain = [env.delegation.grant_proof];
-  return JSON.stringify(env);
+// Take a valid single-hop delegation token and forge a non-empty `chain`
+// claim into its (unverified) payload. The strict vs. experimental gate
+// fires on the decoded `chain` *before* the signature check, so the stale
+// signature is irrelevant to the gate — enough to exercise it.
+function injectMultihopChain(delegationToken) {
+  return withClaims(delegationToken, { chain: [delegationToken] });
 }
 
-function buildDelegationEnv() {
+// Run the handshake and return B's grant voucher (the delegation root) for
+// the requested grants.
+function buildVoucher() {
   const { agent: a, manifest: aManifest } = buildPeer('A', 8301, ['demo.write']);
   const { agent: b } = buildPeer('B', 8302, ['demo.echo']);
   const { agent: c } = buildPeer('C', 8303, ['demo.read']);
 
-  const bHeldTctFromA = fullHandshake(b, a, aManifest, ['demo.write']);
-  const cManifestEnv = JSON.parse(c.buildManifest({
-    displayName: 'C',
-    handshakeEndpoint: 'http://localhost:8303/aitp/handshake/',
-    offeredCaps: ['demo.read'],
-  }));
-  const cPubKey = cManifestEnv.manifest.identity_hint.public_key;
-  const delegationEnv = b.buildDelegation(bHeldTctFromA, c.aid, cPubKey, ['demo.write']);
-  return { a, delegationEnv };
+  const bCompleted = fullHandshake(b, a, aManifest, ['demo.write']);
+  const delegationToken = b.buildDelegation(
+    bCompleted.grantVoucher,
+    c.aid,
+    ['demo.write'],
+  );
+  return { a, delegationToken };
 }
 
 function buildPeer(name, port, offers) {
@@ -62,7 +61,8 @@ function fullHandshake(initiator, responder, respManifest, requested) {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  return sess.complete(commitAck); // initiator-held TCT (issued by responder)
+  // { tct, claims, grantVoucher } — the voucher is the delegation root.
+  return sess.complete(commitAck);
 }
 
 test('delegation round-trip: A → B → C → A re-issues to C', () => {
@@ -71,27 +71,20 @@ test('delegation round-trip: A → B → C → A re-issues to C', () => {
   const { agent: b } = buildPeer('B', 8102, ['demo.echo']);
   const { agent: c } = buildPeer('C', 8103, ['demo.read']);
 
-  // B initiates against A and ends up holding A's TCT for demo.write.
-  const bHeldTctFromA = fullHandshake(b, a, aManifest, ['demo.write']);
+  // B initiates against A and ends up holding A's TCT + grant voucher.
+  const bCompleted = fullHandshake(b, a, aManifest, ['demo.write']);
+  assert.ok(bCompleted.grantVoucher, 'A should issue a delegable grant voucher');
 
-  // C's raw Ed25519 pubkey — pulled from C's manifest identity_hint.
-  const cManifestEnv = JSON.parse(c.buildManifest({
-    displayName: 'C',
-    handshakeEndpoint: 'http://localhost:8103/aitp/handshake/',
-    offeredCaps: ['demo.read'],
-  }));
-  const cPubKey = cManifestEnv.manifest.identity_hint.public_key;
-
-  // B mints a delegation envelope binding C's key, scoped to demo.write.
-  const delegationEnv = b.buildDelegation(
-    bHeldTctFromA,
+  // B mints a delegation from its voucher, binding C's AID, scoped to
+  // demo.write. C's key binding is derived from c.aid itself.
+  const delegationToken = b.buildDelegation(
+    bCompleted.grantVoucher,
     c.aid,
-    cPubKey,
     ['demo.write'],
   );
 
   // A verifies and mints a fresh TCT bound to C.
-  const verified = verifyDelegation(delegationEnv, a.aid);
+  const verified = verifyDelegation(delegationToken, a.aid);
   assert.equal(verified.delegator, a.aid);
   assert.equal(verified.delegatee, c.aid);
   assert.equal(verified.issuedBy, b.aid);
@@ -111,31 +104,22 @@ test('verifyDelegation rejects a wrong verifier AID', () => {
   const { agent: c } = buildPeer('C', 8203, ['demo.read']);
   const { agent: other } = buildPeer('Other', 8204, ['demo.x']);
 
-  const bHeldTctFromA = fullHandshake(b, a, aManifest, ['demo.write']);
-
-  const cManifestEnv = JSON.parse(c.buildManifest({
-    displayName: 'C',
-    handshakeEndpoint: 'http://localhost:8203/aitp/handshake/',
-    offeredCaps: ['demo.read'],
-  }));
-  const cPubKey = cManifestEnv.manifest.identity_hint.public_key;
-
-  const delegationEnv = b.buildDelegation(
-    bHeldTctFromA,
+  const bCompleted = fullHandshake(b, a, aManifest, ['demo.write']);
+  const delegationToken = b.buildDelegation(
+    bCompleted.grantVoucher,
     c.aid,
-    cPubKey,
     ['demo.write'],
   );
 
   // A different agent's AID should be rejected as the verifier.
-  assert.throws(() => verifyDelegation(delegationEnv, other.aid));
+  assert.throws(() => verifyDelegation(delegationToken, other.aid));
 });
 
 test('verifyDelegation (strict default) rejects a multi-hop chain', () => {
   // RFC-AITP-0006 §4.4: any non-empty chain is rejected with
   // DELEGATION_MULTIHOP_NOT_SUPPORTED before any per-hop work.
-  const { a, delegationEnv } = buildDelegationEnv();
-  const tampered = injectMultihopChain(delegationEnv);
+  const { a, delegationToken } = buildVoucher();
+  const tampered = injectMultihopChain(delegationToken);
   assert.throws(
     () => verifyDelegation(tampered, a.aid),
     /multi-hop delegation is not supported/,
@@ -149,8 +133,8 @@ test(
     // The opt-in verifier must get PAST the hop gate the strict path rejects
     // at — proven by failing with a *different* error (structure/signature)
     // rather than MULTIHOP_NOT_SUPPORTED.
-    const { a, delegationEnv } = buildDelegationEnv();
-    const tampered = injectMultihopChain(delegationEnv);
+    const { a, delegationToken } = buildVoucher();
+    const tampered = injectMultihopChain(delegationToken);
     assert.throws(() => verifyDelegationExperimentalMultihop(tampered, a.aid, 3), (err) => {
       assert.doesNotMatch(String(err.message), /multi-hop delegation is not supported/);
       return true;

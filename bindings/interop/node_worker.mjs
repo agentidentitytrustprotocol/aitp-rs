@@ -149,20 +149,37 @@ const methods = {
   }),
 
   process_commit: (p) => {
-    const { ackJson, tctJson } = registry
+    // v0.2: processCommit returns { ackJson, completed: JsCompletedHandshake }.
+    // The held TCT and grant voucher are opaque compact-JWS strings.
+    const { ackJson, completed } = registry
       .get(p.responder)
       .processCommit(p.commit);
-    return { commit_ack: ackJson, tct: tctJson };
+    return {
+      commit_ack: ackJson,
+      tct: completed.tct,
+      grant_voucher: completed.grantVoucher ?? null,
+    };
   },
 
-  complete: (p) => ({
-    tct: registry.get(p.session).complete(p.commit_ack),
-  }),
+  complete: (p) => {
+    // v0.2: complete returns JsCompletedHandshake { tct, claims, grantVoucher? }.
+    const completed = registry.get(p.session).complete(p.commit_ack);
+    return {
+      tct: completed.tct,
+      grant_voucher: completed.grantVoucher ?? null,
+    };
+  },
 
   verify_tct: (p) => {
+    // v0.2: tct is a compact-JWS string; revoked_jtis is an optional gate.
     const ident = registry
       .get(p.agent)
-      .verifyTct(p.tct, p.required_grant, p.expected_audience ?? undefined);
+      .verifyTct(
+        p.tct,
+        p.required_grant,
+        p.expected_audience ?? undefined,
+        p.revoked_jtis ?? undefined,
+      );
     return {
       peer_aid: ident.peerAid,
       grants: ident.grants,
@@ -173,34 +190,37 @@ const methods = {
 
   // ── A1 — delegation ───────────────────────────────────────────────
   build_delegation: (p) => ({
+    // v0.2: a delegation roots in the grant-voucher string (no delegatee
+    // pubkey arg — the key binding is derived from the delegatee's AID).
     delegation: registry.get(p.agent).buildDelegation(
-      p.held_tct,
+      p.voucher,
       p.delegatee_aid,
-      p.delegatee_pubkey_b64u,
       p.scope,
       p.ttl_secs ?? null,
     ),
   }),
 
   verify_delegation: (p) => {
-    // Strict v0.1 by default; route to the experimental opt-in only when the
+    // Strict v0.2 by default; route to the experimental opt-in only when the
     // caller explicitly requests a multi-hop ceiling (draft RFC-AITP-0011).
     const hops = p.max_hops ?? 0;
     const v =
       hops > 0
-        ? verifyDelegationExperimentalMultihop(p.envelope, p.verifier_aid, hops)
-        : verifyDelegation(p.envelope, p.verifier_aid);
+        ? verifyDelegationExperimentalMultihop(p.token, p.verifier_aid, hops)
+        : verifyDelegation(p.token, p.verifier_aid);
     return {
       delegator: v.delegator,
       delegatee: v.delegatee,
       issued_by: v.issuedBy,
       grants: v.grants,
       expires_at: v.expiresAt,
-      cnf: v.cnf,
+      cnf_jkt: v.cnfJkt,
     };
   },
 
   issue_tct_for_delegatee: (p) => ({
+    // v0.2: issueTctForDelegatee returns the TCT as an opaque compact-JWS
+    // string. The JsDelegationVerified shape carries `cnfJkt`.
     tct: registry.get(p.agent).issueTctForDelegatee(
       {
         delegator: p.verified.delegator,
@@ -208,7 +228,7 @@ const methods = {
         issuedBy: p.verified.issued_by,
         grants: p.verified.grants,
         expiresAt: p.verified.expires_at,
-        cnf: p.verified.cnf,
+        cnfJkt: p.verified.cnf_jkt,
       },
       p.ttl_secs ?? null,
     ),
@@ -230,12 +250,6 @@ const methods = {
   verify_manifest: (p) => {
     verifyManifestJson(p.manifest);
     return { ok: true };
-  },
-
-  // Helper to extract a peer's pubkey from its manifest (needed by A1).
-  pubkey_from_manifest: (p) => {
-    const env = JSON.parse(p.manifest);
-    return { pubkey_b64u: env.manifest.identity_hint.public_key };
   },
 
   // ── B1 — OIDC interop ─────────────────────────────────────────────
