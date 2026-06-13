@@ -16,7 +16,7 @@ fn sample_bundle(session_id: Uuid) -> SessionBundleEnvelope {
     let coordinator = AitpSigningKey::from_seed(&[0x55; 32]);
     SessionBundleEnvelope {
         session_bundle: SessionTrustBundle {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             session_id,
             coordinator: coordinator.aid().clone(),
             issued_at: Timestamp(1_700_000_000),

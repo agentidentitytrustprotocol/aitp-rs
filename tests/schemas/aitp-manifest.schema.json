@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/manifest.json",
+  "$id": "https://aitp.dev/schema/v0.2/manifest.json",
   "title": "AgentManifest",
-  "description": "AITP v0.1 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
+  "description": "AITP v0.2 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
   "type": "object",
   "required": [
     "manifest"
@@ -25,12 +25,12 @@
       "properties": {
         "version": {
           "type": "string",
-          "const": "aitp/0.1",
-          "description": "Protocol version. MUST be 'aitp/0.1'."
+          "const": "aitp/0.2",
+          "description": "Protocol version. MUST be 'aitp/0.2'."
         },
         "aid": {
           "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
+          "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
           "description": "Agent's cryptographic identifier. Format: aid:<method>:<base64url>."
         },
         "display_name": {
@@ -118,7 +118,7 @@
               "type": "string",
               "minLength": 1,
               "description": "base64url(sign(agent_private_key, sha256(base64url_decode(challenge)))). Verified using the public key in `aid`. The hash input is the 16 raw bytes obtained by decoding `challenge`, not the ASCII bytes of the encoded form, matching the convention in RFC-AITP-0004 §3.",
-              "pattern": "^[A-Za-z0-9_-]{86}$"
+              "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
             }
           },
           "additionalProperties": false
@@ -141,7 +141,7 @@
           "type": "string",
           "minLength": 1,
           "description": "base64url signature over canonical Manifest JSON (excluding this field, keys sorted lexicographically). Signed by the agent's private key.",
-          "pattern": "^[A-Za-z0-9_-]{86}$"
+          "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
         }
       },
       "additionalProperties": false
@@ -163,7 +163,7 @@
             "oidc",
             "pinned_key"
           ],
-          "description": "Identity mechanism. v0.1: oidc, pinned_key."
+          "description": "Identity mechanism. v0.2: oidc, pinned_key."
         },
         "issuer": {
           "type": "string",
@@ -178,7 +178,7 @@
         "public_key": {
           "type": "string",
           "description": "base64url public key. Required for pinned_key.",
-          "pattern": "^[A-Za-z0-9_-]{43}$"
+          "pattern": "^[A-Za-z0-9_-]{43,44}$"
         }
       },
       "if": {
@@ -209,7 +209,7 @@
   "examples": [
     {
       "manifest": {
-        "version": "aitp/0.1",
+        "version": "aitp/0.2",
         "aid": "aid:pubkey:worker_pubkey_AID_v01_placeholder_wwwwwwwww",
         "display_name": "WorkerAgent-7",
         "identity_hint": {

@@ -41,12 +41,16 @@ pub enum TctError {
     /// (forbidden by RFC-AITP-0005 §4.2).
     #[error("TCT grant must not contain whitespace: `{0}`")]
     GrantWhitespace(String),
-    /// `binding.cnf` is not valid base64url, does not decode to the
-    /// algorithm-agile compressed pubkey shape (32 B Ed25519 raw or
-    /// 33 B SEC1-compressed P-256), or does not match the pubkey
-    /// bytes embedded in the subject AID.
-    #[error("TCT binding.cnf is malformed")]
+    /// `cnf.jkt` does not equal the RFC 7638 thumbprint of the key
+    /// encoded in the subject AID (RFC-AITP-0005 §3).
+    #[error("TCT cnf.jkt does not match the subject key")]
     CnfMalformed,
+    /// Decoded JWS payload did not deserialize as the artifact's claims
+    /// object — unknown claim outside `ext`, duplicate claim, missing
+    /// required claim, or a type mismatch (RFC-AITP-0001 §5.4.5 strict
+    /// parsing).
+    #[error("claims malformed: {0}")]
+    ClaimsMalformed(String),
     /// Builder was missing a required field.
     #[error("missing required field: {0}")]
     MissingField(&'static str),

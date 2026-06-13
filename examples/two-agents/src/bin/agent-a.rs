@@ -15,7 +15,6 @@ use aitp::core::base64url;
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, TrustMode};
 use aitp::handshake::StaticPinnedKeyStore;
-use aitp::tct::TctEnvelope;
 use aitp::transport::ManifestFetcher;
 use aitp_example_two_agents::{build_demo_manifest, expand_seed};
 use clap::Parser;
@@ -73,17 +72,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!(
         "agent-a: handshake complete — holding TCT issued by {} with grants {:?}",
-        session.held_tct.issuer, session.held_tct.grants
+        session.held_tct.claims.iss, session.held_tct.claims.grants
     );
 
-    // Invoke B's /echo using the received TCT.
-    let tct_header = serde_json::to_string(&TctEnvelope {
-        tct: session.held_tct,
-    })?;
+    // Invoke B's /echo using the received TCT — on the wire the TCT is
+    // the opaque compact JWS string, presented as-is.
     let client = reqwest::Client::new();
     let echo_resp = client
         .post(peer_origin.join("/echo")?)
-        .header("x-aitp-tct", tct_header)
+        .header("x-aitp-tct", session.held_tct.token)
         .body(cli.message)
         .send()
         .await?;

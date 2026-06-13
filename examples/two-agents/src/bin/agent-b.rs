@@ -14,7 +14,6 @@ use aitp::core::Aid;
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{Manifest, ManifestEnvelope};
-use aitp::tct::{Tct, TctEnvelope};
 use aitp::transport::{with_request_body_limit_default, HandshakeServer};
 use aitp_example_two_agents::{build_demo_manifest, expand_seed, verify_echo_tct};
 use axum::{
@@ -102,13 +101,13 @@ async fn handle_echo(
     headers: HeaderMap,
     body: Bytes,
 ) -> Result<String, (StatusCode, String)> {
-    let tct_header = headers
+    // The header value is the TCT itself: an opaque compact JWS string.
+    let token = headers
         .get("x-aitp-tct")
-        .ok_or((StatusCode::UNAUTHORIZED, "missing X-AITP-TCT header".into()))?;
-    let env: TctEnvelope = serde_json::from_slice(tct_header.as_bytes())
+        .ok_or((StatusCode::UNAUTHORIZED, "missing X-AITP-TCT header".into()))?
+        .to_str()
         .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let tct: Tct = env.tct;
-    let caller = verify_echo_tct(&tct, &state.aid).map_err(|e| (StatusCode::FORBIDDEN, e))?;
+    let caller = verify_echo_tct(token, &state.aid).map_err(|e| (StatusCode::FORBIDDEN, e))?;
     Ok(format!(
         "echo from agent-b to {}: {}",
         caller,

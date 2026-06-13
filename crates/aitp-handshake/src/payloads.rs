@@ -3,7 +3,6 @@
 
 use crate::IdentityDescriptor;
 use aitp_manifest::Manifest;
-use aitp_tct::TctEnvelope;
 use serde::{Deserialize, Serialize};
 
 /// Payload of a `MUTUAL_HELLO` envelope.
@@ -42,9 +41,15 @@ pub struct MutualHelloAckPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MutualCommitPayload {
-    /// TCT initiator issues to responder, wrapped as `{"tct": {...}}`.
-    pub tct_for_peer: TctEnvelope,
-    /// Initiator's signature over `sha256(B_pop_nonce.as_bytes())`.
+    /// TCT the initiator issues to the responder — opaque compact JWS,
+    /// `typ: aitp-tct+jwt` (RFC-AITP-0005).
+    pub tct: String,
+    /// Companion grant voucher compact JWS (`typ: aitp-grant+jwt`).
+    /// OPTIONAL — the issuer MAY decline when its policy forbids the
+    /// peer from delegating (RFC-AITP-0005 §8.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_voucher: Option<String>,
+    /// Initiator's signature over `sha256(decoded(B_pop_nonce))`.
     pub pop_signature: String,
     /// Responder's nonce, echoed.
     pub pop_nonce_echo: String,
@@ -54,9 +59,14 @@ pub struct MutualCommitPayload {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct MutualCommitAckPayload {
-    /// TCT responder issues to initiator, wrapped as `{"tct": {...}}`.
-    pub tct_for_peer: TctEnvelope,
-    /// Responder's signature over `sha256(A_pop_nonce.as_bytes())`.
+    /// TCT the responder issues to the initiator — opaque compact JWS,
+    /// `typ: aitp-tct+jwt` (RFC-AITP-0005).
+    pub tct: String,
+    /// Companion grant voucher compact JWS (`typ: aitp-grant+jwt`).
+    /// OPTIONAL (RFC-AITP-0005 §8.2).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub grant_voucher: Option<String>,
+    /// Responder's signature over `sha256(decoded(A_pop_nonce))`.
     pub pop_signature: String,
     /// Initiator's nonce, echoed.
     pub pop_nonce_echo: String,
@@ -67,7 +77,7 @@ mod tests {
     use super::*;
     use crate::IdentityKind;
     use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-    use aitp_tct::{Tct, TctBuilder};
+    use aitp_tct::TctBuilder;
     use serde_json::json;
 
     fn alice() -> aitp_crypto::AitpSigningKey {
@@ -96,7 +106,7 @@ mod tests {
         issuer: &aitp_crypto::AitpSigningKey,
         subject_aid: &aitp_core::Aid,
         subject_pk: aitp_crypto::AitpVerifyingKey,
-    ) -> Tct {
+    ) -> aitp_tct::IssuedTct {
         TctBuilder::new(issuer)
             .subject(subject_aid.clone())
             .audience(subject_aid.clone())
@@ -152,10 +162,10 @@ mod tests {
     fn round_trip_mutual_commit_and_ack() {
         let key = alice();
         let subject = aitp_crypto::AitpSigningKey::from_seed(&[0xB2; 32]);
-        let tct = build_tct(&key, subject.aid(), subject.verifying_key());
-        let env = TctEnvelope { tct };
+        let issued = build_tct(&key, subject.aid(), subject.verifying_key());
         let commit = MutualCommitPayload {
-            tct_for_peer: env.clone(),
+            tct: issued.token.clone(),
+            grant_voucher: issued.voucher.clone(),
             pop_signature: "A".repeat(86),
             pop_nonce_echo: "B".repeat(22),
         };
@@ -163,12 +173,15 @@ mod tests {
         let back: MutualCommitPayload = serde_json::from_str(&s).unwrap();
         assert_eq!(back, commit);
 
+        // Voucher is optional — issuer policy may decline it.
         let ack = MutualCommitAckPayload {
-            tct_for_peer: env,
+            tct: issued.token,
+            grant_voucher: None,
             pop_signature: "B".repeat(86),
             pop_nonce_echo: "A".repeat(22),
         };
         let s = serde_json::to_string(&ack).unwrap();
+        assert!(!s.contains("grant_voucher"));
         let back: MutualCommitAckPayload = serde_json::from_str(&s).unwrap();
         assert_eq!(back, ack);
     }

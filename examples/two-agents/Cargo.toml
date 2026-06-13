@@ -37,7 +37,7 @@ path = "src/bin/delegation-demo.rs"
 experimental-renewal = ["aitp/experimental-renewal"]
 
 [dependencies]
-aitp = { path = "../../crates/aitp", version = "0.2.0", features = ["all"] }
+aitp = { path = "../../crates/aitp", version = "0.3.0", features = ["all"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "signal"] }
 serde_json = { workspace = true }
 clap = { workspace = true }

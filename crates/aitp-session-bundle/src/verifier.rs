@@ -1,11 +1,11 @@
 //! Session Trust Bundle verification (RFC-AITP-0010 §5-§6).
 
-use crate::builder::{BundleSigningView, DEFAULT_BUNDLE_VERSION};
+use crate::builder::{peek_tct_claims, BundleSigningView, DEFAULT_BUNDLE_VERSION};
 use crate::error::SessionBundleError;
 use crate::types::SessionTrustBundle;
 use aitp_core::{jcs, Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
-use aitp_tct::{verify_tct, TctVerifyContext};
+use aitp_tct::{verify_tct, TctError, TctVerifyContext};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -51,7 +51,7 @@ pub enum BundleOutcome {
 /// Verify a session bundle.
 ///
 /// Order of checks:
-/// 1. `version == "aitp/0.1"`.
+/// 1. `version == "aitp/0.2"`.
 /// 2. `expires_at` not in the past.
 /// 3. `expires_at == min(participants[*].tct.expires_at)` invariant.
 /// 4. Verifier's AID is present in `participants[]`.
@@ -78,13 +78,19 @@ pub fn verify_session_bundle(
         return Err(SessionBundleError::EmptyParticipants);
     }
 
-    // 3.
-    let computed_min = bundle
-        .participants
-        .iter()
-        .map(|p| p.tct.expires_at)
-        .min_by_key(|t| t.0)
-        .ok_or(SessionBundleError::EmptyParticipants)?;
+    // 3. Expiry-window invariant against the (still-unverified) claim
+    // peeks — the embedded token strings become coordinator-attested
+    // once the outer signature verifies in step 5, and each is then
+    // fully verified in step 6.
+    let mut computed_min: Option<Timestamp> = None;
+    for p in &bundle.participants {
+        let exp = peek_tct_claims(&p.tct)?.exp;
+        computed_min = Some(match computed_min {
+            Some(m) if m.0 <= exp.0 => m,
+            _ => exp,
+        });
+    }
+    let computed_min = computed_min.ok_or(SessionBundleError::EmptyParticipants)?;
     if computed_min.0 != bundle.expires_at.0 {
         return Err(SessionBundleError::ExpiryWindowInvariant);
     }
@@ -101,12 +107,14 @@ pub fn verify_session_bundle(
     // 5. Outer signature.
     let coord_key = AitpVerifyingKey::from_aid(&bundle.coordinator)?;
     let view = BundleSigningView {
-        version: &bundle.version,
-        session_id: &bundle.session_id,
-        coordinator: &bundle.coordinator,
-        issued_at: &bundle.issued_at,
-        expires_at: &bundle.expires_at,
-        participants: &bundle.participants,
+        session_bundle: crate::builder::BundleSigningBody {
+            version: &bundle.version,
+            session_id: &bundle.session_id,
+            coordinator: &bundle.coordinator,
+            issued_at: &bundle.issued_at,
+            expires_at: &bundle.expires_at,
+            participants: &bundle.participants,
+        },
     };
     let canonical = jcs::canonicalize_serializable(&view)
         .map_err(|e| SessionBundleError::Canonicalization(e.to_string()))?;
@@ -123,30 +131,31 @@ pub fn verify_session_bundle(
     let mut dropped = Vec::new();
 
     for entry in &bundle.participants {
-        // Coordinator is the issuer of every embedded TCT.
-        if entry.tct.issuer != bundle.coordinator {
-            return Err(SessionBundleError::CoordinatorIssuerMismatch);
-        }
-        // The bundle redistributes each participant's OWN TCT — so
-        // audience MUST be the entry's AID.
-        if entry.tct.audience != entry.aid {
-            return Err(SessionBundleError::AudienceMismatch);
-        }
-        // Full TCT verification (issuer signature, expiry, binding).
+        // Full TCT verification (typ, alg pin, signature, claims).
+        // `verify_tct` pins the issuer to the coordinator's AID and
+        // the audience to the entry's AID — the §3 invariants surface
+        // as the bundle-specific error codes below.
         let tct_ctx = TctVerifyContext {
             expected_audience: &entry.aid,
-            issuer_pubkey: &coord_key,
+            issuer: &bundle.coordinator,
             now: ctx.now,
             issuer_manifest_expires_at: None,
             revocation_check: None, // applied separately below for §7
         };
-        verify_tct(&entry.tct, &tct_ctx).map_err(SessionBundleError::TctVerification)?;
+        let verified = match verify_tct(&entry.tct, &tct_ctx) {
+            Ok(v) => v,
+            Err(TctError::IssuerMismatch) => {
+                return Err(SessionBundleError::CoordinatorIssuerMismatch)
+            }
+            Err(TctError::AudienceMismatch) => return Err(SessionBundleError::AudienceMismatch),
+            Err(e) => return Err(SessionBundleError::TctVerification(e)),
+        };
 
         // 7. Per-pair revocation: drop revoked participants but don't
         // fail the whole bundle.
         let is_revoked = ctx
             .revocation_check
-            .map(|check| check(&entry.tct.jti))
+            .map(|check| check(&verified.claims.jti))
             .unwrap_or(false);
         if is_revoked {
             dropped.push(entry.aid.clone());

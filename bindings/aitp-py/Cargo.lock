@@ -4,7 +4,7 @@ version = 4
 
 [[package]]
 name = "aitp-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64ct",
  "chrono",
@@ -20,13 +20,14 @@ dependencies = [
 
 [[package]]
 name = "aitp-crypto"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "base64ct",
  "ed25519-dalek",
  "p256",
  "rand",
+ "serde",
  "serde_json",
  "sha2",
  "thiserror 1.0.69",
@@ -34,7 +35,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-delegation"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -48,7 +49,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-envelope"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -58,7 +59,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-handshake"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -77,7 +78,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-manifest"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -91,7 +92,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-py"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -113,7 +114,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-session-bundle"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -127,7 +128,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-tct"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",

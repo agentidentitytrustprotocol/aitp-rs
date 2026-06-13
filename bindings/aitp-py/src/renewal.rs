@@ -5,38 +5,39 @@
 
 use aitp_core::{base64url, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::{build_renewal_request, process_renewal_request, TctEnvelope, TctRenewalPayload};
+use aitp_tct::{build_renewal_request, process_renewal_request, TctRenewalPayload};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rand::RngCore;
 
 /// Holder side: build a `TctRenewalPayload` JSON.
 ///
+/// `current_tct_token` is the currently-held TCT as a compact-JWS string.
 /// The SDK generates a fresh 128-bit `pop_nonce` internally; callers
 /// don't have to manage it.
 pub fn build_renewal_request_py(
     holder_key: &AitpSigningKey,
-    current_tct_envelope_json: &str,
+    current_tct_token: &str,
 ) -> PyResult<String> {
-    let envelope: TctEnvelope = serde_json::from_str(current_tct_envelope_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid current TCT JSON: {e}")))?;
     let mut nonce_bytes = [0u8; 16];
     rand::rngs::OsRng
         .try_fill_bytes(&mut nonce_bytes)
         .map_err(|e| PyRuntimeError::new_err(format!("rng failure: {e}")))?;
     let pop_nonce = base64url::encode(&nonce_bytes);
 
-    let payload: TctRenewalPayload = build_renewal_request(holder_key, envelope, pop_nonce)
-        .map_err(|e| PyRuntimeError::new_err(format!("renewal request build failed: {e}")))?;
+    let payload: TctRenewalPayload =
+        build_renewal_request(holder_key, current_tct_token.to_string(), pop_nonce)
+            .map_err(|e| PyRuntimeError::new_err(format!("renewal request build failed: {e}")))?;
 
     serde_json::to_string(&payload).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
-/// Issuer side: verify a renewal request and mint a fresh `TctEnvelope` JSON.
+/// Issuer side: verify a renewal request and mint a fresh TCT.
 ///
 /// `manifest_exp_unix_secs` bounds the new TCT's expiry to the issuer
 /// manifest's window; `new_ttl_secs` is the requested lifetime (capped
-/// by the bound).
+/// by the bound). Returns a JSON object
+/// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
 pub fn process_renewal_request_py(
     issuer_key: &AitpSigningKey,
     request_payload_json: &str,
@@ -45,7 +46,7 @@ pub fn process_renewal_request_py(
 ) -> PyResult<String> {
     let request: TctRenewalPayload = serde_json::from_str(request_payload_json)
         .map_err(|e| PyValueError::new_err(format!("invalid renewal payload JSON: {e}")))?;
-    let tct = process_renewal_request(
+    let issued = process_renewal_request(
         &request,
         issuer_key,
         Timestamp(manifest_exp_unix_secs),
@@ -53,5 +54,9 @@ pub fn process_renewal_request_py(
         new_ttl_secs,
     )
     .map_err(|e| PyRuntimeError::new_err(format!("renewal request rejected: {e}")))?;
-    serde_json::to_string(&TctEnvelope { tct }).map_err(|e| PyRuntimeError::new_err(e.to_string()))
+    let out = serde_json::json!({
+        "tct": issued.token,
+        "grant_voucher": issued.voucher,
+    });
+    serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

@@ -11,13 +11,13 @@ The Python SDK has a symmetric surface; see [`sdk-python.md`](sdk-python.md).
 
 ```bash
 npm run build:debug                  # default surface
-npm run build:experimental:debug     # adds post-v0.1 features
+npm run build:experimental:debug     # adds the draft/opt-in features
 # Release variants:
 npm run build
 npm run build:experimental
 ```
 
-## Default surface (v0.1)
+## Default surface
 
 ### Mutual handshake (RFC-AITP-0004)
 
@@ -41,28 +41,47 @@ const hello = s.buildHello(bobManifest, ['demo.echo']);
 const { ackJson, sessionId } = r.processHello(hello);
 const commit = s.processHelloAck(ackJson, sessionId);
 const { ackJson: cack } = r.processCommit(commit);
-const aliceHeld = s.complete(cack);
+const held = s.complete(cack);
+// v0.2: completion exposes the peer-issued TCT (opaque compact JWS), its
+// decoded claims, and the optional companion grant voucher.
+const tctJws     = held.tct.token;       // compact JWS string — store / present this
+const claims     = held.tct.claims;      // decoded {ver, jti, iss, sub, aud, iat, exp, grants, cnf}
+const voucherJws = held.grantVoucher;    // compact JWS string, or null if delegation disallowed
 ```
 
 ### TCT verification (RFC-AITP-0005 §9)
 
+A TCT is an opaque compact JWS string. `verifyTct` parses it strictly
+(`typ == aitp-tct+jwt`, AID-pinned `alg`, signature over the transmitted bytes)
+and returns the verified identity.
+
 ```javascript
 // Holder-receipt model (default).
-const ident = agent.verifyTct(tctJson, 'demo.echo');
+const ident = agent.verifyTct(tctJws, 'demo.echo');
 
 // Presented-TCT model — for a resource server checking a TCT a peer
-// presented in `X-AITP-TCT`. Pass the TCT's own subject AID.
-const presented = agent.verifyTct(tctJson, 'demo.echo', peerAid);
+// presented in `X-AITP-TCT`. Pass the TCT's own subject AID (== sub).
+const presented = agent.verifyTct(tctJws, 'demo.echo', peerAid);
+
+// Optional revocation gate (F-1): pass the set of revoked TCT `jti`s; a TCT
+// whose jti is listed is rejected with TCT_REVOKED.
+const gated = agent.verifyTct(tctJws, 'demo.echo', undefined, ['<revoked-uuid>']);
 ```
 
+A TCT also verifies under any stock JOSE library (node `jose`) given only the
+issuer's public key. See [architecture.md](architecture.md#debugging-a-tct).
+
 ### Delegation (RFC-AITP-0006)
+
+Delegation embeds the **grant voucher** A minted alongside B's TCT — pass the
+voucher string B holds; nothing is reconstructed.
 
 ```javascript
 import { verifyDelegation } from 'aitp';
 
-const env = b.buildDelegation(tctBHoldsFromA, c.aid, cPubkey, ['demo.write']);
-const verified = verifyDelegation(env, a.aid);
-const freshTctForC = a.issueTctForDelegatee(verified);
+const delegationJws = b.buildDelegation(voucherBHoldsFromA, c.aid, cPubkey, ['demo.write']);
+const verified = verifyDelegation(delegationJws, a.aid);
+const freshTctForC = a.issueTctForDelegatee(verified);   // compact JWS string
 ```
 
 ### Manifest verification
@@ -111,7 +130,7 @@ const det   = AitpAgent.fromP256Seed(seedBuf);
 ```
 
 P-256 produces `p256.<86-char-b64url>` signatures; an algorithm-agile
-verifier on the other side accepts them. **Caveat:** the v0.1 manifest's
+verifier on the other side accepts them. **Caveat:** the manifest's
 `pinned_key` identity_hint embeds an Ed25519 public key only, so P-256
 agents must use `identityType: 'oidc'`.
 
@@ -120,8 +139,11 @@ agents must use `identityType: 'oidc'`.
 ### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `experimental-renewal`)
 
 ```javascript
-const req = holder.buildRenewalRequest(currentTctEnvelopeJson);
-const fresh = issuer.processRenewalRequest(req, manifestExpUnixSecs, newTtlSecs);
+// currentTct is the holder's TCT compact JWS string.
+const req = holder.buildRenewalRequest(currentTct);
+const { tct: freshTct, grantVoucher } = issuer.processRenewalRequest(
+  req, manifestExpUnixSecs, newTtlSecs,
+);
 ```
 
 ### Session Trust Bundle (RFC-AITP-0010, feature `experimental-bundle`)
@@ -130,8 +152,8 @@ const fresh = issuer.processRenewalRequest(req, manifestExpUnixSecs, newTtlSecs)
 import { SessionBundleBuilder, verifySessionBundle } from 'aitp';
 
 const envelope = new SessionBundleBuilder(coordinator)
-  .participant(alice.aid, aliceTct)
-  .participant(bob.aid, bobTct)
+  .participant(alice.aid, aliceTct)   // aliceTct: compact JWS string
+  .participant(bob.aid, bobTct)       // bobTct:   compact JWS string
   .build();
 const outcome = verifySessionBundle(envelope, alice.aid);
 // { kind: 'clear' | 'degraded', activeAids: [...], droppedAids: [...] }

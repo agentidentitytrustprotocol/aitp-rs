@@ -126,7 +126,186 @@ impl RunnerContext {
     ///    different key still need pre-minting.
     pub fn substitute(&mut self, value: &mut Value) {
         self.substitute_scalars(value);
+        // Compact-JWS token family (PLACEHOLDERS.md §"Compact-JWS token
+        // placeholders") — after scalars (claims siblings may contain
+        // `__NOW_*__` values) and before JCS signatures (envelope
+        // payloads may embed the minted tokens).
+        self.substitute_jws_tokens(value);
         self.substitute_signatures(value);
+    }
+
+    /// Resolve the v0.2 compact-JWS whole-token placeholders using the
+    /// claims-sibling convention: a string field `X` valued
+    /// `__JWS_*__` has a sibling `X_claims` carrying the decoded
+    /// payload to mint. Inner tokens (a delegation claims object's
+    /// `voucher`, `chain` entries) resolve innermost-first; every
+    /// `*_claims` companion is stripped from the **minted payload**
+    /// but left in place in the fixture for auditability (adapters
+    /// ignore them).
+    fn substitute_jws_tokens(&self, value: &mut Value) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    self.substitute_jws_tokens(item);
+                }
+            }
+            Value::Object(map) => {
+                // Depth-first so nested structures (envelope payloads,
+                // sequence steps) resolve their own pairs.
+                for v in map.values_mut() {
+                    self.substitute_jws_tokens(v);
+                }
+                self.resolve_jws_pairs(map);
+            }
+            _ => {}
+        }
+    }
+
+    /// Resolve `X` / `X_claims` pairs at one object level — both the
+    /// scalar form (`"tct_token": "__JWS_TCT__"`) and the array form
+    /// (`"chain": ["__JWS_DELEGATION__"]` with a `chain_claims`
+    /// array).
+    fn resolve_jws_pairs(&self, map: &mut serde_json::Map<String, Value>) {
+        let keys: Vec<String> = map.keys().cloned().collect();
+        for key in keys {
+            let claims_key = format!("{key}_claims");
+            let Some(claims_value) = map.get(&claims_key).cloned() else {
+                continue;
+            };
+            match map.get(&key) {
+                Some(Value::String(token)) if is_jws_placeholder(token) => {
+                    let kind = token.clone();
+                    let mut claims = claims_value;
+                    self.prepare_claims(&mut claims);
+                    if let Some(minted) = self.mint_jws(&kind, &claims) {
+                        map.insert(key.clone(), Value::from(minted));
+                    }
+                }
+                Some(Value::Array(entries)) => {
+                    let Some(claims_arr) = claims_value.as_array() else {
+                        continue;
+                    };
+                    let mut minted_entries = entries.clone();
+                    for (i, entry) in minted_entries.iter_mut().enumerate() {
+                        if let Value::String(token) = entry {
+                            if is_jws_placeholder(token) {
+                                let kind = token.clone();
+                                let mut claims = claims_arr.get(i).cloned().unwrap_or(Value::Null);
+                                self.prepare_claims(&mut claims);
+                                if let Some(minted) = self.mint_jws(&kind, &claims) {
+                                    *entry = Value::from(minted);
+                                }
+                            }
+                        }
+                    }
+                    map.insert(key.clone(), Value::Array(minted_entries));
+                }
+                _ => {}
+            }
+        }
+        // `__COMPUTED_CHAIN_HASH__` / `__ANY_CHAIN_HASH__`: computed
+        // over the (now-minted) chain entry strings at this level.
+        if let Some(hash_marker) = map.get("chain_hash").and_then(|v| v.as_str()) {
+            if hash_marker == "__COMPUTED_CHAIN_HASH__" || hash_marker == "__ANY_CHAIN_HASH__" {
+                let entries: Vec<String> = map
+                    .get("chain")
+                    .and_then(|v| v.as_array())
+                    .map(|a| {
+                        a.iter()
+                            .filter_map(|e| e.as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                map.insert(
+                    "chain_hash".into(),
+                    Value::from(compute_chain_hash(&entries)),
+                );
+            }
+        }
+    }
+
+    /// Prepare a claims object for minting: resolve inner JWS pairs
+    /// (voucher, nested chain) innermost-first, then strip every
+    /// `*_claims` companion — companions are minting inputs, never
+    /// wire bytes.
+    fn prepare_claims(&self, claims: &mut Value) {
+        self.substitute_jws_tokens(claims);
+        strip_claims_companions(claims);
+    }
+
+    /// Mint one compact-JWS token per the PLACEHOLDERS.md recipe table.
+    fn mint_jws(&self, kind: &str, claims: &Value) -> Option<String> {
+        use aitp_crypto::jws;
+        let typ = match kind {
+            "__JWS_TCT__"
+            | "__JWS_TCT_TAMPERED_SIG__"
+            | "__JWS_TCT_ALG_NONE__"
+            | "__JWS_TCT_WRONG_ALG__" => jws::TYP_TCT,
+            "__JWS_GRANT_VOUCHER__" | "__JWS_VOUCHER_TAMPERED_SIG__" => jws::TYP_GRANT_VOUCHER,
+            "__JWS_DELEGATION__" | "__JWS_DELEGATION_TAMPERED_SIG__" | "__ANY_JWS__" => {
+                jws::TYP_DELEGATION
+            }
+            _ => return None,
+        };
+        // `__ANY_JWS__` may appear with no meaningful claims; mint a
+        // syntactically valid token from whatever is supplied (or a
+        // minimal object) per the spec's "any syntactically valid
+        // three-segment compact JWS" rule.
+        let claims = if claims.is_object() {
+            claims.clone()
+        } else {
+            serde_json::json!({ "ver": "aitp/0.2" })
+        };
+        let seed = claims
+            .get("iss")
+            .and_then(|v| v.as_str())
+            .and_then(kat_seed_for_aid)
+            .unwrap_or(self.kp_001_seed);
+        let key = AitpSigningKey::from_seed(&seed);
+
+        match kind {
+            "__JWS_TCT__" | "__JWS_GRANT_VOUCHER__" | "__JWS_DELEGATION__" | "__ANY_JWS__" => {
+                jws::sign_compact(&key, typ, &claims).ok()
+            }
+            "__JWS_TCT_TAMPERED_SIG__"
+            | "__JWS_DELEGATION_TAMPERED_SIG__"
+            | "__JWS_VOUCHER_TAMPERED_SIG__" => {
+                // Mint normally, then flip the LSB of the last raw
+                // signature byte (same recipe as __TAMPERED_SIGNATURE__).
+                let token = jws::sign_compact(&key, typ, &claims).ok()?;
+                let (head, sig) = token.rsplit_once('.')?;
+                Some(format!("{head}.{}", tamper_signature(sig)))
+            }
+            "__JWS_TCT_ALG_NONE__" => {
+                // Header `{"alg":"none","typ":…}`; third segment =
+                // base64url of 64 zero bytes so the failure is the
+                // `alg` pin, not segment syntax.
+                let header = format!("{{\"alg\":\"none\",\"typ\":\"{typ}\"}}");
+                let payload = jcs::canonicalize(&claims).ok()?;
+                Some(format!(
+                    "{}.{}.{}",
+                    base64url::encode(header.as_bytes()),
+                    base64url::encode(&payload),
+                    base64url::encode(&[0u8; 64])
+                ))
+            }
+            "__JWS_TCT_WRONG_ALG__" => {
+                // Header claims ES256 while the iss AID is Ed25519;
+                // signed with the Ed25519 key over the signing input
+                // (deterministic bytes — never checked, the alg pin
+                // rejects first).
+                let header = format!("{{\"alg\":\"ES256\",\"typ\":\"{typ}\"}}");
+                let payload = jcs::canonicalize(&claims).ok()?;
+                let signing_input = format!(
+                    "{}.{}",
+                    base64url::encode(header.as_bytes()),
+                    base64url::encode(&payload)
+                );
+                let sig = key.sign(signing_input.as_bytes());
+                Some(format!("{signing_input}.{}", sig.as_str()))
+            }
+            _ => None,
+        }
     }
 
     fn substitute_scalars(&mut self, value: &mut Value) {
@@ -158,6 +337,34 @@ impl RunnerContext {
                 }
             }
             Value::Object(map) => {
+                // Manifest-shaped objects: mint the PoP first (it's a
+                // signature over `sha256(base64url_decode(challenge))`
+                // with the manifest agent's key — NOT a JCS body
+                // signature), so the generic child recursion below
+                // doesn't mis-sign the `{challenge, signature}` pair.
+                if map.contains_key("proof_of_possession") && map.contains_key("aid") {
+                    let aid = map.get("aid").and_then(|v| v.as_str()).map(String::from);
+                    if let Some(pop) = map
+                        .get_mut("proof_of_possession")
+                        .and_then(|v| v.as_object_mut())
+                    {
+                        let pending = matches!(
+                            pop.get("signature").and_then(|v| v.as_str()),
+                            Some(SIG_PENDING_SENTINEL)
+                        );
+                        if pending {
+                            if let (Some(challenge), Some(key)) = (
+                                pop.get("challenge").and_then(|v| v.as_str()),
+                                aid.as_deref().and_then(kat_key_for_aid),
+                            ) {
+                                if let Ok(bytes) = base64url::decode_strict(challenge) {
+                                    let sig = key.sign(&Sha256::digest(&bytes));
+                                    pop.insert("signature".into(), Value::from(sig.into_string()));
+                                }
+                            }
+                        }
+                    }
+                }
                 // Recurse first so nested bodies are signed before
                 // the parent's `signature` field is computed (the
                 // parent's canonical bytes include the now-signed
@@ -165,18 +372,34 @@ impl RunnerContext {
                 for v in map.values_mut() {
                     self.substitute_signatures(v);
                 }
-                // `pop_signature` (downstream PoP response, RFC-AITP-0005 §6.2):
-                // signing input is `sha256(base64url_decode(nonce))`
-                // where `nonce` is the matching challenge's nonce.
-                // The fixture supplies it as `payload.nonce_echo`
-                // alongside `pop_signature`. Sign with kat-keypair-002
-                // (the holder; AIDS in tct-006 set subject=A6EH...).
+                // `pop_signature` (downstream PoP response per
+                // RFC-AITP-0005 §6.2, or the handshake round-2 PoP in
+                // commit payloads per RFC-AITP-0004 §3): signing input
+                // is `sha256(base64url_decode(nonce))`. The nonce is
+                // `nonce_echo` (downstream PoP) or `pop_nonce_echo`
+                // (commit payloads). Signer: the commit sender — the
+                // issuer of the TCT carried alongside (read from the
+                // `tct_claims` minting companion) — falling back to
+                // kat-keypair-002 (the holder in tct-006's downstream
+                // PoP exchange).
                 if let Some(pop_sig_value) = map.get("pop_signature").cloned() {
                     if pop_sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
-                        if let Some(echo) = map.get("nonce_echo").and_then(|v| v.as_str()) {
-                            if let Ok(nonce_bytes) = base64url::decode_strict(echo) {
+                        let echo = map
+                            .get("nonce_echo")
+                            .or_else(|| map.get("pop_nonce_echo"))
+                            .and_then(|v| v.as_str())
+                            .map(String::from);
+                        if let Some(echo) = echo {
+                            if let Ok(nonce_bytes) = base64url::decode_strict(&echo) {
                                 let pop_input = Sha256::digest(&nonce_bytes);
-                                let key = AitpSigningKey::from_seed(&self.kp_002_seed);
+                                let key = map
+                                    .get("tct_claims")
+                                    .and_then(|c| c.get("iss"))
+                                    .and_then(|v| v.as_str())
+                                    .and_then(kat_key_for_aid)
+                                    .unwrap_or_else(|| {
+                                        AitpSigningKey::from_seed(&self.kp_002_seed)
+                                    });
                                 let sig = key.sign(&pop_input);
                                 map.insert("pop_signature".into(), Value::from(sig.into_string()));
                             }
@@ -210,12 +433,28 @@ impl RunnerContext {
                         let signed = if is_envelope_shape(map) {
                             sign_envelope_shape(map)
                         } else {
-                            let seed = map
-                                .get("issuer")
-                                .and_then(|v| v.as_str())
-                                .and_then(kat_seed_for_aid)
-                                .unwrap_or(self.kp_001_seed);
-                            sign_generic_body(&seed, map)
+                            // Signing-key resolution for generic JCS
+                            // bodies: `issuer` (TCT-era bodies,
+                            // revocation lists), `aid` (manifests),
+                            // `coordinator` (bundles), the wrapped
+                            // revocation snapshot's inner issuer, then
+                            // the kp-001 fallback.
+                            let key = ["issuer", "aid", "coordinator"]
+                                .iter()
+                                .find_map(|k| map.get(*k).and_then(|v| v.as_str()))
+                                .or_else(|| {
+                                    map.get("revocation_list")
+                                        .and_then(|v| v.get("issuer"))
+                                        .and_then(|v| v.as_str())
+                                })
+                                .or_else(|| {
+                                    map.get("session_bundle")
+                                        .and_then(|v| v.get("coordinator"))
+                                        .and_then(|v| v.as_str())
+                                })
+                                .and_then(kat_key_for_aid)
+                                .unwrap_or_else(|| AitpSigningKey::from_seed(&self.kp_001_seed));
+                            sign_generic_body(&key, map)
                         };
                         if let Some(s) = signed {
                             // PLACEHOLDERS.md §129–130: sign properly,
@@ -241,6 +480,13 @@ impl RunnerContext {
     fn materialize(&mut self, s: &str) -> Option<Value> {
         // Only act on strings that match the placeholder envelope.
         if !is_placeholder(s) {
+            return None;
+        }
+
+        // Compact-JWS whole-token and chain-hash markers resolve in the
+        // dedicated JWS pass (claims-sibling convention) — leave them
+        // for `substitute_jws_tokens`.
+        if is_jws_placeholder(s) || s == "__COMPUTED_CHAIN_HASH__" || s == "__ANY_CHAIN_HASH__" {
             return None;
         }
 
@@ -319,6 +565,59 @@ impl RunnerContext {
     }
 }
 
+fn is_jws_placeholder(s: &str) -> bool {
+    matches!(
+        s,
+        "__JWS_TCT__"
+            | "__JWS_GRANT_VOUCHER__"
+            | "__JWS_DELEGATION__"
+            | "__JWS_TCT_TAMPERED_SIG__"
+            | "__JWS_DELEGATION_TAMPERED_SIG__"
+            | "__JWS_VOUCHER_TAMPERED_SIG__"
+            | "__JWS_TCT_ALG_NONE__"
+            | "__JWS_TCT_WRONG_ALG__"
+            | "__ANY_JWS__"
+    )
+}
+
+/// Strip every `*_claims` companion key, recursively — companions are
+/// minting inputs and MUST NOT appear in wire bytes (PLACEHOLDERS.md
+/// claims-sibling convention, step 2).
+fn strip_claims_companions(value: &mut Value) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                strip_claims_companions(item);
+            }
+        }
+        Value::Object(map) => {
+            let companion_keys: Vec<String> = map
+                .keys()
+                .filter(|k| k.ends_with("_claims"))
+                .cloned()
+                .collect();
+            for k in companion_keys {
+                map.remove(&k);
+            }
+            for v in map.values_mut() {
+                strip_claims_companions(v);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// RFC-AITP-0011 §5 digest-array chain hash:
+/// `base64url(sha256(JCS([base64url(sha256(ASCII(chain[i])))…])))`.
+fn compute_chain_hash(chain: &[String]) -> String {
+    let digests: Vec<String> = chain
+        .iter()
+        .map(|entry| base64url::encode(&Sha256::digest(entry.as_bytes())))
+        .collect();
+    let canonical = jcs::canonicalize_serializable(&digests).unwrap_or_default();
+    base64url::encode(&Sha256::digest(&canonical))
+}
+
 fn is_placeholder(s: &str) -> bool {
     s.starts_with("__")
         && s.ends_with("__")
@@ -353,27 +652,63 @@ fn tamper_signature(sig: &str) -> String {
     base64url::encode(&bytes)
 }
 
-fn sign_generic_body(seed: &[u8; 32], map: &serde_json::Map<String, Value>) -> Option<String> {
+fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>) -> Option<String> {
     let mut body = serde_json::Map::new();
     for (k, v) in map.iter() {
         if k != "signature" {
             body.insert(k.clone(), v.clone());
         }
     }
-    let canonical = jcs::canonicalize(&Value::Object(body)).ok()?;
-    let key = AitpSigningKey::from_seed(seed);
+    // The wire bytes never contain `*_claims` minting companions
+    // (PLACEHOLDERS.md claims-sibling convention) — e.g. a session
+    // bundle's participant `tct_claims` siblings — so the signature
+    // covers the companion-stripped body, matching what verifiers see.
+    let mut body = Value::Object(body);
+    strip_claims_companions(&mut body);
+    let canonical = jcs::canonicalize(&body).ok()?;
     let digest = Sha256::digest(&canonical);
     Some(key.sign(&digest).into_string())
 }
 
-fn sign_envelope_shape(map: &serde_json::Map<String, Value>) -> Option<String> {
+fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<String> {
     // RFC-AITP-0001 §5.4 envelope signing input:
     //   message_id | timestamp | sender.agent_id | hex(sha256(payload_canonical_json))
-    let message_id = map.get("message_id")?.as_str()?;
+    let message_id = map.get("message_id")?.as_str()?.to_string();
     let timestamp = map.get("timestamp")?.as_i64()?;
-    let sender_aid = map.get("sender")?.get("agent_id")?.as_str()?;
-    let payload = map.get("payload")?;
-    let payload_canonical = jcs::canonicalize(payload).ok()?;
+    let sender_aid = map.get("sender")?.get("agent_id")?.as_str()?.to_string();
+    let sender_key = kat_key_for_aid(&sender_aid);
+
+    // Round-2 PoP inside commit payloads: signed by the envelope
+    // sender over `sha256(base64url_decode(pop_nonce_echo))`. Resolved
+    // here because the payload-level pass has no sender context.
+    if let Some(payload_obj) = map.get_mut("payload").and_then(|v| v.as_object_mut()) {
+        let pending = matches!(
+            payload_obj.get("pop_signature").and_then(|v| v.as_str()),
+            Some(SIG_PENDING_SENTINEL)
+        );
+        if pending {
+            if let (Some(echo), Some(key)) = (
+                payload_obj
+                    .get("pop_nonce_echo")
+                    .and_then(|v| v.as_str())
+                    .map(String::from),
+                sender_key.as_ref(),
+            ) {
+                if let Ok(bytes) = base64url::decode_strict(&echo) {
+                    let sig = key.sign(&Sha256::digest(&bytes));
+                    payload_obj.insert("pop_signature".into(), Value::from(sig.into_string()));
+                }
+            }
+        }
+    }
+
+    // The signed payload bytes are the **companion-stripped** payload:
+    // `*_claims` siblings are minting inputs, never wire bytes
+    // (PLACEHOLDERS.md claims-sibling convention) — verifiers strip
+    // them before computing the digest.
+    let mut payload = map.get("payload")?.clone();
+    strip_claims_companions(&mut payload);
+    let payload_canonical = jcs::canonicalize(&payload).ok()?;
     let payload_hash = Sha256::digest(&payload_canonical);
     let signing_input = format!(
         "{}|{}|{}|{}",
@@ -382,14 +717,24 @@ fn sign_envelope_shape(map: &serde_json::Map<String, Value>) -> Option<String> {
         sender_aid,
         hex::encode(payload_hash)
     );
-    let seed = kat_seed_for_aid(sender_aid)?;
-    let key = AitpSigningKey::from_seed(&seed);
-    Some(key.sign(signing_input.as_bytes()).into_string())
+    // Unknown sender AIDs (e.g. mh-002's one-shot attacker key, whose
+    // seed is not published) get a syntactically valid filler signed
+    // by kp-001 — those fixtures reject on a check that runs before
+    // the envelope signature (RFC-AITP-0004 §5.1 verifies the
+    // Manifest and identity first), so the value is never verified.
+    let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_seed(&[0u8; 32]));
+    // v0.2 envelope convention: the Ed25519/ES256 message is
+    // `sha256(signing_input)` (aitp_core::envelope_signing_digest),
+    // not the raw input bytes.
+    Some(
+        key.sign(&Sha256::digest(signing_input.as_bytes()))
+            .into_string(),
+    )
 }
 
 /// Map a sender AID to its KAT-keypair seed. The runner only knows
-/// about the four pinned KAT keypairs; envelopes signed by other
-/// keys can't be runner-substituted (caller must pre-mint).
+/// about the pinned KAT keypairs; envelopes signed by other keys
+/// can't be runner-substituted (caller must pre-mint).
 fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
     match aid {
         "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik" => Some([0u8; 32]),
@@ -404,6 +749,19 @@ fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
         "aid:pubkey:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" => Some([1u8; 32]),
         _ => None,
     }
+}
+
+/// Map an AID to its pinned KAT signing key — the four Ed25519
+/// keypairs plus `kat-keypair-005-p256` (private scalar `0x05` × 32,
+/// per `known-answer/keypairs.json`).
+fn kat_key_for_aid(aid: &str) -> Option<AitpSigningKey> {
+    if let Some(seed) = kat_seed_for_aid(aid) {
+        return Some(AitpSigningKey::from_seed(&seed));
+    }
+    if aid == "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR" {
+        return AitpSigningKey::from_p256_seed(&[0x05u8; 32]).ok();
+    }
+    None
 }
 
 #[cfg(test)]
@@ -529,7 +887,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.1",
+            "version": "aitp/0.2",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__VALID_TCT_SIG__",
         });
@@ -560,7 +918,7 @@ mod tests {
         use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.1",
+            "version": "aitp/0.2",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIG__",
         });
@@ -591,7 +949,7 @@ mod tests {
         // sign-then-flip-LSB recipe.
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.1",
+            "version": "aitp/0.2",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIGNATURE__",
         });

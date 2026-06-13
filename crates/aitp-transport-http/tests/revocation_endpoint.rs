@@ -40,7 +40,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let revoked_jti = Uuid::new_v4();
     let envelope = sign_revocation_list(
         RevocationList {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             issuer: issuer.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + 3600),

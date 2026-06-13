@@ -9,8 +9,12 @@ They are deliberately **not** a copy of the protocol. The protocol is
 [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol)
 repo. Where a wire detail matters, these docs **point to the RFC section**
 rather than restating it — if an RFC and a page here ever disagree, the
-RFC wins. `aitp-rs` tracks **AITP v0.1.0** (spec commit pinned in
-[`../tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION)).
+RFC wins. `aitp-rs` tracks **AITP v0.2** (protocol version literal
+`aitp/0.2`; spec commit pinned in
+[`../tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION)). v0.2's
+headline change: the portable trust artifacts (TCT, grant voucher,
+delegation token) are now RFC 7515 compact JWS strings — see the
+[signing-profile boundary](architecture.md#the-two-signing-profiles).
 
 ## Start here
 
@@ -33,7 +37,7 @@ that governs it.
 |---|---|---|
 | [`architecture.md`](architecture.md) | Topology, crate map, workspace-split rationale, sync/async boundary, MSRV | — (build rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
-| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, and the 44-fixture matrix | spec `schemas/conformance/` |
+| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, and the v0.2 fixture matrix | spec `schemas/conformance/` |
 | [`handshake-transcripts.md`](handshake-transcripts.md) | Reproducible four-message byte transcript | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
 | [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (draft, opt-in) | RFC-AITP-0010 |
 | [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (draft, opt-in) | RFC-AITP-0011 |

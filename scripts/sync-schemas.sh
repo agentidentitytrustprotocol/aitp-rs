@@ -36,6 +36,13 @@ cp "$SPEC_REPO"/schemas/json/*.schema.json "$DEST/"
 if [ -d "$SPEC_REPO/schemas/conformance/known-answer" ]; then
   mkdir -p "$DEST/known-answer"
   cp "$SPEC_REPO"/schemas/conformance/known-answer/*.json "$DEST/known-answer/" 2>/dev/null || true
+  # Signed-example vectors (real compact-JWS tokens, v0.2) live one level
+  # deeper; vendor them too so jws KAT tests can pin against them.
+  if [ -d "$SPEC_REPO/schemas/conformance/known-answer/signed-examples" ]; then
+    mkdir -p "$DEST/known-answer/signed-examples"
+    cp -R "$SPEC_REPO"/schemas/conformance/known-answer/signed-examples/. \
+      "$DEST/known-answer/signed-examples/"
+  fi
   echo "Copied known-answer/ test vectors."
 fi
 

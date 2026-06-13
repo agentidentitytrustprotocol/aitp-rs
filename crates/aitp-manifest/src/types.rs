@@ -10,7 +10,7 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct Manifest {
-    /// MUST be `"aitp/0.1"`.
+    /// MUST be `"aitp/0.2"`.
     pub version: String,
     /// The agent's AID.
     pub aid: Aid,
@@ -135,7 +135,7 @@ mod tests {
 
     fn build_minimal_manifest() -> Manifest {
         Manifest {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             aid: sample_aid(),
             display_name: None,
             identity_hint: IdentityHint {

@@ -5,11 +5,12 @@
 //!
 //! 1. **Challenge.** Consumer sends a random `nonce` plus the TCT's `jti`.
 //! 2. **Response.** Holder echoes the nonce and signs
-//!    `sha256(base64url_decode(nonce))` with the private key matching
-//!    `binding.cnf`. Per RFC-AITP-0005 §6.1+§6.2 (rc.2), the hash input is
-//!    the **decoded raw bytes** of the nonce, NOT its ASCII string form.
+//!    `sha256(base64url_decode(nonce))` with the private key bound by
+//!    the TCT's `sub` AID / `cnf.jkt`. Per RFC-AITP-0005 §6.1+§6.2, the
+//!    hash input is the **decoded raw bytes** of the nonce, NOT its
+//!    ASCII string form.
 
-use crate::types::Tct;
+use crate::types::TctClaims;
 use crate::TctError;
 use aitp_core::{base64url, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
@@ -68,17 +69,19 @@ pub fn sign_pop_response(
 /// 1. `response.tct_jti == challenge.tct_jti` (else [`TctError::PopJtiMismatch`])
 /// 2. `response.nonce_echo == challenge.nonce` (else [`TctError::PopNonceMismatch`])
 /// 3. `now <= challenge.expires_at` (else [`TctError::PopChallengeExpired`])
-/// 4. The signature verifies using the public key encoded in `tct.binding.cnf`
-///    over `sha256(base64url_decode(challenge.nonce))`. Else
-///    [`TctError::PopFailed`].
-/// 5. `binding.cnf` matches the public key encoded in `tct.subject` (RFC-AITP-0005 §6.2 step 4).
+/// 4. The signature verifies over
+///    `sha256(base64url_decode(challenge.nonce))` using the key encoded
+///    in `claims.sub` — the AID is authoritative for the bound key
+///    (RFC-AITP-0005 §3). Else [`TctError::PopFailed`].
+/// 5. `claims.cnf.jkt` equals that key's RFC 7638 thumbprint
+///    (RFC-AITP-0005 §6.2 step 4).
 pub fn verify_pop_response(
     challenge: &PopChallenge,
     response: &PopResponse,
-    tct: &Tct,
+    claims: &TctClaims,
     now: Timestamp,
 ) -> Result<(), TctError> {
-    if response.tct_jti != challenge.tct_jti || response.tct_jti != tct.jti {
+    if response.tct_jti != challenge.tct_jti || response.tct_jti != claims.jti {
         return Err(TctError::PopJtiMismatch);
     }
     if response.nonce_echo != challenge.nonce {
@@ -88,16 +91,16 @@ pub fn verify_pop_response(
         return Err(TctError::PopChallengeExpired);
     }
 
-    // Decode cnf → pubkey, and confirm it matches the algorithm-agile
-    // pubkey encoded in `subject` (RFC-AITP-0005 §6.2 step 4). Handles
-    // 32-byte Ed25519 raw and 33-byte SEC1-compressed P-256.
-    let cnf_bytes =
-        base64url::decode_strict(&tct.binding.cnf).map_err(|_| TctError::CnfMalformed)?;
-    if cnf_bytes != tct.subject.pubkey_compressed_bytes() {
+    // The subject AID encodes the bound key; cnf.jkt is its
+    // (deliberately redundant) RFC 7638 thumbprint. Cross-check both
+    // before trusting the key for PoP (RFC-AITP-0005 §6.2 step 4).
+    let holder_pk = AitpVerifyingKey::from_aid(&claims.sub).map_err(|_| TctError::CnfMalformed)?;
+    let expected_jkt = holder_pk
+        .to_jwk_thumbprint()
+        .map_err(|_| TctError::CnfMalformed)?;
+    if claims.cnf.jkt != expected_jkt {
         return Err(TctError::CnfMalformed);
     }
-    let holder_pk =
-        AitpVerifyingKey::from_compressed(&cnf_bytes).map_err(|_| TctError::CnfMalformed)?;
     let nonce_bytes =
         base64url::decode_strict(&challenge.nonce).map_err(|_| TctError::PopFailed)?;
     let digest = Sha256::digest(&nonce_bytes);

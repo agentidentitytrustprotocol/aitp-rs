@@ -1,0 +1,28 @@
+{
+  "_kat_input": {
+    "$comment": "Real Ed25519-signed grant voucher (RFC-AITP-0005 §8). Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object — fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). Companion of a two-grant TCT (jti ...440001) so the delegation KAT can delegate a strict subset.",
+    "issuer_seed_id": "kat-keypair-001",
+    "subject_seed_id": "kat-keypair-002",
+    "typ": "aitp-grant+jwt",
+    "src_jti": "550e8400-e29b-41d4-a716-446655440001",
+    "iat": 1711900000,
+    "ttl_secs": 3600,
+    "grants": [
+      "macp.mode.respond.v1",
+      "macp.mode.task.v1"
+    ]
+  },
+  "voucher_token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJleHAiOjE3MTE5MDM2MDAsImdyYW50cyI6WyJtYWNwLm1vZGUucmVzcG9uZC52MSIsIm1hY3AubW9kZS50YXNrLnYxIl0sImlhdCI6MTcxMTkwMDAwMCwiaXNzIjoiYWlkOnB1YmtleTpPMm9udk02MnBDMWlvNmpRS204TmMyVXlGWGNkNGtPbU9zQklvWXRaMmlrIiwic3JjX2p0aSI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMSIsInN1YiI6ImFpZDpwdWJrZXk6QTZFSHZfUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZyIsInZlciI6ImFpdHAvMC4yIn0.uKxWQg6TclhPsW__-YyFqJw_X33Rbo35znEIrsSp5CJ-_JNdwUGKxTGT9a6ZTSOX3inc1ZCiLGVfR3M_oylNBg",
+  "decoded_claims": {
+    "ver": "aitp/0.2",
+    "iss": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+    "sub": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "grants": [
+      "macp.mode.respond.v1",
+      "macp.mode.task.v1"
+    ],
+    "iat": 1711900000,
+    "exp": 1711903600,
+    "src_jti": "550e8400-e29b-41d4-a716-446655440001"
+  }
+}

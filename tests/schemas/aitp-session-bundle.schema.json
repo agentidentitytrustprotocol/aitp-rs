@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/session-bundle.json",
+  "$id": "https://aitp.dev/schema/v0.2/session-bundle.json",
   "title": "SessionTrustBundle",
-  "description": "AITP v0.1 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh.",
+  "description": "AITP v0.2 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh. The bundle itself is JCS-profile signed; participant TCTs are embedded as opaque compact JWS strings.",
   "type": "object",
   "required": [
     "session_bundle",
@@ -24,8 +24,8 @@
       "properties": {
         "version": {
           "type": "string",
-          "const": "aitp/0.1",
-          "description": "MUST be `aitp/0.1` for this RFC."
+          "const": "aitp/0.2",
+          "description": "MUST be `aitp/0.2` for this RFC."
         },
         "session_id": {
           "type": "string",
@@ -34,8 +34,8 @@
         },
         "coordinator": {
           "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "The coordinator's AID. MUST match the `issuer` of every embedded `tct`."
+          "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
+          "description": "The coordinator's AID. MUST match the `iss` claim of every embedded TCT."
         },
         "issued_at": {
           "type": "integer",
@@ -45,7 +45,7 @@
         "expires_at": {
           "type": "integer",
           "minimum": 1,
-          "description": "Unix timestamp after which the bundle MUST NOT be used. MUST equal `min(participants[*].tct.expires_at)` (RFC-AITP-0010 §6)."
+          "description": "Unix timestamp after which the bundle MUST NOT be used. MUST equal `min` of the embedded TCTs' `exp` claims (RFC-AITP-0010 §6)."
         },
         "participants": {
           "type": "array",
@@ -61,12 +61,13 @@
             "properties": {
               "aid": {
                 "type": "string",
-                "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-                "description": "Participant's AID. MUST equal the embedded TCT's `audience`."
+                "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
+                "description": "Participant's AID. MUST equal the embedded TCT's `aud` claim."
               },
               "tct": {
-                "type": "object",
-                "description": "Verbatim peer-issued TCT (RFC-AITP-0005 §1) — coordinator-issued, with `audience` = participant's AID. Validated against `aitp-tct.schema.json`."
+                "type": "string",
+                "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+                "description": "Verbatim coordinator-issued TCT as a compact JWS string (typ 'aitp-tct+jwt', RFC-AITP-0005), with `aud` = participant's AID. Decoded claims validate against `aitp-tct.schema.json`. The string is covered verbatim by the bundle's JCS signature."
               }
             }
           }
@@ -80,8 +81,8 @@
     "signature": {
       "type": "string",
       "minLength": 1,
-      "pattern": "^[A-Za-z0-9_-]{86}$",
-      "description": "Coordinator's unpadded base64url Ed25519 signature over the JCS-canonical bytes of `session_bundle` (RFC 8785). Same convention as RFC-AITP-0008 revocation list. See RFC-AITP-0001 §5.4."
+      "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$",
+      "description": "Coordinator's unpadded base64url signature over the JCS-canonical bytes of `session_bundle` (RFC 8785), optionally algorithm-tagged per RFC-AITP-0001 §5.4.3. Same convention as the RFC-AITP-0008 revocation list."
     }
   }
 }

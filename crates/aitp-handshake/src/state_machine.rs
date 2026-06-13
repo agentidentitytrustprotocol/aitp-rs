@@ -15,7 +15,7 @@ use crate::payloads::{
 use aitp_core::{base64url, Aid, AitpEnvelope, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
-use aitp_tct::{verify_tct, Tct, TctBuilder, TctEnvelope, TctVerifyContext};
+use aitp_tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
 use rand::RngCore;
 use sha2::{Digest, Sha256};
 use tracing::debug;
@@ -564,7 +564,7 @@ fn issue_tct_for_peer(
     peer_aid: &Aid,
     peer_pubkey: &AitpVerifyingKey,
     peer_requested: &[String],
-) -> Result<Tct, HandshakeError> {
+) -> Result<IssuedTct, HandshakeError> {
     let mut grants: Vec<String> = peer_requested
         .iter()
         .filter(|g| cfg.manifest.offered_capabilities.contains(g))
@@ -599,62 +599,75 @@ fn issue_tct_for_peer(
         .map_err(HandshakeError::Tct)
 }
 
-/// Verify a peer-issued TCT and that it satisfies our
-/// `required_peer_capabilities`. Returns the effective grant set the
-/// verifying side should honor — `None` means "the TCT's full grants",
-/// `Some(g)` means the grants were narrowed by a revocation soft-fail
-/// safe-grants subset (RFC-AITP-0008).
+/// Verify a peer-issued TCT compact JWS (and its optional companion
+/// voucher) and that it satisfies our `required_peer_capabilities`.
+///
+/// Returns the verified TCT plus the effective grant set the verifying
+/// side should honor — `None` means "the TCT's full grants", `Some(g)`
+/// means the grants were narrowed by a revocation soft-fail safe-grants
+/// subset (RFC-AITP-0008).
 fn verify_received_tct(
-    tct: &Tct,
+    token: &str,
+    grant_voucher: Option<&str>,
     cfg: &PeerConfig<'_>,
-    issuer_pubkey: &AitpVerifyingKey,
+    issuer: &Aid,
     issuer_manifest_expires_at: Option<Timestamp>,
     issuer_offered_capabilities: &[String],
-) -> Result<Option<Vec<String>>, HandshakeError> {
+) -> Result<(VerifiedTct, Option<Vec<String>>), HandshakeError> {
     // RFC-AITP-0008 §3.3: the TCT signature MUST be verified before any
-    // remote revocation lookup. `tct.issuer` and `tct.jti` are
-    // attacker-controlled bytes until `verify_tct` succeeds; routing a
-    // revocation lookup through them first turns the verifier into a
-    // reflector for network-amplification DoS and lets an off-path
-    // attacker pollute the revocation cache and skew telemetry against
-    // arbitrary AIDs. A purely local, side-effect-free deny-list is
-    // exempt per §3.3, but `RevocationCheckFn` is opaque here — it may
-    // perform network I/O — so the signature is always verified first.
+    // remote revocation lookup. The claims are attacker-controlled
+    // bytes until `verify_tct` succeeds; routing a revocation lookup
+    // through them first turns the verifier into a reflector for
+    // network-amplification DoS. The issuer AID (and therefore the
+    // sole acceptable key and JWS alg) comes from the handshake state,
+    // not from the token.
     let ctx = TctVerifyContext {
         expected_audience: &cfg.manifest.aid,
-        issuer_pubkey,
+        issuer,
         now: cfg.now,
-        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §9: issuer manifest's
+        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: issuer manifest's
         // expiry caps the TCT's expiry. We have it in scope from
         // bootstrap_verify_peer (initiator) or from hello.manifest
-        // (responder), so always pass it through during the
-        // handshake.
+        // (responder), so always pass it through during the handshake.
         issuer_manifest_expires_at,
         revocation_check: None,
     };
-    verify_tct(tct, &ctx)?;
+    let verified = verify_tct(token, &ctx)?;
+    let claims = &verified.claims;
+
+    // Companion voucher (when delivered): MUST verify under the same
+    // issuer and mirror the TCT exactly (RFC-AITP-0005 §8.2). A
+    // mismatched voucher is an issuance bug or tampering — reject
+    // rather than store a delegation credential we can't use.
+    if let Some(voucher_token) = grant_voucher {
+        let voucher = aitp_tct::verify_voucher(voucher_token, issuer)?;
+        if voucher.sub != claims.sub
+            || voucher.grants != claims.grants
+            || voucher.iat != claims.iat
+            || voucher.exp != claims.exp
+            || voucher.src_jti != claims.jti
+        {
+            return Err(HandshakeError::Tct(aitp_tct::TctError::ClaimsMalformed(
+                "grant voucher does not mirror the companion TCT".into(),
+            )));
+        }
+    }
 
     // Grant-overflow (RFC-AITP-0004 §5.3/§5.4 step 4): a peer's TCT MUST
     // NOT grant capabilities outside that peer's own advertised
-    // `offered_capabilities`. `verify_tct` has bound `tct.issuer` to the
-    // issuer key (§3.3), and the issuer Manifest is the one we resolved
-    // for that peer, so this compares the granted set against the
-    // authentic issuer's offer. Maps to `GRANT_OVERFLOW`.
-    for grant in &tct.grants {
+    // `offered_capabilities`. Maps to `GRANT_OVERFLOW`.
+    for grant in &claims.grants {
         if !issuer_offered_capabilities.contains(grant) {
             return Err(HandshakeError::GrantOverflow);
         }
     }
 
-    // Revocation — `tct.issuer` and `tct.jti` are authenticated now
-    // that `verify_tct` has returned success: `verify_tct` enforces the
-    // RFC-AITP-0008 §3.3 issuer-key binding (`issuer_pubkey` MUST be the
-    // key embedded in `tct.issuer`), so a hook keyed off `tct.issuer`
-    // cannot be steered by an attacker presenting a TCT with a spoofed
-    // issuer AID.
+    // Revocation — `iss` and `jti` are authenticated now that
+    // `verify_tct` has succeeded under the handshake-pinned issuer AID,
+    // so a hook keyed off the issuer cannot be steered by an attacker.
     let mut safe_subset: Option<Vec<String>> = None;
     if let Some(check) = cfg.revocation_check {
-        match check(&tct.issuer, &tct.jti)? {
+        match check(&claims.iss, &claims.jti)? {
             HandshakeRevocationDecision::Clear => {}
             HandshakeRevocationDecision::Revoked => {
                 return Err(HandshakeError::Tct(aitp_tct::TctError::Revoked));
@@ -664,7 +677,7 @@ fn verify_received_tct(
                 // honor only `tct.grants ∩ safe_grants` locally.
                 // Empty intersection is a policy failure — the safe
                 // subset doesn't authorize any of the granted caps.
-                let intersection: Vec<String> = tct
+                let intersection: Vec<String> = claims
                     .grants
                     .iter()
                     .filter(|g| safe_grants.iter().any(|s| s == *g))
@@ -680,18 +693,29 @@ fn verify_received_tct(
 
     // `required_peer_capabilities` is checked against the effective
     // grant set — under soft-fail, the safe subset must cover every
-    // required cap. This prevents a degraded session from silently
-    // satisfying a required-cap check the operator wouldn't accept
-    // outside soft-fail.
+    // required cap.
     if let Some(required_caps) = cfg.manifest.required_peer_capabilities.as_deref() {
-        let effective: &[String] = safe_subset.as_deref().unwrap_or(tct.grants.as_slice());
+        let effective: &[String] = safe_subset.as_deref().unwrap_or(claims.grants.as_slice());
         for required in required_caps {
             if !effective.contains(required) {
                 return Err(HandshakeError::InsufficientGrants);
             }
         }
     }
-    Ok(safe_subset)
+    Ok((verified, safe_subset))
+}
+
+/// What a completed handshake leaves each side holding: the peer-issued
+/// TCT (verbatim token + trusted claims) and, when the peer's policy
+/// allowed delegation, the companion grant voucher to delegate with
+/// later (RFC-AITP-0005 §8).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CompletedHandshake {
+    /// The TCT the peer issued to us.
+    pub tct: VerifiedTct,
+    /// The companion grant voucher, verbatim. `None` when the issuing
+    /// peer's policy forbids us from delegating.
+    pub grant_voucher: Option<String>,
 }
 
 // ── Initiator ────────────────────────────────────────────────────────────
@@ -839,7 +863,7 @@ impl Initiator {
                 return Err(e);
             }
         };
-        let tct = issue_tct_for_peer(
+        let issued = issue_tct_for_peer(
             cfg,
             &ack.identity,
             &ack.manifest.aid,
@@ -848,7 +872,8 @@ impl Initiator {
         )?;
         let pop_signature = sign_pop(cfg.signing_key, &ack.pop_nonce)?;
         let commit = MutualCommitPayload {
-            tct_for_peer: TctEnvelope { tct },
+            tct: issued.token,
+            grant_voucher: issued.voucher,
             pop_signature,
             pop_nonce_echo: ack.pop_nonce.clone(),
         };
@@ -863,13 +888,14 @@ impl Initiator {
         Ok(commit)
     }
 
-    /// Process MUTUAL_COMMIT_ACK; return the peer-issued TCT we now hold.
+    /// Process MUTUAL_COMMIT_ACK; return the peer-issued TCT (and
+    /// companion voucher) we now hold.
     pub fn on_commit_ack(
         &mut self,
         envelope: &AitpEnvelope,
         ack: &MutualCommitAckPayload,
         cfg: &PeerConfig<'_>,
-    ) -> Result<Tct, HandshakeError> {
+    ) -> Result<CompletedHandshake, HandshakeError> {
         debug!(
             message_id = %envelope.message_id,
             "Initiator: AwaitingCommitAck → Done"
@@ -906,16 +932,19 @@ impl Initiator {
         // Soft-fail safe subset (when returned) is enforced inside
         // `verify_received_tct` (required-caps check); the caller can
         // re-derive it by re-running the hook if needed.
-        let _effective_grants = verify_received_tct(
-            &ack.tct_for_peer.tct,
+        let (verified, _effective_grants) = verify_received_tct(
+            &ack.tct,
+            ack.grant_voucher.as_deref(),
             cfg,
-            &peer_pubkey,
+            &peer_aid,
             Some(peer_manifest_expires_at),
             &peer_offered_caps,
         )?;
-        let tct = ack.tct_for_peer.tct.clone();
         self.state = InitiatorState::Done;
-        Ok(tct)
+        Ok(CompletedHandshake {
+            tct: verified,
+            grant_voucher: ack.grant_voucher.clone(),
+        })
     }
 }
 
@@ -1016,13 +1045,13 @@ impl Responder {
     }
 
     /// Process MUTUAL_COMMIT; return (MUTUAL_COMMIT_ACK payload, the
-    /// peer-issued TCT we now hold).
+    /// peer-issued TCT + voucher we now hold).
     pub fn on_commit(
         &mut self,
         envelope: &AitpEnvelope,
         commit: &MutualCommitPayload,
         cfg: &PeerConfig<'_>,
-    ) -> Result<(MutualCommitAckPayload, Tct), HandshakeError> {
+    ) -> Result<(MutualCommitAckPayload, CompletedHandshake), HandshakeError> {
         debug!(
             message_id = %envelope.message_id,
             "Responder: AwaitingCommit → Done"
@@ -1070,14 +1099,14 @@ impl Responder {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &commit.pop_signature)?;
-        let _effective_grants = verify_received_tct(
-            &commit.tct_for_peer.tct,
+        let (verified, _effective_grants) = verify_received_tct(
+            &commit.tct,
+            commit.grant_voucher.as_deref(),
             cfg,
-            &peer_pubkey,
+            &peer_aid,
             Some(peer_manifest_expires_at),
             &peer_offered_caps,
         )?;
-        let received_tct = commit.tct_for_peer.tct.clone();
 
         // Issue our TCT for the initiator using the peer's verified
         // identity captured during MUTUAL_HELLO. RFC-AITP-0004 §4.1
@@ -1085,7 +1114,7 @@ impl Responder {
         // identity (not a placeholder), so policies that branch on
         // identity kind, issuer, or subject behave symmetrically
         // regardless of which side initiated.
-        let our_tct = issue_tct_for_peer(
+        let issued = issue_tct_for_peer(
             cfg,
             &peer_identity,
             &peer_aid,
@@ -1093,12 +1122,19 @@ impl Responder {
             &peer_requested_grants,
         )?;
         let ack = MutualCommitAckPayload {
-            tct_for_peer: TctEnvelope { tct: our_tct },
+            tct: issued.token,
+            grant_voucher: issued.voucher,
             pop_signature: sign_pop(cfg.signing_key, &peer_pop_nonce)?,
-            pop_nonce_echo: peer_pop_nonce,
+            pop_nonce_echo: peer_pop_nonce.clone(),
         };
         self.state = ResponderState::Done;
-        Ok((ack, received_tct))
+        Ok((
+            ack,
+            CompletedHandshake {
+                tct: verified,
+                grant_voucher: commit.grant_voucher.clone(),
+            },
+        ))
     }
 }
 

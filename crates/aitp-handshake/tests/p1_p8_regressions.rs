@@ -393,7 +393,7 @@ fn p7_grant_policy_filters_intersection() {
     .unwrap();
     // The payload itself only carries `requested_grants` from the
     // initiator's perspective; the *filtering* effect of P7 happens
-    // when issuing a TCT to the peer in `issue_tct_for_peer` —
+    // when issuing a TCT to the peer in `issue_tct` —
     // exercised via the responder path in the broader handshake test
     // suite. This regression at minimum proves the policy hook
     // compiles and is plumbed.

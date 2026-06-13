@@ -31,7 +31,7 @@ def test_sign_revocation_list_round_trips():
     env = json.loads(envelope_json)
     body = env["revocation_list"]
     assert body["issuer"] == issuer.aid
-    assert body["version"] == "aitp/0.1"
+    assert body["version"] == "aitp/0.2"
     assert len(body["entries"]) == 2
 
     jti_set = {e["jti"] for e in body["entries"]}

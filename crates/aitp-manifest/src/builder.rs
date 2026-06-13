@@ -221,7 +221,7 @@ impl<'a> ManifestBuilder<'a> {
         };
 
         let unsigned = ManifestSigningView {
-            version: "aitp/0.1",
+            version: "aitp/0.2",
             aid: &aid,
             display_name: self.display_name.as_deref(),
             identity_hint: &identity_hint,
@@ -241,7 +241,7 @@ impl<'a> ManifestBuilder<'a> {
         let signature = self.signing_key.sign(&digest);
 
         Ok(Manifest {
-            version: "aitp/0.1".into(),
+            version: "aitp/0.2".into(),
             aid,
             display_name: self.display_name,
             identity_hint,

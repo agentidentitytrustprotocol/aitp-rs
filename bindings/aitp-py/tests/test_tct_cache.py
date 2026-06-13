@@ -17,7 +17,8 @@ GRANT = "demo.write"
 
 def _held_tct():
     """Run a handshake so the initiator holds a responder-issued TCT for
-    GRANT. Returns (initiator, tct_json)."""
+    GRANT. Returns (initiator, tct_token) where tct_token is the compact
+    JWS string."""
     initiator = aitp.AitpAgent.generate()
     responder = aitp.AitpAgent.generate()
     initiator.build_manifest(
@@ -36,8 +37,8 @@ def _held_tct():
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
     commit_ack, _ = rsess.process_commit(commit)
-    tct_json = sess.complete(commit_ack)
-    return initiator, tct_json
+    completed = json.loads(sess.complete(commit_ack))
+    return initiator, completed["tct"]
 
 
 def test_cached_verify_matches_cold_verify_and_populates():
@@ -61,7 +62,7 @@ def test_cached_verify_matches_cold_verify_and_populates():
 
 
 def test_tampered_bytes_miss_cache_and_are_rejected():
-    """Security: a tampered envelope hashes differently, so it cannot be
+    """Security: a tampered token hashes differently, so it cannot be
     served from a cache populated by the genuine token — it is fully
     re-verified and fails."""
     initiator, tct = _held_tct()
@@ -70,11 +71,11 @@ def test_tampered_bytes_miss_cache_and_are_rejected():
     # Populate the cache with the genuine TCT.
     initiator.verify_tct_cached(tct, GRANT, store)
 
-    # Flip a character in the signature → different bytes → different hash.
-    env = json.loads(tct)
-    sig = env["tct"]["signature"]
-    env["tct"]["signature"] = ("A" if sig[0] != "A" else "B") + sig[1:]
-    tampered = json.dumps(env)
+    # Flip a character in the compact-JWS signature segment → different
+    # bytes → different hash → cache miss → full (failing) verification.
+    header, payload, sig = tct.split(".")
+    sig = ("A" if sig[0] != "A" else "B") + sig[1:]
+    tampered = f"{header}.{payload}.{sig}"
 
     with pytest.raises(Exception):
         initiator.verify_tct_cached(tampered, GRANT, store)

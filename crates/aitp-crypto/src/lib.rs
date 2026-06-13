@@ -1,12 +1,12 @@
-//! Ed25519 signing keys, verifying keys, and JWK thumbprint computation.
-//!
-//! AITP v0.1 uses Ed25519 only. Crypto agility is reserved for a future
-//! major version.
+//! Ed25519 / P-256 signing keys, verifying keys, JWK thumbprints, and
+//! the compact-JWS profile for portable trust artifacts
+//! (RFC-AITP-0001 §5.4.5).
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
 pub mod error;
+pub mod jws;
 pub mod keys;
 pub mod thumbprint;
 

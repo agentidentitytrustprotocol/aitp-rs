@@ -7,6 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { AitpAgent, TctStore } from '../index.js';
+import { tamperJwsSignature } from './_jws.mjs';
 
 const GRANT = 'demo.write';
 
@@ -29,7 +30,7 @@ function heldTct() {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  const tct = sess.complete(commitAck);
+  const { tct } = sess.complete(commitAck);
   return { initiator, tct };
 }
 
@@ -59,10 +60,7 @@ test('tampered bytes miss the cache and are rejected', () => {
   const store = new TctStore(128);
   initiator.verifyTctCached(tct, GRANT, store);
 
-  const env = JSON.parse(tct);
-  const sig = env.tct.signature;
-  env.tct.signature = (sig[0] !== 'A' ? 'A' : 'B') + sig.slice(1);
-  const tampered = JSON.stringify(env);
+  const tampered = tamperJwsSignature(tct);
 
   assert.throws(() => initiator.verifyTctCached(tampered, GRANT, store));
 });

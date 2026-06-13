@@ -10,7 +10,7 @@ use aitp_handshake::{
 use aitp_manifest::{Manifest, ManifestEnvelope};
 use aitp_tct::RevocationListEnvelope;
 #[cfg(feature = "experimental-renewal")]
-use aitp_tct::{process_renewal_request, TctEnvelope, TctRenewalPayload};
+use aitp_tct::{process_renewal_request, TctRenewalPayload};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -533,8 +533,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 }
 
 /// `POST /aitp/handshake/renew` accepts a [`TctRenewalPayload`] and
-/// returns a fresh [`TctEnvelope`]. Gated behind the
-/// `experimental-renewal` Cargo feature (RFC-AITP-0004 §8.1).
+/// returns a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
+/// Gated behind the `experimental-renewal` Cargo feature
+/// (RFC-AITP-0004 §8.1).
 #[cfg(feature = "experimental-renewal")]
 #[instrument(level = "debug", skip(state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
@@ -566,7 +567,17 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
         aitp_tct::DEFAULT_TCT_TTL_SECS,
     )
     .map_err(|e| ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string()))?;
-    Ok(Json(TctEnvelope { tct: renewed }).into_response())
+    #[derive(serde::Serialize)]
+    struct RenewalResponse {
+        tct: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        grant_voucher: Option<String>,
+    }
+    Ok(Json(RenewalResponse {
+        tct: renewed.token,
+        grant_voucher: renewed.voucher,
+    })
+    .into_response())
 }
 
 fn revocation_router(producer: Arc<dyn RevocationListProducer>) -> Router {
@@ -1055,7 +1066,7 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     // respond with `UNKNOWN_VERSION`." A structural protocol-identity
     // check; done first so a peer on a forward version learns about the
     // mismatch before anything else.
-    if envelope.version != "aitp/0.1" {
+    if envelope.version != "aitp/0.2" {
         return Err(ResponseError::aitp(
             ErrorCode::UnknownVersion,
             format!(

@@ -34,8 +34,10 @@ pub use extensions::ExtensionsMap;
 pub use raw_url::RawUrl;
 pub use time::Timestamp;
 
-/// Protocol version this crate implements.
-pub const PROTOCOL_VERSION: &str = "aitp/0.1";
+/// Protocol version this crate implements. Carried as the `version`
+/// field on JCS-profile artifacts and as the `ver` private claim on
+/// compact-JWS portable trust artifacts (RFC-AITP-0001 §5.4.5).
+pub const PROTOCOL_VERSION: &str = "aitp/0.2";
 
 /// Default timestamp tolerance for replay protection (300 seconds, ±).
 pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;

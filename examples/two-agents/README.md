@@ -93,7 +93,7 @@ external network.
 
 | Binary | Run | Shows |
 |---|---|---|
-| `delegation-demo` | `cargo run -p aitp-example-two-agents --bin delegation-demo` | Single-hop delegation (RFC-AITP-0006): A grants to B, B re-delegates a *subset* to C, A verifies C's token; plus the two failure modes (over-broad scope, non-grantor verifier). |
+| `delegation-demo` | `cargo run -p aitp-example-two-agents --bin delegation-demo` | Single-hop delegation (RFC-AITP-0006): A issues B a TCT plus a **grant voucher**, B delegates a *subset* to C against that voucher, A verifies C's token (an opaque compact JWS embedding the voucher); plus the two failure modes (over-broad scope, non-grantor verifier). |
 | `oidc-demo` | `cargo run -p aitp-example-two-agents --bin oidc-demo` | A full Mutual Handshake where both peers present **OIDC** identities, against an in-process mock IdP. Drives the `Initiator`/`Responder` state machine by hand. |
 | `revocation-demo` | `cargo run -p aitp-example-two-agents --bin revocation-demo` | Publishing a signed revocation list and querying `RevocationCache::is_revoked` (RFC-AITP-0008 §1.5). |
 | `tct-renewal-demo` | `cargo run -p aitp-example-two-agents --bin tct-renewal-demo --features experimental-renewal` | Renewing a TCT against an issuer's `/aitp/handshake/renew` endpoint via `aitp::facade::renew_tct`. Gated behind the `experimental-renewal` feature. |

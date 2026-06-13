@@ -70,6 +70,14 @@ pub enum ErrorCode {
     TimestampExpired,
     /// Protocol version not supported.
     UnknownVersion,
+    /// Compact-JWS header `alg` is not the sole value derived from the
+    /// signer's AID — including `none` in any capitalization and unknown
+    /// algorithms (RFC-AITP-0001 §5.4.5).
+    TokenAlgMismatch,
+    /// Compact-JWS header `typ` does not exactly match the value expected
+    /// for the verification context (`aitp-tct+jwt`, `aitp-grant+jwt`, or
+    /// `aitp-delegation+jwt`) (RFC-AITP-0001 §5.4.5).
+    TokenTypMismatch,
 
     // ── Identity / Manifest ─────────────────────────────────────────────
     /// Identity binding could not be verified.
@@ -122,8 +130,12 @@ pub enum ErrorCode {
     DelegationAudienceMismatch,
     /// Delegation token: scope contained capabilities outside grant_proof.
     DelegationScopeExceeded,
-    /// Delegation token: grant_proof signature or subject binding invalid.
-    DelegationInvalidGrantProof,
+    /// Delegation token: embedded voucher JWS signature invalid,
+    /// `voucher.iss` ≠ verifier's AID, or `voucher.sub` ≠ outer `iss`.
+    /// Renamed in v0.2 from `DELEGATION_INVALID_GRANT_PROOF` (the
+    /// `grant_proof` reconstruction mechanism was removed by the JWS
+    /// migration).
+    DelegationInvalidVoucher,
     /// Delegation token: source TCT has been revoked.
     DelegationSourceTctRevoked,
     /// Delegation token: signature did not verify.
@@ -154,7 +166,7 @@ pub enum ErrorCode {
     /// Coordinator's outer bundle signature failed verification under
     /// the coordinator's Manifest key.
     BundleInvalidSignature,
-    /// `version` is not `"aitp/0.1"` (or a later supported version).
+    /// `version` is not `"aitp/0.2"` (or a later supported version).
     BundleVersionMismatch,
     /// Bundle `expires_at` is in the past at verification time.
     BundleExpired,
@@ -204,6 +216,8 @@ mod tests {
             (ErrorCode::InvalidSignature, "INVALID_SIGNATURE"),
             (ErrorCode::TimestampExpired, "TIMESTAMP_EXPIRED"),
             (ErrorCode::UnknownVersion, "UNKNOWN_VERSION"),
+            (ErrorCode::TokenAlgMismatch, "TOKEN_ALG_MISMATCH"),
+            (ErrorCode::TokenTypMismatch, "TOKEN_TYP_MISMATCH"),
             (ErrorCode::IdentityFailed, "IDENTITY_FAILED"),
             (ErrorCode::PolicyViolation, "POLICY_VIOLATION"),
             (ErrorCode::GrantOverflow, "GRANT_OVERFLOW"),
@@ -232,8 +246,8 @@ mod tests {
                 "DELEGATION_SCOPE_EXCEEDED",
             ),
             (
-                ErrorCode::DelegationInvalidGrantProof,
-                "DELEGATION_INVALID_GRANT_PROOF",
+                ErrorCode::DelegationInvalidVoucher,
+                "DELEGATION_INVALID_VOUCHER",
             ),
             (
                 ErrorCode::DelegationInvalidSignature,

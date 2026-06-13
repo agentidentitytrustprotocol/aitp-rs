@@ -8,6 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { AitpAgent } from '../index.js';
+import { decodeJwsPayload } from './_jws.mjs';
 
 const HAS_RENEWAL =
   typeof AitpAgent.generate().buildRenewalRequest === 'function';
@@ -32,7 +33,9 @@ function issuedPair() {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck } = rsess.processCommit(commit);
-  const bHeld = sess.complete(commitAck);
+  // `complete()` yields { tct, claims, grantVoucher? }; the renewal API
+  // takes the opaque TCT token string.
+  const bHeld = sess.complete(commitAck).tct;
   return { a, b, bHeld };
 }
 
@@ -41,11 +44,12 @@ test('TCT renewal round-trips (experimental)', { skip: !HAS_RENEWAL }, () => {
   const req = b.buildRenewalRequest(bHeld);
   const now = Math.floor(Date.now() / 1000);
   const fresh = a.processRenewalRequest(req, now + 86_400, 3600);
-  const oldT = JSON.parse(bHeld);
-  const newT = JSON.parse(fresh);
-  assert.notEqual(newT.tct.jti, oldT.tct.jti);
-  assert.equal(newT.tct.subject, oldT.tct.subject);
-  assert.deepEqual(newT.tct.grants, oldT.tct.grants);
+  // Both TCTs are compact-JWS tokens; decode the claims to compare.
+  const oldT = decodeJwsPayload(bHeld);
+  const newT = decodeJwsPayload(fresh);
+  assert.notEqual(newT.jti, oldT.jti);
+  assert.equal(newT.sub, oldT.sub);
+  assert.deepEqual(newT.grants, oldT.grants);
 });
 
 test(

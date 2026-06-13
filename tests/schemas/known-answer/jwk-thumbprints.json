@@ -1,5 +1,5 @@
 {
-  "$comment": "AITP v0.1 JWK SHA-256 thumbprint known-answer vectors per RFC 7638. Used to verify that an implementation produces the same `cnf.jkt` value as the reference for a pinned Ed25519 public key. Canonical JWK form per RFC-AITP-0002 \u00a72.2.1: members in lex order, exactly three members (crv, kty, x), no whitespace.",
+  "$comment": "AITP v0.2 JWK SHA-256 thumbprint known-answer vectors per RFC 7638. Load-bearing for v0.2: these are the cnf.jkt values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4) as well as the OIDC identity binding's cnf.jkt (RFC-AITP-0002 §2.2.1). Canonical JWK form: members in lex order (OKP: crv, kty, x; EC: crv, kty, x, y), no whitespace.",
   "vectors": [
     {
       "id": "kat-jwk-thumb-001",
@@ -24,6 +24,23 @@
       "jwk_canonical_hex": "7b22637276223a2245643235353139222c226b7479223a224f4b50222c2278223a226471465a4945536d355055524a6c764b63365945325173464b6448665943766a43686d704a585a67306655227d",
       "sha256_hex": "2e5b2691798726e5d691164bbff14a97f9a9adf215e5a6159d7a8282c79bb1d5",
       "jkt": "LlsmkXmHJuXWkRZLv_FKl_mprfIV5aYVnXqCgsebsdU"
+    },
+    {
+      "id": "kat-jwk-thumb-004",
+      "keypair_ref": "kat-keypair-004",
+      "jwk_canonical": "{\"crv\":\"Ed25519\",\"kty\":\"OKP\",\"x\":\"iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w\"}",
+      "jwk_canonical_hex": "7b22637276223a2245643235353139222c226b7479223a224f4b50222c2278223a22696f6a6a3358514a385a583955747374504c70646373706e436238646c4249623833534941625150623177227d",
+      "sha256_hex": "5030d178e665d62a5701fa7dc18b26d77b0304c2b9a20fbe4167418f3b9fea8e",
+      "jkt": "UDDReOZl1ipXAfp9wYsm13sDBMK5og--QWdBjzuf6o4"
+    },
+    {
+      "id": "kat-jwk-thumb-005-p256",
+      "keypair_ref": "kat-keypair-005-p256",
+      "$comment": "First non-OKP thumbprint vector. Canonical EC JWK per RFC 7638: members (crv, kty, x, y) in lex order; x/y are the 32-byte big-endian coordinates, base64url-unpadded.",
+      "jwk_canonical": "{\"crv\":\"P-256\",\"kty\":\"EC\",\"x\":\"B4EOqXTOpXc-Y7iX83476aCeel_puXGkTRBlrCo6kxE\",\"y\":\"Y35HpPmUZKD9zkSojsfXA6kYPB0GVS2eLWt2BpSBxXc\"}",
+      "jwk_canonical_hex": "7b22637276223a22502d323536222c226b7479223a224543222c2278223a224234454f7158544f7058632d593769583833343736614365656c5f707558476b5452426c72436f366b7845222c2279223a225933354870506d555a4b44397a6b536f6a73665841366b5950423047565332654c57743242705342785863227d",
+      "sha256_hex": "eaeb84697ffceee321e15284b520e410d8230b483b12fb7abe58929c3ed74831",
+      "jkt": "6uuEaX_87uMh4VKEtSDkENgjC0g7Evt6vliSnD7XSDE"
     }
   ]
 }

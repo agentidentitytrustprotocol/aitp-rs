@@ -37,7 +37,7 @@ pub fn sign_envelope_with(
         .map_err(|e| e.to_string())?;
     let signature = signing_key.sign(&digest).into_string();
     Ok(AitpEnvelope {
-        version: "aitp/0.1".into(),
+        version: "aitp/0.2".into(),
         message_type,
         message_id,
         timestamp,

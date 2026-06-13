@@ -1,6 +1,6 @@
 {
   "name": "@agentidentitytrustprotocol/aitp",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Agent Identity Trust Protocol — Node.js SDK",
   "license": "MIT OR Apache-2.0",
   "repository": {
@@ -53,9 +53,9 @@
     "registry": "https://registry.npmjs.org/"
   },
   "optionalDependencies": {
-    "@agentidentitytrustprotocol/aitp-darwin-x64": "0.2.0",
-    "@agentidentitytrustprotocol/aitp-darwin-arm64": "0.2.0",
-    "@agentidentitytrustprotocol/aitp-linux-x64-gnu": "0.2.0",
-    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.2.0"
+    "@agentidentitytrustprotocol/aitp-darwin-x64": "0.3.0",
+    "@agentidentitytrustprotocol/aitp-darwin-arm64": "0.3.0",
+    "@agentidentitytrustprotocol/aitp-linux-x64-gnu": "0.3.0",
+    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.3.0"
   }
 }

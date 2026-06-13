@@ -111,10 +111,17 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         .issued_at(aitp_core::Timestamp(1_700_000_000))
         .build()
         .unwrap();
-    // Forge issuer to a different AID — the signature won't verify under
-    // the new AID's pubkey.
-    let mut forged = tct.clone();
-    forged.issuer = other.aid().clone();
+    // Forge the iss claim to a different AID and re-sign nothing — the
+    // signature won't verify under the forged issuer's pubkey.
+    let payload = aitp_crypto::jws::decode_payload_unverified(&tct.token).unwrap();
+    let mut claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+    claims["iss"] = serde_json::to_value(other.aid()).unwrap();
+    let (header, rest) = tct.token.split_once('.').unwrap();
+    let (_, sig) = rest.split_once('.').unwrap();
+    let forged = format!(
+        "{header}.{}.{sig}",
+        aitp_core::base64url::encode(&aitp_core::jcs::canonicalize_serializable(&claims).unwrap())
+    );
 
     let adapter =
         SubprocessAdapter::spawn(adapter_path().to_str().unwrap(), &[]).expect("spawn adapter");
@@ -132,7 +139,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
             operation: None,
             variant: FixtureInputVariant::Single(json!({
                 "operation": "verify_tct",
-                "tct": forged,
+                "tct_token": forged,
                 "expected_audience": subject.aid().as_str(),
                 "now": 1_700_000_500i64,
             })),
@@ -218,12 +225,12 @@ fn tier_b_issue_and_verify_tct_round_trip() {
             "issued_at": 1_700_000_000i64,
         }),
     );
-    let tct = &issued["tct_envelope"]["tct"];
+    let tct = &issued["tct_token"];
     let verify = ok(
         &mut a,
         "verify_tct",
         json!({
-            "tct": tct,
+            "tct_token": tct,
             "expected_audience": subject["aid"],
             "now": 1_700_000_500i64,
         }),
@@ -307,27 +314,27 @@ fn tier_b_issue_and_verify_delegation_round_trip() {
             "issued_at": 1_700_000_000i64,
         }),
     );
-    let source_tct = &tct_b["tct_envelope"]["tct"];
+    let voucher = &tct_b["grant_voucher"];
     // Bob delegates to Carol (subset of grants).
     let delegation = ok(
         &mut a,
         "issue_delegation_token",
         json!({
             "delegator_keypair": bob["handle"],
-            "source_tct": source_tct,
+            "voucher": voucher,
             "delegatee": carol["aid"],
             "delegatee_public_key": carol["public_key"],
             "scope": ["read"],
             "ttl_secs": 1800i64,
         }),
     );
-    let token = &delegation["delegation_envelope"]["delegation"];
+    let token = &delegation["delegation_token"];
     // Alice (the original issuer) verifies the delegation.
     let verify = ok(
         &mut a,
         "verify_delegation_token",
         json!({
-            "delegation": token,
+            "delegation_token": token,
             "verifier_aid": alice["aid"],
             "now": 1_700_000_500i64,
         }),
@@ -393,14 +400,14 @@ fn tier_c_revoke_tct_makes_subsequent_verify_fail() {
             "issued_at": 1_700_000_000i64,
         }),
     );
-    let tct = &issued["tct_envelope"]["tct"];
-    let jti = tct["jti"].as_str().unwrap().to_string();
+    let tct = &issued["tct_token"];
+    let jti = issued["tct_claims"]["jti"].as_str().unwrap().to_string();
 
     // Pre-revocation: verify passes.
     let pre = ok(
         &mut a,
         "verify_tct",
-        json!({"tct": tct, "expected_audience": subject["aid"], "now": 1_700_000_500i64}),
+        json!({"tct_token": tct, "expected_audience": subject["aid"], "now": 1_700_000_500i64}),
     );
     assert_eq!(pre["verified"], json!(true));
 
@@ -410,7 +417,7 @@ fn tier_c_revoke_tct_makes_subsequent_verify_fail() {
     let post = a
         .execute(
             "verify_tct",
-            json!({"tct": tct, "expected_audience": subject["aid"], "now": 1_700_000_500i64}),
+            json!({"tct_token": tct, "expected_audience": subject["aid"], "now": 1_700_000_500i64}),
         )
         .unwrap();
     match post {
@@ -453,13 +460,13 @@ fn tier_d_set_clock_then_verify_with_default_now_uses_override() {
             "issued_at": 1_700_000_000i64,
         }),
     );
-    let tct = &issued["tct_envelope"]["tct"];
+    let tct = &issued["tct_token"];
     // No explicit `now` — adapter uses its set_clock value, which is
     // still 1_700_000_000, well within the TTL.
     let verify = ok(
         &mut a,
         "verify_tct",
-        json!({"tct": tct, "expected_audience": subject["aid"]}),
+        json!({"tct_token": tct, "expected_audience": subject["aid"]}),
     );
     assert_eq!(verify["verified"], json!(true));
 }
@@ -606,8 +613,8 @@ fn responder_full_handshake_via_two_adapter_processes() {
     let commit_ack_envelope = bob_done["next_envelope"].clone();
     assert_eq!(bob_done["completed"], json!(true));
     let bob_holds = &bob_done["held_tct"];
-    assert_eq!(bob_holds["issuer"], json!(alice_kp["aid"]));
-    assert_eq!(bob_holds["subject"], json!(bob_kp["aid"]));
+    assert_eq!(bob_holds["tct_claims"]["iss"], json!(alice_kp["aid"]));
+    assert_eq!(bob_holds["tct_claims"]["sub"], json!(bob_kp["aid"]));
 
     let alice_done = ok(
         &mut alice,
@@ -616,6 +623,6 @@ fn responder_full_handshake_via_two_adapter_processes() {
     );
     assert_eq!(alice_done["completed"], json!(true));
     let alice_holds = &alice_done["held_tct"];
-    assert_eq!(alice_holds["issuer"], json!(bob_kp["aid"]));
-    assert_eq!(alice_holds["subject"], json!(alice_kp["aid"]));
+    assert_eq!(alice_holds["tct_claims"]["iss"], json!(bob_kp["aid"]));
+    assert_eq!(alice_holds["tct_claims"]["sub"], json!(alice_kp["aid"]));
 }

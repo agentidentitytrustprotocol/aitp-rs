@@ -22,7 +22,7 @@ pub use payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
 pub use state_machine::{
-    bootstrap_verify_peer, HandshakeRevocationDecision, Initiator, OidcMintJwtFn, PeerConfig,
-    PinnedKeyStore, PresentedIdentity, Responder, RevocationCheckFn, SessionId,
-    StaticPinnedKeyStore,
+    bootstrap_verify_peer, CompletedHandshake, HandshakeRevocationDecision, Initiator,
+    OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, RevocationCheckFn,
+    SessionId, StaticPinnedKeyStore,
 };

@@ -11,7 +11,7 @@ categories.workspace = true
 homepage.workspace = true
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.2.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.2.0" }
+aitp-core = { path = "../aitp-core", version = "0.3.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.3.0" }
 serde_json = { workspace = true }
 uuid = { workspace = true }

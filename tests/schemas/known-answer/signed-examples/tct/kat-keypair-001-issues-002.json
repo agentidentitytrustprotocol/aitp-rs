@@ -1,0 +1,30 @@
+{
+  "_kat_input": {
+    "$comment": "Real Ed25519-signed compact JWS TCT (RFC-AITP-0005). Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object — fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). Any off-the-shelf JOSE library MUST verify this token given the issuer public key.",
+    "issuer_seed_id": "kat-keypair-001",
+    "subject_seed_id": "kat-keypair-002",
+    "typ": "aitp-tct+jwt",
+    "jti": "550e8400-e29b-41d4-a716-446655440000",
+    "iat": 1711900000,
+    "ttl_secs": 3600,
+    "grants": [
+      "macp.mode.task.v1"
+    ]
+  },
+  "tct_token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OkE2RUh2X1BPRUw0ZGNOMFk1MHZBbVdmazFqQ2JwUTFmSGR5R1pCSlZNYmciLCJjbmYiOnsiamt0IjoiMUlHMnRNSDdKMndiSlpuT2Y4TEp6UWl0S2Y3TE12b0FFbHN1RE1WTTU0WSJ9LCJleHAiOjE3MTE5MDM2MDAsImdyYW50cyI6WyJtYWNwLm1vZGUudGFzay52MSJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6TzJvbnZNNjJwQzFpbzZqUUttOE5jMlV5RlhjZDRrT21Pc0JJb1l0WjJpayIsImp0aSI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMCIsInN1YiI6ImFpZDpwdWJrZXk6QTZFSHZfUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZyIsInZlciI6ImFpdHAvMC4yIn0.-hVZMF6zG0ACQkRmTUb5fdw06_qlnJ772YFoqvrbG6h_frC1BL2hDVm1RmfxjVVZ7uRoa3Xl4OqZxb6dOoRADw",
+  "decoded_claims": {
+    "ver": "aitp/0.2",
+    "jti": "550e8400-e29b-41d4-a716-446655440000",
+    "iss": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+    "sub": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "aud": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "iat": 1711900000,
+    "exp": 1711903600,
+    "grants": [
+      "macp.mode.task.v1"
+    ],
+    "cnf": {
+      "jkt": "1IG2tMH7J2wbJZnOf8LJzQitKf7LMvoAElsuDMVM54Y"
+    }
+  }
+}

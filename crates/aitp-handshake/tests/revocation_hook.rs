@@ -85,6 +85,22 @@ fn envelope_with(
     }
 }
 
+/// Re-sign the staged commit's TCT after mutating its decoded claims —
+/// the JWS analogue of the old struct-field tampering. Signed with
+/// alice's (the issuer's) fixed-seed key so the signature stays valid
+/// and the mutated claim is what trips the verifier.
+fn resign_commit_tct(
+    payload: &mut aitp_handshake::MutualCommitPayload,
+    mutate: impl FnOnce(&mut serde_json::Value),
+) {
+    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
+    let bytes = aitp_crypto::jws::decode_payload_unverified(&payload.tct).unwrap();
+    let mut claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    mutate(&mut claims);
+    payload.tct =
+        aitp_crypto::jws::sign_compact(&alice, aitp_crypto::jws::TYP_TCT, &claims).unwrap();
+}
+
 /// Helper: drive HELLO + HELLO_ACK + COMMIT setup so each test can
 /// plug a different `revocation_check` into Bob's commit-time config.
 struct StagedCommit {
@@ -323,7 +339,15 @@ fn invalid_tct_signature_skips_revocation_lookup() {
     let resolver = NoOpResolver;
     // Tamper the signature on the TCT carried in MUTUAL_COMMIT. It
     // still parses as a 64-byte Ed25519 signature but cannot verify.
-    staged.commit_payload.tct_for_peer.tct.signature = aitp_core::base64url::encode(&[0u8; 64]);
+    {
+        let parts: Vec<&str> = staged.commit_payload.tct.split('.').collect();
+        staged.commit_payload.tct = format!(
+            "{}.{}.{}",
+            parts[0],
+            parts[1],
+            aitp_core::base64url::encode(&[0u8; 64])
+        );
+    }
     let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
         panic!("revocation hook called before TCT signature verification");
     });
@@ -343,8 +367,11 @@ fn invalid_tct_signature_skips_revocation_lookup() {
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect_err("tampered TCT signature must fail commit");
     assert!(
-        matches!(err, HandshakeError::Tct(TctError::SignatureInvalid)),
-        "expected Tct(SignatureInvalid), got {err:?}"
+        matches!(
+            err,
+            HandshakeError::Tct(TctError::Crypto(aitp_crypto::CryptoError::SignatureInvalid))
+        ),
+        "expected Tct(Crypto(SignatureInvalid)), got {err:?}"
     );
 }
 
@@ -357,7 +384,10 @@ fn wrong_audience_skips_revocation_lookup() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let stranger = AitpSigningKey::from_seed(&[0xCC; 32]);
-    staged.commit_payload.tct_for_peer.tct.audience = stranger.aid().clone();
+    let stranger_aid = stranger.aid().clone();
+    resign_commit_tct(&mut staged.commit_payload, |claims| {
+        claims["aud"] = serde_json::to_value(&stranger_aid).unwrap();
+    });
     let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
         panic!("revocation hook called for a TCT with the wrong audience");
     });
@@ -388,7 +418,9 @@ fn wrong_audience_skips_revocation_lookup() {
 fn expired_tct_skips_revocation_lookup() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    staged.commit_payload.tct_for_peer.tct.expires_at = Timestamp(NOW.0 - 100);
+    resign_commit_tct(&mut staged.commit_payload, |claims| {
+        claims["exp"] = serde_json::json!(NOW.0 - 100);
+    });
     let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
         panic!("revocation hook called for an expired TCT");
     });

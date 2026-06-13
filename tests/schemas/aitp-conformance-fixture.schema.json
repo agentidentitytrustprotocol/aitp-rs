@@ -1,14 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/aitp-conformance-fixture.schema.json",
+  "$id": "https://aitp.dev/schema/v0.2/aitp-conformance-fixture.schema.json",
   "title": "AITP Conformance Fixture (metadata block)",
-  "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a v0.1 conformance runner relies on.",
+  "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a conformance runner relies on. Runners select fixtures by their own protocol version: a v0.2 runner runs the required_for_v0_2 set, a v0.1 runner the required_for_v0_1 set.",
   "type": "object",
   "required": [
     "id",
     "rfc",
     "status",
     "required_for_v0_1",
+    "required_for_v0_2",
     "feature"
   ],
   "properties": {
@@ -28,7 +29,11 @@
     },
     "required_for_v0_1": {
       "type": "boolean",
-      "description": "Whether a v0.1 implementation MUST pass this fixture. Always false when status != 'core'."
+      "description": "Whether a v0.1 implementation MUST pass this fixture. Always false when status != 'core'. False for fixtures minted in the v0.2 JWS token shape (a v0.1 implementation cannot parse them); true only for fixtures frozen in the v0.1 shape (e.g. del-004)."
+    },
+    "required_for_v0_2": {
+      "type": "boolean",
+      "description": "Whether a v0.2 implementation MUST pass this fixture. Always false when status != 'core'. False for fixtures frozen in the v0.1 token shape."
     },
     "feature": {
       "type": ["string", "null"],
@@ -89,9 +94,12 @@
       "if": { "properties": { "status": { "const": "core" } } },
       "then": {
         "properties": {
-          "required_for_v0_1": { "const": true },
           "feature": { "const": null }
-        }
+        },
+        "anyOf": [
+          { "properties": { "required_for_v0_1": { "const": true } } },
+          { "properties": { "required_for_v0_2": { "const": true } } }
+        ]
       }
     },
     {
@@ -102,7 +110,8 @@
       },
       "then": {
         "properties": {
-          "required_for_v0_1": { "const": false }
+          "required_for_v0_1": { "const": false },
+          "required_for_v0_2": { "const": false }
         }
       }
     }

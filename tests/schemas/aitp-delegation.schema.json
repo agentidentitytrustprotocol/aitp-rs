@@ -1,206 +1,129 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.1/delegation.json",
-  "title": "DelegationToken",
-  "description": "AITP v0.1 delegation token. Single-hop is the v0.1 default (no `chain` field). Multi-hop chains (RFC-AITP-0011) are carried in the optional `chain` and `chain_hash` fields.",
+  "$id": "https://aitp.dev/schema/v0.2/delegation.json",
+  "title": "DelegationTokenClaims",
+  "description": "AITP v0.2 delegation token — decoded JWS payload claims (RFC-AITP-0006). On the wire a delegation token is an opaque compact JWS string (typ 'aitp-delegation+jwt') signed by the delegator-of-record (iss). It embeds the issuing peer's grant voucher verbatim as the `voucher` claim; no reconstruction is performed anywhere. Single-hop is the core default (no `chain` claim). Multi-hop chains (RFC-AITP-0011, Draft opt-in) are carried in the optional `chain` and `chain_hash` claims.",
   "type": "object",
-  "required": [
-    "delegation"
-  ],
   "$defs": {
-    "DelegationStep": {
-      "type": "object",
-      "description": "One link in a multi-hop delegation chain (RFC-AITP-0011 §1.1). Same shape as `grant_proof`. At hop 0, `source_tct_jti` references A's original peer-issued TCT to B; at hops i>0 it is a fresh UUIDv4 used by `chain_hash` and per-hop revocation.",
-      "required": [
-        "issuer",
-        "subject",
-        "capabilities",
-        "issued_at",
-        "expires_at",
-        "source_tct_jti",
-        "signature"
-      ],
-      "properties": {
-        "issuer": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID that signed this step."
-        },
-        "subject": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID receiving capabilities at this hop."
-        },
-        "capabilities": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          },
-          "minItems": 1,
-          "uniqueItems": true,
-          "description": "Capabilities granted at this hop. MUST be a subset of the previous hop's capabilities (transitive scope, RFC-AITP-0011 §3)."
-        },
-        "issued_at": {
-          "type": "integer",
-          "minimum": 0
-        },
-        "expires_at": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "MUST be <= the previous hop's `expires_at` (transitive expiry)."
-        },
-        "source_tct_jti": {
-          "type": "string",
-          "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$"
-        },
-        "signature": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9_-]{86}$",
-          "description": "At hop 0: re-uses the source TCT's signature verbatim. At hops i>0: issuer's signature over the canonical step body excluding `signature` (RFC-AITP-0011 §3 step 4)."
-        }
-      },
-      "additionalProperties": false
+    "CompactJws": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "RFC 7515 compact JWS: exactly three non-empty unpadded-base64url segments."
+    },
+    "Aid": {
+      "type": "string",
+      "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$"
     }
   },
+  "required": [
+    "ver",
+    "iss",
+    "sub",
+    "aud",
+    "scope",
+    "exp",
+    "cnf"
+  ],
   "properties": {
-    "delegation": {
+    "ver": {
+      "type": "string",
+      "const": "aitp/0.2",
+      "description": "Protocol version private claim. MUST be 'aitp/0.2'."
+    },
+    "iss": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the agent issuing this delegation (B, the delegator-of-record). The outer JWS is signed by this key. MUST equal the embedded voucher's sub."
+    },
+    "sub": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the agent receiving delegation (C). Self-delegation (iss == sub) is rejected."
+    },
+    "aud": {
+      "$ref": "#/$defs/Aid",
+      "description": "AID of the verifying issuer (A). MUST equal the verifier's own AID; prevents use at other verifiers. Single string, never an array."
+    },
+    "scope": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\s]+$"
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "Capabilities delegated to C. MUST be a subset of the embedded voucher's grants."
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Unix timestamp of expiry. MUST be <= the embedded voucher's exp."
+    },
+    "cnf": {
       "type": "object",
-      "required": [
-        "delegator",
-        "delegatee",
-        "issued_by",
-        "audience",
-        "scope",
-        "expires_at",
-        "cnf",
-        "grant_proof",
-        "signature"
-      ],
+      "description": "RFC 7800 confirmation claim for C's key, jkt form only (RFC-AITP-0001 §5.4.4). MUST match the key encoded in sub.",
+      "required": ["jkt"],
       "properties": {
-        "delegator": {
+        "jkt": {
           "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the original grant issuer (A)."
-        },
-        "delegatee": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the agent receiving delegation (C)."
-        },
-        "issued_by": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "AID of the agent issuing this delegation (B)."
-        },
-        "audience": {
-          "type": "string",
-          "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-          "description": "MUST equal delegator's AID. Prevents use at other verifiers."
-        },
-        "scope": {
-          "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1,
-            "pattern": "^[^\\s]+$"
-          },
-          "minItems": 1,
-          "uniqueItems": true,
-          "description": "Capabilities delegated to C. MUST be a subset of grant_proof.capabilities."
-        },
-        "expires_at": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Unix timestamp of expiry. MUST be <= grant_proof.expires_at."
-        },
-        "cnf": {
-          "type": "string",
-          "minLength": 1,
-          "description": "C's public key (base64url) for proof-of-possession.",
           "pattern": "^[A-Za-z0-9_-]{43}$"
-        },
-        "grant_proof": {
-          "type": "object",
-          "required": [
-            "issuer",
-            "subject",
-            "capabilities",
-            "issued_at",
-            "expires_at",
-            "source_tct_jti",
-            "signature"
-          ],
-          "properties": {
-            "issuer": {
-              "type": "string",
-              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-              "description": "AID of the original grant issuer (A) for single-hop. For multi-hop (RFC-AITP-0011), the most-recent hop's issuer."
-            },
-            "subject": {
-              "type": "string",
-              "pattern": "^aid:pubkey:[A-Za-z0-9_-]{43}$",
-              "description": "AID of the original grantee (B). MUST equal delegation.issued_by."
-            },
-            "capabilities": {
-              "type": "array",
-              "items": {
-                "type": "string",
-                "minLength": 1
-              },
-              "minItems": 1,
-              "uniqueItems": true
-            },
-            "issued_at": {
-              "type": "integer",
-              "minimum": 0,
-              "description": "Unix timestamp; copied verbatim from the source TCT's issued_at so the source TCT signing input can be reconstructed byte-for-byte. See RFC-AITP-0006 §3.1."
-            },
-            "expires_at": {
-              "type": "integer",
-              "minimum": 1
-            },
-            "source_tct_jti": {
-              "type": "string",
-              "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
-              "description": "JTI of A's original TCT to B. Used for revocation lookup."
-            },
-            "signature": {
-              "type": "string",
-              "minLength": 1,
-              "description": "A's signature over the source TCT body (reused verbatim from the source TCT's signature).",
-              "pattern": "^[A-Za-z0-9_-]{86}$"
-            }
-          },
-          "additionalProperties": false
-        },
-        "chain": {
-          "type": "array",
-          "description": "OPTIONAL multi-hop chain (RFC-AITP-0011). Absent or empty for single-hop. Ordered oldest hop first; the most-recent hop remains in `grant_proof`. v0.1 implementations MUST reject any token where this is non-empty with `DELEGATION_MULTIHOP_NOT_SUPPORTED`.",
-          "items": {
-            "$ref": "#/$defs/DelegationStep"
-          }
-        },
-        "chain_hash": {
-          "type": "string",
-          "minLength": 1,
-          "pattern": "^[A-Za-z0-9_-]{43}$",
-          "description": "REQUIRED if `chain` is non-empty (RFC-AITP-0011 §5). `base64url(sha256(canonical_json([chain[0].source_tct_jti, ..., chain[n-2].source_tct_jti])))`. Bound into the outer signature so a hop cannot be removed without invalidating it."
-        },
-        "signature": {
-          "type": "string",
-          "minLength": 1,
-          "description": "B's signature over canonical DelegationToken JSON (excluding signature). For multi-hop, covers `chain_hash`.",
-          "pattern": "^[A-Za-z0-9_-]{86}$"
-        },
-        "extensions": {
-          "type": "object",
-          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
         }
       },
       "additionalProperties": false
+    },
+    "voucher": {
+      "$ref": "#/$defs/CompactJws",
+      "description": "The issuing peer's grant voucher (typ 'aitp-grant+jwt', RFC-AITP-0005 §8), embedded VERBATIM. REQUIRED on single-hop tokens (no `chain`). On multi-hop tokens (RFC-AITP-0011, Draft) only `chain[0]` carries the voucher — the outer token MUST NOT. Decoded claims validate against aitp-grant-voucher.schema.json. Covered by the outer signature, so it cannot be swapped."
+    },
+    "jti": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "UUID v4. Per-hop revocation handle — REQUIRED on every delegation token that participates in a multi-hop chain (RFC-AITP-0011, Draft); absent on single-hop core tokens (RFC-AITP-0006 defines no jti)."
+    },
+    "chain": {
+      "type": "array",
+      "description": "OPTIONAL multi-hop chain (RFC-AITP-0011, Draft opt-in). Each entry is a prior-hop delegation token as a verbatim compact JWS string, ordered oldest hop first. Core implementations MUST reject any token carrying this claim with DELEGATION_MULTIHOP_NOT_SUPPORTED.",
+      "items": {
+        "$ref": "#/$defs/CompactJws"
+      },
+      "minItems": 1
+    },
+    "chain_hash": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$",
+      "description": "REQUIRED if `chain` is present (RFC-AITP-0011). base64url(sha256(JCS array of the base64url SHA-256 digests of each chain string)). Bound into the outer signature so a hop cannot be removed or reordered without invalidating it."
+    },
+    "ext": {
+      "type": "object",
+      "description": "Optional extension namespace per RFC-AITP-0001 §5.4.5 and RFC-AITP-0012. Unknown keys inside ext MUST be ignored; unknown claims outside it are rejected by this schema."
     }
   },
-  "additionalProperties": false
+  "allOf": [
+    {
+      "if": { "required": ["chain"] },
+      "then": {
+        "required": ["chain_hash", "jti"],
+        "not": { "required": ["voucher"] }
+      },
+      "else": {
+        "required": ["voucher"]
+      }
+    }
+  ],
+  "additionalProperties": false,
+  "examples": [
+    {
+      "ver": "aitp/0.2",
+      "iss": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+      "sub": "aid:pubkey:agentC_pubkey_AID_v01_placeholder_CCCCCCCCC",
+      "aud": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+      "scope": [
+        "read_data"
+      ],
+      "exp": 1711903600,
+      "cnf": {
+        "jkt": "jkt_agentC_thumbprint_placeholder_CCCCCCCCCC"
+      },
+      "voucher": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJ2ZXIiOiJhaXRwLzAuMiJ9.dm91Y2hlcl9zaWduYXR1cmVfcGxhY2Vob2xkZXI"
+    }
+  ]
 }

@@ -9,28 +9,80 @@ two agents perform a Mutual Handshake, exchange signed Trust
 Context Tokens (TCTs), and then invoke each other's capabilities
 under those TCTs.
 
+This workspace tracks **AITP v0.2** (protocol version literal
+`aitp/0.2`). v0.2's headline change: the **portable trust artifacts**
+— the TCT, the new grant voucher, and the delegation token — are now
+[RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515) **compact
+JWS** strings with explicit JOSE typing, verifiable by any off-the-shelf
+JOSE library given only the issuer's public key. The
+**protocol-internal artifacts** (envelopes, manifests, revocation
+snapshots, the session-bundle outer signature, handshake payloads) stay
+on the JCS embedded-signature profile. The two signing profiles are
+laid out in the [boundary table](#the-two-signing-profiles) below.
+
 This document covers the topology — what the pieces are and how they
 fit — and then the rationale for why the workspace is split the way it
 is. For the deeper, topic-specific dives, see the sibling docs:
 [`jcs.md`](jcs.md), [`handshake-transcripts.md`](handshake-transcripts.md),
 and [`conformance.md`](conformance.md).
 
-## The four signed wire types
+## The signed wire types
 
-Every AITP interaction reduces to producing and verifying one of
-four signed JSON objects. Each has its own RFC, JSON Schema, and a
-crate.
+Every AITP interaction reduces to producing and verifying a signed
+artifact. Each has its own RFC, JSON Schema, and a crate.
 
 | Type | RFC | Crate | Purpose |
 |---|---|---|---|
 | **Manifest** | [RFC-AITP-0003](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md) | [`aitp-manifest`](../crates/aitp-manifest) | Self-description an agent publishes at `/.well-known/aitp-manifest`: which handshake endpoint to hit, which identity provider it uses, which capabilities it offers/requires |
 | **TCT (Trust Context Token)** | [RFC-AITP-0005](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md) | [`aitp-tct`](../crates/aitp-tct) | A signed, audience-bound, capability-scoped grant. Each peer holds the TCT issued to it by its counterpart |
-| **Delegation token** | [RFC-AITP-0006](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md) | [`aitp-delegation`](../crates/aitp-delegation) | Single-hop subdelegation: B holds A's TCT, issues a derived token to C with a subset of grants |
+| **Grant voucher** | [RFC-AITP-0005 §8](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md) | [`aitp-tct`](../crates/aitp-tct) | A companion artifact the TCT issuer mints alongside the TCT (same handshake commit). Lets the subject delegate without anyone reconstructing TCT bytes; replaces the v0.1 `grant_proof` mechanism |
+| **Delegation token** | [RFC-AITP-0006](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md) | [`aitp-delegation`](../crates/aitp-delegation) | Single-hop subdelegation: B holds A's TCT + voucher, issues a derived token to C with a subset of grants, embedding A's voucher verbatim |
 | **Revocation snapshot** | [RFC-AITP-0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | [`aitp-tct::revocation`](../crates/aitp-tct/src/revocation.rs) | Periodically-refreshed signed list of revoked TCT JTIs. An empty list is also signed — defends against suppression of fresher snapshots |
 
-All four use [JCS](https://datatracker.ietf.org/doc/html/rfc8785)
-canonicalization for the signing input and Ed25519 for the
-signature.
+### The two signing profiles
+
+v0.2 splits the artifacts across **two signing profiles** along one
+axis: does a non-AITP party ever need to verify it?
+
+| Profile | Wire form | Signing input | Artifacts |
+|---|---|---|---|
+| **Compact JWS** (RFC-AITP-0001 §5.4.5) | RFC 7515 compact JWS string `header.payload.signature`, explicit `typ` | The exact transmitted bytes (`ASCII(header.payload)`) — no canonicalization, no reconstruction | TCT (`typ: aitp-tct+jwt`), grant voucher (`typ: aitp-grant+jwt`), delegation token (`typ: aitp-delegation+jwt`) |
+| **JCS embedded-signature** (RFC-AITP-0001 §5.4.1) | JSON object with an inline `signature` field | [JCS](https://datatracker.ietf.org/doc/html/rfc8785) canonicalization of the object minus its `signature` field | Envelope, Manifest, revocation snapshot, session-bundle outer signature, handshake payloads |
+
+The split is the point of v0.2. **Portable trust artifacts** — the
+ones that flow between organizations and get parked in logs, headers,
+and audit trails — are compact JWS so a gateway or auditor in another
+language can verify them with a stock JOSE library and the issuer's
+public key. **Protocol-internal artifacts** — the ones only an AITP peer
+ever inspects — stay on JCS, where they already have an `extensions`
+slot and live inside the handshake state machine.
+
+Both profiles pin the signature algorithm to the signer's AID method:
+**EdDSA** (Ed25519) for `aid:pubkey:…` / `aid:pubkey:ed25519:…`, **ES256**
+for `aid:pubkey:p256:…`. On the JWS side the verifier derives the sole
+acceptable `alg` from the issuer's AID and rejects any other value —
+including `alg: none` — with `TOKEN_ALG_MISMATCH`; the `typ` is enforced
+exactly with `TOKEN_TYP_MISMATCH`. There is no algorithm negotiation and
+no header-supplied key material.
+
+### Debugging a TCT
+
+Because a TCT (and the grant voucher, and a delegation token) is now an
+ordinary compact JWS, you can decode and verify it with no AITP tooling
+at all:
+
+- Paste the compact string into [jwt.io](https://jwt.io) to inspect the
+  header and claims.
+- Verify it programmatically with any JOSE library — node
+  [`jose`](https://github.com/panva/jose), python
+  [`PyJWT`](https://pyjwt.readthedocs.io/) — supplying the issuer's
+  public key. The key is derivable from the issuer AID (`iss`): the AID
+  *is* the base64url public key (or its `p256:` variant), and `cnf.jkt`
+  is the RFC 7638 thumbprint of the subject key.
+
+The claims you'll see on a TCT are the registered JWT names
+`ver, jti, iss, sub, aud, iat, exp` plus the private `grants` array and
+the RFC 7800 `cnf: {"jkt": …}` confirmation claim.
 
 ## The four-message handshake
 
@@ -41,13 +93,18 @@ state machines, `Initiator` and `Responder`:
 ```
 A (Initiator)                                       B (Responder)
   │                                                       │
-  │ ── MUTUAL_HELLO        (identity_A, manifest_A) ────► │
-  │ ◄─ MUTUAL_HELLO_ACK    (identity_B, manifest_B) ──── │
-  │ ── MUTUAL_COMMIT       (TCT_A_for_B)            ────► │
-  │ ◄─ MUTUAL_COMMIT_ACK   (TCT_B_for_A)            ──── │
-  ▼                                                       ▼
-holds TCT_B                                       holds TCT_A
+  │ ── MUTUAL_HELLO        (identity_A, manifest_A)      ────► │
+  │ ◄─ MUTUAL_HELLO_ACK    (identity_B, manifest_B)      ──── │
+  │ ── MUTUAL_COMMIT       (TCT_A_for_B + voucher_A)     ────► │
+  │ ◄─ MUTUAL_COMMIT_ACK   (TCT_B_for_A + voucher_B)     ──── │
+  ▼                                                            ▼
+holds TCT_B (+ voucher_B)                       holds TCT_A (+ voucher_A)
 ```
+
+Each commit carries the peer-issued TCT **and** its companion grant
+voucher (RFC-AITP-0005 §8), both as opaque compact JWS strings. An issuer
+whose policy forbids the subject from delegating MAY omit the voucher;
+the subject then holds a TCT it can present but cannot delegate.
 
 After the handshake, capability invocation is just a normal
 HTTP/JSON request signed with the holder's key, where the receiver
@@ -169,9 +226,14 @@ values rather than its own output:
 - **Keypair derivation** (`crates/aitp-crypto/tests/kat.rs`) —
   seed → pubkey → AID for three pinned keypairs
 - **JWK thumbprints** (same file) — RFC 7638 thumbprints for the
-  three pinned keypairs
+  three pinned keypairs (also the `cnf.jkt` value on a v0.2 TCT)
 - **JCS + SHA-256** (`crates/aitp-core/tests/kat.rs`) — canonical
-  bytes and SHA-256 digest of the four signed AITP artifact types
+  bytes and SHA-256 digest of the **JCS-profile** artifacts (Manifest,
+  revocation snapshot). The v0.1 TCT and delegation JCS vectors are
+  retired with the move to compact JWS.
+- **Compact-JWS vectors** (`known-answer/signed-examples/`) — the pinned
+  TCT, grant voucher, and delegation tokens; verified over their exact
+  transmitted bytes, not reconstructed.
 - **Revocation snapshot** (`crates/aitp-tct/src/revocation.rs::rfc_kat_canonical_bytes_match`)
   — canonical bytes byte-for-byte against `kat-revocation-001`
 
@@ -212,7 +274,7 @@ and test-only.
 
 A cross-language adapter need only implement that NDJSON protocol; the
 runner, fixtures, and assertion machinery are shared. The full wire
-protocol, the per-tier op table, and the live 44-fixture matrix all live in
+protocol, the per-tier op table, and the live v0.2 fixture matrix all live in
 [`conformance.md`](conformance.md).
 
 ## Language bindings

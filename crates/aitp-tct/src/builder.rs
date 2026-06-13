@@ -1,23 +1,23 @@
-//! TCT builder.
+//! TCT + grant-voucher issuance (RFC-AITP-0005 §1 / §8).
 
-use crate::types::{Tct, TctBinding};
+use crate::types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims};
 use crate::TctError;
-use aitp_core::{base64url, jcs, Aid, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use serde::Serialize;
-use sha2::{Digest, Sha256};
+use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey};
 use uuid::Uuid;
 
-/// Fluent builder for issuing a TCT.
+/// Fluent builder for issuing a TCT and its companion grant voucher.
 ///
 /// ```ignore
-/// let tct = TctBuilder::new(&issuer_key)
+/// let issued = TctBuilder::new(&issuer_key)
 ///     .subject(subject_aid.clone())
-///     .audience(subject_aid.clone())          // v0.1: audience == subject
+///     .audience(subject_aid.clone())          // v0.2: audience == subject
 ///     .grants(["demo.echo"])
 ///     .ttl_secs(3600)
 ///     .subject_pubkey(subject_verifying_key)
 ///     .build()?;
+/// // issued.token   — the TCT compact JWS
+/// // issued.voucher — the grant voucher compact JWS (Some by default)
 /// ```
 pub struct TctBuilder<'a> {
     issuer_key: &'a AitpSigningKey,
@@ -26,6 +26,7 @@ pub struct TctBuilder<'a> {
     grants: Vec<String>,
     ttl_secs: i64,
     subject_pubkey: Option<AitpVerifyingKey>,
+    mint_voucher: bool,
     /// Override `issued_at` for tests / fixed-clock scenarios.
     now_override: Option<Timestamp>,
     /// Override the generated JTI (tests, fixtures).
@@ -42,6 +43,7 @@ impl<'a> TctBuilder<'a> {
             grants: Vec::new(),
             ttl_secs: crate::DEFAULT_TCT_TTL_SECS,
             subject_pubkey: None,
+            mint_voucher: true,
             now_override: None,
             jti_override: None,
         }
@@ -53,7 +55,7 @@ impl<'a> TctBuilder<'a> {
         self
     }
 
-    /// Set the audience AID. In v0.1 audience MUST equal subject.
+    /// Set the audience AID. In v0.2 audience MUST equal subject.
     pub fn audience(mut self, audience: Aid) -> Self {
         self.audience = Some(audience);
         self
@@ -75,9 +77,17 @@ impl<'a> TctBuilder<'a> {
         self
     }
 
-    /// Set the subject's verifying key, used to populate `binding.cnf`.
+    /// Set the subject's verifying key, used to derive `cnf.jkt`.
     pub fn subject_pubkey(mut self, pk: AitpVerifyingKey) -> Self {
         self.subject_pubkey = Some(pk);
+        self
+    }
+
+    /// Decline to mint the companion grant voucher (RFC-AITP-0005
+    /// §8.2: issuer policy MAY forbid the subject from delegating; the
+    /// commit payload then carries only the TCT).
+    pub fn without_voucher(mut self) -> Self {
+        self.mint_voucher = false;
         self
     }
 
@@ -93,8 +103,8 @@ impl<'a> TctBuilder<'a> {
         self
     }
 
-    /// Construct, sign, and return the TCT.
-    pub fn build(self) -> Result<Tct, TctError> {
+    /// Construct, sign, and return the TCT (and companion voucher).
+    pub fn build(self) -> Result<IssuedTct, TctError> {
         let subject = self.subject.ok_or(TctError::MissingField("subject"))?;
         let audience = self.audience.ok_or(TctError::MissingField("audience"))?;
         let subject_pk = self
@@ -104,77 +114,66 @@ impl<'a> TctBuilder<'a> {
             return Err(TctError::EmptyGrants);
         }
         // RFC-AITP-0005 §4.2: "Grants MUST NOT contain whitespace."
-        // Catch caller-supplied bad input here rather than letting a
-        // malformed grant flow into the signed body.
         for g in &self.grants {
             if g.chars().any(char::is_whitespace) {
                 return Err(TctError::GrantWhitespace(g.clone()));
             }
         }
         if subject != audience {
-            // v0.1 invariant: audience must equal subject.
+            // v0.2 invariant: audience must equal subject.
             return Err(TctError::AudienceMismatch);
         }
+        // §3: cnf.jkt MUST be the thumbprint of the key the subject AID
+        // encodes — refuse to mint a TCT that binds a different key.
+        if subject_pk.to_compressed() != subject.pubkey_compressed_bytes() {
+            return Err(TctError::CnfMalformed);
+        }
 
-        // Algorithm-agile cnf: Ed25519 raw (32 B → 43 b64u chars) for
-        // Ed25519 subjects, SEC1-compressed (33 B → 44 b64u chars) for
-        // P-256 subjects. Matches `Aid::pubkey_compressed_bytes`.
-        let cnf = base64url::encode(&subject_pk.to_compressed());
-        debug_assert!(matches!(cnf.len(), 43 | 44));
-
+        let jkt = subject_pk.to_jwk_thumbprint().map_err(TctError::Crypto)?;
         let jti = self.jti_override.unwrap_or_else(Uuid::new_v4);
         let issued_at = self.now_override.unwrap_or_else(Timestamp::now);
         let expires_at = issued_at.plus_secs(self.ttl_secs);
         let issuer = self.issuer_key.aid().clone();
 
-        let binding = TctBinding { cnf };
-        let view = TctSigningView {
-            version: "aitp/0.1",
-            jti: &jti,
-            issuer: &issuer,
-            subject: &subject,
-            audience: &audience,
-            issued_at: &issued_at,
-            expires_at: &expires_at,
-            grants: &self.grants,
-            binding: &binding,
-        };
-        let canonical = jcs::canonicalize_serializable(&view)
-            .map_err(|e| TctError::Canonicalization(e.to_string()))?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.issuer_key.sign(&digest);
-
-        Ok(Tct {
-            version: "aitp/0.1".into(),
+        let claims = TctClaims {
+            ver: PROTOCOL_VERSION.into(),
             jti,
-            issuer,
-            subject,
-            audience,
-            issued_at,
-            expires_at,
-            grants: self.grants,
-            binding,
-            signature: signature.into_string(),
+            iss: issuer.clone(),
+            sub: subject.clone(),
+            aud: audience,
+            iat: issued_at,
+            exp: expires_at,
+            grants: self.grants.clone(),
+            cnf: Cnf { jkt },
+            ext: None,
+        };
+        let token =
+            jws::sign_compact(self.issuer_key, jws::TYP_TCT, &claims).map_err(TctError::Crypto)?;
+
+        // §8.2: voucher claims mirror the companion TCT exactly.
+        let voucher = if self.mint_voucher {
+            let voucher_claims = GrantVoucherClaims {
+                ver: PROTOCOL_VERSION.into(),
+                iss: issuer,
+                sub: subject,
+                grants: self.grants,
+                iat: issued_at,
+                exp: expires_at,
+                src_jti: jti,
+                ext: None,
+            };
+            Some(
+                jws::sign_compact(self.issuer_key, jws::TYP_GRANT_VOUCHER, &voucher_claims)
+                    .map_err(TctError::Crypto)?,
+            )
+        } else {
+            None
+        };
+
+        Ok(IssuedTct {
+            token,
+            claims,
+            voucher,
         })
     }
-}
-
-/// Serialization view for TCT signing — every field of [`Tct`] except
-/// `signature`.
-///
-/// Field names mirror the schema; JCS produces deterministic bytes
-/// regardless of struct field order, but the names and skip rules must
-/// match exactly. There are no skip-when-empty rules on a TCT in v0.1
-/// (every field is required).
-#[derive(Serialize)]
-pub(crate) struct TctSigningView<'a> {
-    pub version: &'a str,
-    pub jti: &'a Uuid,
-    pub issuer: &'a Aid,
-    pub subject: &'a Aid,
-    pub audience: &'a Aid,
-    pub issued_at: &'a Timestamp,
-    pub expires_at: &'a Timestamp,
-    pub grants: &'a [String],
-    pub binding: &'a TctBinding,
 }

@@ -1,7 +1,6 @@
 //! Wire types for Session Trust Bundle (RFC-AITP-0010 §3).
 
 use aitp_core::{Aid, Timestamp};
-use aitp_tct::Tct;
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,7 +11,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionTrustBundle {
-    /// MUST be `"aitp/0.1"` for this RFC.
+    /// MUST be `"aitp/0.2"` for this RFC.
     pub version: String,
     /// UUID v4 unique to this session. Used as a replay-binding scope.
     pub session_id: Uuid,
@@ -36,10 +35,12 @@ pub struct SessionTrustBundle {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ParticipantEntry {
-    /// Participant's AID. MUST equal the embedded TCT's `audience`.
+    /// Participant's AID. MUST equal the embedded TCT's `aud` claim.
     pub aid: Aid,
-    /// Coordinator → participant TCT, audience = participant's AID.
-    pub tct: Tct,
+    /// Coordinator → participant TCT as an **opaque compact JWS
+    /// string** (`typ: aitp-tct+jwt`, RFC-AITP-0001 §5.4.5), carried
+    /// verbatim — the outer bundle signature covers it byte-for-byte.
+    pub tct: String,
 }
 
 /// HTTP/transport-wrapped form (the `{"session_bundle": {...}}` shape
@@ -59,7 +60,7 @@ mod tests {
     #[test]
     fn rejects_unknown_top_field() {
         let v = json!({
-            "version": "aitp/0.1",
+            "version": "aitp/0.2",
             "session_id": "00000000-0000-4000-8000-000000000000",
             "coordinator": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "issued_at": 1_700_000_000,

@@ -1,0 +1,78 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://aitp.dev/schema/v0.2/grant-voucher.json",
+  "title": "GrantVoucherClaims",
+  "description": "AITP v0.2 grant voucher — decoded JWS payload claims (RFC-AITP-0005 §8). On the wire a voucher is an opaque compact JWS string (typ 'aitp-grant+jwt'), minted by the TCT issuer at TCT issuance time and delivered alongside the TCT in MUTUAL_COMMIT / MUTUAL_COMMIT_ACK. It is the delegation authority source (RFC-AITP-0006); it replaces the v0.1 grant_proof. iss/sub/grants/iat/exp MUST equal the companion TCT's values and src_jti MUST equal its jti.",
+  "type": "object",
+  "required": [
+    "ver",
+    "iss",
+    "sub",
+    "grants",
+    "iat",
+    "exp",
+    "src_jti"
+  ],
+  "properties": {
+    "ver": {
+      "type": "string",
+      "const": "aitp/0.2",
+      "description": "Protocol version private claim. MUST be 'aitp/0.2'."
+    },
+    "iss": {
+      "type": "string",
+      "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
+      "description": "AID of the TCT issuer. The voucher is signed by this key, and only this peer verifies it (during delegation verification, against its own key)."
+    },
+    "sub": {
+      "type": "string",
+      "pattern": "^aid:pubkey:([A-Za-z0-9_-]{43}|ed25519:[A-Za-z0-9_-]{43}|p256:[A-Za-z0-9_-]{44})$",
+      "description": "AID of the TCT subject — the peer entitled to delegate against this voucher. MUST equal the outer delegation token's iss when embedded (RFC-AITP-0006 §4 step 4)."
+    },
+    "grants": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[^\\s]+$"
+      },
+      "minItems": 1,
+      "uniqueItems": true,
+      "description": "MUST equal the companion TCT's grants. Delegated scope is checked as a subset of this list."
+    },
+    "iat": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Unix seconds. MUST equal the companion TCT's iat."
+    },
+    "exp": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Unix seconds. MUST equal the companion TCT's exp. Delegations derived from this voucher MUST NOT outlive it."
+    },
+    "src_jti": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+      "description": "The companion TCT's jti. Revocation linkage: revoking the TCT invalidates this voucher and every delegation derived from it (RFC-AITP-0008)."
+    },
+    "ext": {
+      "type": "object",
+      "description": "Optional extension namespace per RFC-AITP-0001 §5.4.5 and RFC-AITP-0012. Unknown keys inside ext MUST be ignored; unknown claims outside it are rejected by this schema."
+    }
+  },
+  "additionalProperties": false,
+  "examples": [
+    {
+      "ver": "aitp/0.2",
+      "iss": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
+      "sub": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
+      "grants": [
+        "macp.mode.task.v1",
+        "read_data"
+      ],
+      "iat": 1711900000,
+      "exp": 1711903600,
+      "src_jti": "550e8400-e29b-41d4-a716-446655440000"
+    }
+  ]
+}

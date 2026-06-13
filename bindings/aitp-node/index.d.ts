@@ -85,36 +85,41 @@ export interface JsBundleOutcome {
  */
 export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, nowUnixSecs?: number | undefined | null, revocationCheck?: (...args: any[]) => any | undefined | null): JsBundleOutcome
 /**
- * The verified delegation token's salient fields. Returned from
+ * The verified delegation's salient fields. Returned from
  * `verifyDelegation` and consumed by `AitpAgent.issueTctForDelegatee`.
  */
 export interface JsDelegationVerified {
   /**
-   * AID of the ultimate grantor (the original TCT issuer that gave grants
-   * to `issuedBy`). The responder side checks this matches its own AID
-   * before redeeming.
+   * AID of the ultimate grantor (the original TCT issuer that gave
+   * grants to `issuedBy`). Equal to the delegation's `aud` and to the
+   * embedded voucher's `iss`. The responder side checks this matches
+   * its own AID before redeeming.
    */
   delegator: string
-  /** AID of the recipient (C) — who will receive a fresh TCT. */
+  /** AID of the recipient (C) — who will receive a fresh TCT (`sub`). */
   delegatee: string
-  /** AID of the agent that issued this delegation (B in the RFC). */
+  /** AID of the agent that issued this delegation (B in the RFC) (`iss`). */
   issuedBy: string
-  /** Capabilities being delegated. Always a subset of the source TCT's grants. */
+  /**
+   * Capabilities being delegated (`scope`). Always a subset of the
+   * root voucher's grants.
+   */
   grants: Array<string>
-  /** Unix-seconds expiry of the delegation token itself. */
+  /** Unix-seconds expiry of the delegation token itself (`exp`). */
   expiresAt: number
   /**
-   * Delegatee's raw Ed25519 / P-256 public key, base64url-encoded. This is
-   * the `cnf` binding — proves which key the issuer should bind to the
-   * fresh TCT it mints.
+   * RFC 7638 JWK thumbprint of the delegatee's key (`cnf.jkt`). In
+   * v0.2 this is derived from — and must match — the key encoded in
+   * `delegatee`'s AID; the fresh TCT's key binding is taken from the
+   * AID, not from this field.
    */
-  cnf: string
+  cnfJkt: string
 }
 /**
- * Verify a `DelegationEnvelope` JSON under **strict AITP v0.1**
+ * Verify a delegation compact JWS under **strict AITP v0.2**
  * (RFC-AITP-0006 single-hop). `verifierAid` is the verifier's own AID
- * string — verification fails if it doesn't match the token's `delegator`
- * field.
+ * string — it MUST equal the delegation's `aud` (the root grantor), and
+ * the embedded voucher MUST verify under the verifier's own key.
  *
  * Any token carrying a non-empty `chain` (a draft RFC-AITP-0011 multi-hop
  * delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
@@ -122,20 +127,21 @@ export interface JsDelegationVerified {
  * the `experimental-multihop-delegation` feature and call
  * `verifyDelegationExperimentalMultihop`.
  */
-export declare function verifyDelegation(envelopeJson: string, verifierAid: string): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string): JsDelegationVerified
 /**
- * Verify a `DelegationEnvelope` JSON allowing **draft RFC-AITP-0011
+ * Verify a delegation compact JWS allowing **draft RFC-AITP-0011
  * multi-hop** chains up to `maxHops` total hops (`chain.length + 1`).
  *
- * This opts into behavior that is **not** part of AITP v0.1. It is only
- * compiled in under the `experimental-multihop-delegation` feature; a
- * default build exposes only the strict `verifyDelegation`.
+ * This opts into behavior that is **not** part of the v0.2 strict
+ * default. It is only compiled in under the
+ * `experimental-multihop-delegation` feature; a default build exposes
+ * only the strict `verifyDelegation`.
  *
  * `maxHops` defaults to `DEFAULT_MAX_HOPS` (3, the RFC-AITP-0011 §2
  * recommended ceiling). Pass a smaller value for a tighter bound;
- * `maxHops = 0` reverts to strict v0.1 (rejects any non-empty chain).
+ * `maxHops = 0` reverts to strict single-hop (rejects any non-empty chain).
  */
-export declare function verifyDelegationExperimentalMultihop(envelopeJson: string, verifierAid: string, maxHops?: number | undefined | null): JsDelegationVerified
+export declare function verifyDelegationExperimentalMultihop(token: string, verifierAid: string, maxHops?: number | undefined | null): JsDelegationVerified
 /**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
@@ -160,20 +166,64 @@ export interface JsHelloAckResult {
   /** Correlation id — set as the `X-Aitp-Session-Id` response header. */
   sessionId: string
 }
-/** Result of `processCommit`: response body plus the held TCT. */
+/**
+ * The salient claims of a TCT obtained at handshake completion. Mirrors
+ * `aitp_tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
+ */
+export interface JsHandshakeTctClaims {
+  /** Issuer AID (`iss`) — the peer that minted and is bound by the TCT. */
+  iss: string
+  /** Subject AID (`sub`) — the holder the TCT authorizes. */
+  sub: string
+  /** Audience AID (`aud`). In v0.2 this equals `sub`. */
+  aud: string
+  /** Capability grants the TCT authorizes. */
+  grants: Array<string>
+  /** Issued-at, Unix seconds (`iat`). */
+  iat: number
+  /** Expiry, Unix seconds (`exp`). */
+  exp: number
+  /** TCT unique identifier (`jti`, UUID string). */
+  jti: string
+}
+/**
+ * A completed handshake: the TCT the peer issued to us (as an opaque
+ * compact-JWS token plus its decoded claims) and the optional companion
+ * grant voucher (`typ: aitp-grant+jwt`) used to mint delegations
+ * (RFC-AITP-0005 §8). `grantVoucher` is `null` when the issuing peer's
+ * policy forbids us from delegating.
+ */
+export interface JsCompletedHandshake {
+  /**
+   * The TCT as an opaque compact-JWS string. Pass verbatim to
+   * `verifyTct` / `verifyTctCached`.
+   */
+  tct: string
+  /** The decoded (already-verified) TCT claims. */
+  claims: JsHandshakeTctClaims
+  /**
+   * The companion grant voucher (compact JWS), or `null`. Pass to
+   * `buildDelegation` to delegate the held grants.
+   */
+  grantVoucher?: string
+}
+/**
+ * Result of `processCommit`: response body plus the completed handshake
+ * (held TCT token, its claims, and the optional grant voucher).
+ */
 export interface JsCommitAckResult {
   /** `MUTUAL_COMMIT_ACK` envelope JSON — set as the HTTP response body. */
   ackJson: string
-  /** `TctEnvelope` JSON the initiator issued to us. */
-  tctJson: string
+  /** The TCT (and voucher) the initiator issued to us. */
+  completed: JsCompletedHandshake
 }
 /** The verified peer identity carried by a TCT. */
 export interface JsTctIdentity {
-  /** AID of the agent that issued (and is bound by) the TCT. */
+  /** AID of the agent that issued (and is bound by) the TCT (`iss`). */
   peerAid: string
   /** Capability grants the TCT authorizes. */
   grants: Array<string>
-  /** Expiry, Unix seconds. */
+  /** Expiry, Unix seconds (`exp`). */
   expiresAt: number
   /** TCT unique identifier (`jti`). */
   jti: string
@@ -235,30 +285,44 @@ export declare class AitpAgent {
    */
   newResponder(jwks?: JwksProvider | undefined | null, opts?: SessionOpts | undefined | null): JsResponderSession
   /**
-   * Verify a TCT JSON string and require `requiredGrant`. Rejects on
-   * an invalid, mis-audienced, expired, or under-scoped TCT.
+   * Verify a compact-JWS TCT token and require `requiredGrant`.
+   * Rejects on an invalid, mis-audienced, expired, revoked, or
+   * under-scoped TCT.
    *
    * `expectedAudience` defaults to `null`, which means "verify as the
    * holder" (RFC-AITP-0005 §9 receipt model — `this.aid` is used).
    * Resource servers verifying a TCT presented by a peer should pass
-   * the TCT's own `audience` field as `expectedAudience` (in v0.1 this
-   * equals `subject`).
+   * the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
+   * equals `sub`).
+   *
+   * `revokedJtis` (F-1) is an optional list of revoked TCT `jti`
+   * strings; any TCT whose `jti` is in the list is rejected even if
+   * otherwise valid. Omit (or pass `null`) to disable the revocation
+   * gate. The caller is responsible for sourcing the revoked set (e.g.
+   * from a `RevocationList` it fetched and verified).
    */
-  verifyTct(tctJson: string, requiredGrant: string, expectedAudience?: string | undefined | null): JsTctIdentity
+  verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
   /**
    * Like `verifyTct`, but consults a `TctStore` first: a byte-identical,
    * already-verified, still-valid TCT skips the signature check (the
    * verification hot path for an agent that sees the same TCT on many
-   * requests). All cheap policy checks (expiry, audience, required grant)
-   * still run on every call; only the signature check is elided.
+   * requests). All cheap policy checks (expiry, audience, required grant,
+   * and the optional `revokedJtis` gate) still run on every call; only the
+   * signature check is elided.
    */
-  verifyTctCached(tctJson: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null): JsTctIdentity
-  /** Build a `DelegationEnvelope` JSON from a held TCT (RFC-AITP-0006). */
-  buildDelegation(heldTctEnvelopeJson: string, delegateeAid: string, delegateePubkeyB64U: string, scope: Array<string>, ttlSecs?: number | undefined | null): string
+  verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
   /**
-   * Mint a fresh `TctEnvelope` JSON for a delegatee after the verifier has
-   * confirmed the delegation. The subject_pubkey binding is taken from the
-   * verified token's `cnf` field.
+   * Build a delegation compact-JWS token from a held **grant voucher**
+   * (RFC-AITP-0006). `voucherToken` is the `grantVoucher` surfaced by
+   * `complete()` / `processCommit()`. The delegatee's key binding is
+   * derived from `delegateeAid` itself, so no separate public-key
+   * argument is needed in v0.2.
+   */
+  buildDelegation(voucherToken: string, delegateeAid: string, scope: Array<string>, ttlSecs?: number | undefined | null): string
+  /**
+   * Mint a fresh compact-JWS TCT for a delegatee after the verifier has
+   * confirmed the delegation. The subject-key binding is derived from
+   * the verified delegation's `delegatee` AID.
    */
   issueTctForDelegatee(verified: JsDelegationVerified, ttlSecs?: number | undefined | null): string
   /**
@@ -269,16 +333,17 @@ export declare class AitpAgent {
   signRevocationList(entries: Array<RevocationEntryInput>, expiresInSecs?: number | undefined | null): string
   /**
    * Holder side: build a `TctRenewalPayload` JSON for an in-band
-   * renewal of `currentTctEnvelopeJson` (RFC-AITP-0005 §10).
+   * renewal of `currentTctToken` — the holder's current TCT as a
+   * compact-JWS string (RFC-AITP-0005 §10).
    *
    * **Gated by the `experimental-renewal` Cargo feature.** Off in
    * the default `.node` artifact; build with
    * `napi build --release -- --features experimental-renewal`.
    */
-  buildRenewalRequest(currentTctEnvelopeJson: string): string
+  buildRenewalRequest(currentTctToken: string): string
   /**
    * Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-   * fresh `TctEnvelope` JSON.
+   * fresh TCT, returned as a compact-JWS token string.
    *
    * **Gated by the `experimental-renewal` Cargo feature.**
    */
@@ -301,8 +366,12 @@ export declare class SessionBundleBuilder {
   sessionId(uuidStr: string): this
   /** Override `issued_at` (unix seconds). Defaults to "now" at build. */
   issuedAt(unixSecs: number): this
-  /** Add a participant entry. `tctEnvelopeJson` is a TctEnvelope JSON. */
-  participant(aid: string, tctEnvelopeJson: string): this
+  /**
+   * Add a participant entry. `tctToken` is the participant's TCT as an
+   * opaque compact-JWS string (the `tct` field returned by `complete()`
+   * / `processCommit()`), carried into the bundle verbatim.
+   */
+  participant(aid: string, tctToken: string): this
   /** Construct, sign, and return the `SessionBundleEnvelope` JSON. */
   build(): string
 }
@@ -358,10 +427,11 @@ export declare class JsInitiatorSession {
   /** Step 2 — process `MUTUAL_HELLO_ACK`, produce `MUTUAL_COMMIT`. */
   processHelloAck(helloAckJson: string, sessionId: string): string
   /**
-   * Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the `TctEnvelope`
-   * JSON the peer issued to us.
+   * Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the completed
+   * handshake: the TCT the peer issued to us (opaque compact-JWS
+   * token plus its decoded claims) and the optional grant voucher.
    */
-  complete(commitAckJson: string): string
+  complete(commitAckJson: string): JsCompletedHandshake
 }
 /** Inbound handshake session — drives the responder side. */
 export declare class JsResponderSession {
@@ -377,14 +447,14 @@ export declare class JsResponderSession {
 export type JsTctStore = TctStore
 /**
  * A bounded, in-memory cache of **successful** TCT verifications, keyed by
- * the SHA-256 of the exact TCT envelope JSON bytes.
+ * the SHA-256 of the exact compact-JWS TCT token bytes.
  *
  * Purpose: a high-throughput verifier (e.g. a writer agent checking a
  * capability on every request) that repeatedly sees the *same* TCT can skip
  * the Ed25519/P-256 signature verification after the first time.
  *
  * **Safety.** The key is a cryptographic hash of the exact signed bytes, so
- * only a byte-identical envelope — whose signature was already verified once
+ * only a byte-identical token — whose signature was already verified once
  * — can hit. A tampered token hashes differently, misses, and is fully
  * verified. The cheap policy checks (expiry, audience, required grant) are
  * re-run on **every** hit; only the signature check is elided. Eviction is

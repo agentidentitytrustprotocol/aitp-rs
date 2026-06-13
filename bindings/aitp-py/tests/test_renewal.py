@@ -5,12 +5,20 @@ the dev wheel with `maturin develop --features experimental-renewal`.
 The test exits gracefully if the binding doesn't have the methods.
 """
 
+import base64
 import json
 import time
 
 import pytest
 
 import aitp
+
+
+def _jws_claims(tct_token):
+    """Decode a TCT compact-JWS payload into its claims dict."""
+    payload_seg = tct_token.split(".")[1]
+    raw = base64.urlsafe_b64decode(payload_seg + "=" * (-len(payload_seg) % 4))
+    return json.loads(raw)
 
 ed = aitp.AitpAgent
 HAS_RENEWAL = hasattr(ed.generate(), "build_renewal_request")
@@ -49,24 +57,26 @@ def _issued_pair():
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
     commit_ack, _ = rsess.process_commit(commit)
-    b_held = sess.complete(commit_ack)
+    b_held = json.loads(sess.complete(commit_ack))["tct"]
     return a, b, b_held
 
 
 def test_renewal_round_trip():
     a, b, b_held = _issued_pair()
-    # B asks A to renew.
+    # B asks A to renew (b_held is the held TCT compact JWS).
     renewal_req = b.build_renewal_request(b_held)
     # A processes the renewal — manifest expiry comfortably in the future.
     now = int(time.time())
-    fresh = a.process_renewal_request(
-        renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
+    fresh = json.loads(
+        a.process_renewal_request(
+            renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
+        )
     )
-    old = json.loads(b_held)
-    new = json.loads(fresh)
-    assert new["tct"]["jti"] != old["tct"]["jti"]
-    assert new["tct"]["subject"] == old["tct"]["subject"]
-    assert new["tct"]["grants"] == old["tct"]["grants"]
+    old = _jws_claims(b_held)
+    new = _jws_claims(fresh["tct"])
+    assert new["jti"] != old["jti"]
+    assert new["sub"] == old["sub"]
+    assert new["grants"] == old["grants"]
 
 
 def test_renewal_with_wrong_holder_key_rejected():

@@ -4,8 +4,8 @@ Gated by the `experimental-bundle` feature. Build with
 `maturin develop --features experimental`.
 """
 
+import base64
 import json
-import time
 
 import pytest
 
@@ -17,16 +17,23 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+def _jws_jti(tct_token):
+    """Decode a TCT compact-JWS payload and return its `jti` claim."""
+    payload_seg = tct_token.split(".")[1]
+    raw = base64.urlsafe_b64decode(payload_seg + "=" * (-len(payload_seg) % 4))
+    return json.loads(raw)["jti"]
+
+
 def _handshake_to_coordinator(participant, coordinator, coord_manifest_json):
     """Run a four-message handshake with `coordinator` as the responder.
-    Returns the coordinator-issued TCT for the participant."""
+    Returns the coordinator-issued TCT (compact JWS) for the participant."""
     sess = participant.new_session()
     rsess = coordinator.new_responder()
     hello = sess.build_hello(coord_manifest_json, ["session.member"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
     commit_ack, _ = rsess.process_commit(commit)
-    return sess.complete(commit_ack)
+    return json.loads(sess.complete(commit_ack))["tct"]
 
 
 def test_session_bundle_round_trip():
@@ -107,7 +114,7 @@ def test_session_bundle_revocation_drops_participant():
         .build()
     )
 
-    revoked_jti = json.loads(bob_tct)["tct"]["jti"]
+    revoked_jti = _jws_jti(bob_tct)
     outcome = aitp.verify_session_bundle(
         envelope,
         alice.aid,

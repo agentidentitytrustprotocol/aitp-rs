@@ -189,9 +189,9 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
         .expect("commit succeeds");
 
     // The captured identity must mirror what Alice presented in HELLO.
-    let captured = TEST_CAPTURE.with(|c| c.borrow().clone()).expect(
-        "responder grant_policy was never invoked — issue_tct_for_peer didn't apply the policy",
-    );
+    let captured = TEST_CAPTURE
+        .with(|c| c.borrow().clone())
+        .expect("responder grant_policy was never invoked — issue_tct didn't apply the policy");
     assert_eq!(
         captured.kind,
         IdentityKind::PinnedKey,

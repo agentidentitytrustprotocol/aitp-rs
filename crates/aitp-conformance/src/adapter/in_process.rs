@@ -247,14 +247,18 @@ mod tests {
                 ..
             } => panic!("issue_tct failed: {error_code} {message}"),
         };
-        assert!(tct["tct_envelope"]["tct"].is_object());
+        assert!(
+            tct["tct_token"].is_string(),
+            "v0.2 issue_tct returns a compact JWS string"
+        );
+        assert!(tct["tct_claims"].is_object());
 
         // 4. Verify the TCT round-trips through the same adapter.
         let verify = match a
             .execute(
                 "verify_tct",
                 json!({
-                    "tct": tct["tct_envelope"]["tct"].clone(),
+                    "tct_token": tct["tct_token"].clone(),
                     "expected_audience": issuer_aid,
                 }),
             )

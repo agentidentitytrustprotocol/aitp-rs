@@ -18,11 +18,10 @@ use aitp_core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
-    Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder,
+    CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder,
 };
 use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
-use aitp_tct::TctEnvelope;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
@@ -226,8 +225,10 @@ impl PyInitiatorSession {
         serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
-    /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the `TctEnvelope`
-    /// JSON: the TCT the peer issued to us.
+    /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns a JSON object
+    /// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`:
+    /// the TCT the peer issued to us, plus the companion grant voucher
+    /// (when issued — the voucher is what lets us later mint delegations).
     fn complete(&mut self, commit_ack_json: &str) -> PyResult<String> {
         let envelope: AitpEnvelope = serde_json::from_str(commit_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
@@ -241,16 +242,25 @@ impl PyInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
         );
-        let tct = self
+        let completed = self
             .inner
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello_ack() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
 
-        serde_json::to_string(&TctEnvelope { tct })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))
+        completed_handshake_json(&completed)
     }
+}
+
+/// Serialize a [`CompletedHandshake`] to the binding's wire shape:
+/// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
+fn completed_handshake_json(completed: &CompletedHandshake) -> PyResult<String> {
+    let out = serde_json::json!({
+        "tct": completed.tct.token,
+        "grant_voucher": completed.grant_voucher,
+    });
+    serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
 // ── Responder ───────────────────────────────────────────────────────────
@@ -355,7 +365,7 @@ impl PyResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
         );
-        let (ack, held_tct) = self
+        let (ack, completed) = self
             .inner
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello() first"))?
@@ -368,8 +378,7 @@ impl PyResponderSession {
             .map_err(PyRuntimeError::new_err)?;
         let ack_json =
             serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        let tct_json = serde_json::to_string(&TctEnvelope { tct: held_tct })
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
-        Ok((ack_json, tct_json))
+        let completed_json = completed_handshake_json(&completed)?;
+        Ok((ack_json, completed_json))
     }
 }
