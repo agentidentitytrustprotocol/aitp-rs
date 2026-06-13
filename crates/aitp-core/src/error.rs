@@ -254,6 +254,11 @@ mod tests {
                 "DELEGATION_CHAIN_HASH_MISMATCH",
             ),
             (ErrorCode::ManifestNotFound, "MANIFEST_NOT_FOUND"),
+            (ErrorCode::TrustFailed, "TRUST_FAILED"),
+            (
+                ErrorCode::HandshakeModeUnsupported,
+                "HANDSHAKE_MODE_UNSUPPORTED",
+            ),
             (ErrorCode::TctSignatureInvalid, "TCT_SIGNATURE_INVALID"),
             (ErrorCode::TctRevoked, "TCT_REVOKED"),
             (

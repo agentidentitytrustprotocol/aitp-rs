@@ -1,21 +1,32 @@
 //! Shared helpers for the two-agent demo.
+//!
+//! The demo drives the Mutual Handshake through the high-level
+//! [`aitp::facade`] / [`aitp::transport`] APIs, so this module is small:
+//! a Manifest builder, a seed expander, and the request-time TCT check
+//! the `/echo` capability uses. There is no hand-rolled envelope signing
+//! here — the facade ([`aitp::facade::run_initiator_handshake`]) and the
+//! server ([`aitp::transport::HandshakeServer`]) own that.
 
-use aitp::core::{Aid, AitpEnvelope, MessageType, Sender, Timestamp};
-use aitp::crypto::AitpSigningKey;
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::Tct;
-use uuid::Uuid;
 
 /// Build a pinned-key Manifest for an agent listening on `port`.
+///
+/// The `handshake_endpoint` deliberately ends in a trailing slash:
+/// [`aitp::facade::run_initiator_handshake`] resolves the per-message
+/// routes with `endpoint.join("hello")` / `join("commit")`, which only
+/// appends (rather than replacing the last path segment) when the base
+/// ends in `/`.
 pub fn build_demo_manifest(
     key: &AitpSigningKey,
     display_name: &str,
     port: u16,
     offered: &[&str],
-    required: &[&str],
 ) -> Manifest {
     let pubkey_b64 = aitp::core::base64url::encode(&key.verifying_key().to_bytes());
-    let endpoint = format!("http://localhost:{}/aitp/handshake", port);
+    let endpoint = format!("http://localhost:{port}/aitp/handshake/");
     let mut builder = ManifestBuilder::new(key)
         .display_name(display_name)
         .handshake_endpoint(endpoint.parse().unwrap())
@@ -25,78 +36,54 @@ pub fn build_demo_manifest(
             issuer: None,
             public_key: Some(pubkey_b64),
         })
-        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .ttl_secs(3600);
     for cap in offered {
         builder = builder.offer(*cap);
     }
-    for cap in required {
-        builder = builder.require(*cap);
-    }
     builder.build().expect("demo manifest builds")
 }
 
-/// Sign and wrap a payload as an envelope using a caller-provided
-/// `message_id` and `timestamp`.
+/// Verify a TCT presented to the `/echo` capability.
 ///
-/// Pinned-key identity proofs inside `payload.identity` are signed over
-/// the envelope's `message_id` and `timestamp`. Callers MUST therefore
-/// use the SAME `message_id` and `timestamp` here that they passed to
-/// `Initiator::start` / `Responder::on_hello` to construct the identity
-/// proof. Otherwise the receiving peer reads `envelope.message_id` /
-/// `envelope.timestamp` (different values) and verification fails.
-pub fn sign_envelope_with(
-    key: &AitpSigningKey,
-    message_type: MessageType,
-    payload: serde_json::Value,
-    message_id: Uuid,
-    timestamp: Timestamp,
-) -> AitpEnvelope {
-    let digest = aitp::core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
-        .expect("jcs canonicalises payload");
-    let signature = key.sign(&digest).into_string();
-    AitpEnvelope {
-        version: "aitp/0.1".into(),
-        message_type,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload,
-        signature,
-    }
-}
-
-/// Convenience: build and sign an envelope with a fresh `message_id` /
-/// `timestamp`. **Do not use** for envelopes that carry a pinned-key
-/// identity proof in the payload — use [`sign_envelope_with`] and pass
-/// the same `(message_id, timestamp)` that built the proof.
-pub fn sign_envelope(
-    key: &AitpSigningKey,
-    message_type: MessageType,
-    payload: serde_json::Value,
-) -> AitpEnvelope {
-    sign_envelope_with(key, message_type, payload, Uuid::new_v4(), Timestamp::now())
-}
-
-/// Verify a TCT presented by a peer to authorize a capability.
-pub fn verify_presented_tct(
-    tct: &Tct,
-    issuer_aid: &Aid,
-    expected_audience: &Aid,
-) -> Result<(), String> {
+/// The TCT was issued by this server during the handshake, so:
+/// - its issuer MUST be `server_aid` (we issued it),
+/// - it MUST still verify against the issuer key and be unexpired,
+/// - it MUST carry the `demo.echo` grant.
+///
+/// On success returns the caller's AID (the TCT subject) for the echo
+/// reply.
+pub fn verify_echo_tct(tct: &Tct, server_aid: &Aid) -> Result<Aid, String> {
     use aitp::tct::{verify_tct, TctVerifyContext};
-    let issuer_pk = aitp::crypto::AitpVerifyingKey::from_aid(issuer_aid)
-        .map_err(|e| format!("bad issuer aid: {e}"))?;
+
+    if &tct.issuer != server_aid {
+        return Err("TCT not issued by this server".into());
+    }
+    let issuer_pk =
+        AitpVerifyingKey::from_aid(&tct.issuer).map_err(|e| format!("bad issuer aid: {e}"))?;
     let ctx = TctVerifyContext {
-        expected_audience,
+        // Holder receipt: subject == audience == caller.
+        expected_audience: &tct.subject,
         issuer_pubkey: &issuer_pk,
         now: Timestamp::now(),
         issuer_manifest_expires_at: None,
         revocation_check: None,
     };
-    verify_tct(tct, &ctx).map_err(|e| format!("{e}"))?;
-    Ok(())
+    verify_tct(tct, &ctx).map_err(|e| e.to_string())?;
+    if !tct.grants.iter().any(|g| g == "demo.echo") {
+        return Err("demo.echo not granted".into());
+    }
+    Ok(tct.subject.clone())
+}
+
+/// Expand a short CLI seed string into a deterministic 32-byte key seed.
+/// Demo-only: real deployments load a key from a KMS / file, never from
+/// a repeating ASCII pattern.
+pub fn expand_seed(s: &str) -> [u8; 32] {
+    let bytes = s.as_bytes();
+    let mut out = [0u8; 32];
+    for (i, b) in out.iter_mut().enumerate() {
+        *b = bytes[i % bytes.len()];
+    }
+    out
 }

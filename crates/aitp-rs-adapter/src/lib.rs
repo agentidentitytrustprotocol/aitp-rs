@@ -2752,3 +2752,111 @@ mod p256_readiness_tests {
         assert_eq!(out["error_code"], json!("INVALID_SIGNATURE"));
     }
 }
+
+#[cfg(test)]
+mod error_code_mapping_tests {
+    //! The `*_error_code` helpers translate library errors into the
+    //! conformance wire codes the runner asserts on. A misroute silently
+    //! reports the wrong code on every negative fixture, so the
+    //! non-obvious mappings (and the nested handshake→tct/manifest
+    //! dispatch) are pinned here.
+    use super::{delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code};
+    use aitp_delegation::DelegationError;
+    use aitp_handshake::HandshakeError;
+    use aitp_manifest::ManifestError;
+    use aitp_tct::TctError;
+
+    #[test]
+    fn handshake_codes() {
+        assert_eq!(
+            handshake_error_code(&HandshakeError::NonceMismatch),
+            "NONCE_MISMATCH"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::PopVerificationFailed),
+            "POP_VERIFICATION_FAILED"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::InvalidSignature),
+            "INVALID_SIGNATURE"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::IncompatibleTrustAnchors),
+            "INCOMPATIBLE_TRUST_ANCHORS"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::PolicyViolation),
+            "POLICY_VIOLATION"
+        );
+        // Non-obvious: insufficient grants is reported as GRANT_OVERFLOW.
+        assert_eq!(
+            handshake_error_code(&HandshakeError::InsufficientGrants),
+            "GRANT_OVERFLOW"
+        );
+    }
+
+    #[test]
+    fn handshake_delegates_to_nested_mappers() {
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Tct(TctError::Expired)),
+            "TCT_EXPIRED"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::PopFailed)),
+            "MANIFEST_POP_FAILED"
+        );
+    }
+
+    #[test]
+    fn tct_codes() {
+        assert_eq!(tct_error_code(&TctError::VersionUnknown), "UNKNOWN_VERSION");
+        assert_eq!(tct_error_code(&TctError::Expired), "TCT_EXPIRED");
+        assert_eq!(tct_error_code(&TctError::Revoked), "TCT_REVOKED");
+        // cnf/grant shape problems collapse to INVALID_ENVELOPE.
+        assert_eq!(tct_error_code(&TctError::CnfMalformed), "INVALID_ENVELOPE");
+        // All four PoP failure modes share one wire code.
+        assert_eq!(tct_error_code(&TctError::PopFailed), "POP_RESPONSE_INVALID");
+        assert_eq!(
+            tct_error_code(&TctError::PopChallengeExpired),
+            "POP_RESPONSE_INVALID"
+        );
+    }
+
+    #[test]
+    fn delegation_codes() {
+        assert_eq!(
+            delegation_error_code(&DelegationError::ScopeExceeded),
+            "DELEGATION_SCOPE_EXCEEDED"
+        );
+        assert_eq!(
+            delegation_error_code(&DelegationError::AudienceMismatch),
+            "AUDIENCE_MISMATCH"
+        );
+        assert_eq!(
+            delegation_error_code(&DelegationError::MultihopNotSupported),
+            "DELEGATION_MULTIHOP_NOT_SUPPORTED"
+        );
+        // Non-obvious: self-delegation reuses the bad-outer-signature code.
+        assert_eq!(
+            delegation_error_code(&DelegationError::SelfDelegation),
+            "DELEGATION_INVALID_SIGNATURE"
+        );
+    }
+
+    #[test]
+    fn manifest_codes() {
+        assert_eq!(
+            manifest_error_code(&ManifestError::Expired),
+            "MANIFEST_EXPIRED"
+        );
+        assert_eq!(
+            manifest_error_code(&ManifestError::PopFailed),
+            "MANIFEST_POP_FAILED"
+        );
+        // Non-obvious: an AID/key mismatch is surfaced as a bad signature.
+        assert_eq!(
+            manifest_error_code(&ManifestError::AidMismatch),
+            "MANIFEST_SIGNATURE_INVALID"
+        );
+    }
+}

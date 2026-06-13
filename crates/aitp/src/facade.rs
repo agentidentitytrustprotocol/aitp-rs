@@ -382,7 +382,13 @@ pub async fn run_initiator_handshake(
         } => (*trust_anchors, *jwks_resolver, None),
         TrustMode::UnsafeNoTrustEnforcement => (empty_anchors, &no_op_resolver, None),
     };
-    let cfg = PeerConfig {
+    // Rebuilt before each state-machine step so `now` tracks the wall
+    // clock across the (multi-round-trip) handshake. A single snapshot
+    // taken at HELLO would, on a slow link or loaded host, lag behind the
+    // peer's clock by the time COMMIT_ACK arrives — the peer-issued TCT's
+    // `issued_at` then lands strictly after our stale `now` and the
+    // verifier rejects an otherwise-valid TCT as `Tct(Expired)`.
+    let make_cfg = || PeerConfig {
         signing_key: config.signing_key,
         manifest: config.own_manifest,
         trust_anchors,
@@ -392,6 +398,7 @@ pub async fn run_initiator_handshake(
         revocation_check: None,
         now: Timestamp::now(),
     };
+    let cfg = make_cfg();
 
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
@@ -446,6 +453,7 @@ pub async fn run_initiator_handshake(
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     let hello_ack: MutualHelloAckPayload =
         serde_json::from_value(hello_ack_envelope.payload.clone())?;
+    let cfg = make_cfg();
     let commit = initiator.on_hello_ack(&hello_ack_envelope, &hello_ack, &cfg)?;
 
     let commit_payload = serde_json::to_value(&commit)
@@ -475,6 +483,7 @@ pub async fn run_initiator_handshake(
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     let commit_ack: MutualCommitAckPayload =
         serde_json::from_value(commit_ack_envelope.payload.clone())?;
+    let cfg = make_cfg();
     let held_tct = initiator.on_commit_ack(&commit_ack_envelope, &commit_ack, &cfg)?;
 
     Ok(SessionContext {
