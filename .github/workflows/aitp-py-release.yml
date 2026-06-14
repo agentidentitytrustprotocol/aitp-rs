@@ -8,9 +8,9 @@ name: aitp-py-release
 # platform set) plus a source distribution; the publish job uploads them
 # all to PyPI in one shot.
 #
-# Built with the STABLE default feature set (the v0.1 surface). To ship
-# the experimental surface instead, add `experimental` to the maturin
-# `args` below (e.g. `--release --features experimental --out dist`).
+# Built with default features, which ship the full capability surface
+# (renewal, session bundles, SPKI pinning, multi-hop delegation). For a
+# minimal wheel, add `--no-default-features` to the maturin `args` below.
 #
 # Publishing uses PyPI Trusted Publishing (OIDC) — NO API token or secret.
 # One-time setup on PyPI (https://pypi.org/manage/account/publishing/):

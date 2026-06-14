@@ -1,6 +1,6 @@
 //! Session Trust Bundle (RFC-AITP-0010) — Python binding.
 //!
-//! Gated by the `experimental-bundle` Cargo feature.
+//! Gated by the `session-bundle` Cargo feature.
 
 use std::sync::Arc;
 

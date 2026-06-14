@@ -12,9 +12,9 @@ name: bindings-release
 # package (`@agentidentitytrustprotocol/aitp`) via `napi prepublish` and
 # `npm publish`.
 #
-# Built with the STABLE default feature set (the v0.1 surface). To ship
-# the experimental surface instead, add `--features experimental` to the
-# two `napi build` steps below.
+# Built with default features, which ship the full capability surface
+# (renewal, session bundles, SPKI pinning, multi-hop delegation). For a
+# minimal `.node`, add `--no-default-features` to the `napi build` steps.
 #
 # Requires repo secret `NPM_TOKEN`: an npm automation token with publish
 # rights to the `@agentidentitytrustprotocol` scope. The tag version must

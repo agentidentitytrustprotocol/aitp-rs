@@ -10,7 +10,7 @@ The Node SDK has a symmetric surface; see [`sdk-node.md`](sdk-node.md).
 
 ```bash
 maturin develop                       # default surface
-maturin develop --features experimental   # adds the draft/opt-in features
+maturin develop                       # full surface (all capabilities)
 ```
 
 ## Default surface
@@ -127,9 +127,12 @@ verifier on the other side accepts them. **Caveat:** the manifest's
 `pinned_key` identity_hint embeds an Ed25519 public key only, so P-256
 agents must use `identity_type="oidc"`.
 
-## Experimental surface (Cargo `--features experimental`)
+## Additional capabilities (on by default)
 
-### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `experimental-renewal`)
+These ship in the default wheel; a `--no-default-features` build can omit
+any of them via its named Cargo feature.
+
+### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `renewal`)
 
 ```python
 # current_tct is the holder's TCT compact JWS string.
@@ -138,7 +141,7 @@ result = issuer.process_renewal_request(req, manifest_exp_unix_secs, new_ttl_sec
 fresh_tct, fresh_voucher = result["tct"], result.get("grant_voucher")
 ```
 
-### Session Trust Bundle (RFC-AITP-0010, feature `experimental-bundle`)
+### Session Trust Bundle (RFC-AITP-0010, feature `session-bundle`)
 
 ```python
 envelope = (
@@ -151,7 +154,7 @@ outcome = aitp.verify_session_bundle(envelope, alice.aid)
 # {"kind": "clear" | "degraded", "active_aids": [...], "dropped_aids": [...]}
 ```
 
-### SPKI cert pinning (HPKP-style, feature `experimental-pinning`)
+### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 
 ```python
 pin = aitp.compute_spki_hash(cert_der_bytes)    # 32 bytes
@@ -166,7 +169,7 @@ verify callback). The SDK does no HTTP itself.
 ## Tests + interop
 
 ```bash
-maturin develop --features experimental
+maturin develop
 pytest -v                      # 27 binding tests
 cd ../interop && pytest -v     # 12 cross-language interop tests (1 deliberately skipped)
 ```

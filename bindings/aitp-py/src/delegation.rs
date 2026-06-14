@@ -1,5 +1,5 @@
 //! Delegation token binding — RFC-AITP-0006 (single-hop) / RFC-AITP-0011
-//! (multi-hop, experimental).
+//! (multi-hop).
 //!
 //! Wraps `aitp_delegation::DelegationBuilder` and `verify_delegation`. The
 //! Python side calls into this for the demo's "researcher → writer → sub-
@@ -15,10 +15,10 @@ use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_crypto::AitpVerifyingKey;
 use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
-// RFC-AITP-0011 multi-hop ceiling — only referenced by the experimental
+// RFC-AITP-0011 multi-hop ceiling — only referenced by the multi-hop
 // opt-in verifier, so the import is feature-gated to avoid an unused-import
 // warning in the default (strict v0.1) build.
-#[cfg(feature = "experimental-multihop-delegation")]
+#[cfg(feature = "multihop-delegation")]
 use aitp_delegation::DEFAULT_MAX_HOPS;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -61,8 +61,8 @@ pub struct PyDelegationVerified {
 ///
 /// Any token carrying a non-empty `chain` (a draft RFC-AITP-0011 multi-hop
 /// delegation) is **rejected**, matching the Rust core default. To opt into
-/// multi-hop, build the SDK with the `experimental-multihop-delegation`
-/// feature and call `verify_delegation_experimental_multihop`.
+/// multi-hop, build the SDK with the `multihop-delegation`
+/// feature and call `verify_delegation_multihop`.
 ///
 /// Returns the verified token's salient fields. Raises `PyValueError` for a
 /// malformed AID and `PyRuntimeError` for verification failure.
@@ -88,19 +88,19 @@ pub fn verify_delegation_py(
 /// RFC-AITP-0011 multi-hop** chains up to `max_hops` total hops.
 ///
 /// This opts into behavior that is **not** part of AITP v0.1. It is only
-/// compiled in under the `experimental-multihop-delegation` feature; a
+/// compiled in under the `multihop-delegation` feature; a
 /// default build exposes only the strict [`verify_delegation_py`].
 ///
 /// `max_hops` defaults to `DEFAULT_MAX_HOPS` (the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
 /// `max_hops = 0` reverts to strict v0.1 (rejects any non-empty chain).
-#[cfg(feature = "experimental-multihop-delegation")]
+#[cfg(feature = "multihop-delegation")]
 #[pyfunction]
 #[pyo3(
-    name = "verify_delegation_experimental_multihop",
+    name = "verify_delegation_multihop",
     signature = (delegation_token, verifier_aid, max_hops = DEFAULT_MAX_HOPS)
 )]
-pub fn verify_delegation_experimental_multihop_py(
+pub fn verify_delegation_multihop_py(
     delegation_token: &str,
     verifier_aid: &str,
     max_hops: usize,

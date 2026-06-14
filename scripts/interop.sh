@@ -20,15 +20,15 @@ command -v python3 >/dev/null || { echo "interop: python3 not found on PATH" >&2
 command -v node    >/dev/null || { echo "interop: node not found on PATH" >&2; exit 1; }
 command -v npm     >/dev/null || { echo "interop: npm not found on PATH" >&2; exit 1; }
 
-echo "interop: building the Python binding (maturin develop --features experimental)..."
+echo "interop: building the Python binding (maturin develop)..."
 VENV="$INTEROP/.venv"
 python3 -m venv "$VENV"
 # shellcheck disable=SC1091
 source "$VENV/bin/activate"
 # `pyjwt[crypto]` + `cryptography` are required by the OIDC interop
 # test (mock IdP signs Ed25519 JWTs in-process) AND by the stock-JOSE
-# acceptance check (pyjwt verifies the spec's signed-example KATs); the
-# experimental feature is needed for session-bundle interop.
+# acceptance check (pyjwt verifies the spec's signed-example KATs).
+# Default features (the full surface) cover session-bundle interop.
 pip install --quiet --upgrade pip maturin pytest 'pyjwt[crypto]>=2.8' 'cryptography>=41'
 
 # Install the Node deps first so the stock-JOSE acceptance check (which
@@ -51,10 +51,10 @@ node "$INTEROP/stock_jose_acceptance.mjs"
 echo "interop: stock-JOSE acceptance check (Python, third-party pyjwt)..."
 python3 "$INTEROP/stock_jose_acceptance.py"
 
-maturin develop --release --features experimental -m "$PY_DIR/Cargo.toml"
+maturin develop --release -m "$PY_DIR/Cargo.toml"
 
-echo "interop: building the Node binding (napi build:experimental)..."
-( cd "$NODE_DIR" && npm run build:experimental --silent )
+echo "interop: building the Node binding (napi build)..."
+( cd "$NODE_DIR" && npm run build --silent )
 
 echo "interop: running cross-language handshake + pyjwt acceptance tests..."
 exec pytest -v "$INTEROP"

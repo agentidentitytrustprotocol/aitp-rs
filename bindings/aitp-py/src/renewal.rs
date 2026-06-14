@@ -1,6 +1,6 @@
 //! TCT in-band renewal (RFC-AITP-0005 §10).
 //!
-//! Gated by the `experimental-renewal` Cargo feature: post-v0.1, no
+//! Gated by the `renewal` Cargo feature: post-v0.1, no
 //! wire-stability guarantee until the feature graduates.
 
 use aitp_core::{base64url, Timestamp};

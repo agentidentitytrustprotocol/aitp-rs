@@ -1,13 +1,14 @@
 # Multi-hop delegation (RFC-AITP-0011)
 
-> **Status: draft / opt-in.** The multi-hop verifier always compiles in
-> `aitp-delegation`, but is **gated at runtime**: `VerifyDelegationContext`
-> ships `max_hops = 0` (strict default), so any token carrying a `chain`
-> claim is rejected unless a caller explicitly raises the cap. The language bindings expose it
-> only under the `experimental-multihop-delegation` feature, via
-> `verify_delegation_experimental_multihop` /
-> `verifyDelegationExperimentalMultihop`. See [architecture](architecture.md) for why
-> draft behavior must never be reachable from a default build.
+> **Status: opt-in at the call site.** The multi-hop verifier always
+> compiles in `aitp-delegation` and is **gated at runtime**:
+> `VerifyDelegationContext` ships `max_hops = 0` (strict default), so any
+> token carrying a `chain` claim is rejected unless a caller explicitly
+> raises the cap. The language bindings expose it as
+> `verify_delegation_multihop` / `verifyDelegationMultihop` (present in the
+> default build); the strict single-hop `verify_delegation` remains the
+> safe default verifier. See [architecture](architecture.md) for why
+> multi-hop must never be reachable without an explicit call.
 
 ## Motivation
 
@@ -84,15 +85,17 @@ exists). `DEFAULT_MAX_HOPS = 3` is the RFC §2 recommended ceiling
 
 ## Known limitations
 
-- **Opt-in only.** A default build rejects every token carrying a `chain`
-  claim with `DELEGATION_MULTIHOP_NOT_SUPPORTED` (RFC-AITP-0006 §4), a
-  structural rejection before any per-hop work. The binding surface name
-  carries the warning (`…ExperimentalMultihop`).
+- **Opt-in at the call site.** The default verifier (`verify_delegation`)
+  rejects every token carrying a `chain` claim with
+  `DELEGATION_MULTIHOP_NOT_SUPPORTED` (RFC-AITP-0006 §4), a structural
+  rejection before any per-hop work. Multi-hop requires explicitly calling
+  `verify_delegation_multihop` — a separate function, so the choice is
+  always deliberate.
 - Single-hop verification ignores `max_hops` entirely — a strict (`max_hops=0`)
   verifier still accepts a normal RFC-0006 single-hop delegation (a token with
   no `chain` claim).
-- Draft: excluded from the v0.2 conformance gate; the `del-mh-*` fixtures pass
-  only under the opt-in feature.
+- Draft RFC: excluded from the v0.2 conformance gate; the `del-mh-*`
+  fixtures pass under the `multihop-delegation` conformance opt-in.
 
 ## SDK example
 
@@ -103,11 +106,11 @@ own AID) to the verify call.
 # Default (strict): any token carrying a `chain` claim is rejected.
 aitp.verify_delegation(delegation_jws, verifier_aid)   # → MULTIHOP_NOT_SUPPORTED
 
-# Opt-in (built with experimental-multihop-delegation):
-aitp.verify_delegation_experimental_multihop(delegation_jws, verifier_aid, 3)
+# Multi-hop (explicit opt-in at the call site):
+aitp.verify_delegation_multihop(delegation_jws, verifier_aid, 3)
 ```
 
 ```js
 verifyDelegation(delegationJws, verifierAid);                       // strict
-verifyDelegationExperimentalMultihop(delegationJws, verifierAid, 3); // opt-in
+verifyDelegationMultihop(delegationJws, verifierAid, 3); // multi-hop
 ```

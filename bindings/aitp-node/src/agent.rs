@@ -14,7 +14,7 @@ use crate::delegation::{
     build_delegation_token_json, issue_tct_for_delegatee_json, JsDelegationVerified,
 };
 use crate::oidc::JwksProvider;
-#[cfg(feature = "experimental-renewal")]
+#[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
 use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
 use crate::tct::{js_verify_tct, js_verify_tct_cached, JsTctIdentity, JsTctStore};
@@ -424,16 +424,15 @@ impl AitpAgent {
 // emits a `__napi__build_renewal_request` registration from the token
 // stream, but the method definition is `cfg`-stripped — a dangling
 // reference. Gating the whole impl block removes both together.
-#[cfg(feature = "experimental-renewal")]
+#[cfg(feature = "renewal")]
 #[napi]
 impl AitpAgent {
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
     /// renewal of `currentTctToken` — the holder's current TCT as a
     /// compact-JWS string (RFC-AITP-0005 §10).
     ///
-    /// **Gated by the `experimental-renewal` Cargo feature.** Off in
-    /// the default `.node` artifact; build with
-    /// `napi build --release -- --features experimental-renewal`.
+    /// Behind the `renewal` Cargo feature, which is **on by default**; a
+    /// `--no-default-features` build omits it.
     #[napi]
     pub fn build_renewal_request(&self, current_tct_token: String) -> Result<String> {
         build_renewal_request_js(&self.key, &current_tct_token)
@@ -442,7 +441,7 @@ impl AitpAgent {
     /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
     /// fresh TCT, returned as a compact-JWS token string.
     ///
-    /// **Gated by the `experimental-renewal` Cargo feature.**
+    /// Behind the `renewal` Cargo feature (on by default).
     #[napi]
     pub fn process_renewal_request(
         &self,
@@ -463,7 +462,7 @@ impl AitpAgent {
     /// Crate-internal accessor used by the session-bundle module, which
     /// needs to sign with the agent's long-term key. Gated to match its
     /// only caller so the default (feature-off) build stays warning-free.
-    #[cfg(feature = "experimental-bundle")]
+    #[cfg(feature = "session-bundle")]
     pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
         self.key.clone()
     }

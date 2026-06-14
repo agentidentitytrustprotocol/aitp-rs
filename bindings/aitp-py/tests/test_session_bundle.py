@@ -1,7 +1,7 @@
 """Session Trust Bundle (RFC-AITP-0010) — Python SDK.
 
-Gated by the `experimental-bundle` feature. Build with
-`maturin develop --features experimental`.
+Gated by the `session-bundle` feature. Build with
+`maturin develop`.
 """
 
 import base64
@@ -13,7 +13,7 @@ import aitp
 
 HAS_BUNDLE = hasattr(aitp, "SessionBundleBuilder")
 pytestmark = pytest.mark.skipif(
-    not HAS_BUNDLE, reason="binding built without --features experimental-bundle"
+    not HAS_BUNDLE, reason="binding built without --features session-bundle"
 )
 
 

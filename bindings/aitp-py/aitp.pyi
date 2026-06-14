@@ -165,11 +165,11 @@ class AitpAgent:
         entries: list[dict],
         expires_in_secs: Optional[int] = ...,
     ) -> str: ...
-    # ── experimental-renewal (Cargo feature) ────────────────────────────
+    # ── renewal (Cargo feature) ────────────────────────────
     def build_renewal_request(self, current_tct_token: str) -> str:
         """Holder side. `current_tct_token` is the held TCT compact JWS.
-        Gated by `experimental-renewal` Cargo feature — absent when the wheel
-        is built without it."""
+        Behind the `renewal` Cargo feature (on by default; absent only in a
+        `--no-default-features` wheel)."""
         ...
     def process_renewal_request(
         self,
@@ -179,7 +179,7 @@ class AitpAgent:
     ) -> str:
         """Issuer side. Returns a JSON object string
         `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
-        Gated by `experimental-renewal`."""
+        Behind the `renewal` feature (on by default)."""
         ...
 
 # ── Free functions ──────────────────────────────────────────────────────
@@ -187,22 +187,21 @@ class AitpAgent:
 def verify_delegation(
     delegation_token: str, verifier_aid: str
 ) -> DelegationVerified:
-    """Verify a delegation token (compact-JWS string) under strict AITP v0.1
-    (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain` (draft
-    RFC-AITP-0011 multi-hop) is rejected with
-    `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To opt into multi-hop, build with the
-    `experimental-multihop-delegation` feature and use
-    `verify_delegation_experimental_multihop`."""
+    """Verify a delegation token (compact-JWS string) under strict AITP v0.2
+    (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
+    (RFC-AITP-0011 multi-hop) is rejected with
+    `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use
+    `verify_delegation_multihop` instead."""
     ...
 
-def verify_delegation_experimental_multihop(
+def verify_delegation_multihop(
     delegation_token: str, verifier_aid: str, max_hops: int = 3
 ) -> DelegationVerified:
-    """Verify a delegation token (compact-JWS string) allowing draft
-    RFC-AITP-0011 multi-hop chains up to `max_hops` total hops. NOT part of
-    AITP v0.1; only present when built with the
-    `experimental-multihop-delegation` Cargo feature. `max_hops=0` reverts to
-    strict v0.1."""
+    """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
+    multi-hop chains up to `max_hops` total hops. Present by default (the
+    `multihop-delegation` Cargo feature); absent only in a
+    `--no-default-features` wheel. `max_hops=0` reverts to strict
+    single-hop."""
     ...
 def verify_manifest_json(manifest_envelope_json: str) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure."""
@@ -214,11 +213,11 @@ def compute_aid_jkt(aid: str) -> str:
     §2.2.1). Supports both Ed25519 and P-256 AIDs."""
     ...
 
-# ── experimental-bundle (Cargo feature) ─────────────────────────────────
+# ── session-bundle (Cargo feature) ─────────────────────────────────
 
 class SessionBundleBuilder:
-    """RFC-AITP-0010 Session Trust Bundle builder. Gated by the
-    `experimental-bundle` Cargo feature."""
+    """RFC-AITP-0010 Session Trust Bundle builder. Behind the
+    `session-bundle` Cargo feature (on by default)."""
 
     def __init__(self, coordinator: AitpAgent) -> None: ...
     def session_id(self, uuid_str: str) -> "SessionBundleBuilder": ...
@@ -237,18 +236,18 @@ def verify_session_bundle(
     revocation_check: Optional[Callable[[str], bool]] = ...,
 ) -> dict:
     """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
-    "dropped_aids": [...]}`. Gated by `experimental-bundle`."""
+    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default)."""
     ...
 
-# ── experimental-pinning (Cargo feature) ────────────────────────────────
+# ── spki-pinning (Cargo feature) ────────────────────────────────
 
 def compute_spki_hash(cert_der: bytes) -> bytes:
     """SHA-256 over the leaf cert's SubjectPublicKeyInfo. Returns 32 bytes.
-    Gated by `experimental-pinning`."""
+    Behind the `spki-pinning` feature (on by default)."""
     ...
 
 class SpkiPinVerifier:
-    """Holds a list of 32-byte SPKI pins. Gated by `experimental-pinning`."""
+    """Holds a list of 32-byte SPKI pins. Behind the `spki-pinning` feature (on by default)."""
 
     def __init__(self, pins: list[bytes]) -> None: ...
     def is_pinned(self, cert_der: bytes) -> bool: ...

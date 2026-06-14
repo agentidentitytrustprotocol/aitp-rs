@@ -48,7 +48,7 @@ function setup() {
   return { coord, alice, bob, aliceTct, bobTct };
 }
 
-test('session bundle round-trips (experimental)', { skip: !HAS_BUNDLE }, () => {
+test('session bundle round-trips', { skip: !HAS_BUNDLE }, () => {
   const { coord, alice, bob, aliceTct, bobTct } = setup();
   const envelope = new SessionBundleBuilder(coord)
     .participant(alice.aid, aliceTct)
@@ -72,7 +72,7 @@ test('session bundle round-trips (experimental)', { skip: !HAS_BUNDLE }, () => {
 // participants (e.g. envelope JSON malformed) would panic napi-rs's
 // Ref drop impl. Trigger the early-error path here.
 test(
-  'revocationCheck Ref unrefs cleanly on early error (experimental)',
+  'revocationCheck Ref unrefs cleanly on early error',
   { skip: !HAS_BUNDLE },
   () => {
     let called = false;
@@ -88,7 +88,7 @@ test(
 );
 
 test(
-  'revocation drops a participant (experimental)',
+  'revocation drops a participant',
   { skip: !HAS_BUNDLE },
   () => {
     const { coord, alice, bob, aliceTct, bobTct } = setup();

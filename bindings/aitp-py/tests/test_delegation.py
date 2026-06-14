@@ -2,15 +2,15 @@
 
 Covers the v0.2 single-hop round-trip and the strict-by-default posture:
 the default `verify_delegation` rejects any draft RFC-AITP-0011 multi-hop
-chain, and the opt-in `verify_delegation_experimental_multihop` (only present
-when the binding is built with `--features experimental-multihop-delegation`)
+chain, and the opt-in `verify_delegation_multihop` (only present
+when the binding is built with `--features multihop-delegation`)
 is the sole way to accept one.
 
 v0.2 wire shape: TCTs, grant vouchers, and delegation tokens are all opaque
 **compact JWS strings**. B delegates from the *grant voucher* it received
 alongside its TCT in the handshake commit — not from the TCT itself.
 
-Run with `maturin develop --features experimental` then `pytest` from
+Run with `maturin develop` then `pytest` from
 `bindings/aitp-py/`.
 """
 
@@ -102,7 +102,7 @@ def _inject_multihop_chain(delegation_token):
     """Take a valid single-hop compact JWS and inject a non-empty `chain`
     claim into its (unsigned) payload, re-encoding the segment.
 
-    The signature no longer matches, but the strict-vs-experimental hop gate
+    The signature no longer matches, but the strict-vs-multihop hop gate
     fires on the structural `chain` presence *before* any signature work
     (RFC-AITP-0006 §4.4), so this is enough to exercise that gate. We reuse
     the token itself as a bogus chain entry to keep `chain` a non-empty list.
@@ -128,17 +128,17 @@ def test_strict_verify_rejects_multihop_chain():
     assert "multi-hop delegation is not supported" in str(exc.value)
 
 
-def test_experimental_multihop_opts_past_the_hop_gate():
-    """The opt-in verifier (built under `experimental-multihop-delegation`)
+def test_multihop_opts_past_the_hop_gate():
+    """The opt-in verifier (built under `multihop-delegation`)
     must get PAST the hop gate the strict path rejects at — proven by it
     failing with a *different* error (structure/signature) rather than
     MULTIHOP_NOT_SUPPORTED."""
-    if not hasattr(aitp, "verify_delegation_experimental_multihop"):
-        pytest.skip("binding built without --features experimental-multihop-delegation")
+    if not hasattr(aitp, "verify_delegation_multihop"):
+        pytest.skip("binding built without --features multihop-delegation")
 
     a, _b, _c, delegation_token = _build_delegation_token()
     tampered = _inject_multihop_chain(delegation_token)
 
     with pytest.raises(Exception) as exc:
-        aitp.verify_delegation_experimental_multihop(tampered, a.aid, 3)
+        aitp.verify_delegation_multihop(tampered, a.aid, 3)
     assert "multi-hop delegation is not supported" not in str(exc.value)

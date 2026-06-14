@@ -15,33 +15,34 @@ the [NAPI-rs CLI](https://napi.rs):
 
 ```bash
 npm install
-npm run build:debug                  # default `.node` (v0.1 surface only)
-npm run build:experimental:debug     # default + post-v0.1 features
+npm run build:debug                  # full `.node` (all capabilities)
+npm run build:minimal:debug          # minimal `.node` (core surface only)
 # Release:
-npm run build                        # default release
-npm run build:experimental           # default + experimental, release
+npm run build                        # full release (all capabilities)
+npm run build:minimal                # minimal release (--no-default-features)
 ```
 
 This produces `aitp.node` and `index.js` in the package root. Generated
-TypeScript typings (`index.d.ts`) include the experimental surface only
-when the artifact was built with the `experimental` feature.
+TypeScript typings (`index.d.ts`) cover the full surface; a
+`--no-default-features` build narrows it accordingly.
 
 ### Cargo features
 
-The default `.node` exposes the v0.1 surface (handshake, TCT, delegation,
-manifest verify, revocation-list signing, OIDC identity). Three post-v0.1
-capabilities live behind opt-in Cargo features:
+The published `.node` ships the **full** capability surface by default —
+handshake, TCT, delegation, manifest verify, revocation-list signing, OIDC
+identity, **plus** TCT renewal, session bundles, SPKI pinning, and multi-hop
+delegation. Each capability is a named feature (all on by default) so a
+minimal build can opt out with `--no-default-features`:
 
-| Feature                   | Enables                                                                  | RFC                  |
-|---------------------------|--------------------------------------------------------------------------|----------------------|
-| `experimental-renewal`    | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0005 §10    |
-| `experimental-bundle`     | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010        |
-| `experimental-pinning`    | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
-| `experimental-multihop-delegation` | `verifyDelegationExperimentalMultihop`                          | RFC-AITP-0011        |
-| `experimental` (umbrella) | All four above                                                           |                      |
+| Feature               | Enables                                                                  | RFC                  |
+|-----------------------|--------------------------------------------------------------------------|----------------------|
+| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0005 §10    |
+| `session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010        |
+| `spki-pinning`        | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
+| `multihop-delegation` | `verifyDelegationMultihop`                                               | RFC-AITP-0011        |
 
-Each post-v0.1 capability does **not** promise wire stability until the
-underlying RFC graduates.
+Capabilities whose underlying RFC has not yet graduated do not promise wire
+stability across binding versions.
 
 ## Usage
 
@@ -104,10 +105,10 @@ opaque compact-JWS token strings** (`header.payload.signature`).
 | `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
 | `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                                               |
 | `verifyManifestJson()`    |    ✅    | Control-plane manifest enrollment                                                                               |
-| `buildRenewalRequest()` / `processRenewalRequest()`           | `experimental-renewal` | RFC-AITP-0005 §10 |
-| `SessionBundleBuilder`, `verifySessionBundle()`               | `experimental-bundle`  | RFC-AITP-0010      |
-| `computeSpkiHash()`, `SpkiPinVerifier`                        | `experimental-pinning` | HPKP outbound pinning |
-| `verifyDelegationExperimentalMultihop()`                      | `experimental-multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
+| `buildRenewalRequest()` / `processRenewalRequest()`           | `renewal` | RFC-AITP-0005 §10 |
+| `SessionBundleBuilder`, `verifySessionBundle()`               | `session-bundle`  | RFC-AITP-0010      |
+| `computeSpkiHash()`, `SpkiPinVerifier`                        | `spki-pinning` | HPKP outbound pinning |
+| `verifyDelegationMultihop()`                      | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
 
 ### Revocation
 

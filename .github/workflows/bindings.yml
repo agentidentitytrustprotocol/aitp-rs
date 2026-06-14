@@ -6,10 +6,9 @@ name: bindings
 # suite, plus the cross-language interop suite, so binding breakage is
 # caught on PRs instead of at release time.
 #
-# Built with `--features experimental` because the per-language test
-# suites cover the experimental surface (pinning, renewal, session
-# bundle, p256, multihop). The RELEASE workflows ship the stable
-# default surface — see bindings-release.yml / aitp-py-release.yml.
+# Built with default features, which now cover the full surface (pinning,
+# renewal, session bundle, p256, multihop) — the same surface the RELEASE
+# workflows ship. See bindings-release.yml / aitp-py-release.yml.
 
 on:
   push:
@@ -73,9 +72,9 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install 'maturin>=1.5,<2.0' pytest httpx 'pyjwt[crypto]>=2.8' 'cryptography>=41'
-      - name: Build the wheel (editable, experimental surface)
+      - name: Build the wheel (editable, full surface)
         working-directory: bindings/aitp-py
-        run: maturin develop --release --features experimental
+        run: maturin develop --release
       - name: pytest
         working-directory: bindings/aitp-py
         run: pytest tests/ -v
@@ -99,9 +98,9 @@ jobs:
       - name: Install dependencies
         working-directory: bindings/aitp-node
         run: npm install
-      - name: Build the native binary (experimental surface)
+      - name: Build the native binary (full surface)
         working-directory: bindings/aitp-node
-        run: npm run build:experimental:debug
+        run: npm run build:debug
       - name: node --test
         working-directory: bindings/aitp-node
         # Explicit glob: Node 22+ treats `--test tests/` as a module path
@@ -127,7 +126,7 @@ jobs:
         with:
           node-version: '20'
       # scripts/interop.sh creates its own venv, installs maturin/pytest/
-      # pyjwt/cryptography, builds both SDKs with the experimental feature,
+      # pyjwt/cryptography, builds both SDKs with default (full) features,
       # then drives a real four-message handshake between them.
       - name: Cross-language interop
         run: make interop

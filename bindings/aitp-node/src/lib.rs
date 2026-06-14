@@ -17,14 +17,14 @@
 #![cfg_attr(test, allow(dead_code))]
 
 mod agent;
-#[cfg(feature = "experimental-bundle")]
+#[cfg(feature = "session-bundle")]
 mod bundle;
 mod delegation;
 mod helpers;
 mod oidc;
-#[cfg(feature = "experimental-pinning")]
+#[cfg(feature = "spki-pinning")]
 mod pinning;
-#[cfg(feature = "experimental-renewal")]
+#[cfg(feature = "renewal")]
 mod renewal;
 mod session;
 mod tct;

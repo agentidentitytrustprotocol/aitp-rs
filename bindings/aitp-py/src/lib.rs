@@ -15,15 +15,15 @@
 #![allow(clippy::useless_conversion)]
 
 mod agent;
-#[cfg(feature = "experimental-bundle")]
+#[cfg(feature = "session-bundle")]
 mod bundle;
 mod delegation;
 mod helpers;
 mod manifest;
 mod oidc;
-#[cfg(feature = "experimental-pinning")]
+#[cfg(feature = "spki-pinning")]
 mod pinning;
-#[cfg(feature = "experimental-renewal")]
+#[cfg(feature = "renewal")]
 mod renewal;
 mod revocation;
 mod session;
@@ -43,19 +43,19 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<delegation::PyDelegationVerified>()?;
     m.add_class::<oidc::PyJwksProvider>()?;
     m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
-    #[cfg(feature = "experimental-multihop-delegation")]
+    #[cfg(feature = "multihop-delegation")]
     m.add_function(wrap_pyfunction!(
-        delegation::verify_delegation_experimental_multihop_py,
+        delegation::verify_delegation_multihop_py,
         m
     )?)?;
     m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
-    #[cfg(feature = "experimental-bundle")]
+    #[cfg(feature = "session-bundle")]
     {
         m.add_class::<bundle::PySessionBundleBuilder>()?;
         m.add_function(wrap_pyfunction!(bundle::verify_session_bundle_py, m)?)?;
     }
-    #[cfg(feature = "experimental-pinning")]
+    #[cfg(feature = "spki-pinning")]
     {
         m.add_class::<pinning::PySpkiPinVerifier>()?;
         m.add_function(wrap_pyfunction!(pinning::compute_spki_hash, m)?)?;

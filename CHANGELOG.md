@@ -5,7 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
-## [Unreleased] — 0.3.0 (AITP protocol `aitp/0.2`)
+## [Unreleased] — SDK bindings 0.4.0
+
+> Bindings-only release. The Rust crates (0.3.0, published) and the
+> on-the-wire protocol (`aitp/0.2`) are unchanged; the language SDKs
+> (`aitp-sdk` on PyPI, `@agentidentitytrustprotocol/aitp` on npm) bump
+> 0.3.0 → 0.4.0.
+
+### Changed — **BREAKING (bindings): all capabilities ship by default**
+
+The Python and Node SDKs no longer hide post-v0.1 capabilities behind an
+opt-in `experimental` build. **TCT renewal, session bundles, SPKI
+pinning, and multi-hop delegation are now compiled into the default
+wheel / `.node`**, so the published PyPI wheel and the default Docker
+build expose the full surface with no special build step. Each capability
+remains a named Cargo feature (`renewal`, `session-bundle`,
+`spki-pinning`, `multihop-delegation`), all on by default; a minimal
+artifact can opt out with `--no-default-features`.
+
+- The `experimental` umbrella feature and the `experimental-*` feature
+  names are removed (renamed to the plain capability names above).
+- `verify_delegation_experimental_multihop` →
+  `verify_delegation_multihop` (Python) and
+  `verifyDelegationExperimentalMultihop` → `verifyDelegationMultihop`
+  (Node). The strict single-hop `verify_delegation` is unchanged and
+  remains the safe default.
+
+Migration: depend on `aitp-sdk>=0.4.0`; replace any call to the old
+multi-hop function name; drop any `--features experimental` build flags
+(the default build now includes everything).
+
+## [0.3.0] (AITP protocol `aitp/0.2`)
 
 > Crate version 0.3.0. The Rust API has breaking changes (the
 > compact-JWS migration below), so the crates bump their 0.x major
