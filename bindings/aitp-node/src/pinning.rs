@@ -1,6 +1,6 @@
 //! SHA-256 SPKI certificate pinning — Node SDK.
 //!
-//! Gated by `experimental-pinning`. Thin (no rustls, no transport): just
+//! Gated by `spki-pinning`. Thin (no rustls, no transport): just
 //! the hash primitive plus a list-membership check. Wire into your own
 //! HTTP client (undici, fetch) via its `checkServerIdentity` /
 //! `tlsSocket.getPeerCertificate()` hook.

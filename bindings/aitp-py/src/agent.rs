@@ -15,7 +15,7 @@ use crate::delegation::{
     build_delegation_token, issue_tct_for_delegatee_json, PyDelegationVerified,
 };
 use crate::oidc::PyJwksProvider;
-#[cfg(feature = "experimental-renewal")]
+#[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_py, process_renewal_request_py};
 use crate::revocation::sign_revocation_list_py;
 use crate::session::{PyInitiatorSession, PyResponderSession, SessionContext};
@@ -363,11 +363,9 @@ impl PyAitpAgent {
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
     /// renewal of `current_tct_envelope_json` (RFC-AITP-0005 §10).
     ///
-    /// **Gated by the `experimental-renewal` Cargo feature.** Off in the
-    /// default wheel; build with `maturin develop --features
-    /// experimental-renewal` (or `--features experimental` for the
-    /// umbrella) to enable.
-    #[cfg(feature = "experimental-renewal")]
+    /// Behind the `renewal` Cargo feature, which is **on by default** —
+    /// build with `maturin develop --no-default-features` to omit it.
+    #[cfg(feature = "renewal")]
     fn build_renewal_request(&self, current_tct_envelope_json: &str) -> PyResult<String> {
         build_renewal_request_py(&self.key, current_tct_envelope_json)
     }
@@ -379,8 +377,8 @@ impl PyAitpAgent {
     /// issuer's manifest window; `new_ttl_secs` is the requested
     /// lifetime (capped by the bound).
     ///
-    /// **Gated by the `experimental-renewal` Cargo feature.**
-    #[cfg(feature = "experimental-renewal")]
+    /// **Gated by the `renewal` Cargo feature.**
+    #[cfg(feature = "renewal")]
     fn process_renewal_request(
         &self,
         request_payload_json: &str,
@@ -397,8 +395,10 @@ impl PyAitpAgent {
 }
 
 impl PyAitpAgent {
-    /// Crate-internal accessor used by bundle / renewal modules that
-    /// need to sign with the agent's long-term key.
+    /// Crate-internal accessor used by the session-bundle module, which
+    /// needs to sign with the agent's long-term key. Gated to match its
+    /// only caller so a `--no-default-features` build stays warning-free.
+    #[cfg(feature = "session-bundle")]
     pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
         self.key.clone()
     }

@@ -1,6 +1,6 @@
 """SPKI cert pinning — Python SDK.
 
-Gated by `experimental-pinning`. Generates a fresh self-signed cert
+Gated by `spki-pinning`. Generates a fresh self-signed cert
 in-test so we don't need a fixture file on disk.
 """
 
@@ -12,7 +12,7 @@ import aitp
 
 HAS_PINNING = hasattr(aitp, "SpkiPinVerifier")
 pytestmark = pytest.mark.skipif(
-    not HAS_PINNING, reason="binding built without --features experimental-pinning"
+    not HAS_PINNING, reason="binding built without --features spki-pinning"
 )
 
 

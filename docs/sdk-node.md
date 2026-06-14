@@ -10,11 +10,11 @@ The Python SDK has a symmetric surface; see [`sdk-python.md`](sdk-python.md).
 ## Build
 
 ```bash
-npm run build:debug                  # default surface
-npm run build:experimental:debug     # adds the draft/opt-in features
+npm run build:debug                  # full surface (all capabilities)
+npm run build:minimal:debug          # minimal surface (--no-default-features)
 # Release variants:
 npm run build
-npm run build:experimental
+npm run build:minimal
 ```
 
 ## Default surface
@@ -134,9 +134,9 @@ verifier on the other side accepts them. **Caveat:** the manifest's
 `pinned_key` identity_hint embeds an Ed25519 public key only, so P-256
 agents must use `identityType: 'oidc'`.
 
-## Experimental surface (Cargo `--features experimental`)
+## Additional capabilities (on by default)
 
-### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `experimental-renewal`)
+### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `renewal`)
 
 ```javascript
 // currentTct is the holder's TCT compact JWS string.
@@ -146,7 +146,7 @@ const { tct: freshTct, grantVoucher } = issuer.processRenewalRequest(
 );
 ```
 
-### Session Trust Bundle (RFC-AITP-0010, feature `experimental-bundle`)
+### Session Trust Bundle (RFC-AITP-0010, feature `session-bundle`)
 
 ```javascript
 import { SessionBundleBuilder, verifySessionBundle } from 'aitp';
@@ -159,7 +159,7 @@ const outcome = verifySessionBundle(envelope, alice.aid);
 // { kind: 'clear' | 'degraded', activeAids: [...], droppedAids: [...] }
 ```
 
-### SPKI cert pinning (HPKP-style, feature `experimental-pinning`)
+### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 
 ```javascript
 import { computeSpkiHash, SpkiPinVerifier } from 'aitp';
@@ -176,7 +176,7 @@ hook (e.g. `undici.Agent({ connect: { ... } })`). The SDK does no HTTP.
 
 ```bash
 npm install
-npm run build:experimental:debug
+npm run build:debug
 npm test                       # 25 binding tests (node --test)
 cd ../interop && pytest -v     # 12 cross-language interop tests (1 deliberately skipped)
 ```

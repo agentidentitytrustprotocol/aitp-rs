@@ -1,6 +1,6 @@
 //! TCT in-band renewal (RFC-AITP-0005 §10) — Node SDK.
 //!
-//! Gated by the `experimental-renewal` Cargo feature: post-v0.1, no
+//! Gated by the `renewal` Cargo feature: post-v0.1, no
 //! wire-stability guarantee until the feature graduates.
 //!
 //! In v0.2 the current TCT is an **opaque compact-JWS token string**, and

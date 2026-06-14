@@ -13,15 +13,15 @@ import assert from 'node:assert/strict';
 import {
   AitpAgent,
   verifyDelegation,
-  verifyDelegationExperimentalMultihop,
+  verifyDelegationMultihop,
 } from '../index.js';
 import { withClaims } from './_jws.mjs';
 
 const HAS_MULTIHOP =
-  typeof verifyDelegationExperimentalMultihop === 'function';
+  typeof verifyDelegationMultihop === 'function';
 
 // Take a valid single-hop delegation token and forge a non-empty `chain`
-// claim into its (unverified) payload. The strict vs. experimental gate
+// claim into its (unverified) payload. The strict vs. multi-hop gate
 // fires on the decoded `chain` *before* the signature check, so the stale
 // signature is irrelevant to the gate — enough to exercise it.
 function injectMultihopChain(delegationToken) {
@@ -127,15 +127,15 @@ test('verifyDelegation (strict default) rejects a multi-hop chain', () => {
 });
 
 test(
-  'verifyDelegationExperimentalMultihop opts past the hop gate',
-  { skip: !HAS_MULTIHOP ? 'built without experimental-multihop-delegation' : false },
+  'verifyDelegationMultihop opts past the hop gate',
+  { skip: !HAS_MULTIHOP ? 'built without multihop-delegation' : false },
   () => {
     // The opt-in verifier must get PAST the hop gate the strict path rejects
     // at — proven by failing with a *different* error (structure/signature)
     // rather than MULTIHOP_NOT_SUPPORTED.
     const { a, delegationToken } = buildVoucher();
     const tampered = injectMultihopChain(delegationToken);
-    assert.throws(() => verifyDelegationExperimentalMultihop(tampered, a.aid, 3), (err) => {
+    assert.throws(() => verifyDelegationMultihop(tampered, a.aid, 3), (err) => {
       assert.doesNotMatch(String(err.message), /multi-hop delegation is not supported/);
       return true;
     });

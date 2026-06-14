@@ -310,13 +310,13 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { AitpAgent, SessionBundleBuilder, verifySessionBundle, verifyDelegation, verifyDelegationExperimentalMultihop, computeAidJkt, JwksProvider, computeSpkiHash, SpkiPinVerifier, JsInitiatorSession, JsResponderSession, TctStore, verifyManifestJson } = nativeBinding
+const { AitpAgent, SessionBundleBuilder, verifySessionBundle, verifyDelegation, verifyDelegationMultihop, computeAidJkt, JwksProvider, computeSpkiHash, SpkiPinVerifier, JsInitiatorSession, JsResponderSession, TctStore, verifyManifestJson } = nativeBinding
 
 module.exports.AitpAgent = AitpAgent
 module.exports.SessionBundleBuilder = SessionBundleBuilder
 module.exports.verifySessionBundle = verifySessionBundle
 module.exports.verifyDelegation = verifyDelegation
-module.exports.verifyDelegationExperimentalMultihop = verifyDelegationExperimentalMultihop
+module.exports.verifyDelegationMultihop = verifyDelegationMultihop
 module.exports.computeAidJkt = computeAidJkt
 module.exports.JwksProvider = JwksProvider
 module.exports.computeSpkiHash = computeSpkiHash

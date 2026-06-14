@@ -1,7 +1,7 @@
 """TCT renewal (RFC-AITP-0005 §10) — Python SDK.
 
-Gated by the `experimental-renewal` Cargo feature on the binding. Build
-the dev wheel with `maturin develop --features experimental-renewal`.
+Gated by the `renewal` Cargo feature on the binding. Build
+the dev wheel with `maturin develop --features renewal`.
 The test exits gracefully if the binding doesn't have the methods.
 """
 
@@ -23,7 +23,7 @@ def _jws_claims(tct_token):
 ed = aitp.AitpAgent
 HAS_RENEWAL = hasattr(ed.generate(), "build_renewal_request")
 pytestmark = pytest.mark.skipif(
-    not HAS_RENEWAL, reason="binding built without --features experimental-renewal"
+    not HAS_RENEWAL, reason="binding built without --features renewal"
 )
 
 

@@ -14,27 +14,28 @@ This crate is **not** part of the `aitp-rs` Cargo workspace. Build it with
 
 ```bash
 pip install maturin
-maturin develop                       # default wheel (v0.1 surface only)
-maturin develop --features experimental   # default + post-v0.1 features
+maturin develop                          # full wheel (all capabilities)
+maturin develop --no-default-features    # minimal wheel (core surface only)
 ```
 
 ### Cargo features
 
-The default wheel exposes the v0.1 surface (handshake, TCT, delegation,
-manifest verify, revocation-list signing, OIDC identity). Three post-v0.1
-capabilities live behind opt-in Cargo features:
+The published wheel ships the **full** capability surface by default —
+handshake, TCT, delegation, manifest verify, revocation-list signing, OIDC
+identity, **plus** TCT renewal, session bundles, SPKI pinning, and multi-hop
+delegation. Each capability is a named feature (all on by default) so a
+minimal wheel can opt out with `--no-default-features`:
 
-| Feature                  | Enables                                                            | RFC                  |
-|--------------------------|--------------------------------------------------------------------|----------------------|
-| `experimental-renewal`   | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0005 §10    |
-| `experimental-bundle`    | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010        |
-| `experimental-pinning`   | `compute_spki_hash`, `SpkiPinVerifier`                             | HPKP (RFC 7469)      |
-| `experimental-multihop-delegation` | `verify_delegation_experimental_multihop`                | RFC-AITP-0011        |
-| `experimental` (umbrella)| All four above                                                     |                      |
+| Feature               | Enables                                                            | RFC                  |
+|-----------------------|--------------------------------------------------------------------|----------------------|
+| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0005 §10    |
+| `session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010        |
+| `spki-pinning`        | `compute_spki_hash`, `SpkiPinVerifier`                             | HPKP (RFC 7469)      |
+| `multihop-delegation` | `verify_delegation_multihop`                                       | RFC-AITP-0011        |
 
-Each post-v0.1 capability does **not** promise wire stability until the
-underlying RFC graduates. Pin to a specific binding version if you depend on
-the experimental surface.
+Capabilities whose underlying RFC has not yet graduated do not promise wire
+stability across binding versions — pin a specific version if you depend on
+them.
 
 ## Usage
 
@@ -91,10 +92,10 @@ on-wire HTTP request/response bodies).
 | `TctStore` / `verify_tct_cached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the envelope) |
 | `verify_delegation()` |    ✅    | RFC-AITP-0006 — strict v0.1 single-hop; rejects any multi-hop `chain`                   |
 | `verify_manifest_json()` | ✅    | Control-plane manifest enrollment                                                       |
-| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `experimental-renewal` | RFC-AITP-0005 §10 |
-| `SessionBundleBuilder`, `verify_session_bundle()`                 | `experimental-bundle`  | RFC-AITP-0010 |
-| `compute_spki_hash()`, `SpkiPinVerifier`                          | `experimental-pinning` | HPKP-style outbound pinning |
-| `verify_delegation_experimental_multihop()`                       | `experimental-multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
+| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0005 §10 |
+| `SessionBundleBuilder`, `verify_session_bundle()`                 | `session-bundle`  | RFC-AITP-0010 |
+| `compute_spki_hash()`, `SpkiPinVerifier`                          | `spki-pinning` | HPKP-style outbound pinning |
+| `verify_delegation_multihop()`                       | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
 
 ### OIDC identity (RFC-AITP-0002)
 

@@ -11,10 +11,10 @@
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpVerifyingKey;
 use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
-// RFC-AITP-0011 multi-hop ceiling — only referenced by the experimental
+// RFC-AITP-0011 multi-hop ceiling — only referenced by the multi-hop
 // opt-in verifier, so the import is feature-gated to avoid an unused-import
 // warning in the default (strict single-hop) build.
-#[cfg(feature = "experimental-multihop-delegation")]
+#[cfg(feature = "multihop-delegation")]
 use aitp_delegation::DEFAULT_MAX_HOPS;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -49,11 +49,10 @@ pub struct JsDelegationVerified {
 /// string — it MUST equal the delegation's `aud` (the root grantor), and
 /// the embedded voucher MUST verify under the verifier's own key.
 ///
-/// Any token carrying a non-empty `chain` (a draft RFC-AITP-0011 multi-hop
+/// Any token carrying a non-empty `chain` (an RFC-AITP-0011 multi-hop
 /// delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
-/// matching the Rust core default. To opt into multi-hop, build the SDK with
-/// the `experimental-multihop-delegation` feature and call
-/// `verifyDelegationExperimentalMultihop`.
+/// matching the Rust core default. To allow multi-hop chains, call
+/// `verifyDelegationMultihop` instead.
 #[napi(js_name = "verifyDelegation")]
 pub fn verify_delegation_js(token: String, verifier_aid: String) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
@@ -68,20 +67,19 @@ pub fn verify_delegation_js(token: String, verifier_aid: String) -> Result<JsDel
     Ok(to_verified(&verified))
 }
 
-/// Verify a delegation compact JWS allowing **draft RFC-AITP-0011
-/// multi-hop** chains up to `maxHops` total hops (`chain.length + 1`).
+/// Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
+/// chains up to `maxHops` total hops (`chain.length + 1`).
 ///
-/// This opts into behavior that is **not** part of the v0.2 strict
-/// default. It is only compiled in under the
-/// `experimental-multihop-delegation` feature; a default build exposes
-/// only the strict `verifyDelegation`.
+/// The strict single-hop `verifyDelegation` is the safe default; this
+/// function additionally allows multi-hop chains. Present by default (the
+/// `multihop-delegation` feature); a `--no-default-features` build omits it.
 ///
 /// `maxHops` defaults to `DEFAULT_MAX_HOPS` (3, the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
 /// `maxHops = 0` reverts to strict single-hop (rejects any non-empty chain).
-#[cfg(feature = "experimental-multihop-delegation")]
-#[napi(js_name = "verifyDelegationExperimentalMultihop")]
-pub fn verify_delegation_experimental_multihop_js(
+#[cfg(feature = "multihop-delegation")]
+#[napi(js_name = "verifyDelegationMultihop")]
+pub fn verify_delegation_multihop_js(
     token: String,
     verifier_aid: String,
     max_hops: Option<u32>,

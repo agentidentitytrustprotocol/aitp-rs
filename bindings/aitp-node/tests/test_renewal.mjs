@@ -1,7 +1,7 @@
 // TCT renewal (RFC-AITP-0005 §10) — Node SDK.
 //
-// Gated by the `experimental-renewal` Cargo feature. Build the dev
-// artifact with `npm run build:experimental:debug`. This test no-ops
+// Gated by the `renewal` Cargo feature. Build the dev
+// artifact with `npm run build`. This test no-ops
 // itself when the binding was built without the feature.
 
 import test from 'node:test';
@@ -39,7 +39,7 @@ function issuedPair() {
   return { a, b, bHeld };
 }
 
-test('TCT renewal round-trips (experimental)', { skip: !HAS_RENEWAL }, () => {
+test('TCT renewal round-trips', { skip: !HAS_RENEWAL }, () => {
   const { a, b, bHeld } = issuedPair();
   const req = b.buildRenewalRequest(bHeld);
   const now = Math.floor(Date.now() / 1000);
@@ -53,7 +53,7 @@ test('TCT renewal round-trips (experimental)', { skip: !HAS_RENEWAL }, () => {
 });
 
 test(
-  'renewal with wrong holder key rejected (experimental)',
+  'renewal with wrong holder key rejected',
   { skip: !HAS_RENEWAL },
   () => {
     const { a, bHeld } = issuedPair();

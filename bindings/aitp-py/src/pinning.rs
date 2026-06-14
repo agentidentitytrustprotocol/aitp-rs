@@ -1,6 +1,6 @@
 //! SHA-256 SPKI certificate pinning — Python binding.
 //!
-//! Gated by `experimental-pinning`. Thin: just `compute_spki_hash` and
+//! Gated by `spki-pinning`. Thin: just `compute_spki_hash` and
 //! `SpkiPinVerifier.is_pinned`. The SDK doesn't bring rustls into the
 //! wheel — callers wire the verifier into their own HTTP client (httpx,
 //! requests) via a `checkServerIdentity`-style hook.
