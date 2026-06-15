@@ -140,7 +140,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
       - name: Attach native binaries to GitHub Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
