@@ -54,7 +54,7 @@ jobs:
           # separate cache key keeps its target/ from competing with the
           # root crate's.
           workspaces: bindings/aitp-py
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: ${{ matrix.python }}
       # `maturin develop` requires an active venv — it refuses to install
@@ -119,7 +119,7 @@ jobs:
           workspaces: |
             bindings/aitp-py
             bindings/aitp-node
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.11'
       - uses: actions/setup-node@v4
