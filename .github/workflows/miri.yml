@@ -44,7 +44,7 @@ jobs:
           - aitp-core
           - aitp-crypto
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Install nightly + miri
         uses: dtolnay/rust-toolchain@nightly
         with:

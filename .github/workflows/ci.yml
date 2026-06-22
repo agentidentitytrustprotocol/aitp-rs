@@ -35,7 +35,7 @@ jobs:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt
@@ -45,7 +45,7 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
@@ -62,7 +62,7 @@ jobs:
     # crates type-check (and pyo3's build script finds the runner's
     # preinstalled python3) without an extension build.
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -92,7 +92,7 @@ jobs:
           - os: ubuntu-latest
             toolchain: "1.88.0"   # MSRV gate (driven by transitive deps)
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.toolchain }}
@@ -106,7 +106,7 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo doc --workspace --no-deps --all-features
@@ -115,7 +115,7 @@ jobs:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check
@@ -125,7 +125,7 @@ jobs:
     name: cargo-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: rustsec/audit-check@v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
@@ -136,7 +136,7 @@ jobs:
     # Skip on the release branch / first commit (no prior tag to compare).
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dtolnay/rust-toolchain@stable
@@ -161,7 +161,7 @@ jobs:
     name: cargo-msrv (workspace)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-msrv
@@ -183,7 +183,7 @@ jobs:
     name: coverage (tarpaulin)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Install cargo-tarpaulin
@@ -243,14 +243,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           path: aitp-rs
       - name: Read pinned spec commit
         id: pin
         run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
       - name: Checkout spec at pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           repository: agentidentitytrustprotocol/agentidentitytrustprotocol
           path: spec
