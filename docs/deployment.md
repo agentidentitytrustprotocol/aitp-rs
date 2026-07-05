@@ -111,6 +111,8 @@ Independent of clustering, production servers/clients should set:
   enforce at the edge/LB.
 - **HTTPS everywhere** — the fetchers reject non-HTTPS peers by default;
   keep it that way outside local dev.
+- **Key handling** — see [`key-management.md`](key-management.md) for seed
+  storage, in-memory hygiene, KMS/HSM reality, and the rotation runbook.
 
 ## Summary
 

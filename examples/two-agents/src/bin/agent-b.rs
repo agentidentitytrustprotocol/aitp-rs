@@ -32,6 +32,11 @@ use tokio::net::TcpListener;
 struct Cli {
     #[arg(long, default_value_t = 8002)]
     port: u16,
+    /// Bind address. Defaults to loopback (`127.0.0.1`) for the local
+    /// demo; set `0.0.0.0` to accept connections from other hosts /
+    /// containers (see the docker-compose example).
+    #[arg(long, default_value = "127.0.0.1")]
+    host: String,
     #[arg(long, default_value = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")]
     seed: String,
 }
@@ -86,7 +91,9 @@ async fn main() {
     // payloads are small); see examples/observability/README.md.
     let app = with_request_body_limit_default(app);
 
-    let listener = TcpListener::bind(("127.0.0.1", cli.port)).await.unwrap();
+    let listener = TcpListener::bind((cli.host.as_str(), cli.port))
+        .await
+        .unwrap();
     axum::serve(listener, app).await.unwrap();
 }
 

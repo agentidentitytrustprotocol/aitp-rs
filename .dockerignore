@@ -1,0 +1,12 @@
+# Keep the build context lean — the crate sources are all that's needed.
+target/
+**/target/
+fuzz/target/
+fuzz/corpus/
+fuzz/artifacts/
+.git/
+.github/
+docs/
+plans/
+tests/e2e-llm/
+*.md
