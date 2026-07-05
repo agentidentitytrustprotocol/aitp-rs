@@ -193,3 +193,107 @@ async fn unknown_message_type_returns_invalid_envelope() {
         .unwrap();
     assert_error_code(resp, "INVALID_ENVELOPE").await;
 }
+
+// ── Pluggable replay store (ReplayGuard) ────────────────────────────────
+//
+// Prove the server routes envelope replay detection through the injected
+// `ReplayGuard` rather than a hardcoded in-memory map — the seam a
+// clustered deployment relies on (RFC-AITP-0001 §5.5).
+
+use aitp_transport_http::ReplayGuard;
+use std::sync::{Arc, Mutex};
+use std::time::Duration as StdDuration;
+
+/// Records every key it is asked about; `verdict` fixes what it returns.
+struct RecordingGuard {
+    seen: Mutex<Vec<String>>,
+    verdict: bool,
+}
+
+impl ReplayGuard for RecordingGuard {
+    fn check_and_record(&self, key: &str, _ttl: StdDuration) -> bool {
+        self.seen.lock().unwrap().push(key.to_string());
+        self.verdict
+    }
+}
+
+async fn spawn_server_with_guard(guard: Arc<dyn ReplayGuard>) -> u16 {
+    let server_key = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let manifest = manifest_for(&server_key, "responder");
+    let server = HandshakeServer::new(
+        server_key,
+        manifest,
+        vec!["https://idp.example.com".parse().unwrap()],
+        NoOpResolver,
+        vec!["demo.echo".into()],
+    )
+    .with_replay_guard(guard);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, server.router()).await.ok();
+    });
+    tokio::time::sleep(std::time::Duration::from_millis(30)).await;
+    port
+}
+
+#[tokio::test]
+async fn injected_replay_guard_sees_the_message_id() {
+    let guard = Arc::new(RecordingGuard {
+        seen: Mutex::new(Vec::new()),
+        verdict: true, // report everything as fresh
+    });
+    let port = spawn_server_with_guard(guard.clone()).await;
+
+    let key = AitpSigningKey::from_seed(&[0xB1; 32]);
+    let mid = Uuid::new_v4();
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        mid,
+        Timestamp::now(),
+    )
+    .unwrap();
+    let _ = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .json(&envelope)
+        .send()
+        .await
+        .unwrap();
+
+    let seen = guard.seen.lock().unwrap();
+    assert!(
+        seen.iter().any(|k| k == &mid.to_string()),
+        "injected guard must be consulted with the envelope message_id; saw {seen:?}"
+    );
+}
+
+#[tokio::test]
+async fn injected_replay_guard_verdict_is_honored() {
+    // A guard that reports every key as a replay must cause even the
+    // *first* envelope to be rejected — proving the server's decision
+    // comes from the guard, not an internal (empty) map.
+    let guard = Arc::new(RecordingGuard {
+        seen: Mutex::new(Vec::new()),
+        verdict: false, // everything is a "replay"
+    });
+    let port = spawn_server_with_guard(guard).await;
+
+    let key = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .json(&envelope)
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "REPLAY_DETECTED").await;
+}

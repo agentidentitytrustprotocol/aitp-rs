@@ -37,13 +37,15 @@
 //!     .issued_at(now)
 //!     .build()?;
 //!
-//! let ctx = TctVerifyContext {
-//!     expected_audience: bob.aid(),
-//!     issuer: alice.aid(),
-//!     now,
-//!     issuer_manifest_expires_at: None,
-//!     revocation_check: None,
-//! };
+//! // The strict builder forces an explicit decision on the two
+//! // silent-accept surfaces (revocation source, issuer-Manifest expiry
+//! // cap). Here — a self-issued holder receipt with no Manifest
+//! // resolved — both are deliberately waived; production verifiers
+//! // supply `.revocation_check(..)` and `.issuer_manifest_expires_at(..)`.
+//! let ctx = TctVerifyContext::builder(bob.aid(), alice.aid(), now)
+//!     .accept_unchecked_revocation_dangerous()
+//!     .skip_manifest_expiry_cap_dangerous()
+//!     .build()?;
 //! let verified = verify_tct(&issued.token, &ctx)?;
 //! assert_eq!(verified.claims.grants, vec!["demo.echo".to_string()]);
 //! # Ok(())

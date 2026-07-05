@@ -99,17 +99,21 @@ pub fn js_verify_tct(
     let revoked = parse_revoked_set(revoked_jtis);
     let revocation_closure = |jti: &Uuid| revoked.contains(jti);
 
-    let ctx = TctVerifyContext {
-        expected_audience: aud_ref,
-        issuer: &peek.iss,
-        now: Timestamp::now(),
-        issuer_manifest_expires_at: None,
-        revocation_check: if revoked.is_empty() {
-            None
-        } else {
-            Some(&revocation_closure)
-        },
+    // Strict builder (aitp-tct 0.4). Behavior is preserved: revocation is
+    // consulted only when the caller supplied a non-empty `revokedJtis`
+    // set, otherwise explicitly waived. The issuer-Manifest expiry cap is
+    // still waived here — threading an `issuerManifestExpiresAt` parameter
+    // through the SDK surface is the remaining half of F-1.
+    let builder = TctVerifyContext::builder(aud_ref, &peek.iss, Timestamp::now())
+        .skip_manifest_expiry_cap_dangerous();
+    let builder = if revoked.is_empty() {
+        builder.accept_unchecked_revocation_dangerous()
+    } else {
+        builder.revocation_check(&revocation_closure)
     };
+    let ctx = builder
+        .build()
+        .map_err(|e| Error::from_reason(format!("verify context: {e}")))?;
 
     let verified = verify_tct(tct_token, &ctx)
         .map_err(|e| Error::from_reason(format!("TCT verification failed: {e}")))?;

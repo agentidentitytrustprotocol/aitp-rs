@@ -15,6 +15,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 aitp-core = { path = "../crates/aitp-core" }
+aitp-crypto = { path = "../crates/aitp-crypto" }
 aitp-manifest = { path = "../crates/aitp-manifest" }
 aitp-tct = { path = "../crates/aitp-tct" }
 aitp-delegation = { path = "../crates/aitp-delegation" }
@@ -37,6 +38,43 @@ bench = false
 [[bin]]
 name = "delegation_parse"
 path = "fuzz_targets/delegation_parse.rs"
+test = false
+doc = false
+bench = false
+
+# --- verify-path targets (R4): trust decisions live in verify, not parse ---
+
+[[bin]]
+name = "jws_verify"
+path = "fuzz_targets/jws_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tct_verify"
+path = "fuzz_targets/tct_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "delegation_verify"
+path = "fuzz_targets/delegation_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "jcs_canonicalize"
+path = "fuzz_targets/jcs_canonicalize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "revocation_verify"
+path = "fuzz_targets/revocation_verify.rs"
 test = false
 doc = false
 bench = false

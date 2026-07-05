@@ -4,7 +4,7 @@ Template for a Python conformance adapter.
 
 A conformance adapter speaks NDJSON over stdio. Each stdin line is a request;
 each stdout line is the corresponding response. See
-docs/design/02-conformance-adapter.md for the full protocol.
+docs/conformance.md for the full adapter protocol and op vocabulary.
 
 This file is a template; replace the TODO bodies with calls into your
 Python AITP implementation.

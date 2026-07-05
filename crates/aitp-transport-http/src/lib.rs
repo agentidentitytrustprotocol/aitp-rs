@@ -36,6 +36,12 @@ pub mod dpop;
 #[cfg(feature = "client")]
 pub mod key_resolution;
 
+#[cfg(feature = "client")]
+pub mod net_guard;
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub mod replay_store;
+
 #[cfg(any(feature = "client", feature = "server"))]
 pub mod revocation;
 
@@ -50,6 +56,9 @@ pub mod session_bundle_server;
 
 #[cfg(feature = "client")]
 pub use client::{FetchError, JwksFetcher, JwksFetcherError, ManifestFetcher};
+
+#[cfg(feature = "client")]
+pub use net_guard::{GuardMode, HostGuard, HostGuardError};
 
 #[cfg(feature = "client")]
 pub use retry::RetryPolicy;
@@ -100,6 +109,9 @@ pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub use replay_store::{InMemoryReplayGuard, ReplayGuard};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use revocation::{

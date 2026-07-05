@@ -12,7 +12,7 @@
 
 #![cfg(feature = "client")]
 
-use aitp_transport_http::{JwksFetcher, JwksFetcherError};
+use aitp_transport_http::{HostGuard, JwksFetcher, JwksFetcherError};
 
 #[tokio::test]
 async fn resolve_rejects_non_https_issuer() {
@@ -25,5 +25,36 @@ async fn resolve_rejects_non_https_issuer() {
     assert!(
         matches!(err, JwksFetcherError::InsecureUrl),
         "expected InsecureUrl, got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn resolve_rejects_link_local_issuer_host() {
+    // An issuer URL pointing at the cloud-metadata range must be
+    // rejected by the host guard before any request is made — SSRF
+    // defense on the (issuer-derived) discovery fetch.
+    let fetcher = JwksFetcher::new();
+    let metadata_issuer = "https://169.254.169.254".parse().unwrap();
+    let err = fetcher
+        .resolve(&metadata_issuer)
+        .await
+        .expect_err("link-local issuer host must be refused");
+    assert!(
+        matches!(err, JwksFetcherError::InsecureUrl),
+        "expected InsecureUrl (guard rejection), got {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn strict_guard_rejects_private_issuer_host() {
+    let fetcher = JwksFetcher::new().with_host_guard(HostGuard::strict());
+    let private_issuer = "https://10.20.30.40".parse().unwrap();
+    let err = fetcher
+        .resolve(&private_issuer)
+        .await
+        .expect_err("strict guard must refuse a private issuer host");
+    assert!(
+        matches!(err, JwksFetcherError::InsecureUrl),
+        "expected InsecureUrl (strict guard), got {err:?}"
     );
 }

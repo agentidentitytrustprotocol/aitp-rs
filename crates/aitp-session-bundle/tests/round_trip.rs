@@ -204,3 +204,61 @@ fn audience_mismatch_rejected_at_build() {
         .unwrap_err();
     assert!(matches!(err, SessionBundleError::AudienceMismatch));
 }
+
+// ── Ordering guard: the pre-signature exp peek cannot bypass the
+//    outer signature (RFC-AITP-0010 verify steps 3–6).
+//
+// `verify_session_bundle` peeks each participant TCT's `exp`
+// (unverified) to compute the expiry-window invariant *before* the
+// outer bundle signature is checked. That is sound only because the
+// outer signature covers the participant TCT strings verbatim, so any
+// tampering that changes a peeked value also breaks the signature.
+// This test pins that property: mutating a participant TCT inside a
+// built bundle must be rejected, never silently accepted via the peek.
+#[test]
+fn tampered_participant_tct_cannot_bypass_via_peek() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let bob = key(0xB0);
+
+    let mut bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .participant(bob.aid().clone(), issue_tct(&coord, &bob, 7200))
+        .build()
+        .unwrap();
+
+    // Mutate a byte inside the first participant's TCT payload segment
+    // (between the two dots) — this is exactly the region the peek
+    // decodes for `exp`. It must not verify.
+    let tct = &bundle.participants[0].tct;
+    let dot1 = tct.find('.').unwrap();
+    let dot2 = tct[dot1 + 1..].find('.').unwrap() + dot1 + 1;
+    let mut bytes = tct.clone().into_bytes();
+    let mid = (dot1 + dot2) / 2;
+    bytes[mid] = if bytes[mid] == b'A' { b'B' } else { b'A' };
+    bundle.participants[0].tct = String::from_utf8(bytes).unwrap();
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
+    // Rejected — the tampered peek value can never yield acceptance.
+    // Any of these defensive layers may fire first depending on where
+    // the mutated byte lands: the peek's own claim decode
+    // (`Canonicalization`), the expiry-window invariant, the outer
+    // signature (which covers the participant strings), or the
+    // per-participant TCT verification.
+    assert!(
+        matches!(
+            err,
+            SessionBundleError::InvalidSignature
+                | SessionBundleError::TctVerification(_)
+                | SessionBundleError::ExpiryWindowInvariant
+                | SessionBundleError::Canonicalization(_)
+        ),
+        "tampered participant TCT must be rejected, got {err:?}"
+    );
+}

@@ -146,9 +146,10 @@ impl Aid {
     }
 
     /// Decode the identifier back to the raw 32-byte Ed25519 public key,
-    /// or `None` if this AID is not an Ed25519 AID. Prefer this over the
-    /// panicking [`Aid::to_ed25519_bytes`] on any path that can receive an
-    /// AID of attacker-controlled algorithm (e.g. handshake verification).
+    /// or `None` if this AID is not an Ed25519 AID. This is the only
+    /// accessor — there is no panicking form; callers on paths that may
+    /// receive an AID of attacker-controlled algorithm (e.g. handshake
+    /// verification) handle the `None` case explicitly.
     pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
         if !matches!(self.algorithm(), AidAlgorithm::Ed25519) {
             return None;
@@ -157,15 +158,6 @@ impl Aid {
         Base64UrlUnpadded::decode(self.identifier(), &mut out)
             .expect("Aid is validated on construction; identifier MUST decode to 32 bytes");
         Some(out)
-    }
-
-    /// Decode the identifier back to the raw 32-byte Ed25519 public key.
-    /// Panics if the AID is not an Ed25519 AID. Use
-    /// [`Aid::algorithm`] to discriminate first, or
-    /// [`Aid::try_to_ed25519_bytes`] for a non-panicking variant.
-    pub fn to_ed25519_bytes(&self) -> [u8; 32] {
-        self.try_to_ed25519_bytes()
-            .expect("Aid::to_ed25519_bytes called on non-Ed25519 AID")
     }
 
     /// Decode the identifier back to the 33-byte SEC1 compressed P-256
@@ -180,14 +172,6 @@ impl Aid {
         Some(out)
     }
 
-    /// Decode the identifier back to the 33-byte SEC1 compressed
-    /// P-256 public key. Panics if the AID is not a P-256 AID. Use
-    /// [`Aid::try_to_p256_bytes`] for a non-panicking variant.
-    pub fn to_p256_bytes(&self) -> [u8; 33] {
-        self.try_to_p256_bytes()
-            .expect("Aid::to_p256_bytes called on non-P-256 AID")
-    }
-
     /// Decode the identifier back to the AID's algorithm-agile
     /// compressed public-key bytes — 32 bytes for Ed25519 (raw
     /// pubkey) or 33 bytes for P-256 (SEC1-compressed). This is the
@@ -195,11 +179,19 @@ impl Aid {
     /// `DelegationBinding.cnf` for algorithm-agile signing-key
     /// bindings; callers verifying a `cnf` against an AID should
     /// byte-compare against this value rather than the legacy
-    /// Ed25519-only [`Self::to_ed25519_bytes`].
+    /// Ed25519-only [`Self::try_to_ed25519_bytes`].
     pub fn pubkey_compressed_bytes(&self) -> Vec<u8> {
+        // Each arm's `try_*` is guarded by the matching `algorithm()`
+        // discriminant above, so the decode cannot return `None` here.
         match self.algorithm() {
-            AidAlgorithm::Ed25519 => self.to_ed25519_bytes().to_vec(),
-            AidAlgorithm::P256 => self.to_p256_bytes().to_vec(),
+            AidAlgorithm::Ed25519 => self
+                .try_to_ed25519_bytes()
+                .expect("Ed25519 arm guarded by algorithm()")
+                .to_vec(),
+            AidAlgorithm::P256 => self
+                .try_to_p256_bytes()
+                .expect("P-256 arm guarded by algorithm()")
+                .to_vec(),
         }
     }
 
@@ -356,7 +348,7 @@ mod tests {
         let aid = Aid::from_ed25519(&pk);
         assert!(aid.as_str().starts_with("aid:pubkey:"));
         assert_eq!(aid.identifier().len(), AID_PUBKEY_IDENTIFIER_LEN);
-        assert_eq!(aid.to_ed25519_bytes(), pk);
+        assert_eq!(aid.try_to_ed25519_bytes().unwrap(), pk);
     }
 
     #[test]
@@ -397,7 +389,7 @@ mod tests {
         let aid_str = "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR";
         let aid = Aid::parse(aid_str).unwrap();
         assert_eq!(aid.algorithm(), AidAlgorithm::P256);
-        let pubkey = aid.to_p256_bytes();
+        let pubkey = aid.try_to_p256_bytes().unwrap();
         // First byte is the sign bit (0x02 or 0x03 for SEC1 compressed).
         assert_eq!(pubkey[0], 0x03);
     }
@@ -410,7 +402,7 @@ mod tests {
         let aid = Aid::from_p256(&pubkey);
         let parsed = Aid::parse(aid.as_str()).unwrap();
         assert_eq!(parsed.algorithm(), AidAlgorithm::P256);
-        assert_eq!(parsed.to_p256_bytes(), pubkey);
+        assert_eq!(parsed.try_to_p256_bytes().unwrap(), pubkey);
     }
 
     #[test]

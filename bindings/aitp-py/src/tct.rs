@@ -96,15 +96,20 @@ pub fn py_verify_tct(
         f
     });
 
-    let ctx = TctVerifyContext {
-        expected_audience: aud_ref,
-        issuer: &unverified.iss,
-        now: Timestamp::now(),
-        issuer_manifest_expires_at: None,
-        revocation_check: revocation_closure
-            .as_deref()
-            .map(|b: &dyn Fn(&Uuid) -> bool| b),
+    // Strict builder (aitp-tct 0.4). Behavior is preserved: revocation is
+    // consulted only when the caller supplied `revoked_jtis`, otherwise
+    // explicitly waived. The issuer-Manifest expiry cap is still waived
+    // here — threading an `issuer_manifest_expires_at` parameter through
+    // the SDK surface is the remaining half of F-1.
+    let builder = TctVerifyContext::builder(aud_ref, &unverified.iss, Timestamp::now())
+        .skip_manifest_expiry_cap_dangerous();
+    let builder = match revocation_closure.as_deref() {
+        Some(b) => builder.revocation_check(b as &dyn Fn(&Uuid) -> bool),
+        None => builder.accept_unchecked_revocation_dangerous(),
     };
+    let ctx = builder
+        .build()
+        .map_err(|e| PyRuntimeError::new_err(format!("verify context: {e}")))?;
 
     let verified = verify_tct(tct_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("TCT verification failed: {e}")))?;

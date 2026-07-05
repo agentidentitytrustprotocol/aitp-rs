@@ -139,10 +139,13 @@ impl AitpSigningKey {
                 Signature(Base64UrlUnpadded::encode_string(&sig.to_bytes()))
             }
             Self::P256 { inner, .. } => {
-                // p256's Signer impl uses RFC6979 deterministic-k, so the
-                // wire output is reproducible for a given (key, message).
-                let sig: P256Signature =
-                    <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
+                // RFC6979 deterministic-k fixes the nonce; low-S
+                // normalization fixes the signature's canonical form.
+                // Together they make the wire output fully reproducible
+                // for a given (key, message) AND non-malleable — the
+                // verifier rejects the high-S sibling (see
+                // `verify_p256_raw`).
+                let sig = p256_sign_low_s(inner, message);
                 let encoded = Base64UrlUnpadded::encode_string(&sig.to_bytes());
                 Signature(format!("p256.{encoded}"))
             }
@@ -162,11 +165,7 @@ impl AitpSigningKey {
                 let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
                 sig.to_bytes()
             }
-            Self::P256 { inner, .. } => {
-                let sig: P256Signature =
-                    <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
-                sig.to_bytes().into()
-            }
+            Self::P256 { inner, .. } => p256_sign_low_s(inner, message).to_bytes().into(),
         }
     }
 
@@ -207,13 +206,18 @@ impl AitpVerifyingKey {
     pub fn from_aid(aid: &Aid) -> Result<Self, CryptoError> {
         match aid.algorithm() {
             AidAlgorithm::Ed25519 => {
-                let bytes = aid.to_ed25519_bytes();
+                // Guarded by the `Ed25519` discriminant — `try_*` is Some.
+                let bytes = aid
+                    .try_to_ed25519_bytes()
+                    .expect("Ed25519 arm guarded by algorithm()");
                 DalekVerifyingKey::from_bytes(&bytes)
                     .map(Self::Ed25519)
                     .map_err(|e| CryptoError::AidNotEd25519(e.to_string()))
             }
             AidAlgorithm::P256 => {
-                let bytes = aid.to_p256_bytes();
+                let bytes = aid
+                    .try_to_p256_bytes()
+                    .expect("P-256 arm guarded by algorithm()");
                 P256VerifyingKey::from_sec1_bytes(&bytes)
                     .map(Self::P256)
                     .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
@@ -288,14 +292,7 @@ impl AitpVerifyingKey {
             (Self::P256(vk), SignatureAlgorithm::P256) => {
                 let raw = Base64UrlUnpadded::decode_vec(sig.payload())
                     .map_err(|_| CryptoError::SignatureInvalid)?;
-                if raw.len() != 64 {
-                    return Err(CryptoError::SignatureInvalid);
-                }
-                // p256::ecdsa::Signature accepts R||S as 64 bytes.
-                let p256_sig =
-                    P256Signature::from_slice(&raw).map_err(|_| CryptoError::SignatureInvalid)?;
-                vk.verify(message, &p256_sig)
-                    .map_err(|_| CryptoError::SignatureInvalid)
+                verify_p256_raw(vk, message, &raw)
             }
             // Algorithm-confusion guard: refuse to verify a P-256
             // signature with an Ed25519 key, and vice versa.
@@ -321,12 +318,7 @@ impl AitpVerifyingKey {
                 vk.verify_strict(message, &dalek_sig)
                     .map_err(|_| CryptoError::SignatureInvalid)
             }
-            Self::P256(vk) => {
-                let p256_sig =
-                    P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
-                vk.verify(message, &p256_sig)
-                    .map_err(|_| CryptoError::SignatureInvalid)
-            }
+            Self::P256(vk) => verify_p256_raw(vk, message, sig),
         }
     }
 
@@ -411,6 +403,44 @@ impl AitpVerifyingKey {
             Self::P256(_) => AidAlgorithm::P256,
         }
     }
+}
+
+/// Sign `message` with P-256/ES256 and return a signature normalized to
+/// the **low-S** canonical form. The `p256` signer produces RFC 6979
+/// deterministic-k signatures but does NOT guarantee low-S; roughly half
+/// come out high-S. Normalizing here makes our mints canonical and keeps
+/// them acceptable to the strict [`verify_p256_raw`] path.
+fn p256_sign_low_s(inner: &P256SigningKey, message: &[u8]) -> P256Signature {
+    let sig: P256Signature = <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
+    // `normalize_s()` returns `Some(low_s)` iff the input was high-S.
+    sig.normalize_s().unwrap_or(sig)
+}
+
+/// Verify a raw `R || S` (64-byte) ES256 signature, enforcing the
+/// **low-S** canonical form (RFC-AITP-0001 §5.4.3 wire determinism; the
+/// hardening posture from RFC-AITP-0009 §4).
+///
+/// ECDSA signatures are malleable: for any valid `(r, s)`, the pair
+/// `(r, n − s)` is an equally valid signature over the same message.
+/// The `p256` crate's verifier accepts both, so without this check a
+/// captured token's signature could be mutated into a second valid
+/// encoding of identical claims. Our own mints are always low-S
+/// (RFC 6979 deterministic-k produces the low-S form), so rejecting
+/// high-S costs nothing on the honest path and removes the malleability
+/// on the wire. `normalize_s()` returns `Some` only when the input was
+/// high-S — i.e. non-canonical — so we reject exactly that case.
+fn verify_p256_raw(vk: &P256VerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+    if sig.len() != 64 {
+        return Err(CryptoError::SignatureInvalid);
+    }
+    // p256::ecdsa::Signature accepts R||S as 64 bytes.
+    let p256_sig = P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
+    if p256_sig.normalize_s().is_some() {
+        // High-S (non-canonical / malleated) — reject.
+        return Err(CryptoError::SignatureInvalid);
+    }
+    vk.verify(message, &p256_sig)
+        .map_err(|_| CryptoError::SignatureInvalid)
 }
 
 /// A signature in the AITP wire format.
@@ -652,7 +682,11 @@ mod tests {
         assert_eq!(verifier.to_compressed(), pk_bytes);
 
         let msg = b"aitp p256 round-trip";
+        // Match the canonical low-S form our signer emits; the raw
+        // p256 Signer does not normalize, so ~half of keys/messages
+        // would otherwise yield a high-S vector the verifier rejects.
         let sig: p256::ecdsa::Signature = signing_key.sign(msg);
+        let sig = sig.normalize_s().unwrap_or(sig);
         let sig_bytes = sig.to_bytes();
         let sig_b64 = Base64UrlUnpadded::encode_string(&sig_bytes);
         let wire = format!("p256.{sig_b64}");
@@ -663,6 +697,65 @@ mod tests {
             .verify(msg, &parsed)
             .expect("P-256 signature verifies");
         assert!(verifier.verify(b"tampered", &parsed).is_err());
+    }
+
+    #[test]
+    fn p256_high_s_signature_is_rejected() {
+        // ECDSA malleability: a valid low-S signature (r, s) has an
+        // equally-valid high-S sibling (r, n - s) over the same
+        // message. Our verifier must accept the canonical low-S form
+        // and reject the high-S mutation, so a captured token cannot
+        // be re-encoded on the wire.
+        use p256::ecdsa::{signature::Signer as _, Signature as P256Sig, SigningKey};
+
+        let signing_key = SigningKey::from_bytes(&[11u8; 32].into()).unwrap();
+        let pk = signing_key.verifying_key();
+        let pk_arr: [u8; 33] = pk
+            .to_encoded_point(true)
+            .as_bytes()
+            .try_into()
+            .expect("33-byte compressed point");
+        let aid = aitp_core::Aid::from_p256(&pk_arr);
+        let verifier = AitpVerifyingKey::from_aid(&aid).unwrap();
+
+        let msg = b"aitp p256 low-S enforcement";
+        // RFC 6979 deterministic-k signing emits the low-S form.
+        let low_s: P256Sig = signing_key.sign(msg);
+        assert!(
+            low_s.normalize_s().is_none(),
+            "signer must emit low-S canonical form"
+        );
+
+        // Build the malleated high-S sibling: (r, -s).
+        let (r, s) = low_s.split_scalars();
+        let high_s = P256Sig::from_scalars(r, -s).expect("valid high-S signature");
+        assert!(
+            high_s.normalize_s().is_some(),
+            "constructed sibling must be high-S"
+        );
+
+        let low_wire = format!(
+            "p256.{}",
+            Base64UrlUnpadded::encode_string(&low_s.to_bytes())
+        );
+        let high_wire = format!(
+            "p256.{}",
+            Base64UrlUnpadded::encode_string(&high_s.to_bytes())
+        );
+
+        verifier
+            .verify(msg, &Signature::parse(&low_wire).unwrap())
+            .expect("low-S signature verifies");
+        assert!(
+            verifier
+                .verify(msg, &Signature::parse(&high_wire).unwrap())
+                .is_err(),
+            "high-S (malleated) signature must be rejected"
+        );
+
+        // Same guarantee on the compact-JWS raw path.
+        assert!(verifier.verify_raw(msg, &low_s.to_bytes()).is_ok());
+        assert!(verifier.verify_raw(msg, &high_s.to_bytes()).is_err());
     }
 
     #[test]

@@ -16,7 +16,7 @@ use crate::tct::VerifiedTct;
 #[cfg(feature = "experimental-renewal")]
 use crate::tct::{build_renewal_request, TctRenewalPayload};
 use crate::transport::{
-    sign_envelope_with, verify_envelope_signature, FetchError, ManifestFetcher,
+    sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
 };
 use std::time::Duration;
 use uuid::Uuid;
@@ -358,6 +358,40 @@ async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
 /// 3. Drives the state machine through HELLO_ACK → COMMIT → COMMIT_ACK.
 /// 4. Returns the [`SessionContext`] with the peer-issued TCT.
 ///
+/// Build an HTTP client for POSTing to a peer-manifest-supplied
+/// handshake endpoint. The endpoint host is chosen by the peer (a
+/// signed Manifest only proves the peer *claims* that endpoint — a
+/// malicious peer can legitimately point it at an internal address),
+/// so it is SSRF-guarded exactly like the Manifest/JWKS fetch paths:
+/// redirects rejected, resolved addresses classified by a default
+/// [`HostGuard`] (link-local/metadata always denied; private ranges
+/// warn), and for domain hosts the vetted addresses pinned into the
+/// client to close the DNS-rebinding window.
+///
+/// The `guard` and `timeout` come from [`InitiatorConfig`] on the
+/// handshake path (default `WarnPrivate` + 10s, so the local two-agent
+/// demo over `http://localhost` keeps working), or from the built-in
+/// defaults on the renewal path.
+async fn build_guarded_client(
+    endpoint: &url::Url,
+    timeout: Duration,
+    guard: &HostGuard,
+) -> Result<reqwest::Client, FacadeError> {
+    let addrs = guard
+        .resolve_checked(endpoint)
+        .await
+        .map_err(|e| FacadeError::Http(format!("handshake endpoint rejected: {e}")))?;
+    let mut builder = reqwest::Client::builder()
+        .timeout(timeout)
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(url::Host::Domain(domain)) = endpoint.host() {
+        builder = builder.resolve_to_addrs(domain, &addrs);
+    }
+    builder
+        .build()
+        .map_err(|e| FacadeError::Http(e.to_string()))
+}
+
 /// The identity presented to the peer is selected by
 /// [`InitiatorConfig::identity_mode`]; the type is checked against the
 /// peer Manifest's `accepted_identity_types` before the handshake
@@ -365,7 +399,9 @@ async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
 pub async fn run_initiator_handshake(
     config: InitiatorConfig<'_>,
 ) -> Result<SessionContext, FacadeError> {
-    let manifest_fetcher = ManifestFetcher::new();
+    let manifest_fetcher = ManifestFetcher::new()
+        .with_timeout(config.http_timeout)
+        .with_host_guard(config.host_guard.clone());
     let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
     // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake if
     // the peer doesn't accept the identity type we'd present. Checking
@@ -426,15 +462,14 @@ pub async fn run_initiator_handshake(
     )
     .map_err(FacadeError::Http)?;
 
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| FacadeError::Http(e.to_string()))?;
-
     let endpoint_url = peer_manifest
         .handshake_endpoint
         .parse_url()
         .map_err(|e| FacadeError::Http(format!("handshake_endpoint not a URL: {e}")))?;
+    // SSRF-guard the peer-chosen handshake endpoint before any POST.
+    let client =
+        build_guarded_client(&endpoint_url, config.http_timeout, &config.host_guard).await?;
+
     let hello_url = endpoint_url
         .join("hello")
         .map_err(|e| FacadeError::Http(format!("build hello URL: {e}")))?;
@@ -504,6 +539,11 @@ pub async fn run_initiator_handshake(
 /// Trust posture is supplied via [`TrustMode`] — the facade refuses to
 /// silently default to "no trust enforcement". See [`TrustMode`] for the
 /// three available modes.
+///
+/// Construct with [`InitiatorConfig::new`] and adjust the optional knobs
+/// with the `with_*` methods; the struct is `#[non_exhaustive]` so future
+/// knobs can be added without breaking callers.
+#[non_exhaustive]
 pub struct InitiatorConfig<'a> {
     /// Our long-term signing key.
     pub signing_key: &'a AitpSigningKey,
@@ -525,6 +565,54 @@ pub struct InitiatorConfig<'a> {
     pub identity_mode: IdentityMode<'a>,
     /// Capabilities to request from the peer.
     pub requested_grants: Vec<String>,
+    /// Per-request HTTP timeout for the Manifest fetch and the handshake
+    /// POSTs. Default 10s ([`InitiatorConfig::new`]); override with
+    /// [`InitiatorConfig::with_http_timeout`].
+    pub http_timeout: Duration,
+    /// SSRF guard applied to the peer-derived Manifest origin and
+    /// handshake endpoint. Default [`HostGuard::default`] (`WarnPrivate`)
+    /// so the local demo keeps working; internet-facing callers should
+    /// pass [`HostGuard::strict`] via
+    /// [`InitiatorConfig::with_host_guard`].
+    pub host_guard: HostGuard,
+}
+
+impl<'a> InitiatorConfig<'a> {
+    /// Construct a config with default transport knobs (10s HTTP
+    /// timeout, [`HostGuard::default`]). Adjust with the `with_*`
+    /// methods.
+    pub fn new(
+        signing_key: &'a AitpSigningKey,
+        own_manifest: &'a Manifest,
+        peer_origin: url::Url,
+        trust_mode: TrustMode<'a>,
+        identity_mode: IdentityMode<'a>,
+        requested_grants: Vec<String>,
+    ) -> Self {
+        Self {
+            signing_key,
+            own_manifest,
+            peer_origin,
+            trust_mode,
+            identity_mode,
+            requested_grants,
+            http_timeout: Duration::from_secs(10),
+            host_guard: HostGuard::default(),
+        }
+    }
+
+    /// Override the per-request HTTP timeout (default 10s).
+    pub fn with_http_timeout(mut self, timeout: Duration) -> Self {
+        self.http_timeout = timeout;
+        self
+    }
+
+    /// Override the SSRF [`HostGuard`] applied to peer-derived hosts.
+    /// Use [`HostGuard::strict`] for internet-facing deployments.
+    pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
+        self.host_guard = guard;
+        self
+    }
 }
 
 /// Result of a TCT renewal: the fresh TCT compact JWS and its
@@ -558,10 +646,14 @@ pub async fn renew_tct(
     let url = peer_handshake_endpoint
         .join("renew")
         .map_err(|e| FacadeError::Http(format!("build renew URL: {e}")))?;
-    let client = reqwest::Client::builder()
-        .timeout(Duration::from_secs(10))
-        .build()
-        .map_err(|e| FacadeError::Http(e.to_string()))?;
+    // SSRF-guard the peer-chosen handshake endpoint before the POST,
+    // with the built-in transport defaults (10s, WarnPrivate).
+    let client = build_guarded_client(
+        peer_handshake_endpoint,
+        Duration::from_secs(10),
+        &HostGuard::default(),
+    )
+    .await?;
     let renew_resp = client
         .post(url)
         .json(&request)
@@ -851,6 +943,73 @@ mod facade_http_tests {
         )
         .unwrap();
         assert_eq!(v, serde_json::json!({"ok": true}));
+    }
+}
+
+#[cfg(test)]
+mod initiator_config_knobs {
+    //! R6.1: `InitiatorConfig` transport knobs — HTTP timeout + SSRF
+    //! guard — default sensibly and are overridable.
+    use super::*;
+
+    fn key_and_manifest() -> (AitpSigningKey, Manifest) {
+        let key = AitpSigningKey::from_seed(&[0x33; 32]);
+        let manifest = crate::manifest::ManifestBuilder::new(&key)
+            .display_name("t")
+            .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
+            .identity_hint(crate::manifest::IdentityHint {
+                kind: crate::manifest::IdentityHintKind::PinnedKey,
+                subject: "t".into(),
+                issuer: None,
+                public_key: Some(key.aid().identifier().to_string()),
+            })
+            .offer("demo.echo")
+            .published_at(Timestamp(1_700_000_000))
+            .build()
+            .unwrap();
+        (key, manifest)
+    }
+
+    #[test]
+    fn defaults_are_10s_and_warn_private() {
+        let (key, manifest) = key_and_manifest();
+        let cfg = InitiatorConfig::new(
+            &key,
+            &manifest,
+            "https://peer.example.com".parse().unwrap(),
+            TrustMode::UnsafeNoTrustEnforcement,
+            IdentityMode::PinnedKey {
+                subject: "t".into(),
+            },
+            vec!["demo.echo".into()],
+        );
+        assert_eq!(cfg.http_timeout, Duration::from_secs(10));
+        assert_eq!(
+            cfg.host_guard.mode(),
+            crate::transport::GuardMode::WarnPrivate
+        );
+    }
+
+    #[test]
+    fn with_setters_override_defaults() {
+        let (key, manifest) = key_and_manifest();
+        let cfg = InitiatorConfig::new(
+            &key,
+            &manifest,
+            "https://peer.example.com".parse().unwrap(),
+            TrustMode::UnsafeNoTrustEnforcement,
+            IdentityMode::PinnedKey {
+                subject: "t".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_http_timeout(Duration::from_secs(3))
+        .with_host_guard(HostGuard::strict());
+        assert_eq!(cfg.http_timeout, Duration::from_secs(3));
+        assert_eq!(
+            cfg.host_guard.mode(),
+            crate::transport::GuardMode::DenyPrivate
+        );
     }
 }
 

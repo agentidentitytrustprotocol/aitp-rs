@@ -39,10 +39,12 @@ feature-gated.
   catch-all string-only errors in new code.
 - New dependencies: declare in `[workspace.dependencies]` of the root
   `Cargo.toml` and reference via `{ workspace = true }` in member crates.
-- MSRV is **1.88** (forced up from the originally-targeted 1.75 by
-  transitive deps — `time`, `time-macros`, `icu_*`, `idna_adapter`,
-  `clap_lex`). Do not use newer language features without a follow-up
-  bump in `rust-toolchain.toml` and `Cargo.toml` (`rust-version`).
+- MSRV is **1.89**, kept in lockstep with the `rust-toolchain.toml`
+  pin (originally targeted 1.75; forced up by transitive deps —
+  `time`, `time-macros`, `icu_*`, `idna_adapter`, `clap_lex`). Do not
+  use newer language features without a follow-up bump in
+  `rust-toolchain.toml`, `Cargo.toml` (`rust-version`), `clippy.toml`
+  (`msrv`), and the CI MSRV matrix entry.
 
 ## Documentation
 

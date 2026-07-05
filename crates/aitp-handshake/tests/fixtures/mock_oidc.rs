@@ -3,6 +3,11 @@
 //! Holds a fixed Ed25519 keypair, mints JWTs with arbitrary claims, and
 //! exposes its key as a `JwksResolver` so the handshake's
 //! `verify_oidc` path can resolve the issuer without any HTTP I/O.
+//!
+//! Each test binary compiles this module independently, so any given
+//! test uses only a subset of the helpers — allow dead code rather than
+//! sprinkle per-item attributes.
+#![allow(dead_code)]
 
 use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use base64ct::{Base64UrlUnpadded, Encoding};
@@ -48,11 +53,22 @@ impl MockOidcIssuer {
     /// build the compact JWT by hand: base64url(header) + "." +
     /// base64url(payload) + "." + base64url(Ed25519(signing_input)).
     pub fn mint_jwt(&self, claims: Value) -> String {
-        let header = json!({
-            "alg": "EdDSA",
-            "typ": "JWT",
-            "kid": self.kid,
-        });
+        self.mint_jwt_opts(claims, true)
+    }
+
+    /// Mint a JWT whose protected header omits `kid` entirely — used to
+    /// exercise the no-`kid` single-key fallback in `verify_oidc`.
+    #[allow(dead_code)]
+    pub fn mint_jwt_no_kid(&self, claims: Value) -> String {
+        self.mint_jwt_opts(claims, false)
+    }
+
+    fn mint_jwt_opts(&self, claims: Value, include_kid: bool) -> String {
+        let header = if include_kid {
+            json!({ "alg": "EdDSA", "typ": "JWT", "kid": self.kid })
+        } else {
+            json!({ "alg": "EdDSA", "typ": "JWT" })
+        };
         let header_b64 =
             Base64UrlUnpadded::encode_string(serde_json::to_string(&header).unwrap().as_bytes());
         let payload_b64 =
@@ -68,6 +84,17 @@ impl MockOidcIssuer {
     pub fn as_jwk(&self) -> JwkPublicKey {
         JwkPublicKey {
             kid: Some(self.kid.clone()),
+            alg: Algorithm::EdDSA,
+            key: DecodingKey::from_ed_der(&self.pubkey_bytes()),
+        }
+    }
+
+    /// Like [`Self::as_jwk`] but with `kid: None`, so the resolved key
+    /// only matches a JWT that has no `kid` (single-key fallback).
+    #[allow(dead_code)]
+    pub fn as_jwk_no_kid(&self) -> JwkPublicKey {
+        JwkPublicKey {
+            kid: None,
             alg: Algorithm::EdDSA,
             key: DecodingKey::from_ed_der(&self.pubkey_bytes()),
         }

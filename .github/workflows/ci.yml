@@ -90,7 +90,7 @@ jobs:
         toolchain: [stable]
         include:
           - os: ubuntu-latest
-            toolchain: "1.88.0"   # MSRV gate (driven by transitive deps)
+            toolchain: "1.89.0"   # MSRV gate — kept in lockstep with rust-toolchain.toml and rust-version
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@master
@@ -171,12 +171,12 @@ jobs:
         # (≥0.19) requires rustc ≥1.91 and won't compile under 1.89.
         working-directory: /tmp
         run: cargo install --locked cargo-msrv
-      - name: Verify pinned MSRV (1.88) still builds
+      - name: Verify pinned MSRV (1.89) still builds
         # cargo-msrv verify reads `package.rust-version` from a single
         # package manifest — it doesn't understand virtual workspaces.
         # Point it at the facade crate, which transitively depends on
         # every protocol crate via path deps. If `aitp` compiles under
-        # 1.88, the whole workspace does.
+        # 1.89, the whole workspace does.
         run: cargo msrv verify --manifest-path crates/aitp/Cargo.toml
 
   coverage:
@@ -210,9 +210,9 @@ jobs:
         # 52.6% workspace lines covered with the exclude list below.
         # The 50% floor leaves a ~2.5 pt buffer for normal variation
         # (test scheduling, ptrace skew on different runners) without
-        # opening room for real regressions. Ratchet upward in 5-pt
-        # steps as new tests land — see plans/defered/deferred.md
-        # §4.1 for the path to the 80%-per-crate target.
+        # opening room for real regressions. Ratchet policy: raise the
+        # floor in 5-pt steps as new tests land, toward an 80%-per-crate
+        # target (tracked in plans/protocol-runtime-review-2026-07.md §5.5/§7).
         #
         # Excludes: mint-* binaries and the example agent are
         # entry-point binaries with no in-binary tests; their lines

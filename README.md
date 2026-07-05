@@ -2,8 +2,10 @@
 
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
-> **Status: v0.1.0** — Tracks AITP specification v0.1.0-rc.1.
-> 44/44 conformance fixtures pass (37 core + 7 draft under feature flags).
+> **Status: 0.3.0** — Tracks AITP specification **v0.2** (wire protocol
+> `aitp/0.2`; spec RFCs at `0.2.0-draft`). All 45 required v0.2 `core`
+> conformance fixtures pass; the 7 `draft` fixtures pass under their
+> opt-in features (53 fixtures total, 1 v0.1-frozen SKIP).
 > See [`docs/conformance.md`](docs/conformance.md) for the
 > per-fixture breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
@@ -16,7 +18,11 @@ each peer as the audience and bind capabilities to the holder's key.
 
 The protocol specification lives in the
 [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol)
-repository. This implementation tracks AITP v0.1.0.
+repository. This implementation tracks AITP v0.2: portable trust
+artifacts (TCT, grant voucher, delegation token) are compact JWS
+(RFC 7515) verified over the exact transmitted bytes; protocol-internal
+artifacts use JCS (RFC 8785) embedded signatures. Ed25519 and P-256
+(ES256) are both supported end-to-end.
 
 ## Workspace layout
 
@@ -53,17 +59,17 @@ aitp-rs/
 | Crate                 | Status        | Notes                                                  |
 |-----------------------|---------------|--------------------------------------------------------|
 | `aitp-core`           | ✅ complete   | AID, JCS, base64url, timestamps, envelope, error codes. |
-| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`), JWK thumbprint.              |
+| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256, compact-JWS profile, JWK thumbprint. |
 | `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal.          |
-| `aitp-delegation`     | ✅ complete   | Builder + 11-check verifier (single-hop).               |
+| `aitp-delegation`     | ✅ complete   | Builder + verifier: single-hop by default, multi-hop chains (RFC-0011) via `max_hops` opt-in. |
 | `aitp-handshake`      | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy). |
 | `aitp-session-bundle` | ✅ Draft (opt-in) | Session Trust Bundle (RFC-0010): builder + verifier; gated behind `experimental-session-bundle`. |
 | `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. |
 | `aitp` (facade)       | ✅ complete   | Re-exports + `run_initiator_handshake` + `renew_tct` + `TctStore`. |
 | `aitp-conformance`    | ✅ Tier A     | Subprocess adapter, fixture loader, runner. |
-| `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). All 37 `core` spec fixtures pass; the 7 `draft` fixtures pass under their opt-in features. |
+| `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). All 45 required v0.2 `core` fixtures pass; the 7 `draft` fixtures pass under their opt-in features. |
 
 ### Language SDKs (`bindings/`)
 
@@ -93,18 +99,26 @@ the Cargo workspace — `cargo test --workspace` does not build them.
 | [0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | Revocation | ✅ implemented | Snapshot signing/verification + per-issuer cache + HTTP endpoint + Manifest extension. |
 | [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults. |
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft (opt-in) | Gated behind `experimental-session-bundle`. Builder + verifier in `aitp-session-bundle`; conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
-| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | v0.1-strict rejects with `DELEGATION_MULTIHOP_NOT_SUPPORTED` (max_hops=0). Opt-in `experimental-multihop-delegation` flips `max_hops` to `DEFAULT_MAX_HOPS=3` and exercises `del-mh-*` fixtures. |
-| [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ✅ implemented | `ExtensionsMap` with namespace conventions; revocation URL extension wired. |
+| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | Default verifier config (`max_hops=0`) rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Setting `max_hops > 0` (typically `DEFAULT_MAX_HOPS=3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
+| [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ✅ implemented | `ExtensionsMap` with namespace conventions; `ext` claim on JWS artifacts; revocation URL extension wired. |
+| [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft (opt-in) | Shortened in-band renewal (RFC-0004 §8.1) behind the `experimental-renewal` Cargo feature: `renew_tct` facade + holder-PoP renewal exchange. |
 
-## Known limitations (v0.1)
+## Known limitations (v0.2)
 
 - **Single-hop delegation only by default.** Multi-hop chains (RFC-0011)
-  are rejected unless the `experimental-multihop-delegation` feature is
-  opted in. See [conformance-matrix](#conformance-matrix) for fixture
-  coverage.
-- **Session Trust Bundle is opt-in.** N-party trust artifacts (RFC-0010,
-  Draft) are gated behind the `experimental-session-bundle` Cargo
-  feature on the `aitp` facade.
+  are rejected unless the verifier opts in with `max_hops > 0`. See
+  [conformance-matrix](#conformance-matrix) for fixture coverage.
+- **Session Trust Bundle and renewal are opt-in.** N-party trust
+  artifacts (RFC-0010, Draft) are gated behind the
+  `experimental-session-bundle` Cargo feature, and in-band TCT renewal
+  (RFC-0013, Draft) behind `experimental-renewal`, both on the `aitp`
+  facade. Note the language SDKs (0.4.0+) ship these features **on by
+  default**.
+- **Revocation checking is the verifier's obligation.** `verify_tct`
+  consults revocation only when a revocation source is configured; the
+  SDKs accept a caller-supplied revoked-`jti` set. A revoked but
+  unexpired TCT is accepted if no source is wired. (Strict-by-default
+  verification is planned — see `plans/implementation-plan-2026-07.md`.)
 - **JWKS resolution from a current-thread runtime.** The synchronous
   `JwksResolver::resolve` sync→async bridge uses `block_in_place`,
   which requires a multi-thread tokio runtime; on a current-thread
@@ -116,23 +130,23 @@ the Cargo workspace — `cargo test --workspace` does not build them.
 ## Conformance matrix
 
 The conformance runner reads fixture metadata (`status`, `feature`,
-`required_for_v0_1`) to decide which fixtures run in strict v0.1 vs.
-opt-in modes.
+`required_for_v0_2`) to decide which fixtures run in strict v0.2 vs.
+opt-in modes. The spec ships 53 fixtures.
 
 | Mode | Command | Result |
 |------|---------|--------|
-| v0.1 strict (default) | `aitp-conformance run --target <adapter> --fixtures-dir <spec>/schemas/conformance` | 37 PASS / 7 SKIP / 0 FAIL |
-| Opt-in (Draft RFCs) | `… --feature experimental-multihop-delegation --feature experimental-session-bundle` | 43 PASS / 1 SKIP / 0 FAIL |
+| v0.2 strict (default) | `aitp-conformance run --target <adapter> --fixtures-dir <spec>/schemas/conformance` | 45 PASS / 8 SKIP / 0 FAIL |
+| Opt-in (Draft RFCs) | `… --feature experimental-multihop-delegation --feature experimental-session-bundle` | 52 PASS / 1 SKIP / 0 FAIL |
 
-The 7 SKIPs in strict mode are the `draft`-tier fixtures (3 session
-bundle + 4 multi-hop delegation), all `required_for_v0_1: false`. The
-single SKIP in opt-in mode is `del-004`, which asserts the v0.1 strict
-rejection (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) and is auto-skipped by
-the runner's negative-feature rule when multi-hop is opted in. See
+The 8 SKIPs in strict mode are the 7 `draft`-tier fixtures (3 session
+bundle + 4 multi-hop delegation, all `required_for_v0_2: false`) plus
+`del-004`, which is frozen in the v0.1 wire shape and applies to v0.1
+runners only. In opt-in mode the draft fixtures run and `del-004`
+remains the single SKIP. See
 `crates/aitp-conformance/src/runner/executor.rs:negated_by_feature`.
 
-The runner enforces a **v0.1 conformance gate**: a fixture marked
-`required_for_v0_1` that fails — or is SKIPped because the adapter
+The runner enforces a **v0.2 conformance gate**: a fixture marked
+`required_for_v0_2` that fails — or is SKIPped because the adapter
 lacks the op — makes `aitp-conformance run` exit non-zero, so CI
 cannot regress required coverage to a silent SKIP. A full per-fixture
 breakdown is in [`docs/conformance.md`](docs/conformance.md).
@@ -197,20 +211,20 @@ docs here point to the relevant RFC section rather than restating it.
 
 ## Roadmap
 
-The original five-sprint bootstrap (alpha.1 through alpha.4) is
-complete. Subsequent hardening is summarized below; the transport-layer
-items are tracked in
-[`docs/transport-hardening.md`](docs/transport-hardening.md):
+The v0.1 bootstrap and hardening phases, and the v0.2 compact-JWS
+migration (portable trust artifacts re-serialized as compact JWS), are
+complete — see [`CHANGELOG.md`](CHANGELOG.md) for the history and
+[`docs/transport-hardening.md`](docs/transport-hardening.md) for the
+transport-layer status register.
 
-- **alpha.5** — Phases 1–9: pinned-key proof v1, identity type
-  enforcement, `PinnedKeyStore`, grant policy hook, replay deny list,
-  JwksFetcher hardening.
-- **beta.1** — Phases 10–16: key resolution policy,
-  manifest cache correctness, revocation end-to-end, HTTP transport
-  hardening, conformance fixture expansion, TCT renewal + facade.
-- **post-beta** — RFC-0010 (Session Trust Bundle) and RFC-0011
-  (Multi-hop Delegation) once v0.1 soaks. Both have design
-  prerequisites in the unified plan.
+Current direction is tracked in `plans/`:
+
+- [`plans/protocol-runtime-review-2026-07.md`](plans/protocol-runtime-review-2026-07.md)
+  — full protocol + runtime review (strengths, gaps, priorities).
+- [`plans/implementation-plan-2026-07.md`](plans/implementation-plan-2026-07.md)
+  — the concrete workstreams derived from it (security hardening,
+  strict verification posture, fuzzing, storage traits, CLI/WASM/MCP).
+- [`plans/build_status.md`](plans/build_status.md) — live execution status.
 
 ## License
 

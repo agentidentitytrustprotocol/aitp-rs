@@ -135,13 +135,17 @@ pub fn verify_session_bundle(
         // `verify_tct` pins the issuer to the coordinator's AID and
         // the audience to the entry's AID — the §3 invariants surface
         // as the bundle-specific error codes below.
-        let tct_ctx = TctVerifyContext {
-            expected_audience: &entry.aid,
-            issuer: &bundle.coordinator,
-            now: ctx.now,
-            issuer_manifest_expires_at: None,
-            revocation_check: None, // applied separately below for §7
-        };
+        let tct_ctx = TctVerifyContext::builder(&entry.aid, &bundle.coordinator, ctx.now)
+            // §7 per-pair revocation is applied separately below, after
+            // signature verification (RFC-AITP-0008 §3.3 ordering).
+            .accept_unchecked_revocation_dangerous()
+            // Participant TCTs are coordinator-attested within the bundle;
+            // no per-participant issuer Manifest is resolved here, so the
+            // Manifest-expiry cap does not apply (the bundle's own
+            // expiry-window invariant bounds lifetimes instead).
+            .skip_manifest_expiry_cap_dangerous()
+            .build()
+            .expect("both verify decisions are made above");
         let verified = match verify_tct(&entry.tct, &tct_ctx) {
             Ok(v) => v,
             Err(TctError::IssuerMismatch) => {

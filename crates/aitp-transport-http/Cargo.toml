@@ -41,7 +41,9 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+# `net` is needed by `net_guard` (tokio::net::lookup_host) for
+# SSRF-guarded DNS resolution of peer-derived fetch URLs.
+tokio = { workspace = true, optional = true, features = ["net"] }
 jsonwebtoken = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
