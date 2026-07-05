@@ -25,6 +25,12 @@ experimental-renewal = ["aitp-tct/experimental-renewal"]
 # and `GET /aitp/session/bundle/:session_id` (RFC-AITP-0010 §4.3.1,
 # Draft / non-normative). Requires `server`.
 experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
+# Emit operational metrics (counters/gauges) at the trust-decision points
+# via the `metrics` facade crate. Off by default so consumers that don't
+# scrape metrics don't take the dependency. The facade is zero-cost when
+# no recorder is installed; install one (e.g. metrics-exporter-prometheus)
+# in your binary to collect. See `obs` module + examples/observability.
+metrics = ["dep:metrics"]
 
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "0.4.0" }
@@ -47,6 +53,7 @@ tokio = { workspace = true, optional = true, features = ["net"] }
 jsonwebtoken = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
+metrics = { workspace = true, optional = true }
 sha2 = { workspace = true }
 chrono = { workspace = true }
 # Used by `retry::RetryPolicy::apply_jitter` to sample a uniform delay
@@ -63,3 +70,5 @@ axum = { workspace = true }
 reqwest = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 ed25519-dalek = { workspace = true }
+# Debugging recorder + snapshotter for the `metrics`-feature emission test.
+metrics-util = { version = "0.19", default-features = false, features = ["debugging"] }

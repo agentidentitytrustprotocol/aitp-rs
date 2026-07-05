@@ -611,6 +611,17 @@ fn revocation_router(producer: Arc<dyn RevocationListProducer>) -> Router {
 const SESSION_HEADER: &str = "x-aitp-session-id";
 
 async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
+    state: State<Arc<HandshakeState<R>>>,
+    request: Request,
+) -> Result<Response, ResponseError> {
+    // Thin wrapper: record the terminal outcome once, regardless of which
+    // `?` inside the inner handler returned.
+    let out = handle_hello_inner(state, request).await;
+    crate::obs::handshake("hello", if out.is_ok() { "ok" } else { "rejected" });
+    out
+}
+
+async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
@@ -722,6 +733,15 @@ async fn handle_hello<R: JwksResolver + Send + Sync + 'static>(
 }
 
 async fn handle_commit<R: JwksResolver + Send + Sync + 'static>(
+    state: State<Arc<HandshakeState<R>>>,
+    request: Request,
+) -> Result<Response, ResponseError> {
+    let out = handle_commit_inner(state, request).await;
+    crate::obs::handshake("commit", if out.is_ok() { "ok" } else { "rejected" });
+    out
+}
+
+async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
@@ -1178,6 +1198,7 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     if guard.check_and_record(&mid.to_string(), state.replay_window) {
         Ok(())
     } else {
+        crate::obs::replay_rejected();
         Err(ResponseError::aitp(
             ErrorCode::ReplayDetected,
             "duplicate message_id within replay window".into(),
@@ -1221,6 +1242,7 @@ fn evict_oldest_to_capacity<V>(
     for (key, _) in by_age.into_iter().take(to_evict) {
         map.remove(&key);
     }
+    crate::obs::sessions_evicted(evicted as u64);
     warn!(
         evicted,
         cap, "evicted oldest in-flight sessions to enforce max_sessions cap"

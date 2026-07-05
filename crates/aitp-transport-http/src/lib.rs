@@ -40,6 +40,9 @@ pub mod key_resolution;
 pub mod net_guard;
 
 #[cfg(any(feature = "client", feature = "server"))]
+mod obs;
+
+#[cfg(any(feature = "client", feature = "server"))]
 pub mod replay_store;
 
 #[cfg(any(feature = "client", feature = "server"))]
