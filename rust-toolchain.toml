@@ -1,7 +1,8 @@
 [toolchain]
-# 1.88+ is required by transitive deps (`time`, `time-macros`, `icu_*`,
-# `idna_adapter`, `clap_lex`). Bump in lockstep with `rust-version` in
-# the workspace `Cargo.toml`.
+# Kept in lockstep with `rust-version` in the workspace `Cargo.toml`,
+# `clippy.toml` (`msrv`), and the CI MSRV matrix entry. The floor was
+# originally forced up from 1.75 by transitive deps (`time`,
+# `time-macros`, `icu_*`, `idna_adapter`, `clap_lex`).
 channel = "1.89.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

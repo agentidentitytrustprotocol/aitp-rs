@@ -14,6 +14,7 @@ use uuid::Uuid;
 /// confused token can neither steer key resolution nor pick its own
 /// algorithm. Revocation is pluggable via a callback; pass `None` to
 /// skip revocation checking.
+#[non_exhaustive]
 pub struct TctVerifyContext<'a> {
     /// The verifier's own AID. The `aud` claim MUST equal this.
     pub expected_audience: &'a Aid,
@@ -30,10 +31,51 @@ pub struct TctVerifyContext<'a> {
     pub issuer_manifest_expires_at: Option<Timestamp>,
     /// Optional revocation lookup. Returns `true` if `jti` is revoked.
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
+    /// Symmetric clock-skew tolerance, in seconds, applied to the `exp`
+    /// and `iat` freshness checks. `0` (the default) is strict: a TCT
+    /// one second past `exp`, or with `iat` one second in the future, is
+    /// rejected. A small positive value (e.g. 5–30s) absorbs benign
+    /// clock drift between issuer and verifier without materially
+    /// widening the acceptance window. Set via
+    /// [`TctVerifyContextBuilder::clock_skew_secs`].
+    pub clock_skew_secs: i64,
+}
+
+/// Error returned by [`TctVerifyContextBuilder::build`] when a security-
+/// relevant check was neither supplied nor explicitly waived.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum TctVerifyContextError {
+    /// Neither a revocation source nor an explicit
+    /// [`TctVerifyContextBuilder::accept_unchecked_revocation_dangerous`]
+    /// waiver was provided. A verifier with no revocation source
+    /// silently accepts revoked-but-unexpired TCTs, so the decision is
+    /// mandatory.
+    #[error(
+        "revocation decision required: call .revocation_check(..) or \
+         .accept_unchecked_revocation_dangerous()"
+    )]
+    RevocationDecisionRequired,
+    /// Neither an issuer-Manifest expiry cap nor an explicit
+    /// [`TctVerifyContextBuilder::skip_manifest_expiry_cap_dangerous`]
+    /// waiver was provided. Without the cap a verifier accepts
+    /// arbitrarily long-lived TCTs.
+    #[error(
+        "manifest-expiry decision required: call .issuer_manifest_expires_at(..) or \
+         .skip_manifest_expiry_cap_dangerous()"
+    )]
+    ManifestCapDecisionRequired,
 }
 
 impl<'a> TctVerifyContext<'a> {
     /// Build a context with no revocation list and the system clock.
+    ///
+    /// This is the **permissive** shortcut: both the revocation check
+    /// and the issuer-Manifest expiry cap are skipped. It is convenient
+    /// for tests and offline/dev use, but production verifiers SHOULD
+    /// use [`Self::builder`] so the two silent-accept surfaces
+    /// (revocation, Manifest cap) are explicit decisions rather than
+    /// accidental omissions. See RFC-AITP-0005 §10.4 and RFC-AITP-0008.
     pub fn now(expected_audience: &'a Aid, issuer: &'a Aid) -> Self {
         Self {
             expected_audience,
@@ -41,7 +83,123 @@ impl<'a> TctVerifyContext<'a> {
             now: Timestamp::now(),
             issuer_manifest_expires_at: None,
             revocation_check: None,
+            clock_skew_secs: 0,
         }
+    }
+
+    /// Permissive context with an explicit clock: both the revocation
+    /// check and the issuer-Manifest expiry cap are skipped. Convenient
+    /// for tests and offline/dev use where the clock is pinned. Production
+    /// verifiers SHOULD use [`Self::builder`] so those two silent-accept
+    /// surfaces are explicit decisions.
+    pub fn permissive_at(expected_audience: &'a Aid, issuer: &'a Aid, now: Timestamp) -> Self {
+        Self {
+            expected_audience,
+            issuer,
+            now,
+            issuer_manifest_expires_at: None,
+            revocation_check: None,
+            clock_skew_secs: 0,
+        }
+    }
+
+    /// Start a strict-by-construction builder. Unlike [`Self::now`], the
+    /// resulting [`TctVerifyContextBuilder::build`] refuses to produce a
+    /// context until both the revocation source and the issuer-Manifest
+    /// expiry cap have been either supplied or explicitly waived with a
+    /// `*_dangerous` method — closing the two silent-accept surfaces a
+    /// misconfigured verifier would otherwise expose.
+    pub fn builder(
+        expected_audience: &'a Aid,
+        issuer: &'a Aid,
+        now: Timestamp,
+    ) -> TctVerifyContextBuilder<'a> {
+        TctVerifyContextBuilder {
+            expected_audience,
+            issuer,
+            now,
+            issuer_manifest_expires_at: None,
+            revocation_check: None,
+            clock_skew_secs: 0,
+            manifest_cap_decided: false,
+            revocation_decided: false,
+        }
+    }
+}
+
+/// Strict builder for [`TctVerifyContext`]. See [`TctVerifyContext::builder`].
+pub struct TctVerifyContextBuilder<'a> {
+    expected_audience: &'a Aid,
+    issuer: &'a Aid,
+    now: Timestamp,
+    issuer_manifest_expires_at: Option<Timestamp>,
+    revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
+    clock_skew_secs: i64,
+    manifest_cap_decided: bool,
+    revocation_decided: bool,
+}
+
+impl<'a> TctVerifyContextBuilder<'a> {
+    /// Supply the issuer Manifest's `expires_at`; the TCT's `exp` must
+    /// not exceed it. Satisfies the manifest-cap decision.
+    pub fn issuer_manifest_expires_at(mut self, expires_at: Timestamp) -> Self {
+        self.issuer_manifest_expires_at = Some(expires_at);
+        self.manifest_cap_decided = true;
+        self
+    }
+
+    /// Explicitly waive the issuer-Manifest expiry cap (e.g. offline
+    /// verification where the Manifest is genuinely unavailable,
+    /// RFC-AITP-0005 §10.4). Satisfies the manifest-cap decision without
+    /// enforcing the bound — **the TCT may then outlive its issuer's
+    /// Manifest.**
+    pub fn skip_manifest_expiry_cap_dangerous(mut self) -> Self {
+        self.issuer_manifest_expires_at = None;
+        self.manifest_cap_decided = true;
+        self
+    }
+
+    /// Supply a revocation lookup (returns `true` if a `jti` is
+    /// revoked). Satisfies the revocation decision.
+    pub fn revocation_check(mut self, check: &'a dyn Fn(&Uuid) -> bool) -> Self {
+        self.revocation_check = Some(check);
+        self.revocation_decided = true;
+        self
+    }
+
+    /// Explicitly accept TCTs without consulting any revocation source.
+    /// Satisfies the revocation decision **but a revoked-yet-unexpired
+    /// TCT will be accepted.** Only appropriate for dev/offline use.
+    pub fn accept_unchecked_revocation_dangerous(mut self) -> Self {
+        self.revocation_check = None;
+        self.revocation_decided = true;
+        self
+    }
+
+    /// Set the symmetric clock-skew tolerance (seconds) for the `exp` /
+    /// `iat` freshness checks. Defaults to `0` (strict). Negative values
+    /// are clamped to `0`.
+    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
+        self.clock_skew_secs = secs.max(0);
+        self
+    }
+
+    /// Finalize the context, or error if a required decision is missing.
+    pub fn build(self) -> Result<TctVerifyContext<'a>, TctVerifyContextError> {
+        if !self.revocation_decided {
+            return Err(TctVerifyContextError::RevocationDecisionRequired);
+        }
+        if !self.manifest_cap_decided {
+            return Err(TctVerifyContextError::ManifestCapDecisionRequired);
+        }
+        Ok(TctVerifyContext {
+            expected_audience: self.expected_audience,
+            issuer: self.issuer,
+            now: self.now,
+            issuer_manifest_expires_at: self.issuer_manifest_expires_at,
+            revocation_check: self.revocation_check,
+            clock_skew_secs: self.clock_skew_secs,
+        })
     }
 }
 
@@ -94,10 +252,14 @@ pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct
     if claims.aud != claims.sub {
         return Err(TctError::AudienceMismatch);
     }
-    if claims.exp.is_in_the_past(ctx.now) {
+    // Freshness checks with symmetric skew tolerance (default 0). A TCT
+    // is "expired" only once `now` is past `exp + skew`, and "not yet
+    // valid" only once `iat` is beyond `now + skew`.
+    let skew = ctx.clock_skew_secs;
+    if claims.exp.0 < ctx.now.0.saturating_sub(skew) {
         return Err(TctError::Expired);
     }
-    if claims.iat.is_in_the_future(ctx.now) {
+    if claims.iat.0 > ctx.now.0.saturating_add(skew) {
         return Err(TctError::Expired);
     }
     if let Some(manifest_expires_at) = ctx.issuer_manifest_expires_at {
@@ -154,4 +316,90 @@ pub fn verify_voucher(token: &str, issuer: &Aid) -> Result<GrantVoucherClaims, T
         return Err(TctError::EmptyGrants);
     }
     Ok(claims)
+}
+
+#[cfg(test)]
+mod builder_tests {
+    use super::*;
+    use aitp_crypto::AitpSigningKey;
+
+    fn aids() -> (aitp_core::Aid, aitp_core::Aid) {
+        let a = AitpSigningKey::from_seed(&[0x10; 32]).aid().clone();
+        let b = AitpSigningKey::from_seed(&[0x20; 32]).aid().clone();
+        (a, b)
+    }
+
+    #[test]
+    fn build_requires_revocation_decision() {
+        let (aud, iss) = aids();
+        // `TctVerifyContext` has no `Debug` (fn-pointer field), so match
+        // rather than `unwrap_err()`.
+        let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+            .skip_manifest_expiry_cap_dangerous()
+            .build();
+        assert!(matches!(
+            result,
+            Err(TctVerifyContextError::RevocationDecisionRequired)
+        ));
+    }
+
+    #[test]
+    fn build_requires_manifest_cap_decision() {
+        let (aud, iss) = aids();
+        let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+            .accept_unchecked_revocation_dangerous()
+            .build();
+        assert!(matches!(
+            result,
+            Err(TctVerifyContextError::ManifestCapDecisionRequired)
+        ));
+    }
+
+    #[test]
+    fn build_succeeds_when_both_decided() {
+        let (aud, iss) = aids();
+        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(42))
+            .accept_unchecked_revocation_dangerous()
+            .issuer_manifest_expires_at(Timestamp(100))
+            .build()
+            .expect("both decisions made");
+        assert_eq!(ctx.now, Timestamp(42));
+        assert_eq!(ctx.issuer_manifest_expires_at, Some(Timestamp(100)));
+        assert!(ctx.revocation_check.is_none());
+    }
+
+    #[test]
+    fn revocation_check_is_threaded_through() {
+        let (aud, iss) = aids();
+        let deny = |_: &uuid::Uuid| true;
+        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+            .revocation_check(&deny)
+            .skip_manifest_expiry_cap_dangerous()
+            .build()
+            .unwrap();
+        assert!(ctx.revocation_check.is_some());
+    }
+
+    #[test]
+    fn clock_skew_defaults_to_zero_and_clamps_negatives() {
+        let (aud, iss) = aids();
+        let strict = TctVerifyContext::permissive_at(&aud, &iss, Timestamp(1));
+        assert_eq!(strict.clock_skew_secs, 0);
+
+        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+            .accept_unchecked_revocation_dangerous()
+            .skip_manifest_expiry_cap_dangerous()
+            .clock_skew_secs(-5)
+            .build()
+            .unwrap();
+        assert_eq!(ctx.clock_skew_secs, 0, "negative skew clamps to 0");
+
+        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+            .accept_unchecked_revocation_dangerous()
+            .skip_manifest_expiry_cap_dangerous()
+            .clock_skew_secs(30)
+            .build()
+            .unwrap();
+        assert_eq!(ctx.clock_skew_secs, 30);
+    }
 }

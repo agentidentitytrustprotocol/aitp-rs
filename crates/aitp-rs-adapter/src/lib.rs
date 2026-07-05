@@ -1072,13 +1072,13 @@ fn verify_commit_ack_stateless(
     // TCT signature + expiry last. mh-007 deliberately uses an
     // unexpired TCT (relative to the runner's pinned clock) and
     // depends on this check happening AFTER grant-overflow.
-    let ctx = TctVerifyContext {
-        expected_audience: self_aid,
-        issuer: sender_aid,
-        now,
-        issuer_manifest_expires_at: None,
-        revocation_check: None,
-    };
+    let ctx = TctVerifyContext::builder(self_aid, sender_aid, now)
+        // Handshake-payload conformance op: no revocation source or
+        // issuer Manifest is wired for this synthetic check.
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .expect("both verify decisions are made above");
     let verified = verify_tct(&payload.tct, &ctx).map_err(HandshakeError::Tct)?;
     Ok(verified)
 }
@@ -1273,12 +1273,14 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .or_else(|| params.get("issuer_manifest_expires_at"))
         .and_then(|v| v.as_i64())
         .map(Timestamp);
-    let ctx = aitp_tct::TctVerifyContext {
-        expected_audience: &expected_audience,
-        issuer: &issuer,
-        now,
-        issuer_manifest_expires_at,
-        revocation_check: Some(&check),
+    let ctx = {
+        let b = aitp_tct::TctVerifyContext::builder(&expected_audience, &issuer, now)
+            .revocation_check(&check);
+        let b = match issuer_manifest_expires_at {
+            Some(exp) => b.issuer_manifest_expires_at(exp),
+            None => b.skip_manifest_expiry_cap_dangerous(),
+        };
+        b.build().expect("both verify decisions are made above")
     };
     let instrumented = params
         .get("revocation_instrumented")

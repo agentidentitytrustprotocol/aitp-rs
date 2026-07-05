@@ -206,10 +206,10 @@ wrappers in the facade later without changing the protocol crates.
 - **Workspace deps only.** Every third-party crate is pinned once in the
   root `[workspace.dependencies]` and referenced via `{ workspace = true }`,
   so the lock holds exactly one version of each — upgrades are one-line.
-- **MSRV 1.88**, toolchain pinned to `1.89.0` in `rust-toolchain.toml`.
-  MSRV rose from 1.75 once transitive deps (`time`, `icu_*`,
-  `idna_adapter`, `clap_lex`) began requiring edition 2024; `cargo msrv
-  verify` gates it in CI.
+- **MSRV 1.89**, in lockstep with the `1.89.0` toolchain pin in
+  `rust-toolchain.toml`. MSRV rose from 1.75 once transitive deps
+  (`time`, `icu_*`, `idna_adapter`, `clap_lex`) began requiring
+  edition 2024; `cargo msrv verify` gates it in CI.
 - **Dual MIT OR Apache-2.0** — standard Rust convention (same as `tokio`,
   `serde`, `tower`), friendlier to enterprise adoption than either alone.
 - **`#![forbid(unsafe_code)]`** on every workspace crate (the binding

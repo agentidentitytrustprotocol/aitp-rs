@@ -65,14 +65,9 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
     if &peeked.iss != server_aid {
         return Err("TCT not issued by this server".into());
     }
-    let ctx = TctVerifyContext {
-        // Holder receipt: subject == audience == caller.
-        expected_audience: &peeked.sub,
-        issuer: server_aid,
-        now: Timestamp::now(),
-        issuer_manifest_expires_at: None,
-        revocation_check: None,
-    };
+    // Holder receipt: subject == audience == caller. Demo verifier —
+    // no revocation source or issuer Manifest is resolved here.
+    let ctx = TctVerifyContext::permissive_at(&peeked.sub, server_aid, Timestamp::now());
     let verified = verify_tct(token, &ctx).map_err(|e| e.to_string())?;
     if !verified.claims.grants.iter().any(|g| g == "demo.echo") {
         return Err("demo.echo not granted".into());

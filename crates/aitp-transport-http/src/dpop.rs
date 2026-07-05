@@ -36,11 +36,9 @@
 //! // proof.jti is now reserved in the cache for the configured TTL.
 //! ```
 
-use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 /// DPoP proof JWT body (RFC 9449 §4.2). Carried in a `DPoP` header
 /// alongside the access token.
@@ -173,45 +171,39 @@ impl DpopHeader {
 /// [`crate::server`]: bounded by traffic in the window, swept on
 /// every check.
 pub struct DpopReplayCache {
-    seen: Mutex<HashMap<String, Instant>>,
+    guard: std::sync::Arc<dyn crate::replay_store::ReplayGuard>,
     ttl: Duration,
 }
 
 impl DpopReplayCache {
-    /// Build a cache with a custom TTL.
+    /// Build a cache with a custom TTL, backed by the default
+    /// in-memory [`ReplayGuard`](crate::replay_store::ReplayGuard).
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
-            seen: Mutex::new(HashMap::new()),
+            guard: std::sync::Arc::new(crate::replay_store::InMemoryReplayGuard::new()),
             ttl,
         }
     }
 
-    /// Insert `jti`, returning [`DpopError::Replay`] if it's
-    /// already present and unexpired. Sweeps expired entries
-    /// before the check so the map is bounded by recent traffic.
+    /// Build a cache backed by a caller-supplied
+    /// [`ReplayGuard`](crate::replay_store::ReplayGuard) — e.g. a shared
+    /// Redis store so DPoP replay detection holds across a clustered
+    /// deployment (see [`crate::replay_store`]).
+    pub fn with_guard(
+        guard: std::sync::Arc<dyn crate::replay_store::ReplayGuard>,
+        ttl: Duration,
+    ) -> Self {
+        Self { guard, ttl }
+    }
+
+    /// Record `jti`, returning [`DpopError::Replay`] if it was already
+    /// presented within the TTL window.
     pub fn record(&self, jti: &str) -> Result<(), DpopError> {
-        let now = Instant::now();
-        let mut seen = self.seen.lock();
-        seen.retain(|_, ts| now.duration_since(*ts) < self.ttl);
-        if seen.insert(jti.to_string(), now).is_some() {
-            return Err(DpopError::Replay);
+        if self.guard.check_and_record(jti, self.ttl) {
+            Ok(())
+        } else {
+            Err(DpopError::Replay)
         }
-        Ok(())
-    }
-
-    /// Number of unexpired entries currently held. Test-only.
-    #[doc(hidden)]
-    pub fn len(&self) -> usize {
-        let now = Instant::now();
-        let seen = self.seen.lock();
-        seen.iter()
-            .filter(|(_, ts)| now.duration_since(**ts) < self.ttl)
-            .count()
-    }
-
-    #[doc(hidden)]
-    pub fn is_empty(&self) -> bool {
-        self.len() == 0
     }
 }
 
@@ -485,6 +477,14 @@ fn jwk_to_decoding_key(
                 .get("e")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| DpopError::MalformedProof("jwk.e missing".into()))?;
+            // Reject weak RSA keys (RFC-AITP-0009 §4): a DPoP proof
+            // carrying a <2048-bit RSA public key must not be honored.
+            if !crate::common::rsa_modulus_bits_ok(n) {
+                return Err(DpopError::UnsupportedAlgorithm(format!(
+                    "RSA modulus below the {}-bit minimum",
+                    crate::common::MIN_RSA_MODULUS_BITS
+                )));
+            }
             jsonwebtoken::DecodingKey::from_rsa_components(n, e)
                 .map_err(|e| DpopError::MalformedProof(format!("rsa components: {e}")))
         }
@@ -601,7 +601,6 @@ mod tests {
         let err = cache.record("first").unwrap_err();
         assert!(matches!(err, DpopError::Replay));
         cache.record("second").unwrap();
-        assert_eq!(cache.len(), 2);
     }
 
     #[test]
@@ -629,6 +628,47 @@ mod tests {
         // {"crv":"Ed25519","kty":"OKP","x":"11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"}
         // — pinned for regression.
         assert_eq!(t, "kPrK_qmxVWaYVA9wwBF6Iuo3vVzz7TxHCTwXBygrS4k");
+    }
+
+    #[test]
+    fn rsa_jwk_below_2048_is_rejected() {
+        use aitp_core::base64url::encode;
+        // 1024-bit modulus (128 bytes, top bit set): a valid RSA key
+        // shape but below the security floor.
+        let mut weak_n = vec![0xffu8; 128];
+        weak_n[0] = 0x80;
+        let weak = serde_json::json!({
+            "kty": "RSA",
+            "n": encode(&weak_n),
+            "e": "AQAB",
+        });
+        // Note: `DecodingKey` (the Ok type) has no `Debug`, so match
+        // on the result directly rather than `unwrap_err()`.
+        match jwk_to_decoding_key(&weak, "RS256") {
+            Err(DpopError::UnsupportedAlgorithm(m)) => {
+                assert!(m.contains("2048"), "expected weak-RSA rejection, got: {m}");
+            }
+            Err(other) => panic!("expected UnsupportedAlgorithm, got: {other:?}"),
+            Ok(_) => panic!("weak 1024-bit RSA key must be rejected"),
+        }
+
+        // 2048-bit modulus clears the floor (parsing proceeds past the
+        // size gate; from_rsa_components then does its own validation).
+        let mut ok_n = vec![0xffu8; 256];
+        ok_n[0] = 0x80;
+        let ok = serde_json::json!({
+            "kty": "RSA",
+            "n": encode(&ok_n),
+            "e": "AQAB",
+        });
+        // Must NOT be the size-floor error (it may still fail deeper
+        // parsing, but never on the modulus-size gate).
+        if let Err(DpopError::UnsupportedAlgorithm(m)) = jwk_to_decoding_key(&ok, "RS256") {
+            assert!(
+                !m.contains("2048"),
+                "2048-bit modulus must clear the size floor, got: {m}"
+            );
+        }
     }
 
     #[test]

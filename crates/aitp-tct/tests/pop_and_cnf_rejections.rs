@@ -46,13 +46,7 @@ fn malformed_jkt_shape_rejected() {
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
     claims["cnf"]["jkt"] = serde_json::json!("not base64url!!");
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext {
-        expected_audience: subject.aid(),
-        issuer: issuer.aid(),
-        now: NOW,
-        issuer_manifest_expires_at: None,
-        revocation_check: None,
-    };
+    let ctx = TctVerifyContext::permissive_at(subject.aid(), issuer.aid(), NOW);
     assert!(matches!(
         verify_tct(&forged, &ctx).unwrap_err(),
         TctError::CnfMalformed
@@ -70,13 +64,7 @@ fn jkt_of_wrong_key_rejected() {
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
     claims["cnf"]["jkt"] = serde_json::json!(rogue.verifying_key().to_jwk_thumbprint().unwrap());
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext {
-        expected_audience: subject.aid(),
-        issuer: issuer.aid(),
-        now: NOW,
-        issuer_manifest_expires_at: None,
-        revocation_check: None,
-    };
+    let ctx = TctVerifyContext::permissive_at(subject.aid(), issuer.aid(), NOW);
     assert!(matches!(
         verify_tct(&forged, &ctx).unwrap_err(),
         TctError::CnfMalformed

@@ -90,16 +90,16 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
     let alice = AitpSigningKey::from_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
-    let session = run_initiator_handshake(InitiatorConfig {
-        signing_key: &alice,
-        own_manifest: &alice_manifest,
-        peer_origin: bob_origin,
-        trust_mode: TrustMode::UnsafeNoTrustEnforcement,
-        identity_mode: IdentityMode::PinnedKey {
+    let session = run_initiator_handshake(InitiatorConfig::new(
+        &alice,
+        &alice_manifest,
+        bob_origin,
+        TrustMode::UnsafeNoTrustEnforcement,
+        IdentityMode::PinnedKey {
             subject: "alice".into(),
         },
-        requested_grants: vec!["demo.echo".into()],
-    })
+        vec!["demo.echo".into()],
+    ))
     .await
     .expect("facade handshake succeeds");
 
@@ -131,16 +131,16 @@ async fn facade_surfaces_peer_protocol_rejection() {
     let alice = AitpSigningKey::from_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
-    let err = run_initiator_handshake(InitiatorConfig {
-        signing_key: &alice,
-        own_manifest: &alice_manifest,
-        peer_origin: bob_origin,
-        trust_mode: TrustMode::UnsafeNoTrustEnforcement,
-        identity_mode: IdentityMode::PinnedKey {
+    let err = run_initiator_handshake(InitiatorConfig::new(
+        &alice,
+        &alice_manifest,
+        bob_origin,
+        TrustMode::UnsafeNoTrustEnforcement,
+        IdentityMode::PinnedKey {
             subject: "alice".into(),
         },
-        requested_grants: vec!["demo.echo".into()],
-    })
+        vec!["demo.echo".into()],
+    ))
     .await
     .expect_err("untrusted initiator must be rejected");
 

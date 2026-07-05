@@ -621,16 +621,25 @@ fn verify_received_tct(
     // network-amplification DoS. The issuer AID (and therefore the
     // sole acceptable key and JWS alg) comes from the handshake state,
     // not from the token.
-    let ctx = TctVerifyContext {
-        expected_audience: &cfg.manifest.aid,
-        issuer,
-        now: cfg.now,
-        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: issuer manifest's
+    let ctx = {
+        let builder = TctVerifyContext::builder(&cfg.manifest.aid, issuer, cfg.now)
+            // Revocation is deliberately NOT run inside this verify_tct
+            // call: RFC-AITP-0008 §3.3 mandates signature-before-lookup,
+            // so `cfg.revocation_check` is consulted separately *after*
+            // verification succeeds (below). The waiver records that
+            // this call's config skips revocation on purpose.
+            .accept_unchecked_revocation_dangerous();
+        // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: the issuer Manifest's
         // expiry caps the TCT's expiry. We have it in scope from
-        // bootstrap_verify_peer (initiator) or from hello.manifest
-        // (responder), so always pass it through during the handshake.
-        issuer_manifest_expires_at,
-        revocation_check: None,
+        // bootstrap_verify_peer (initiator) or hello.manifest (responder)
+        // when available; §10.4 permits skipping when it is not.
+        let builder = match issuer_manifest_expires_at {
+            Some(exp) => builder.issuer_manifest_expires_at(exp),
+            None => builder.skip_manifest_expiry_cap_dangerous(),
+        };
+        builder
+            .build()
+            .expect("both verify decisions are made above")
     };
     let verified = verify_tct(token, &ctx)?;
     let claims = &verified.claims;

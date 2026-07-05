@@ -88,13 +88,10 @@ pub fn process_renewal_request(
     let peek_claims: crate::types::TctClaims =
         serde_json::from_slice(&peek).map_err(|e| TctError::ClaimsMalformed(e.to_string()))?;
 
-    let ctx = TctVerifyContext {
-        expected_audience: &peek_claims.aud,
-        issuer: issuer_aid,
-        now,
-        issuer_manifest_expires_at: None,
-        revocation_check: None,
-    };
+    // Renewal re-verifies the current TCT before minting a fresh one;
+    // revocation and the Manifest cap are handled by the issuing peer's
+    // renewal policy, not this holder-side re-verification.
+    let ctx = TctVerifyContext::permissive_at(&peek_claims.aud, issuer_aid, now);
     let verified = verify_tct(&request.current_tct, &ctx)?;
     let claims = verified.claims;
 

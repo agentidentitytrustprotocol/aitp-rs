@@ -1,9 +1,11 @@
 name: fuzz
 
-# Nightly fuzz runs on the three parser targets in `fuzz/`. Each
-# target gets a 60s budget — enough to catch crashes on randomly
-# mutated input without holding up the runner. Crashes are uploaded
-# as artifacts; corpus deltas are committed back via a follow-up PR.
+# Nightly fuzz runs on every target in `fuzz/` — the three parser
+# targets plus the five verify-path targets (R4). Each target gets a
+# 120s budget — enough to catch crashes on randomly mutated input
+# without holding up the runner. Crashes are uploaded as artifacts;
+# corpus deltas are committed back via a follow-up PR. A shorter PR
+# gate lives in `fuzz-pr.yml`.
 
 on:
   schedule:
@@ -13,7 +15,7 @@ on:
       duration_seconds:
         description: "Per-target run duration (seconds)"
         required: false
-        default: "60"
+        default: "120"
 
 env:
   CARGO_TERM_COLOR: always
@@ -29,17 +31,29 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [envelope_parse, manifest_parse, delegation_parse]
+        target:
+          - envelope_parse
+          - manifest_parse
+          - delegation_parse
+          - jws_verify
+          - tct_verify
+          - delegation_verify
+          - jcs_canonicalize
+          - revocation_verify
     steps:
       - uses: actions/checkout@v4
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@nightly
       - name: Install cargo-fuzz
-        run: cargo install --locked cargo-fuzz
+        # Force the install under nightly: the repo's rust-toolchain.toml
+        # pins 1.89, but cargo-fuzz's dep tree (cargo-platform ≥0.3.3)
+        # requires rustc ≥1.91. `+nightly` overrides the pin. (Same class
+        # of workaround as the cargo-msrv / cargo-tarpaulin installs in ci.yml.)
+        run: cargo +nightly install --locked cargo-fuzz
       - name: Run fuzz target
         working-directory: fuzz
         env:
-          DURATION: ${{ github.event.inputs.duration_seconds || '60' }}
+          DURATION: ${{ github.event.inputs.duration_seconds || '120' }}
         run: |
           set -euo pipefail
           cargo +nightly fuzz run ${{ matrix.target }} \

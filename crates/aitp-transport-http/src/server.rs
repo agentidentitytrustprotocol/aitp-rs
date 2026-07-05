@@ -204,10 +204,14 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     max_sessions: std::sync::atomic::AtomicUsize,
     /// Replay deny list (RFC-AITP-0001 §5.5). Every accepted envelope's
     /// `message_id` is recorded for `replay_window`; a duplicate within
-    /// that window is rejected with `REPLAY_DETECTED`. Entries older
-    /// than the window are evicted on the next request that triggers a
-    /// check, so the map size is bounded by traffic in the window.
-    seen_message_ids: Mutex<HashMap<Uuid, Instant>>,
+    /// that window is rejected with `REPLAY_DETECTED`. Backed by a
+    /// pluggable [`ReplayGuard`](crate::replay_store::ReplayGuard):
+    /// the default is per-process in-memory, but a clustered deployment
+    /// supplies a shared store via
+    /// [`HandshakeServer::with_replay_guard`] (see [`crate::replay_store`]).
+    /// Held under a `Mutex` only so the builder can swap it on an
+    /// already-`Arc`'d server; the guard itself is cheap to clone.
+    replay_guard: Mutex<Arc<dyn crate::replay_store::ReplayGuard>>,
     replay_window: Duration,
     /// Optional DPoP enforcement policy. Off by default; when set,
     /// protected endpoints (operator-mounted) MUST present a valid
@@ -340,7 +344,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 sessions: Mutex::new(HashMap::new()),
                 session_ttl,
                 max_sessions: std::sync::atomic::AtomicUsize::new(DEFAULT_MAX_SESSIONS),
-                seen_message_ids: Mutex::new(HashMap::new()),
+                replay_guard: Mutex::new(Arc::new(crate::replay_store::InMemoryReplayGuard::new())),
                 replay_window,
                 dpop_policy: Mutex::new(None),
                 dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
@@ -442,6 +446,20 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// `trust_anchors` + `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
         *self.state.pinned_key_store.lock() = Some(store);
+        self
+    }
+
+    /// Replace the envelope replay-detection store (RFC-AITP-0001 §5.5).
+    /// The default is per-process in-memory; a **clustered** deployment
+    /// MUST supply a shared [`ReplayGuard`](crate::replay_store::ReplayGuard)
+    /// (e.g. Redis) or use sticky routing, otherwise a message replayed
+    /// to a second instance is accepted. To share one backend across
+    /// both the envelope and DPoP replay checks, construct the DPoP
+    /// cache with the same guard via
+    /// [`DpopReplayCache::with_guard`](crate::dpop::DpopReplayCache::with_guard).
+    /// See [`crate::replay_store`] for the clustering contract.
+    pub fn with_replay_guard(self, guard: Arc<dyn crate::replay_store::ReplayGuard>) -> Self {
+        *self.state.replay_guard.lock() = guard;
         self
     }
 
@@ -1154,16 +1172,17 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     state: &Arc<HandshakeState<R>>,
     mid: &Uuid,
 ) -> Result<(), ResponseError> {
-    let now = Instant::now();
-    let mut seen = state.seen_message_ids.lock();
-    seen.retain(|_, ts| now.duration_since(*ts) < state.replay_window);
-    if seen.insert(*mid, now).is_some() {
-        return Err(ResponseError::aitp(
+    // Clone the guard Arc out from under the short lock, then run the
+    // (self-synchronizing) check without holding the server-state lock.
+    let guard = state.replay_guard.lock().clone();
+    if guard.check_and_record(&mid.to_string(), state.replay_window) {
+        Ok(())
+    } else {
+        Err(ResponseError::aitp(
             ErrorCode::ReplayDetected,
             "duplicate message_id within replay window".into(),
-        ));
+        ))
     }
-    Ok(())
 }
 
 fn sweep_expired(sessions: &mut HashMap<Uuid, SessionEntry>, ttl: Duration) {

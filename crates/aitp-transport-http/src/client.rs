@@ -1,11 +1,13 @@
 //! HTTP client primitives: Manifest fetcher + JWKS resolver.
 
 use crate::client_config::ClientConfig;
+use crate::net_guard::HostGuard;
 use crate::retry::RetryPolicy;
 use aitp_core::{Aid, Timestamp};
 use aitp_manifest::{verify_manifest, Manifest, ManifestEnvelope, VerifyManifestContext};
 use parking_lot::Mutex;
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::time::Duration;
 use tracing::{debug, instrument, warn};
 use url::Url;
@@ -13,8 +15,12 @@ use url::Url;
 /// Errors from `ManifestFetcher::fetch`.
 #[derive(Debug, thiserror::Error)]
 pub enum FetchError {
-    /// URL was not HTTPS.
-    #[error("manifest URL must be HTTPS")]
+    /// URL was not HTTPS, or its host is (or resolves to) an address
+    /// the configured [`crate::net_guard::HostGuard`] forbids. The
+    /// precise guard rejection is logged at `warn` level. (A dedicated
+    /// guard variant arrives with the 0.4 `#[non_exhaustive]` error
+    /// rework; reusing this variant keeps 0.3.x non-breaking.)
+    #[error("manifest URL must be HTTPS and resolve to a permitted address")]
     InsecureUrl,
     /// reqwest network error.
     #[error("network error: {0}")]
@@ -79,6 +85,13 @@ struct CacheEntry {
 }
 
 /// HTTP client that fetches and verifies peer Agent Manifests.
+///
+/// Because `peer_origin` is peer-controlled, every fetch is SSRF-guarded:
+/// redirects are rejected outright, the host's resolved addresses are
+/// classified by a [`HostGuard`] (link-local/metadata ranges always
+/// rejected; private ranges warn by default — see [`crate::net_guard`]),
+/// and for domain hosts the vetted addresses are pinned into the
+/// connection so DNS rebinding cannot swap in an unchecked address.
 pub struct ManifestFetcher {
     client: reqwest::Client,
     cache: Mutex<HashMap<Aid, CacheEntry>>,
@@ -88,21 +101,42 @@ pub struct ManifestFetcher {
     max_bytes: usize,
     /// Retry policy for transient network failures (default: no retry).
     retry_policy: RetryPolicy,
+    /// Pool/TLS knobs, kept so per-fetch pinned clients inherit them.
+    client_cfg: ClientConfig,
+    /// SSRF guard applied to every non-localhost-exempt fetch.
+    host_guard: HostGuard,
+    /// Tolerate `http://localhost` / `http://127.0.0.1` origins
+    /// (local dev). Default `true` through 0.3.x; flips to `false`
+    /// in 0.4.
+    allow_insecure_localhost: bool,
 }
 
 impl ManifestFetcher {
-    /// Build a fetcher with default reqwest settings.
+    /// Build a fetcher with hardened defaults: 10s timeout, redirects
+    /// rejected, default [`HostGuard`].
     pub fn new() -> Self {
+        let client_cfg = ClientConfig::default();
         Self {
-            client: reqwest::Client::builder()
-                .timeout(Duration::from_secs(10))
-                .build()
-                .expect("reqwest client builds"),
+            client: Self::base_client(Duration::from_secs(10), client_cfg.clone()),
             cache: Mutex::new(HashMap::new()),
             timeout: Duration::from_secs(10),
             max_bytes: DEFAULT_MAX_MANIFEST_BYTES,
             retry_policy: RetryPolicy::none(),
+            client_cfg,
+            host_guard: HostGuard::default(),
+            allow_insecure_localhost: true,
         }
+    }
+
+    /// Shared builder recipe: per-request timeout + the no-redirect
+    /// safety policy (a peer-controlled origin must not be able to
+    /// bounce the fetch elsewhere — same rationale as [`JwksFetcher`]),
+    /// then the caller's pool/TLS knobs.
+    fn base_client(timeout: Duration, cfg: ClientConfig) -> reqwest::Client {
+        let builder = reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none());
+        cfg.apply(builder).build().expect("reqwest client builds")
     }
 
     /// Override the per-request timeout (e.g. for tests).
@@ -129,13 +163,29 @@ impl ManifestFetcher {
 
     /// Override the underlying `reqwest` client with a fresh one
     /// built from the supplied [`ClientConfig`] (connection pool +
-    /// TLS knobs). The fetcher's per-request timeout is preserved.
+    /// TLS knobs). The fetcher's per-request timeout and the
+    /// no-redirect safety policy are preserved.
     pub fn with_client_config(mut self, cfg: ClientConfig) -> Self {
-        let builder = reqwest::Client::builder().timeout(self.timeout);
-        self.client = cfg
-            .apply(builder)
-            .build()
-            .expect("reqwest client builds with supplied config");
+        self.client = Self::base_client(self.timeout, cfg.clone());
+        self.client_cfg = cfg;
+        self
+    }
+
+    /// Override the SSRF [`HostGuard`] (default:
+    /// [`crate::net_guard::GuardMode::WarnPrivate`]). Use
+    /// [`HostGuard::strict`] for internet-facing deployments and
+    /// [`HostGuard::permissive`] for air-gapped/test networks.
+    pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
+        self.host_guard = guard;
+        self
+    }
+
+    /// Whether `http://localhost` / `http://127.0.0.1` origins are
+    /// tolerated (local dev convenience). Default `true` through
+    /// 0.3.x; **the default flips to `false` in 0.4** — production
+    /// deployments should call `.with_insecure_localhost(false)` now.
+    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
+        self.allow_insecure_localhost = allow;
         self
     }
 
@@ -146,18 +196,61 @@ impl ManifestFetcher {
     /// parses `{"manifest": {...}}`, verifies, caches, and returns.
     #[instrument(level = "debug", skip(self), fields(origin = %peer_origin))]
     pub async fn fetch(&self, peer_origin: &Url) -> Result<Manifest, FetchError> {
+        let mut localhost_exempt = false;
         if peer_origin.scheme() != "https" {
-            // Allow http://localhost for local dev (demo).
-            if !(peer_origin.scheme() == "http"
+            // `http://localhost` is tolerated for local dev (demo)
+            // while `allow_insecure_localhost` holds (default through
+            // 0.3.x; the default flips off in 0.4).
+            let is_localhost_http = peer_origin.scheme() == "http"
                 && (peer_origin.host_str() == Some("localhost")
-                    || peer_origin.host_str() == Some("127.0.0.1")))
-            {
+                    || peer_origin.host_str() == Some("127.0.0.1"));
+            if !(is_localhost_http && self.allow_insecure_localhost) {
                 return Err(FetchError::InsecureUrl);
             }
+            static LOCALHOST_WARN: std::sync::Once = std::sync::Once::new();
+            LOCALHOST_WARN.call_once(|| {
+                warn!(
+                    "fetching manifests over http://localhost — development \
+                     convenience only; disable now with \
+                     `ManifestFetcher::with_insecure_localhost(false)` \
+                     (this becomes the default in 0.4)"
+                );
+            });
+            // localhost / 127.0.0.1 is loopback by definition — the
+            // flag above already accepted exactly that, so the guard
+            // has nothing further to add for this URL.
+            localhost_exempt = true;
         }
         let url = peer_origin
             .join("/.well-known/aitp-manifest")
             .map_err(|e| FetchError::Network(e.to_string()))?;
+
+        // SSRF guard: classify every address the host resolves to, and
+        // for domain hosts pin the vetted set into a per-fetch client
+        // so the connection cannot be re-resolved (DNS rebinding) to an
+        // address that never passed the check. IP-literal hosts involve
+        // no DNS, so the shared client is safe for them.
+        let pinned_client;
+        let client: &reqwest::Client = if localhost_exempt {
+            &self.client
+        } else {
+            let addrs = self.host_guard.resolve_checked(&url).await.map_err(|e| {
+                if e.is_transient() {
+                    FetchError::Network(e.to_string())
+                } else {
+                    warn!(error = %e, "manifest fetch rejected by host guard");
+                    FetchError::InsecureUrl
+                }
+            })?;
+            match url.host() {
+                Some(url::Host::Domain(domain)) => {
+                    pinned_client = self.pinned_client(domain, &addrs);
+                    &pinned_client
+                }
+                _ => &self.client,
+            }
+        };
+
         let max_attempts = self.retry_policy.max_attempts();
         let mut last_err: Option<FetchError> = None;
         for attempt in 1..=max_attempts {
@@ -166,7 +259,7 @@ impl ManifestFetcher {
                 debug!(?delay, attempt, "manifest fetch retry sleep");
                 tokio::time::sleep(delay).await;
             }
-            match self.fetch_attempt(&url).await {
+            match self.fetch_attempt(client, &url).await {
                 Ok(manifest) => {
                     if attempt > 1 {
                         debug!(attempt, "manifest fetch succeeded after retry");
@@ -183,11 +276,29 @@ impl ManifestFetcher {
         Err(last_err.unwrap_or(FetchError::Network("unreachable".into())))
     }
 
+    /// Per-fetch client with the guard-vetted addresses pinned for
+    /// `domain`, inheriting the fetcher's timeout, no-redirect policy,
+    /// and pool/TLS knobs.
+    fn pinned_client(&self, domain: &str, addrs: &[SocketAddr]) -> reqwest::Client {
+        let builder = reqwest::Client::builder()
+            .timeout(self.timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(domain, addrs);
+        self.client_cfg
+            .clone()
+            .apply(builder)
+            .build()
+            .expect("reqwest client builds with pinned addresses")
+    }
+
     /// Single fetch attempt; the retry harness in `fetch` calls this
-    /// once per attempt.
-    async fn fetch_attempt(&self, url: &Url) -> Result<Manifest, FetchError> {
-        let resp = self
-            .client
+    /// once per attempt with the (possibly address-pinned) client.
+    async fn fetch_attempt(
+        &self,
+        client: &reqwest::Client,
+        url: &Url,
+    ) -> Result<Manifest, FetchError> {
+        let resp = client
             .get(url.clone())
             .timeout(self.timeout)
             .send()
@@ -372,6 +483,11 @@ pub struct JwksFetcher {
     discovery_cache: Mutex<HashMap<Url, DiscoveryCacheEntry>>,
     discovery_ttl: Duration,
     max_bytes: usize,
+    /// Pool/TLS knobs, kept so per-fetch pinned clients inherit them.
+    client_cfg: ClientConfig,
+    /// SSRF guard for the (issuer/peer-derived) discovery, `jwks_uri`,
+    /// and `/.well-known/aitp-keys` hosts.
+    host_guard: HostGuard,
 }
 
 impl JwksFetcher {
@@ -382,22 +498,50 @@ impl JwksFetcher {
 
     /// Build a JWKS fetcher with a custom timeout.
     pub fn with_timeout(timeout: Duration) -> Self {
+        let client_cfg = ClientConfig::default();
         Self {
-            // `redirect::Policy::none()` rejects ALL redirects, which
-            // includes the HTTP-fallback class an attacker could try
-            // to use to downgrade a trusted JWKS endpoint. If we ever
-            // need redirects, replace with a custom policy that
-            // refuses any non-https Location header.
-            client: reqwest::Client::builder()
-                .timeout(timeout)
-                .redirect(reqwest::redirect::Policy::none())
-                .build()
-                .expect("reqwest client builds"),
+            client: Self::base_client(timeout, client_cfg.clone()),
             timeout,
             discovery_cache: Mutex::new(HashMap::new()),
             discovery_ttl: DEFAULT_OIDC_DISCOVERY_TTL,
             max_bytes: DEFAULT_MAX_JWKS_BYTES,
+            client_cfg,
+            host_guard: HostGuard::default(),
         }
+    }
+
+    /// Shared builder recipe. `redirect::Policy::none()` rejects ALL
+    /// redirects, which includes the HTTP-fallback class an attacker
+    /// could try to use to downgrade a trusted JWKS endpoint.
+    fn base_client(timeout: Duration, cfg: ClientConfig) -> reqwest::Client {
+        let builder = reqwest::Client::builder()
+            .timeout(timeout)
+            .redirect(reqwest::redirect::Policy::none());
+        cfg.apply(builder).build().expect("reqwest client builds")
+    }
+
+    /// Override the SSRF [`HostGuard`] (default:
+    /// [`crate::net_guard::GuardMode::WarnPrivate`]). Use
+    /// [`HostGuard::strict`] for internet-facing deployments where no
+    /// legitimate IdP/peer key host is on a private network.
+    pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
+        self.host_guard = guard;
+        self
+    }
+
+    /// Per-fetch client with the guard-vetted addresses pinned for
+    /// `domain`, inheriting the fetcher's timeout, no-redirect policy,
+    /// and pool/TLS knobs.
+    fn pinned_client(&self, domain: &str, addrs: &[SocketAddr]) -> reqwest::Client {
+        let builder = reqwest::Client::builder()
+            .timeout(self.timeout)
+            .redirect(reqwest::redirect::Policy::none())
+            .resolve_to_addrs(domain, addrs);
+        self.client_cfg
+            .clone()
+            .apply(builder)
+            .build()
+            .expect("reqwest client builds with pinned addresses")
     }
 
     /// Override the per-response body cap (default
@@ -461,13 +605,8 @@ impl JwksFetcher {
     /// built from the supplied [`ClientConfig`]. Preserves the per-
     /// request timeout and the no-redirect safety policy.
     pub fn with_client_config(mut self, cfg: ClientConfig) -> Self {
-        let builder = reqwest::Client::builder()
-            .timeout(self.timeout)
-            .redirect(reqwest::redirect::Policy::none());
-        self.client = cfg
-            .apply(builder)
-            .build()
-            .expect("reqwest client builds with supplied config");
+        self.client = Self::base_client(self.timeout, cfg.clone());
+        self.client_cfg = cfg;
         self
     }
 
@@ -593,8 +732,27 @@ impl JwksFetcher {
         if url.scheme() != "https" {
             return Err(JwksFetcherError::InsecureUrl);
         }
-        let resp = self
-            .client
+        // SSRF guard: every discovery / jwks_uri / aitp-keys host is
+        // issuer- or peer-derived, so classify the resolved addresses
+        // and (for domain hosts) pin the vetted set into a per-fetch
+        // client to close the DNS-rebinding window.
+        let addrs = self.host_guard.resolve_checked(url).await.map_err(|e| {
+            if e.is_transient() {
+                JwksFetcherError::Network(e.to_string())
+            } else {
+                warn!(error = %e, "JWKS fetch rejected by host guard");
+                JwksFetcherError::InsecureUrl
+            }
+        })?;
+        let pinned_client;
+        let client: &reqwest::Client = match url.host() {
+            Some(url::Host::Domain(domain)) => {
+                pinned_client = self.pinned_client(domain, &addrs);
+                &pinned_client
+            }
+            _ => &self.client,
+        };
+        let resp = client
             .get(url.clone())
             .send()
             .await
@@ -700,6 +858,16 @@ fn parse_jwks(
                     .get("e")
                     .and_then(|v| v.as_str())
                     .ok_or_else(|| JwksFetcherError::MalformedJson("RSA jwk missing e".into()))?;
+                // Reject weak RSA keys before trusting the IdP's JWK
+                // (RFC-AITP-0009 §4 hardening): a trust-anchored but
+                // sloppy IdP advertising a <2048-bit key must not be
+                // honored.
+                if !crate::common::rsa_modulus_bits_ok(n) {
+                    return Err(JwksFetcherError::UnsupportedJwk(format!(
+                        "RSA modulus below the {}-bit minimum",
+                        crate::common::MIN_RSA_MODULUS_BITS
+                    )));
+                }
                 out.push(aitp_handshake::JwkPublicKey {
                     kid,
                     alg: jsonwebtoken::Algorithm::RS256,

@@ -1,0 +1,67 @@
+name: fuzz-pr
+
+# Short fuzz gate on pull requests. Each target runs for 30s — long
+# enough to catch a regression that makes a verify/parse path panic on
+# trivially-reachable input, short enough to keep PR latency low. The
+# deep nightly run (`fuzz.yml`) does the long budgets. Only runs when
+# code that a fuzz target exercises changes.
+
+on:
+  pull_request:
+    paths:
+      - "crates/**"
+      - "fuzz/**"
+      - ".github/workflows/fuzz-pr.yml"
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: short
+
+permissions:
+  contents: read
+
+jobs:
+  fuzz-pr:
+    name: fuzz-pr / ${{ matrix.target }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - envelope_parse
+          - manifest_parse
+          - delegation_parse
+          - jws_verify
+          - tct_verify
+          - delegation_verify
+          - jcs_canonicalize
+          - revocation_verify
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install nightly toolchain
+        uses: dtolnay/rust-toolchain@nightly
+      - name: Cache cargo-fuzz + build
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: fuzz
+      - name: Install cargo-fuzz
+        # Force the install under nightly: the repo's rust-toolchain.toml
+        # pins 1.89, but cargo-fuzz's dep tree (cargo-platform ≥0.3.3)
+        # requires rustc ≥1.91. `+nightly` overrides the pin regardless of
+        # working directory. (Same class of workaround as the cargo-msrv /
+        # cargo-tarpaulin installs in ci.yml.)
+        run: cargo +nightly install --locked cargo-fuzz
+      - name: Run fuzz target (30s gate)
+        working-directory: fuzz
+        run: |
+          set -euo pipefail
+          cargo +nightly fuzz run ${{ matrix.target }} \
+            --release \
+            -- -max_total_time=30 -timeout=10
+      - name: Upload crash reproducer
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: crash-${{ matrix.target }}
+          path: fuzz/artifacts/${{ matrix.target }}/**
+          if-no-files-found: ignore

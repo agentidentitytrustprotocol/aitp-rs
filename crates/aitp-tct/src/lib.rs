@@ -36,7 +36,9 @@ pub use revocation::{
 #[cfg(feature = "experimental-renewal")]
 pub use types::TctRenewalPayload;
 pub use types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct};
-pub use verifier::{verify_tct, verify_voucher, TctVerifyContext};
+pub use verifier::{
+    verify_tct, verify_voucher, TctVerifyContext, TctVerifyContextBuilder, TctVerifyContextError,
+};
 
 /// Recommended TCT TTL (1 hour).
 pub const DEFAULT_TCT_TTL_SECS: i64 = 3600;

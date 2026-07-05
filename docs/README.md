@@ -25,6 +25,7 @@ delegation token) are now RFC 7515 compact JWS strings — see the
 | Use the Node SDK | [`sdk-node.md`](sdk-node.md) |
 | Understand the conformance runner / check status | [`conformance.md`](conformance.md) |
 | Track HTTP-transport hardening | [`transport-hardening.md`](transport-hardening.md) |
+| Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
 | See open / deferred work | [`../plans/defered/deferred.md`](../plans/defered/deferred.md) |
 
 ## All pages
@@ -44,6 +45,7 @@ that governs it.
 | [`tct-renewal.md`](tct-renewal.md) | Shortened TCT renewal (draft, opt-in) | RFC-AITP-0013, RFC-AITP-0004 §8.1 |
 | [`sdk-python.md`](sdk-python.md) · [`sdk-node.md`](sdk-node.md) | Per-language SDK feature guides | per-feature, cited inline |
 | [`transport-hardening.md`](transport-hardening.md) | `aitp-transport-http` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
+| [`deployment.md`](deployment.md) | Where state lives; multi-node/clustering (shared `ReplayGuard` vs sticky routing); production hardening checklist | RFC-AITP-0001 §5.5, RFC-AITP-0008/0009 |
 
 ## Protocol reference (sibling spec repo)
 

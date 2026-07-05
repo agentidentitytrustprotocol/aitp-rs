@@ -207,7 +207,10 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
 
     // Bob's pinned-key store trusts a stranger — NOT Alice.
     let stranger = AitpSigningKey::from_seed(&[0x99; 32]);
-    let store = StaticPinnedKeyStore::new(vec![stranger.aid().to_ed25519_bytes()]);
+    let store = StaticPinnedKeyStore::new(vec![stranger
+        .aid()
+        .try_to_ed25519_bytes()
+        .expect("stranger AID is Ed25519")]);
     let handshake_router = HandshakeServer::new(
         AitpSigningKey::from_seed(&[0x82; 32]),
         bob_manifest.clone(),

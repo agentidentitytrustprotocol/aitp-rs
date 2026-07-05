@@ -59,16 +59,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = StaticPinnedKeyStore::new(vec![bob_pinned_key]);
 
     // One call drives the whole handshake and returns the TCT B issued us.
-    let session = run_initiator_handshake(InitiatorConfig {
-        signing_key: &key,
-        own_manifest: &manifest,
-        peer_origin: peer_origin.clone(),
-        trust_mode: TrustMode::PinnedKeys(&store),
-        identity_mode: IdentityMode::PinnedKey {
+    let session = run_initiator_handshake(InitiatorConfig::new(
+        &key,
+        &manifest,
+        peer_origin.clone(),
+        TrustMode::PinnedKeys(&store),
+        IdentityMode::PinnedKey {
             subject: "agent-a".into(),
         },
-        requested_grants: vec!["demo.echo".into()],
-    })
+        vec!["demo.echo".into()],
+    ))
     .await?;
     println!(
         "agent-a: handshake complete — holding TCT issued by {} with grants {:?}",

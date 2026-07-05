@@ -214,3 +214,103 @@ async fn timeout_when_server_hangs() {
     );
     drop(listener);
 }
+
+// --- SSRF hardening (net_guard + no-redirect) ---------------------------
+
+#[tokio::test]
+async fn redirects_are_rejected() {
+    // A peer-controlled origin must not be able to bounce the fetch
+    // elsewhere: the fetcher's client carries redirect::Policy::none(),
+    // so a 302 surfaces as its non-2xx status instead of being followed.
+    use axum::{http::StatusCode, response::IntoResponse, routing::get, Router};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(|| async {
+            (
+                StatusCode::FOUND,
+                [(axum::http::header::LOCATION, "http://10.0.0.1/steal")],
+            )
+                .into_response()
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::UpstreamStatus(302)),
+        "expected UpstreamStatus(302) (redirect not followed), got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn forbidden_literal_host_rejected_by_guard() {
+    // Link-local (cloud-metadata) targets are rejected before any
+    // connection is attempted, in the default guard mode.
+    let fetcher = ManifestFetcher::new();
+    let url: Url = "https://169.254.169.254".parse().unwrap();
+    let err = fetcher.fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(err, FetchError::InsecureUrl),
+        "expected InsecureUrl (guard rejection), got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn private_literal_host_rejected_by_strict_guard() {
+    use aitp_transport_http::HostGuard;
+    let fetcher = ManifestFetcher::new().with_host_guard(HostGuard::strict());
+    let url: Url = "https://10.255.255.1".parse().unwrap();
+    let err = fetcher.fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(err, FetchError::InsecureUrl),
+        "expected InsecureUrl (strict guard), got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn guard_mode_decides_loopback_domain_over_https() {
+    use aitp_transport_http::HostGuard;
+    // Nothing listens on this port; what matters is *which* error we
+    // get. Default (WarnPrivate) guard: loopback is allowed, the fetch
+    // proceeds through the pinned-client path, and fails as a network
+    // error. Strict guard: rejected up front as InsecureUrl.
+    let url: Url = "https://localhost:47999".parse().unwrap();
+
+    let permissive_err = ManifestFetcher::new().fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(permissive_err, FetchError::Network(_) | FetchError::Timeout),
+        "default guard should allow loopback (then fail to connect), got: {permissive_err:?}"
+    );
+
+    let strict_err = ManifestFetcher::new()
+        .with_host_guard(HostGuard::strict())
+        .fetch(&url)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(strict_err, FetchError::InsecureUrl),
+        "strict guard should reject loopback, got: {strict_err:?}"
+    );
+}
+
+#[tokio::test]
+async fn insecure_localhost_flag_disables_dev_exception() {
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(false);
+    let url: Url = "http://127.0.0.1:1".parse().unwrap();
+    let err = fetcher.fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(err, FetchError::InsecureUrl),
+        "expected InsecureUrl with the dev exception disabled, got: {err:?}"
+    );
+}

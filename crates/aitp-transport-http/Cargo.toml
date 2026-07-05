@@ -27,13 +27,13 @@ experimental-renewal = ["aitp-tct/experimental-renewal"]
 experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "0.3.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "0.3.0" }
-aitp-envelope = { path = "../aitp-envelope", version = "0.3.0" }
-aitp-manifest = { path = "../aitp-manifest", version = "0.3.0" }
-aitp-handshake = { path = "../aitp-handshake", version = "0.3.0" }
-aitp-tct = { path = "../aitp-tct", version = "0.3.0" }
-aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.3.0", optional = true }
+aitp-core = { path = "../aitp-core", version = "0.4.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "0.4.0" }
+aitp-envelope = { path = "../aitp-envelope", version = "0.4.0" }
+aitp-manifest = { path = "../aitp-manifest", version = "0.4.0" }
+aitp-handshake = { path = "../aitp-handshake", version = "0.4.0" }
+aitp-tct = { path = "../aitp-tct", version = "0.4.0" }
+aitp-session-bundle = { path = "../aitp-session-bundle", version = "0.4.0", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
@@ -41,7 +41,9 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
-tokio = { workspace = true, optional = true }
+# `net` is needed by `net_guard` (tokio::net::lookup_host) for
+# SSRF-guarded DNS resolution of peer-derived fetch URLs.
+tokio = { workspace = true, optional = true, features = ["net"] }
 jsonwebtoken = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
