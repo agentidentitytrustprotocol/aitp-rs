@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [0.4.0] — Security hardening (2026-07)
+
+Rust crates **0.3.0 → 0.4.0**. Implements the 2026-07 protocol + runtime
+review (`plans/protocol-runtime-review-2026-07.md`). The on-the-wire
+protocol is unchanged (`aitp/0.2`); this is an API + hardening release.
+Details and per-item verification in `plans/build_status.md`.
+
+### Added
+
+- **SSRF guard** (`net_guard`): peer-derived fetches (Manifest,
+  JWKS/discovery/`aitp-keys`, facade handshake+renew POST) reject
+  redirects, classify resolved addresses (link-local/metadata always
+  denied; private ranges warn), and pin vetted addresses to defeat DNS
+  rebinding. Configurable via `with_host_guard(HostGuard::strict())`.
+- **Pluggable replay store** (`ReplayGuard` trait + `InMemoryReplayGuard`
+  default) for envelope `message_id` / DPoP `jti` dedup — supply a shared
+  backend (e.g. Redis) for clustered deployments. `HandshakeServer::with_replay_guard`, `DpopReplayCache::with_guard`.
+- **Strict TCT verification**: `TctVerifyContext::builder(..)` forces an
+  explicit decision on revocation and the issuer-Manifest expiry cap
+  (named `*_dangerous` waivers); `clock_skew_secs` knob.
+- **Configurable facade transport**: `InitiatorConfig::new(..)` +
+  `with_http_timeout` / `with_host_guard`.
+- Five verify-path fuzz targets + a fuzz PR gate; `docs/deployment.md`.
+
+### Changed — **BREAKING (Rust API)**
+
+- `TctVerifyContext` and `InitiatorConfig` are now `#[non_exhaustive]`;
+  construct via `TctVerifyContext::builder(..)`/`permissive_at(..)` and
+  `InitiatorConfig::new(..)` respectively.
+- `Aid::to_ed25519_bytes` / `to_p256_bytes` (panicking) **removed** — use
+  the `try_*` variants.
+- `DpopReplayCache` internals reworked to sit behind `ReplayGuard`
+  (constructors `with_ttl` / `with_guard`).
+- P-256 signatures are now emitted in canonical **low-S** form and the
+  verifier rejects high-S (malleability fix); RSA keys below 2048 bits
+  are rejected on the OIDC / DPoP paths.
+
 ## [Unreleased] — SDK bindings 0.4.0
 
 > Bindings-only release. The Rust crates (0.3.0, published) and the

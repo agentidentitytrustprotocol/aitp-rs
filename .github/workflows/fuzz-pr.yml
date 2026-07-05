@@ -45,7 +45,12 @@ jobs:
         with:
           workspaces: fuzz
       - name: Install cargo-fuzz
-        run: cargo install --locked cargo-fuzz
+        # Force the install under nightly: the repo's rust-toolchain.toml
+        # pins 1.89, but cargo-fuzz's dep tree (cargo-platform ≥0.3.3)
+        # requires rustc ≥1.91. `+nightly` overrides the pin regardless of
+        # working directory. (Same class of workaround as the cargo-msrv /
+        # cargo-tarpaulin installs in ci.yml.)
+        run: cargo +nightly install --locked cargo-fuzz
       - name: Run fuzz target (30s gate)
         working-directory: fuzz
         run: |
