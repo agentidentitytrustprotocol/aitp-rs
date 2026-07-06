@@ -27,7 +27,19 @@ Details and per-item verification in `plans/build_status.md`.
   (named `*_dangerous` waivers); `clock_skew_secs` knob.
 - **Configurable facade transport**: `InitiatorConfig::new(..)` +
   `with_http_timeout` / `with_host_guard`.
-- Five verify-path fuzz targets + a fuzz PR gate; `docs/deployment.md`.
+- Five verify-path fuzz targets + a fuzz PR gate.
+- **Operator docs & container**: `docs/deployment.md` (clustering + hardening
+  checklist), `docs/key-management.md` (seed handling, KMS/HSM reality,
+  rotation), and a reference `Dockerfile` + `docker-compose.yml` that run
+  the two-agent demo (`docker run`). `agent-b` gained a `--host` flag.
+- **Optional metrics** (`metrics` feature on `aitp-transport-http`):
+  counters for replay rejections, handshake outcomes, session evictions,
+  and revocation/JWKS cache effectiveness.
+
+### Removed
+
+- Dropped the unused `secrecy` workspace dependency (declared but never
+  referenced).
 
 ### Changed — **BREAKING (Rust API)**
 

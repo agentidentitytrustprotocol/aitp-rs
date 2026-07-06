@@ -335,6 +335,7 @@ impl JwksResolver for KeyResolutionPolicy {
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         // 1. Cache.
         if let Some(keys) = self.cached(issuer) {
+            crate::obs::jwks_cache("hit");
             debug!(%issuer, source = "cache", "JWKS resolved");
             return Ok(keys);
         }
@@ -344,6 +345,7 @@ impl JwksResolver for KeyResolutionPolicy {
         // mutex so each request returns immediately during a sustained
         // outage instead of serializing on the coalesce lock.
         if let Some(msg) = self.cached_failure(issuer) {
+            crate::obs::jwks_cache("negative_hit");
             debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed");
             return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
         }
@@ -356,13 +358,17 @@ impl JwksResolver for KeyResolutionPolicy {
         // Re-check cache after acquiring the lock — another caller may
         // have populated it.
         if let Some(keys) = self.cached(issuer) {
+            crate::obs::jwks_cache("hit");
             debug!(%issuer, source = "cache", "JWKS resolved (after lock)");
             return Ok(keys);
         }
         if let Some(msg) = self.cached_failure(issuer) {
+            crate::obs::jwks_cache("negative_hit");
             debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed (after lock)");
             return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
         }
+        // Neither cache satisfied this request → real resolution work.
+        crate::obs::jwks_cache("miss");
 
         // 2. Pinned issuer key store.
         if let Some(pinned) = self.pinned.as_ref() {

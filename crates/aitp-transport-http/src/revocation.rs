@@ -317,8 +317,10 @@ impl<P: RevocationProvider> RevocationCache<P> {
         now: Timestamp,
     ) -> Result<RevocationListEnvelope, RevocationError> {
         if let Some(env) = self.cached_fresh(issuer, now) {
+            crate::obs::revocation_cache("hit");
             return Ok(env);
         }
+        crate::obs::revocation_cache("miss");
         let provider = self
             .provider
             .as_ref()
@@ -339,11 +341,13 @@ impl<P: RevocationProvider> RevocationCache<P> {
         // Apply max-staleness.
         let age = now.0.saturating_sub(env.revocation_list.published_at.0);
         if age > self.policy.max_staleness_secs as i64 {
+            crate::obs::revocation_cache("stale");
             return Err(RevocationError::Stale {
                 published_at: env.revocation_list.published_at,
                 max_staleness_secs: self.policy.max_staleness_secs,
             });
         }
+        crate::obs::revocation_cache("refresh");
         self.store(issuer.clone(), env.clone(), now);
         Ok(env)
     }

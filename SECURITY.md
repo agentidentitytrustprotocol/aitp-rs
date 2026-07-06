@@ -27,8 +27,8 @@ decisions, signature handling, or cryptographic verification.
   (Ed25519/EdDSA and P-256/ES256, signing and verification); compact-JWS
   profile bypasses (`alg`/`typ` confusion, header smuggling); JCS
   canonicalization divergence from RFC 8785
-- Key handling; memory hygiene of secret material (`AitpSigningKey`,
-  `secrecy`-wrapped credentials)
+- Key handling; memory hygiene of secret material (`AitpSigningKey`
+  zeroizes its secret scalar on drop and redacts it from `Debug`)
 - Replay, downgrade, or audience-confusion attacks against handshake, TCT
   verification, or delegation flows (single- and multi-hop)
 - Parser denial-of-service in any AITP protocol message

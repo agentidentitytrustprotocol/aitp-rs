@@ -57,7 +57,6 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # point from a freshly-generated scalar.
 p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
 base64ct = { version = "1.6", features = ["std"] }
-secrecy = "0.8"
 uuid = { version = "1.7", features = ["v4", "serde"] }
 sha2 = "0.10"
 url = { version = "2.5", features = ["serde"] }
@@ -94,6 +93,11 @@ parking_lot = "0.12"
 # the dep lean for library consumers that don't subscribe.
 tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
+
+# Metrics facade (optional, feature-gated in aitp-transport-http). Just the
+# lightweight recording API — the binary installs the recorder/exporter.
+# Zero-cost when no recorder is registered.
+metrics = "0.24"
 
 # CLI (used by aitp-conformance)
 clap = { version = "4.5", features = ["derive"] }

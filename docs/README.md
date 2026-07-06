@@ -26,6 +26,8 @@ delegation token) are now RFC 7515 compact JWS strings — see the
 | Understand the conformance runner / check status | [`conformance.md`](conformance.md) |
 | Track HTTP-transport hardening | [`transport-hardening.md`](transport-hardening.md) |
 | Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
+| Handle signing keys / plan rotation | [`key-management.md`](key-management.md) |
+| Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
 | See open / deferred work | [`../plans/defered/deferred.md`](../plans/defered/deferred.md) |
 
 ## All pages
@@ -46,6 +48,7 @@ that governs it.
 | [`sdk-python.md`](sdk-python.md) · [`sdk-node.md`](sdk-node.md) | Per-language SDK feature guides | per-feature, cited inline |
 | [`transport-hardening.md`](transport-hardening.md) | `aitp-transport-http` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
 | [`deployment.md`](deployment.md) | Where state lives; multi-node/clustering (shared `ReplayGuard` vs sticky routing); production hardening checklist | RFC-AITP-0001 §5.5, RFC-AITP-0008/0009 |
+| [`key-management.md`](key-management.md) | Seed handling, in-memory hygiene, KMS/HSM reality, rotation runbook | RFC-AITP-0003 §8, RFC-AITP-0009 §3 |
 
 ## Protocol reference (sibling spec repo)
 

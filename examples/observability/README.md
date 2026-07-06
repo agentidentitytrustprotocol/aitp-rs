@@ -27,6 +27,43 @@ For metric scraping (Prometheus via OTLP exporter), prefer
 `tracing-opentelemetry` plus `opentelemetry-otlp` to convert spans
 into traces/metrics.
 
+## First-class metrics (`metrics` feature)
+
+Beyond the tracing events above, `aitp-transport-http` emits counters at
+the operational trust-decision points when built with the `metrics`
+feature. They route through the [`metrics`](https://docs.rs/metrics)
+facade — zero-cost until you install a recorder in your binary:
+
+```toml
+aitp-transport-http = { version = "0.4", features = ["server", "metrics"] }
+metrics-exporter-prometheus = "0.16"
+```
+
+```rust
+let handle = metrics_exporter_prometheus::PrometheusBuilder::new()
+    .install_recorder()?;
+// expose `handle.render()` on your /metrics endpoint
+```
+
+| Metric | Type | Labels | Fires when |
+|---|---|---|---|
+| `aitp_replay_rejected_total` | counter | — | an envelope `message_id` is rejected as a replay (RFC-AITP-0001 §5.5) |
+| `aitp_handshake_total` | counter | `stage`=hello\|commit, `result`=ok\|rejected | a handshake message reaches a terminal outcome |
+| `aitp_sessions_evicted_total` | counter | — | in-flight sessions are evicted to hold the max-sessions cap (HELLO-flood pressure) |
+| `aitp_revocation_cache_total` | counter | `outcome`=hit\|miss\|stale\|refresh | a revocation-snapshot cache lookup resolves |
+| `aitp_jwks_cache_total` | counter | `outcome`=hit\|miss\|negative_hit | a JWKS/key-resolution cache lookup resolves |
+
+Label values are bounded, low-cardinality enums by design — no AIDs,
+session ids, or message ids appear as labels (those stay in trace
+fields; see the cardinality note at the end of this doc).
+
+Useful derived signals: handshake reject rate
+(`aitp_handshake_total{result="rejected"}` / total), replay-attack
+pressure (`rate(aitp_replay_rejected_total)`), cache effectiveness
+(`hit / (hit+miss)` for either cache), and revocation staleness
+(`rate(aitp_revocation_cache_total{outcome="stale"})` — a nonzero rate
+means consumers are seeing snapshots past `max_staleness_secs`).
+
 ## Spans (one per request)
 
 | Span name | Crate | Fields |

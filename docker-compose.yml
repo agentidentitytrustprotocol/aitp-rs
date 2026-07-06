@@ -1,0 +1,18 @@
+# Convenience wrapper around the reference Dockerfile: builds the image
+# and runs the self-contained two-agent demo (both agents in one
+# container over loopback — see the Dockerfile header for why it is not
+# split into two services: the demo speaks plaintext HTTP, and the
+# client enforces HTTPS for any non-localhost peer).
+#
+#   docker compose up --build
+#
+# For a real two-service deployment you embed the library in your own
+# containers and terminate TLS between them; see docs/deployment.md.
+services:
+  demo:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: aitp-demo
+    # The demo runs to completion and exits; don't restart it.
+    restart: "no"
