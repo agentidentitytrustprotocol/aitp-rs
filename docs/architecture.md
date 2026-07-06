@@ -131,6 +131,8 @@ aitp                       facade — re-exports the protocol surface
 └── aitp-transport-http    ManifestServer + HandshakeServer (axum) +
                            ManifestFetcher + JwksFetcher (reqwest)
 
+aitp-cli                   `aitp` binary — offline keygen / aid /
+                           tct inspect+verify / manifest verify
 aitp-conformance           runner + Adapter trait + SubprocessAdapter
                            + InProcessRustAdapter
 aitp-rs-adapter            subprocess conformance adapter, Tier A/B/C/D
@@ -312,8 +314,7 @@ bindings and runs that suite.
 - [`sdk-python.md`](sdk-python.md) / [`sdk-node.md`](sdk-node.md) and
   [`transport-hardening.md`](transport-hardening.md) — SDK guides and the
   HTTP-transport hardening register
-- [`../plans/defered/deferred.md`](../plans/defered/deferred.md) — live
-  tracker for open items, deferred work, and spec-side dependencies
+- [`../CHANGELOG.md`](../CHANGELOG.md) — release history and current direction
 - The [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs)
   themselves — the protocol is normatively defined there; this
   implementation tracks them

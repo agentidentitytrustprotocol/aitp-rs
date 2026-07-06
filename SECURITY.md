@@ -4,8 +4,8 @@
 
 | Version | Supported |
 |---|---|
-| 0.3.x | ✅ Active security fixes |
-| < 0.3.0 | ❌ End of life |
+| 0.4.x | ✅ Active security fixes |
+| < 0.4.0 | ❌ End of life |
 
 Language SDKs (`@agentidentitytrustprotocol/aitp` on npm, `aitp-sdk` on
 PyPI) follow the same policy: the latest published minor line receives

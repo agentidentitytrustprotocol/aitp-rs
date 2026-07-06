@@ -27,8 +27,9 @@ delegation token) are now RFC 7515 compact JWS strings — see the
 | Track HTTP-transport hardening | [`transport-hardening.md`](transport-hardening.md) |
 | Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
 | Handle signing keys / plan rotation | [`key-management.md`](key-management.md) |
+| Use the offline `aitp` CLI (keygen / tct / manifest) | [`../crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
-| See open / deferred work | [`../plans/defered/deferred.md`](../plans/defered/deferred.md) |
+| See the release history / direction | [`../CHANGELOG.md`](../CHANGELOG.md) |
 
 ## All pages
 
