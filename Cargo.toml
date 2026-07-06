@@ -24,6 +24,7 @@ members = [
     "crates/aitp-session-bundle",
     "crates/aitp-transport-http",
     "crates/aitp",
+    "crates/aitp-cli",
     "crates/aitp-conformance",
     "crates/aitp-rs-adapter",
     "examples/two-agents",

@@ -49,6 +49,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "aitp-cli"
+version = "0.4.0"
+dependencies = [
+ "aitp",
+ "clap",
+ "hex",
+ "rand 0.8.6",
+ "serde_json",
+]
+
+[[package]]
 name = "aitp-conformance"
 version = "0.4.0"
 dependencies = [

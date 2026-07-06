@@ -23,6 +23,11 @@ name = "aitp-conformance"
 release = false
 
 [[package]]
+name = "aitp-cli"
+release = false
+publish = false
+
+[[package]]
 name = "aitp-rs-adapter"
 release = false
 publish = false

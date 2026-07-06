@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+
+- **`aitp` CLI** (`aitp-cli` crate): an offline command-line tool for the
+  common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
+  and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
+  in-repo (`cargo run -p aitp-cli`); not yet published to crates.io.
+
 ## [0.4.0] — Security hardening (2026-07)
 
 Rust crates **0.3.0 → 0.4.0**. Implements the 2026-07 protocol + runtime

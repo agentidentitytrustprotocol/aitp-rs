@@ -20,8 +20,8 @@ env:
   # subprocess-driven entry point isn't part of the published
   # surface, but it IS in the coverage scope because its
   # integration tests exercise other crates' public APIs.
-  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
-  COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents"
+  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-cli,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
+  COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents aitp-cli"
 
 permissions:
   contents: read
