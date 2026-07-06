@@ -56,7 +56,7 @@ ed25519-dalek = { version = "2.1", features = ["rand_core"] }
 # (the latter is used by `AitpSigningKey::P256` once an agent picks
 # the P-256 suite). `arithmetic` is required to derive the public
 # point from a freshly-generated scalar.
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
 base64ct = { version = "1.6", features = ["std"] }
 uuid = { version = "1.7", features = ["v4", "serde"] }
 sha2 = "0.10"
