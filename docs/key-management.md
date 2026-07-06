@@ -84,8 +84,7 @@ is still materialized in application memory to produce signatures. If your
 threat model requires the private key to never exist in application memory
 (true HSM-resident signing), `aitp-rs` does not support that yet; it would
 require an external-signer abstraction over `AitpSigningKey`. That is
-noted as possible future work in the runtime review
-([`../plans/protocol-runtime-review-2026-07.md`](../plans/protocol-runtime-review-2026-07.md)).
+noted as possible future work (an HSM/KMS external-signer seam).
 
 ## Rotation
 

@@ -2,12 +2,17 @@
 
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
-> **Status: 0.3.0** — Tracks AITP specification **v0.2** (wire protocol
+> **Status: 0.4.0** — Tracks AITP specification **v0.2** (wire protocol
 > `aitp/0.2`; spec RFCs at `0.2.0-draft`). All 45 required v0.2 `core`
 > conformance fixtures pass; the 7 `draft` fixtures pass under their
 > opt-in features (53 fixtures total, 1 v0.1-frozen SKIP).
-> See [`docs/conformance.md`](docs/conformance.md) for the
-> per-fixture breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+> 0.4.0 is a security-hardening + tooling release — SSRF-guarded peer
+> fetches, canonical low-S P-256 signatures, an RSA-2048 floor on the
+> OIDC/DPoP paths, a strict `TctVerifyContext` builder, an offline
+> [`aitp` CLI](crates/aitp-cli/README.md), an optional `metrics`
+> feature, and operator docs — with the on-the-wire protocol unchanged.
+> See [`docs/conformance.md`](docs/conformance.md) for the per-fixture
+> breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
 
 ## What is AITP?
 
@@ -60,15 +65,16 @@ aitp-rs/
 | Crate                 | Status        | Notes                                                  |
 |-----------------------|---------------|--------------------------------------------------------|
 | `aitp-core`           | ✅ complete   | AID, JCS, base64url, timestamps, envelope, error codes. |
-| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256, compact-JWS profile, JWK thumbprint. |
+| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256 (canonical **low-S**, high-S rejected), compact-JWS profile, JWK thumbprint, RSA-2048 floor on OIDC/DPoP. |
 | `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
-| `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal.          |
+| `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |
 | `aitp-delegation`     | ✅ complete   | Builder + verifier: single-hop by default, multi-hop chains (RFC-0011) via `max_hops` opt-in. |
 | `aitp-handshake`      | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy). |
 | `aitp-session-bundle` | ✅ Draft (opt-in) | Session Trust Bundle (RFC-0010): builder + verifier; gated behind `experimental-session-bundle`. |
-| `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. |
-| `aitp` (facade)       | ✅ complete   | Re-exports + `run_initiator_handshake` + `renew_tct` + `TctStore`. |
+| `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. SSRF `HostGuard` on peer fetches, pluggable `ReplayGuard`, optional `metrics` feature. |
+| `aitp` (facade)       | ✅ complete   | Re-exports + `run_initiator_handshake` + `renew_tct` + `TctStore`; `InitiatorConfig` with `with_http_timeout` / `with_host_guard`. |
+| `aitp-cli`            | ✅ complete   | Offline `aitp` binary: `keygen`, `aid`, `tct inspect`/`verify`, `manifest verify`. Stdin-friendly, non-zero exit on failure. See [`crates/aitp-cli/README.md`](crates/aitp-cli/README.md). |
 | `aitp-conformance`    | ✅ Tier A     | Subprocess adapter, fixture loader, runner. |
 | `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). All 45 required v0.2 `core` fixtures pass; the 7 `draft` fixtures pass under their opt-in features. |
 
@@ -98,7 +104,7 @@ the Cargo workspace — `cargo test --workspace` does not build them.
 | [0006](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md) | Single-hop delegation | ✅ implemented | 11-check verifier; chain length enforced =1 (multihop reserved for RFC-0011). |
 | [0007](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0007-key-resolution.md) | Key resolution | ✅ implemented | `KeyResolutionPolicy` with cache → pinned → aitp-keys → OIDC ordering and three fail modes. |
 | [0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | Revocation | ✅ implemented | Snapshot signing/verification + per-issuer cache + HTTP endpoint + Manifest extension. |
-| [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults. |
+| [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults; SSRF `HostGuard` (redirect-block + address classification + DNS-rebind-safe pinning), canonical low-S P-256, RSA-2048 floor. See [`docs/transport-hardening.md`](docs/transport-hardening.md). |
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft (opt-in) | Gated behind `experimental-session-bundle`. Builder + verifier in `aitp-session-bundle`; conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
 | [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | Default verifier config (`max_hops=0`) rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Setting `max_hops > 0` (typically `DEFAULT_MAX_HOPS=3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ✅ implemented | `ExtensionsMap` with namespace conventions; `ext` claim on JWS artifacts; revocation URL extension wired. |
@@ -118,8 +124,11 @@ the Cargo workspace — `cargo test --workspace` does not build them.
 - **Revocation checking is the verifier's obligation.** `verify_tct`
   consults revocation only when a revocation source is configured; the
   SDKs accept a caller-supplied revoked-`jti` set. A revoked but
-  unexpired TCT is accepted if no source is wired. (Strict-by-default
-  verification is planned — see `plans/implementation-plan-2026-07.md`.)
+  unexpired TCT is accepted if no source is wired. As of 0.4.0 the
+  strict `TctVerifyContext::builder()` makes the revocation and
+  manifest-expiry-cap decisions **explicit** (opting out requires a named
+  `*_dangerous` waiver); the permissive `permissive_at()` constructor
+  preserves the older accept-if-unwired behavior.
 - **JWKS resolution from a current-thread runtime.** The synchronous
   `JwksResolver::resolve` sync→async bridge uses `block_in_place`,
   which requires a multi-thread tokio runtime; on a current-thread
@@ -204,7 +213,8 @@ Highlights:
 - [`docs/session-bundle.md`](docs/session-bundle.md) · [`docs/multihop-delegation.md`](docs/multihop-delegation.md) · [`docs/tct-renewal.md`](docs/tct-renewal.md) — draft, opt-in extensions
 - [`docs/sdk-python.md`](docs/sdk-python.md) · [`docs/sdk-node.md`](docs/sdk-node.md) — SDK feature guides
 - [`docs/transport-hardening.md`](docs/transport-hardening.md) — HTTP-transport hardening register
-- [`plans/defered/deferred.md`](plans/defered/deferred.md) — declined / out-of-scope items
+- [`docs/deployment.md`](docs/deployment.md) · [`docs/key-management.md`](docs/key-management.md) — running in production: where state lives, clustering, and signing-key handling
+- [`crates/aitp-cli/README.md`](crates/aitp-cli/README.md) — the offline `aitp` CLI
 
 The protocol itself is defined **normatively** by the
 [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs);
@@ -212,20 +222,20 @@ docs here point to the relevant RFC section rather than restating it.
 
 ## Roadmap
 
-The v0.1 bootstrap and hardening phases, and the v0.2 compact-JWS
-migration (portable trust artifacts re-serialized as compact JWS), are
-complete — see [`CHANGELOG.md`](CHANGELOG.md) for the history and
+The v0.1 bootstrap and hardening phases, the v0.2 compact-JWS migration
+(portable trust artifacts re-serialized as compact JWS), and the 0.4.0
+security-hardening + tooling release are complete — see
+[`CHANGELOG.md`](CHANGELOG.md) for the history and
 [`docs/transport-hardening.md`](docs/transport-hardening.md) for the
 transport-layer status register.
 
-Current direction is tracked in `plans/`:
-
-- [`plans/protocol-runtime-review-2026-07.md`](plans/protocol-runtime-review-2026-07.md)
-  — full protocol + runtime review (strengths, gaps, priorities).
-- [`plans/implementation-plan-2026-07.md`](plans/implementation-plan-2026-07.md)
-  — the concrete workstreams derived from it (security hardening,
-  strict verification posture, fuzzing, storage traits, CLI/WASM/MCP).
-- [`plans/build_status.md`](plans/build_status.md) — live execution status.
+The runtime is feature-complete and conformant for the common case (two
+agents; pinned-key or OIDC identity; single-hop delegation; the
+`aitp/0.2` wire). 0.4.0 closed the security-review action items and
+stabilized the crates' public API — any further breaking API change now
+targets 0.5.0. The remaining directions are the opt-in Draft RFCs
+(Session Trust Bundle, multi-hop delegation, TCT renewal) and their
+eventual graduation to Final.
 
 ## License
 
