@@ -39,6 +39,7 @@ aitp-rs/
 │   ├── aitp-session-bundle/ Session Trust Bundle (RFC-0010, opt-in draft)
 │   ├── aitp-transport-http/ HTTP client/server (feature-gated, async)
 │   ├── aitp/                facade re-exporting the protocol crates
+│   ├── aitp-cli/            `aitp` command-line tool (keygen, tct/manifest verify)
 │   ├── aitp-conformance/    conformance test runner with adapter trait
 │   └── aitp-rs-adapter/     canonical Rust adapter for conformance testing
 ├── bindings/                language SDKs — excluded from the Cargo workspace

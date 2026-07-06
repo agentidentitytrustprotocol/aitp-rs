@@ -1,0 +1,28 @@
+[package]
+name = "aitp-cli"
+description = "Command-line tool for AITP: key generation, TCT and Manifest inspection/verification"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+# Not published to crates.io yet — ships in-repo (build/`cargo run`).
+# Flipping this to publishable (so `cargo install aitp-cli` works) is a
+# follow-up once we commit to versioning/releasing the tool.
+publish = false
+
+[[bin]]
+name = "aitp"
+path = "src/main.rs"
+
+[dependencies]
+# Pure verification/signing surface only — no HTTP needed for the CLI's
+# offline commands, so default-features off keeps the binary lean.
+aitp = { path = "../aitp", version = "0.4.0", default-features = false }
+clap = { workspace = true }
+serde_json = { workspace = true }
+hex = { workspace = true }
+rand = { workspace = true }
