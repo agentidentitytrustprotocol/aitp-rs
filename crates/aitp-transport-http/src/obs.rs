@@ -15,6 +15,13 @@
 //! Metric names use the `aitp_` prefix and stable, low-cardinality label
 //! values (bounded enums like `outcome`/`result`), never per-request
 //! identifiers (AIDs, session ids) — those belong in trace fields.
+//!
+//! Not every emit point is reachable in every feature combination — the
+//! handshake/session counters are server-only, the cache counters are
+//! client-only — so unused-in-this-build helpers are expected. Allow
+//! dead code module-wide rather than cfg-gating each wrapper by the
+//! feature(s) that happen to call it.
+#![allow(dead_code)]
 
 // Metric names — kept as constants so producers and the docs/dashboard
 // agree on exact strings.
