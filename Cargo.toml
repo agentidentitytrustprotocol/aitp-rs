@@ -62,7 +62,7 @@ uuid = { version = "1.7", features = ["v4", "serde"] }
 sha2 = "0.10"
 url = { version = "2.5", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
-rand = "0.8"
+rand = "0.10"
 
 # HTTP transport (feature-gated, only used by aitp-transport-http)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
