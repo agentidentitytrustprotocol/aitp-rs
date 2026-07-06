@@ -7,7 +7,6 @@ name: miri
 # this workflow is intentionally NOT a PR gate. Trigger it manually
 # (or on a weekly schedule) when adding crypto code or touching
 # canonicalization, and inspect the output.
-# (Cadence rationale also noted in plans/protocol-runtime-review-2026-07.md §7.)
 
 on:
   schedule:
