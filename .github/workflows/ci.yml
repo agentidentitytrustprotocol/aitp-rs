@@ -212,7 +212,7 @@ jobs:
         # (test scheduling, ptrace skew on different runners) without
         # opening room for real regressions. Ratchet policy: raise the
         # floor in 5-pt steps as new tests land, toward an 80%-per-crate
-        # target (tracked in plans/protocol-runtime-review-2026-07.md §5.5/§7).
+        # target.
         #
         # Excludes: mint-* binaries and the example agent are
         # entry-point binaries with no in-binary tests; their lines

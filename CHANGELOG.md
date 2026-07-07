@@ -16,10 +16,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [0.4.0] — Security hardening (2026-07)
 
-Rust crates **0.3.0 → 0.4.0**. Implements the 2026-07 protocol + runtime
-review (`plans/protocol-runtime-review-2026-07.md`). The on-the-wire
-protocol is unchanged (`aitp/0.2`); this is an API + hardening release.
-Details and per-item verification in `plans/build_status.md`.
+Rust crates **0.3.0 → 0.4.0**. Implements a 2026-07 protocol + runtime
+security review. The on-the-wire protocol is unchanged (`aitp/0.2`); this
+is an API + hardening release. Per-item detail is in the sections below.
 
 ### Added
 
