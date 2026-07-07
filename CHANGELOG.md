@@ -14,6 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
   in-repo (`cargo run -p aitp-cli`); not yet published to crates.io.
 
+## [SDK 0.4.1] — bindings (2026-07)
+
+> Bindings-only patch. The `aitp-sdk` (PyPI) and
+> `@agentidentitytrustprotocol/aitp` (npm) SDKs bump **0.4.0 → 0.4.1** to
+> carry the 0.4.0-crate **security hardening**. The SDK public API and the
+> on-the-wire protocol (`aitp/0.2`) are unchanged, so this is drop-in —
+> consumers on `^0.4.0` / `>=0.4.0` pick it up on the next install.
+
+### Changed
+
+- The SDKs now build against the hardened 0.4.0 crates: **canonical low-S
+  P-256** signatures (high-S rejected on verify), an **RSA-2048 floor** on
+  the OIDC/DPoP verification paths, and the strict `TctVerifyContext`
+  verification path (behavior-preserving at the SDK boundary — the bindings
+  still supply an explicit revocation set and waive the manifest-expiry
+  cap, exactly as before). **No SDK function signatures changed.**
+
 ## [0.4.0] — Security hardening (2026-07)
 
 Rust crates **0.3.0 → 0.4.0**. Implements a 2026-07 protocol + runtime
@@ -62,7 +79,7 @@ is an API + hardening release. Per-item detail is in the sections below.
   verifier rejects high-S (malleability fix); RSA keys below 2048 bits
   are rejected on the OIDC / DPoP paths.
 
-## [Unreleased] — SDK bindings 0.4.0
+## [SDK 0.4.0] — bindings (2026-06)
 
 > Bindings-only release. The Rust crates (0.3.0, published) and the
 > on-the-wire protocol (`aitp/0.2`) are unchanged; the language SDKs
