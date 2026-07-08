@@ -105,7 +105,6 @@ clap = { version = "4.5", features = ["derive"] }
 
 # Test deps
 proptest = "1.4"
-insta = { version = "1.36", features = ["json"] }
 hex = "0.4"
 # JSON Schema validator — used in tests/schema.rs to catch wire-type drift
 # from the AITP JSON Schemas. Test-only; do NOT take a runtime dependency.
