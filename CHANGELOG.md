@@ -13,6 +13,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
   and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
   in-repo (`cargo run -p aitp-cli`); not yet published to crates.io.
+- **Tests**: direct integration suites for `aitp-rs-adapter` (dispatch +
+  raw NDJSON protocol), P-256 envelope coverage, session-bundle error
+  variants, CLI negative/manifest cases, `proptest` suites mirroring the
+  `envelope_parse`/`manifest_parse` fuzz targets, runnable doctests on the
+  facade / `TctVerifyContext::builder` / `HostGuard::strict`, and Node SDK
+  `manifest-verify` + `revocation` suites for Python parity.
+- **CI**: the full spec conformance corpus now runs in CI (new `conformance`
+  job against the pinned spec commit); a `wasm32-wasip1` portability
+  build-check over the pure crates; the `test` job runs `cargo-nextest` plus
+  a dedicated doctest pass; a `dorny/paths-filter` fast-path lets docs-only
+  PRs skip the heavy net-new jobs. All GitHub Actions are SHA-pinned; added
+  `CODEOWNERS` and CI-parity `make` targets (`deny`/`audit`/`msrv`/`semver`/
+  `coverage`/`ci`).
+
+### Changed
+
+- **Docs**: refreshed for 0.4 — corrected the session-bundle binding
+  feature name (`session-bundle`), unified the TCT-renewal citation on
+  RFC-AITP-0013, fixed stale `0.2.0` version strings, added an install
+  section + badges to the README, and added a `docs/testing.md` guide.
+
+### Removed
+
+- Dropped the declared-but-unused `insta` dev-dependency.
 
 ## [SDK 0.4.1] — bindings (2026-07)
 
