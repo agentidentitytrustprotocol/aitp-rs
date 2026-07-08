@@ -332,7 +332,7 @@ export declare class AitpAgent {
   /**
    * Holder side: build a `TctRenewalPayload` JSON for an in-band
    * renewal of `currentTctToken` — the holder's current TCT as a
-   * compact-JWS string (RFC-AITP-0005 §10).
+   * compact-JWS string (RFC-AITP-0013).
    *
    * Behind the `renewal` Cargo feature, which is **on by default**; a
    * `--no-default-features` build omits it.

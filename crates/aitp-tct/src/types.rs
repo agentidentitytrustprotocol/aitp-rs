@@ -118,7 +118,7 @@ pub struct VerifiedTct {
     pub claims: TctClaims,
 }
 
-/// TCT renewal request body (RFC-AITP-0005 §10). Gated behind the
+/// TCT renewal request body (RFC-AITP-0013). Gated behind the
 /// `experimental-renewal` Cargo feature.
 ///
 /// The holder presents the currently-held TCT (opaque compact string),

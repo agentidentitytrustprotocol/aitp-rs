@@ -9,7 +9,8 @@ Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 > 0.4.0 is a security-hardening + tooling release — SSRF-guarded peer
 > fetches, canonical low-S P-256 signatures, an RSA-2048 floor on the
 > OIDC/DPoP paths, a strict `TctVerifyContext` builder, an offline
-> [`aitp` CLI](crates/aitp-cli/README.md), an optional `metrics`
+> [`aitp` CLI](crates/aitp-cli/README.md) (in-repo tool, not yet
+> published to crates.io), an optional `metrics`
 > feature, and operator docs — with the on-the-wire protocol unchanged.
 > See [`docs/conformance.md`](docs/conformance.md) for the per-fixture
 > breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.

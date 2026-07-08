@@ -6,11 +6,15 @@ Each section names the RFC, the Cargo feature flag (if any), and a
 
 The Node SDK has a symmetric surface; see [`sdk-node.md`](sdk-node.md).
 
+> **Current release: 0.4.1** — carries the 0.4.0 crate hardening
+> (canonical low-S P-256 signatures, RSA-2048 floor on the OIDC/DPoP
+> paths, SSRF-guarded fetches). No SDK function signatures changed.
+
 ## Build
 
 ```bash
-maturin develop                       # default surface
-maturin develop                       # full surface (all capabilities)
+maturin develop                          # full surface (all features are default)
+maturin develop --no-default-features    # minimal surface (core handshake only)
 ```
 
 ## Default surface

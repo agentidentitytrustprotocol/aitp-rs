@@ -28,7 +28,7 @@ minimal wheel can opt out with `--no-default-features`:
 
 | Feature               | Enables                                                            | RFC                  |
 |-----------------------|--------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0005 §10    |
+| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0013    |
 | `session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010        |
 | `spki-pinning`        | `compute_spki_hash`, `SpkiPinVerifier`                             | HPKP (RFC 7469)      |
 | `multihop-delegation` | `verify_delegation_multihop`                                       | RFC-AITP-0011        |
@@ -89,10 +89,10 @@ on-wire HTTP request/response bodies).
 | `TctIdentity`         |    ✅    | `peer_aid`, `grants`, `expires_at`, `jti`                                               |
 | `DelegationVerified`  |    ✅    | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf`                    |
 | `JwksProvider`        |    ✅    | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()`                    |
-| `TctStore` / `verify_tct_cached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the envelope) |
-| `verify_delegation()` |    ✅    | RFC-AITP-0006 — strict v0.1 single-hop; rejects any multi-hop `chain`                   |
+| `TctStore` / `verify_tct_cached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
+| `verify_delegation()` |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                        |
 | `verify_manifest_json()` | ✅    | Control-plane manifest enrollment                                                       |
-| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0005 §10 |
+| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 |
 | `SessionBundleBuilder`, `verify_session_bundle()`                 | `session-bundle`  | RFC-AITP-0010 |
 | `compute_spki_hash()`, `SpkiPinVerifier`                          | `spki-pinning` | HPKP-style outbound pinning |
 | `verify_delegation_multihop()`                       | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |

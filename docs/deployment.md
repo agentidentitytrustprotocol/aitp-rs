@@ -111,6 +111,13 @@ Independent of clustering, production servers/clients should set:
   enforce at the edge/LB.
 - **HTTPS everywhere** — the fetchers reject non-HTTPS peers by default;
   keep it that way outside local dev.
+- **Observability** — the optional `metrics` feature on
+  `aitp-transport-http` emits low-cardinality counters via the
+  [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
+  `aitp_replay_rejected_total`, `aitp_sessions_evicted_total`,
+  `aitp_revocation_cache_total`, `aitp_jwks_cache_total`); see
+  [`examples/observability/`](../examples/observability/README.md) for
+  tracing/dashboard wiring.
 - **Key handling** — see [`key-management.md`](key-management.md) for seed
   storage, in-memory hygiene, KMS/HSM reality, and the rotation runbook.
 

@@ -95,7 +95,7 @@ human-readable; the runner ignores it for pass/fail logic.
   "ok": true,
   "result": {
     "implementation": "aitp-rs",
-    "version": "0.2.0",
+    "version": "0.4.0",
     "supported_ops": ["verify_tct", "verify_grant_voucher", "verify_manifest", ...],
     "supported_features": ["pinned_key_identity", "oidc_identity"]
   }
@@ -272,7 +272,7 @@ Text output:
 
 ```
 Loaded 53 fixtures
-Adapter: aitp-rs 0.2.0 (subprocess)
+Adapter: aitp-rs 0.4.0 (subprocess)
   ✓ id-001-oidc-missing-aud           [12ms]
   ✓ tct-008-alg-none-rejected         [10ms]
   ✓ vch-001                           [11ms]
