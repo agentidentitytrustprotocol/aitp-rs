@@ -32,12 +32,14 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'agentidentitytrustprotocol' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
           token: ${{ secrets.GITHUB_TOKEN }}
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: MarcoIeni/release-plz-action@v0.5
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: MarcoIeni/release-plz-action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5
         with:
           # One-time bootstrap of the first crates.io release: `release`
           # publishes (in dependency order) + tags + cuts GitHub releases

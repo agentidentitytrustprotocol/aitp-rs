@@ -1,0 +1,12 @@
+# Default owners for everything in the repo. Order matters: the last
+# matching pattern takes precedence.
+*       @ajit-zer07
+
+# Release pipelines and CI definitions — review changes here carefully;
+# they gate what gets published to crates.io / npm / PyPI.
+/.github/workflows/    @ajit-zer07
+/release-plz.toml      @ajit-zer07
+
+# Vendored spec schemas are synced from the spec repo — changes must go
+# through scripts/sync-schemas.sh, not hand edits.
+/tests/schemas/        @ajit-zer07

@@ -66,15 +66,15 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-24.04-arm  # native arm64
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
-      - uses: dtolnay/rust-toolchain@master
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: "1.89.0"        # match rust-toolchain.toml
           targets: ${{ matrix.target }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: bindings/aitp-node
       - name: Install dependencies
@@ -82,7 +82,7 @@ jobs:
       - name: Build (native)
         run: npx napi build --platform --release --target ${{ matrix.target }}
       - name: Upload .node artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: bindings-${{ matrix.target }}
           path: bindings/aitp-node/*.node
@@ -96,15 +96,15 @@ jobs:
       contents: write   # create the GitHub release
       id-token: write   # npm provenance
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
       - name: Install dependencies
         run: npm install
       - name: Download all .node artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: bindings/aitp-node/artifacts
           pattern: bindings-*
@@ -140,7 +140,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
       - name: Attach native binaries to GitHub Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
