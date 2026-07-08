@@ -1,4 +1,4 @@
-//! TCT renewal (RFC-AITP-0005 §10).
+//! TCT renewal (RFC-AITP-0013).
 //!
 //! A holder asks the issuer for a fresh TCT before the existing one
 //! expires. The renewal flow does NOT replay the full Mutual Handshake:

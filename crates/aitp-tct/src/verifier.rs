@@ -109,6 +109,28 @@ impl<'a> TctVerifyContext<'a> {
     /// expiry cap have been either supplied or explicitly waived with a
     /// `*_dangerous` method — closing the two silent-accept surfaces a
     /// misconfigured verifier would otherwise expose.
+    ///
+    /// ```
+    /// use aitp_tct::TctVerifyContext;
+    /// use aitp_core::Timestamp;
+    /// use aitp_crypto::AitpSigningKey;
+    ///
+    /// let audience = AitpSigningKey::from_seed(&[1; 32]).aid().clone();
+    /// let issuer = AitpSigningKey::from_seed(&[2; 32]).aid().clone();
+    ///
+    /// // build() fails until BOTH silent-accept surfaces are decided...
+    /// assert!(TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
+    ///     .build()
+    ///     .is_err());
+    ///
+    /// // ...here we explicitly waive both (only sound for tests/offline).
+    /// let ctx = TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
+    ///     .accept_unchecked_revocation_dangerous()
+    ///     .skip_manifest_expiry_cap_dangerous()
+    ///     .build()
+    ///     .expect("both decisions made");
+    /// let _ = ctx;
+    /// ```
     pub fn builder(
         expected_audience: &'a Aid,
         issuer: &'a Aid,

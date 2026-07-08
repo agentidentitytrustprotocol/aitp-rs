@@ -36,7 +36,7 @@ minimal build can opt out with `--no-default-features`:
 
 | Feature               | Enables                                                                  | RFC                  |
 |-----------------------|--------------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0005 §10    |
+| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0013    |
 | `session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010        |
 | `spki-pinning`        | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
 | `multihop-delegation` | `verifyDelegationMultihop`                                               | RFC-AITP-0011        |
@@ -105,7 +105,7 @@ opaque compact-JWS token strings** (`header.payload.signature`).
 | `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
 | `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                                               |
 | `verifyManifestJson()`    |    ✅    | Control-plane manifest enrollment                                                                               |
-| `buildRenewalRequest()` / `processRenewalRequest()`           | `renewal` | RFC-AITP-0005 §10 |
+| `buildRenewalRequest()` / `processRenewalRequest()`           | `renewal` | RFC-AITP-0013 |
 | `SessionBundleBuilder`, `verifySessionBundle()`               | `session-bundle`  | RFC-AITP-0010      |
 | `computeSpkiHash()`, `SpkiPinVerifier`                        | `spki-pinning` | HPKP outbound pinning |
 | `verifyDelegationMultihop()`                      | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |

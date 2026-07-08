@@ -1,4 +1,4 @@
-//! TCT in-band renewal (RFC-AITP-0005 §10) — Node SDK.
+//! TCT in-band renewal (RFC-AITP-0013) — Node SDK.
 //!
 //! Gated by the `renewal` Cargo feature: post-v0.1, no
 //! wire-stability guarantee until the feature graduates.

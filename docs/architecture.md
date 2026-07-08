@@ -117,7 +117,9 @@ before honoring it.
 aitp                       facade — re-exports the protocol surface
 ├── aitp-core              primitives: Aid, JCS, base64url, Timestamp,
 │                          ExtensionsMap, AitpEnvelope, ErrorCode
-├── aitp-crypto            Ed25519 (verify_strict) + JWK thumbprint
+├── aitp-crypto            Ed25519 (verify_strict) + P-256/ES256
+│                          (canonical low-S) + RSA-2048 floor (OIDC/
+│                          DPoP paths) + JWK thumbprint
 ├── aitp-envelope          sign_envelope + verify_envelope_signature —
 │                          sync, no I/O; reused by the language bindings
 ├── aitp-manifest          ManifestBuilder + verify_manifest

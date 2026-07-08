@@ -42,10 +42,11 @@ jobs:
           - aitp-core
           - aitp-crypto
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - name: Install nightly + miri
-        uses: dtolnay/rust-toolchain@nightly
+        uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (nightly)
         with:
+          toolchain: nightly
           components: miri, rust-src
       - name: Setup miri
         run: cargo miri setup

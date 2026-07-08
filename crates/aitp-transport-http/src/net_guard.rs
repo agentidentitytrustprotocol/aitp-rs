@@ -188,6 +188,15 @@ impl HostGuard {
 
     /// [`GuardMode::DenyPrivate`] — the internet-facing production
     /// posture (becomes the default in 0.4).
+    ///
+    /// ```
+    /// use aitp_transport_http::net_guard::{HostGuard, GuardMode};
+    ///
+    /// // Internet-facing services should reject peer/IdP hosts that
+    /// // resolve into private or link-local address space (SSRF guard).
+    /// let guard = HostGuard::strict();
+    /// assert_eq!(guard.mode(), GuardMode::DenyPrivate);
+    /// ```
     pub fn strict() -> Self {
         Self::new(GuardMode::DenyPrivate)
     }

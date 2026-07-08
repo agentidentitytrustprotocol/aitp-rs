@@ -581,6 +581,27 @@ impl<'a> InitiatorConfig<'a> {
     /// Construct a config with default transport knobs (10s HTTP
     /// timeout, [`HostGuard::default`]). Adjust with the `with_*`
     /// methods.
+    ///
+    /// ```no_run
+    /// use std::time::Duration;
+    /// use aitp::facade::{InitiatorConfig, TrustMode, IdentityMode};
+    /// use aitp::transport::HostGuard;
+    /// # fn demo(key: &aitp::crypto::AitpSigningKey, manifest: &aitp::manifest::Manifest) {
+    /// let config = InitiatorConfig::new(
+    ///     key,
+    ///     manifest,
+    ///     "https://peer.example".parse().unwrap(),
+    ///     TrustMode::UnsafeNoTrustEnforcement, // dev only; use PinnedKeys/Oidc in prod
+    ///     IdentityMode::PinnedKey { subject: "alice".into() },
+    ///     vec!["demo.echo".into()],
+    /// )
+    /// // Internet-facing: reject peers that resolve to private space,
+    /// // and cap the handshake at 5s.
+    /// .with_host_guard(HostGuard::strict())
+    /// .with_http_timeout(Duration::from_secs(5));
+    /// # let _ = config;
+    /// # }
+    /// ```
     pub fn new(
         signing_key: &'a AitpSigningKey,
         own_manifest: &'a Manifest,

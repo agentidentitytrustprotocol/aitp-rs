@@ -1,5 +1,10 @@
 # aitp-rs
 
+[![CI](https://github.com/agentidentitytrustprotocol/aitp-rs/actions/workflows/ci.yml/badge.svg)](https://github.com/agentidentitytrustprotocol/aitp-rs/actions/workflows/ci.yml)
+[![crates.io](https://img.shields.io/crates/v/aitp.svg)](https://crates.io/crates/aitp)
+[![docs.rs](https://img.shields.io/docsrs/aitp)](https://docs.rs/aitp)
+[![License](https://img.shields.io/badge/license-MIT%20OR%20Apache--2.0-blue.svg)](#license)
+
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
 > **Status: 0.4.0** — Tracks AITP specification **v0.2** (wire protocol
@@ -9,7 +14,8 @@ Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 > 0.4.0 is a security-hardening + tooling release — SSRF-guarded peer
 > fetches, canonical low-S P-256 signatures, an RSA-2048 floor on the
 > OIDC/DPoP paths, a strict `TctVerifyContext` builder, an offline
-> [`aitp` CLI](crates/aitp-cli/README.md), an optional `metrics`
+> [`aitp` CLI](crates/aitp-cli/README.md) (in-repo tool, not yet
+> published to crates.io), an optional `metrics`
 > feature, and operator docs — with the on-the-wire protocol unchanged.
 > See [`docs/conformance.md`](docs/conformance.md) for the per-fixture
 > breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
@@ -160,6 +166,21 @@ The runner enforces a **v0.2 conformance gate**: a fixture marked
 lacks the op — makes `aitp-conformance run` exit non-zero, so CI
 cannot regress required coverage to a silent SKIP. A full per-fixture
 breakdown is in [`docs/conformance.md`](docs/conformance.md).
+
+## Install
+
+```bash
+cargo add aitp                                   # Rust library (crates.io)
+npm install @agentidentitytrustprotocol/aitp     # Node SDK (npm)
+pip install aitp-sdk                              # Python SDK (PyPI)
+```
+
+The `aitp` crate is the facade re-exporting the protocol surface. The
+HTTP **client** ships by default; add the server when you need it
+(`cargo add aitp --features http-server`, or `--features all`).
+The offline `aitp` CLI ships in-repo and is not yet published to
+crates.io — build it with `cargo build -p aitp-cli` (see
+[`crates/aitp-cli/README.md`](crates/aitp-cli/README.md)).
 
 ## Quick start
 

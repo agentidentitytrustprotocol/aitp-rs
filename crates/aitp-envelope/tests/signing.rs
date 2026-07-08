@@ -154,3 +154,57 @@ fn sender_field_matches_signing_key() {
     let pk = AitpVerifyingKey::from_aid(&env.sender.agent_id).expect("key from aid");
     verify_envelope_signature(&env, &pk).expect("verifies via aid-derived key");
 }
+
+// ── P-256 (ES256) sender suite ──────────────────────────────────────────
+//
+// The signer/verifier are suite-agnostic — they sign the same digest
+// with whatever `AitpSigningKey` they're handed. AITP supports both
+// Ed25519 and P-256 identities end-to-end, so a P-256-signed envelope
+// must round-trip and reject tampering exactly like Ed25519.
+
+fn p256_key(seed: u8) -> AitpSigningKey {
+    AitpSigningKey::from_p256_seed(&[seed; 32]).expect("p256 key from seed")
+}
+
+#[test]
+fn p256_envelope_round_trips() {
+    let k = p256_key(0x30);
+    let env = signed(&k);
+    assert!(k.aid().as_str().starts_with("aid:pubkey:"));
+    // Resolve the verifying key straight from the AID (as a receiver
+    // would) and verify.
+    let pk = AitpVerifyingKey::from_aid(&env.sender.agent_id).expect("p256 key from aid");
+    verify_envelope_signature(&env, &pk).expect("p256 envelope verifies");
+}
+
+#[test]
+fn p256_tampered_payload_is_rejected() {
+    let k = p256_key(0x31);
+    let mut env = signed(&k);
+    env.payload = serde_json::json!({ "hello": "tampered" });
+    let err = verify_envelope_signature(&env, &k.verifying_key()).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            CryptoError::SignatureInvalid | CryptoError::SignatureMalformed(_)
+        ),
+        "tampered P-256 envelope must not verify, got {err:?}"
+    );
+}
+
+#[test]
+fn ed25519_key_does_not_verify_p256_envelope() {
+    // Cross-suite mismatch: an Ed25519 verifying key handed a
+    // P-256-signed envelope must reject rather than accept.
+    let p = p256_key(0x32);
+    let env = signed(&p);
+    let ed = key(0x33);
+    let err = verify_envelope_signature(&env, &ed.verifying_key()).unwrap_err();
+    assert!(
+        matches!(
+            err,
+            CryptoError::SignatureInvalid | CryptoError::SignatureMalformed(_)
+        ),
+        "Ed25519 key must not verify a P-256 envelope, got {err:?}"
+    );
+}

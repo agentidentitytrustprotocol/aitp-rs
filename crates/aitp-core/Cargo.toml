@@ -23,5 +23,4 @@ hex = { workspace = true }
 url = { workspace = true }
 
 [dev-dependencies]
-insta = { workspace = true }
 proptest = { workspace = true }

@@ -71,6 +71,9 @@ agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:HYi…: hello world
 ./target/release/agent-b --port 9002 --seed customseed
 ./target/release/agent-a --port 9001 --peer http://localhost:9002 \
     --seed differentseed --message "hello earth"
+
+# Bind agent-b to a specific interface (default 127.0.0.1)
+./target/release/agent-b --host 0.0.0.0 --port 9002
 ```
 
 To watch a handshake *fail*, change what each peer offers in

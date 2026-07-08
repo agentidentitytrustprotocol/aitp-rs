@@ -11,7 +11,7 @@
 >
 > Status legend: **scaffolded** (compiles, thin) · **tested** (unit/integration
 > coverage) · **documented** (rustdoc + usage notes) · **done** (tested +
-> documented, shipping in 0.2.0).
+> documented, shipping in 0.4.0).
 
 ## Subsystems
 

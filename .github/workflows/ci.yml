@@ -31,13 +31,39 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Detect whether a PR touches Rust/build inputs. The two heavy net-new
+  # jobs below (conformance, wasm) gate on this so a docs-only PR skips
+  # them instead of spending several minutes rebuilding the workspace.
+  # The pre-existing required jobs (test, coverage, semver) are left
+  # ungated on purpose — skip semantics interact badly with branch
+  # protection's required-check list.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yml'
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
         with:
+          toolchain: stable
           components: rustfmt
       - run: cargo fmt --all -- --check
 
@@ -45,11 +71,12 @@ jobs:
     name: clippy
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
         with:
+          toolchain: stable
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
 
   bindings-lint:
@@ -62,11 +89,12 @@ jobs:
     # crates type-check (and pyo3's build script finds the runner's
     # preinstalled python3) without an extension build.
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
         with:
+          toolchain: stable
           components: rustfmt, clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
           workspaces: |
             bindings/aitp-py
@@ -92,13 +120,20 @@ jobs:
           - os: ubuntu-latest
             toolchain: "1.89.0"   # MSRV gate — kept in lockstep with rust-toolchain.toml and rust-version
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@master
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
           toolchain: ${{ matrix.toolchain }}
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@50414676f9f5d50a65992c6dd2ed02641263226c # v2
+        with:
+          tool: cargo-nextest
       - run: cargo build --workspace --all-targets --all-features
-      - run: cargo test --workspace --all-features --no-fail-fast
+      # nextest is faster and gives clearer per-test output, but it does
+      # NOT run doctests — those need a separate `cargo test --doc` pass.
+      - run: cargo nextest run --workspace --all-features --no-fail-fast
+      - run: cargo test --doc --workspace --all-features
 
   docs:
     name: docs
@@ -106,17 +141,19 @@ jobs:
     env:
       RUSTDOCFLAGS: "-D warnings"
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - run: cargo doc --workspace --no-deps --all-features
 
   deny:
     name: cargo-deny
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: EmbarkStudios/cargo-deny-action@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: EmbarkStudios/cargo-deny-action@bb137d7af7e4fb67e5f82a49c4fce4fad40782fe # v2
         with:
           command: check
           arguments: --all-features
@@ -125,8 +162,8 @@ jobs:
     name: cargo-audit
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: rustsec/audit-check@v2.0.0
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
@@ -136,11 +173,13 @@ jobs:
     # Skip on the release branch / first commit (no prior tag to compare).
     if: github.event_name == 'pull_request'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: obi1kenobi/cargo-semver-checks-action@v2
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
           # Use the PR base commit SHA (not the ref name). With only the
           # PR head checked out, `main` doesn't exist as a local ref —
@@ -161,9 +200,11 @@ jobs:
     name: cargo-msrv (workspace)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-msrv
         # Install from outside the repo so rustup ignores the
         # rust-toolchain.toml pin (1.89) and uses the runner's stable
@@ -183,9 +224,11 @@ jobs:
     name: coverage (tarpaulin)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-tarpaulin
         # Install from outside the repo so the project's pinned MSRV
         # (1.89 in rust-toolchain.toml) doesn't gate the install. The
@@ -233,7 +276,7 @@ jobs:
             --workspace --all-features --skip-clean --timeout 180 \
             "${excludes[@]}" \
             --out Xml --output-dir coverage --fail-under 50
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: coverage-report
           path: coverage/cobertura.xml
@@ -243,14 +286,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           path: aitp-rs
       - name: Read pinned spec commit
         id: pin
         run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
       - name: Checkout spec at pinned commit
-        uses: actions/checkout@v4
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           repository: agentidentitytrustprotocol/agentidentitytrustprotocol
           path: spec
@@ -266,3 +309,69 @@ jobs:
             git diff -- tests/schemas/
             exit 1
           fi
+
+  conformance:
+    name: conformance fixtures
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aitp-rs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: aitp-rs
+      - name: Read pinned spec commit
+        id: pin
+        run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Checkout spec at pinned commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: agentidentitytrustprotocol/agentidentitytrustprotocol
+          path: spec
+          ref: ${{ steps.pin.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aitp-rs
+      - name: Build adapter + runner
+        working-directory: aitp-rs
+        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+      - name: Run the full fixture corpus against the Rust adapter
+        working-directory: aitp-rs
+        # Opt into the draft features so the bundle-*/multihop fixtures
+        # run instead of being SKIPped. The runner exits non-zero if any
+        # required fixture FAILs. Expected: 51 pass / 0 fail / 2 skip
+        # (del-004 is a frozen v0.1 shape; see docs/conformance.md).
+        run: |
+          ./target/debug/aitp-conformance run \
+            --target ./target/debug/aitp-rs-adapter \
+            --fixtures-dir ../spec/schemas/conformance \
+            --feature experimental-multihop-delegation \
+            --feature experimental-session-bundle
+
+  wasm:
+    name: wasm portability check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # Guards the "pure crates stay portable" invariant: no native-only
+      # syscall dependency may creep into the sync verify/protocol crates.
+      # Target is wasm32-wasip1 (has a randomness source). Full browser
+      # wasm32-unknown-unknown additionally needs a uuid rng feature —
+      # tracked as a gated decision in plans/defered/deferred.md.
+      - name: cargo check --target wasm32-wasip1 (pure crates)
+        run: |
+          for c in aitp-core aitp-crypto aitp-envelope aitp-manifest \
+                   aitp-tct aitp-delegation aitp-session-bundle; do
+            echo "== $c =="
+            cargo check -p "$c" --target wasm32-wasip1
+          done

@@ -2,8 +2,8 @@
 
 > **Status: draft / opt-in.** Implemented in `aitp-session-bundle`, re-exported
 > as `aitp::session_bundle` under the `experimental-session-bundle` feature
-> (`experimental-bundle` in the language bindings). No wire-stability promise
-> until the RFC is ratified.
+> (`session-bundle` in the language bindings, enabled by default). No
+> wire-stability promise until the RFC is ratified.
 
 ## Motivation
 
@@ -91,7 +91,7 @@ peer — without any additional handshake.
 # Coordinator (Python): each participant already handshook with the
 # coordinator, which issued them a TCT (aud == participant AID).
 # a_tct / c_tct are the coordinator-issued TCT compact JWS strings.
-b = aitp.SessionBundleBuilder(coordinator_agent)   # experimental-bundle
+b = aitp.SessionBundleBuilder(coordinator_agent)   # `session-bundle` feature
 b.participant(a_aid, a_tct)
 b.participant(c_aid, c_tct)
 bundle_json = b.build()        # expires_at auto-set to min(member expiries)
@@ -99,7 +99,7 @@ bundle_json = b.build()        # expires_at auto-set to min(member expiries)
 
 ```js
 // Participant (Node) verifies the bundle naming its own AID:
-const outcome = verifySessionBundle(bundleJson, myAid);   // experimental-bundle
+const outcome = verifySessionBundle(bundleJson, myAid);   // `session-bundle` feature
 // throws on NotMember / ExpiryWindowInvariant / bad coordinator signature /
 // any embedded TCT failing verification.
 ```

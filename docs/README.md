@@ -28,6 +28,7 @@ delegation token) are now RFC 7515 compact JWS strings — see the
 | Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
 | Handle signing keys / plan rotation | [`key-management.md`](key-management.md) |
 | Use the offline `aitp` CLI (keygen / tct / manifest) | [`../crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) |
+| Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
 | See the release history / direction | [`../CHANGELOG.md`](../CHANGELOG.md) |
 
@@ -40,6 +41,7 @@ that governs it.
 | Doc | Topic | Normative spec |
 |---|---|---|
 | [`architecture.md`](architecture.md) | Topology, crate map, workspace-split rationale, sync/async boundary, MSRV | — (build rationale) |
+| [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, conformance, bindings, interop, e2e) + how to run each | — (test rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
 | [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, and the v0.2 fixture matrix | spec `schemas/conformance/` |
 | [`handshake-transcripts.md`](handshake-transcripts.md) | Reproducible four-message byte transcript | RFC-AITP-0004, RFC-AITP-0002 §3.1 |

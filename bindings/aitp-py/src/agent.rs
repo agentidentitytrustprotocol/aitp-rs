@@ -361,7 +361,7 @@ impl PyAitpAgent {
     }
 
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
-    /// renewal of `current_tct_envelope_json` (RFC-AITP-0005 §10).
+    /// renewal of `current_tct_envelope_json` (RFC-AITP-0013).
     ///
     /// Behind the `renewal` Cargo feature, which is **on by default** —
     /// build with `maturin develop --no-default-features` to omit it.
