@@ -31,6 +31,31 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Detect whether a PR touches Rust/build inputs. The two heavy net-new
+  # jobs below (conformance, wasm) gate on this so a docs-only PR skips
+  # them instead of spending several minutes rebuilding the workspace.
+  # The pre-existing required jobs (test, coverage, semver) are left
+  # ungated on purpose — skip semantics interact badly with branch
+  # protection's required-check list.
+  changes:
+    name: detect changes
+    runs-on: ubuntu-latest
+    outputs:
+      rust: ${{ steps.filter.outputs.rust }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dorny/paths-filter@d1c1ffe0248fe513906c8e24db8ea791d46f8590 # v3
+        id: filter
+        with:
+          filters: |
+            rust:
+              - 'crates/**'
+              - 'tests/**'
+              - 'Cargo.toml'
+              - 'Cargo.lock'
+              - 'rust-toolchain.toml'
+              - '.github/workflows/ci.yml'
+
   fmt:
     name: rustfmt
     runs-on: ubuntu-latest
@@ -100,8 +125,15 @@ jobs:
         with:
           toolchain: ${{ matrix.toolchain }}
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      - name: Install cargo-nextest
+        uses: taiki-e/install-action@50414676f9f5d50a65992c6dd2ed02641263226c # v2
+        with:
+          tool: cargo-nextest
       - run: cargo build --workspace --all-targets --all-features
-      - run: cargo test --workspace --all-features --no-fail-fast
+      # nextest is faster and gives clearer per-test output, but it does
+      # NOT run doctests — those need a separate `cargo test --doc` pass.
+      - run: cargo nextest run --workspace --all-features --no-fail-fast
+      - run: cargo test --doc --workspace --all-features
 
   docs:
     name: docs
@@ -277,3 +309,69 @@ jobs:
             git diff -- tests/schemas/
             exit 1
           fi
+
+  conformance:
+    name: conformance fixtures
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aitp-rs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: aitp-rs
+      - name: Read pinned spec commit
+        id: pin
+        run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Checkout spec at pinned commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: agentidentitytrustprotocol/agentidentitytrustprotocol
+          path: spec
+          ref: ${{ steps.pin.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aitp-rs
+      - name: Build adapter + runner
+        working-directory: aitp-rs
+        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+      - name: Run the full fixture corpus against the Rust adapter
+        working-directory: aitp-rs
+        # Opt into the draft features so the bundle-*/multihop fixtures
+        # run instead of being SKIPped. The runner exits non-zero if any
+        # required fixture FAILs. Expected: 51 pass / 0 fail / 2 skip
+        # (del-004 is a frozen v0.1 shape; see docs/conformance.md).
+        run: |
+          ./target/debug/aitp-conformance run \
+            --target ./target/debug/aitp-rs-adapter \
+            --fixtures-dir ../spec/schemas/conformance \
+            --feature experimental-multihop-delegation \
+            --feature experimental-session-bundle
+
+  wasm:
+    name: wasm portability check
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+          targets: wasm32-wasip1
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+      # Guards the "pure crates stay portable" invariant: no native-only
+      # syscall dependency may creep into the sync verify/protocol crates.
+      # Target is wasm32-wasip1 (has a randomness source). Full browser
+      # wasm32-unknown-unknown additionally needs a uuid rng feature —
+      # tracked as a gated decision in plans/defered/deferred.md.
+      - name: cargo check --target wasm32-wasip1 (pure crates)
+        run: |
+          for c in aitp-core aitp-crypto aitp-envelope aitp-manifest \
+                   aitp-tct aitp-delegation aitp-session-bundle; do
+            echo "== $c =="
+            cargo check -p "$c" --target wasm32-wasip1
+          done
