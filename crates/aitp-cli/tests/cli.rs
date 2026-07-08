@@ -154,3 +154,106 @@ fn tct_verify_wrong_issuer_fails() {
         "a mismatched issuer must fail verification"
     );
 }
+
+// ── Negative / malformed-input paths ────────────────────────────────────
+
+#[test]
+fn tct_inspect_rejects_garbage_token() {
+    // A non-JWS string is not three base64url segments — inspect must
+    // exit non-zero rather than print bogus "claims".
+    let out = aitp()
+        .args(["tct", "inspect", "--token", "not-a-real-jws"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "garbage token must fail to decode");
+}
+
+#[test]
+fn tct_verify_rejects_garbage_token() {
+    let out = aitp()
+        .args([
+            "tct",
+            "verify",
+            "--token",
+            "aaa.bbb.ccc",
+            "--at",
+            "1711900500",
+        ])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "undecodable token must fail verify");
+}
+
+#[test]
+fn keygen_rejects_unknown_suite() {
+    // `--suite` is a clap ValueEnum (ed25519 | p256); anything else is
+    // rejected at parse time with a usage error.
+    let out = aitp().args(["keygen", "--suite", "rsa"]).output().unwrap();
+    assert!(!out.status.success(), "unknown suite must be rejected");
+    assert!(
+        String::from_utf8_lossy(&out.stderr).contains("rsa"),
+        "usage error should name the bad value"
+    );
+}
+
+#[test]
+fn manifest_verify_missing_file_fails() {
+    let out = aitp()
+        .args(["manifest", "verify", "--file", "/no/such/manifest.json"])
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "a missing file must exit non-zero");
+}
+
+/// Build the `{"manifest": {...}}` envelope the CLI expects from the KAT
+/// file (which wraps it alongside a `_kat_input` sidecar).
+fn manifest_envelope_json() -> String {
+    let raw = std::fs::read_to_string(kat(
+        "signed-examples/manifest/kat-keypair-001-manifest.json",
+    ))
+    .unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    serde_json::json!({ "manifest": v["manifest"] }).to_string()
+}
+
+#[test]
+fn manifest_verify_ok_within_validity_window() {
+    // KAT manifest is valid over [1711900000, 1711986400].
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = aitp()
+        .args(["manifest", "verify", "--file", "-", "--at", "1711900500"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(child.stdin.take().unwrap(), "{}", manifest_envelope_json()).unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout(&out).contains(ED25519_ZERO_AID),
+        "verified manifest should print its AID: {}",
+        stdout(&out)
+    );
+}
+
+#[test]
+fn manifest_verify_rejects_malformed_json() {
+    use std::io::Write;
+    use std::process::Stdio;
+    let mut child = aitp()
+        .args(["manifest", "verify", "--file", "-"])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    write!(child.stdin.take().unwrap(), "{{ not valid json").unwrap();
+    let out = child.wait_with_output().unwrap();
+    assert!(!out.status.success(), "malformed JSON must fail to parse");
+}

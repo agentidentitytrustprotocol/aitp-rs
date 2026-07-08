@@ -262,3 +262,47 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
         "tampered participant TCT must be rejected, got {err:?}"
     );
 }
+
+#[test]
+fn foreign_issued_tct_rejected_at_build() {
+    // A participant TCT minted by someone *other* than the coordinator
+    // (correct audience, wrong issuer) must be caught when the
+    // coordinator assembles the bundle — the coordinator only vouches
+    // for TCTs it issued (RFC-AITP-0010 §3, verify step 7).
+    let coord = key(0xC0);
+    let rogue = key(0x99); // not the coordinator
+    let alice = key(0xA0);
+
+    // iss == rogue, aud == alice; listed under alice's (correct) aid so
+    // the issuer check fires before the audience check.
+    let tct_a = issue_tct(&rogue, &alice, 3600);
+    let err = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), tct_a)
+        .build()
+        .unwrap_err();
+    assert!(matches!(err, SessionBundleError::CoordinatorIssuerMismatch));
+}
+
+#[test]
+fn version_mismatch_rejected() {
+    // The version gate is verify step 1 — it fires before the outer
+    // signature is even checked, so a downgraded/foreign `version`
+    // string is rejected regardless of signature validity.
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let mut bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+    bundle.version = "aitp/0.1".into();
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
+    assert!(matches!(err, SessionBundleError::VersionMismatch));
+}
