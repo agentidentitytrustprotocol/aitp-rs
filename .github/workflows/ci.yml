@@ -167,6 +167,17 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
 
+  # Lockstep-version guard: every published crate must inherit the
+  # workspace version and every inter-crate path pin must match it, so a
+  # release can never ship a subset of crates at a divergent version. Pure
+  # shell — no toolchain needed.
+  versions:
+    name: lockstep versions
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - run: ./scripts/check-versions.sh
+
   semver:
     name: cargo-semver-checks
     runs-on: ubuntu-latest

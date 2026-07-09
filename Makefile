@@ -63,6 +63,12 @@ semver:
 	@command -v cargo-semver-checks >/dev/null || { echo "cargo-semver-checks missing: cargo install --locked cargo-semver-checks"; exit 1; }
 	cargo semver-checks
 
+# Enforce lockstep versioning: every published crate inherits the
+# workspace version and every inter-crate pin matches it. Guards against a
+# hand-edit drifting one crate out of the shared version. CI runs this too.
+check-versions:
+	./scripts/check-versions.sh
+
 # Mirrors the ci.yml coverage job: same exclude list (kept in sync with
 # the COVERAGE_EXCLUDE_CRATES env there) and the explicit adapter build
 # the runner integration tests need.
@@ -83,7 +89,7 @@ schemas-check:
 # Everything a PR gates on that can run locally without extra repos.
 # (schemas-check needs a spec-repo clone; msrv/semver/coverage need
 # their cargo-* tools — run those separately.)
-ci: test doc deny audit
+ci: check-versions test doc deny audit
 	@echo "== local CI gauntlet passed =="
 
 clean:
