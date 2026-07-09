@@ -358,9 +358,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+      # Pin to 1.89.0 (matching rust-toolchain.toml) and install the wasm
+      # target for THAT toolchain. Installing it for `stable` would miss:
+      # rust-toolchain.toml overrides cargo to 1.89.0 inside the repo, and
+      # 1.89.0 auto-installs with a minimal profile (no wasm target),
+      # yielding `can't find crate for core` (E0463).
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: stable
+          toolchain: "1.89.0"
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # Guards the "pure crates stay portable" invariant: no native-only
