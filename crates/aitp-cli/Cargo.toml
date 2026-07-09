@@ -21,7 +21,7 @@ path = "src/main.rs"
 [dependencies]
 # Pure verification/signing surface only — no HTTP needed for the CLI's
 # offline commands, so default-features off keeps the binary lean.
-aitp = { path = "../aitp", version = "0.4.0", default-features = false }
+aitp = { path = "../aitp", version = "=0.4.0", default-features = false }
 clap = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }

@@ -18,6 +18,74 @@
 # release-plz aborts with a "publish = false in Cargo.toml but publish =
 # true in the release-plz configuration" consistency error.
 
+[workspace]
+# Run cargo-semver-checks inside release-plz when computing the release
+# PR. Unlike the advisory `semver` job in ci.yml (if:pull_request only),
+# this runs where the version bumps actually happen, so an API break that
+# rides an unmarked commit blocks the release PR instead of only warning.
+semver_check = true
+
+# Label the release PRs release-plz opens.
+pr_labels = ["release"]
+
+# Create a GitHub Release (tag + notes) for each published version.
+git_release_enable = true
+
+# Lockstep versioning (force-full-republish). The aitp crates are one
+# library split across crates that must be consumed as a coherent set:
+# shared types flow across crate boundaries via aitp-core, and the
+# inter-crate deps pin the EXACT shared version (`=x.y.z` in each
+# Cargo.toml), so a fresh resolver cannot mix release generations.
+# Putting every published member in one `version_group` makes release-plz
+# assign them all the same next version and bump the whole family together
+# — even crates with no changes this cycle — so crates.io never holds a
+# subset at a stale version. The version itself lives once in
+# [workspace.package] and each member inherits it via
+# `version.workspace = true`; `semver_check` above still guards real API
+# breaks. `scripts/check-versions.sh` (the `versions` CI job) enforces the
+# inheritance + exact-pin invariants on every PR. This mirrors the sibling
+# acdp-rs release config.
+
+[[package]]
+name = "aitp-core"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-crypto"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-envelope"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-manifest"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-handshake"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-tct"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-delegation"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-session-bundle"
+version_group = "aitp"
+
+[[package]]
+name = "aitp-transport-http"
+version_group = "aitp"
+
+[[package]]
+name = "aitp"
+version_group = "aitp"
+
 [[package]]
 name = "aitp-conformance"
 release = false
