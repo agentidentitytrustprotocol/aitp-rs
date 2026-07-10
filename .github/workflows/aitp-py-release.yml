@@ -130,3 +130,33 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
           fail_on_unmatched_files: true
+
+  # After a real PyPI publish, tell the Python consumer (aitp-playground) to
+  # adopt the new SDK version. Its bump-aitp.yml calls aitp-ci/bump-consume,
+  # which waits for PyPI to serve the version, runs `uv lock --upgrade-package
+  # aitp-sdk`, and opens an auto-merging PR. Dependabot's weekly aitp-sdk group
+  # is the backstop. Auth: the aitp-deps-bot App token — no PAT.
+  dispatch:
+    name: notify aitp-playground (uv)
+    runs-on: ubuntu-latest
+    needs: publish
+    if: ${{ github.event_name == 'push' }}
+    steps:
+      - name: Resolve version from tag
+        id: ver
+        run: echo "version=${GITHUB_REF_NAME#aitp-py-v}" >> "$GITHUB_OUTPUT"
+      - name: Mint GitHub App token (scoped to aitp-playground)
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+          owner: agentidentitytrustprotocol
+          repositories: aitp-playground
+      - name: Dispatch aitp-released (uv)
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          repository: agentidentitytrustprotocol/aitp-playground
+          event-type: aitp-released
+          client-payload: '{"version": "${{ steps.ver.outputs.version }}", "ecosystem": "uv"}'
