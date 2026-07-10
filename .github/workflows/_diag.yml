@@ -1,7 +1,7 @@
 name: _diag
-# TEMPORARY: tests the CI-delivered token against crates.io from inside the
-# runner, and dumps competing cargo token sources. No secret value leaked.
-# Delete immediately after reading the output.
+# TEMPORARY: isolates whether plain `cargo publish` mangles the token.
+# Publishes an already-taken version so crates.io auths then says
+# "already uploaded" (harmless). Delete after reading output.
 on:
   push:
     branches: [main]
@@ -9,40 +9,24 @@ jobs:
   diag:
     runs-on: ubuntu-latest
     steps:
-      - name: competing cargo token sources (names only)
-        run: |
-          echo "--- env vars matching CARGO*TOKEN (names only) ---"
-          env | grep -iE '^CARGO.*TOKEN=' | sed 's/=.*/=<redacted>/' || echo "(none)"
-          echo "--- cargo credentials files ---"
-          ls -la "$HOME/.cargo/credentials"* 2>/dev/null || echo "(no credentials file)"
-          echo "--- cargo version ---"
-          cargo --version || true
-      - name: replay publish with CI-delivered token
+      - uses: dtolnay/rust-toolchain@stable
+      - name: cargo publish with CI token (already-taken version)
         env:
-          T: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          python3 - <<'PY'
-          import os, struct, io, tarfile, json, urllib.request, urllib.error
-          T = os.environ["T"]
-          meta = {"name":"aitp-core","vers":"0.4.0","deps":[],"features":{},
-                  "authors":[],"description":"test","documentation":None,"homepage":None,
-                  "readme":None,"readme_file":None,"keywords":[],"categories":[],
-                  "license":"MIT","license_file":None,"repository":None,"badges":{},
-                  "links":None,"rust_version":None}
-          mb = json.dumps(meta).encode()
-          buf = io.BytesIO()
-          with tarfile.open(fileobj=buf, mode="w:gz") as t:
-              man = b'[package]\nname = "aitp-core"\nversion = "0.4.0"\ndescription = "test"\nlicense = "MIT"\n'
-              ti = tarfile.TarInfo("aitp-core-0.4.0/Cargo.toml"); ti.size=len(man); t.addfile(ti, io.BytesIO(man))
-              src = b'fn main(){}\n'
-              ti2 = tarfile.TarInfo("aitp-core-0.4.0/src/lib.rs"); ti2.size=len(src); t.addfile(ti2, io.BytesIO(src))
-          cb = buf.getvalue()
-          body = struct.pack("<I",len(mb))+mb+struct.pack("<I",len(cb))+cb
-          req = urllib.request.Request("https://crates.io/api/v1/crates/new", data=body, method="PUT")
-          req.add_header("User-Agent","aitp-ci-diag (ci)")
-          req.add_header("Authorization", T)
-          try:
-              r = urllib.request.urlopen(req); print("HTTP", r.status, r.read().decode())
-          except urllib.error.HTTPError as e:
-              print("HTTP", e.code, e.read().decode())
-          PY
+          set -x
+          mkdir -p /tmp/tc/src
+          cat > /tmp/tc/Cargo.toml <<'EOF'
+          [package]
+          name = "aitp-core"
+          version = "0.4.0"
+          edition = "2021"
+          description = "diag"
+          license = "MIT"
+          EOF
+          echo "// diag" > /tmp/tc/src/lib.rs
+          cd /tmp/tc
+          echo "=== A) via CARGO_REGISTRY_TOKEN env ==="
+          cargo publish --no-verify --allow-dirty 2>&1 | tail -6 || true
+          echo "=== B) via explicit --token flag ==="
+          cargo publish --no-verify --allow-dirty --token "$CARGO_REGISTRY_TOKEN" 2>&1 | tail -6 || true
