@@ -7,11 +7,11 @@ license.workspace = true
 publish = false
 
 [dependencies]
-aitp-core = { path = "../../crates/aitp-core", version = "0.4.0" }
-aitp-crypto = { path = "../../crates/aitp-crypto", version = "0.4.0" }
-aitp-manifest = { path = "../../crates/aitp-manifest", version = "0.4.0" }
-aitp-tct = { path = "../../crates/aitp-tct", version = "0.4.0" }
-aitp-delegation = { path = "../../crates/aitp-delegation", version = "0.4.0" }
+aitp-core = { path = "../../crates/aitp-core", version = "0.4.1" }
+aitp-crypto = { path = "../../crates/aitp-crypto", version = "0.4.1" }
+aitp-manifest = { path = "../../crates/aitp-manifest", version = "0.4.1" }
+aitp-tct = { path = "../../crates/aitp-tct", version = "0.4.1" }
+aitp-delegation = { path = "../../crates/aitp-delegation", version = "0.4.1" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 hex = { workspace = true }
