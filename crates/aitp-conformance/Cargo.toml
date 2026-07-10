@@ -1,6 +1,10 @@
 [package]
 name = "aitp-conformance"
 description = "Conformance test runner for AITP implementations"
+# Not published to crates.io: it depends on aitp-rs-adapter (publish = false) as
+# a local path dep. Marking it private lets cargo-deny's allow-wildcard-paths
+# apply and matches release-plz.toml (release = false).
+publish = false
 version.workspace = true
 edition.workspace = true
 license.workspace = true
