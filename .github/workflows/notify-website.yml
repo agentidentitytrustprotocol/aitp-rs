@@ -12,9 +12,8 @@ on:
   # Allow firing the website sync by hand from the Actions tab.
   workflow_dispatch:
 
-# The dispatch to the website repo authenticates via the
-# AITP_WEBSITE_SYNC_TOKEN secret; this workflow needs nothing from
-# its own GITHUB_TOKEN.
+# The dispatch authenticates via a short-lived aitp-deps-bot App token
+# (org secrets AITP_BOT_APP_ID / AITP_BOT_PRIVATE_KEY) — no PAT.
 permissions:
   contents: read
 
@@ -22,9 +21,18 @@ jobs:
   notify:
     runs-on: ubuntu-latest
     steps:
+      - name: Mint GitHub App token (scoped to aitp-website)
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+          owner: agentidentitytrustprotocol
+          repositories: aitp-website
+
       - name: Trigger website sync
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4
         with:
-          token: ${{ secrets.AITP_WEBSITE_SYNC_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
           repository: agentidentitytrustprotocol/aitp-website
           event-type: docs-updated

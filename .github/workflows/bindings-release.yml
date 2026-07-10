@@ -144,3 +144,34 @@ jobs:
         with:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
+
+  # After a real npm publish, tell the npm consumer (aitp-control-plane) to
+  # adopt the new SDK version. Its bump-aitp.yml calls aitp-ci/bump-consume,
+  # which waits for the npm CDN to serve the version, re-locks, and opens an
+  # auto-merging PR. Dependabot's weekly aitp-sdk group is the backstop.
+  # Auth: the aitp-deps-bot App (short-lived installation token) — no PAT.
+  dispatch:
+    name: notify aitp-control-plane (npm)
+    runs-on: ubuntu-latest
+    needs: publish
+    if: ${{ github.event_name == 'push' }}
+    steps:
+      - name: Resolve version from tag
+        id: ver
+        working-directory: ${{ github.workspace }}
+        run: echo "version=${GITHUB_REF_NAME#aitp-node-v}" >> "$GITHUB_OUTPUT"
+      - name: Mint GitHub App token (scoped to aitp-control-plane)
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+          owner: agentidentitytrustprotocol
+          repositories: aitp-control-plane
+      - name: Dispatch aitp-released (npm)
+        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        with:
+          token: ${{ steps.app.outputs.token }}
+          repository: agentidentitytrustprotocol/aitp-control-plane
+          event-type: aitp-released
+          client-payload: '{"version": "${{ steps.ver.outputs.version }}", "ecosystem": "npm"}'
