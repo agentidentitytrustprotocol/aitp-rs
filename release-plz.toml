@@ -89,6 +89,9 @@ version_group = "aitp"
 [[package]]
 name = "aitp-conformance"
 release = false
+# Cargo.toml sets publish = false (path dep on the publish=false adapter), so
+# release-plz.toml must agree or it aborts with a consistency error.
+publish = false
 
 [[package]]
 name = "aitp-cli"
