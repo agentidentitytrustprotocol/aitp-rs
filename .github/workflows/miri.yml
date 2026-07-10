@@ -22,11 +22,11 @@ env:
   CARGO_TERM_COLOR: always
   RUST_BACKTRACE: short
   # Miri's tree-borrows is the recommended aliasing model for new
-  # code. `-Zmiri-disable-isolation` was needed when the JCS test
-  # path read vendored fixtures from disk; the unit tests covered
-  # by `--lib` don't touch the filesystem, so we drop it now to
-  # tighten the sandbox.
-  MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-strict-provenance"
+  # code. `-Zmiri-disable-isolation` is required because some `--lib`
+  # unit tests read the realtime clock (`clock_gettime(REALTIME)`),
+  # which Miri blocks under isolation ("unsupported operation:
+  # `clock_gettime` ... not available when isolation is enabled").
+  MIRIFLAGS: "-Zmiri-tree-borrows -Zmiri-strict-provenance -Zmiri-disable-isolation"
 
 permissions:
   contents: read
