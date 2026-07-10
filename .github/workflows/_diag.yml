@@ -1,0 +1,27 @@
+name: _diag
+# TEMPORARY: reveals what CARGO_REGISTRY_TOKEN actually contains in CI
+# without leaking the value (length, 3-char prefix, whitespace flags only).
+# Delete immediately after reading the output.
+on:
+  push:
+    branches: [main]
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    steps:
+      - name: token shape (no value leaked)
+        env:
+          T: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          echo "raw shell length: ${#T}"
+          echo "first 3 chars: ${T:0:3}"
+          python3 - <<'PY'
+          import os
+          t = os.environ.get("T", "")
+          print("python len:", len(t))
+          print("startswith_cio:", t.startswith("cio"))
+          print("leading_whitespace:", bool(t) and t[0].isspace())
+          print("trailing_whitespace:", bool(t) and t[-1].isspace())
+          print("first_char_ord:", ord(t[0]) if t else None)
+          print("last_char_ord:", ord(t[-1]) if t else None)
+          PY
