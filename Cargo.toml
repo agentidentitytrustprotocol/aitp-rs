@@ -49,24 +49,24 @@ categories = ["cryptography", "authentication"]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = { version = "1.0", features = ["preserve_order"] }
 serde_jcs = "0.2"
-thiserror = "1.0"
-ed25519-dalek = { version = "2.1", features = ["rand_core"] }
+thiserror = "2.0"
+ed25519-dalek = { version = "3.0", features = ["rand_core"] }
 # P-256 ECDSA — RFC-AITP-0001 §5.4.3 / §5.5.2 wire format for the
 # `p256` algorithm tag. `ecdsa` enables both verifying and signing
 # (the latter is used by `AitpSigningKey::P256` once an agent picks
 # the P-256 suite). `arithmetic` is required to derive the public
 # point from a freshly-generated scalar.
-p256 = { version = "0.13", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
+p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
 base64ct = { version = "1.6", features = ["std"] }
 uuid = { version = "1.7", features = ["v4", "serde"] }
-sha2 = "0.10"
+sha2 = "0.11"
 url = { version = "2.5", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
-rand = "0.8"
+rand = "0.10"
 
 # HTTP transport (feature-gated, only used by aitp-transport-http)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
-axum = "0.7"
+axum = "0.8"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", default-features = false }
 
@@ -79,10 +79,10 @@ tower = { version = "0.5", default-features = false }
 rustls = { version = "0.23", default-features = false, features = ["std", "ring"] }
 rustls-pki-types = "1.10"
 # X.509 parser for extracting SubjectPublicKeyInfo bytes when pinning.
-x509-parser = "0.17"
+x509-parser = "0.18"
 
 # OIDC (used by aitp-handshake and aitp-transport-http)
-jsonwebtoken = "9.2"
+jsonwebtoken = "10.4"
 
 # Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
 # a poisoned state on a panic in a locked section — std::sync::Mutex would,

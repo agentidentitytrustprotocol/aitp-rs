@@ -71,4 +71,4 @@ reqwest = { workspace = true }
 tower = { workspace = true, features = ["util"] }
 ed25519-dalek = { workspace = true }
 # Debugging recorder + snapshotter for the `metrics`-feature emission test.
-metrics-util = { version = "0.19", default-features = false, features = ["debugging"] }
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
