@@ -3,7 +3,7 @@
 # CPython, so it carries its own `[workspace]` table and `Cargo.lock`.
 [package]
 name = "aitp-py"
-version = "0.4.1"
+version.workspace = true
 edition = "2021"
 description = "Agent Identity Trust Protocol — Python SDK"
 license = "MIT OR Apache-2.0"

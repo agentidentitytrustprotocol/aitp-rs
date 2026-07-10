@@ -41,9 +41,13 @@ echo "workspace version: $ws_version"
 
 fail=0
 
-# 1. Every crate under crates/ inherits the workspace version.
+# 1. Every crate under crates/ AND every binding crate inherits the workspace
+#    version — so the Rust crates and the SDK binding crates release in lockstep
+#    at one version. (The npm package.json / py pyproject version is stamped to
+#    the release version at publish time by release-bindings.yml.)
 crate_count=0
-for toml in crates/*/Cargo.toml; do
+for toml in crates/*/Cargo.toml bindings/*/Cargo.toml; do
+  [ -f "$toml" ] || continue
   crate_count=$((crate_count + 1))
   if ! grep -qE '^version\.workspace = true' "$toml"; then
     own="$(sed -n 's/^version = "\([0-9][^"]*\)".*/\1/p' "$toml" | head -1)"
