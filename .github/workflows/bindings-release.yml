@@ -66,8 +66,8 @@ jobs:
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-24.04-arm  # native arm64
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -82,7 +82,7 @@ jobs:
       - name: Build (native)
         run: npx napi build --platform --release --target ${{ matrix.target }}
       - name: Upload .node artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: bindings-${{ matrix.target }}
           path: bindings/aitp-node/*.node
@@ -96,15 +96,15 @@ jobs:
       contents: write   # create the GitHub release
       id-token: write   # npm provenance
     steps:
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+      - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '20'
           registry-url: 'https://registry.npmjs.org'
       - name: Install dependencies
         run: npm install
       - name: Download all .node artifacts
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: bindings/aitp-node/artifacts
           pattern: bindings-*
@@ -140,7 +140,7 @@ jobs:
           NPM_CONFIG_PROVENANCE: 'true'
       - name: Attach native binaries to GitHub Release
         if: ${{ github.event_name == 'push' }}
-        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
+        uses: softprops/action-gh-release@718ea10b132b3b2eba29c1007bb80653f286566b # v3.0.1
         with:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
@@ -162,14 +162,14 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#aitp-node-v}" >> "$GITHUB_OUTPUT"
       - name: Mint GitHub App token (scoped to aitp-control-plane)
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.AITP_BOT_APP_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
           owner: agentidentitytrustprotocol
           repositories: aitp-control-plane
       - name: Dispatch aitp-released (npm)
-        uses: peter-evans/repository-dispatch@ff45666b9427631e3450c54a1bcbee4d9ff4d7c0 # v3.0.0
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.app.outputs.token }}
           repository: agentidentitytrustprotocol/aitp-control-plane
