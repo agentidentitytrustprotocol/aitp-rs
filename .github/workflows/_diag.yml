@@ -1,7 +1,8 @@
 name: _diag
-# TEMPORARY: isolates whether plain `cargo publish` mangles the token.
-# Publishes an already-taken version so crates.io auths then says
-# "already uploaded" (harmless). Delete after reading output.
+# TEMPORARY: makes `cargo publish` actually reach crates.io token validation
+# by targeting a crate we don't own with a nonexistent version. A valid token
+# yields an ownership error; a mangled token yields the format error.
+# Nothing is ever published. Delete after reading output.
 on:
   push:
     branches: [main]
@@ -10,23 +11,20 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: dtolnay/rust-toolchain@stable
-      - name: cargo publish with CI token (already-taken version)
+      - name: cargo publish reaching crates.io auth
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: |
-          set -x
           mkdir -p /tmp/tc/src
           cat > /tmp/tc/Cargo.toml <<'EOF'
           [package]
-          name = "aitp-core"
-          version = "0.4.0"
+          name = "serde"
+          version = "999999.0.0"
           edition = "2021"
           description = "diag"
           license = "MIT"
           EOF
           echo "// diag" > /tmp/tc/src/lib.rs
           cd /tmp/tc
-          echo "=== A) via CARGO_REGISTRY_TOKEN env ==="
-          cargo publish --no-verify --allow-dirty 2>&1 | tail -6 || true
-          echo "=== B) via explicit --token flag ==="
-          cargo publish --no-verify --allow-dirty --token "$CARGO_REGISTRY_TOKEN" 2>&1 | tail -6 || true
+          echo "=== cargo publish (reaches crates.io auth via CARGO_REGISTRY_TOKEN) ==="
+          cargo publish --no-verify --allow-dirty 2>&1 | tail -8 || true
