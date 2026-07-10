@@ -38,6 +38,12 @@ confidence-threshold = 0.8
 [bans]
 multiple-versions = "warn"
 wildcards = "deny"
+# Allow a version-less (wildcard) requirement when the dependency is a local
+# `path` dep. aitp-conformance depends on the publish=false aitp-rs-adapter as a
+# pure path dep (no `version` pin, so release-plz's release-pr doesn't try to
+# resolve it from crates.io); that's safe — it's a local crate, never a registry
+# wildcard. Registry wildcards are still denied.
+allow-wildcard-paths = true
 
 [sources]
 unknown-registry = "deny"
