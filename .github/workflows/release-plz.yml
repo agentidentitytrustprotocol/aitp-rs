@@ -32,23 +32,31 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.repository_owner == 'agentidentitytrustprotocol' }}
     steps:
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
         with:
           fetch-depth: 0
-          token: ${{ secrets.GITHUB_TOKEN }}
+          token: ${{ steps.app.outputs.token }}
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
         with:
           toolchain: stable
       - uses: MarcoIeni/release-plz-action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5
+        # Default command = release-pr + release. On each push to main it
+        # opens/updates a "Release PR" (version bumps + changelogs from
+        # conventional commits, lockstep across the crate family); merging that
+        # PR is what actually publishes to crates.io, tags, and cuts GitHub
+        # releases. The aitp-deps-bot App token (NOT GITHUB_TOKEN) opens the
+        # Release PR — so its required CI actually runs (GITHUB_TOKEN PRs don't
+        # trigger workflows) and it doesn't need the org "Allow GitHub Actions
+        # to create and approve pull requests" policy.
         with:
-          # One-time bootstrap of the first crates.io release: `release`
-          # publishes (in dependency order) + tags + cuts GitHub releases
-          # directly, with no release PR — so it does NOT need the org
-          # "Allow GitHub Actions to create and approve pull requests"
-          # policy that blocks the default release-pr command. Reverted to
-          # the default (release-pr + release) right after; re-enabling the
-          # org policy restores the automated PR flow for future releases.
-          command: release
+          token: ${{ steps.app.outputs.token }}
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}

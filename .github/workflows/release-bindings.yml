@@ -1,0 +1,96 @@
+name: release-bindings
+
+# Lockstep the SDK bindings with the crate release. release-plz tags the
+# top-level `aitp` crate as `aitp-v<X.Y.Z>` when it publishes; this workflow
+# reacts to that tag and cuts the npm + PyPI binding releases at the SAME
+# version by pushing `aitp-node-v<X.Y.Z>` and `aitp-py-v<X.Y.Z>` (which trigger
+# bindings-release.yml / aitp-py-release.yml).
+#
+# The bindings carry their own manifest versions (bindings/aitp-node/package.json
+# + Cargo.toml, bindings/aitp-py/pyproject.toml + Cargo.toml) and can drift from
+# the workspace crates. To keep the publish honest, each binding tag is created
+# on a commit that stamps that binding's manifests to the release version — kept
+# OFF `main` (main is branch-protected; the tag just needs a commit that carries
+# the right version, it doesn't have to live on a branch).
+#
+# A binding whose `<prefix>-v<X.Y.Z>` tag already exists is skipped, so a release
+# at a version the bindings already shipped (e.g. the current 0.4.1) won't try to
+# republish. Auth: the aitp-deps-bot App token (no PAT).
+
+on:
+  push:
+    tags:
+      - 'aitp-v*'   # release-plz's tag for the top-level `aitp` crate only
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to tag the bindings at (e.g. 0.4.2)'
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  tag-bindings:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v2
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          fetch-depth: 0
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Resolve release version
+        id: v
+        run: |
+          set -euo pipefail
+          if [ -n "${{ github.event.inputs.version }}" ]; then
+            echo "version=${{ github.event.inputs.version }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF_NAME#aitp-v}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Tag npm + PyPI bindings in lockstep
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          V: ${{ steps.v.outputs.version }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+        run: |
+          set -euo pipefail
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+          BASE="$GITHUB_SHA"
+
+          set_ver() { # $1 = file (Cargo.toml / pyproject.toml): replace first line-anchored version
+            V="$V" perl -0777 -i -pe 's/^(version\s*=\s*")[^"]+(")/${1}$ENV{V}${2}/m' "$1"
+          }
+
+          tag_binding() { # $1 = tag prefix (aitp-node|aitp-py); $2.. = manifest files to stamp
+            local prefix="$1"; shift
+            local tag="${prefix}-v${V}"
+            if git ls-remote --exit-code --tags origin "refs/tags/$tag" >/dev/null 2>&1; then
+              echo "::notice::$tag already exists — skipping (bindings already shipped $V)"; return 0
+            fi
+            git checkout -q --detach "$BASE"
+            for f in "$@"; do
+              case "$f" in
+                *package.json)
+                  V="$V" node -e 'const fs=require("fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.version=process.env.V;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$f" ;;
+                *) set_ver "$f" ;;
+              esac
+              git add "$f"
+            done
+            git commit -q -m "chore(release): $prefix v$V (lockstep with aitp crate)"
+            git tag "$tag"
+            git push origin "$tag"
+            echo "pushed $tag"
+          }
+
+          tag_binding aitp-node bindings/aitp-node/package.json bindings/aitp-node/Cargo.toml
+          tag_binding aitp-py   bindings/aitp-py/pyproject.toml   bindings/aitp-py/Cargo.toml
