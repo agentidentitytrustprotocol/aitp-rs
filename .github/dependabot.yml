@@ -6,10 +6,16 @@ updates:
       interval: weekly
     open-pull-requests-limit: 10
     groups:
-      patch-and-minor:
-        update-types: [patch, minor]
+      # One PR for minor+patch across the workspace; majors held separately.
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
 
   - package-ecosystem: github-actions
     directory: "/"
     schedule:
       interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
