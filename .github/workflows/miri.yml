@@ -49,7 +49,11 @@ jobs:
           toolchain: nightly
           components: miri, rust-src
       - name: Setup miri
-        run: cargo miri setup
+        # `+nightly` is required: rust-toolchain.toml pins the repo to stable
+        # 1.89.0, and Miri is a nightly-only component — a bare `cargo miri
+        # setup` resolves to 1.89.0 and fails with "the 'miri' component ... is
+        # not available". The test step below already pins +nightly.
+        run: cargo +nightly miri setup
       - name: Run miri tests
         # Skip integration tests that read large vendored fixtures —
         # the unit tests inside src/ are the high-value target for
