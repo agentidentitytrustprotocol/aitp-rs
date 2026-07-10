@@ -56,7 +56,12 @@ jobs:
         # trigger workflows) and it doesn't need the org "Allow GitHub Actions
         # to create and approve pull requests" policy.
         with:
-          token: ${{ steps.app.outputs.token }}
+          # `token` is the CARGO REGISTRY token (passed as `cargo publish
+          # --token`), NOT the GitHub token. The GitHub App token is consumed
+          # separately from the GITHUB_TOKEN env below (`--git-token`). Wiring
+          # the App token here makes cargo send a `ghs_…` value to crates.io,
+          # which 401s with "does not match the format used by crates.io".
+          token: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
