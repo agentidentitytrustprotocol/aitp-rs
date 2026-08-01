@@ -34,19 +34,19 @@ jobs:
     steps:
       - name: Mint GitHub App token
         id: app
-        uses: actions/create-github-app-token@v2
+        uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.AITP_BOT_APP_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
 
-      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
-      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+      - uses: dtolnay/rust-toolchain@2c7215f132e9ebf062739d9130488b56d53c060c # master (stable)
         with:
           toolchain: stable
-      - uses: MarcoIeni/release-plz-action@e8792575c7f2366cf6ff3ccc33ead9ace5b691c7 # v0.5
+      - uses: MarcoIeni/release-plz-action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5
         # Default command = release-pr + release. On each push to main it
         # opens/updates a "Release PR" (version bumps + changelogs from
         # conventional commits, lockstep across the crate family); merging that
