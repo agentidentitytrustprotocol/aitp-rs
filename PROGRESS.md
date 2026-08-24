@@ -68,10 +68,10 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 | 2 Make tests honest (RED) | DONE PASS | 2 | Opus | GAP1 vacuous-pass hole closed |
 | 3 Move 4 signing sites | DONE PASS | 1 | Fable | 45/6 -> 51/0/2 measured; spec issue #23 filed |
 | 4 Close coverage gaps | DONE PASS | 1 | Fable | falsification battery all RED |
-| 5 Cross-impl acceptance | DONE | — | pending | verify after CI green |
-| 6 Rename max_delegation_hops | TODO | — | — | |
-| 7 #[non_exhaustive] + ctors (D2) | TODO | — | — | |
-| 8 Release 0.5.0 | TODO | — | — | |
+| 5 Cross-impl acceptance | DONE PASS | 1 | Fable | CI green 1st run; now REQUIRED |
+| 6 Rename max_delegation_hops | DONE PASS | 1 | Fable | 4 public surfaces; .d.ts regenerated |
+| 7 #[non_exhaustive] + ctors (D2) | DONE PASS | 1 | Fable | semver-checks: 5 major breaks |
+| 8 Release 0.5.0 | DONE | — | — | CHANGELOG + 2 downstream issues |
 
 ---
 
@@ -130,3 +130,19 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 - Envelope note: `aitp-verifier-py` expects the schema framing (`signature` sibling of the wrapper); aitp-rs's type emits RFC-0010 §3's (signature inside). The minter emits the schema framing. Signed bytes identical either way — envelope reframing, not a re-mint. Spec issue #23.
 - D3: job must be added to branch protection AFTER its first green run on this PR.
 - Next: Phase 6 — rename max_hops.
+
+### Phases 6 + 7 — rename & non_exhaustive · PASS · 2026-08-24
+- Commits `5bfa919` (rename), `f9c23ce` (non_exhaustive), `9515b92` (bindings rustfmt). Verifier: **Fable**, both phases together. **1 round**, PASS + 3 minor non-blocking notes.
+- Verifier measured beyond the checklist: built the Python wheel with maturin (**41/41 pytest**, not just cargo check), ran `cargo +nightly fuzz build`, regenerated `index.d.ts` with napi and confirmed the committed file is **byte-identical**, and ran the conformance corpus (51/0/2) to prove the adapter's builder migration did not drop `hop_revocation_check` (`del-mh-004` would catch it).
+- `cargo-semver-checks --baseline-rev e5aa555`: **5 major breaking changes** — aitp-delegation ×4 (`with_max_hops` removed, `DEFAULT_MAX_HOPS` removed, struct non_exhaustive, `max_hops` field removed) + aitp-tct ×1 (struct non_exhaustive). Confirms 0.5.0 is required.
+- `aitp.pyi` verified to match the pyo3 signature exactly (name, order, default); old `max_hops=` kwarg now raises TypeError at runtime.
+- Open minor notes (not blocking): adapter's single-hop `revocation_check` wiring is compile-gated only (no fixture drives it); no Node-side test pins the TS param name (JS has no kwargs — the committed `.d.ts` is the gate, but nothing enforces its freshness on future PRs).
+
+### CI + release state · 2026-08-24
+- PR #81, branch `deps/spec-5f8e588e128d`: **32 checks passing**, 2 failing, both expected and NOT required:
+  - `cargo-audit` — fails to INSTALL (`kstring@2.0.4 requires rustc 1.96`, toolchain pinned 1.89). Pre-existing, unrelated.
+  - `cargo-semver-checks` — advisory/PR-only; red because the breaking changes are real. Correct signal for a breaking release; deliberately not suppressed.
+- Newly green that were red at the start: `vendored schemas in sync` (the original failure), plus `conformance fixtures`, `interop`, and the new `cross-impl acceptance (aitp-verifier-py)` (passed first run).
+- **D3 applied:** `cross-impl acceptance (aitp-verifier-py)` added to `main` branch protection (now 11 required checks).
+- Version NOT bumped by hand: release-plz runs default `release-pr + release` and computes 0.5.0 from the `!`/`BREAKING CHANGE` footers; `release-bindings.yml` stamps binding versions off the `aitp-v*` tag.
+- Downstream issues filed: aitp-control-plane#45, aitp-playground#44. Spec issue filed: agentidentitytrustprotocol#23.
