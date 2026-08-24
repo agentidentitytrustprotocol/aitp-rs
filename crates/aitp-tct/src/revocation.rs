@@ -141,11 +141,28 @@ pub fn verify_revocation_list(
 }
 
 /// Context for [`verify_revocation_list`].
+///
+/// `#[non_exhaustive]`: construct with [`VerifyRevocationListContext::new`]
+/// rather than a struct literal. Without it, every future verification
+/// knob — a policy, a clock-skew allowance, a trust-anchor set — would be
+/// a breaking change for every downstream crate. Adding it costs one
+/// migration now instead of a dedicated breaking release later.
+#[non_exhaustive]
 pub struct VerifyRevocationListContext<'a> {
     /// The AID the verifier expects this snapshot to be from.
     pub expected_issuer: &'a Aid,
     /// Verifier's clock for `expires_at` check.
     pub now: Timestamp,
+}
+
+impl<'a> VerifyRevocationListContext<'a> {
+    /// A context pinning the expected issuer and the verifier's clock.
+    pub fn new(expected_issuer: &'a Aid, now: Timestamp) -> Self {
+        Self {
+            expected_issuer,
+            now,
+        }
+    }
 }
 
 #[cfg(test)]
@@ -174,10 +191,7 @@ mod tests {
     fn sign_then_verify_round_trips() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: key.aid(),
-            now: Timestamp(1_700_001_000),
-        };
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&env, &ctx).expect("fresh snapshot verifies");
     }
 
@@ -185,10 +199,7 @@ mod tests {
     fn expired_is_rejected() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: key.aid(),
-            now: Timestamp(1_700_999_999),
-        };
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_999_999));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
             Err(TctError::Expired)
@@ -200,10 +211,7 @@ mod tests {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
         let other = AitpSigningKey::from_seed(&[0xB0; 32]);
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: other.aid(),
-            now: Timestamp(1_700_001_000),
-        };
+        let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
             Err(TctError::CnfMalformed)
@@ -216,10 +224,7 @@ mod tests {
         let mut body = sample_body(key.aid().clone());
         body.entries.clear();
         let env = sign_revocation_list(body, &key).unwrap();
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: key.aid(),
-            now: Timestamp(1_700_001_000),
-        };
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&env, &ctx).expect("empty list still verifies");
     }
 
@@ -345,10 +350,7 @@ mod tests {
         // snapshot whose `issuer` had been swapped (with a matching
         // signature) would still pass.
         let issuer = kat_keypair_aid("kat-keypair-001");
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: &issuer,
-            now: Timestamp(1_711_900_100),
-        };
+        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp(1_711_900_100));
         verify_revocation_list(&env, &ctx)
             .expect("committed spec signed example must verify as committed");
     }
@@ -401,10 +403,7 @@ mod tests {
             revocation_list: body,
             signature: legacy_sig,
         };
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: key.aid(),
-            now: Timestamp(1_700_001_000),
-        };
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
         assert!(
             matches!(
                 verify_revocation_list(&env, &ctx),

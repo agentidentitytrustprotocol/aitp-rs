@@ -370,13 +370,8 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
     );
 
     // Full multi-hop verification at a time inside every hop's window.
-    let ctx = VerifyDelegationContext {
-        verifier: verifier.aid(),
-        now: Timestamp(1_711_900_100),
-        max_delegation_hops: DEFAULT_MAX_DELEGATION_HOPS,
-        revocation_check: None,
-        hop_revocation_check: None,
-    };
+    let ctx = VerifyDelegationContext::new(verifier.aid(), Timestamp(1_711_900_100))
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
     let verified = verify_delegation(outer_token, &ctx).expect("spec chain KAT verifies");
     assert_eq!(verified.claims.scope, vec!["macp.mode.task.v1".to_string()]);
     assert_eq!(

@@ -26,6 +26,12 @@ pub type HopRevocationCheck<'a> = &'a dyn Fn(&Aid, &Uuid) -> bool;
 ///
 /// `verifier` is A — the original grantor, voucher issuer, and the only
 /// party a delegation is presentable to.
+///
+/// `#[non_exhaustive]`: construct with [`VerifyDelegationContext::new`] and
+/// the builder methods rather than a struct literal, so a future
+/// verification knob is an additive change instead of a breaking one for
+/// every downstream crate.
+#[non_exhaustive]
 pub struct VerifyDelegationContext<'a> {
     /// The verifier's own AID (A). `aud` at every hop and `voucher.iss`
     /// MUST equal this.
@@ -68,6 +74,20 @@ impl<'a> VerifyDelegationContext<'a> {
     /// explicitly needs longer chains.
     pub fn with_max_delegation_hops(mut self, max_delegation_hops: usize) -> Self {
         self.max_delegation_hops = max_delegation_hops;
+        self
+    }
+
+    /// A's own deny list: returns `true` if a source-TCT `jti`
+    /// (`voucher.src_jti`) is revoked (RFC-AITP-0008 §3.3).
+    pub fn with_revocation_check(mut self, check: &'a dyn Fn(&Uuid) -> bool) -> Self {
+        self.revocation_check = Some(check);
+        self
+    }
+
+    /// Per-hop revocation for multi-hop chains (RFC-AITP-0011 §6):
+    /// `(hop issuer, hop jti) -> revoked?`.
+    pub fn with_hop_revocation_check(mut self, check: HopRevocationCheck<'a>) -> Self {
+        self.hop_revocation_check = Some(check);
         self
     }
 }
