@@ -433,7 +433,19 @@ def test_delegation_python_issuer_node_chain(node):
 def test_python_revocation_list_parses_on_node(node):
     """Python signs a revocation list; Node parses the envelope. (Full
     revocation enforcement requires a callback hook the bindings don't
-    expose yet — this test confirms wire compatibility only.)"""
+    expose yet — this test confirms wire compatibility only.)
+
+    NOTE — this test does NOT verify the signature, and could not close a
+    signing-input divergence even if it did: both bindings wrap the same
+    Rust core, so this suite is Rust-to-Rust across runtimes. It is blind
+    to a wire-format disagreement for the same structural reason
+    re-minting is.
+
+    Genuine cross-implementation acceptance lives in the
+    `cross-impl acceptance (aitp-verifier-py)` CI job
+    (scripts/xcheck-verify.py), which verifies aitp-rs-minted bytes with an
+    implementation that shares no code with this workspace.
+    """
     py = PyEndpoint()
     issuer, issuer_aid = py.new_agent()
     py.build_manifest(

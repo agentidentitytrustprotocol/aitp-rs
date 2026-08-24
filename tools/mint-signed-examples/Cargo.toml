@@ -12,9 +12,21 @@ aitp-crypto = { path = "../../crates/aitp-crypto", version = "0.4.1" }
 aitp-manifest = { path = "../../crates/aitp-manifest", version = "0.4.1" }
 aitp-tct = { path = "../../crates/aitp-tct", version = "0.4.1" }
 aitp-delegation = { path = "../../crates/aitp-delegation", version = "0.4.1" }
+aitp-session-bundle = { path = "../../crates/aitp-session-bundle", version = "0.4.1" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
+
+# Two binaries: `mint-signed-examples` writes the spec's committed
+# signed-examples; `xcheck-mint` emits artifacts on stdout for the
+# cross-implementation acceptance job to feed to an independent verifier.
+[[bin]]
+name = "mint-signed-examples"
+path = "src/main.rs"
+
+[[bin]]
+name = "xcheck-mint"
+path = "src/bin/xcheck_mint.rs"

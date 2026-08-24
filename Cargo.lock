@@ -1497,6 +1497,7 @@ dependencies = [
  "aitp-crypto",
  "aitp-delegation",
  "aitp-manifest",
+ "aitp-session-bundle",
  "aitp-tct",
  "hex",
  "serde",
