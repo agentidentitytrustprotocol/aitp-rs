@@ -57,7 +57,7 @@ pub struct AdapterState {
     /// adapter consults this when deciding whether to opt into
     /// post-v0.1 RFC behavior. Examples:
     ///   `experimental-multihop-delegation` → verify_delegation
-    ///       uses `max_hops = DEFAULT_MAX_HOPS` instead of strict 0.
+    ///       uses `max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS` instead of strict 0.
     ///   `experimental-session-bundle` → bundle ops accept work.
     enabled_features: HashSet<String>,
     /// PoP-enforcement state for the `tct-007` capability-invocation
@@ -1540,16 +1540,16 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     // reject any chain-bearing token; the runner enables RFC-0011
     // semantics by sending `set_features` with
     // `experimental-multihop-delegation`. Without that feature we
-    // use the strict single-hop cap (max_hops = 0).
-    let max_hops = if state.has_feature("experimental-multihop-delegation") {
-        aitp_delegation::DEFAULT_MAX_HOPS
+    // use the strict single-hop cap (max_delegation_hops = 0).
+    let max_delegation_hops = if state.has_feature("experimental-multihop-delegation") {
+        aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS
     } else {
         0
     };
     let ctx = aitp_delegation::VerifyDelegationContext {
         verifier: &verifier_aid,
         now,
-        max_hops,
+        max_delegation_hops,
         revocation_check,
         hop_revocation_check,
     };

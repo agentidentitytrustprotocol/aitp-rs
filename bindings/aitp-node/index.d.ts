@@ -129,17 +129,17 @@ export interface JsDelegationVerified {
 export declare function verifyDelegation(token: string, verifierAid: string): JsDelegationVerified
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
- * chains up to `maxHops` total hops (`chain.length + 1`).
+ * chains up to `maxDelegationHops` total hops (`chain.length + 1`).
  *
  * The strict single-hop `verifyDelegation` is the safe default; this
  * function additionally allows multi-hop chains. Present by default (the
  * `multihop-delegation` feature); a `--no-default-features` build omits it.
  *
- * `maxHops` defaults to `DEFAULT_MAX_HOPS` (3, the RFC-AITP-0011 §2
+ * `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
  * recommended ceiling). Pass a smaller value for a tighter bound;
- * `maxHops = 0` reverts to strict single-hop (rejects any non-empty chain).
+ * `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxHops?: number | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null): JsDelegationVerified
 /**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`

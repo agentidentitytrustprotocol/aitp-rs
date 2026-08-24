@@ -75,7 +75,7 @@ aitp-rs/
 | `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |
-| `aitp-delegation`     | ✅ complete   | Builder + verifier: single-hop by default, multi-hop chains (RFC-0011) via `max_hops` opt-in. |
+| `aitp-delegation`     | ✅ complete   | Builder + verifier: single-hop by default, multi-hop chains (RFC-0011) via `max_delegation_hops` opt-in. |
 | `aitp-handshake`      | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy). |
 | `aitp-session-bundle` | ✅ Draft (opt-in) | Session Trust Bundle (RFC-0010): builder + verifier; gated behind `experimental-session-bundle`. |
 | `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 ordering), handshake server (AITP error envelopes), revocation endpoint. SSRF `HostGuard` on peer fetches, pluggable `ReplayGuard`, optional `metrics` feature. |
@@ -112,14 +112,14 @@ the Cargo workspace — `cargo test --workspace` does not build them.
 | [0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | Revocation | ✅ implemented | Snapshot signing/verification + per-issuer cache + HTTP endpoint + Manifest extension. |
 | [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults; SSRF `HostGuard` (redirect-block + address classification + DNS-rebind-safe pinning), canonical low-S P-256, RSA-2048 floor. See [`docs/transport-hardening.md`](docs/transport-hardening.md). |
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft (opt-in) | Gated behind `experimental-session-bundle`. Builder + verifier in `aitp-session-bundle`; conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
-| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | Default verifier config (`max_hops=0`) rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Setting `max_hops > 0` (typically `DEFAULT_MAX_HOPS=3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
+| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft (opt-in) | Default verifier config (`max_delegation_hops=0`) rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Setting `max_delegation_hops > 0` (typically `DEFAULT_MAX_DELEGATION_HOPS=3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ✅ implemented | `ExtensionsMap` with namespace conventions; `ext` claim on JWS artifacts; revocation URL extension wired. |
 | [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft (opt-in) | Shortened in-band renewal (RFC-0004 §8.1) behind the `experimental-renewal` Cargo feature: `renew_tct` facade + holder-PoP renewal exchange. |
 
 ## Known limitations (v0.2)
 
 - **Single-hop delegation only by default.** Multi-hop chains (RFC-0011)
-  are rejected unless the verifier opts in with `max_hops > 0`. See
+  are rejected unless the verifier opts in with `max_delegation_hops > 0`. See
   [conformance-matrix](#conformance-matrix) for fixture coverage.
 - **Session Trust Bundle and renewal are opt-in.** N-party trust
   artifacts (RFC-0010, Draft) are gated behind the

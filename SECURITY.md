@@ -42,5 +42,5 @@ decisions, signature handling, or cryptographic verification.
 - Third-party dependency issues — report those upstream
 - Feature-gated draft-RFC surfaces (`experimental-renewal`,
   `experimental-session-bundle`) and multi-hop delegation enabled via
-  `max_hops > 0` — reports welcome, but no patching SLA until the
+  `max_delegation_hops > 0` — reports welcome, but no patching SLA until the
   corresponding RFCs leave Draft

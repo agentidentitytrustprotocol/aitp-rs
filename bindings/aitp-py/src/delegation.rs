@@ -19,7 +19,7 @@ use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationCont
 // opt-in verifier, so the import is feature-gated to avoid an unused-import
 // warning in the default (strict v0.1) build.
 #[cfg(feature = "multihop-delegation")]
-use aitp_delegation::DEFAULT_MAX_HOPS;
+use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 
@@ -74,7 +74,7 @@ pub fn verify_delegation_py(
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
 
-    // `VerifyDelegationContext::new` ships `max_hops = 0` (single-hop
+    // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
     // strict), so a non-empty chain fails before any per-hop work runs.
     let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
 
@@ -85,29 +85,29 @@ pub fn verify_delegation_py(
 }
 
 /// Verify a delegation token (compact-JWS string) allowing **draft
-/// RFC-AITP-0011 multi-hop** chains up to `max_hops` total hops.
+/// RFC-AITP-0011 multi-hop** chains up to `max_delegation_hops` total hops.
 ///
 /// This opts into behavior that is **not** part of AITP v0.1. It is only
 /// compiled in under the `multihop-delegation` feature; a
 /// default build exposes only the strict [`verify_delegation_py`].
 ///
-/// `max_hops` defaults to `DEFAULT_MAX_HOPS` (the RFC-AITP-0011 §2
+/// `max_delegation_hops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
-/// `max_hops = 0` reverts to strict v0.1 (rejects any non-empty chain).
+/// `max_delegation_hops = 0` reverts to strict v0.1 (rejects any non-empty chain).
 #[cfg(feature = "multihop-delegation")]
 #[pyfunction]
 #[pyo3(
     name = "verify_delegation_multihop",
-    signature = (delegation_token, verifier_aid, max_hops = DEFAULT_MAX_HOPS)
+    signature = (delegation_token, verifier_aid, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS)
 )]
 pub fn verify_delegation_multihop_py(
     delegation_token: &str,
     verifier_aid: &str,
-    max_hops: usize,
+    max_delegation_hops: usize,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
 
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_hops(max_hops);
+    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(max_delegation_hops);
 
     let verified = verify_delegation(delegation_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("delegation verification failed: {e}")))?;

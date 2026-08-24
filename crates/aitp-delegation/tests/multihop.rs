@@ -10,7 +10,7 @@ use aitp_core::{Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey};
 use aitp_delegation::{
     compute_chain_hash, verify_delegation, DelegationBuilder, DelegationError,
-    VerifyDelegationContext, DEFAULT_MAX_HOPS,
+    VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use aitp_tct::TctBuilder;
 use uuid::Uuid;
@@ -71,7 +71,8 @@ fn outer(h1: &str) -> String {
 }
 
 fn multihop_ctx(verifier: &aitp_core::Aid) -> VerifyDelegationContext<'_> {
-    VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60)).with_max_hops(DEFAULT_MAX_HOPS)
+    VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
 }
 
 #[test]
@@ -105,8 +106,9 @@ fn chain_rejected_without_opt_in() {
 fn hop_limit_enforced_before_signatures() {
     let token = outer(&hop1());
     let a_key = a();
-    // total_hops = chain(1) + 2 = 3 > max_hops 2.
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60)).with_max_hops(2);
+    // total_hops = chain(1) + 2 = 3 > max_delegation_hops 2.
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(2);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::HopLimitExceeded
@@ -186,9 +188,10 @@ fn truncated_chain_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let full_ctx =
-        VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60)).with_max_hops(4);
-    verify_delegation(&outer4, &full_ctx).expect("4-hop chain verifies under max_hops=4");
+    let full_ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(4);
+    verify_delegation(&outer4, &full_ctx)
+        .expect("4-hop chain verifies under max_delegation_hops=4");
 
     // Truncate: drop h1, keep the original chain_hash.
     let payload = jws::decode_payload_unverified(&outer4).unwrap();
@@ -370,7 +373,7 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
     let ctx = VerifyDelegationContext {
         verifier: verifier.aid(),
         now: Timestamp(1_711_900_100),
-        max_hops: DEFAULT_MAX_HOPS,
+        max_delegation_hops: DEFAULT_MAX_DELEGATION_HOPS,
         revocation_check: None,
         hop_revocation_check: None,
     };

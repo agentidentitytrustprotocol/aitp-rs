@@ -2,7 +2,7 @@
 
 > **Status: opt-in at the call site.** The multi-hop verifier always
 > compiles in `aitp-delegation` and is **gated at runtime**:
-> `VerifyDelegationContext` ships `max_hops = 0` (strict default), so any
+> `VerifyDelegationContext` ships `max_delegation_hops = 0` (strict default), so any
 > token carrying a `chain` claim is rejected unless a caller explicitly
 > raises the cap. The language bindings expose it as
 > `verify_delegation_multihop` / `verifyDelegationMultihop` (present in the
@@ -49,8 +49,8 @@ the root peer-issuance attested by the voucher in `chain[0]`).
 Let the hops oldest-first be `H = [chain[0], …, chain[k-1], outer]`. Order of
 checks (each → a `DelegationError`):
 
-1. **Hop gate.** `max_hops == 0` → `MultihopNotSupported` (the strict default).
-   Then `total_hops (= chain.len()+2) > max_hops` → `HopLimitExceeded`, computed
+1. **Hop gate.** `max_delegation_hops == 0` → `MultihopNotSupported` (the strict default).
+   Then `total_hops (= chain.len()+2) > max_delegation_hops` → `HopLimitExceeded`, computed
    **before any signature work** so a long chain can't force unbounded effort.
 2. **`chain_hash` recompute-and-compare** over the verbatim chain strings →
    else `ChainHashMismatch` (also if `chain` is non-empty and `chain_hash` is absent).
@@ -80,7 +80,7 @@ checks (each → a `DelegationError`):
 
 A per-hop structural failure not covered by a more specific code surfaces as
 `InvalidVoucher` (the renamed v0.1 `INVALID_GRANT_PROOF` — that code no longer
-exists). `DEFAULT_MAX_HOPS = 3` is the RFC §2 recommended ceiling
+exists). `DEFAULT_MAX_DELEGATION_HOPS = 3` is the RFC §2 recommended ceiling
 (orchestrator → planner → executor); deployments may pass a smaller value.
 
 ## Known limitations
@@ -91,7 +91,7 @@ exists). `DEFAULT_MAX_HOPS = 3` is the RFC §2 recommended ceiling
   rejection before any per-hop work. Multi-hop requires explicitly calling
   `verify_delegation_multihop` — a separate function, so the choice is
   always deliberate.
-- Single-hop verification ignores `max_hops` entirely — a strict (`max_hops=0`)
+- Single-hop verification ignores `max_delegation_hops` entirely — a strict (`max_delegation_hops=0`)
   verifier still accepts a normal RFC-0006 single-hop delegation (a token with
   no `chain` claim).
 - Draft RFC: excluded from the v0.2 conformance gate; the `del-mh-*`

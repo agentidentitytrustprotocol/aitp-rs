@@ -372,6 +372,7 @@ fn jti_without_multihop_opt_in_rejected() {
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::ClaimsMalformed(_)
     ));
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60)).with_max_hops(3);
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(3);
     verify_delegation(&token, &ctx).expect("jti-bearing single-hop verifies under opt-in");
 }

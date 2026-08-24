@@ -16,7 +16,7 @@ use uuid::Uuid;
 
 /// Default `max_delegation_hops` once multi-hop is enabled
 /// (RFC-AITP-0011 §2): covers orchestrator → planner → executor.
-pub const DEFAULT_MAX_HOPS: usize = 3;
+pub const DEFAULT_MAX_DELEGATION_HOPS: usize = 3;
 
 /// Per-hop revocation lookup (RFC-AITP-0011 §6): `(hop issuer, hop
 /// jti) → revoked?`, resolved against the hop issuer's deny list.
@@ -38,7 +38,7 @@ pub struct VerifyDelegationContext<'a> {
     /// processing (RFC-AITP-0006 §4 multi-hop guard). A non-zero value
     /// opts into RFC-AITP-0011 with `total_hops = chain.len() + 2`
     /// bounded by this cap.
-    pub max_hops: usize,
+    pub max_delegation_hops: usize,
     /// A's **own** deny list: returns `true` if a source-TCT `jti`
     /// (`voucher.src_jti`) is revoked. The only stateful single-hop
     /// check; runs after all signature checks (RFC-AITP-0008 §3.3).
@@ -57,17 +57,17 @@ impl<'a> VerifyDelegationContext<'a> {
         Self {
             verifier,
             now,
-            max_hops: 0,
+            max_delegation_hops: 0,
             revocation_check: None,
             hop_revocation_check: None,
         }
     }
 
     /// Opt into multi-hop verification (RFC-AITP-0011) with the given
-    /// hop budget — use [`DEFAULT_MAX_HOPS`] unless the deployment
+    /// hop budget — use [`DEFAULT_MAX_DELEGATION_HOPS`] unless the deployment
     /// explicitly needs longer chains.
-    pub fn with_max_hops(mut self, max_hops: usize) -> Self {
-        self.max_hops = max_hops;
+    pub fn with_max_delegation_hops(mut self, max_delegation_hops: usize) -> Self {
+        self.max_delegation_hops = max_delegation_hops;
         self
     }
 }
@@ -82,7 +82,7 @@ impl<'a> VerifyDelegationContext<'a> {
 /// `cnf.jkt` binding → revocation on `voucher.src_jti` (the only
 /// stateful check, last per RFC-AITP-0008 §3.3).
 ///
-/// Multi-hop (RFC-AITP-0011, only when `ctx.max_hops > 0`): hop limit →
+/// Multi-hop (RFC-AITP-0011, only when `ctx.max_delegation_hops > 0`): hop limit →
 /// chain-hash recomputation → per-hop JWS + claims + continuity +
 /// expiry monotonicity + transitive scope subsetting + nested-chain
 /// prefix consistency → per-hop revocation.
@@ -100,7 +100,7 @@ pub fn verify_delegation(
     let peeked = peek_claims(token)?;
 
     let chain_len = peeked.chain.as_ref().map_or(0, |c| c.len());
-    if ctx.max_hops == 0 {
+    if ctx.max_delegation_hops == 0 {
         if chain_len > 0 || peeked.chain.is_some() {
             // Multi-hop guard: structural rejection before any per-hop
             // processing (RFC-AITP-0006 §4).
@@ -252,7 +252,7 @@ fn verify_multi_hop(
 
     // §2: hop limit, before any signature work.
     let total_hops = chain.len() + 2;
-    if total_hops > ctx.max_hops {
+    if total_hops > ctx.max_delegation_hops {
         return Err(DelegationError::HopLimitExceeded);
     }
 
