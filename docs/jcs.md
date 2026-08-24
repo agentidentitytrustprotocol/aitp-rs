@@ -111,8 +111,19 @@ easiest way to get this wrong:
 | Artifact | Where `signature` lives | Signing input |
 |---|---|---|
 | Manifest | a **member** of the body | body **minus** `signature` |
-| Session bundle | a **member** of the body | body **minus** `signature` |
+| Session bundle | see note | body **minus** `signature` |
 | Revocation snapshot | a **sibling** of the wrapped body | the body **as-is** — nothing to strip |
+
+> **Note — the spec is currently inconsistent about the session bundle's
+> `signature` placement.** RFC-AITP-0010 §3's example and field table put
+> it *inside* the inner body; the JSON schema
+> (`aitp-session-bundle.schema.json`, top-level `required: [session_bundle,
+> signature]` with the inner body `additionalProperties: false` and no
+> `signature` property) and the `bundle-001` conformance fixture put it as a
+> *sibling* of the wrapper. **The signing input is identical under both
+> readings** — the body excluding `signature` either way — so there is no
+> byte-level consequence, but `aitp-rs` emits the §3 shape and would fail
+> the schema. Tracked upstream; `verify_session_bundle` accepts both.
 
 Each artifact has exactly one function defining its signing input —
 `revocation_signing_bytes` (`crates/aitp-tct/src/revocation.rs`) and
