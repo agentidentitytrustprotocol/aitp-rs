@@ -49,41 +49,49 @@ pub struct RevocationEntry {
 /// On-wire envelope: `{"revocation_list": {...}, "signature": "..."}`.
 ///
 /// Per RFC-AITP-0008 §1.5, both `revocation_list` and `signature` are
-/// REQUIRED. `signature` is base64url over
-/// `sha256(JCS({"revocation_list": {...}}))` — the envelope minus the
-/// signature field — per the v0.2 `kat-revocation-001` vector.
+/// REQUIRED. `signature` is base64url over `sha256(JCS(revocation_list))`
+/// — the **inner** body. The `revocation_list` key is transport routing
+/// metadata and is never part of the signing bytes
+/// (RFC-AITP-0001 §5.4.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RevocationListEnvelope {
-    /// The signed inner snapshot.
+    /// The signed inner snapshot — this, alone, is what is signed.
     pub revocation_list: RevocationList,
-    /// Issuer's base64url signature over JCS-canonical bytes of
-    /// `{"revocation_list": {...}}`.
+    /// Issuer's base64url signature over the JCS-canonical bytes of the
+    /// inner [`RevocationList`] body. Note this is a **sibling** of that
+    /// body, never a member of it, so there is nothing to strip before
+    /// canonicalizing.
     pub signature: String,
 }
 
-/// Signing view: the wrapped `{"revocation_list": {...}}` form (the
-/// envelope minus `signature`), per the v0.2 `kat-revocation-001`
-/// vector.
-#[derive(Serialize)]
-struct RevocationListSigningView<'a> {
-    revocation_list: &'a RevocationList,
+/// The canonical signing input for a revocation snapshot.
+///
+/// **The single definition of what gets signed.** `sign_revocation_list`,
+/// `verify_revocation_list` and the known-answer test all route through
+/// this, so signer, verifier and test cannot drift apart — a divergence
+/// between them is exactly what shipped before spec commit `5f8e588`.
+///
+/// The input is the **inner** [`RevocationList`] body, canonicalized as-is.
+/// The `{"revocation_list": …}` wrapper is the HTTP transport shape and is
+/// NOT signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0008 §1.5). The envelope's
+/// `signature` is a sibling of the body rather than a member of it, so —
+/// unlike the manifest, where `signature` is stripped from within — there
+/// is nothing to remove here.
+pub(crate) fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctError> {
+    jcs::canonicalize_serializable(body).map_err(|e| TctError::Canonicalization(e.to_string()))
 }
 
 /// Sign a [`RevocationList`] body with the issuer's signing key.
 ///
 /// Returns the on-wire [`RevocationListEnvelope`] with `signature`
-/// populated. The signing input is `sha256(JCS({"revocation_list": {...}}))`
-/// per the v0.2 `kat-revocation-001` vector.
+/// populated. The signing input is `sha256(JCS(revocation_list))` — the
+/// inner body; see [`revocation_signing_bytes`].
 pub fn sign_revocation_list(
     body: RevocationList,
     issuer_key: &AitpSigningKey,
 ) -> Result<RevocationListEnvelope, TctError> {
-    let view = RevocationListSigningView {
-        revocation_list: &body,
-    };
-    let canonical = jcs::canonicalize_serializable(&view)
-        .map_err(|e| TctError::Canonicalization(e.to_string()))?;
+    let canonical = revocation_signing_bytes(&body)?;
     let digest = Sha256::digest(&canonical);
     let sig = issuer_key.sign(&digest);
     Ok(RevocationListEnvelope {
@@ -99,7 +107,8 @@ pub fn sign_revocation_list(
 ///    `ctx.expected_issuer` (else `TctError::CnfMalformed` — chosen
 ///    rather than introducing a new error variant for v0.1).
 /// 3. `signature` is present and verifies under that public key over
-///    `sha256(JCS(envelope without signature))`.
+///    `sha256(JCS(revocation_list))` — the inner body; see
+///    [`revocation_signing_bytes`].
 pub fn verify_revocation_list(
     envelope: &RevocationListEnvelope,
     ctx: &VerifyRevocationListContext<'_>,
@@ -118,11 +127,7 @@ pub fn verify_revocation_list(
         AitpVerifyingKey::from_aid(&envelope.revocation_list.issuer).map_err(TctError::Crypto)?;
     let sig = Signature::parse(&envelope.signature).map_err(|_| TctError::SignatureInvalid)?;
 
-    let view = RevocationListSigningView {
-        revocation_list: &envelope.revocation_list,
-    };
-    let canonical = jcs::canonicalize_serializable(&view)
-        .map_err(|e| TctError::Canonicalization(e.to_string()))?;
+    let canonical = revocation_signing_bytes(&envelope.revocation_list)?;
     pubkey
         .verify(&Sha256::digest(&canonical), &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
@@ -284,10 +289,10 @@ mod tests {
         // Round-trip the spec's own object through our type, then through
         // the implementation's signing path.
         let body: RevocationList = serde_json::from_value(object).expect("vector deserializes");
-        let view = RevocationListSigningView {
-            revocation_list: &body,
-        };
-        let canonical = jcs::canonicalize_serializable(&view).unwrap();
+        // Drive the SHARED signing-input helper, not a local reconstruction:
+        // this test must not be able to go green while the production
+        // sign/verify path canonicalizes something else.
+        let canonical = revocation_signing_bytes(&body).unwrap();
 
         assert_eq!(
             canonical.len(),

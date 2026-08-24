@@ -1,9 +1,9 @@
 //! Session Trust Bundle verification (RFC-AITP-0010 §5-§6).
 
-use crate::builder::{peek_tct_claims, BundleSigningView, DEFAULT_BUNDLE_VERSION};
+use crate::builder::{peek_tct_claims, DEFAULT_BUNDLE_VERSION};
 use crate::error::SessionBundleError;
 use crate::types::SessionTrustBundle;
-use aitp_core::{jcs, Aid, Timestamp};
+use aitp_core::{Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use aitp_tct::{verify_tct, TctError, TctVerifyContext};
 use sha2::{Digest, Sha256};
@@ -106,18 +106,14 @@ pub fn verify_session_bundle(
 
     // 5. Outer signature.
     let coord_key = AitpVerifyingKey::from_aid(&bundle.coordinator)?;
-    let view = BundleSigningView {
-        session_bundle: crate::builder::BundleSigningBody {
-            version: &bundle.version,
-            session_id: &bundle.session_id,
-            coordinator: &bundle.coordinator,
-            issued_at: &bundle.issued_at,
-            expires_at: &bundle.expires_at,
-            participants: &bundle.participants,
-        },
-    };
-    let canonical = jcs::canonicalize_serializable(&view)
-        .map_err(|e| SessionBundleError::Canonicalization(e.to_string()))?;
+    let canonical = crate::builder::bundle_signing_bytes(&crate::builder::BundleSigningBody {
+        version: &bundle.version,
+        session_id: &bundle.session_id,
+        coordinator: &bundle.coordinator,
+        issued_at: &bundle.issued_at,
+        expires_at: &bundle.expires_at,
+        participants: &bundle.participants,
+    })?;
     let digest = Sha256::digest(&canonical);
     let outer_sig =
         Signature::parse(&bundle.signature).map_err(|_| SessionBundleError::InvalidSignature)?;

@@ -93,10 +93,45 @@ any drift. So every conformant implementation must produce the same
 hashes; this is no longer a de-facto value captured from our own
 reference run.
 
+### What gets fed to the canonicalizer
+
+Getting the bytes right is only half the problem; the other half is
+canonicalizing the **right JSON**. The rule is one sentence, and it has
+been normative since v0.2:
+
+> The signing input is the **inner artifact body**. The artifact-naming
+> key (`{"revocation_list": …}`, `{"session_bundle": …}`, `{"manifest": …}`)
+> is routing metadata for the transport and is **never** part of the
+> signing bytes — RFC-AITP-0001 §5.4.1, restated per-artifact in
+> RFC-AITP-0003 §6.1, RFC-AITP-0008 §1.5 and RFC-AITP-0010 §3.
+
+Two placements of `signature` follow from that, and confusing them is the
+easiest way to get this wrong:
+
+| Artifact | Where `signature` lives | Signing input |
+|---|---|---|
+| Manifest | a **member** of the body | body **minus** `signature` |
+| Session bundle | a **member** of the body | body **minus** `signature` |
+| Revocation snapshot | a **sibling** of the wrapped body | the body **as-is** — nothing to strip |
+
+Each artifact has exactly one function defining its signing input —
+`revocation_signing_bytes` (`crates/aitp-tct/src/revocation.rs`) and
+`bundle_signing_bytes` (`crates/aitp-session-bundle/src/builder.rs`) —
+and the signer, the verifier and the known-answer test all route through
+it. Reconstructing the signing input at a call site is how a signer and
+its own verifier drift apart.
+
+Do not document one artifact's convention by pointing at another's. A
+comment reading "same convention as the revocation snapshot" is what
+turned one misread vector into two divergent artifacts: the code was
+corrected and the pointer left behind. State the rule and cite the RFC.
+
 In **AITP v0.2** JCS only governs the protocol-internal artifacts, so we
-pin the jcs-sha256 KAT for the **JCS-profile** types: Manifest and
-revocation snapshot (the revocation KAT is checked separately in
-`crates/aitp-tct/src/revocation.rs`). The v0.1 TCT and delegation JCS
+pin the jcs-sha256 KAT for the **JCS-profile** types: Manifest,
+revocation snapshot and session bundle. Vectors for all three declare
+`signing_input: "body"`, and `crates/aitp-core/tests/kat.rs` asserts that
+declaration rather than inferring the shape — see
+[testing.md](testing.md) for why that distinction matters. The v0.1 TCT and delegation JCS
 vectors are **retired** — those artifacts are now compact JWS strings
 (RFC-AITP-0001 §5.4.5) verified over their exact transmitted bytes, not
 over a canonicalized form; their known-answer vectors live under

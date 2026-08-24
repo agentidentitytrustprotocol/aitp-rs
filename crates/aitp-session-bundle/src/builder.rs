@@ -99,18 +99,14 @@ impl<'a> SessionBundleBuilder<'a> {
         // expires_at = min(participant TCT expiries) per RFC §6.
         let expires_at = min_exp.ok_or(SessionBundleError::EmptyParticipants)?;
 
-        let view = BundleSigningView {
-            session_bundle: BundleSigningBody {
-                version: DEFAULT_BUNDLE_VERSION,
-                session_id: &session_id,
-                coordinator: &coordinator,
-                issued_at: &issued_at,
-                expires_at: &expires_at,
-                participants: &self.participants,
-            },
-        };
-        let canonical = jcs::canonicalize_serializable(&view)
-            .map_err(|e| SessionBundleError::Canonicalization(e.to_string()))?;
+        let canonical = bundle_signing_bytes(&BundleSigningBody {
+            version: DEFAULT_BUNDLE_VERSION,
+            session_id: &session_id,
+            coordinator: &coordinator,
+            issued_at: &issued_at,
+            expires_at: &expires_at,
+            participants: &self.participants,
+        })?;
         let digest = Sha256::digest(&canonical);
         let signature = self.coordinator_key.sign(&digest);
 
@@ -126,16 +122,34 @@ impl<'a> SessionBundleBuilder<'a> {
     }
 }
 
-/// Signing view: the wrapped `{"session_bundle": {...}}` form (the
-/// envelope minus `signature`), per the v0.2 `kat-session-bundle-001`
-/// vector — same convention as the revocation snapshot.
-#[derive(Serialize)]
-pub(crate) struct BundleSigningView<'a> {
-    pub session_bundle: BundleSigningBody<'a>,
+/// The canonical signing input for a session trust bundle.
+///
+/// **The single definition of what gets signed.** The builder, the
+/// verifier and the known-answer test all route through this, so signer,
+/// verifier and test cannot drift apart.
+///
+/// The input is the JCS canonicalization of the bundle body **excluding
+/// `signature`** (RFC-AITP-0001 §5.4.1, RFC-AITP-0010 §3). The
+/// `{"session_bundle": …}` wrapper is the transport shape and is NOT
+/// signed; RFC-AITP-0010 §5 step 6 requires verification against the inner
+/// body and gives no allowance for accepting the wrapped form.
+///
+/// This deliberately states the rule and cites the RFCs rather than
+/// pointing at a sibling artifact. The comment this replaced read "same
+/// convention as the revocation snapshot", and that cross-reference is how
+/// one misread vector became two divergent artifacts: correcting one and
+/// leaving a pointer to it in the other keeps the propagation path open.
+pub(crate) fn bundle_signing_bytes(
+    body: &BundleSigningBody<'_>,
+) -> Result<Vec<u8>, SessionBundleError> {
+    jcs::canonicalize_serializable(body)
+        .map_err(|e| SessionBundleError::Canonicalization(e.to_string()))
 }
 
-/// Inner body of [`BundleSigningView`] — every [`SessionTrustBundle`]
-/// field except `signature`.
+/// The signed body — every [`SessionTrustBundle`] field except
+/// `signature`. Unlike the revocation snapshot, whose `signature` is a
+/// sibling of the body, the bundle's `signature` is a member of it, so
+/// this projection is what performs the exclusion.
 #[derive(Serialize)]
 pub(crate) struct BundleSigningBody<'a> {
     pub version: &'a str,
