@@ -42,6 +42,29 @@ const JCS_ARTIFACT_VECTORS: &[(&str, &str)] = &[
     ("kat-session-bundle-001", "session_bundle"),
 ];
 
+/// The vectors in `jcs-sha256.json` that are deliberately NOT
+/// canonical-form vectors, and so carry no `object`/`jcs_canonical_hex`.
+///
+/// This is an allowlist rather than a `continue` on missing members, so
+/// that dropping `object` from a real vector — or adding a new vector
+/// upstream — cannot silently remove it from coverage. Skipping on
+/// absence lets the file decide what gets tested; an allowlist keeps that
+/// decision here.
+const NON_CANONICAL_VECTORS: &[&str] = &[
+    "kat-manifest-pop-001",
+    "kat-multihop-chain-001",
+    "kat-multihop-truncation-001",
+];
+
+/// Members every canonical-form vector must carry. Absence is a failure,
+/// never a skip.
+const REQUIRED_PAYLOAD: &[&str] = &[
+    "object",
+    "jcs_canonical_hex",
+    "jcs_canonical_len_bytes",
+    "sha256_hex",
+];
+
 fn kat_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
@@ -68,9 +91,18 @@ fn jcs_sha256_kat() {
         // (`object` + `jcs_canonical_hex`) and signing-input vectors
         // (e.g. kat-manifest-pop-001, which pins the unified
         // `sha256(base64url_decode(x))` PoP input). Only the former are
-        // exercised here.
-        if v.get("object").is_none() || v.get("jcs_canonical_hex").is_none() {
+        // exercised here — but which is which is decided by the allowlist
+        // above, NOT by whether the members happen to be present. A vector
+        // that lost its `object` must go red, not quietly stop being tested.
+        if NON_CANONICAL_VECTORS.contains(&id) {
             continue;
+        }
+        for member in REQUIRED_PAYLOAD {
+            assert!(
+                v.get(member).is_some(),
+                "{id}: canonical-form vector is missing `{member}`; add it to \
+                 NON_CANONICAL_VECTORS if it is genuinely not one"
+            );
         }
 
         // A vector that pins canonical bytes without declaring what they
@@ -146,6 +178,16 @@ fn jcs_artifact_vectors_are_present_and_declare_body() {
             Some("body"),
             "{id}: must declare signing_input=body"
         );
+        // Assert the payload members exist before asserting anything about
+        // them: `Value::Null.get(...)` returns `None`, so a vector that lost
+        // its `object` would satisfy the wrapper check vacuously and drop
+        // every byte/digest assertion without going red.
+        for member in REQUIRED_PAYLOAD {
+            assert!(
+                v.get(member).is_some(),
+                "{id}: JCS-profile vector is missing `{member}`"
+            );
+        }
         assert!(
             v["object"].get(wrapper).is_none(),
             "{id}: `object` still carries the `{wrapper}` transport wrapper; \
@@ -157,11 +199,12 @@ fn jcs_artifact_vectors_are_present_and_declare_body() {
 /// The negative direction: the pinned canonical bytes must NOT be the
 /// canonicalization of the **wrapped** form.
 ///
-/// Without this, silently re-wrapping a vector — object, hex, length and
-/// digest all updated together so the file stays self-consistent — would
-/// keep the whole suite green. That self-consistency is exactly what the
-/// spec shipped before commit 5f8e588, so this is the assertion that
-/// makes the regression detectable rather than merely unlikely.
+/// This is the second of two independent defences against a re-wrap. If a
+/// vector is re-wrapped wholesale (`object` wrapped too), the wrapper-key
+/// assertion in `jcs_artifact_vectors_are_present_and_declare_body` catches
+/// it. If instead only the pinned bytes are swapped to the wrapped form
+/// while `object` stays inner, that assertion passes and *this* one fires.
+/// Both mutations were verified to go red; neither check subsumes the other.
 #[test]
 fn pinned_bytes_are_not_the_wrapped_form() {
     let vectors = load_vectors();
@@ -174,10 +217,12 @@ fn pinned_bytes_are_not_the_wrapped_form() {
 
         let wrapped = json!({ *wrapper: v["object"].clone() });
         let wrapped_hex = hex::encode(jcs::canonicalize(&wrapped).expect("canonicalize wrapped"));
+        let pinned_hex = v["jcs_canonical_hex"]
+            .as_str()
+            .unwrap_or_else(|| panic!("{id}: missing `jcs_canonical_hex`"));
 
         assert_ne!(
-            wrapped_hex,
-            v["jcs_canonical_hex"].as_str().unwrap(),
+            wrapped_hex, pinned_hex,
             "{id}: pinned canonical bytes equal JCS of the wrapped \
              `{{\"{wrapper}\": ...}}` form — the transport wrapper is being signed"
         );

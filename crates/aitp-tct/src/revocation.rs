@@ -224,6 +224,24 @@ mod tests {
             .join(rel)
     }
 
+    /// The AID pinned for a KAT keypair, read from the vendored
+    /// `keypairs.json` rather than derived from the artifact under test.
+    fn kat_keypair_aid(id: &str) -> Aid {
+        let kp: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(vendored("known-answer/keypairs.json")).unwrap())
+                .unwrap();
+        let aid = kp["vectors"]
+            .as_array()
+            .expect("vectors array")
+            .iter()
+            .find(|v| v["id"].as_str() == Some(id))
+            .unwrap_or_else(|| panic!("keypair {id} missing from keypairs.json"))["aid"]
+            .as_str()
+            .unwrap_or_else(|| panic!("keypair {id} has no `aid`"))
+            .to_owned();
+        Aid::parse(&aid).expect("pinned AID parses")
+    }
+
     fn kat_vector(id: &str) -> serde_json::Value {
         let kat: serde_json::Value = serde_json::from_slice(
             &std::fs::read(vendored("known-answer/jcs-sha256.json")).unwrap(),
@@ -309,7 +327,13 @@ mod tests {
 
         let env: RevocationListEnvelope =
             serde_json::from_value(value).expect("signed example deserializes");
-        let issuer = env.revocation_list.issuer.clone();
+
+        // Take the expected issuer from the KAT keypair vector, NOT from the
+        // envelope being verified. Deriving it from `env` would make the
+        // issuer-binding half of `verify_revocation_list` tautological: a
+        // snapshot whose `issuer` had been swapped (with a matching
+        // signature) would still pass.
+        let issuer = kat_keypair_aid("kat-keypair-001");
         let ctx = VerifyRevocationListContext {
             expected_issuer: &issuer,
             now: Timestamp(1_711_900_100),
