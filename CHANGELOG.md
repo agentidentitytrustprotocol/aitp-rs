@@ -74,7 +74,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   all before; the negative column was empty for all three artifacts.
 - The spec's own `verify-known-answer.mjs` (50 checks, independent JCS/JOSE
   stack) now runs in CI.
-
 - **`aitp` CLI** (`aitp-cli` crate): an offline command-line tool for the
   common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
   and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
