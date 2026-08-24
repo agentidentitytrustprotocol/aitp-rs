@@ -27,15 +27,31 @@ fi
 DEST="$REPO_ROOT/tests/schemas"
 mkdir -p "$DEST"
 
-echo "Copying schemas from $SPEC_REPO/schemas/json/ -> $DEST/"
+# MIRROR, don't copy. The destination is cleared first so a file DELETED
+# upstream disappears here too.
+#
+# This is not a tidiness preference. Without it the CI drift check
+# ("vendored schemas in sync") reports green over a stale file: the check
+# re-runs this script and fails on `git diff`, but a copy-only sync never
+# removes anything, so there is no diff to see. Demonstrated: deleting
+# aitp-tct.schema.json from a spec checkout and re-syncing left the stale
+# vendored copy in place with a clean `git status`. A check that cannot
+# fail is the same defect class as the KAT harness this repo just fixed.
+echo "Mirroring schemas from $SPEC_REPO/schemas/json/ -> $DEST/"
+rm -f "$DEST"/*.schema.json
 cp "$SPEC_REPO"/schemas/json/*.schema.json "$DEST/"
 
 # Vendor the spec's known-answer test vectors next to the schemas.
 # Implementations validate their output byte-for-byte against these files
 # in tests/kat.rs in each crate that owns the relevant types.
 if [ -d "$SPEC_REPO/schemas/conformance/known-answer" ]; then
+  rm -rf "$DEST/known-answer"
   mkdir -p "$DEST/known-answer"
+  # `*.md` as well as `*.json`: the spec's known-answer/README.md documents
+  # the "verify as committed, never re-mint first" rule and had never been
+  # vendored, so the trees were never actually identical.
   cp "$SPEC_REPO"/schemas/conformance/known-answer/*.json "$DEST/known-answer/" 2>/dev/null || true
+  cp "$SPEC_REPO"/schemas/conformance/known-answer/*.md "$DEST/known-answer/" 2>/dev/null || true
   # Signed-example vectors (real compact-JWS tokens, v0.2) live one level
   # deeper; vendor them too so jws KAT tests can pin against them.
   if [ -d "$SPEC_REPO/schemas/conformance/known-answer/signed-examples" ]; then

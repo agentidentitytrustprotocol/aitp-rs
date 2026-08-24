@@ -346,4 +346,65 @@ mod tests {
         verify_revocation_list(&env, &ctx)
             .expect("committed spec signed example must verify as committed");
     }
+
+    /// The committed signature must NOT verify over the wrapped form.
+    ///
+    /// The positive test alone pins nothing: a signature valid over both
+    /// shapes would satisfy it while leaving the convention undetermined.
+    /// This is the assertion that fails if `revocation_signing_bytes` ever
+    /// starts canonicalizing `{"revocation_list": …}` again.
+    #[test]
+    fn spec_signed_example_rejects_the_wrapped_form() {
+        let raw = std::fs::read(vendored(
+            "known-answer/signed-examples/revocation/kat-keypair-001-snapshot.json",
+        ))
+        .expect("read committed signed example");
+        let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        value.as_object_mut().unwrap().remove("_kat_input");
+        let env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
+
+        let wrapped = serde_json::json!({ "revocation_list": &env.revocation_list });
+        let canonical = jcs::canonicalize(&wrapped).expect("canonicalize wrapped");
+        let pubkey = AitpVerifyingKey::from_aid(&env.revocation_list.issuer).unwrap();
+        let sig = Signature::parse(&env.signature).unwrap();
+
+        assert!(
+            pubkey.verify(&Sha256::digest(&canonical), &sig).is_err(),
+            "signature verified over the WRAPPED form — the transport wrapper \
+             is being signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0008 §1.5)"
+        );
+    }
+
+    /// A snapshot signed over the wrapped form must be rejected outright.
+    ///
+    /// Per DECISIONS.md D1 there is no dual-accept: RFC-AITP-0008 §1.5
+    /// permits a transition window, but RFC-AITP-0010 grants none for the
+    /// session bundle, so a half-measure would leave the two artifacts
+    /// inconsistent. This locks the strict posture in place.
+    #[test]
+    fn wrapped_signed_snapshot_is_rejected() {
+        let key = issuer_key();
+        let body = sample_body(key.aid().clone());
+
+        // Sign the legacy wrapped form deliberately.
+        let wrapped = serde_json::json!({ "revocation_list": &body });
+        let canonical = jcs::canonicalize(&wrapped).unwrap();
+        let legacy_sig = key.sign(&Sha256::digest(&canonical)).into_string();
+
+        let env = RevocationListEnvelope {
+            revocation_list: body,
+            signature: legacy_sig,
+        };
+        let ctx = VerifyRevocationListContext {
+            expected_issuer: key.aid(),
+            now: Timestamp(1_700_001_000),
+        };
+        assert!(
+            matches!(
+                verify_revocation_list(&env, &ctx),
+                Err(TctError::SignatureInvalid)
+            ),
+            "a wrapped-signed snapshot must be rejected with SignatureInvalid"
+        );
+    }
 }

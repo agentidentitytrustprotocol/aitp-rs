@@ -314,12 +314,41 @@ jobs:
         run: |
           PIN="$(cat tests/schemas/SPEC_VERSION)"
           AITP_SPEC="$PWD/../spec" scripts/sync-schemas.sh
-          if ! git diff --quiet -- tests/schemas/; then
+          # `--` includes deletions and untracked adds: sync-schemas.sh
+          # MIRRORS (it clears the destination first), so a file removed
+          # upstream shows as a deletion here. A copy-only sync left stale
+          # files behind with a clean diff, making this check unable to fail.
+          if ! git diff --quiet -- tests/schemas/ \
+             || [ -n "$(git status --porcelain -- tests/schemas/)" ]; then
             echo "::error::Vendored schemas drift from pinned spec commit $PIN."
             echo "Run scripts/sync-schemas.sh locally and commit the result."
+            git status --porcelain -- tests/schemas/
             git diff -- tests/schemas/
             exit 1
           fi
+
+      # The spec ships its own known-answer verifier: ~630 lines of
+      # dependency-free Node with an independent RFC 8785 JCS and JOSE
+      # stack, an EXPECTED_MIN_CHECKS floor so it cannot pass vacuously,
+      # and both the `signing_input` declaration rule and the wrapped-form
+      # negatives. Running it against the pinned spec checkout, combined
+      # with the byte-identity diff above, transitively certifies the
+      # vendored tree using an implementation that shares no code with us.
+      #
+      # It proves the VECTORS are self-consistent; it can never prove
+      # aitp-rs signs the right bytes. The Rust KATs and their negatives
+      # (crates/aitp-core/tests/kat.rs, aitp-tct, aitp-session-bundle,
+      # aitp-manifest) are what cover that half.
+      - name: Run the spec's own known-answer verifier
+        working-directory: aitp-rs
+        run: |
+          CHECKER="../spec/scripts/verify-known-answer.mjs"
+          if [ ! -f "$CHECKER" ]; then
+            echo "::error::$CHECKER is missing from the pinned spec commit."
+            echo "It may have been renamed or moved upstream; update this job."
+            exit 1
+          fi
+          node "$CHECKER"
 
   conformance:
     name: conformance fixtures

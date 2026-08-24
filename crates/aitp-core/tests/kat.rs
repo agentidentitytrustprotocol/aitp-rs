@@ -63,6 +63,7 @@ const REQUIRED_PAYLOAD: &[&str] = &[
     "jcs_canonical_hex",
     "jcs_canonical_len_bytes",
     "sha256_hex",
+    "sha256_b64url",
 ];
 
 fn kat_path() -> PathBuf {
@@ -144,10 +145,19 @@ fn jcs_sha256_kat() {
             "{id}: JCS canonical bytes mismatch — implementation produces a \
              different canonical form than the spec"
         );
+        let digest = Sha256::digest(&actual);
         assert_eq!(
-            hex::encode(Sha256::digest(&actual)),
+            hex::encode(digest),
             expected_sha256_hex,
             "{id}: SHA-256 of canonical bytes mismatch"
+        );
+        // `sha256_b64url` is pinned on every canonical vector and was
+        // asserted by no test in the workspace — free coverage of the
+        // same digest in the encoding the wire actually carries.
+        assert_eq!(
+            aitp_core::base64url::encode(digest.as_slice()),
+            v["sha256_b64url"].as_str().unwrap(),
+            "{id}: base64url SHA-256 mismatch"
         );
     }
 }

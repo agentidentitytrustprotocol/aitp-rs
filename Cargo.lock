@@ -221,6 +221,7 @@ dependencies = [
  "aitp-core",
  "aitp-crypto",
  "aitp-tct",
+ "hex",
  "serde",
  "serde_json",
  "sha2",

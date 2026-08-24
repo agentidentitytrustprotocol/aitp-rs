@@ -140,6 +140,46 @@ fn tampered_signature_rejected() {
     assert!(matches!(err, SessionBundleError::InvalidSignature));
 }
 
+/// A bundle whose outer signature was computed over the legacy WRAPPED
+/// `{"session_bundle": {…}}` form must be rejected.
+///
+/// RFC-AITP-0010 grants no transition window (unlike RFC-AITP-0008 §1.5 for
+/// revocation), and per DECISIONS.md D1 this repo implements no dual-accept
+/// for either artifact. RFC-AITP-0010 §5 step 6 requires
+/// `BUNDLE_INVALID_SIGNATURE` here.
+#[test]
+fn wrapped_signed_bundle_is_rejected() {
+    use aitp_core::jcs;
+    use sha2::{Digest, Sha256};
+
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let mut bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    // Re-sign over the wrapped form: serialize the bundle, drop `signature`,
+    // wrap in the transport key, and sign that.
+    let mut body = serde_json::to_value(&bundle).unwrap();
+    body.as_object_mut().unwrap().remove("signature");
+    let wrapped = serde_json::json!({ "session_bundle": body });
+    let canonical = jcs::canonicalize(&wrapped).unwrap();
+    bundle.signature = coord.sign(&Sha256::digest(&canonical)).into_string();
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
+    assert!(
+        matches!(err, SessionBundleError::InvalidSignature),
+        "a wrapped-signed bundle must be rejected; got {err:?}"
+    );
+}
+
 #[test]
 fn revoked_participant_degrades_subset() {
     let coord = key(0xC0);
