@@ -87,7 +87,8 @@ pub fn verify_delegation_multihop_js(
     let verifier = parse_verifier(&verifier_aid)?;
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(hops);
+    let ctx =
+        VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(hops);
 
     let verified = verify_delegation(&token, &ctx)
         .map_err(|e| Error::from_reason(format!("delegation verification failed: {e}")))?;

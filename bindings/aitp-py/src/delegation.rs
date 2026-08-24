@@ -107,7 +107,8 @@ pub fn verify_delegation_multihop_py(
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
 
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(max_delegation_hops);
+    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
+        .with_max_delegation_hops(max_delegation_hops);
 
     let verified = verify_delegation(delegation_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("delegation verification failed: {e}")))?;
