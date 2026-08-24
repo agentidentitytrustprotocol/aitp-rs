@@ -32,6 +32,74 @@ cargo nextest run --workspace --all-features  # what CI runs (faster)
 output, but it does **not** run doctests — CI runs `cargo test --doc`
 separately, and you should too when you touch a `///` example.
 
+## Known-answer tests, and the two ways they go blind
+
+A known-answer test pins a value the spec publishes and checks the
+implementation reproduces it. That only works if the test can actually
+fail. Two patterns silently guarantee it cannot, and this repo shipped
+both — for a full release, with two implementations and a green
+conformance pack. Recognising them is the point of this section.
+
+### Blindness 1 — deriving the question from the answer
+
+`crates/aitp-core/tests/kat.rs` used to decide *which JSON shape to
+canonicalize* by searching for the artifact's wrapper key inside the
+pinned answer hex. If the pin looked wrapped it canonicalized the wrapped
+form; otherwise the inner one. It therefore agreed with whatever shape the
+vector happened to carry and **could not fail in either direction**.
+
+The rule now: a vector must *declare* its `signing_input`, the test
+**hard-codes** the expected declaration per artifact, and an absent
+declaration is a `panic!` rather than a default. A vector may not
+self-certify its own convention, and the harness may not infer one.
+
+### Blindness 2 — re-minting before verifying
+
+A test that signs an artifact and then verifies its own output proves only
+that the implementation agrees with itself. It passes identically whether
+the convention is right or wrong.
+
+This is subtler than it sounds because the conformance pack does it
+structurally: fixtures carry `__VALID_*_SIG__` placeholders that
+`crates/aitp-conformance/src/fixture/placeholder.rs` **mints with the
+harness's own key** before handing them to the adapter. So `aitp-rs` and
+`aitp-verifier-py` each minted under their own convention, verified their
+own output, and both reported 51/51 — while a revocation snapshot minted
+by one could never verify against the other. See
+[conformance.md](conformance.md#what-the-fixture-corpus-cannot-detect).
+
+The rule now: **verify committed bytes as committed.** The spec's
+`signed-examples/` exist for exactly this, and its README says so — those
+files "MUST verify under any conformant AITP v0.2 implementation,
+byte-for-byte, without any placeholder substitution."
+
+### What every JCS-profile artifact must have
+
+Three cells, not one. A positive test alone pins nothing, because a
+signature valid over *both* shapes satisfies it:
+
+| | Manifest | Revocation snapshot | Session bundle |
+|---|---|---|---|
+| canonical bytes vs the pinned vector | ✓ | ✓ | ✓ |
+| pinned signature verifies over **committed** bytes | ✓ | ✓ | ✓ |
+| **negative**: fails over the wrong shape | ✓ | ✓ | ✓ |
+
+Drive the canonical-bytes test through the **production** signing-input
+helper (`revocation_signing_bytes`, `bundle_signing_bytes`), never a
+re-implementation in the test. A test that canonicalizes locally can stay
+green while the production path signs something else — measured: before
+that was fixed, a regression in `bundle_signing_bytes` was caught by a
+single test in the entire workspace.
+
+### The only acceptance criterion that means anything
+
+Mutate the vector and confirm the suite goes red. Not a corrupted digest —
+a **self-consistent** re-wrap: object, canonical hex, byte length and both
+digests all updated together, so the file is internally coherent in the
+wrong convention. That is precisely the state the spec shipped before
+commit `5f8e588`. If the suite stays green, the harness is still adaptive
+and the tests are decoration.
+
 ## Property tests
 
 `proptest` (a workspace dev-dependency) drives generator-based tests

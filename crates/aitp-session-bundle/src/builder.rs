@@ -159,3 +159,67 @@ pub(crate) struct BundleSigningBody<'a> {
     pub expires_at: &'a Timestamp,
     pub participants: &'a [ParticipantEntry],
 }
+
+#[cfg(test)]
+mod signing_input_tests {
+    use super::*;
+    use crate::types::SessionTrustBundle;
+
+    /// Drive the **production** signing-input helper against the spec's
+    /// pinned `kat-session-bundle-001` bytes.
+    ///
+    /// This lives in-crate deliberately: `bundle_signing_bytes` is
+    /// `pub(crate)`, so an integration test cannot reach it and would have
+    /// to re-implement the canonicalization — which is exactly how a test
+    /// ends up agreeing with itself instead of with the implementation.
+    /// Verification measured the consequence: with the bundle KAT
+    /// canonicalizing locally, a regression in `bundle_signing_bytes` was
+    /// caught by only ONE test in the whole workspace. This restores the
+    /// same redundancy the revocation path has.
+    #[test]
+    fn production_signing_bytes_match_the_pinned_vector() {
+        let kat_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root")
+            .join("tests/schemas/known-answer/jcs-sha256.json");
+        let kat: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(kat_path).expect("read kat")).unwrap();
+        let v = kat["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"].as_str() == Some("kat-session-bundle-001"))
+            .expect("kat-session-bundle-001 present");
+
+        // The vector's `object` is the body without `signature`; add a
+        // placeholder so it deserializes into the wire type, then project
+        // it back out through the production body struct.
+        let mut obj = v["object"].as_object().expect("object").clone();
+        obj.insert("signature".into(), serde_json::Value::from(""));
+        let bundle: SessionTrustBundle =
+            serde_json::from_value(serde_json::Value::Object(obj)).expect("vector deserializes");
+
+        let canonical = bundle_signing_bytes(&BundleSigningBody {
+            version: &bundle.version,
+            session_id: &bundle.session_id,
+            coordinator: &bundle.coordinator,
+            issued_at: &bundle.issued_at,
+            expires_at: &bundle.expires_at,
+            participants: &bundle.participants,
+        })
+        .expect("canonicalize");
+
+        assert_eq!(
+            canonical.len(),
+            v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize,
+            "production signing bytes diverge in length from kat-session-bundle-001"
+        );
+        assert_eq!(
+            hex::encode(&canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "production signing bytes diverge from kat-session-bundle-001 — the \
+             implementation canonicalizes a different shape than the spec signs"
+        );
+    }
+}
