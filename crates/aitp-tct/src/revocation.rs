@@ -212,66 +212,109 @@ mod tests {
         verify_revocation_list(&env, &ctx).expect("empty list still verifies");
     }
 
+    /// Locate a file inside the vendored spec tree (`tests/schemas/`),
+    /// which `scripts/sync-schemas.sh` keeps byte-identical to the spec
+    /// commit pinned in `tests/schemas/SPEC_VERSION`.
+    fn vendored(rel: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root")
+            .join("tests/schemas")
+            .join(rel)
+    }
+
+    fn kat_vector(id: &str) -> serde_json::Value {
+        let kat: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(vendored("known-answer/jcs-sha256.json")).unwrap(),
+        )
+        .unwrap();
+        kat["vectors"]
+            .as_array()
+            .expect("vectors array")
+            .iter()
+            .find(|v| v["id"].as_str() == Some(id))
+            .unwrap_or_else(|| panic!("vector {id} missing from jcs-sha256.json"))
+            .clone()
+    }
+
+    /// `kat-revocation-001`, driven entirely from the vendored vector.
+    ///
+    /// Every expected value is read from the spec's file at runtime — none
+    /// is hard-coded here, and none may ever be copied from this
+    /// implementation's own output. Updating an expectation to match the
+    /// code is precisely how the wrapped-vs-inner divergence was created
+    /// and then survived a full release.
     #[test]
     fn rfc_kat_canonical_bytes_match() {
-        // Vector kat-revocation-001 from the v0.2 spec
-        // schemas/conformance/known-answer/jcs-sha256.json: signed view
-        // is the wrapped `{"revocation_list": {...}}` form, version
-        // literal `aitp/0.2`.
-        let body = RevocationList {
-            version: "aitp/0.2".into(),
-            issuer: Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap(),
-            published_at: Timestamp(1_711_900_000),
-            expires_at: Timestamp(1_711_903_600),
-            entries: vec![RevocationEntry {
-                jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-                revoked_at: Timestamp(1_711_901_000),
-                reason: None,
-            }],
-        };
+        let v = kat_vector("kat-revocation-001");
+
+        // The vector must declare its signing input. A vector that pins
+        // canonical bytes without saying what they are the canonicalization
+        // *of* is unfalsifiable — fail loudly rather than guessing.
+        assert_eq!(
+            v["signing_input"].as_str(),
+            Some("body"),
+            "kat-revocation-001 must declare signing_input=body (RFC-AITP-0008 §1.5)"
+        );
+        let object = v["object"].clone();
+        assert!(
+            object.get("revocation_list").is_none(),
+            "signing_input=body means `object` is the inner body, not the wrapper"
+        );
+
+        // Round-trip the spec's own object through our type, then through
+        // the implementation's signing path.
+        let body: RevocationList = serde_json::from_value(object).expect("vector deserializes");
         let view = RevocationListSigningView {
             revocation_list: &body,
         };
         let canonical = jcs::canonicalize_serializable(&view).unwrap();
-        let expected_hex = "7b227265766f636174696f6e5f6c697374223a7b22656e7472696573223a5b7b226a7469223a2235353065383430302d653239622d343164342d613731362d343436363535343430303030222c227265766f6b65645f6174223a313731313930313030307d5d2c22657870697265735f6174223a313731313930333630302c22697373756572223a226169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b222c227075626c69736865645f6174223a313731313930303030302c2276657273696f6e223a22616974702f302e32227d7d";
+
+        assert_eq!(
+            canonical.len(),
+            v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize,
+            "canonical byte length diverges from spec kat-revocation-001"
+        );
         assert_eq!(
             hex::encode(&canonical),
-            expected_hex,
-            "canonical bytes diverge from spec v0.2 kat-revocation-001"
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "canonical bytes diverge from spec kat-revocation-001 — the implementation \
+             is canonicalizing a different JSON shape than the spec signs"
         );
-        let digest = Sha256::digest(&canonical);
         assert_eq!(
-            hex::encode(digest),
-            "739feb36cc2530ad3188f6c3a9ee7459820533382ee24387a8c261787397e0d9"
+            hex::encode(Sha256::digest(&canonical)),
+            v["sha256_hex"].as_str().unwrap(),
+            "digest diverges from spec kat-revocation-001"
         );
     }
 
+    /// The committed, Python-reference-minted signed example must verify
+    /// **as committed**.
+    ///
+    /// This deliberately does not re-mint. A test that signs an artifact
+    /// and then verifies its own output proves only that the
+    /// implementation agrees with itself, which is exactly why an
+    /// `aitp-rs` issuer and an `aitp-verifier-py` consumer could disagree
+    /// on the wire while both suites stayed green.
     #[test]
     fn spec_signed_example_snapshot_verifies() {
-        // signed-examples/revocation/kat-keypair-001-snapshot.json:
-        // re-mint from the pinned seed and verify byte-stable signature.
-        let key = AitpSigningKey::from_seed(&[0u8; 32]); // kat-keypair-001
-        let body = RevocationList {
-            version: "aitp/0.2".into(),
-            issuer: key.aid().clone(),
-            published_at: Timestamp(1_711_900_000),
-            expires_at: Timestamp(1_711_903_600),
-            entries: vec![RevocationEntry {
-                jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
-                revoked_at: Timestamp(1_711_900_060),
-                reason: Some("key_compromised".into()),
-            }],
-        };
-        let env = sign_revocation_list(body, &key).unwrap();
-        assert_eq!(
-            env.signature,
-            "2OYmur9NnrFsrz4Qeso_fGj2Bk0g2y6yNf4H7dqrqEvKZ-YfndY3GavquOIodWGs4EFdgmaHoer0NWc7sPF1DQ",
-            "signature diverges from the spec signed-example vector"
-        );
+        let raw = std::fs::read(vendored(
+            "known-answer/signed-examples/revocation/kat-keypair-001-snapshot.json",
+        ))
+        .expect("read committed signed example");
+        let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        // `_kat_input` is a minting companion, never part of the wire object.
+        value.as_object_mut().unwrap().remove("_kat_input");
+
+        let env: RevocationListEnvelope =
+            serde_json::from_value(value).expect("signed example deserializes");
+        let issuer = env.revocation_list.issuer.clone();
         let ctx = VerifyRevocationListContext {
-            expected_issuer: key.aid(),
+            expected_issuer: &issuer,
             now: Timestamp(1_711_900_100),
         };
-        verify_revocation_list(&env, &ctx).expect("spec vector verifies");
+        verify_revocation_list(&env, &ctx)
+            .expect("committed spec signed example must verify as committed");
     }
 }
