@@ -67,7 +67,7 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 | 1 Re-vendor | DONE PASS | 1 | Sonnet | found 5th blind spot -> Phase 4 |
 | 2 Make tests honest (RED) | DONE PASS | 2 | Opus | GAP1 vacuous-pass hole closed |
 | 3 Move 4 signing sites | DONE PASS | 1 | Fable | 45/6 -> 51/0/2 measured; spec issue #23 filed |
-| 4 Close coverage gaps | TODO | — | — | |
+| 4 Close coverage gaps | DONE PASS | 1 | Fable | falsification battery all RED |
 | 5 Cross-impl acceptance | TODO | — | — | |
 | 6 Rename max_delegation_hops | TODO | — | — | |
 | 7 #[non_exhaustive] + ctors (D2) | TODO | — | — | |
@@ -105,3 +105,13 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 - State: **85 suites, 532 tests, 0 failures.** `minted_revocation_snapshot_verifies` now green (was red since the spec was corrected).
 - Upstream: filed spec issue #23 — RFC-AITP-0010 §3 and the session-bundle JSON schema disagree on `signature` placement (no byte impact; aitp-rs emits the §3 shape and would fail the schema). Documented in `docs/jcs.md`.
 - Next: Phase 4 — close the coverage gaps.
+
+### Phase 4 — Close the coverage gaps · PASS · 2026-08-24
+- Commits `43f77b7` + `d0f1a4e`(docs/bundle-helper follow-up). Verifier: **Fable**. **1 round**, PASS with 2 minor gaps + 1 flagged risk — all three closed in the follow-up.
+- **AC2 falsification test — the only criterion that means anything:** re-wrapping a vector self-consistently (object + hex + len + BOTH digests, `signing_input` left "body") goes RED for all three artifacts. Strongest case verified by the Fable verifier: `kat-session-bundle-001` re-wrapped AND its `coordinator_signature_b64url` re-signed with the zero-seed key, so the vector was fully coherent in the wrapped convention — still RED (3 failures). Reverted; tree clean.
+- Implementation-regression measurement: `revocation_signing_bytes` -> wrapped trips 5 tests + conformance 46/5/2. `bundle_signing_bytes` -> wrapped originally tripped only **1** test; after the follow-up, 2 (added an in-crate test driving the production helper — the helper is `pub(crate)`, so an integration test would have to re-implement canonicalization, which is the defect again).
+- Coverage matrix now full for all three artifacts (bytes / committed-sig / **negative**). The negative column was empty everywhere before.
+- `sync-schemas.sh` now MIRRORS: verifier deleted 4 files (one per vendored level) from a spec copy and confirmed all 4 surface as drift. Idempotent; vendored file list == spec's. Picks up `known-answer/README.md`, never vendored before.
+- CI: `verify-known-answer.mjs` runs in `spec-schemas` (**50 checks**, meets the >=50 floor; fails loudly if the script is missing). YAML parses.
+- Files: `crates/aitp-session-bundle/{tests/kat.rs,src/builder.rs,tests/round_trip.rs}`, `crates/aitp-manifest/tests/signing_input_kat.rs`, `crates/aitp-tct/src/revocation.rs`, `crates/aitp-core/tests/kat.rs`, `scripts/sync-schemas.sh`, `.github/workflows/ci.yml`, `docs/testing.md`, `docs/conformance.md`.
+- Next: aitp-verifier-py P1-P2 (separate repo/PR, per D4) — must merge before Phase 5 pins its SHA.
