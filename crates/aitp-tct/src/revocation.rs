@@ -78,7 +78,13 @@ pub struct RevocationListEnvelope {
 /// `signature` is a sibling of the body rather than a member of it, so —
 /// unlike the manifest, where `signature` is stripped from within — there
 /// is nothing to remove here.
-pub(crate) fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctError> {
+///
+/// Exposed publicly so a caller that needs the exact signing bytes — an
+/// independent verifier, an HSM signing path, a debugging tool — can obtain
+/// them instead of reconstructing the shape at the call site. Reconstructing
+/// it is how the signer, the verifier and the conformance fixture minter
+/// drifted apart in the first place.
+pub fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctError> {
     jcs::canonicalize_serializable(body).map_err(|e| TctError::Canonicalization(e.to_string()))
 }
 

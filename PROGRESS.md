@@ -68,7 +68,7 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 | 2 Make tests honest (RED) | DONE PASS | 2 | Opus | GAP1 vacuous-pass hole closed |
 | 3 Move 4 signing sites | DONE PASS | 1 | Fable | 45/6 -> 51/0/2 measured; spec issue #23 filed |
 | 4 Close coverage gaps | DONE PASS | 1 | Fable | falsification battery all RED |
-| 5 Cross-impl acceptance | TODO | — | — | |
+| 5 Cross-impl acceptance | DONE | — | pending | verify after CI green |
 | 6 Rename max_delegation_hops | TODO | — | — | |
 | 7 #[non_exhaustive] + ctors (D2) | TODO | — | — | |
 | 8 Release 0.5.0 | TODO | — | — | |
@@ -115,3 +115,18 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 - CI: `verify-known-answer.mjs` runs in `spec-schemas` (**50 checks**, meets the >=50 floor; fails loudly if the script is missing). YAML parses.
 - Files: `crates/aitp-session-bundle/{tests/kat.rs,src/builder.rs,tests/round_trip.rs}`, `crates/aitp-manifest/tests/signing_input_kat.rs`, `crates/aitp-tct/src/revocation.rs`, `crates/aitp-core/tests/kat.rs`, `scripts/sync-schemas.sh`, `.github/workflows/ci.yml`, `docs/testing.md`, `docs/conformance.md`.
 - Next: aitp-verifier-py P1-P2 (separate repo/PR, per D4) — must merge before Phase 5 pins its SHA.
+
+### aitp-verifier-py P1-P2 (cross-repo, per D4) · MERGED · 2026-08-24
+- PR agentidentitytrustprotocol/aitp-verifier-py#11, squash-merged as **`fc89b5d`**. CI green on py3.11/3.12/3.13; mypy --strict clean (27 files); conformance still 51/0/2.
+- No wire-format change — that repo already signed/verified inner. Test coverage only, as planned.
+- Gap 1: `signed-examples/` was half covered (3 compact-JWS artifacts; neither JCS-profile example). **Acceptance proven:** pointed at the pre-5f8e588 snapshot (`2OYmur9N…`), the new tests FAIL with `TCT_REVOKED` — the exact fail-closed symptom.
+- Gap 2: KAT harness only canonicalized. Now asserts `signing_input == "body"` hard-coded per artifact, treats absent as failure, allowlists non-canonical vectors, asserts vector presence, asserts `jcs_canonical_len_bytes` + `sha256_b64url`, and asserts pinned bytes != wrapped form. Also verifies `kat-session-bundle-001`'s coordinator signature, which no test in EITHER implementation checked.
+- Needed a rebase mid-flight (dependabot landed on main).
+
+### Phase 5 — Cross-implementation acceptance · 2026-08-24
+- Commit `13a8bf2`. New: `tools/mint-signed-examples/src/bin/xcheck_mint.rs`, `scripts/xcheck-verify.py`, `tests/AITP_VERIFIER_PY_VERSION` (= fc89b5d), CI job `cross-impl acceptance (aitp-verifier-py)`, note on `bindings/interop/test_interop.py`.
+- **Direction (b) stronger than planned:** the Rust-minted snapshot is BYTE-IDENTICAL to the spec's committed Python-reference-minted example (`DTmCoELd…`), so "Rust mints -> Python verifies" and "Rust reproduces the reference bytes" collapse into one assertion.
+- **AC1 measured:** reverting both signing helpers to the wrapped form fails all three checks — `TCT_REVOKED`, `BUNDLE_INVALID_SIGNATURE`, and byte-identity, with the minted signature reverting to exactly `2OYmur9N…`, the value the spec published before 5f8e588. Reverted.
+- Envelope note: `aitp-verifier-py` expects the schema framing (`signature` sibling of the wrapper); aitp-rs's type emits RFC-0010 §3's (signature inside). The minter emits the schema framing. Signed bytes identical either way — envelope reframing, not a re-mint. Spec issue #23.
+- D3: job must be added to branch protection AFTER its first green run on this PR.
+- Next: Phase 6 — rename max_hops.
