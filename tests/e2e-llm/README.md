@@ -60,19 +60,43 @@ re-introduce `rig-core` then — not before.
 
 ## What gets tested
 
-`handshake_then_delegate.rs` — the canonical scenario:
+### `handshake_then_delegate.rs` — the canonical scenario
 
-1. Spin up an LLM-backed **worker** agent on a random local port (axum
-   server with manifest + handshake + `/work` endpoint).
-2. **Planner** (plain code, no LLM) fetches the worker's manifest,
-   runs the four-message mutual handshake, and ends up holding a TCT
-   the worker issued for it.
-3. Planner posts a signed envelope to `/work`, attaching the TCT in
-   the `X-AITP-TCT` header.
-4. Worker verifies the envelope signature + TCT (audience, expiry,
-   grants), prompts the LLM with the task, returns a signed envelope.
-5. Test asserts: handshake completed, TCT carries `task.delegate` in
-   its grants, response status is 200, response body is non-empty.
+1. Spin up an LLM-backed **worker** agent on a random local port
+   (`HandshakeServer` + a merged manifest route and `/work` endpoint).
+2. **Planner** (plain code, no LLM) fetches the worker's manifest, pins
+   its key, runs the four-message mutual handshake via
+   `run_initiator_handshake`, and ends up holding a TCT the worker
+   issued for it.
+3. Planner posts the task to `/work`, presenting the TCT (an opaque
+   compact JWS) in the `X-AITP-TCT` header.
+4. Worker verifies the TCT — issuer pinning, audience, expiry,
+   revocation, grants — then prompts the LLM and returns the answer.
+5. Test asserts: handshake completed, TCT carries `task.delegate`,
+   status is 200, answer is non-empty.
+
+### `revocation_blocks_delegation.rs` — the 0.5.0 signing-input scenario
+
+The revocation snapshot is one of the two artifacts whose JCS signing
+input moved from the transport-wrapped form (`{"revocation_list": …}`)
+to the inner artifact body in 0.5.0. Tier-1 KATs pin the bytes and the
+`xcheck` CI job proves Rust and Python agree on them; what neither
+covers is the full loop *in situ* — a server signing a snapshot on
+demand, serving it over a socket, and a peer fetching, verifying, and
+acting on it.
+
+1. Handshake, as above.
+2. Fetch + verify the worker's (empty) revocation snapshot.
+3. Delegate a task — succeeds. *(This leg calls the LLM.)*
+4. Worker revokes the planner's TCT `jti`.
+5. Fetch + verify the snapshot again — it now lists that `jti`, over a
+   freshly-signed set of bytes.
+6. Delegate again — refused with 403, before the LLM is reached (so the
+   negative leg costs no API credits).
+
+A second test in the same file mints a structurally valid TCT under a
+key the worker has never seen and asserts it is refused, covering the
+issuer-pinning branch that the happy path never exercises.
 
 ## What is **not** tested here
 
@@ -81,3 +105,25 @@ re-introduce `rig-core` then — not before.
 - Anything that can be expressed as a deterministic KAT
 
 Tier 3 is the **integration story**, not the safety net.
+
+## Why this package is built in CI even though it never runs there
+
+It is excluded from the workspace, so `cargo fmt`, `cargo clippy` and
+`cargo test --workspace` do **not** reach it. That exclusion is
+correct — it must never burn API credits in CI — but for two releases
+it also meant nothing compiled the package at all, and it silently
+stopped building at the 0.4.0 breaking change. Nobody found out until
+0.5.0. A test suite no job compiles is indistinguishable from one that
+does not exist.
+
+The `tier-3 e2e build (no API calls)` job in `.github/workflows/ci.yml`
+closes that: it runs fmt + clippy + `cargo test` with the master gate
+explicitly unset, so every test takes its skip branch. That costs
+nothing, and still proves the harness links, boots, and that the skip
+gate itself works.
+
+The harness is also deliberately built on the **same** high-level APIs
+as `examples/two-agents` (`HandshakeServer`, `run_initiator_handshake`)
+rather than re-implementing the state machine by hand, as an earlier
+revision did. A breaking change to those APIs now breaks the demo too —
+and CI does build the demo.

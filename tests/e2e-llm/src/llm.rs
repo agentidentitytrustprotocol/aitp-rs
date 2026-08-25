@@ -89,7 +89,10 @@ pub async fn complete(provider: &Provider, system: &str, user: &str) -> anyhow::
             let text = value
                 .get("content")
                 .and_then(|c| c.as_array())
-                .and_then(|arr| arr.iter().find_map(|b| b.get("text").and_then(|t| t.as_str())))
+                .and_then(|arr| {
+                    arr.iter()
+                        .find_map(|b| b.get("text").and_then(|t| t.as_str()))
+                })
                 .ok_or_else(|| anyhow!("anthropic response missing content[].text: {value}"))?
                 .to_string();
             Ok(text)
@@ -120,7 +123,9 @@ pub async fn complete(provider: &Provider, system: &str, user: &str) -> anyhow::
             let text = value
                 .pointer("/choices/0/message/content")
                 .and_then(|v| v.as_str())
-                .ok_or_else(|| anyhow!("openai response missing choices[0].message.content: {value}"))?
+                .ok_or_else(|| {
+                    anyhow!("openai response missing choices[0].message.content: {value}")
+                })?
                 .to_string();
             Ok(text)
         }

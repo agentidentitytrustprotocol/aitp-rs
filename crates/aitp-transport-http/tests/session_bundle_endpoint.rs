@@ -100,3 +100,126 @@ async fn malformed_bundle_body_is_rejected() {
         .unwrap();
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
+
+/// A **genuinely signed** bundle survives the store/fetch round trip and
+/// still verifies — and its signature is over the inner body, not the
+/// `{"session_bundle": …}` transport wrapper.
+///
+/// The tests above deliberately use `sample_bundle`, whose `signature`
+/// is 64 zero bytes: they exercise routing, storage and rejection paths,
+/// where the signature is irrelevant. The consequence is that no test in
+/// this file ever put a real signature through the transport. The
+/// session bundle is one of the two artifacts whose JCS signing input
+/// changed in 0.5.0, so that gap is worth closing at the layer that
+/// re-serializes the JSON.
+///
+/// As with the revocation snapshot's wire test, the signing input is
+/// rebuilt here from the fetched JSON — not via `bundle_signing_bytes`
+/// (which is crate-private anyway) — so signer and verifier agreeing
+/// with each other is not sufficient to make it pass.
+#[tokio::test]
+async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
+    use aitp_session_bundle::{
+        verify_session_bundle, SessionBundleBuilder, VerifySessionBundleContext,
+    };
+    use aitp_tct::TctBuilder;
+    use sha2::{Digest, Sha256};
+
+    const NOW: Timestamp = Timestamp(1_700_000_000);
+
+    let coordinator = AitpSigningKey::from_seed(&[0xC0; 32]);
+    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
+    let tct = TctBuilder::new(&coordinator)
+        .subject(alice.aid().clone())
+        .audience(alice.aid().clone())
+        .grants(["session.participate"])
+        .ttl_secs(3600)
+        .subject_pubkey(alice.verifying_key())
+        .issued_at(NOW)
+        .build()
+        .unwrap()
+        .token;
+
+    let session_id = Uuid::new_v4();
+    let bundle = SessionBundleBuilder::new(&coordinator)
+        .session_id(session_id)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), tct)
+        .build()
+        .expect("bundle builds");
+    let envelope = SessionBundleEnvelope {
+        session_bundle: bundle,
+    };
+
+    let server = SessionBundleServer::new();
+    let router = server.clone().router();
+    let resp = router
+        .clone()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/aitp/session/bundle")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&envelope).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("GET")
+                .uri(format!("/aitp/session/bundle/{session_id}"))
+                .body(Body::empty())
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+
+    // 1. The fetched bundle still verifies after a JSON round trip.
+    let got: SessionBundleEnvelope = serde_json::from_slice(&bytes).unwrap();
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    verify_session_bundle(&got.session_bundle, &ctx)
+        .expect("fetched bundle must verify under the coordinator's key");
+
+    // 2. Independently: the signature is over the inner body with
+    //    `signature` removed — the bundle carries it as a *member*, so
+    //    the exclusion is what makes this shape distinct from the
+    //    revocation snapshot's sibling placement.
+    let raw: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+    let mut body = raw
+        .get("session_bundle")
+        .expect("served envelope carries the transport wrapper")
+        .clone();
+    let sig_str = body
+        .as_object_mut()
+        .unwrap()
+        .remove("signature")
+        .expect("bundle carries `signature` as a member of the body");
+    let sig = aitp_crypto::Signature::parse(sig_str.as_str().unwrap()).unwrap();
+    let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(coordinator.aid()).unwrap();
+
+    let inner_digest = Sha256::digest(aitp_core::jcs::canonicalize(&body).unwrap());
+    pubkey
+        .verify(&inner_digest, &sig)
+        .expect("signature must verify over sha256(JCS(body without `signature`))");
+
+    // 3. And NOT over the wrapped form.
+    let wrapped = serde_json::json!({ "session_bundle": body });
+    let wrapped_digest = Sha256::digest(aitp_core::jcs::canonicalize(&wrapped).unwrap());
+    assert!(
+        pubkey.verify(&wrapped_digest, &sig).is_err(),
+        "signature must NOT verify over the wrapped \
+         {{\"session_bundle\": …}} form — the transport wrapper is not signed"
+    );
+}

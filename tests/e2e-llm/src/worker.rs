@@ -1,27 +1,43 @@
-//! In-process LLM-backed AITP responder. Spawns an axum server on a
-//! random local port with the four standard endpoints:
+//! In-process LLM-backed AITP responder, built on the **maintained**
+//! high-level server API rather than a hand-rolled copy of it.
+//!
+//! [`aitp::transport::HandshakeServer`] owns the Mutual Handshake routes
+//! (`/aitp/handshake/{hello,commit}`) and the revocation endpoint; we
+//! merge two app-specific routes onto its router:
 //!
 //!   - `GET  /.well-known/aitp-manifest` — pinned-key manifest
-//!   - `POST /aitp/handshake/hello`      — `MutualHello`  → `MutualHelloAck`
-//!   - `POST /aitp/handshake/commit`     — `MutualCommit` → `MutualCommitAck`
-//!   - `POST /work`                       — TCT-protected LLM endpoint
+//!   - `POST /work`                      — TCT-protected LLM endpoint
 //!
-//! The handshake handlers are lifted from `examples/two-agents`; the
-//! `/work` handler is the tier-3 addition: it verifies a presented TCT,
-//! prompts the configured LLM with the task, and returns the answer.
+//! This mirrors `examples/two-agents/src/bin/agent-b.rs` on purpose.
+//! An earlier revision of this file re-implemented the responder state
+//! machine by hand (`Responder::on_hello` / `on_commit`, hand-signed
+//! envelopes); because this package is excluded from the workspace,
+//! nothing compiled it, and it rotted silently across two breaking
+//! releases. Building on the same API the demo uses means a breaking
+//! change to that API now breaks the demo too — which CI *does* build.
+//!
+//! # Revocation
+//!
+//! The worker publishes a signed revocation snapshot via
+//! [`HandshakeServer::with_revocation_producer`] and enforces it in
+//! `/work` through a strict [`TctVerifyContext`]. That is deliberate:
+//! the revocation snapshot is one of the two artifacts whose JCS
+//! signing input changed in 0.5.0, so tier-3 should exercise it over a
+//! real socket rather than assume tier-1 covers it.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use aitp::core::{Aid, AitpEnvelope, MessageType, Timestamp};
-use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp::handshake::{
-    JwkPublicKey, JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig,
-    PresentedIdentity, ResolveError, Responder,
-};
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{Manifest, ManifestEnvelope};
-use aitp::tct::{verify_tct, Tct, TctEnvelope, TctVerifyContext};
-use aitp_example_two_agents::{build_demo_manifest, sign_envelope, sign_envelope_with};
+use aitp::tct::{
+    sign_revocation_list, verify_tct, RevocationEntry, RevocationList, RevocationListEnvelope,
+    TctClaims, TctVerifyContext,
+};
+use aitp::transport::{HandshakeServer, RevocationListProducer};
+use aitp_example_two_agents::build_demo_manifest;
 use axum::{
     extract::State,
     http::{HeaderMap, StatusCode},
@@ -60,16 +76,56 @@ pub struct WorkResponse {
     pub worker_aid: String,
 }
 
-/// Handle returned by [`spawn`]. Drop or call [`Worker::shutdown`] to
-/// stop the server.
+/// Mutable revocation snapshot source.
+///
+/// Re-signs on every `current()` call rather than caching an envelope,
+/// so a `jti` revoked mid-test is reflected on the very next fetch —
+/// and so every fetch exercises the production signing path
+/// ([`sign_revocation_list`]) rather than replaying one pre-built blob.
+struct LiveRevocations {
+    issuer: AitpSigningKey,
+    revoked: Mutex<Vec<RevocationEntry>>,
+}
+
+impl RevocationListProducer for LiveRevocations {
+    fn current(&self) -> RevocationListEnvelope {
+        let now = Timestamp::now();
+        let entries = self.revoked.lock().clone();
+        sign_revocation_list(
+            RevocationList {
+                version: "aitp/0.2".into(),
+                issuer: self.issuer.aid().clone(),
+                published_at: now,
+                expires_at: Timestamp(now.0 + 3600),
+                entries,
+            },
+            &self.issuer,
+        )
+        .expect("revocation snapshot signs")
+    }
+}
+
+/// Handle returned by [`spawn`]. Call [`Worker::shutdown`] to stop the
+/// server.
 pub struct Worker {
     pub aid: Aid,
     pub origin: Url,
+    revocations: Arc<LiveRevocations>,
     join: JoinHandle<()>,
     shutdown: tokio::sync::oneshot::Sender<()>,
 }
 
 impl Worker {
+    /// Revoke `jti`, so the next `/work` call presenting a TCT with that
+    /// id is refused and the next revocation-snapshot fetch lists it.
+    pub fn revoke(&self, jti: Uuid) {
+        self.revocations.revoked.lock().push(RevocationEntry {
+            jti,
+            revoked_at: Timestamp::now(),
+            reason: Some("revoked by tier-3 test".into()),
+        });
+    }
+
     /// Stop the server. Blocks (asynchronously) until the axum task
     /// exits.
     pub async fn shutdown(self) {
@@ -78,6 +134,8 @@ impl Worker {
     }
 }
 
+/// JWKS resolver for the pinned-key-only harness: OIDC resolution is
+/// never invoked, so it returns an empty key set.
 struct NoOpResolver;
 impl JwksResolver for NoOpResolver {
     fn resolve(&self, _issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
@@ -85,10 +143,11 @@ impl JwksResolver for NoOpResolver {
     }
 }
 
+/// State for the two app routes merged on top of the handshake server.
 struct AppState {
-    signing_key: Arc<AitpSigningKey>,
-    manifest: Arc<Manifest>,
-    sessions: Mutex<HashMap<Uuid, Responder>>,
+    aid: Aid,
+    manifest: Manifest,
+    revocations: Arc<LiveRevocations>,
     provider: Provider,
     display_name: String,
 }
@@ -107,33 +166,47 @@ pub async fn spawn(
     let addr = listener.local_addr()?;
     let port = addr.port();
 
-    // The worker offers `task.delegate` and requires nothing of the
-    // peer — symmetric to the two-agent demo's `demo.echo`.
-    let manifest =
-        build_demo_manifest(&key, display_name, port, &[WORK_CAPABILITY], &[WORK_CAPABILITY]);
-
+    let manifest = build_demo_manifest(&key, display_name, port, &[WORK_CAPABILITY]);
     let aid = key.aid().clone();
     let origin: Url = format!("http://localhost:{port}").parse()?;
 
+    let revocations = Arc::new(LiveRevocations {
+        issuer: AitpSigningKey::from_seed(seed),
+        revoked: Mutex::new(Vec::new()),
+    });
+
     let state = Arc::new(AppState {
-        signing_key: Arc::new(key),
-        manifest: Arc::new(manifest),
-        sessions: Mutex::new(HashMap::new()),
+        aid: aid.clone(),
+        manifest: manifest.clone(),
+        revocations: Arc::clone(&revocations),
         provider,
         display_name: display_name.to_string(),
     });
 
-    let app = Router::new()
-        .route("/.well-known/aitp-manifest", get(serve_manifest))
-        .route("/aitp/handshake/hello", post(handle_hello))
-        .route("/aitp/handshake/commit", post(handle_commit))
-        .route("/work", post(handle_work))
-        .with_state(state);
+    // The handshake server owns its own copy of the key + manifest and
+    // serves /aitp/handshake/{hello,commit} plus the revocation
+    // endpoint. We request `task.delegate` of the initiator so the
+    // symmetric handshake's grant intersection is non-empty on our side.
+    let server = HandshakeServer::new(
+        key,
+        manifest,
+        vec![],
+        NoOpResolver,
+        vec![WORK_CAPABILITY.into()],
+    )
+    .with_revocation_producer(Arc::clone(&revocations) as Arc<dyn RevocationListProducer>);
+
+    let app = server.router().merge(
+        Router::new()
+            .route("/.well-known/aitp-manifest", get(serve_manifest))
+            .route("/work", post(handle_work))
+            .with_state(state),
+    );
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let join = tokio::spawn(async move {
-        let serve = axum::serve(listener, app.into_make_service())
-            .with_graceful_shutdown(async move {
+        let serve =
+            axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
                 let _ = shutdown_rx.await;
             });
         if let Err(e) = serve.await {
@@ -144,6 +217,7 @@ pub async fn spawn(
     Ok(Worker {
         aid,
         origin,
+        revocations,
         join,
         shutdown: shutdown_tx,
     })
@@ -151,102 +225,8 @@ pub async fn spawn(
 
 async fn serve_manifest(State(state): State<Arc<AppState>>) -> Json<ManifestEnvelope> {
     Json(ManifestEnvelope {
-        manifest: (*state.manifest).clone(),
+        manifest: state.manifest.clone(),
     })
-}
-
-async fn handle_hello(
-    State(state): State<Arc<AppState>>,
-    Json(envelope): Json<AitpEnvelope>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if envelope.message_type != MessageType::MutualHello {
-        return Err((StatusCode::BAD_REQUEST, "expected mutual_hello".into()));
-    }
-    let payload: MutualHelloPayload = serde_json::from_value(envelope.payload.clone())
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    verify_envelope_sig(&envelope).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-
-    let cfg = PeerConfig {
-        signing_key: &state.signing_key,
-        manifest: &state.manifest,
-        trust_anchors: &[],
-        jwks_resolver: &NoOpResolver,
-        pinned_key_store: None,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
-    let ack_mid = Uuid::new_v4();
-    let ack_ts = Timestamp::now();
-    let (responder, ack_payload) = Responder::on_hello(
-        &envelope,
-        &payload,
-        PresentedIdentity::PinnedKey {
-            subject: state.display_name.clone(),
-        },
-        &ack_mid,
-        ack_ts,
-        &cfg,
-        vec![WORK_CAPABILITY.into()],
-    )
-    .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-
-    let session_id = Uuid::new_v4();
-    state.sessions.lock().insert(session_id, responder);
-
-    let ack_env = sign_envelope_with(
-        &state.signing_key,
-        MessageType::MutualHelloAck,
-        serde_json::to_value(&ack_payload).unwrap(),
-        ack_mid,
-        ack_ts,
-    );
-    let mut headers = HeaderMap::new();
-    headers.insert("x-aitp-session-id", session_id.to_string().parse().unwrap());
-    Ok((headers, Json(ack_env)))
-}
-
-async fn handle_commit(
-    State(state): State<Arc<AppState>>,
-    headers: HeaderMap,
-    Json(envelope): Json<AitpEnvelope>,
-) -> Result<impl IntoResponse, (StatusCode, String)> {
-    if envelope.message_type != MessageType::MutualCommit {
-        return Err((StatusCode::BAD_REQUEST, "expected mutual_commit".into()));
-    }
-    let session_id = headers
-        .get("x-aitp-session-id")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| Uuid::parse_str(s).ok())
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "missing session id".to_string()))?;
-    let mut responder = state
-        .sessions
-        .lock()
-        .remove(&session_id)
-        .ok_or_else(|| (StatusCode::BAD_REQUEST, "unknown session".to_string()))?;
-    let payload: MutualCommitPayload = serde_json::from_value(envelope.payload.clone())
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    verify_envelope_sig(&envelope).map_err(|e| (StatusCode::BAD_REQUEST, e))?;
-
-    let cfg = PeerConfig {
-        signing_key: &state.signing_key,
-        manifest: &state.manifest,
-        trust_anchors: &[],
-        jwks_resolver: &NoOpResolver,
-        pinned_key_store: None,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
-    let (ack_payload, _worker_holds_tct_for_planner) = responder
-        .on_commit(&envelope, &payload, &cfg)
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let ack_env = sign_envelope(
-        &state.signing_key,
-        MessageType::MutualCommitAck,
-        serde_json::to_value(&ack_payload).unwrap(),
-    );
-    Ok(Json(ack_env))
 }
 
 async fn handle_work(
@@ -254,45 +234,27 @@ async fn handle_work(
     headers: HeaderMap,
     Json(req): Json<WorkRequest>,
 ) -> Result<impl IntoResponse, (StatusCode, String)> {
-    // Verify the presented TCT (same shape as `examples/two-agents`'s
-    // `/echo` handler — TCT lives in the `X-AITP-TCT` header). The
-    // verification is scoped to a block so `TctVerifyContext`, which
-    // holds a `&dyn Fn` and is therefore `!Send`, is dropped before
-    // the LLM call below — otherwise the future axum schedules can't
-    // be `Send`.
-    let tct_header = headers
+    // The header value is the TCT itself: an opaque compact JWS string.
+    let token = headers
         .get("x-aitp-tct")
-        .ok_or_else(|| (StatusCode::UNAUTHORIZED, "missing X-AITP-TCT header".into()))?;
-    let tct_json = tct_header
+        .ok_or((StatusCode::UNAUTHORIZED, "missing X-AITP-TCT header".into()))?
         .to_str()
-        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let env: TctEnvelope =
-        serde_json::from_str(tct_json).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-    let tct: Tct = env.tct;
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?
+        .to_string();
 
-    {
-        let issuer_pk = AitpVerifyingKey::from_aid(&tct.issuer)
-            .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
-        let ctx = TctVerifyContext {
-            expected_audience: &tct.subject,
-            issuer_pubkey: &issuer_pk,
-            now: Timestamp::now(),
-            issuer_manifest_expires_at: None,
-            revocation_check: None,
-        };
-        verify_tct(&tct, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;
-    }
+    // TCT verification is scoped to a block: `TctVerifyContext` borrows
+    // a `&dyn Fn` and is therefore `!Send`, so it must be dropped before
+    // the `.await` on the LLM call below — otherwise the future axum
+    // schedules cannot be `Send`.
+    let grants = {
+        let claims = verify_work_tct(&token, &state.aid, &state.revocations)?;
+        claims.grants
+    };
 
-    if !tct.grants.iter().any(|g| g == WORK_CAPABILITY) {
+    if !grants.iter().any(|g| g == WORK_CAPABILITY) {
         return Err((
             StatusCode::FORBIDDEN,
             format!("{WORK_CAPABILITY} not granted"),
-        ));
-    }
-    if &tct.issuer != state.signing_key.aid() {
-        return Err((
-            StatusCode::FORBIDDEN,
-            "TCT not issued by this worker".into(),
         ));
     }
 
@@ -312,22 +274,54 @@ async fn handle_work(
     Ok(Json(WorkResponse {
         answer,
         provider: state.provider.label(),
-        worker_aid: state.signing_key.aid().to_string(),
+        worker_aid: state.aid.to_string(),
     }))
 }
 
-fn verify_envelope_sig(envelope: &AitpEnvelope) -> Result<(), String> {
-    let pk = AitpVerifyingKey::from_aid(&envelope.sender.agent_id)
-        .map_err(|e| format!("bad sender AID: {e}"))?;
-    let digest = aitp::core::envelope_signing_digest(
-        &envelope.message_id,
-        envelope.timestamp,
-        &envelope.sender.agent_id,
-        &envelope.payload,
-    )
-    .map_err(|e| format!("jcs failure: {e}"))?;
-    let sig = aitp::crypto::Signature::parse(&envelope.signature)
-        .map_err(|e| format!("malformed signature: {e}"))?;
-    pk.verify(&digest, &sig)
-        .map_err(|_| "envelope signature verification failed".to_string())
+/// Verify a TCT presented to `/work`.
+///
+/// Unlike the demo's `verify_echo_tct`, this uses the **strict**
+/// [`TctVerifyContext::builder`] and supplies a real revocation source,
+/// so a revoked-but-unexpired TCT is refused. The issuer-Manifest
+/// expiry cap is explicitly waived: the worker issued this TCT itself
+/// and holds its own Manifest, so the cap adds nothing here — but the
+/// waiver is written out rather than defaulted, which is the point of
+/// the strict builder.
+fn verify_work_tct(
+    token: &str,
+    worker_aid: &Aid,
+    revocations: &LiveRevocations,
+) -> Result<TctClaims, (StatusCode, String)> {
+    use aitp::crypto::jws;
+
+    // Peek (unverified) at the claims to learn the presented subject;
+    // `verify_tct` re-establishes everything cryptographically below.
+    let payload = jws::decode_payload_unverified(token)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let peeked: TctClaims = serde_json::from_slice(&payload).map_err(|e| {
+        (
+            StatusCode::BAD_REQUEST,
+            format!("malformed TCT claims: {e}"),
+        )
+    })?;
+    if &peeked.iss != worker_aid {
+        return Err((
+            StatusCode::FORBIDDEN,
+            "TCT not issued by this worker".into(),
+        ));
+    }
+
+    // Snapshot the revoked set once so the closure below borrows an
+    // owned value rather than holding the mutex across verification.
+    let revoked: HashSet<Uuid> = revocations.revoked.lock().iter().map(|e| e.jti).collect();
+    let is_revoked = |jti: &Uuid| revoked.contains(jti);
+
+    // Holder receipt: subject == audience == caller.
+    let ctx = TctVerifyContext::builder(&peeked.sub, worker_aid, Timestamp::now())
+        .revocation_check(&is_revoked)
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    let verified = verify_tct(token, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;
+    Ok(verified.claims)
 }

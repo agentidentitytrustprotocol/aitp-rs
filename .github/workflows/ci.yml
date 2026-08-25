@@ -484,3 +484,44 @@ jobs:
             echo "== $c =="
             cargo check -p "$c" --target wasm32-wasip1
           done
+
+  e2e-llm-build:
+    name: tier-3 e2e build (no API calls)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    # `tests/e2e-llm` is excluded from the workspace (it talks to live
+    # LLM provider APIs), so `fmt`, `clippy` and `test` above do NOT
+    # cover it — exactly the same blind spot `bindings-lint` exists to
+    # close for bindings/*.
+    #
+    # It was uncovered until 0.5.0, and it rotted: the package stopped
+    # compiling at the 0.4.0 breaking release and nobody found out for
+    # two releases, because nothing ever built it. A test suite no job
+    # compiles is indistinguishable from one that does not exist.
+    #
+    # This job builds and lints it, then RUNS it with the master gate
+    # unset — every test takes its skip branch and exits 0, which costs
+    # no API credits but does prove the harness links, boots, and that
+    # the skip gate itself still works.
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: tests/e2e-llm
+      - name: rustfmt — tests/e2e-llm
+        run: cargo fmt --manifest-path tests/e2e-llm/Cargo.toml -- --check
+      - name: clippy — tests/e2e-llm
+        run: cargo clippy --manifest-path tests/e2e-llm/Cargo.toml --all-targets -- -D warnings
+      # Explicitly unset so a provider key leaking into the environment
+      # can never turn this into a billed run.
+      - name: cargo test (skip gate engaged — no provider is contacted)
+        env:
+          AITP_RUN_LLM_TESTS: "0"
+          ANTHROPIC_API_KEY: ""
+          OPENAI_API_KEY: ""
+        run: cargo test --manifest-path tests/e2e-llm/Cargo.toml -- --nocapture
