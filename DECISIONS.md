@@ -46,3 +46,18 @@ neither repo can do it alone. `aitp-rs` Phase 5 pins `aitp-verifier-py` by SHA, 
 verifier's own test work must merge first.
 **Sequencing:** aitp-rs P1-P4 -> aitp-verifier-py P1-P2 (own PR, merged) -> joint
 acceptance (aitp-rs P5 + verifier P3, pinning the merged SHA) -> aitp-rs P6-P8.
+
+## D5 — Everything must be green, in all three repos.
+Reconciliation answer, 2026-08-24: the acceptance bar is a fully green CI in
+the **spec repo, the runtime repo (aitp-rs), and the verifier
+(aitp-verifier-py)** — not "no regression versus a baseline that was already
+red". A pre-existing failure is not a licence to ship another one.
+**Why it matters here:** two red checks were being carried as "expected".
+Both turned out to be real and fixable, and one was actively harmful —
+`cargo-audit` had been failing to build for so long that it was auditing
+nothing while still reporting a security failure. Treating it as known-red
+meant nobody looked. The other, `cargo-semver-checks`, was red only because
+the version had not been bumped; fixing it properly (0.5.0) also made the
+release deterministic instead of inferred.
+**Consequence:** no check is dismissed as "expected red" without either
+fixing it or recording why it cannot be fixed.
