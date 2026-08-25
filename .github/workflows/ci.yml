@@ -163,9 +163,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: "1.89.0"
+      # Installed explicitly instead of via rustsec/audit-check, which runs
+      # a plain `cargo install cargo-audit`. Unlocked, cargo resolves
+      # cargo-audit's dependencies to their newest semver-compatible
+      # versions -- and one of those (kstring 2.0.4) now requires rustc
+      # 1.96, above this repo's 1.89 MSRV pin. The tool then fails to BUILD
+      # and the job goes red without ever auditing anything, which reads as
+      # a security failure but is a toolchain-resolution failure.
+      #
+      # `--locked` makes cargo-audit's own committed lockfile govern its
+      # dependency versions, which are chosen to build on older rustc.
+      # Verified: `cargo install cargo-audit --locked` compiles under
+      # 1.89.0 and `cargo audit` then scans cleanly.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the dependency tree
+        run: cargo audit
 
   # Lockstep-version guard: every published crate must inherit the
   # workspace version and every inter-crate path pin must match it, so a
