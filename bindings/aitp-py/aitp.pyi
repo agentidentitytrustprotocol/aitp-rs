@@ -195,12 +195,12 @@ def verify_delegation(
     ...
 
 def verify_delegation_multihop(
-    delegation_token: str, verifier_aid: str, max_hops: int = 3
+    delegation_token: str, verifier_aid: str, max_delegation_hops: int = 3
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
-    multi-hop chains up to `max_hops` total hops. Present by default (the
+    multi-hop chains up to `max_delegation_hops` total hops. Present by default (the
     `multihop-delegation` Cargo feature); absent only in a
-    `--no-default-features` wheel. `max_hops=0` reverts to strict
+    `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
     single-hop."""
     ...
 def verify_manifest_json(manifest_envelope_json: str) -> None:

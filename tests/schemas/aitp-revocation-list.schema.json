@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aitp.dev/schema/v0.2/revocation-list.json",
   "title": "AitpRevocationList",
-  "description": "AITP v0.2 signed revocation snapshot (JCS embedded-signature profile, unchanged by the JWS migration) — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
+  "description": "AITP v0.2 signed revocation snapshot (JCS embedded-signature profile; its serialization is unchanged by the JWS migration, though its signing input changed in v0.2 \u2014 see `signature` below) — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
   "type": "object",
   "required": ["revocation_list", "signature"],
   "additionalProperties": false,
@@ -66,7 +66,7 @@
     "signature": {
       "type": "string",
       "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$",
-      "description": "Unpadded base64url signature (RFC 4648 §5) by the issuing peer over the JCS-canonical bytes of `revocation_list` (RFC 8785), excluding this field. See RFC-AITP-0001 §5.4. The known-answer body at `schemas/conformance/known-answer/jcs-sha256.json` (`kat-revocation-001`) pins the canonical bytes; a runtime-served snapshot MUST also carry this field."
+      "description": "Unpadded base64url signature (RFC 4648 §5) by the issuing peer over the JCS-canonical bytes (RFC 8785) of the INNER `revocation_list` body. This object is the transport envelope: the `revocation_list` key names the artifact for routing and is NOT part of the signing bytes, and `signature` is a sibling of the body rather than a member of it, so nothing is removed before canonicalizing (RFC-AITP-0001 §5.4.1, RFC-AITP-0008 §1.5). A verifier MUST unwrap to the inner object before computing the signing input. `schemas/conformance/known-answer/jcs-sha256.json` (`kat-revocation-001`) pins that signing input, and `known-answer/signed-examples/revocation/` carries a real signature over it that conformant implementations MUST verify as committed, without re-minting. A runtime-served snapshot MUST also carry this field."
     }
   },
   "examples": [

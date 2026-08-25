@@ -1310,10 +1310,12 @@ fn mint_rev_snapshot(value: &mut Value) {
         .unwrap()
         .to_string();
     let key = key_for_aid(&issuer_aid).unwrap();
-    let view = json!({
-        "revocation_list": snapshot.get("revocation_list").unwrap().clone(),
-    });
-    let canonical = jcs::canonicalize(&view).unwrap();
+    // Sign the INNER body. The `{"revocation_list": …}` wrapper is the HTTP
+    // transport shape and is never signed (RFC-AITP-0001 §5.4.1,
+    // RFC-AITP-0008 §1.5); the snapshot's `signature` is a sibling of the
+    // body, not a member, so nothing is stripped before canonicalizing.
+    let body = snapshot.get("revocation_list").unwrap();
+    let canonical = jcs::canonicalize(body).unwrap();
     let digest = Sha256::digest(&canonical);
     let sig = key.sign(&digest).into_string();
     snapshot.insert("signature".into(), json!(sig));

@@ -122,9 +122,6 @@ fn minted_revocation_snapshot_verifies() {
     v.as_object_mut().unwrap().remove("_kat_input");
     let env: RevocationListEnvelope = serde_json::from_value(v).unwrap();
     let issuer = env.revocation_list.issuer.clone();
-    let ctx = VerifyRevocationListContext {
-        expected_issuer: &issuer,
-        now: fixed_now(),
-    };
+    let ctx = VerifyRevocationListContext::new(&issuer, fixed_now());
     verify_revocation_list(&env, &ctx).expect("minted revocation snapshot verifies");
 }

@@ -18,10 +18,7 @@ use aitp_tct::{verify_revocation_list, RevocationListEnvelope, VerifyRevocationL
 fuzz_target!(|data: &[u8]| {
     if let Ok(envelope) = serde_json::from_slice::<RevocationListEnvelope>(data) {
         let issuer = AitpSigningKey::from_ed25519_seed(&[9u8; 32]).aid().clone();
-        let ctx = VerifyRevocationListContext {
-            expected_issuer: &issuer,
-            now: Timestamp::now(),
-        };
+        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp::now());
         let _ = verify_revocation_list(&envelope, &ctx);
     }
 });

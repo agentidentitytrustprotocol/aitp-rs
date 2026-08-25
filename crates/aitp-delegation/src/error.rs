@@ -45,10 +45,10 @@ pub enum DelegationError {
     #[error("delegation claims malformed: {0}")]
     ClaimsMalformed(String),
     /// Token attempts multi-hop but the verifier was constructed with
-    /// `max_hops = 0` (single-hop only).
+    /// `max_delegation_hops = 0` (single-hop only).
     #[error("multi-hop delegation is not supported")]
     MultihopNotSupported,
-    /// Chain length + 1 exceeds the verifier's configured `max_hops`
+    /// Chain length + 1 exceeds the verifier's configured `max_delegation_hops`
     /// (RFC-AITP-0011 §2). Default cap is 3.
     #[error("delegation hop limit exceeded")]
     HopLimitExceeded,

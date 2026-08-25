@@ -163,9 +163,25 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: rustsec/audit-check@69366f33c96575abad1ee0dba8212993eecbe998 # v2.0.0
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
+          toolchain: "1.89.0"
+      # Installed explicitly instead of via rustsec/audit-check, which runs
+      # a plain `cargo install cargo-audit`. Unlocked, cargo resolves
+      # cargo-audit's dependencies to their newest semver-compatible
+      # versions -- and one of those (kstring 2.0.4) now requires rustc
+      # 1.96, above this repo's 1.89 MSRV pin. The tool then fails to BUILD
+      # and the job goes red without ever auditing anything, which reads as
+      # a security failure but is a toolchain-resolution failure.
+      #
+      # `--locked` makes cargo-audit's own committed lockfile govern its
+      # dependency versions, which are chosen to build on older rustc.
+      # Verified: `cargo install cargo-audit --locked` compiles under
+      # 1.89.0 and `cargo audit` then scans cleanly.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit the dependency tree
+        run: cargo audit
 
   # Lockstep-version guard: every published crate must inherit the
   # workspace version and every inter-crate path pin must match it, so a
@@ -314,12 +330,41 @@ jobs:
         run: |
           PIN="$(cat tests/schemas/SPEC_VERSION)"
           AITP_SPEC="$PWD/../spec" scripts/sync-schemas.sh
-          if ! git diff --quiet -- tests/schemas/; then
+          # `--` includes deletions and untracked adds: sync-schemas.sh
+          # MIRRORS (it clears the destination first), so a file removed
+          # upstream shows as a deletion here. A copy-only sync left stale
+          # files behind with a clean diff, making this check unable to fail.
+          if ! git diff --quiet -- tests/schemas/ \
+             || [ -n "$(git status --porcelain -- tests/schemas/)" ]; then
             echo "::error::Vendored schemas drift from pinned spec commit $PIN."
             echo "Run scripts/sync-schemas.sh locally and commit the result."
+            git status --porcelain -- tests/schemas/
             git diff -- tests/schemas/
             exit 1
           fi
+
+      # The spec ships its own known-answer verifier: ~630 lines of
+      # dependency-free Node with an independent RFC 8785 JCS and JOSE
+      # stack, an EXPECTED_MIN_CHECKS floor so it cannot pass vacuously,
+      # and both the `signing_input` declaration rule and the wrapped-form
+      # negatives. Running it against the pinned spec checkout, combined
+      # with the byte-identity diff above, transitively certifies the
+      # vendored tree using an implementation that shares no code with us.
+      #
+      # It proves the VECTORS are self-consistent; it can never prove
+      # aitp-rs signs the right bytes. The Rust KATs and their negatives
+      # (crates/aitp-core/tests/kat.rs, aitp-tct, aitp-session-bundle,
+      # aitp-manifest) are what cover that half.
+      - name: Run the spec's own known-answer verifier
+        working-directory: aitp-rs
+        run: |
+          CHECKER="../spec/scripts/verify-known-answer.mjs"
+          if [ ! -f "$CHECKER" ]; then
+            echo "::error::$CHECKER is missing from the pinned spec commit."
+            echo "It may have been renamed or moved upstream; update this job."
+            exit 1
+          fi
+          node "$CHECKER"
 
   conformance:
     name: conformance fixtures
@@ -361,6 +406,54 @@ jobs:
             --fixtures-dir ../spec/schemas/conformance \
             --feature experimental-multihop-delegation \
             --feature experimental-session-bundle
+
+  xcheck:
+    name: cross-impl acceptance (aitp-verifier-py)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aitp-rs
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          path: aitp-rs
+      - name: Read pinned aitp-verifier-py commit
+        id: pin
+        run: echo "sha=$(cat aitp-rs/tests/AITP_VERIFIER_PY_VERSION)" >> "$GITHUB_OUTPUT"
+      # Pinned by SHA, never a floating ref: this job is a required check,
+      # so an unpinned dependency would let an upstream change break every
+      # merge here. Bumping the pin is a deliberate commit.
+      - name: Checkout aitp-verifier-py at pinned commit
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
+        with:
+          repository: agentidentitytrustprotocol/aitp-verifier-py
+          path: aitp-verifier-py
+          ref: ${{ steps.pin.outputs.sha }}
+      - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
+        with:
+          workspaces: aitp-rs
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
+        with:
+          python-version: '3.11'
+      - name: Install the independent verifier
+        run: python -m pip install ./aitp-verifier-py
+      # aitp-rs mints; an implementation written from the RFC texts alone,
+      # sharing no code with this workspace, verifies THOSE EXACT BYTES.
+      #
+      # Nothing is re-signed on either side. Re-minting is what hid the
+      # wrapped-vs-inner divergence for a full release: each stack re-signed
+      # under its own convention and verified its own output, so both
+      # reported 51/51 while their wire formats disagreed. Note the existing
+      # `interop (python <-> node)` job cannot substitute for this -- both
+      # bindings wrap the same Rust core.
+      - name: Mint with aitp-rs, verify with aitp-verifier-py
+        working-directory: aitp-rs
+        run: |
+          cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
+            | python3 scripts/xcheck-verify.py
 
   wasm:
     name: wasm portability check

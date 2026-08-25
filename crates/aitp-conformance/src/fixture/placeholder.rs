@@ -652,6 +652,20 @@ fn tamper_signature(sig: &str) -> String {
     base64url::encode(&bytes)
 }
 
+/// Artifact-naming keys that are pure transport routing metadata, whose
+/// artifacts carry `signature` as a **sibling** of the wrapped body rather
+/// than a member of it.
+///
+/// For these, stripping `signature` leaves `{"<wrapper>": {…}}` — the
+/// transport envelope, NOT the signing input. Per RFC-AITP-0001 §5.4.1 the
+/// naming key is never part of the signing bytes, so it must be unwrapped
+/// before canonicalizing (RFC-AITP-0008 §1.5, RFC-AITP-0010 §3).
+///
+/// The manifest is deliberately absent: its `signature` is a member of the
+/// body, so stripping it already yields the correct inner form and the
+/// single-key case never arises.
+const TRANSPORT_WRAPPERS: &[&str] = &["revocation_list", "session_bundle"];
+
 fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>) -> Option<String> {
     let mut body = serde_json::Map::new();
     for (k, v) in map.iter() {
@@ -663,8 +677,27 @@ fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>)
     // (PLACEHOLDERS.md claims-sibling convention) — e.g. a session
     // bundle's participant `tct_claims` siblings — so the signature
     // covers the companion-stripped body, matching what verifiers see.
+    //
+    // Strip BEFORE unwrapping: a companion sitting as a sibling of the
+    // wrapper key would otherwise leave the map at two keys, skip the
+    // unwrap below, and silently sign the wrapped form again. No fixture
+    // has that shape today; ordering it this way means none ever can.
     let mut body = Value::Object(body);
     strip_claims_companions(&mut body);
+
+    // Unwrap the transport envelope. Without this the harness mints over
+    // `{"revocation_list": {…}}` while the implementation verifies the inner
+    // body — and because the harness both mints and checks, every
+    // implementation would pass against its own convention while disagreeing
+    // on the wire. That re-minting escape hatch is why a two-implementation
+    // divergence survived a full release at 51/51 conformance.
+    let body = match body.as_object() {
+        Some(m) if m.len() == 1 => match m.iter().next() {
+            Some((k, v)) if TRANSPORT_WRAPPERS.contains(&k.as_str()) => v.clone(),
+            _ => body,
+        },
+        _ => body,
+    };
     let canonical = jcs::canonicalize(&body).ok()?;
     let digest = Sha256::digest(&canonical);
     Some(key.sign(&digest).into_string())

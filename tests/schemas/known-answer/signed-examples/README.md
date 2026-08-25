@@ -25,6 +25,23 @@ This directory closes that gap with the same canonical objects but
 real signatures. An implementation that fails to verify any artifact
 in here is non-conformant.
 
+**Verify these files as committed. Do not re-mint them first.** A fixture
+that is re-signed before it is verified proves only that an implementation
+agrees with itself — it cannot detect a signing-input disagreement between
+two implementations, because each one re-signs under its own convention and
+then checks its own output. That is not a hypothetical: the revocation
+snapshot here was signed over its transport wrapper for the whole of
+v0.2-draft while every conformance fixture covering revocation passed on
+both implementations, because those fixtures carry a placeholder signature
+that each minting tool substitutes for itself. Re-minting is the escape
+hatch that hid it.
+
+For the two JCS-profile artifacts, the signature covers the **inner**
+artifact body — never the `{"manifest": …}` / `{"revocation_list": …}`
+wrapper (RFC-AITP-0001 §5.4.1). `make kat-verify` checks both directions:
+that each signature verifies over the inner body, and that it *fails* over
+the wrapped form. A signature valid under both shapes would pin nothing.
+
 ## Layout
 
 ```

@@ -89,14 +89,8 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let url = format!("http://127.0.0.1:{port}/.well-known/aitp-revocation-list");
     let body: RevocationListEnvelope = reqwest::get(&url).await.unwrap().json().await.unwrap();
 
-    verify_revocation_list(
-        &body,
-        &VerifyRevocationListContext {
-            expected_issuer: issuer.aid(),
-            now,
-        },
-    )
-    .expect("served snapshot must verify under the issuer's key");
+    verify_revocation_list(&body, &VerifyRevocationListContext::new(issuer.aid(), now))
+        .expect("served snapshot must verify under the issuer's key");
     assert_eq!(body.revocation_list.entries.len(), 1);
     assert_eq!(body.revocation_list.entries[0].jti, revoked_jti);
 }

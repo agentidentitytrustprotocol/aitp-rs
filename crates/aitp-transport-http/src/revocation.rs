@@ -327,17 +327,12 @@ impl<P: RevocationProvider> RevocationCache<P> {
             .ok_or(RevocationError::NoSnapshotFailClosed)?;
         let env = provider.fetch(issuer)?;
         // Verify signature + expiry.
-        verify_revocation_list(
-            &env,
-            &VerifyRevocationListContext {
-                expected_issuer: issuer,
-                now,
+        verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer, now)).map_err(
+            |e| match e {
+                TctError::Expired => RevocationError::Expired,
+                other => RevocationError::SignatureInvalid(other),
             },
-        )
-        .map_err(|e| match e {
-            TctError::Expired => RevocationError::Expired,
-            other => RevocationError::SignatureInvalid(other),
-        })?;
+        )?;
         // Apply max-staleness.
         let age = now.0.saturating_sub(env.revocation_list.published_at.0);
         if age > self.policy.max_staleness_secs as i64 {

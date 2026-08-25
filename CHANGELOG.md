@@ -7,8 +7,73 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- **The JCS signing input is now the inner artifact body, not the transport
+  wrapper** (spec [`5f8e588`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/commit/5f8e588),
+  RFC-AITP-0001 §5.4.1). The **revocation snapshot** and **session trust
+  bundle** signatures previously covered `{"revocation_list": {…}}` /
+  `{"session_bundle": {…}}`; they now cover the inner body. The **manifest**
+  is unchanged — it already signed inner, and is the control case.
+
+  **An artifact signed by ≤0.4.x will not verify here, and an artifact signed
+  here will not verify against ≤0.4.x.** Failure is fail-closed
+  (`TCT_SIGNATURE_INVALID` / `BUNDLE_INVALID_SIGNATURE`), never fail-open —
+  but under a `fail_closed` revocation policy that surfaces as a spurious
+  `TCT_REVOKED`. Roll issuers and verifiers close together.
+
+  The values below are the same ones the spec's CHANGELOG publishes, so you
+  can identify which convention a pinned version emits:
+
+  | Vector | Before | After |
+  |---|---|---|
+  | `kat-manifest-001` | 636 B · `cef51854…46c5ae` | 623 B · `b93915e9…5884af` |
+  | `kat-revocation-001` | 241 B · `739feb36…97e0d9` | 221 B · `dad7eb6d…008bfb` |
+  | `kat-session-bundle-001` | 941 B · `dc99e725…4f2640` | 922 B · `c577854d…1aa5e5` |
+
+  Signatures: `kat-session-bundle-001.coordinator_signature_b64url`
+  `Su2JiXGi…2M2_AA` → `czzmjpVf…Tg_TBw`; the committed revocation snapshot
+  `2OYmur9N…sPF1DQ` → `DTmCoELd…BfKkCQ`.
+
+  No dual-accept is implemented. RFC-AITP-0008 §1.5 permits accepting either
+  shape during a transition window, but RFC-AITP-0010 grants no such
+  allowance for the session bundle, so a half-measure would leave the two
+  artifacts inconsistent; accepting two byte strings under one signature
+  would also mask exactly the divergence this release fixes.
+
+  The protocol version literal stays `aitp/0.2` — no message shape changed.
+  RFC-AITP-0001/0003/0008/0010 moved `0.2.0-draft` → `0.2.1-draft`.
+
+- **`max_hops` → `max_delegation_hops`**, the name RFC-AITP-0011 §2 uses:
+  - Rust: `VerifyDelegationContext.max_hops` → `.max_delegation_hops`;
+    `DEFAULT_MAX_HOPS` → `DEFAULT_MAX_DELEGATION_HOPS`; `.with_max_hops()` →
+    `.with_max_delegation_hops()`
+  - Node: `verifyDelegationMultihop(_, _, maxHops)` → `maxDelegationHops`
+  - Python: `verify_delegation_multihop(…, max_hops=)` → `max_delegation_hops=`
+
+- **`VerifyRevocationListContext` and `VerifyDelegationContext` are
+  `#[non_exhaustive]`.** Build them with `::new()` plus the builder methods
+  instead of a struct literal. New: `VerifyRevocationListContext::new`,
+  `VerifyDelegationContext::with_revocation_check` /
+  `::with_hop_revocation_check`.
+
 ### Added
 
+- `aitp_tct::revocation_signing_bytes` — the single definition of a
+  revocation snapshot's signing input, so callers needing the exact signed
+  bytes do not reconstruct the shape themselves.
+- **Cross-implementation acceptance in CI** (`cross-impl acceptance
+  (aitp-verifier-py)`): `aitp-rs` mints a revocation snapshot and a session
+  bundle; [`aitp-verifier-py`](https://github.com/agentidentitytrustprotocol/aitp-verifier-py)
+  — an implementation written from the RFC texts alone, sharing no code with
+  this workspace — verifies those exact bytes, with no re-minting on either
+  side. Pinned by SHA in `tests/AITP_VERIFIER_PY_VERSION`.
+- Known-answer coverage for every JCS-profile artifact: canonical bytes, the
+  committed signature verified **as committed**, and a **negative** test that
+  the signature fails over the wrong shape. The session bundle had no KAT at
+  all before; the negative column was empty for all three artifacts.
+- The spec's own `verify-known-answer.mjs` (50 checks, independent JCS/JOSE
+  stack) now runs in CI.
 - **`aitp` CLI** (`aitp-cli` crate): an offline command-line tool for the
   common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
   and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
@@ -26,6 +91,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   PRs skip the heavy net-new jobs. All GitHub Actions are SHA-pinned; added
   `CODEOWNERS` and CI-parity `make` targets (`deny`/`audit`/`msrv`/`semver`/
   `coverage`/`ci`).
+
+### Fixed
+
+- `scripts/sync-schemas.sh` now **mirrors** rather than copies. A file deleted
+  upstream previously lingered in `tests/schemas/` *and* left `git diff`
+  clean, so the "vendored schemas in sync" drift check reported green over a
+  file that no longer existed in the spec.
+- `crates/aitp-core/tests/kat.rs` no longer selects which shape to
+  canonicalize by inspecting the pinned answer — it asserts the vector's
+  declared `signing_input`, so it can actually fail. `tools/mint-conformance-fixtures`
+  and `crates/aitp-conformance`'s placeholder signer also minted the wrapped
+  form; because that harness both mints and checks, every implementation
+  passed against its own convention while disagreeing on the wire.
 
 ### Changed
 

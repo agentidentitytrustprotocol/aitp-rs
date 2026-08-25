@@ -142,3 +142,30 @@ def test_multihop_opts_past_the_hop_gate():
     with pytest.raises(Exception) as exc:
         aitp.verify_delegation_multihop(tampered, a.aid, 3)
     assert "multi-hop delegation is not supported" not in str(exc.value)
+
+
+def test_multihop_kwarg_is_the_spec_name():
+    """The hop-budget keyword must be `max_delegation_hops`, the name
+    RFC-AITP-0011 §2 uses.
+
+    Pinned as a test because nothing else enforces it: PyO3 does not
+    auto-convert casing, so the `#[pyo3(signature = ...)]` name IS the
+    public Python kwarg, and `aitp.pyi` is hand-maintained with no
+    automated sync. cargo-semver-checks does not cover this surface either
+    -- the binding crates are outside the workspace scan -- so a rename
+    here is invisible to every other gate.
+    """
+    if not hasattr(aitp, "verify_delegation_multihop"):
+        pytest.skip("multihop-delegation feature not compiled in")
+    try:
+        aitp.verify_delegation_multihop(
+            "not.a.token", "aid:pubkey:AAAA", max_delegation_hops=3
+        )
+    except TypeError as exc:
+        # A wrong kwarg name raises TypeError *before* any verification is
+        # attempted. Any other exception means the keyword was accepted and
+        # the call proceeded to fail on the deliberately-invalid token,
+        # which is what we want.
+        pytest.fail(f"the hop-budget keyword is not `max_delegation_hops`: {exc}")
+    except Exception:
+        pass

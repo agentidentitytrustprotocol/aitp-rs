@@ -57,7 +57,7 @@ pub struct AdapterState {
     /// adapter consults this when deciding whether to opt into
     /// post-v0.1 RFC behavior. Examples:
     ///   `experimental-multihop-delegation` → verify_delegation
-    ///       uses `max_hops = DEFAULT_MAX_HOPS` instead of strict 0.
+    ///       uses `max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS` instead of strict 0.
     ///   `experimental-session-bundle` → bundle ops accept work.
     enabled_features: HashSet<String>,
     /// PoP-enforcement state for the `tct-007` capability-invocation
@@ -1243,10 +1243,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
                 serde_json::from_value::<aitp_tct::RevocationListEnvelope>(snapshot.clone())
             {
                 let snapshot_issuer = env.revocation_list.issuer.clone();
-                let rev_ctx = aitp_tct::VerifyRevocationListContext {
-                    expected_issuer: &snapshot_issuer,
-                    now,
-                };
+                let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
                 if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
                     for entry in &env.revocation_list.entries {
                         revoked_jtis.insert(entry.jti.to_string());
@@ -1500,10 +1497,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
                 // Issuer-AID mismatch — refuse to honor the snapshot.
                 continue;
             }
-            let rev_ctx = aitp_tct::VerifyRevocationListContext {
-                expected_issuer: &issuer_aid,
-                now,
-            };
+            let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&issuer_aid, now);
             if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_err() {
                 continue;
             }
@@ -1540,19 +1534,20 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     // reject any chain-bearing token; the runner enables RFC-0011
     // semantics by sending `set_features` with
     // `experimental-multihop-delegation`. Without that feature we
-    // use the strict single-hop cap (max_hops = 0).
-    let max_hops = if state.has_feature("experimental-multihop-delegation") {
-        aitp_delegation::DEFAULT_MAX_HOPS
+    // use the strict single-hop cap (max_delegation_hops = 0).
+    let max_delegation_hops = if state.has_feature("experimental-multihop-delegation") {
+        aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS
     } else {
         0
     };
-    let ctx = aitp_delegation::VerifyDelegationContext {
-        verifier: &verifier_aid,
-        now,
-        max_hops,
-        revocation_check,
-        hop_revocation_check,
-    };
+    let mut ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, now)
+        .with_max_delegation_hops(max_delegation_hops);
+    if let Some(check) = revocation_check {
+        ctx = ctx.with_revocation_check(check);
+    }
+    if let Some(check) = hop_revocation_check {
+        ctx = ctx.with_hop_revocation_check(check);
+    }
     match aitp_delegation::verify_delegation(&token, &ctx) {
         Ok(v) => json!({
             "id": id,
@@ -2486,10 +2481,7 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .and_then(|v| v.as_i64())
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
-    let ctx = aitp_tct::VerifyRevocationListContext {
-        expected_issuer: &expected_issuer,
-        now,
-    };
+    let ctx = aitp_tct::VerifyRevocationListContext::new(&expected_issuer, now);
     if let Err(e) = aitp_tct::verify_revocation_list(&env, &ctx) {
         return err(id, &tct_error_code(&e), &e.to_string());
     }

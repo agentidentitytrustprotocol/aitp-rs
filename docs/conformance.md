@@ -299,6 +299,43 @@ We considered using gRPC instead of NDJSON. Reasons we picked NDJSON:
 
 We may revisit this in a future revision if performance ever becomes a concern.
 
+## What the fixture corpus cannot detect
+
+The fixtures are not signed artifacts. Signature fields carry placeholders
+(`__VALID_A_SIG__`, `__SIG_PENDING__`) that
+`crates/aitp-conformance/src/fixture/placeholder.rs` materializes with the
+harness's own KAT keys immediately before the fixture is handed to the
+adapter. That is what makes one corpus reusable across implementations and
+keeps the fixtures readable — but it has a consequence worth stating
+plainly:
+
+> **A conformance pass proves an implementation is self-consistent. It does
+> not prove two implementations interoperate.**
+
+Because the harness both mints and checks, each implementation is measured
+against its *own* signing convention. If two implementations disagree about
+what bytes a signature covers, both still pass — every fixture, every run.
+
+That is not hypothetical. Before spec commit `5f8e588`, `aitp-rs` signed the
+transport-wrapped `{"revocation_list": …}` form and `aitp-verifier-py` signed
+the inner body. Both reported **51 passed, 0 failed**. A revocation snapshot
+minted by either would have failed verification against the other on first
+contact — surfacing, under `fail_closed`, as a spurious `TCT_REVOKED`.
+
+Two things close that gap, and conformance is neither:
+
+1. **Committed signed examples**, verified byte-for-byte with no
+   re-minting — `known-answer/signed-examples/`. These are real signatures
+   over real bytes, produced once by a reference implementation.
+2. **Cross-implementation acceptance** — artifacts minted by one stack and
+   verified by another that shares no code with it. Note the
+   `interop (python ↔ node)` job does *not* qualify: both bindings wrap the
+   same Rust core, so it is Rust-to-Rust across runtimes and is blind to a
+   wire divergence for the same reason re-minting is.
+
+When a conformance number and an interop failure disagree, the interop
+failure is the one telling the truth.
+
 ## Why fixtures live in the spec repo, not here
 
 Conformance fixtures are part of the protocol definition. They belong in

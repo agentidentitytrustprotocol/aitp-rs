@@ -3,7 +3,7 @@
 # external Node.js, so it carries its own `[workspace]` table.
 [package]
 name = "aitp-node"
-version = "0.4.1"
+version = "0.5.0"
 edition = "2021"
 description = "Agent Identity Trust Protocol — Node.js SDK"
 license = "MIT OR Apache-2.0"
@@ -32,7 +32,7 @@ spki-pinning = ["dep:x509-parser"]
 # Multi-hop delegation (RFC-AITP-0011). The strict single-hop
 # `verifyDelegation` is always present; this additionally exposes
 # `verifyDelegationMultihop`. aitp-delegation has no feature of its own
-# (multi-hop is always compiled, gated at runtime by max_hops), so this is
+# (multi-hop is always compiled, gated at runtime by max_delegation_hops), so this is
 # a binding-level surface gate only.
 multihop-delegation = []
 
