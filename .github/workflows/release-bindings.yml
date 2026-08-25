@@ -16,6 +16,14 @@ name: release-bindings
 # A binding whose `<prefix>-v<X.Y.Z>` tag already exists is skipped, so a release
 # at a version the bindings already shipped (e.g. the current 0.4.1) won't try to
 # republish. Auth: the aitp-deps-bot App token (no PAT).
+#
+# Note the stamping commit is OPTIONAL. ci.yml's `lockstep versions` gate makes
+# every version in the repo move together, so when a release's version bump
+# lands in the feature PR rather than in the release PR, the manifests already
+# declare the release version by the time this workflow runs and there is
+# nothing to commit. The tag is then created on `$GITHUB_SHA` directly. The
+# version each manifest declares is asserted either way, so a tag never claims
+# a version its manifests don't carry.
 
 on:
   push:
@@ -71,6 +79,22 @@ jobs:
             V="$V" perl -0777 -i -pe 's/^(version\s*=\s*")[^"]+(")/${1}$ENV{V}${2}/m' "$1"
           }
 
+          read_ver() { # $1 = file: echo the version the file currently declares
+            case "$1" in
+              *package.json)
+                node -e 'console.log(JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")).version)' "$1" ;;
+              *) perl -0777 -ne 'print $1 if /^version\s*=\s*"([^"]+)"/m' "$1" ;;
+            esac
+          }
+
+          assert_ver() { # $1 = file: the stamp must have landed, or the tag would lie
+            local got; got="$(read_ver "$1")"
+            if [ "$got" != "$V" ]; then
+              echo "::error::$1 declares version '$got', expected '$V' — the version stamp did not apply (manifest layout changed?)"
+              exit 1
+            fi
+          }
+
           tag_binding() { # $1 = tag prefix (aitp-node|aitp-py); $2.. = manifest files to stamp
             local prefix="$1"; shift
             local tag="${prefix}-v${V}"
@@ -84,9 +108,23 @@ jobs:
                   V="$V" node -e 'const fs=require("fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.version=process.env.V;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$f" ;;
                 *) set_ver "$f" ;;
               esac
+              assert_ver "$f"
               git add "$f"
             done
-            git commit -q -m "chore(release): $prefix v$V (lockstep with aitp crate)"
+            # The manifests may ALREADY carry $V. ci.yml's `lockstep versions`
+            # gate requires every version in the repo to match, so a release
+            # whose bump landed in the feature PR rather than in the release
+            # PR arrives here with nothing left to stamp. That is a normal
+            # release, not a failure — but `git commit` exits 1 on a clean
+            # index and `set -e` then kills the job before `git push origin
+            # $tag` ever runs. That is what stranded npm/PyPI at 0.4.1 while
+            # crates.io shipped 0.5.0. Tag $BASE as-is instead; assert_ver
+            # above has already proved it declares $V, so the tag is honest.
+            if git diff --cached --quiet; then
+              echo "::notice::$prefix manifests already declare $V — tagging $BASE as-is"
+            else
+              git commit -q -m "chore(release): $prefix v$V (lockstep with aitp crate)"
+            fi
             git tag "$tag"
             git push origin "$tag"
             echo "pushed $tag"
