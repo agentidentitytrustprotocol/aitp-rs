@@ -4,7 +4,9 @@
 //! Skip-by-default. Requires `AITP_RUN_LLM_TESTS=1` plus at least one
 //! provider key. See `tests/e2e-llm/README.md` for the gating story.
 
-use aitp_e2e_llm_tests::{expand_seed, init_tracing, llm::Provider, load_env, planner, should_skip, worker};
+use aitp_e2e_llm_tests::{
+    expand_seed, init_tracing, llm::Provider, load_env, planner, should_skip, worker,
+};
 
 #[tokio::test]
 async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
@@ -38,22 +40,27 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
 
     eprintln!(
         "handshake: planner holds TCT issued by {} (grants={:?})",
-        outcome.tct.issuer, outcome.tct.grants
+        outcome.tct.claims.iss, outcome.tct.claims.grants
     );
 
     // 3. Protocol assertions — these are the bits AITP guarantees,
     //    independent of what the LLM ends up saying.
     assert_eq!(
-        &outcome.tct.issuer, &worker.aid,
+        &outcome.tct.claims.iss, &worker.aid,
         "TCT must be issued by the worker"
     );
     assert_eq!(
-        outcome.tct.subject,
-        *outcome.planner_key.aid(),
+        &outcome.tct.claims.sub,
+        outcome.planner_key.aid(),
         "TCT subject must be the planner"
     );
     assert!(
-        outcome.tct.grants.iter().any(|g| g == worker::WORK_CAPABILITY),
+        outcome
+            .tct
+            .claims
+            .grants
+            .iter()
+            .any(|g| g == worker::WORK_CAPABILITY),
         "TCT must carry the {} grant",
         worker::WORK_CAPABILITY
     );
@@ -61,15 +68,21 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
     // 4. Delegate a real task. The worker's LLM produces the answer
     //    after the worker's TCT verification passes.
     let task = "In one sentence, what is the purpose of a Trust Context Token in AITP?";
-    let response = planner::delegate_task(&worker.origin, &outcome.tct, task)
+    let response = planner::delegate_task(&worker.origin, &outcome.tct.token, task)
         .await
         .expect("/work succeeds");
 
-    eprintln!("worker answered ({}): {}", response.provider, response.answer);
+    eprintln!(
+        "worker answered ({}): {}",
+        response.provider, response.answer
+    );
 
     // 5. Output sanity — we cannot assert content of an LLM response,
     //    but we can require it to be non-trivial and provider-tagged.
-    assert!(!response.answer.trim().is_empty(), "answer must not be empty");
+    assert!(
+        !response.answer.trim().is_empty(),
+        "answer must not be empty"
+    );
     assert!(response.answer.len() > 10, "answer should be substantive");
     assert_eq!(response.worker_aid, worker.aid.to_string());
 
