@@ -44,13 +44,17 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<oidc::PyJwksProvider>()?;
     m.add_function(wrap_pyfunction!(delegation::verify_delegation_py, m)?)?;
     m.add_function(wrap_pyfunction!(revocation::verify_revocation_list_py, m)?)?;
-    m.add_function(wrap_pyfunction!(revocation::revocation_signing_bytes_py, m)?)?;
+    m.add_function(wrap_pyfunction!(
+        revocation::revocation_signing_bytes_py,
+        m
+    )?)?;
     // Typed so a caller can branch on `.code` instead of string-matching a
     // message. Without it every failure here is an untyped RuntimeError and
     // "why did this snapshot fail" is only answerable by parsing prose.
     m.add(
         "RevocationVerificationError",
-        m.py().get_type_bound::<revocation::RevocationVerificationError>(),
+        m.py()
+            .get_type_bound::<revocation::RevocationVerificationError>(),
     )?;
     #[cfg(feature = "multihop-delegation")]
     m.add_function(wrap_pyfunction!(

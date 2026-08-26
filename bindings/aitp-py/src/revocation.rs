@@ -153,7 +153,6 @@ pub fn sign_revocation_list_py(
     serde_json::to_string(&envelope).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
 
-
 /// Verify a `RevocationListEnvelope` JSON string against a pinned issuer.
 ///
 /// Returns `None` on success; raises `RevocationVerificationError` with a
@@ -173,8 +172,12 @@ pub fn verify_revocation_list_py(
     expected_issuer_aid: &str,
     now_unix_secs: Option<i64>,
 ) -> PyResult<()> {
-    let envelope: RevocationListEnvelope = serde_json::from_str(envelope_json)
-        .map_err(|e| verification_error("malformed", format!("invalid revocation envelope JSON: {e}")))?;
+    let envelope: RevocationListEnvelope = serde_json::from_str(envelope_json).map_err(|e| {
+        verification_error(
+            "malformed",
+            format!("invalid revocation envelope JSON: {e}"),
+        )
+    })?;
     let expected = Aid::parse(expected_issuer_aid).map_err(|e| {
         // A bad AID is the caller's error, not the snapshot's — do not
         // report it as a verification cause.
@@ -182,8 +185,12 @@ pub fn verify_revocation_list_py(
     })?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
     let ctx = VerifyRevocationListContext::new(&expected, now);
-    verify_revocation_list(&envelope, &ctx)
-        .map_err(|e| verification_error(verification_cause(&e), format!("revocation snapshot verification failed: {e}")))
+    verify_revocation_list(&envelope, &ctx).map_err(|e| {
+        verification_error(
+            verification_cause(&e),
+            format!("revocation snapshot verification failed: {e}"),
+        )
+    })
 }
 
 /// The exact bytes a revocation snapshot's signature is computed over:
