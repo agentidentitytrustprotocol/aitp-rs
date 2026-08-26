@@ -26,6 +26,7 @@ mod oidc;
 mod pinning;
 #[cfg(feature = "renewal")]
 mod renewal;
+mod revocation;
 mod session;
 mod tct;
 

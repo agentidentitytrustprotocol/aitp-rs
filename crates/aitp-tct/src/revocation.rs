@@ -108,11 +108,19 @@ pub fn sign_revocation_list(
 
 /// Verify a [`RevocationListEnvelope`].
 ///
-/// 1. `revocation_list.expires_at >= ctx.now` — else `TctError::Expired`.
-/// 2. `revocation_list.issuer` resolves to a public key matching
-///    `ctx.expected_issuer` (else `TctError::CnfMalformed` — chosen
-///    rather than introducing a new error variant for v0.1).
-/// 3. `signature` is present and verifies under that public key over
+/// 1. `revocation_list.version` equals the supported protocol version, else
+///    [`TctError::VersionUnknown`]. Checked first, so an unsupported snapshot
+///    reports its version rather than a downstream signature failure.
+/// 2. `revocation_list.expires_at >= ctx.now` — else `TctError::Expired`.
+/// 3. `revocation_list.issuer` equals `ctx.expected_issuer`, else
+///    [`TctError::IssuerMismatch`]. This previously returned `CnfMalformed`
+///    "rather than introducing a new error variant for v0.1" — but
+///    `IssuerMismatch` was added later for TCTs and documents exactly this
+///    case (RFC-AITP-0008 §3.3's issuer-key binding). Reporting it as
+///    `CnfMalformed` conflated "this snapshot is from the wrong issuer" with
+///    "this snapshot is malformed", which a caller cannot separate and which
+///    a binding cannot surface as distinct causes.
+/// 4. `signature` is present and verifies under that public key over
 ///    `sha256(JCS(revocation_list))` — the inner body; see
 ///    [`revocation_signing_bytes`].
 pub fn verify_revocation_list(
@@ -126,7 +134,7 @@ pub fn verify_revocation_list(
         return Err(TctError::Expired);
     }
     if &envelope.revocation_list.issuer != ctx.expected_issuer {
-        return Err(TctError::CnfMalformed);
+        return Err(TctError::IssuerMismatch);
     }
 
     let pubkey =
@@ -214,8 +222,31 @@ mod tests {
         let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
-            Err(TctError::CnfMalformed)
+            Err(TctError::IssuerMismatch)
         ));
+    }
+
+    /// The snapshot is internally valid — correctly self-signed, unexpired,
+    /// right version — and is rejected *only* because it is not from the
+    /// issuer this verifier pinned. That has to be distinguishable from a
+    /// malformed snapshot: a caller reporting "wrong issuer" and "garbage"
+    /// as one cause cannot tell an attacker substituting their own signed
+    /// list from a corrupt fetch. It reported `CnfMalformed` until 0.6.0.
+    #[test]
+    fn wrong_issuer_is_distinguishable_from_malformed() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let other = AitpSigningKey::from_seed(&[0xB0; 32]);
+        let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
+
+        // Self-consistent: it verifies against its own issuer.
+        let own_ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        verify_revocation_list(&env, &own_ctx).expect("snapshot is internally valid");
+
+        match verify_revocation_list(&env, &ctx) {
+            Err(TctError::IssuerMismatch) => {}
+            other => panic!("expected IssuerMismatch, got {other:?}"),
+        }
     }
 
     #[test]
