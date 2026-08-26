@@ -9,6 +9,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **`verify_manifest_json` raises a typed error with a stable `code`**, in both
+  bindings — Python `aitp.ManifestVerificationError`, Node an `Error` whose
+  `code` property carries the cause. Causes: `signature_invalid`,
+  `pop_failed`, `aid_mismatch`, `expired`, `version_unknown`,
+  `identity_hint_malformed`, `incompatible_identity_type`, `malformed`.
+
+  0.6.0 gave the *revocation* verify path a machine-readable cause and left
+  the manifest path raising bare prose. That asymmetry is the same shape as
+  the defect 0.6.0 set out to fix — one artifact has the surface, its sibling
+  does not — and it forced at least one downstream consumer to classify
+  "expired" by substring-matching an exception message, which is precisely the
+  pin-the-program-output pattern the typed errors exist to remove.
+
+  **Not breaking.** Both `ManifestVerificationError` and
+  `RevocationVerificationError` now inherit `RuntimeError`, which is what these
+  paths raised before they were typed, so a caller already catching the failure
+  keeps working and gains `.code`.
+
+### Added
+
 - **`verify_revocation_list` is bound in the Python and Node SDKs.** Both
   bindings shipped `sign_revocation_list` and neither shipped its counterpart,
   even though `verify_revocation_snapshot` is a Tier C conformance operation
