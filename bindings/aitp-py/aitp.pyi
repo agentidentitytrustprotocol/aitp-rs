@@ -203,11 +203,31 @@ def verify_delegation_multihop(
     `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
     single-hop."""
     ...
+class ManifestVerificationError(RuntimeError):
+    """A manifest envelope failed verification.
+
+    `code` is the stable, machine-readable cause — one of
+    `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
+    `version_unknown`, `identity_hint_malformed`,
+    `incompatible_identity_type`, `malformed`. **Branch on `code`, never on
+    the message text.**
+
+    Inherits `RuntimeError`, which is what this function raised before it was
+    typed — adding a machine-readable cause does not break a caller that was
+    already handling the failure."""
+
+    code: str
+
 def verify_manifest_json(manifest_envelope_json: str) -> None:
-    """Verify a `ManifestEnvelope` JSON. Raises on failure."""
+    """Verify a `ManifestEnvelope` JSON. Raises on failure.
+
+    Raises `ManifestVerificationError` (with `.code`) when the envelope does
+    not verify, and `ValueError` when it is not parseable as a manifest at
+    all — that second one is the caller handing us the wrong bytes, not a
+    peer failing verification."""
     ...
 
-class RevocationVerificationError(Exception):
+class RevocationVerificationError(RuntimeError):
     """A revocation snapshot failed verification.
 
     `code` is the stable, machine-readable cause — one of

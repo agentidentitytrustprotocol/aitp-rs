@@ -52,6 +52,11 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // message. Without it every failure here is an untyped RuntimeError and
     // "why did this snapshot fail" is only answerable by parsing prose.
     m.add(
+        "ManifestVerificationError",
+        m.py()
+            .get_type_bound::<manifest::ManifestVerificationError>(),
+    )?;
+    m.add(
         "RevocationVerificationError",
         m.py()
             .get_type_bound::<revocation::RevocationVerificationError>(),

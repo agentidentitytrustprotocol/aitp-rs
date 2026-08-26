@@ -254,9 +254,15 @@ export interface JsTctIdentity {
   jti: string
 }
 /**
- * Verify a `ManifestEnvelope` JSON string. Throws on signature,
- * proof-of-possession, expiry, or identity-hint shape failures.
- * Used by the AITP Control Plane during agent enrollment.
+ * Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane
+ * during agent enrollment, and by any consumer reading an AID or endpoint
+ * out of a peer's manifest.
+ *
+ * On failure throws an `Error` whose **`code`** property is one of
+ * `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
+ * `version_unknown`, `identity_hint_malformed`,
+ * `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
+ * on `error.message`: the code is the contract, the wording is not.
  */
 export declare function verifyManifestJson(manifestEnvelopeJson: string): void
 /** An AITP agent: a signing key and (once built) its Manifest. */

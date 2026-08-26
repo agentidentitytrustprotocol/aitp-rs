@@ -32,12 +32,16 @@ use uuid::Uuid;
 #[allow(unexpected_cfgs)]
 mod verification_error_type {
     use pyo3::create_exception;
-    use pyo3::exceptions::PyException;
+    use pyo3::exceptions::PyRuntimeError;
 
     create_exception!(
         aitp,
         RevocationVerificationError,
-        PyException,
+        // Inherits RuntimeError, not Exception: this binding raised a bare
+        // RuntimeError before it was typed, and existing callers catch that.
+        // Adding a machine-readable `.code` should not break anyone who was
+        // already handling the failure.
+        PyRuntimeError,
         "A revocation snapshot failed verification.\n\n\
          Carries a stable machine-readable `code` attribute — one of \
          `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`, \
