@@ -157,6 +157,33 @@ export declare function computeAidJkt(aid: string): string
  * a 32-byte Buffer. Throws if `certDer` is not a parseable certificate.
  */
 export declare function computeSpkiHash(certDer: Buffer): Buffer
+/**
+ * Verify a `RevocationListEnvelope` JSON string against a pinned issuer.
+ *
+ * Resolves on success; on failure throws an `Error` whose **`code`** property
+ * is one of `signature_invalid`, `issuer_mismatch`, `version_unknown`,
+ * `expired`, `malformed`. Branch on `error.code`, never on `error.message`:
+ * the code is the contract, the message wording is not.
+ *
+ * Establishes **authenticity and non-expiry only** — that the snapshot was
+ * signed by the holder of `expectedIssuerAid` and that its `expires_at` has
+ * not passed. It deliberately does not check `published_at` staleness:
+ * RFC-AITP-0008 §3 puts freshness policy at the consuming peer, and
+ * collapsing authenticity and freshness into a single switch is how a
+ * `soft_fail` mode ends up reporting a *forged* snapshot as not-revoked.
+ * The caller owns the staleness budget.
+ */
+export declare function verifyRevocationList(envelopeJson: string, expectedIssuerAid: string, nowUnixSecs?: number | undefined | null): void
+/**
+ * The exact bytes a revocation snapshot's signature is computed over:
+ * `JCS(revocation_list)` — the **inner** body, not the transport wrapper.
+ *
+ * Exposed so a caller needing the signed bytes (an independent verifier, an
+ * HSM signing path, a debugging tool) obtains them rather than reconstructing
+ * the shape at the call site. Reconstructing it is how signer, verifier and
+ * conformance fixture drifted apart before 0.5.0.
+ */
+export declare function revocationSigningBytes(envelopeJson: string): Buffer
 /** Result of `processHello`: response body plus session id. */
 export interface JsHelloAckResult {
   /** `MUTUAL_HELLO_ACK` envelope JSON — set as the HTTP response body. */

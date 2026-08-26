@@ -207,6 +207,52 @@ def verify_manifest_json(manifest_envelope_json: str) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure."""
     ...
 
+class RevocationVerificationError(Exception):
+    """A revocation snapshot failed verification.
+
+    `code` is the stable, machine-readable cause — one of
+    `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
+    `malformed`. **Branch on `code`, never on the message text**: matching an
+    exception message pins program output as an expected value, which is the
+    bug class the 0.5.0 signing-input change exposed. Before 0.6.0 there was
+    no typed error here at all, so message-matching was the only option."""
+
+    code: str
+
+def verify_revocation_list(
+    envelope_json: str,
+    expected_issuer_aid: str,
+    now_unix_secs: Optional[int] = ...,
+) -> None:
+    """Verify a `RevocationListEnvelope` against a pinned issuer.
+
+    Returns `None` on success; raises `RevocationVerificationError` (with
+    `.code`) otherwise. Raises `ValueError` if `expected_issuer_aid` is not a
+    valid AID — that is the caller's mistake, not the snapshot's.
+
+    Establishes **authenticity and non-expiry only**: the snapshot was signed
+    by the holder of `expected_issuer_aid`, and its `expires_at` has not
+    passed. It deliberately does NOT check `published_at` staleness —
+    RFC-AITP-0008 §3 puts freshness policy at the consuming peer, and
+    collapsing authenticity and freshness into one switch is how a `soft_fail`
+    mode ends up reporting a *forged* snapshot as not-revoked. The staleness
+    budget is yours; `published_at` is on the body for that purpose.
+
+    Verification without a pinned expected issuer would be near-worthless —
+    any key can sign a list — which is why the AID is required, not optional."""
+    ...
+
+def revocation_signing_bytes(envelope_json: str) -> bytes:
+    """The exact bytes a revocation snapshot's signature is computed over:
+    `JCS(revocation_list)` — the **inner** body, not the `{"revocation_list":
+    ...}` transport wrapper.
+
+    Exposed so a caller needing the signed bytes (an independent verifier, an
+    HSM signing path, a debugging tool) obtains them instead of reconstructing
+    the shape at the call site. Reconstructing it is exactly how signer,
+    verifier and conformance fixture drifted apart before 0.5.0."""
+    ...
+
 def compute_aid_jkt(aid: str) -> str:
     """RFC 7638 JWK thumbprint of the pubkey embedded in an AID — the
     value to place in an OIDC JWT's `cnf.jkt` claim (RFC-AITP-0002

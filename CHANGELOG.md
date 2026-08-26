@@ -7,6 +7,67 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **`verify_revocation_list` is bound in the Python and Node SDKs.** Both
+  bindings shipped `sign_revocation_list` and neither shipped its counterpart,
+  even though `verify_revocation_snapshot` is a Tier C conformance operation
+  the Rust adapter implements (`docs/conformance.md`) and the spec's schema
+  requires conformant implementations to verify the committed signed example
+  "as committed, without re-minting". Every Python or Node consumer of AITP
+  revocation was therefore structurally unable to be a conformant verifier.
+  Downstream, three repos did the locally-reasonable thing — one hand-rolled a
+  verifier in a test, one skipped verification entirely, one rendered "signed
+  by CP" from the presence of a JSON key — and the 0.5.0 signing-input change
+  crossed the whole release family with a single accidental interlock in its
+  way. That was one missing binding, three times.
+  - Python: `aitp.verify_revocation_list(envelope_json, expected_issuer_aid,
+    now_unix_secs=None)`, raising `aitp.RevocationVerificationError` with a
+    stable `.code`.
+  - Node: `verifyRevocationList(envelopeJson, expectedIssuerAid, nowUnixSecs?)`,
+    throwing an `Error` whose stable `code` property carries the cause.
+- **`revocation_signing_bytes` / `revocationSigningBytes` are bound**, so a
+  caller needing the exact signed bytes obtains them instead of reconstructing
+  `JCS(revocation_list)` at the call site. Reconstructing that shape is how
+  signer, verifier and conformance fixture drifted apart before 0.5.0 — and
+  the callers who most needed it were on the far side of a binding that did
+  not exist.
+- **A typed error with a machine-readable cause.** The Python binding
+  previously registered no exception classes at all: every failure was an
+  untyped `RuntimeError`/`ValueError` carrying prose, so the only way to tell
+  "wrong issuer" from "bad signature" was to string-match a message — pinning
+  program output as an expected value, which is precisely the bug class the
+  0.5.0 change exposed. Causes are now `signature_invalid`, `issuer_mismatch`,
+  `version_unknown`, `expired`, `malformed`.
+
+### Fixed
+
+- **`verify_revocation_list` reported an issuer mismatch as
+  `TctError::CnfMalformed`.** The code carried a comment explaining the
+  variant was "chosen rather than introducing a new error variant for v0.1" —
+  stale, because `TctError::IssuerMismatch` was added later for TCTs and
+  documents exactly this case (RFC-AITP-0008 §3.3's issuer-key binding). It
+  now returns `IssuerMismatch`. This makes "this snapshot is signed by the
+  wrong issuer" distinguishable from "this snapshot is garbage" — an attacker
+  serving their own correctly-signed list and a corrupt fetch are different
+  events, and a caller that cannot separate them cannot alert on the first
+  without drowning in the second. `TctError` is `#[non_exhaustive]`, so
+  matching callers keep compiling. One emitted value does change: the
+  conformance adapter maps this error through `tct_error_code`, so a revocation
+  issuer mismatch now reports `TCT_SIGNATURE_INVALID` rather than
+  `INVALID_ENVELOPE` (`crates/aitp-rs-adapter/src/lib.rs`). No conformance
+  fixture pins that case — `rev-001`..`rev-004` cover staleness, soft-fail,
+  success and lookup ordering — so nothing breaks, but the wire code moved.
+
+### Note on scope
+
+`VerifyRevocationListContext` deliberately gains **no** staleness knob. It
+remains `{expected_issuer, now}`: verification establishes authenticity and
+non-expiry, and RFC-AITP-0008 §3 puts freshness policy at the consuming peer.
+Collapsing authenticity and freshness into one switch is how a `soft_fail`
+mode ends up reporting a *forged* snapshot as not-revoked. The binding
+documents that `published_at` staleness belongs to the caller.
+
 ### BREAKING
 
 - **The JCS signing input is now the inner artifact body, not the transport
