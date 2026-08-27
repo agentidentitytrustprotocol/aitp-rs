@@ -14,9 +14,14 @@ reference clock `1711900000`).
 This is the reverse of `xcheck-mint`/`xcheck-verify.py` (aitp-rs mints,
 aitp-verifier-py verifies): here aitp-verifier-py mints and `aitp-rs`
 verifies these exact committed bytes. Neither side re-mints — see
-`crates/aitp-session-bundle/src/verifier.rs`'s
+`crates/aitp-session-bundle/tests/xcheck_committed.rs`'s
 `aitp_verifier_py_committed_bundle_verifies` and its negative twin
 `aitp_verifier_py_committed_bundle_rejects_the_sibling_shape`.
+
+Provenance is reproducible, not just asserted: running the command below
+against the two pinned commits reproduces this file byte-for-byte. If it
+ever stops doing so, the fixture is no longer what this README claims and
+direction (b) has quietly become circular.
 
 ## Regenerating
 
