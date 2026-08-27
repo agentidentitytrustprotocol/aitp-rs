@@ -22,7 +22,10 @@ aitp-example-two-agents = { path = "../../examples/two-agents" }
 
 # Async runtime + HTTP server/client.
 tokio = { version = "1.36", features = ["macros", "rt-multi-thread", "time", "net", "sync"] }
-axum = "0.7"
+# Must track the workspace pin: this package builds axum `Router`s and
+# hands them to `aitp-transport-http`, so a version split is a hard type
+# error (E0277 on `Service`/`IntoMakeService`), not a duplicate crate.
+axum = "0.8"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 parking_lot = "0.12"
 

@@ -11,7 +11,7 @@ use aitp_core::{base64url, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{build_renewal_request, process_renewal_request, TctRenewalPayload};
 use napi::bindgen_prelude::*;
-use rand::RngCore;
+use rand::TryRng;
 
 /// Holder side: build a `TctRenewalPayload` JSON. SDK generates the
 /// fresh 128-bit `pop_nonce` internally.
@@ -23,7 +23,7 @@ pub(crate) fn build_renewal_request_js(
     current_tct_token: &str,
 ) -> Result<String> {
     let mut nonce_bytes = [0u8; 16];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut nonce_bytes)
         .map_err(|e| Error::from_reason(format!("rng failure: {e}")))?;
     let pop_nonce = base64url::encode(&nonce_bytes);

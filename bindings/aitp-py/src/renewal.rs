@@ -8,7 +8,7 @@ use aitp_crypto::AitpSigningKey;
 use aitp_tct::{build_renewal_request, process_renewal_request, TctRenewalPayload};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
-use rand::RngCore;
+use rand::TryRng;
 
 /// Holder side: build a `TctRenewalPayload` JSON.
 ///
@@ -20,7 +20,7 @@ pub fn build_renewal_request_py(
     current_tct_token: &str,
 ) -> PyResult<String> {
     let mut nonce_bytes = [0u8; 16];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut nonce_bytes)
         .map_err(|e| PyRuntimeError::new_err(format!("rng failure: {e}")))?;
     let pop_nonce = base64url::encode(&nonce_bytes);

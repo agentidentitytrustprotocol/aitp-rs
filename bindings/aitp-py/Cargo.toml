@@ -51,8 +51,8 @@ aitp-handshake = { path = "../../crates/aitp-handshake" }
 aitp-tct = { path = "../../crates/aitp-tct" }
 aitp-delegation = { path = "../../crates/aitp-delegation" }
 aitp-session-bundle = { path = "../../crates/aitp-session-bundle", optional = true }
-x509-parser = { version = "0.17", optional = true }
-sha2 = "0.10"
+x509-parser = { version = "0.18", optional = true }
+sha2 = "0.11"
 
 # abi3-py39: build a single forward-compatible wheel (cp39-abi3) per
 # platform that runs on CPython 3.9+ via the stable ABI, instead of one
@@ -63,8 +63,12 @@ pyo3 = { version = "0.22", features = ["abi3-py39"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
-jsonwebtoken = "9.2"
-rand = "0.8"
+# Must stay on the same major as the workspace pin: `aitp_handshake::JwkPublicKey`
+# carries `jsonwebtoken::{Algorithm, DecodingKey}` in its public fields, so a
+# mismatch here is a hard type error, not merely a duplicate crate. See the
+# `jsonwebtoken` comment in the root Cargo.toml for why 9.x is deliberate.
+jsonwebtoken = "9.3"
+rand = "0.10"
 
 [profile.release]
 lto = true
