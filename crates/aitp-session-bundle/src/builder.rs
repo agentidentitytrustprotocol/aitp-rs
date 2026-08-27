@@ -5,7 +5,7 @@
 
 use crate::error::SessionBundleError;
 use crate::types::{ParticipantEntry, SessionTrustBundle};
-use aitp_core::{jcs, Aid, Timestamp};
+use aitp_core::{jcs, Aid, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::TctClaims;
 use serde::Serialize;
@@ -33,6 +33,7 @@ pub struct SessionBundleBuilder<'a> {
     session_id: Option<Uuid>,
     participants: Vec<ParticipantEntry>,
     issued_at: Option<Timestamp>,
+    extensions: Option<ExtensionsMap>,
 }
 
 impl<'a> SessionBundleBuilder<'a> {
@@ -43,6 +44,7 @@ impl<'a> SessionBundleBuilder<'a> {
             session_id: None,
             participants: Vec::new(),
             issued_at: None,
+            extensions: None,
         }
     }
 
@@ -56,6 +58,17 @@ impl<'a> SessionBundleBuilder<'a> {
     /// Override `issued_at`. Tests / fixtures only.
     pub fn issued_at(mut self, ts: Timestamp) -> Self {
         self.issued_at = Some(ts);
+        self
+    }
+
+    /// Set the `extensions` namespace (RFC-AITP-0001 §7).
+    ///
+    /// Unset by default, which serializes as an absent `extensions` key —
+    /// not `"extensions":{}`. Passing `ExtensionsMap::new()` here instead
+    /// deliberately produces the present-but-empty form; the two are
+    /// different signing inputs, so choose the one the caller means.
+    pub fn extensions(mut self, extensions: ExtensionsMap) -> Self {
+        self.extensions = Some(extensions);
         self
     }
 
@@ -106,6 +119,7 @@ impl<'a> SessionBundleBuilder<'a> {
             issued_at: &issued_at,
             expires_at: &expires_at,
             participants: &self.participants,
+            extensions: self.extensions.as_ref(),
         })?;
         let digest = Sha256::digest(&canonical);
         let signature = self.coordinator_key.sign(&digest);
@@ -117,6 +131,7 @@ impl<'a> SessionBundleBuilder<'a> {
             issued_at,
             expires_at,
             participants: self.participants,
+            extensions: self.extensions,
             signature: signature.into_string(),
         })
     }
@@ -158,6 +173,11 @@ pub(crate) struct BundleSigningBody<'a> {
     pub issued_at: &'a Timestamp,
     pub expires_at: &'a Timestamp,
     pub participants: &'a [ParticipantEntry],
+    /// Mirrors [`SessionTrustBundle::extensions`]'s presence-sensitivity:
+    /// `None` omits the key, `Some(_)` (even an empty map) serializes it —
+    /// never collapse one into the other here.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<&'a ExtensionsMap>,
 }
 
 #[cfg(test)]
@@ -207,6 +227,7 @@ mod signing_input_tests {
             issued_at: &bundle.issued_at,
             expires_at: &bundle.expires_at,
             participants: &bundle.participants,
+            extensions: bundle.extensions.as_ref(),
         })
         .expect("canonicalize");
 
