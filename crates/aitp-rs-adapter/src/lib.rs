@@ -1606,8 +1606,8 @@ fn generate_keypair(state: &mut AdapterState, id: &str, params: Value) -> Value 
         s
     } else {
         let mut s = [0u8; 32];
-        use rand::RngCore;
-        match rand::rngs::OsRng.try_fill_bytes(&mut s) {
+        use rand::TryRng;
+        match rand::rngs::SysRng.try_fill_bytes(&mut s) {
             Ok(()) => {}
             Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
         }
@@ -2560,8 +2560,8 @@ fn issue_pop_challenge_op(state: &mut AdapterState, id: &str, params: Value) -> 
         n
     } else {
         let mut nonce_bytes = [0u8; 16];
-        use rand::RngCore;
-        if let Err(e) = rand::rngs::OsRng.try_fill_bytes(&mut nonce_bytes) {
+        use rand::TryRng;
+        if let Err(e) = rand::rngs::SysRng.try_fill_bytes(&mut nonce_bytes) {
             return err(id, "INTERNAL_ERROR", &e.to_string());
         }
         base64url::encode(&nonce_bytes)

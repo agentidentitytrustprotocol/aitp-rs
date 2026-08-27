@@ -16,7 +16,7 @@ use aitp_core::{base64url, Aid, AitpEnvelope, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
-use rand::RngCore;
+use rand::TryRng;
 use sha2::{Digest, Sha256};
 use tracing::debug;
 use uuid::Uuid;
@@ -413,7 +413,7 @@ impl PresentedIdentity {
 /// Generate a fresh 22-char base64url-unpadded nonce (128 random bits).
 fn fresh_nonce() -> Result<String, HandshakeError> {
     let mut buf = [0u8; 16];
-    rand::rngs::OsRng
+    rand::rngs::SysRng
         .try_fill_bytes(&mut buf)
         .map_err(|e| HandshakeError::Rng(e.to_string()))?;
     Ok(base64url::encode(&buf))

@@ -254,13 +254,17 @@ fn key_from_hex_seed(
 }
 
 fn random_key(suite: Suite) -> Result<([u8; 32], AitpSigningKey), Box<dyn std::error::Error>> {
-    use rand::RngCore;
+    use rand::TryRng;
     // Almost every 32-byte value is a valid seed for both suites (only
     // the P-256 zero/overflow scalars fail, astronomically rarely); retry
     // a few times to be safe.
     for _ in 0..8 {
         let mut seed = [0u8; 32];
-        rand::rngs::OsRng.fill_bytes(&mut seed);
+        // `SysRng` (rand 0.10's renamed `OsRng`) is fallible, unlike the
+        // old infallible `RngCore::fill_bytes`; this fn already returns a
+        // `Result`, so propagate rather than paper over a failed OS RNG
+        // read with an unwrap.
+        rand::rngs::SysRng.try_fill_bytes(&mut seed)?;
         if let Ok(key) = build_key(&seed, suite) {
             return Ok((seed, key));
         }

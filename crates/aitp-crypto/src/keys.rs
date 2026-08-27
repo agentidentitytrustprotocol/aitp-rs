@@ -23,6 +23,28 @@ use p256::ecdsa::{
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
 
+/// A CSPRNG seeded directly from the OS, suitable for generating signing
+/// keys.
+///
+/// rand 0.10 renamed `OsRng` to `SysRng` and made it *fallible*
+/// (`SysRng: TryRng<Error = SysError>`, since the underlying `getrandom`
+/// syscall can fail) rather than the old infallible `RngCore`. Both
+/// `ed25519_dalek::SigningKey::generate` and
+/// `elliptic_curve::Generate::generate_from_rng` require an infallible
+/// `CryptoRng` bound, so a bare rename from `OsRng` to `SysRng` doesn't
+/// compile.
+///
+/// `rand_core::UnwrapErr` wraps any `TryRng` into an infallible
+/// `Rng`/`CryptoRng` by panicking on error. This is the exact fallback
+/// `crypto-common`'s own `Generate::generate()` convenience method uses
+/// internally, and it reproduces the behavior of the old rand 0.8
+/// `OsRng`, which likewise panicked internally if the OS randomness
+/// source failed — so key generation keeps the same fail-stop semantics,
+/// not a silent fallback to a weaker generator.
+fn os_csprng() -> rand::rand_core::UnwrapErr<rand::rngs::SysRng> {
+    rand::rand_core::UnwrapErr(rand::rngs::SysRng)
+}
+
 /// An AITP signing key. Algorithm-agile: holds either an Ed25519 key (the
 /// v0.1 default) or a P-256 ECDSA key (post-v0.1 algorithm-agile wire
 /// format, RFC-AITP-0001 §5.4.3).
@@ -57,14 +79,15 @@ impl AitpSigningKey {
 
     /// Generate a fresh Ed25519 keypair using OS randomness.
     pub fn generate_ed25519() -> Self {
-        let inner = DalekSigningKey::generate(&mut rand::rngs::OsRng);
+        let inner = DalekSigningKey::generate(&mut os_csprng());
         let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
         Self::Ed25519 { inner, aid }
     }
 
     /// Generate a fresh P-256 keypair using OS randomness.
     pub fn generate_p256() -> Self {
-        let inner = P256SigningKey::random(&mut rand::rngs::OsRng);
+        let inner =
+            <P256SigningKey as p256::elliptic_curve::Generate>::generate_from_rng(&mut os_csprng());
         let aid = Self::p256_aid_for(&inner);
         Self::P256 { inner, aid }
     }

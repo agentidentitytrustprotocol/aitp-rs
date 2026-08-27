@@ -8,7 +8,7 @@ use crate::ManifestError;
 use aitp_core::RawUrl;
 use aitp_core::{base64url, jcs, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use rand::RngCore;
+use rand::TryRng;
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 
@@ -191,7 +191,7 @@ impl<'a> ManifestBuilder<'a> {
 
         // 2. Generate a 128-bit (16-byte) random PoP challenge.
         let mut challenge_bytes = [0u8; 16];
-        rand::rngs::OsRng
+        rand::rngs::SysRng
             .try_fill_bytes(&mut challenge_bytes)
             .map_err(|e| ManifestError::Rng(e.to_string()))?;
         let challenge = base64url::encode(&challenge_bytes);
