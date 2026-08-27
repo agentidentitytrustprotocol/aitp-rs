@@ -170,7 +170,7 @@ impl AitpSigningKey {
     }
 
     fn p256_aid_for(inner: &P256SigningKey) -> Aid {
-        let encoded = inner.verifying_key().to_encoded_point(true);
+        let encoded = inner.verifying_key().to_sec1_point(true);
         let bytes = encoded.as_bytes();
         debug_assert_eq!(bytes.len(), 33, "P-256 SEC1-compressed must be 33 bytes");
         let mut arr = [0u8; 33];
@@ -336,7 +336,7 @@ impl AitpVerifyingKey {
                 // SEC1 uncompressed: 0x04 || x(32) || y(32). For any valid
                 // P-256 public key (which excludes the point at infinity)
                 // this is always 65 bytes.
-                let pt = vk.to_encoded_point(false);
+                let pt = vk.to_sec1_point(false);
                 let bytes = pt.as_bytes();
                 if bytes.len() != 65 || bytes[0] != 0x04 {
                     return Err(CryptoError::KeyParseFailed(format!(
@@ -392,7 +392,7 @@ impl AitpVerifyingKey {
     pub fn to_compressed(&self) -> Vec<u8> {
         match self {
             Self::Ed25519(vk) => vk.to_bytes().to_vec(),
-            Self::P256(vk) => vk.to_encoded_point(true).as_bytes().to_vec(),
+            Self::P256(vk) => vk.to_sec1_point(true).as_bytes().to_vec(),
         }
     }
 
@@ -412,8 +412,11 @@ impl AitpVerifyingKey {
 /// them acceptable to the strict [`verify_p256_raw`] path.
 fn p256_sign_low_s(inner: &P256SigningKey, message: &[u8]) -> P256Signature {
     let sig: P256Signature = <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
-    // `normalize_s()` returns `Some(low_s)` iff the input was high-S.
-    sig.normalize_s().unwrap_or(sig)
+    // p256 0.14 / ecdsa 0.17: `normalize_s()` unconditionally returns the
+    // low-S form (it used to return `Option<Self>`, `Some` only when the
+    // input was high-S). Since it's now always the low-S signature, this
+    // is already what we want.
+    sig.normalize_s()
 }
 
 /// Verify a raw `R || S` (64-byte) ES256 signature, enforcing the
@@ -427,15 +430,21 @@ fn p256_sign_low_s(inner: &P256SigningKey, message: &[u8]) -> P256Signature {
 /// encoding of identical claims. Our own mints are always low-S
 /// (RFC 6979 deterministic-k produces the low-S form), so rejecting
 /// high-S costs nothing on the honest path and removes the malleability
-/// on the wire. `normalize_s()` returns `Some` only when the input was
-/// high-S — i.e. non-canonical — so we reject exactly that case.
+/// on the wire.
+///
+/// p256 0.14 / ecdsa 0.17 changed `normalize_s()` from `-> Option<Self>`
+/// (`Some` iff the input was high-S) to `-> Self` (unconditionally the
+/// low-S form). The old `is_some()` check no longer compiles, and a naive
+/// find-and-replace to "always accept" would silently delete this
+/// malleability guard. The equivalent check under the new API is a direct
+/// comparison: a signature is high-S iff normalizing it changes it.
 fn verify_p256_raw(vk: &P256VerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
     if sig.len() != 64 {
         return Err(CryptoError::SignatureInvalid);
     }
     // p256::ecdsa::Signature accepts R||S as 64 bytes.
     let p256_sig = P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
-    if p256_sig.normalize_s().is_some() {
+    if p256_sig.normalize_s() != p256_sig {
         // High-S (non-canonical / malleated) — reject.
         return Err(CryptoError::SignatureInvalid);
     }
@@ -670,7 +679,7 @@ mod tests {
         // Deterministic P-256 keypair for KAT-style assertions.
         let signing_key = P256SigningKey::from_bytes(&[7u8; 32].into()).unwrap();
         let p256_pk = signing_key.verifying_key();
-        let pk_compressed = p256_pk.to_encoded_point(true);
+        let pk_compressed = p256_pk.to_sec1_point(true);
         let pk_bytes = pk_compressed.as_bytes();
         assert_eq!(pk_bytes.len(), 33);
         let mut pk_arr = [0u8; 33];
@@ -686,7 +695,7 @@ mod tests {
         // p256 Signer does not normalize, so ~half of keys/messages
         // would otherwise yield a high-S vector the verifier rejects.
         let sig: p256::ecdsa::Signature = signing_key.sign(msg);
-        let sig = sig.normalize_s().unwrap_or(sig);
+        let sig = sig.normalize_s();
         let sig_bytes = sig.to_bytes();
         let sig_b64 = Base64UrlUnpadded::encode_string(&sig_bytes);
         let wire = format!("p256.{sig_b64}");
@@ -711,7 +720,7 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&[11u8; 32].into()).unwrap();
         let pk = signing_key.verifying_key();
         let pk_arr: [u8; 33] = pk
-            .to_encoded_point(true)
+            .to_sec1_point(true)
             .as_bytes()
             .try_into()
             .expect("33-byte compressed point");
@@ -721,16 +730,18 @@ mod tests {
         let msg = b"aitp p256 low-S enforcement";
         // RFC 6979 deterministic-k signing emits the low-S form.
         let low_s: P256Sig = signing_key.sign(msg);
-        assert!(
-            low_s.normalize_s().is_none(),
+        assert_eq!(
+            low_s.normalize_s(),
+            low_s,
             "signer must emit low-S canonical form"
         );
 
         // Build the malleated high-S sibling: (r, -s).
         let (r, s) = low_s.split_scalars();
         let high_s = P256Sig::from_scalars(r, -s).expect("valid high-S signature");
-        assert!(
-            high_s.normalize_s().is_some(),
+        assert_ne!(
+            high_s.normalize_s(),
+            high_s,
             "constructed sibling must be high-S"
         );
 
@@ -836,7 +847,7 @@ mod tests {
         use p256::ecdsa::SigningKey as P256SigningKey;
         let signer = P256SigningKey::from_bytes(&[3u8; 32].into()).unwrap();
         let pk = signer.verifying_key();
-        let pt = pk.to_encoded_point(false);
+        let pt = pk.to_sec1_point(false);
         let bytes = pt.as_bytes();
         assert_eq!(bytes.len(), 65);
         assert_eq!(bytes[0], 0x04);
@@ -868,7 +879,7 @@ mod tests {
         use p256::ecdsa::SigningKey as P256SigningKey;
         let signing_key = P256SigningKey::from_bytes(&[9u8; 32].into()).unwrap();
         let pk = signing_key.verifying_key();
-        let pk_compressed = pk.to_encoded_point(true);
+        let pk_compressed = pk.to_sec1_point(true);
         let mut pk_arr = [0u8; 33];
         pk_arr.copy_from_slice(pk_compressed.as_bytes());
         let aid = aitp_core::Aid::from_p256(&pk_arr);
