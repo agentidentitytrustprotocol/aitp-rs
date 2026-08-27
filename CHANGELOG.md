@@ -9,6 +9,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- **Delegation revocation is reachable from the SDKs.** `verify_delegation` and
+  `verify_delegation_multihop` built their context with
+  `VerifyDelegationContext::new`, which hardcodes `revocation_check` and
+  `hop_revocation_check` to `None`, and neither binding exposed a parameter to
+  override them. The hooks were unreachable from Python and Node, so every
+  delegation redeemed through an SDK skipped **RFC-AITP-0006 §4 step 7** (a
+  revoked `voucher.src_jti` MUST be rejected) and **RFC-AITP-0011 §6** (a
+  revoked hop MUST reject the whole chain). Not bookkeeping: redeeming a
+  delegation mints a *fresh TCT* for the delegatee, so a revoked grant kept
+  minting credentials for a third party the grantor never re-authorized.
+
+  The Rust core was already correct — both hooks, tests for each, and the
+  `del-mh-004-revoked-hop` conformance fixture — so this is purely the binding
+  layer and no crate changed.
+  - Python: `verify_delegation(token, verifier_aid, revoked_jtis=None)` and
+    `verify_delegation_multihop(token, verifier_aid, max_delegation_hops=3,
+    revoked_jtis=None)`.
+  - Node: `verifyDelegation(token, verifierAid, revokedJtis?)` and
+    `verifyDelegationMultihop(token, verifierAid, maxDelegationHops?,
+    revokedJtis?)`.
+
+  The set is captured up front rather than wrapping a caller-supplied
+  callable, following `verify_tct`. A callback cannot report a raise through
+  `Fn(&Uuid) -> bool`, so the error would have to be swallowed as "not
+  revoked" — failing open on a MUST. Omitting the set still waives the check,
+  matching `verify_tct`; that default is now pinned by a test.
+
+  One deviation is documented rather than hidden: §6 specifies each hop `jti`
+  be checked against the deny list of *that hop's issuer*, which a flat set
+  cannot express, so it applies to every hop. That can only reject more, never
+  accept a revoked hop — but a set aggregated across issuers lets any
+  contributor revoke any hop.
+
+### Added
+
 - **`verify_manifest_json` raises a typed error with a stable `code`**, in both
   bindings — Python `aitp.ManifestVerificationError`, Node an `Error` whose
   `code` property carries the cause. Causes: `signature_invalid`,

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.4.1...aitp-handshake-v0.7.0) - 2026-08-26
+
+### Added
+
+- *(bindings)* give verify_manifest_json a typed error with a stable code ([#92](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/92))
+- *(bindings)* let callers reach the delegation revocation checks ([#93](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/93))
+
 ## [0.4.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.4.0...aitp-handshake-v0.4.1) - 2026-07-10
 
 ### Other
