@@ -57,7 +57,7 @@ fn os_csprng() -> rand::rand_core::UnwrapErr<rand::rngs::SysRng> {
 /// enum. No `ed25519_dalek::*` or `p256::*` type is reachable through
 /// this type's public API — do not add a public method that returns or
 /// accepts one of those third-party types, and do not make
-/// [`SigningKeyInner`] or its fields public. This is what keeps a
+/// `SigningKeyInner` or its fields public. This is what keeps a
 /// `p256`/`ed25519-dalek` major bump from being a breaking change to
 /// this crate's public API.
 pub struct AitpSigningKey(SigningKeyInner);
@@ -239,7 +239,7 @@ impl std::fmt::Debug for AitpSigningKey {
 /// enum. No `ed25519_dalek::*` or `p256::*` type is reachable through
 /// this type's public API — do not add a public method that returns or
 /// accepts one of those third-party types, and do not make
-/// [`VerifyingKeyInner`] or its fields public. This is what keeps a
+/// `VerifyingKeyInner` or its fields public. This is what keeps a
 /// `p256`/`ed25519-dalek` major bump from being a breaking change to
 /// this crate's public API.
 #[derive(Debug, Clone)]
