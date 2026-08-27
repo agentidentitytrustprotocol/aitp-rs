@@ -100,9 +100,17 @@ def main() -> int:
     )
 
     print("\nDirection (b) -- minted by the Python reference, verified by aitp-rs:")
-    print("  ok    committed snapshot verified by aitp-rs")
+    print("  ok    committed revocation snapshot verified by aitp-rs")
     print("          (crates/aitp-tct spec_signed_example_snapshot_verifies,")
     print("           + its negative spec_signed_example_rejects_the_wrapped_form)")
+    print("  ok    committed session bundle (minted by aitp-verifier-py's own")
+    print("        minter) verified by aitp-rs")
+    print("          (crates/aitp-session-bundle aitp_verifier_py_committed_bundle_verifies,")
+    print("           + its negative aitp_verifier_py_committed_bundle_rejects_the_sibling_shape)")
+    print(
+        "  Both are asserted by `cargo test --workspace`, not by this script -- "
+        "see tests/xcheck-fixtures/session-bundle/README.md for the bundle's provenance."
+    )
 
     # Determinism: under the reference clock the Rust-minted snapshot must
     # reproduce the committed, Python-reference-minted bytes exactly. This

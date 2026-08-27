@@ -76,20 +76,16 @@ fn main() {
     // Emit the transport-wrapped wire shapes an independent verifier
     // consumes, plus the reference clock it should verify at.
     //
-    // The bundle is framed with `signature` as a SIBLING of the wrapper,
-    // matching `aitp-session-bundle.schema.json` and the `bundle-001`
-    // fixture. RFC-AITP-0010 §3's example instead places it inside the
-    // body; the spec is inconsistent here (filed upstream as
-    // agentidentitytrustprotocol#23). This is purely envelope framing:
-    // the SIGNED BYTES are the body excluding `signature` under either
-    // reading, so reframing is not a re-mint. The signature below is the
-    // one `bundle_signing_bytes` produced, carried verbatim.
-    let mut body = serde_json::to_value(&bundle).expect("bundle serializes");
-    let signature = body
-        .as_object_mut()
-        .expect("bundle is an object")
-        .remove("signature")
-        .expect("bundle carries a signature");
+    // The bundle is emitted in its natural shape: `signature` stays a
+    // member of the inner body (RFC-AITP-0010 §3; spec commit
+    // `45b5ef978e13` corrected the schema and the `bundle-*` fixtures to
+    // match). Earlier revisions of this tool reframed `signature` as a
+    // sibling of the `{"session_bundle": ...}` wrapper to accommodate
+    // `aitp-verifier-py`'s older reading (the two implementations' signed
+    // bytes always agreed — this was purely wire-shape accommodation, not
+    // a re-mint). That accommodation is now obsolete: both sides read
+    // `signature` from inside the body, so no reframing is needed.
+    let body = serde_json::to_value(&bundle).expect("bundle serializes");
 
     let out = serde_json::json!({
         "minted_by": "aitp-rs",
@@ -97,7 +93,7 @@ fn main() {
         "expected_issuer": issuer.aid().to_string(),
         "verifier_aid": participant.aid().to_string(),
         "snapshot": { "revocation_list": snapshot.revocation_list, "signature": snapshot.signature },
-        "session_bundle": { "session_bundle": body, "signature": signature },
+        "session_bundle": { "session_bundle": body },
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
 }
