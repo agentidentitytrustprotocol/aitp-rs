@@ -81,15 +81,46 @@ rustls-pki-types = "1.10"
 # X.509 parser for extracting SubjectPublicKeyInfo bytes when pinning.
 x509-parser = "0.18"
 
-# OIDC (used by aitp-handshake and aitp-transport-http). jsonwebtoken 11
-# dropped its bundled `ring`-backed crypto and now requires opting into
-# exactly one crypto backend: `rust_crypto` (pure-Rust, backed by the
-# same p256/ed25519-dalek/sha2/rand stack this workspace already pins)
-# or `aws_lc_rs` (a C library). Without one, every verify/sign call
-# panics at runtime ("Could not automatically determine the
-# process-level CryptoProvider"). `rust_crypto` is the pure-Rust choice
-# and keeps wasm32-wasip1 (see ci.yml's `wasm` job) portable.
-jsonwebtoken = { version = "11.0", features = ["rust_crypto"] }
+# OIDC / DPoP JOSE helper (used by aitp-handshake and aitp-transport-http
+# for ID-token and DPoP-proof verification — NOT for any AITP signature;
+# those go through aitp-crypto's own JWS implementation).
+#
+# DELIBERATELY HELD AT 9.x. jsonwebtoken 9 carries its own `ring`-backed
+# crypto, which is *disjoint* from the RustCrypto stack this workspace
+# pins. That disjointness is the point: a peripheral JOSE dependency must
+# never be able to hold back, or duplicate, the crypto that actually
+# implements the protocol.
+#
+# jsonwebtoken 10+ dropped the bundled backend and requires opting into
+# exactly one of two features (without one, every sign/verify call panics
+# at runtime with "Could not automatically determine the process-level
+# CryptoProvider" — see `jose_backend_tripwire.rs`). Both are worse here
+# as of 11.0.0:
+#
+#   * `rust_crypto` pins ed25519-dalek 2.1, p256 0.13, sha2 0.10 and
+#     rand 0.8 — i.e. the pre-bump stack. Enabling it alongside this
+#     workspace's ed25519-dalek 3 / p256 0.14 / sha2 0.11 forks the
+#     dependency tree, shipping *two* Ed25519 and *two* P-256
+#     implementations inside every downstream binary of a signature-
+#     verification library. It also drags in `rsa` 0.9, which carries
+#     RUSTSEC-2023-0071 (Marvin timing sidechannel) with no patched
+#     release — `cargo deny`/`cargo audit` go red, and the only way to
+#     merge it is to ignore an unfixed RSA sidechannel advisory.
+#   * `aws_lc_rs` clears both, but adds a C/CMake/NASM build dependency
+#     to the maturin and napi-rs wheel matrices, and the bindings pin
+#     jsonwebtoken themselves — so it would put jsonwebtoken 9 (ring)
+#     *and* 11 (aws-lc-rs) in the same cdylib.
+#
+# Revisit when a jsonwebtoken release exists whose pure-Rust backend
+# tracks current RustCrypto and does not pull `rsa`. Tracked upstream of
+# this pin by the cargo-deny `deny-multiple-versions` guard in deny.toml,
+# which turns any reintroduction of the fork into a red build.
+#
+# Note this version is semver-visible: `aitp_handshake::JwkPublicKey`
+# exposes `jsonwebtoken::{Algorithm, DecodingKey}` in its public fields,
+# so bumping the major here is a breaking change for aitp-handshake and
+# must be done in lockstep with bindings/aitp-{py,node}.
+jsonwebtoken = "9.3"
 
 # Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
 # a poisoned state on a panic in a locked section — std::sync::Mutex would,
