@@ -265,10 +265,7 @@ pub enum AidParseError {
     UnsupportedMethod(String),
 
     /// Identifier length is not 43 (raw Ed25519 base64url-unpadded).
-    #[error(
-        "AID identifier must be exactly {} characters; got {0}",
-        AID_PUBKEY_IDENTIFIER_LEN
-    )]
+    #[error("AID identifier must be exactly {AID_PUBKEY_IDENTIFIER_LEN} characters; got {0}")]
     WrongLength(usize),
 
     /// Identifier contains characters outside the base64url alphabet.
@@ -319,6 +316,19 @@ mod tests {
             Aid::parse(&format!("aid:pubkey:{}", "A".repeat(44))),
             Err(AidParseError::WrongLength(44))
         ));
+    }
+
+    #[test]
+    fn wrong_length_display_text_is_stable() {
+        // Pins the rendered Display text across the thiserror 1->2 migration
+        // (the format string moved from a mixed implicit/positional arg to
+        // a named inline capture of `AID_PUBKEY_IDENTIFIER_LEN`).
+        assert_eq!(
+            AidParseError::WrongLength(42).to_string(),
+            format!(
+                "AID identifier must be exactly {AID_PUBKEY_IDENTIFIER_LEN} characters; got 42"
+            )
+        );
     }
 
     #[test]
