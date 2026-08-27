@@ -2885,46 +2885,28 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
 fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
 
-    // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}, "signature": "..."}`.
-    // The internal `SessionTrustBundle` keeps `signature` as a field
-    // *inside* the body (rc.1 representation); the envelope wrapper
-    // is what's on the wire. Accept either:
+    // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
+    // `signature` is already a member of the inner body (spec commit
+    // 45b5ef978e13 corrected the schema and all `bundle-*` fixtures to
+    // this shape). `SessionTrustBundle` deserializes the inner body
+    // directly, so accepting the wire form only requires unwrapping the
+    // transport envelope — no reassembly of a sibling `signature` is
+    // needed or performed. Accept either:
     //
     // - `params.session_bundle = {<body with signature inside>}`
-    //   (legacy internal callers)
-    // - `params.session_bundle = {"session_bundle": {<body>}, "signature": "..."}`
-    //   (spec wire envelope; `bundle-*` conformance fixtures)
-    // - `params.bundle_envelope = <envelope>`
-    //
-    // Reassemble into the internal shape (signature inside body)
-    // before deserialization.
+    //   (legacy internal callers, no envelope)
+    // - `params.session_bundle = {"session_bundle": {<body with signature
+    //   inside>}}` (spec wire envelope; `bundle-*` conformance fixtures)
+    // - `params.bundle_envelope = <envelope>` (same shape, alternate key)
     let mut bundle_value = if let Some(inner) = params.get("session_bundle") {
-        // Detect envelope form: outer object has exactly the
-        // "session_bundle" + "signature" pair.
-        if let Some(map) = inner.as_object() {
-            if map.contains_key("session_bundle") && map.contains_key("signature") {
-                let mut body = map["session_bundle"].clone();
-                if let Some(b_map) = body.as_object_mut() {
-                    b_map.insert("signature".into(), map["signature"].clone());
-                }
-                body
-            } else {
-                inner.clone()
-            }
-        } else {
-            inner.clone()
+        match inner.get("session_bundle") {
+            Some(body) => body.clone(),
+            None => inner.clone(),
         }
     } else if let Some(env) = params.get("bundle_envelope") {
-        if let Some(map) = env.as_object() {
-            let mut body = map.get("session_bundle").cloned().unwrap_or_default();
-            if let Some(b_map) = body.as_object_mut() {
-                if let Some(sig) = map.get("signature") {
-                    b_map.insert("signature".into(), sig.clone());
-                }
-            }
-            body
-        } else {
-            env.clone()
+        match env.get("session_bundle") {
+            Some(body) => body.clone(),
+            None => env.clone(),
         }
     } else {
         return err(id, "INVALID_REQUEST", "missing 'session_bundle'");
