@@ -169,3 +169,115 @@ def test_multihop_kwarg_is_the_spec_name():
         pytest.fail(f"the hop-budget keyword is not `max_delegation_hops`: {exc}")
     except Exception:
         pass
+
+
+# ── Revocation (RFC-AITP-0006 §4 step 7, RFC-AITP-0011 §6) ───────────────
+#
+# The Rust core has always had `revocation_check` / `hop_revocation_check`
+# and tests them (`crates/aitp-delegation/tests/round_trip.rs`, `multihop.rs`,
+# plus the `del-mh-004-revoked-hop` conformance fixture). What was missing was
+# any way to *reach* them from Python: both entry points built their context
+# with `VerifyDelegationContext::new`, which hardcodes both hooks to `None`,
+# and neither exposed a parameter. So every delegation redeemed through this
+# SDK skipped step 7 — a MUST-reject — and a revoked source TCT still bought
+# a freshly minted TCT for the delegatee.
+#
+# These tests pin the wiring, not the semantics.
+
+
+def _src_jti(delegation_token: str) -> str:
+    """The `src_jti` of the voucher the delegation is rooted in.
+
+    This is the handle A revokes: killing the source TCT kills the voucher and
+    every delegation rooted in it (RFC-AITP-0005 §8).
+    """
+    claims = json.loads(_b64url_decode(delegation_token.split(".")[1]))
+    voucher_claims = json.loads(_b64url_decode(claims["voucher"].split(".")[1]))
+    return voucher_claims["src_jti"]
+
+
+def test_revoking_the_source_tct_rejects_the_delegation():
+    """RFC-AITP-0006 §4 step 7 — the MUST that was unreachable from Python."""
+    a, _b, _c, delegation_token = _build_delegation_token()
+
+    # Sanity: this exact token verifies while nothing is revoked, so the
+    # rejection below is attributable to the deny list and nothing else.
+    aitp.verify_delegation(delegation_token, a.aid)
+
+    with pytest.raises(RuntimeError, match="revoked"):
+        aitp.verify_delegation(
+            delegation_token, a.aid, {_src_jti(delegation_token)}
+        )
+
+
+def test_a_revoked_source_tct_yields_no_tct_for_the_delegatee():
+    """The consequence, stated in the terms that matter.
+
+    Step 7 is not bookkeeping: redeeming a delegation mints a *fresh TCT* for
+    the delegatee. Skipping the check meant a revoked grant kept minting
+    credentials for a third party the grantor never re-authorized.
+    """
+    a, _b, c, delegation_token = _build_delegation_token()
+    revoked = {_src_jti(delegation_token)}
+
+    with pytest.raises(RuntimeError):
+        verified = aitp.verify_delegation(delegation_token, a.aid, revoked)
+        # Unreachable while step 7 holds. If it ever is reached, this is the
+        # line that shows what the omission actually costs.
+        a.issue_tct_for_delegatee(verified)
+    del c
+
+
+def test_an_unrelated_revoked_jti_does_not_reject():
+    """The lookup is keyed on `src_jti`, not "the set is non-empty".
+
+    Without this, a blanket-reject bug would pass the test above.
+    """
+    a, _b, _c, delegation_token = _build_delegation_token()
+
+    unrelated = "00000000-0000-4000-8000-000000000000"
+    assert unrelated != _src_jti(delegation_token)
+
+    verified = aitp.verify_delegation(delegation_token, a.aid, {unrelated})
+    assert verified.delegator == a.aid
+
+
+def test_omitting_revoked_jtis_verifies_a_revoked_delegation():
+    """Pins the default so it cannot change silently.
+
+    `revoked_jtis=None` waives step 7 entirely — the same posture
+    `verify_tct` takes, and the reason both docstrings say verifiers SHOULD
+    supply the set. This test documents the hazard rather than endorsing it:
+    if the default ever becomes fail-closed, this is the test that says so
+    out loud instead of letting callers discover it at runtime.
+    """
+    a, _b, _c, delegation_token = _build_delegation_token()
+
+    # Revoked in every sense except that nobody asked.
+    verified = aitp.verify_delegation(delegation_token, a.aid)
+    assert verified.delegator == a.aid
+
+
+def test_revocation_is_consulted_only_after_the_signature_checks():
+    """RFC-AITP-0008 §3.3 ordering, and it is not cosmetic.
+
+    Revocation is the one stateful lookup. Running it before the signature
+    checks would let an unauthenticated caller probe which `jti`s are in a
+    verifier's deny list by watching which forged tokens come back "revoked"
+    versus "bad signature".
+    """
+    a, _b, _c, delegation_token = _build_delegation_token()
+    revoked = {_src_jti(delegation_token)}
+
+    # Corrupt the outer signature, leaving the voucher (and its src_jti)
+    # intact and genuinely revoked.
+    head, payload, sig = delegation_token.split(".")
+    flipped = "A" if sig[0] != "A" else "B"
+    tampered = f"{head}.{payload}.{flipped}{sig[1:]}"
+
+    with pytest.raises(RuntimeError) as excinfo:
+        aitp.verify_delegation(tampered, a.aid, revoked)
+    assert "revoked" not in str(excinfo.value).lower(), (
+        "a token that fails signature verification was reported as revoked — "
+        "the deny-list lookup ran before the signature checks"
+    )

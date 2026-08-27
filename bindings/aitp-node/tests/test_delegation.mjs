@@ -15,7 +15,11 @@ import {
   verifyDelegation,
   verifyDelegationMultihop,
 } from '../index.js';
-import { withClaims } from './_jws.mjs';
+import {
+  withClaims,
+  decodeJwsPayload,
+  tamperJwsSignature,
+} from './_jws.mjs';
 
 const HAS_MULTIHOP =
   typeof verifyDelegationMultihop === 'function';
@@ -141,3 +145,98 @@ test(
     });
   },
 );
+
+// ── Revocation (RFC-AITP-0006 §4 step 7, RFC-AITP-0011 §6) ───────────────
+//
+// The Rust core has always had `revocation_check` / `hop_revocation_check`.
+// What was missing was any way to reach them from JS: both entry points
+// built their context with `VerifyDelegationContext::new`, which hardcodes
+// both hooks to `None`, and neither exposed a parameter. Every delegation
+// redeemed through this SDK therefore skipped step 7 — a MUST-reject — and a
+// revoked source TCT still bought a freshly minted TCT for the delegatee.
+//
+// These pin the wiring; the semantics are covered in the core's own tests.
+
+/** The `src_jti` of the voucher a delegation is rooted in — what A revokes. */
+function srcJti(delegationToken) {
+  const claims = decodeJwsPayload(delegationToken);
+  return decodeJwsPayload(claims.voucher).src_jti;
+}
+
+test('revoking the source TCT rejects the delegation', () => {
+  const { a, delegationToken } = buildVoucher();
+
+  // Sanity: verifies while nothing is revoked, so the rejection below is
+  // attributable to the deny list and nothing else.
+  verifyDelegation(delegationToken, a.aid);
+
+  assert.throws(
+    () => verifyDelegation(delegationToken, a.aid, [srcJti(delegationToken)]),
+    /revoked/i,
+  );
+});
+
+test('a revoked source TCT yields no TCT for the delegatee', () => {
+  // Step 7 is not bookkeeping: redeeming a delegation mints a *fresh TCT*
+  // for the delegatee. Skipping it meant a revoked grant kept minting
+  // credentials for a third party the grantor never re-authorized.
+  const { a, delegationToken } = buildVoucher();
+
+  assert.throws(() => {
+    const verified = verifyDelegation(delegationToken, a.aid, [
+      srcJti(delegationToken),
+    ]);
+    // Unreachable while step 7 holds. If it ever is reached, this is the
+    // line that shows what the omission actually costs.
+    a.issueTctForDelegatee(verified);
+  });
+});
+
+test('an unrelated revoked jti does not reject', () => {
+  // The lookup is keyed on `src_jti`, not "the list is non-empty" — without
+  // this, a blanket-reject bug would pass the test above.
+  const { a, delegationToken } = buildVoucher();
+  const unrelated = '00000000-0000-4000-8000-000000000000';
+  assert.notEqual(unrelated, srcJti(delegationToken));
+
+  const verified = verifyDelegation(delegationToken, a.aid, [unrelated]);
+  assert.equal(verified.delegator, a.aid);
+});
+
+test('omitting revokedJtis verifies a revoked delegation', () => {
+  // Pins the default so it cannot change silently. Omitting the list waives
+  // step 7 entirely — the same posture `verifyTct` takes, and the reason
+  // both doc comments say verifiers SHOULD supply it. This documents the
+  // hazard rather than endorsing it.
+  const { a, delegationToken } = buildVoucher();
+  const verified = verifyDelegation(delegationToken, a.aid);
+  assert.equal(verified.delegator, a.aid);
+});
+
+test('malformed jtis in the list are ignored, not treated as matches', () => {
+  // `parseRevokedSet` drops anything that is not a UUID. A list of pure
+  // garbage must therefore behave exactly like an empty one, rather than
+  // rejecting every token that comes near it.
+  const { a, delegationToken } = buildVoucher();
+  const verified = verifyDelegation(delegationToken, a.aid, [
+    'not-a-uuid',
+    '',
+  ]);
+  assert.equal(verified.delegator, a.aid);
+});
+
+test('revocation is consulted only after the signature checks', () => {
+  // RFC-AITP-0008 §3.3 ordering, and it is not cosmetic: running the one
+  // stateful lookup before the signature checks would let an unauthenticated
+  // caller probe which jtis are in a verifier's deny list by watching which
+  // forged tokens come back "revoked" versus "bad signature".
+  const { a, delegationToken } = buildVoucher();
+  const tampered = tamperJwsSignature(delegationToken);
+
+  assert.throws(
+    () => verifyDelegation(tampered, a.aid, [srcJti(delegationToken)]),
+    (err) => !/revoked/i.test(String(err.message)),
+    'a token failing signature verification was reported as revoked — the ' +
+      'deny-list lookup ran before the signature checks',
+  );
+});

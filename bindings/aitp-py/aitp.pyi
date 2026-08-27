@@ -185,23 +185,47 @@ class AitpAgent:
 # ── Free functions ──────────────────────────────────────────────────────
 
 def verify_delegation(
-    delegation_token: str, verifier_aid: str
+    delegation_token: str,
+    verifier_aid: str,
+    revoked_jtis: Optional[AbstractSet[str]] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.2
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
     (RFC-AITP-0011 multi-hop) is rejected with
     `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use
-    `verify_delegation_multihop` instead."""
+    `verify_delegation_multihop` instead.
+
+    `revoked_jtis` is the verifier's own deny list. When supplied, a token
+    whose `voucher.src_jti` is in the set is rejected after every signature
+    check passes (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3).
+    **Supply it.** Omitting it silently redeems a delegation whose source TCT
+    has been revoked — step 7 states that as a MUST-reject."""
     ...
 
 def verify_delegation_multihop(
-    delegation_token: str, verifier_aid: str, max_delegation_hops: int = 3
+    delegation_token: str,
+    verifier_aid: str,
+    max_delegation_hops: int = 3,
+    revoked_jtis: Optional[AbstractSet[str]] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
     multi-hop chains up to `max_delegation_hops` total hops. Present by default (the
     `multihop-delegation` Cargo feature); absent only in a
     `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
-    single-hop."""
+    single-hop.
+
+    `revoked_jtis`, when supplied, is consulted twice — both only after every
+    signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
+    step 7), and once for every hop's `jti`, meaning each chain entry and the
+    outer token (RFC-AITP-0011 §6). Both are MUST-rejects. A revoked hop
+    invalidates every hop downstream of it; there is no partial-validity
+    model.
+
+    Note that §6 specifies each hop `jti` be checked against the deny list of
+    *that hop's issuer*, which one flat set cannot express — so the set is
+    applied to every hop regardless of issuer. That can only reject more,
+    never accept a revoked hop, but it does mean a set aggregated from
+    several issuers lets any contributor revoke any hop."""
     ...
 class ManifestVerificationError(RuntimeError):
     """A manifest envelope failed verification.
