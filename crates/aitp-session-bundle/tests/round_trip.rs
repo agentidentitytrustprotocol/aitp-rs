@@ -524,3 +524,47 @@ fn bundle_without_extensions_still_verifies_unchanged() {
     let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
 }
+
+/// A bundle carrying a **present-but-empty** `extensions` map must verify.
+///
+/// `absent_vs_present_empty_extensions_are_distinguishable_and_stable`
+/// pins the distinction at the serde/canonicalization layer, but never
+/// reaches the verifier. The signing input is reconstructed a second
+/// time in `verifier.rs` (`BundleSigningBody`), and a normalization
+/// applied *there* — collapsing `Some(empty)` back to `None` before
+/// hashing — is invisible to every other test in this file: the struct
+/// still round-trips, the canonical bytes still differ, and only the
+/// digest silently stops matching what was signed.
+///
+/// Verified by mutation: rewriting the verifier's reconstruction as
+/// `bundle.extensions.as_ref().filter(|m| !m.is_empty())` leaves the
+/// rest of this suite fully green and fails only this test.
+#[test]
+fn present_but_empty_extensions_still_verifies() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .extensions(ExtensionsMap::new())
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    assert_eq!(
+        serde_json::to_value(&bundle).unwrap().get("extensions"),
+        Some(&serde_json::json!({})),
+        "the signed bundle must carry an explicit empty extensions object"
+    );
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
+    assert!(
+        matches!(outcome, BundleOutcome::Clear { .. }),
+        "a bundle signed over \"extensions\":{{}} must verify against a \
+         signing input that also carries it"
+    );
+}
