@@ -185,26 +185,116 @@ class AitpAgent:
 # ── Free functions ──────────────────────────────────────────────────────
 
 def verify_delegation(
-    delegation_token: str, verifier_aid: str
+    delegation_token: str,
+    verifier_aid: str,
+    revoked_jtis: Optional[AbstractSet[str]] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.2
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
     (RFC-AITP-0011 multi-hop) is rejected with
     `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use
-    `verify_delegation_multihop` instead."""
+    `verify_delegation_multihop` instead.
+
+    `revoked_jtis` is the verifier's own deny list. When supplied, a token
+    whose `voucher.src_jti` is in the set is rejected after every signature
+    check passes (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3).
+    **Supply it.** Omitting it silently redeems a delegation whose source TCT
+    has been revoked — step 7 states that as a MUST-reject."""
     ...
 
 def verify_delegation_multihop(
-    delegation_token: str, verifier_aid: str, max_delegation_hops: int = 3
+    delegation_token: str,
+    verifier_aid: str,
+    max_delegation_hops: int = 3,
+    revoked_jtis: Optional[AbstractSet[str]] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
     multi-hop chains up to `max_delegation_hops` total hops. Present by default (the
     `multihop-delegation` Cargo feature); absent only in a
     `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
-    single-hop."""
+    single-hop.
+
+    `revoked_jtis`, when supplied, is consulted twice — both only after every
+    signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
+    step 7), and once for every hop's `jti`, meaning each chain entry and the
+    outer token (RFC-AITP-0011 §6). Both are MUST-rejects. A revoked hop
+    invalidates every hop downstream of it; there is no partial-validity
+    model.
+
+    Note that §6 specifies each hop `jti` be checked against the deny list of
+    *that hop's issuer*, which one flat set cannot express — so the set is
+    applied to every hop regardless of issuer. That can only reject more,
+    never accept a revoked hop, but it does mean a set aggregated from
+    several issuers lets any contributor revoke any hop."""
     ...
+class ManifestVerificationError(RuntimeError):
+    """A manifest envelope failed verification.
+
+    `code` is the stable, machine-readable cause — one of
+    `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
+    `version_unknown`, `identity_hint_malformed`,
+    `incompatible_identity_type`, `malformed`. **Branch on `code`, never on
+    the message text.**
+
+    Inherits `RuntimeError`, which is what this function raised before it was
+    typed — adding a machine-readable cause does not break a caller that was
+    already handling the failure."""
+
+    code: str
+
 def verify_manifest_json(manifest_envelope_json: str) -> None:
-    """Verify a `ManifestEnvelope` JSON. Raises on failure."""
+    """Verify a `ManifestEnvelope` JSON. Raises on failure.
+
+    Raises `ManifestVerificationError` (with `.code`) when the envelope does
+    not verify, and `ValueError` when it is not parseable as a manifest at
+    all — that second one is the caller handing us the wrong bytes, not a
+    peer failing verification."""
+    ...
+
+class RevocationVerificationError(RuntimeError):
+    """A revocation snapshot failed verification.
+
+    `code` is the stable, machine-readable cause — one of
+    `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
+    `malformed`. **Branch on `code`, never on the message text**: matching an
+    exception message pins program output as an expected value, which is the
+    bug class the 0.5.0 signing-input change exposed. Before 0.6.0 there was
+    no typed error here at all, so message-matching was the only option."""
+
+    code: str
+
+def verify_revocation_list(
+    envelope_json: str,
+    expected_issuer_aid: str,
+    now_unix_secs: Optional[int] = ...,
+) -> None:
+    """Verify a `RevocationListEnvelope` against a pinned issuer.
+
+    Returns `None` on success; raises `RevocationVerificationError` (with
+    `.code`) otherwise. Raises `ValueError` if `expected_issuer_aid` is not a
+    valid AID — that is the caller's mistake, not the snapshot's.
+
+    Establishes **authenticity and non-expiry only**: the snapshot was signed
+    by the holder of `expected_issuer_aid`, and its `expires_at` has not
+    passed. It deliberately does NOT check `published_at` staleness —
+    RFC-AITP-0008 §3 puts freshness policy at the consuming peer, and
+    collapsing authenticity and freshness into one switch is how a `soft_fail`
+    mode ends up reporting a *forged* snapshot as not-revoked. The staleness
+    budget is yours; `published_at` is on the body for that purpose.
+
+    Verification without a pinned expected issuer would be near-worthless —
+    any key can sign a list — which is why the AID is required, not optional."""
+    ...
+
+def revocation_signing_bytes(envelope_json: str) -> bytes:
+    """The exact bytes a revocation snapshot's signature is computed over:
+    `JCS(revocation_list)` — the **inner** body, not the `{"revocation_list":
+    ...}` transport wrapper.
+
+    Exposed so a caller needing the signed bytes (an independent verifier, an
+    HSM signing path, a debugging tool) obtains them instead of reconstructing
+    the shape at the call site. Reconstructing it is exactly how signer,
+    verifier and conformance fixture drifted apart before 0.5.0."""
     ...
 
 def compute_aid_jkt(aid: str) -> str:

@@ -18,6 +18,17 @@ use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationCont
 use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
+use uuid::Uuid;
+
+// Same set-up-front model as `tct.rs`, and reused from it so the
+// "malformed jtis are ignored" semantics are stated in exactly one place.
+// Calling back into the JS runtime per-`jti` is unsound under napi's
+// threading constraints, and a callback would also have no way to report a
+// throw through a `Fn(&Uuid) -> bool` — the error would have to be swallowed
+// as "not revoked", turning a failed deny-list lookup into a silently
+// honored revoked token. For a check RFC-AITP-0006 §4 step 7 states as a
+// MUST, failing open on error is not an acceptable default.
+use crate::tct::parse_revoked_set;
 
 /// The verified delegation's salient fields. Returned from
 /// `verifyDelegation` and consumed by `AitpAgent.issueTctForDelegatee`.
@@ -53,13 +64,31 @@ pub struct JsDelegationVerified {
 /// delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
 /// matching the Rust core default. To allow multi-hop chains, call
 /// `verifyDelegationMultihop` instead.
+///
+/// `revokedJtis` is an optional list of revoked `jti` strings — the
+/// verifier's own deny list. When non-empty, a token whose
+/// `voucher.src_jti` is in it is rejected after every signature check passes
+/// (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
+/// SHOULD supply it.** Omitting it silently redeems a delegation whose
+/// source TCT has been revoked, which step 7 states as a MUST-reject.
 #[napi(js_name = "verifyDelegation")]
-pub fn verify_delegation_js(token: String, verifier_aid: String) -> Result<JsDelegationVerified> {
+pub fn verify_delegation_js(
+    token: String,
+    verifier_aid: String,
+    revoked_jtis: Option<Vec<String>>,
+) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
 
+    let revoked = parse_revoked_set(revoked_jtis);
+    let root_closure = |jti: &Uuid| revoked.contains(jti);
+
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0`, so a non-empty
-    // chain fails before any per-hop work runs.
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    // chain fails before any per-hop work runs — which is also why only the
+    // root check is wired here: there are no hops.
+    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    if !revoked.is_empty() {
+        ctx = ctx.with_revocation_check(&root_closure);
+    }
 
     let verified = verify_delegation(&token, &ctx)
         .map_err(|e| Error::from_reason(format!("delegation verification failed: {e}")))?;
@@ -77,18 +106,41 @@ pub fn verify_delegation_js(token: String, verifier_aid: String) -> Result<JsDel
 /// `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
 /// `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
+///
+/// `revokedJtis`, when non-empty, is consulted twice — both only after every
+/// signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
+/// step 7), and once for every hop's `jti`, meaning each chain entry and the
+/// outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
+/// invalidates every hop downstream of it — there is no partial-validity
+/// model.
+///
+/// Note that §6 specifies each hop `jti` be checked against the deny list of
+/// *that hop's issuer*, which one flat list cannot express, so it is applied
+/// to every hop regardless of issuer. That can only reject more, never
+/// accept a revoked hop, but it does mean a list aggregated across several
+/// issuers lets any contributor revoke any hop.
 #[cfg(feature = "multihop-delegation")]
 #[napi(js_name = "verifyDelegationMultihop")]
 pub fn verify_delegation_multihop_js(
     token: String,
     verifier_aid: String,
     max_delegation_hops: Option<u32>,
+    revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
 
+    let revoked = parse_revoked_set(revoked_jtis);
+    let root_closure = |jti: &Uuid| revoked.contains(jti);
+    let hop_closure = |_issuer: &Aid, jti: &Uuid| revoked.contains(jti);
+
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx =
+    let mut ctx =
         VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(hops);
+    if !revoked.is_empty() {
+        ctx = ctx
+            .with_revocation_check(&root_closure)
+            .with_hop_revocation_check(&hop_closure);
+    }
 
     let verified = verify_delegation(&token, &ctx)
         .map_err(|e| Error::from_reason(format!("delegation verification failed: {e}")))?;

@@ -125,8 +125,15 @@ export interface JsDelegationVerified {
  * delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
  * matching the Rust core default. To allow multi-hop chains, call
  * `verifyDelegationMultihop` instead.
+ *
+ * `revokedJtis` is an optional list of revoked `jti` strings — the
+ * verifier's own deny list. When non-empty, a token whose
+ * `voucher.src_jti` is in it is rejected after every signature check passes
+ * (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
+ * SHOULD supply it.** Omitting it silently redeems a delegation whose
+ * source TCT has been revoked, which step 7 states as a MUST-reject.
  */
-export declare function verifyDelegation(token: string, verifierAid: string): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
  * chains up to `maxDelegationHops` total hops (`chain.length + 1`).
@@ -138,8 +145,21 @@ export declare function verifyDelegation(token: string, verifierAid: string): Js
  * `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
  * recommended ceiling). Pass a smaller value for a tighter bound;
  * `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
+ *
+ * `revokedJtis`, when non-empty, is consulted twice — both only after every
+ * signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
+ * step 7), and once for every hop's `jti`, meaning each chain entry and the
+ * outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
+ * invalidates every hop downstream of it — there is no partial-validity
+ * model.
+ *
+ * Note that §6 specifies each hop `jti` be checked against the deny list of
+ * *that hop's issuer*, which one flat list cannot express, so it is applied
+ * to every hop regardless of issuer. That can only reject more, never
+ * accept a revoked hop, but it does mean a list aggregated across several
+ * issuers lets any contributor revoke any hop.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 /**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
@@ -157,6 +177,33 @@ export declare function computeAidJkt(aid: string): string
  * a 32-byte Buffer. Throws if `certDer` is not a parseable certificate.
  */
 export declare function computeSpkiHash(certDer: Buffer): Buffer
+/**
+ * Verify a `RevocationListEnvelope` JSON string against a pinned issuer.
+ *
+ * Resolves on success; on failure throws an `Error` whose **`code`** property
+ * is one of `signature_invalid`, `issuer_mismatch`, `version_unknown`,
+ * `expired`, `malformed`. Branch on `error.code`, never on `error.message`:
+ * the code is the contract, the message wording is not.
+ *
+ * Establishes **authenticity and non-expiry only** — that the snapshot was
+ * signed by the holder of `expectedIssuerAid` and that its `expires_at` has
+ * not passed. It deliberately does not check `published_at` staleness:
+ * RFC-AITP-0008 §3 puts freshness policy at the consuming peer, and
+ * collapsing authenticity and freshness into a single switch is how a
+ * `soft_fail` mode ends up reporting a *forged* snapshot as not-revoked.
+ * The caller owns the staleness budget.
+ */
+export declare function verifyRevocationList(envelopeJson: string, expectedIssuerAid: string, nowUnixSecs?: number | undefined | null): void
+/**
+ * The exact bytes a revocation snapshot's signature is computed over:
+ * `JCS(revocation_list)` — the **inner** body, not the transport wrapper.
+ *
+ * Exposed so a caller needing the signed bytes (an independent verifier, an
+ * HSM signing path, a debugging tool) obtains them rather than reconstructing
+ * the shape at the call site. Reconstructing it is how signer, verifier and
+ * conformance fixture drifted apart before 0.5.0.
+ */
+export declare function revocationSigningBytes(envelopeJson: string): Buffer
 /** Result of `processHello`: response body plus session id. */
 export interface JsHelloAckResult {
   /** `MUTUAL_HELLO_ACK` envelope JSON — set as the HTTP response body. */
@@ -227,9 +274,15 @@ export interface JsTctIdentity {
   jti: string
 }
 /**
- * Verify a `ManifestEnvelope` JSON string. Throws on signature,
- * proof-of-possession, expiry, or identity-hint shape failures.
- * Used by the AITP Control Plane during agent enrollment.
+ * Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane
+ * during agent enrollment, and by any consumer reading an AID or endpoint
+ * out of a peer's manifest.
+ *
+ * On failure throws an `Error` whose **`code`** property is one of
+ * `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
+ * `version_unknown`, `identity_hint_malformed`,
+ * `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
+ * on `error.message`: the code is the contract, the wording is not.
  */
 export declare function verifyManifestJson(manifestEnvelopeJson: string): void
 /** An AITP agent: a signing key and (once built) its Manifest. */

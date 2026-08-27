@@ -53,7 +53,7 @@ fn peek_tct_claims(token: &str) -> Result<TctClaims> {
 /// up-front. The closure returns `true` for any `jti` in the set, which
 /// `verify_tct` treats as a revoked-and-rejected TCT. Malformed `jti`
 /// strings in the list are ignored (they can never match a real UUID).
-fn parse_revoked_set(revoked: Option<Vec<String>>) -> HashSet<Uuid> {
+pub(crate) fn parse_revoked_set(revoked: Option<Vec<String>>) -> HashSet<Uuid> {
     revoked
         .unwrap_or_default()
         .into_iter()
