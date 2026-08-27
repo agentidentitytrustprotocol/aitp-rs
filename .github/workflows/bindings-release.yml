@@ -48,9 +48,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        # napi cross-compiling tripped over the repo's 1.89.0 toolchain
-        # pin (the cross target's std landed on `stable`, not 1.89.0)
-        # and the zig path. The toolchain step below now pins 1.89.0 and
+        # napi cross-compiling tripped over the repo's 1.90.0 toolchain
+        # pin (the cross target's std landed on `stable`, not 1.90.0)
+        # and the zig path. The toolchain step below now pins 1.90.0 and
         # adds the target's std there, so the macOS x86_64 cross (arm ->
         # x86, same OS) builds reliably without a scarce Intel runner.
         # Linux arm64 builds on a native `ubuntu-24.04-arm` runner (free
@@ -72,7 +72,7 @@ jobs:
           node-version: '20'
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.89.0"        # match rust-toolchain.toml
+          toolchain: "1.90.0"        # match rust-toolchain.toml
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:

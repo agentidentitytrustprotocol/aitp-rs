@@ -2,7 +2,9 @@
 # Kept in lockstep with `rust-version` in the workspace `Cargo.toml`,
 # `clippy.toml` (`msrv`), and the CI MSRV matrix entry. The floor was
 # originally forced up from 1.75 by transitive deps (`time`,
-# `time-macros`, `icu_*`, `idna_adapter`, `clap_lex`).
-channel = "1.89.0"
+# `time-macros`, `icu_*`, `idna_adapter`, `clap_lex`), and then from
+# 1.89 to 1.90 by `ordered-float` 5.5.0 (pulled in via `metrics-util`
+# 0.20's dep tree).
+channel = "1.90.0"
 components = ["rustfmt", "clippy"]
 profile = "minimal"

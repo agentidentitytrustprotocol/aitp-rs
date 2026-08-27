@@ -118,7 +118,7 @@ jobs:
         toolchain: [stable]
         include:
           - os: ubuntu-latest
-            toolchain: "1.89.0"   # MSRV gate — kept in lockstep with rust-toolchain.toml and rust-version
+            toolchain: "1.90.0"   # MSRV gate — kept in lockstep with rust-toolchain.toml and rust-version
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
@@ -165,19 +165,19 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.89.0"
+          toolchain: "1.90.0"
       # Installed explicitly instead of via rustsec/audit-check, which runs
       # a plain `cargo install cargo-audit`. Unlocked, cargo resolves
       # cargo-audit's dependencies to their newest semver-compatible
       # versions -- and one of those (kstring 2.0.4) now requires rustc
-      # 1.96, above this repo's 1.89 MSRV pin. The tool then fails to BUILD
+      # 1.96, above this repo's 1.90 MSRV pin. The tool then fails to BUILD
       # and the job goes red without ever auditing anything, which reads as
       # a security failure but is a toolchain-resolution failure.
       #
       # `--locked` makes cargo-audit's own committed lockfile govern its
       # dependency versions, which are chosen to build on older rustc.
       # Verified: `cargo install cargo-audit --locked` compiles under
-      # 1.89.0 and `cargo audit` then scans cleanly.
+      # 1.90.0 and `cargo audit` then scans cleanly.
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
       - name: Audit the dependency tree
@@ -234,17 +234,17 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-msrv
         # Install from outside the repo so rustup ignores the
-        # rust-toolchain.toml pin (1.89) and uses the runner's stable
+        # rust-toolchain.toml pin (1.90) and uses the runner's stable
         # toolchain to compile cargo-msrv. The latest cargo-msrv
-        # (≥0.19) requires rustc ≥1.91 and won't compile under 1.89.
+        # (≥0.19) requires rustc ≥1.91 and won't compile under 1.90.
         working-directory: /tmp
         run: cargo install --locked cargo-msrv
-      - name: Verify pinned MSRV (1.89) still builds
+      - name: Verify pinned MSRV (1.90) still builds
         # cargo-msrv verify reads `package.rust-version` from a single
         # package manifest — it doesn't understand virtual workspaces.
         # Point it at the facade crate, which transitively depends on
         # every protocol crate via path deps. If `aitp` compiles under
-        # 1.89, the whole workspace does.
+        # 1.90, the whole workspace does.
         run: cargo msrv verify --manifest-path crates/aitp/Cargo.toml
 
   coverage:
@@ -258,7 +258,7 @@ jobs:
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       - name: Install cargo-tarpaulin
         # Install from outside the repo so the project's pinned MSRV
-        # (1.89 in rust-toolchain.toml) doesn't gate the install. The
+        # (1.90 in rust-toolchain.toml) doesn't gate the install. The
         # latest cargo-tarpaulin pulls in `cargo-platform` 0.3.x, which
         # requires rustc ≥1.91; the runner's stable toolchain handles it.
         working-directory: /tmp
@@ -462,14 +462,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      # Pin to 1.89.0 (matching rust-toolchain.toml) and install the wasm
+      # Pin to 1.90.0 (matching rust-toolchain.toml) and install the wasm
       # target for THAT toolchain. Installing it for `stable` would miss:
-      # rust-toolchain.toml overrides cargo to 1.89.0 inside the repo, and
-      # 1.89.0 auto-installs with a minimal profile (no wasm target),
+      # rust-toolchain.toml overrides cargo to 1.90.0 inside the repo, and
+      # 1.90.0 auto-installs with a minimal profile (no wasm target),
       # yielding `can't find crate for core` (E0463).
       - uses: dtolnay/rust-toolchain@fa04a1451ff1842e2626ccb99004d0195b455a88 # master
         with:
-          toolchain: "1.89.0"
+          toolchain: "1.90.0"
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
       # Guards the "pure crates stay portable" invariant: no native-only
