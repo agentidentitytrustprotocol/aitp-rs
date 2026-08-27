@@ -2,11 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://aitp.dev/schema/v0.2/session-bundle.json",
   "title": "SessionTrustBundle",
-  "description": "AITP v0.2 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh. The bundle itself is JCS-profile signed; participant TCTs are embedded as opaque compact JWS strings.",
+  "description": "AITP v0.2 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh. The bundle itself is JCS-profile signed; participant TCTs are embedded as opaque compact JWS strings. On the wire the signed body is carried inside a `{\"session_bundle\": \u2026}` transport wrapper; the `signature` member lives inside that body, not beside the wrapper.",
   "type": "object",
   "required": [
-    "session_bundle",
-    "signature"
+    "session_bundle"
   ],
   "additionalProperties": false,
   "properties": {
@@ -18,7 +17,8 @@
         "coordinator",
         "issued_at",
         "expires_at",
-        "participants"
+        "participants",
+        "signature"
       ],
       "additionalProperties": false,
       "properties": {
@@ -75,14 +75,14 @@
         "extensions": {
           "type": "object",
           "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected."
+        },
+        "signature": {
+          "type": "string",
+          "minLength": 1,
+          "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$",
+          "description": "Coordinator's unpadded base64url signature, optionally algorithm-tagged per RFC-AITP-0001 \u00a75.4.3, over the JCS-canonical bytes of this `session_bundle` body with the `signature` member itself excluded: `sig_input = sha256(canonical_json(session_bundle_without_signature))`. The `{\"session_bundle\": \u2026}` wrapper is transport routing metadata and is never part of the signing bytes. The signature is a member of the signed body, not a sibling of the wrapper, because the bundle is redistributable \u2014 coordinator-signed once and forwarded, cached and relayed to every participant over any transport that preserves the canonical JSON (RFC-AITP-0010 \u00a74.3) \u2014 so it must carry its own proof across any hop that strips the wrapper. This is deliberately NOT the sibling convention used by the revocation snapshot, which is polled point-to-point from the issuing peer's `ListRevoked` endpoint and never relayed."
         }
       }
-    },
-    "signature": {
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$",
-      "description": "Coordinator's unpadded base64url signature over the JCS-canonical bytes of `session_bundle` (RFC 8785), optionally algorithm-tagged per RFC-AITP-0001 §5.4.3. Same convention as the RFC-AITP-0008 revocation list."
     }
   }
 }

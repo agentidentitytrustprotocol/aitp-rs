@@ -22,6 +22,11 @@ fn sample_bundle(session_id: Uuid) -> SessionBundleEnvelope {
             issued_at: Timestamp(1_700_000_000),
             expires_at: Timestamp(1_700_003_600),
             participants: vec![],
+            // Absent, not `Some(empty)`: the two are different signing
+            // inputs (RFC-AITP-0001 §5.4.1). This endpoint only stores and
+            // returns the envelope verbatim, but the fixture should still
+            // be a shape a coordinator would actually mint.
+            extensions: None,
             signature: aitp_core::base64url::encode(&[0u8; 64]),
         },
     }

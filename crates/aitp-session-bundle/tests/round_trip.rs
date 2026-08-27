@@ -7,11 +7,11 @@
 //! distributes it. Any participant can verify the bundle and learn
 //! the full session roster.
 
-use aitp_core::Timestamp;
+use aitp_core::{jcs, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_session_bundle::{
     verify_session_bundle, BundleOutcome, SessionBundleBuilder, SessionBundleError,
-    VerifySessionBundleContext,
+    SessionTrustBundle, VerifySessionBundleContext,
 };
 use aitp_tct::TctBuilder;
 use uuid::Uuid;
@@ -345,4 +345,226 @@ fn version_mismatch_rejected() {
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::VersionMismatch));
+}
+
+// ── `extensions` (RFC-AITP-0001 §7, issue #87) ──────────────────────
+
+/// A bundle carrying a populated `extensions` object round-trips
+/// (deserialize → re-serialize → JCS-canonicalize produces byte-identical
+/// output to the input's canonical form), and its signature still
+/// verifies.
+#[test]
+fn populated_extensions_round_trip_and_signature_verifies() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+
+    let mut extensions = ExtensionsMap::new();
+    extensions.insert(
+        "vendor.example/feature",
+        serde_json::json!({"enabled": true}),
+    );
+
+    let bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .extensions(extensions)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    // Serialize -> canonicalize once (the "input's canonical form").
+    let original_value = serde_json::to_value(&bundle).unwrap();
+    let original_canonical = jcs::canonicalize(&original_value).unwrap();
+
+    // Deserialize -> re-serialize -> canonicalize again.
+    let round_tripped: SessionTrustBundle = serde_json::from_value(original_value).unwrap();
+    assert_eq!(round_tripped, bundle);
+    let round_tripped_value = serde_json::to_value(&round_tripped).unwrap();
+    let round_tripped_canonical = jcs::canonicalize(&round_tripped_value).unwrap();
+
+    assert_eq!(
+        original_canonical, round_tripped_canonical,
+        "populated extensions must canonicalize identically before and after a round-trip"
+    );
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
+    assert!(matches!(outcome, BundleOutcome::Clear { .. }));
+}
+
+/// Absent `extensions` and present-but-empty `extensions` (`{}`) MUST
+/// canonicalize to different byte strings, and each must round-trip
+/// back to its own original form. This is the test that catches the
+/// "defaulted empty map" trap: an implementation that silently
+/// normalizes `None` and `Some(ExtensionsMap::new())` into each other
+/// would pass every other test here but fail this one.
+#[test]
+fn absent_vs_present_empty_extensions_are_distinguishable_and_stable() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+
+    let bundle_absent = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+    assert!(bundle_absent.extensions.is_none());
+
+    let bundle_empty = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .extensions(ExtensionsMap::new())
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+    assert!(bundle_empty.extensions.is_some());
+
+    let absent_value = serde_json::to_value(&bundle_absent).unwrap();
+    let empty_value = serde_json::to_value(&bundle_empty).unwrap();
+
+    // No `extensions` key at all when absent.
+    assert!(absent_value.get("extensions").is_none());
+    // An explicit `"extensions":{}` when present-but-empty.
+    assert_eq!(empty_value.get("extensions"), Some(&serde_json::json!({})));
+
+    let absent_canonical = jcs::canonicalize(&absent_value).unwrap();
+    let empty_canonical = jcs::canonicalize(&empty_value).unwrap();
+    assert_ne!(
+        absent_canonical, empty_canonical,
+        "absent and present-but-empty extensions must canonicalize to DIFFERENT bytes"
+    );
+
+    // Each is stable under its own round-trip.
+    let absent_rt: SessionTrustBundle = serde_json::from_value(absent_value).unwrap();
+    assert_eq!(absent_rt, bundle_absent);
+    assert!(absent_rt.extensions.is_none());
+
+    let empty_rt: SessionTrustBundle = serde_json::from_value(empty_value).unwrap();
+    assert_eq!(empty_rt, bundle_empty);
+    assert!(empty_rt.extensions.is_some());
+}
+
+/// Unknown keys *inside* `extensions` are preserved through a
+/// round-trip (RFC-AITP-0001 §7: unknown keys inside `extensions` MUST
+/// be ignored semantically, but the bytes must survive so the signature
+/// — computed over exactly these bytes — still verifies).
+#[test]
+fn unknown_keys_inside_extensions_are_preserved_through_round_trip() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+
+    let mut extensions = ExtensionsMap::new();
+    extensions.insert(
+        "vendor.example/future-feature",
+        serde_json::json!({
+            "unknown_nested_field": "some value",
+            "another_unknown": [1, 2, 3],
+        }),
+    );
+
+    let bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .extensions(extensions)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    let value = serde_json::to_value(&bundle).unwrap();
+    let round_tripped: SessionTrustBundle = serde_json::from_value(value).unwrap();
+
+    assert_eq!(round_tripped, bundle);
+    assert_eq!(
+        round_tripped
+            .extensions
+            .as_ref()
+            .and_then(|e| e.get("vendor.example/future-feature")),
+        Some(&serde_json::json!({
+            "unknown_nested_field": "some value",
+            "another_unknown": [1, 2, 3],
+        }))
+    );
+
+    // Verification still succeeds — unknown keys inside `extensions`
+    // are opaque payload, not a parse/verify failure.
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
+    assert!(matches!(outcome, BundleOutcome::Clear { .. }));
+}
+
+/// Regression guard: existing bundles with no `extensions` continue to
+/// verify unchanged now that the field exists on the struct.
+#[test]
+fn bundle_without_extensions_still_verifies_unchanged() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    assert!(bundle.extensions.is_none());
+    let value = serde_json::to_value(&bundle).unwrap();
+    assert!(
+        value.get("extensions").is_none(),
+        "no extensions key should be emitted when unset"
+    );
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
+    assert!(matches!(outcome, BundleOutcome::Clear { .. }));
+}
+
+/// A bundle carrying a **present-but-empty** `extensions` map must verify.
+///
+/// `absent_vs_present_empty_extensions_are_distinguishable_and_stable`
+/// pins the distinction at the serde/canonicalization layer, but never
+/// reaches the verifier. The signing input is reconstructed a second
+/// time in `verifier.rs` (`BundleSigningBody`), and a normalization
+/// applied *there* — collapsing `Some(empty)` back to `None` before
+/// hashing — is invisible to every other test in this file: the struct
+/// still round-trips, the canonical bytes still differ, and only the
+/// digest silently stops matching what was signed.
+///
+/// Verified by mutation: rewriting the verifier's reconstruction as
+/// `bundle.extensions.as_ref().filter(|m| !m.is_empty())` leaves the
+/// rest of this suite fully green and fails only this test.
+#[test]
+fn present_but_empty_extensions_still_verifies() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let bundle = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .extensions(ExtensionsMap::new())
+        .participant(alice.aid().clone(), issue_tct(&coord, &alice, 3600))
+        .build()
+        .unwrap();
+
+    assert_eq!(
+        serde_json::to_value(&bundle).unwrap().get("extensions"),
+        Some(&serde_json::json!({})),
+        "the signed bundle must carry an explicit empty extensions object"
+    );
+
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: alice.aid(),
+        now: NOW,
+        revocation_check: None,
+    };
+    let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
+    assert!(
+        matches!(outcome, BundleOutcome::Clear { .. }),
+        "a bundle signed over \"extensions\":{{}} must verify against a \
+         signing input that also carries it"
+    );
 }

@@ -1,13 +1,13 @@
 //! Wire types for Session Trust Bundle (RFC-AITP-0010 §3).
 
-use aitp_core::{Aid, Timestamp};
+use aitp_core::{Aid, ExtensionsMap, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
 /// Coordinator-attested session membership artifact (RFC-AITP-0010 §3).
 ///
-/// The schema is `additionalProperties: false`; v0.1 has no `extensions`
-/// slot.
+/// The schema is `additionalProperties: false`, with an explicit
+/// `extensions` slot reserved per RFC-AITP-0001 §7.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct SessionTrustBundle {
@@ -24,6 +24,18 @@ pub struct SessionTrustBundle {
     pub expires_at: Timestamp,
     /// One entry per session participant.
     pub participants: Vec<ParticipantEntry>,
+    /// Forward-compatible extension namespace (RFC-AITP-0001 §7).
+    ///
+    /// **Presence-sensitive**, deliberately modeled as `Option<ExtensionsMap>`
+    /// rather than a defaulted empty map with `skip_serializing_if =
+    /// "is_empty"`. Under RFC 8785 canonicalization, absent (`None`) emits
+    /// no `extensions` key at all, while present-but-empty
+    /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
+    /// bytes, different digest, different signature. Silently normalizing
+    /// one into the other would change the signing input and break
+    /// verification against a conformant peer (RFC-AITP-0001 §5.4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ExtensionsMap>,
     /// Coordinator's signature over the canonical bundle JSON
     /// excluding `signature`. JCS rules per RFC-AITP-0001 §5.4.1.
     pub signature: String,

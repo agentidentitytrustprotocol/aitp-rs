@@ -113,6 +113,7 @@ pub fn verify_session_bundle(
         issued_at: &bundle.issued_at,
         expires_at: &bundle.expires_at,
         participants: &bundle.participants,
+        extensions: bundle.extensions.as_ref(),
     })?;
     let digest = Sha256::digest(&canonical);
     let outer_sig =
