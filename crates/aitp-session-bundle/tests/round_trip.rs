@@ -359,7 +359,10 @@ fn populated_extensions_round_trip_and_signature_verifies() {
     let alice = key(0xA0);
 
     let mut extensions = ExtensionsMap::new();
-    extensions.insert("vendor.example/feature", serde_json::json!({"enabled": true}));
+    extensions.insert(
+        "vendor.example/feature",
+        serde_json::json!({"enabled": true}),
+    );
 
     let bundle = SessionBundleBuilder::new(&coord)
         .issued_at(NOW)
