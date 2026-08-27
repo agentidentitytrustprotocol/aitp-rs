@@ -22,6 +22,51 @@ use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationCont
 use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
+use std::collections::HashSet;
+use uuid::Uuid;
+
+/// A's own deny list, captured by value (see [`revocation_closures`]).
+type RevocationClosure = Box<dyn Fn(&Uuid) -> bool>;
+/// Per-hop deny lookup, `(hop issuer, hop jti) -> revoked?`.
+type HopRevocationClosure = Box<dyn Fn(&Aid, &Uuid) -> bool>;
+
+/// Build the revocation closures `VerifyDelegationContext` borrows.
+///
+/// Both are captured **by value** rather than wrapping a Python callable,
+/// mirroring `tct.rs`: the verify call then runs entirely in Rust with no
+/// re-entrancy into the interpreter. It also avoids the failure mode a
+/// callback has here — a callable that raises has no way to report that
+/// through a `Fn(&Uuid) -> bool`, so the error would have to be swallowed as
+/// "not revoked", turning an exception in the caller's deny-list lookup into
+/// a silently honored revoked token. For a check RFC-AITP-0006 §4 step 7
+/// states as a MUST, failing open on error is not an acceptable default.
+///
+/// **Issuer attribution.** RFC-AITP-0011 §6 specifies each hop `jti` be
+/// looked up against the deny list of *that hop's issuer*. A flat set cannot
+/// express that, so the same set is applied to every hop: a `jti` present in
+/// it is rejected whichever peer issued that hop. The deviation is
+/// conservative (it can only reject more, never accept a revoked hop) and
+/// `jti`s are UUIDv4, so cross-issuer collision is not a practical concern.
+/// It does mean a caller aggregating several issuers' lists — an AITP
+/// control plane, say — grants every contributor the power to revoke any
+/// hop. Callers needing per-issuer isolation should verify against the Rust
+/// API directly, where `hop_revocation_check` receives the issuer AID.
+fn revocation_closures(
+    revoked_jtis: Option<&HashSet<String>>,
+) -> (Option<RevocationClosure>, Option<HopRevocationClosure>) {
+    match revoked_jtis {
+        None => (None, None),
+        Some(set) => {
+            let root_owned: HashSet<String> = set.clone();
+            let root: RevocationClosure =
+                Box::new(move |jti: &Uuid| root_owned.contains(&jti.to_string()));
+            let hop_owned: HashSet<String> = set.clone();
+            let hop: HopRevocationClosure =
+                Box::new(move |_issuer: &Aid, jti: &Uuid| hop_owned.contains(&jti.to_string()));
+            (Some(root), Some(hop))
+        }
+    }
+}
 
 /// The verified delegation token's salient fields, returned to Python after
 /// `verify_delegation` succeeds.
@@ -66,17 +111,30 @@ pub struct PyDelegationVerified {
 ///
 /// Returns the verified token's salient fields. Raises `PyValueError` for a
 /// malformed AID and `PyRuntimeError` for verification failure.
+///
+/// `revoked_jtis` is an OPTIONAL set of revoked `jti` strings — A's own deny
+/// list. When supplied, a token whose `voucher.src_jti` is in the set is
+/// rejected after every signature check passes (RFC-AITP-0006 §4 step 7,
+/// ordered per RFC-AITP-0008 §3.3). **Verifiers SHOULD supply this**:
+/// omitting it silently redeems a delegation whose source TCT has been
+/// revoked, which step 7 states as a MUST-reject.
 #[pyfunction]
-#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid))]
+#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, revoked_jtis = None))]
 pub fn verify_delegation_py(
     delegation_token: &str,
     verifier_aid: &str,
+    revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
+    let (root_check, _hop_check) = revocation_closures(revoked_jtis.as_ref());
 
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
-    // strict), so a non-empty chain fails before any per-hop work runs.
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    // strict), so a non-empty chain fails before any per-hop work runs — which
+    // is also why only the root check is wired here: there are no hops.
+    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    if let Some(check) = root_check.as_deref() {
+        ctx = ctx.with_revocation_check(check as &dyn Fn(&Uuid) -> bool);
+    }
 
     let verified = verify_delegation(delegation_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("delegation verification failed: {e}")))?;
@@ -94,21 +152,36 @@ pub fn verify_delegation_py(
 /// `max_delegation_hops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
 /// `max_delegation_hops = 0` reverts to strict v0.1 (rejects any non-empty chain).
+///
+/// `revoked_jtis` is an OPTIONAL set of revoked `jti` strings. When supplied
+/// it is consulted twice, both after every signature check: once for the
+/// root `voucher.src_jti` (RFC-AITP-0006 §4 step 7) and once per hop — every
+/// chain entry and the outer token — per RFC-AITP-0011 §6, which makes both
+/// a MUST-reject. See [`revocation_closures`] for why one flat set stands in
+/// for §6's per-issuer deny lists.
 #[cfg(feature = "multihop-delegation")]
 #[pyfunction]
 #[pyo3(
     name = "verify_delegation_multihop",
-    signature = (delegation_token, verifier_aid, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS)
+    signature = (delegation_token, verifier_aid, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS, revoked_jtis = None)
 )]
 pub fn verify_delegation_multihop_py(
     delegation_token: &str,
     verifier_aid: &str,
     max_delegation_hops: usize,
+    revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
+    let (root_check, hop_check) = revocation_closures(revoked_jtis.as_ref());
 
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
+    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
         .with_max_delegation_hops(max_delegation_hops);
+    if let Some(check) = root_check.as_deref() {
+        ctx = ctx.with_revocation_check(check as &dyn Fn(&Uuid) -> bool);
+    }
+    if let Some(check) = hop_check.as_deref() {
+        ctx = ctx.with_hop_revocation_check(check as &dyn Fn(&Aid, &Uuid) -> bool);
+    }
 
     let verified = verify_delegation(delegation_token, &ctx)
         .map_err(|e| PyRuntimeError::new_err(format!("delegation verification failed: {e}")))?;

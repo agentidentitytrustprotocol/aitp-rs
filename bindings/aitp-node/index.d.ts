@@ -125,8 +125,15 @@ export interface JsDelegationVerified {
  * delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
  * matching the Rust core default. To allow multi-hop chains, call
  * `verifyDelegationMultihop` instead.
+ *
+ * `revokedJtis` is an optional list of revoked `jti` strings — the
+ * verifier's own deny list. When non-empty, a token whose
+ * `voucher.src_jti` is in it is rejected after every signature check passes
+ * (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
+ * SHOULD supply it.** Omitting it silently redeems a delegation whose
+ * source TCT has been revoked, which step 7 states as a MUST-reject.
  */
-export declare function verifyDelegation(token: string, verifierAid: string): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
  * chains up to `maxDelegationHops` total hops (`chain.length + 1`).
@@ -138,8 +145,21 @@ export declare function verifyDelegation(token: string, verifierAid: string): Js
  * `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
  * recommended ceiling). Pass a smaller value for a tighter bound;
  * `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
+ *
+ * `revokedJtis`, when non-empty, is consulted twice — both only after every
+ * signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
+ * step 7), and once for every hop's `jti`, meaning each chain entry and the
+ * outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
+ * invalidates every hop downstream of it — there is no partial-validity
+ * model.
+ *
+ * Note that §6 specifies each hop `jti` be checked against the deny list of
+ * *that hop's issuer*, which one flat list cannot express, so it is applied
+ * to every hop regardless of issuer. That can only reject more, never
+ * accept a revoked hop, but it does mean a list aggregated across several
+ * issuers lets any contributor revoke any hop.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 /**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
