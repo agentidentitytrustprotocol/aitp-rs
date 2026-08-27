@@ -687,9 +687,14 @@ pub async fn renew_tct(
 
 #[cfg(feature = "experimental-renewal")]
 fn rand_bytes_16() -> [u8; 16] {
-    use rand::RngCore;
+    // rand 0.10's `SysRng` (the renamed `OsRng`) is fallible, unlike the
+    // old infallible `RngCore::fill_bytes`. This fn has no `Result` in its
+    // signature to propagate through, so `UnwrapErr` reproduces the old
+    // `OsRng`'s behavior of panicking if the OS randomness source fails —
+    // not a silent fallback to a weaker generator.
+    use rand::Rng;
     let mut buf = [0u8; 16];
-    rand::rngs::OsRng.fill_bytes(&mut buf);
+    rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut buf);
     buf
 }
 

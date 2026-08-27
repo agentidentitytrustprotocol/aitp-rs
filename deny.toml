@@ -36,6 +36,9 @@ allow = [
 confidence-threshold = 0.8
 
 [bans]
+# Duplicate versions are a warning in general — `syn`, `hashbrown`,
+# `getrandom` and friends routinely appear twice in any large tree and
+# forcing them to one version is not worth the churn.
 multiple-versions = "warn"
 wildcards = "deny"
 # Allow a version-less (wildcard) requirement when the dependency is a local
@@ -44,6 +47,32 @@ wildcards = "deny"
 # resolve it from crates.io); that's safe — it's a local crate, never a registry
 # wildcard. Registry wildcards are still denied.
 allow-wildcard-paths = true
+
+# ...but duplicates are NOT tolerated for the crypto primitives. This is a
+# signature-verification library: if two versions of ed25519-dalek or p256
+# reach the tree, every downstream binary links two independent
+# implementations of the same algorithm, and a future RUSTSEC advisory
+# against either one has to be tracked twice and can be silently missed.
+# `multiple-versions = "warn"` above means CI would go green on a forked
+# tree; these entries make it go red instead.
+#
+# Not hypothetical: enabling jsonwebtoken 11's `rust_crypto` backend
+# (which pins the pre-0.14 RustCrypto stack) forks every crate listed here
+# at once. See the `jsonwebtoken` comment in the workspace Cargo.toml for
+# why that dependency is deliberately held at 9.x.
+#
+# If one of these ever legitimately needs to be duplicated, add a `skip`
+# entry with a written justification rather than deleting the rule.
+deny = [
+    { crate = "ed25519-dalek", deny-multiple-versions = true },
+    { crate = "curve25519-dalek", deny-multiple-versions = true },
+    { crate = "p256", deny-multiple-versions = true },
+    { crate = "ecdsa", deny-multiple-versions = true },
+    { crate = "elliptic-curve", deny-multiple-versions = true },
+    { crate = "signature", deny-multiple-versions = true },
+    { crate = "sha2", deny-multiple-versions = true },
+    { crate = "digest", deny-multiple-versions = true },
+]
 
 [sources]
 unknown-registry = "deny"

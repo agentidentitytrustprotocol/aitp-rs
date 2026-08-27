@@ -17,7 +17,7 @@
 //! retried POST could double-publish a `MUTUAL_HELLO_ACK` and is the
 //! caller's decision.
 
-use rand::Rng;
+use rand::RngExt;
 use std::time::Duration;
 
 /// Exponential-backoff retry policy.
@@ -166,8 +166,8 @@ impl RetryPolicy {
         let high = nanos * (1.0 + self.jitter_ratio);
         // Defensive lower bound — `low` can be 0.0 when ratio == 1.0.
         let low = low.max(0.0);
-        let mut rng = rand::thread_rng();
-        let sampled = rng.gen_range(low..=high);
+        let mut rng = rand::rng();
+        let sampled = rng.random_range(low..=high);
         Duration::from_nanos(sampled as u64)
     }
 

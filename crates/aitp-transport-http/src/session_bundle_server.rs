@@ -74,7 +74,9 @@ impl SessionBundleServer {
     pub fn router(self) -> Router {
         Router::new()
             .route("/aitp/session/bundle", post(store_bundle))
-            .route("/aitp/session/bundle/:session_id", get(fetch_bundle))
+            // axum 0.8 replaced the `:param` capture syntax with
+            // `{param}` and panics at router-build time on the old form.
+            .route("/aitp/session/bundle/{session_id}", get(fetch_bundle))
             .with_state(self.bundles)
     }
 }
