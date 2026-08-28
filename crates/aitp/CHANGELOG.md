@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.7.0...aitp-v0.8.0) - 2026-08-28
+
+### Other
+
+- *(deps)* adapt to 8 major dependency bumps, and hold jsonwebtoken at 9.x rather than fork the crypto stack ([#98](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/98))
+
 ## [0.7.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.4.1...aitp-v0.7.0) - 2026-08-26
 
 ### Added

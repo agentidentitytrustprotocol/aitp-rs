@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.7.0...aitp-transport-http-v0.8.0) - 2026-08-28
+
+### Other
+
+- *(deps)* adapt to 8 major dependency bumps, and hold jsonwebtoken at 9.x rather than fork the crypto stack ([#98](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/98))
+- Adopt spec commit 45b5ef978e13: session-bundle extensions slot + shim cleanup ([#95](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/95))
+
 ## [0.7.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.6.0...aitp-transport-http-v0.7.0) - 2026-08-26
 
 ### Added

@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.7.0...aitp-session-bundle-v0.8.0) - 2026-08-28
+
+### Other
+
+- *(xcheck)* both-directions cross-impl coverage for the session bundle ([#96](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/96))
+- Adopt spec commit 45b5ef978e13: session-bundle extensions slot + shim cleanup ([#95](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/95))
+
 ## [0.7.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.4.1...aitp-session-bundle-v0.7.0) - 2026-08-26
 
 ### Added
