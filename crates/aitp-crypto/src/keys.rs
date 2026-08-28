@@ -51,8 +51,22 @@ fn os_csprng() -> rand::rand_core::UnwrapErr<rand::rngs::SysRng> {
 ///
 /// Both `ed25519_dalek::SigningKey` and `p256::ecdsa::SigningKey` zeroize
 /// their secret scalar on drop, so this value's secret material is wiped
-/// from memory when the enum is dropped.
-pub enum AitpSigningKey {
+/// from memory when this value is dropped.
+///
+/// **Seal invariant**: this is an opaque newtype over a private inner
+/// enum. No `ed25519_dalek::*` or `p256::*` type is reachable through
+/// this type's public API — do not add a public method that returns or
+/// accepts one of those third-party types, and do not make
+/// `SigningKeyInner` or its fields public. This is what keeps a
+/// `p256`/`ed25519-dalek` major bump from being a breaking change to
+/// this crate's public API.
+pub struct AitpSigningKey(SigningKeyInner);
+
+/// Private inner representation of [`AitpSigningKey`]. Kept private so
+/// that the third-party `ed25519_dalek::SigningKey` / `p256::ecdsa::
+/// SigningKey` types are not nameable from outside this crate — see the
+/// seal invariant documented on [`AitpSigningKey`].
+enum SigningKeyInner {
     /// Ed25519 signing key with cached AID derivation.
     Ed25519 {
         /// The underlying ed25519-dalek key (secret + public). Zeroized on drop.
@@ -81,7 +95,7 @@ impl AitpSigningKey {
     pub fn generate_ed25519() -> Self {
         let inner = DalekSigningKey::generate(&mut os_csprng());
         let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
-        Self::Ed25519 { inner, aid }
+        Self(SigningKeyInner::Ed25519 { inner, aid })
     }
 
     /// Generate a fresh P-256 keypair using OS randomness.
@@ -89,7 +103,7 @@ impl AitpSigningKey {
         let inner =
             <P256SigningKey as p256::elliptic_curve::Generate>::generate_from_rng(&mut os_csprng());
         let aid = Self::p256_aid_for(&inner);
-        Self::P256 { inner, aid }
+        Self(SigningKeyInner::P256 { inner, aid })
     }
 
     /// Construct an Ed25519 signing key from a raw 32-byte seed. Always
@@ -107,7 +121,7 @@ impl AitpSigningKey {
     pub fn from_ed25519_seed(seed: &[u8; 32]) -> Self {
         let inner = DalekSigningKey::from_bytes(seed);
         let aid = Aid::from_ed25519(&inner.verifying_key().to_bytes());
-        Self::Ed25519 { inner, aid }
+        Self(SigningKeyInner::Ed25519 { inner, aid })
     }
 
     /// Construct a P-256 signing key from a 32-byte private scalar.
@@ -119,30 +133,34 @@ impl AitpSigningKey {
         let inner = P256SigningKey::from_bytes(seed.into())
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))?;
         let aid = Self::p256_aid_for(&inner);
-        Ok(Self::P256 { inner, aid })
+        Ok(Self(SigningKeyInner::P256 { inner, aid }))
     }
 
     /// Return the AID derived from this key's public component.
     pub fn aid(&self) -> &Aid {
-        match self {
-            Self::Ed25519 { aid, .. } => aid,
-            Self::P256 { aid, .. } => aid,
+        match &self.0 {
+            SigningKeyInner::Ed25519 { aid, .. } => aid,
+            SigningKeyInner::P256 { aid, .. } => aid,
         }
     }
 
     /// Return the corresponding verifying (public) key.
     pub fn verifying_key(&self) -> AitpVerifyingKey {
-        match self {
-            Self::Ed25519 { inner, .. } => AitpVerifyingKey::Ed25519(inner.verifying_key()),
-            Self::P256 { inner, .. } => AitpVerifyingKey::P256(*inner.verifying_key()),
+        match &self.0 {
+            SigningKeyInner::Ed25519 { inner, .. } => {
+                AitpVerifyingKey(VerifyingKeyInner::Ed25519(inner.verifying_key()))
+            }
+            SigningKeyInner::P256 { inner, .. } => {
+                AitpVerifyingKey(VerifyingKeyInner::P256(*inner.verifying_key()))
+            }
         }
     }
 
     /// Which signing algorithm this key implements.
     pub fn algorithm(&self) -> AidAlgorithm {
-        match self {
-            Self::Ed25519 { .. } => AidAlgorithm::Ed25519,
-            Self::P256 { .. } => AidAlgorithm::P256,
+        match &self.0 {
+            SigningKeyInner::Ed25519 { .. } => AidAlgorithm::Ed25519,
+            SigningKeyInner::P256 { .. } => AidAlgorithm::P256,
         }
     }
 
@@ -156,12 +174,12 @@ impl AitpSigningKey {
     /// v0.1 verifier rejects it on the tag, an algorithm-agile verifier
     /// dispatches on it.
     pub fn sign(&self, message: &[u8]) -> Signature {
-        match self {
-            Self::Ed25519 { inner, .. } => {
+        match &self.0 {
+            SigningKeyInner::Ed25519 { inner, .. } => {
                 let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
                 Signature(Base64UrlUnpadded::encode_string(&sig.to_bytes()))
             }
-            Self::P256 { inner, .. } => {
+            SigningKeyInner::P256 { inner, .. } => {
                 // RFC6979 deterministic-k fixes the nonce; low-S
                 // normalization fixes the signature's canonical form.
                 // Together they make the wire output fully reproducible
@@ -183,12 +201,14 @@ impl AitpSigningKey {
     /// ES256 hashes with SHA-256 internally and emits the JOSE raw
     /// `R || S` fixed-length encoding (RFC 7518 §3.4).
     pub(crate) fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
-        match self {
-            Self::Ed25519 { inner, .. } => {
+        match &self.0 {
+            SigningKeyInner::Ed25519 { inner, .. } => {
                 let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
                 sig.to_bytes()
             }
-            Self::P256 { inner, .. } => p256_sign_low_s(inner, message).to_bytes().into(),
+            SigningKeyInner::P256 { inner, .. } => {
+                p256_sign_low_s(inner, message).to_bytes().into()
+            }
         }
     }
 
@@ -214,8 +234,23 @@ impl std::fmt::Debug for AitpSigningKey {
 /// An AITP verifying (public) key. Algorithm-agile: holds either an
 /// Ed25519 key (the v0.1 default) or a P-256 ECDSA key (post-v0.1
 /// algorithm-agile wire format, RFC-AITP-0001 §5.4.3).
+///
+/// **Seal invariant**: this is an opaque newtype over a private inner
+/// enum. No `ed25519_dalek::*` or `p256::*` type is reachable through
+/// this type's public API — do not add a public method that returns or
+/// accepts one of those third-party types, and do not make
+/// `VerifyingKeyInner` or its fields public. This is what keeps a
+/// `p256`/`ed25519-dalek` major bump from being a breaking change to
+/// this crate's public API.
 #[derive(Debug, Clone)]
-pub enum AitpVerifyingKey {
+pub struct AitpVerifyingKey(VerifyingKeyInner);
+
+/// Private inner representation of [`AitpVerifyingKey`]. Kept private
+/// so that the third-party `ed25519_dalek::VerifyingKey` /
+/// `p256::ecdsa::VerifyingKey` types are not nameable from outside this
+/// crate — see the seal invariant documented on [`AitpVerifyingKey`].
+#[derive(Debug, Clone)]
+enum VerifyingKeyInner {
     /// Ed25519 public key.
     Ed25519(DalekVerifyingKey),
     /// P-256 (secp256r1) ECDSA public key, parsed from a SEC1-
@@ -234,7 +269,7 @@ impl AitpVerifyingKey {
                     .try_to_ed25519_bytes()
                     .expect("Ed25519 arm guarded by algorithm()");
                 DalekVerifyingKey::from_bytes(&bytes)
-                    .map(Self::Ed25519)
+                    .map(|k| Self(VerifyingKeyInner::Ed25519(k)))
                     .map_err(|e| CryptoError::AidNotEd25519(e.to_string()))
             }
             AidAlgorithm::P256 => {
@@ -242,7 +277,7 @@ impl AitpVerifyingKey {
                     .try_to_p256_bytes()
                     .expect("P-256 arm guarded by algorithm()");
                 P256VerifyingKey::from_sec1_bytes(&bytes)
-                    .map(Self::P256)
+                    .map(|k| Self(VerifyingKeyInner::P256(k)))
                     .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
             }
             // `AidAlgorithm` is `#[non_exhaustive]`; a future variant
@@ -260,7 +295,7 @@ impl AitpVerifyingKey {
     /// the TCT `cnf` field on an Ed25519 subject.)
     pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, CryptoError> {
         DalekVerifyingKey::from_bytes(bytes)
-            .map(Self::Ed25519)
+            .map(|k| Self(VerifyingKeyInner::Ed25519(k)))
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
     }
 
@@ -282,7 +317,7 @@ impl AitpVerifyingKey {
                 Self::from_bytes(&arr)
             }
             33 => P256VerifyingKey::from_sec1_bytes(bytes)
-                .map(Self::P256)
+                .map(|k| Self(VerifyingKeyInner::P256(k)))
                 .map_err(|e| CryptoError::KeyParseFailed(e.to_string())),
             other => Err(CryptoError::KeyParseFailed(format!(
                 "unsupported compressed pubkey length: {other} (expected 32 for Ed25519 or 33 for P-256 SEC1-compressed)",
@@ -299,8 +334,8 @@ impl AitpVerifyingKey {
     /// match the verifier's algorithm — mismatched algorithm/key
     /// combinations are rejected (algorithm confusion defense).
     pub fn verify(&self, message: &[u8], sig: &Signature) -> Result<(), CryptoError> {
-        match (self, sig.algorithm()) {
-            (Self::Ed25519(vk), SignatureAlgorithm::Ed25519) => {
+        match (&self.0, sig.algorithm()) {
+            (VerifyingKeyInner::Ed25519(vk), SignatureAlgorithm::Ed25519) => {
                 let raw = Base64UrlUnpadded::decode_vec(sig.payload())
                     .map_err(|_| CryptoError::SignatureInvalid)?;
                 if raw.len() != 64 {
@@ -312,7 +347,7 @@ impl AitpVerifyingKey {
                 vk.verify_strict(message, &dalek_sig)
                     .map_err(|_| CryptoError::SignatureInvalid)
             }
-            (Self::P256(vk), SignatureAlgorithm::P256) => {
+            (VerifyingKeyInner::P256(vk), SignatureAlgorithm::P256) => {
                 let raw = Base64UrlUnpadded::decode_vec(sig.payload())
                     .map_err(|_| CryptoError::SignatureInvalid)?;
                 verify_p256_raw(vk, message, &raw)
@@ -333,15 +368,15 @@ impl AitpVerifyingKey {
         if sig.len() != 64 {
             return Err(CryptoError::SignatureInvalid);
         }
-        match self {
-            Self::Ed25519(vk) => {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => {
                 let mut buf = [0u8; 64];
                 buf.copy_from_slice(sig);
                 let dalek_sig = DalekSignature::from_bytes(&buf);
                 vk.verify_strict(message, &dalek_sig)
                     .map_err(|_| CryptoError::SignatureInvalid)
             }
-            Self::P256(vk) => verify_p256_raw(vk, message, sig),
+            VerifyingKeyInner::P256(vk) => verify_p256_raw(vk, message, sig),
         }
     }
 
@@ -353,9 +388,11 @@ impl AitpVerifyingKey {
     /// integers (RFC 7518 §6.2.1.2 / §6.2.1.3, RFC 7638 §3.2). Both
     /// canonical forms are lex-ordered with no whitespace.
     pub fn to_jwk_thumbprint(&self) -> Result<String, CryptoError> {
-        match self {
-            Self::Ed25519(vk) => Ok(crate::thumbprint::compute_jwk_thumbprint(&vk.to_bytes())),
-            Self::P256(vk) => {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => {
+                Ok(crate::thumbprint::compute_jwk_thumbprint(&vk.to_bytes()))
+            }
+            VerifyingKeyInner::P256(vk) => {
                 // SEC1 uncompressed: 0x04 || x(32) || y(32). For any valid
                 // P-256 public key (which excludes the point at infinity)
                 // this is always 65 bytes.
@@ -386,9 +423,9 @@ impl AitpVerifyingKey {
     /// `None` for P-256 instead of panicking, so an algorithm-agile
     /// caller cannot inadvertently crash the process.
     pub fn to_bytes(&self) -> [u8; 32] {
-        match self {
-            Self::Ed25519(vk) => vk.to_bytes(),
-            Self::P256(_) => {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => vk.to_bytes(),
+            VerifyingKeyInner::P256(_) => {
                 panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed() or try_to_ed25519_bytes()")
             }
         }
@@ -403,9 +440,9 @@ impl AitpVerifyingKey {
     /// use this and return a structured error on `None` rather than
     /// risking a process-wide panic from an algorithm-agile path.
     pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
-        match self {
-            Self::Ed25519(vk) => Some(vk.to_bytes()),
-            Self::P256(_) => None,
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => Some(vk.to_bytes()),
+            VerifyingKeyInner::P256(_) => None,
         }
     }
 
@@ -413,17 +450,17 @@ impl AitpVerifyingKey {
     /// SEC1-compressed for P-256. Use this instead of
     /// [`Self::to_bytes`] when handling algorithm-agile flows.
     pub fn to_compressed(&self) -> Vec<u8> {
-        match self {
-            Self::Ed25519(vk) => vk.to_bytes().to_vec(),
-            Self::P256(vk) => vk.to_sec1_point(true).as_bytes().to_vec(),
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => vk.to_bytes().to_vec(),
+            VerifyingKeyInner::P256(vk) => vk.to_sec1_point(true).as_bytes().to_vec(),
         }
     }
 
     /// Which algorithm this key represents.
     pub fn algorithm(&self) -> AidAlgorithm {
-        match self {
-            Self::Ed25519(_) => AidAlgorithm::Ed25519,
-            Self::P256(_) => AidAlgorithm::P256,
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(_) => AidAlgorithm::Ed25519,
+            VerifyingKeyInner::P256(_) => AidAlgorithm::P256,
         }
     }
 }
@@ -880,7 +917,9 @@ mod tests {
         y.copy_from_slice(&bytes[33..65]);
 
         let expected = crate::thumbprint::compute_jwk_thumbprint_p256(&x, &y);
-        let actual = AitpVerifyingKey::P256(*pk).to_jwk_thumbprint().unwrap();
+        let actual = AitpVerifyingKey(VerifyingKeyInner::P256(*pk))
+            .to_jwk_thumbprint()
+            .unwrap();
         assert_eq!(actual, expected);
     }
 
