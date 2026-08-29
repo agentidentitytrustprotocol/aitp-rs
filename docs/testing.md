@@ -151,7 +151,7 @@ dependency. CI checks this with `cargo check --target wasm32-wasip1` on
 `aitp-core`, `aitp-crypto`, `aitp-envelope`, `aitp-manifest`, `aitp-tct`,
 `aitp-delegation`, and `aitp-session-bundle`. (Full browser
 `wasm32-unknown-unknown` additionally needs a `uuid` randomness feature;
-see `plans/defered/deferred.md`.)
+see `../plans/defered/deferred.md`.)
 
 ## Conformance
 

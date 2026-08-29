@@ -38,13 +38,52 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
+  # Runs once (not matrixed) since it only inspects Cargo.lock, not the
+  # built artifact — matches ci.yml's dedicated (non-matrixed) deny/audit
+  # jobs for the main workspace. Each binding excludes the workspace and
+  # carries its own Cargo.lock, which Dependabot/cargo-deny previously
+  # never saw at all, even though these lockfiles are what ships on PyPI/npm.
+  bindings-deny:
+    name: bindings cargo-deny
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --manifest-path bindings/aitp-py/Cargo.toml --config deny.toml --all-features
+      - uses: EmbarkStudios/cargo-deny-action@3c6349835b2b7b196a839186cb8b78e02f7b5f25 # v2
+        with:
+          command: check
+          arguments: --manifest-path bindings/aitp-node/Cargo.toml --config deny.toml --all-features
+
+  bindings-audit:
+    name: bindings cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.90.0"
+      # See ci.yml's `audit` job for why this is an explicit `--locked`
+      # install rather than rustsec/audit-check.
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      # RUSTSEC-2025-0020 / RUSTSEC-2026-0177: tracked pyo3 0.22 advisories
+      # with no fix in the 0.22.x line, mirroring deny.toml's ignore list.
+      # See https://github.com/agentidentitytrustprotocol/aitp-rs/issues/104.
+      - name: Audit aitp-py
+        run: cargo audit --file bindings/aitp-py/Cargo.lock --ignore RUSTSEC-2025-0020 --ignore RUSTSEC-2026-0177
+      - name: Audit aitp-node
+        run: cargo audit --file bindings/aitp-node/Cargo.lock
+
   aitp-py:
     name: aitp-py (python ${{ matrix.python }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.9', '3.11', '3.13']
+        python: ['3.9', '3.11', '3.13', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
@@ -87,7 +126,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        node: ['18', '20', '22']
+        node: ['20', '22', '24']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
@@ -105,6 +144,13 @@ jobs:
       - name: Build the native binary (full surface)
         working-directory: bindings/aitp-node
         run: npm run build:debug
+      # build:debug regenerates index.d.ts from the napi-rs macros. The
+      # committed file is what npm consumers actually get typed against,
+      # so a signature change that isn't reflected here ships correct
+      # runtime behavior with stale types.
+      - name: index.d.ts is up to date
+        working-directory: bindings/aitp-node
+        run: git diff --exit-code index.d.ts
       - name: node --test
         working-directory: bindings/aitp-node
         # Explicit glob: Node 22+ treats `--test tests/` as a module path
