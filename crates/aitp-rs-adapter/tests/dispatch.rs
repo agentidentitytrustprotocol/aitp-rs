@@ -9,7 +9,11 @@
 //! missing params, `id` echoing, the `ok:false` error shape, and that
 //! `AdapterState` persists across calls.
 
+use aitp_core::Timestamp;
+use aitp_crypto::{jws, AitpSigningKey};
+use aitp_delegation::DelegationBuilder;
 use aitp_rs_adapter::{handle, AdapterState};
+use aitp_tct::TctBuilder;
 use serde_json::{json, Value};
 
 /// Every response echoes the request `id` and carries a boolean `ok`.
@@ -210,4 +214,108 @@ fn shutdown_is_acknowledged() {
     let resp = handle(&mut state, "s", "shutdown", Value::Null);
     assert_envelope(&resp, "s");
     assert_eq!(resp["ok"], json!(true));
+}
+
+/// `verify_delegation_token`'s single-hop `revocation_check` wiring
+/// (RFC-AITP-0008 §3.3, `voucher.src_jti`) was previously only exercised
+/// by `cargo check` — no fixture actually drove a revoked-then-verified
+/// delegation through the adapter. A → B TCT+voucher, B → C delegation,
+/// revoke the voucher's `src_jti` via `revoke_tct`, then confirm
+/// `verify_delegation_token` reports `DELEGATION_SOURCE_TCT_REVOKED` —
+/// and that the same token verifies clean before the revocation lands.
+mod single_hop_revocation_check {
+    use super::*;
+
+    const NOW: i64 = 1_700_000_000;
+
+    fn a() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xA1; 32])
+    }
+    fn b() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xB1; 32])
+    }
+    fn c() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xC1; 32])
+    }
+
+    /// Returns (voucher's src_jti, the B->C delegation token).
+    fn mint_delegation() -> (String, String) {
+        let voucher = TctBuilder::new(&a())
+            .subject(b().aid().clone())
+            .audience(b().aid().clone())
+            .grants(["read_data"])
+            .ttl_secs(7200)
+            .subject_pubkey(b().verifying_key())
+            .issued_at(Timestamp(NOW))
+            .build()
+            .unwrap()
+            .voucher
+            .unwrap();
+        let payload = jws::decode_payload_unverified(&voucher).unwrap();
+        let voucher_claims: aitp_tct::GrantVoucherClaims =
+            serde_json::from_slice(&payload).unwrap();
+        let token = DelegationBuilder::new(&b(), &voucher)
+            .unwrap()
+            .delegatee(c().aid().clone())
+            .scope(["read_data"])
+            .ttl_secs(3600)
+            .now(Timestamp(NOW))
+            .build()
+            .unwrap();
+        (voucher_claims.src_jti.to_string(), token)
+    }
+
+    #[test]
+    fn revoked_source_jti_is_rejected() {
+        let mut state = AdapterState::default();
+        let (src_jti, token) = mint_delegation();
+
+        handle(
+            &mut state,
+            "clock",
+            "set_clock",
+            json!({"now_unix_secs": NOW + 60}),
+        );
+        let revoke = handle(&mut state, "rev", "revoke_tct", json!({"jti": src_jti}));
+        assert_eq!(revoke["ok"], json!(true), "revoke_tct should succeed");
+
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a().aid().to_string(),
+            }),
+        );
+        assert_err(&resp, "v", "DELEGATION_SOURCE_TCT_REVOKED");
+    }
+
+    #[test]
+    fn unrevoked_source_jti_verifies() {
+        let mut state = AdapterState::default();
+        let (_src_jti, token) = mint_delegation();
+
+        handle(
+            &mut state,
+            "clock",
+            "set_clock",
+            json!({"now_unix_secs": NOW + 60}),
+        );
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a().aid().to_string(),
+            }),
+        );
+        assert_eq!(
+            resp["ok"],
+            json!(true),
+            "expected verification to succeed, got {resp}"
+        );
+        assert_eq!(resp["result"]["verified"], json!(true));
+    }
 }
