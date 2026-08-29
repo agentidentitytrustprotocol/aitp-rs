@@ -53,6 +53,7 @@
 //! ```
 
 #![forbid(unsafe_code)]
+#![warn(missing_docs)]
 
 pub use aitp_core as core;
 pub use aitp_crypto as crypto;
