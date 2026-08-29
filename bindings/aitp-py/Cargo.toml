@@ -58,7 +58,7 @@ sha2 = "0.11"
 # platform that runs on CPython 3.9+ via the stable ABI, instead of one
 # wheel per interpreter version. Keeps the release matrix to one build
 # per OS/arch and matches `requires-python = ">=3.9"` in pyproject.toml.
-pyo3 = { version = "0.22", features = ["abi3-py39"] }
+pyo3 = { version = "0.29", features = ["abi3-py39"] }
 
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
@@ -67,7 +67,7 @@ url = "2"
 # carries `jsonwebtoken::{Algorithm, DecodingKey}` in its public fields, so a
 # mismatch here is a hard type error, not merely a duplicate crate. See the
 # `jsonwebtoken` comment in the root Cargo.toml for why 9.x is deliberate.
-jsonwebtoken = "9.3"
+jsonwebtoken = "11.0"
 rand = "0.10"
 
 [profile.release]
