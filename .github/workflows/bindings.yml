@@ -73,11 +73,8 @@ jobs:
       # install rather than rustsec/audit-check.
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked
-      # RUSTSEC-2025-0020 / RUSTSEC-2026-0177: tracked pyo3 0.22 advisories
-      # with no fix in the 0.22.x line, mirroring deny.toml's ignore list.
-      # See https://github.com/agentidentitytrustprotocol/aitp-rs/issues/104.
       - name: Audit aitp-py
-        run: cargo audit --file bindings/aitp-py/Cargo.lock --ignore RUSTSEC-2025-0020 --ignore RUSTSEC-2026-0177
+        run: cargo audit --file bindings/aitp-py/Cargo.lock
       - name: Audit aitp-node
         run: cargo audit --file bindings/aitp-node/Cargo.lock
 
