@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.8.0...aitp-crypto-v0.9.0) - 2026-08-29
+
+### Fixed
+
+- deprecate AitpVerifyingKey::to_bytes panic path
+
+### Other
+
+- add criterion benchmarks for JCS/JWS/TCT hot paths
+
 ## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.7.0...aitp-crypto-v0.8.0) - 2026-08-28
 
 ### Other
