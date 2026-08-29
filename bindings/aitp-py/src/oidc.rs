@@ -19,7 +19,6 @@ use std::sync::{Arc, Mutex};
 use aitp_core::Aid;
 use aitp_crypto::AitpVerifyingKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
-use jsonwebtoken::{jwk::Jwk, Algorithm, DecodingKey};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -152,25 +151,9 @@ fn parse_jwk_list(keys: &Bound<'_, PyList>) -> PyResult<Vec<JwkPublicKey>> {
             .cast::<PyDict>()
             .map_err(|_| PyValueError::new_err(format!("JWK at index {i} must be a dict")))?;
         let as_json = pydict_to_json(d)?;
-        let jwk: Jwk = serde_json::from_value(as_json)
+        let jwk = JwkPublicKey::from_jwk_json(&as_json)
             .map_err(|e| PyValueError::new_err(format!("JWK at index {i} invalid: {e}")))?;
-        let alg = jwk.common.key_algorithm.and_then(|ka| {
-            // jsonwebtoken's KeyAlgorithm → Algorithm conversion
-            ka.to_string().parse::<Algorithm>().ok()
-        });
-        let alg = alg.ok_or_else(|| {
-            PyValueError::new_err(format!(
-                "JWK at index {i} is missing or has an unsupported `alg`/`kty` algorithm"
-            ))
-        })?;
-        let key = DecodingKey::from_jwk(&jwk).map_err(|e| {
-            PyValueError::new_err(format!("JWK at index {i} could not be loaded: {e}"))
-        })?;
-        out.push(JwkPublicKey {
-            kid: jwk.common.key_id.clone(),
-            alg,
-            key,
-        });
+        out.push(jwk);
     }
     Ok(out)
 }

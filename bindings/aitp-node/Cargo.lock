@@ -13,7 +13,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-core"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "base64ct",
  "chrono",
@@ -29,7 +29,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-crypto"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "base64ct",
@@ -44,7 +44,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-delegation"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -58,7 +58,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-envelope"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -68,14 +68,14 @@ dependencies = [
 
 [[package]]
 name = "aitp-handshake"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
  "aitp-manifest",
  "aitp-tct",
- "jsonwebtoken",
  "rand",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
@@ -87,7 +87,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-manifest"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -111,7 +111,6 @@ dependencies = [
  "aitp-manifest",
  "aitp-session-bundle",
  "aitp-tct",
- "jsonwebtoken",
  "napi",
  "napi-build",
  "napi-derive",
@@ -125,7 +124,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-session-bundle"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -139,7 +138,7 @@ dependencies = [
 
 [[package]]
 name = "aitp-tct"
-version = "0.8.0"
+version = "0.9.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
@@ -215,12 +214,6 @@ name = "base16ct"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd307490d624467aa6f74b0eabb77633d1f758a7b25f12bceb0b22e08d9726f6"
-
-[[package]]
-name = "base64"
-version = "0.22.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "base64ct"
@@ -600,10 +593,8 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ff2abc00be7fca6ebc474524697ae276ad847ad0a6b3faa4bcb027e9a4614ad0"
 dependencies = [
  "cfg-if",
- "js-sys",
  "libc",
  "wasi",
- "wasm-bindgen",
 ]
 
 [[package]]
@@ -842,21 +833,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "jsonwebtoken"
-version = "9.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5a87cc7a48537badeae96744432de36f4be2b4a34a05a5ef32e9dd8a1c169dde"
-dependencies = [
- "base64",
- "js-sys",
- "pem",
- "ring",
- "serde",
- "serde_json",
- "simple_asn1",
-]
-
-[[package]]
 name = "lazy_static"
 version = "1.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1035,16 +1011,6 @@ dependencies = [
  "primefield",
  "primeorder",
  "sha2",
-]
-
-[[package]]
-name = "pem"
-version = "3.0.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1d30c53c26bc5b31a98cd02d20f25a7c8567146caf63ed593a9d87b2775291be"
-dependencies = [
- "base64",
- "serde_core",
 ]
 
 [[package]]
@@ -1355,18 +1321,6 @@ checksum = "28d567dcbaf0049cb8ac2608a76cd95ff9e4412e1899d389ee400918ca7537f5"
 dependencies = [
  "digest",
  "rand_core",
-]
-
-[[package]]
-name = "simple_asn1"
-version = "0.6.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0d585997b0ac10be3c5ee635f1bab02d512760d14b7c468801ac8a01d9ae5f1d"
-dependencies = [
- "num-bigint",
- "num-traits",
- "thiserror",
- "time",
 ]
 
 [[package]]

@@ -63,11 +63,6 @@ pyo3 = { version = "0.29", features = ["abi3-py39"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
-# Must stay on the same major as the workspace pin: `aitp_handshake::JwkPublicKey`
-# carries `jsonwebtoken::{Algorithm, DecodingKey}` in its public fields, so a
-# mismatch here is a hard type error, not merely a duplicate crate. See the
-# `jsonwebtoken` comment in the root Cargo.toml for why 9.x is deliberate.
-jsonwebtoken = "9.3"
 rand = "0.10"
 
 [profile.release]

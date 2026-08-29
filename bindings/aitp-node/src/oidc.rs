@@ -12,7 +12,6 @@ use std::sync::{Arc, Mutex};
 use aitp_core::Aid;
 use aitp_crypto::AitpVerifyingKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
-use jsonwebtoken::{jwk::Jwk, Algorithm, DecodingKey};
 use napi::bindgen_prelude::*;
 use napi::{Env, JsFunction, JsString, JsUnknown};
 use napi_derive::napi;
@@ -159,25 +158,9 @@ impl JwksProvider {
 fn parse_jwk_list(arr: &[JsonValue]) -> Result<Vec<JwkPublicKey>> {
     let mut out = Vec::with_capacity(arr.len());
     for (i, val) in arr.iter().enumerate() {
-        let jwk: Jwk = serde_json::from_value(val.clone())
+        let jwk = JwkPublicKey::from_jwk_json(val)
             .map_err(|e| Error::from_reason(format!("JWK at index {i} invalid: {e}")))?;
-        let alg = jwk
-            .common
-            .key_algorithm
-            .and_then(|ka| ka.to_string().parse::<Algorithm>().ok())
-            .ok_or_else(|| {
-                Error::from_reason(format!(
-                    "JWK at index {i} is missing or has an unsupported `alg`/`kty` algorithm"
-                ))
-            })?;
-        let key = DecodingKey::from_jwk(&jwk).map_err(|e| {
-            Error::from_reason(format!("JWK at index {i} could not be loaded: {e}"))
-        })?;
-        out.push(JwkPublicKey {
-            kid: jwk.common.key_id.clone(),
-            alg,
-            key,
-        });
+        out.push(jwk);
     }
     Ok(out)
 }
