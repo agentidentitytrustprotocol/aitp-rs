@@ -9,11 +9,6 @@
 //! macros expand to `unsafe` glue. The underlying protocol crates keep
 //! the forbid attribute.
 
-// The PyO3 `#[pymethods]` macro expands to a result conversion that
-// clippy's `useless_conversion` lint flags against the return-type
-// span — a macro-expansion false positive, not our code.
-#![allow(clippy::useless_conversion)]
-
 mod agent;
 #[cfg(feature = "session-bundle")]
 mod bundle;
@@ -53,13 +48,11 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // "why did this snapshot fail" is only answerable by parsing prose.
     m.add(
         "ManifestVerificationError",
-        m.py()
-            .get_type_bound::<manifest::ManifestVerificationError>(),
+        m.py().get_type::<manifest::ManifestVerificationError>(),
     )?;
     m.add(
         "RevocationVerificationError",
-        m.py()
-            .get_type_bound::<revocation::RevocationVerificationError>(),
+        m.py().get_type::<revocation::RevocationVerificationError>(),
     )?;
     #[cfg(feature = "multihop-delegation")]
     m.add_function(wrap_pyfunction!(

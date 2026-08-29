@@ -25,11 +25,6 @@ use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use uuid::Uuid;
 
-// pyo3 0.22's `create_exception!` expands a `#[cfg(feature = ...)]` naming a
-// feature of *pyo3*, not of this crate, which trips `unexpected_cfgs`. CI runs
-// clippy with `-D warnings`, so scope an allow to the macro rather than
-// loosening the lint crate-wide.
-#[allow(unexpected_cfgs)]
 mod verification_error_type {
     use pyo3::create_exception;
     use pyo3::exceptions::PyRuntimeError;
@@ -72,10 +67,10 @@ fn verification_cause(err: &TctError) -> &'static str {
 
 fn verification_error(code: &str, message: String) -> PyErr {
     let err = RevocationVerificationError::new_err(message);
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // Best-effort: if setting the attribute fails the exception still
         // carries its message, so verification still fails closed.
-        let _ = err.value_bound(py).setattr("code", code);
+        let _ = err.value(py).setattr("code", code);
     });
     err
 }
@@ -86,7 +81,7 @@ fn verification_error(code: &str, message: String) -> PyErr {
 fn parse_entries(entries: &Bound<'_, PyList>, now: Timestamp) -> PyResult<Vec<RevocationEntry>> {
     let mut out = Vec::with_capacity(entries.len());
     for (i, item) in entries.iter().enumerate() {
-        let d: &Bound<'_, PyDict> = item.downcast().map_err(|_| {
+        let d: &Bound<'_, PyDict> = item.cast().map_err(|_| {
             PyValueError::new_err(format!(
                 "entries[{i}] must be a dict with at least a 'jti' key"
             ))
@@ -211,5 +206,5 @@ pub fn revocation_signing_bytes_py(py: Python<'_>, envelope_json: &str) -> PyRes
         .map_err(|e| PyValueError::new_err(format!("invalid revocation envelope JSON: {e}")))?;
     let bytes = revocation_signing_bytes(&envelope.revocation_list)
         .map_err(|e| PyRuntimeError::new_err(format!("canonicalization failed: {e}")))?;
-    Ok(PyBytes::new_bound(py, &bytes).unbind())
+    Ok(PyBytes::new(py, &bytes).unbind())
 }

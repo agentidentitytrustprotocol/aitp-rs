@@ -89,7 +89,7 @@ impl PyJwksProvider {
                 let issuer: String = k.extract().map_err(|_| {
                     PyValueError::new_err("JwksProvider keys must be issuer URL strings")
                 })?;
-                let list = v.downcast::<PyList>().map_err(|_| {
+                let list = v.cast::<PyList>().map_err(|_| {
                     PyValueError::new_err(format!("JwksProvider['{issuer}'] must be a list"))
                 })?;
                 upsert_inner(&inner, &issuer, list)?;
@@ -149,7 +149,7 @@ fn parse_jwk_list(keys: &Bound<'_, PyList>) -> PyResult<Vec<JwkPublicKey>> {
     let mut out = Vec::with_capacity(keys.len());
     for (i, item) in keys.iter().enumerate() {
         let d = item
-            .downcast::<PyDict>()
+            .cast::<PyDict>()
             .map_err(|_| PyValueError::new_err(format!("JWK at index {i} must be a dict")))?;
         let as_json = pydict_to_json(d)?;
         let jwk: Jwk = serde_json::from_value(as_json)
@@ -176,7 +176,7 @@ fn parse_jwk_list(keys: &Bound<'_, PyList>) -> PyResult<Vec<JwkPublicKey>> {
 }
 
 fn pydict_to_json(d: &Bound<'_, PyDict>) -> PyResult<JsonValue> {
-    let json_module = d.py().import_bound("json")?;
+    let json_module = d.py().import("json")?;
     let dumps = json_module.getattr("dumps")?;
     let s: String = dumps.call1((d,))?.extract()?;
     serde_json::from_str(&s)
@@ -190,7 +190,7 @@ fn pydict_to_json(d: &Bound<'_, PyDict>) -> PyResult<JsonValue> {
 /// Exceptions propagate as a `HandshakeError::Identity`.
 pub(crate) fn make_oidc_minter(callable: Py<PyAny>) -> Box<OidcMintJwtFn> {
     Box::new(move |nonce: &str| -> Result<String, String> {
-        Python::with_gil(|py| {
+        Python::attach(|py| {
             let bound = callable.bind(py);
             let res = bound
                 .call1((nonce,))
