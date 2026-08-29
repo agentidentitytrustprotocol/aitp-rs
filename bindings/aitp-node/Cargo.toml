@@ -48,8 +48,8 @@ aitp-session-bundle = { path = "../../crates/aitp-session-bundle", optional = tr
 x509-parser = { version = "0.18", optional = true }
 sha2 = "0.11"
 
-napi = { version = "2.16", features = ["napi8"] }
-napi-derive = "2.16"
+napi = { version = "3.11", features = ["napi8"] }
+napi-derive = "3.6"
 
 serde_json = "1"
 uuid = { version = "1", features = ["v4"] }
@@ -58,7 +58,7 @@ url = "2"
 # carries `jsonwebtoken::{Algorithm, DecodingKey}` in its public fields, so a
 # mismatch here is a hard type error, not merely a duplicate crate. See the
 # `jsonwebtoken` comment in the root Cargo.toml for why 9.x is deliberate.
-jsonwebtoken = "9.3"
+jsonwebtoken = "11.0"
 rand = "0.10"
 
 [profile.release]
