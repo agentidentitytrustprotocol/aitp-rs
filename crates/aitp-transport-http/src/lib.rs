@@ -85,10 +85,6 @@ pub use dpop::{
     verify_dpop_proof_full, DpopError, DpopHeader, DpopProof, DpopReplayCache, DpopVerifyContext,
 };
 
-#[cfg(any(feature = "client", feature = "server"))]
-#[allow(deprecated)]
-pub use dpop::verify_dpop_proof;
-
 #[cfg(feature = "client")]
 pub use key_resolution::{
     AsyncJwksResolver, KeyResolutionFailMode, KeyResolutionOutcome, KeyResolutionPolicy,
