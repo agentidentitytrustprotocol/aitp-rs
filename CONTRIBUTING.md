@@ -18,6 +18,7 @@ cargo fmt --all -- --check
 cargo clippy --workspace --all-targets --all-features -- -D warnings
 cargo test --workspace --all-features
 cargo doc --workspace --no-deps --all-features
+cargo deny check
 ```
 
 `scripts/test.sh` runs the first three.
