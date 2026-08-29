@@ -82,7 +82,14 @@ fn from_compressed_round_trips_ed25519() {
     assert_eq!(compressed.len(), 32);
     let parsed = AitpVerifyingKey::from_compressed(&compressed).expect("ed25519 compressed parses");
     assert_eq!(parsed.to_compressed(), compressed);
-    assert_eq!(parsed.to_bytes(), key.verifying_key().to_bytes());
+    assert_eq!(
+        parsed
+            .try_to_ed25519_bytes()
+            .expect("parsed key is Ed25519"),
+        key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256")
+    );
 }
 
 #[test]
@@ -111,6 +118,7 @@ fn from_compressed_rejects_wrong_lengths() {
 
 #[test]
 #[should_panic]
+#[allow(deprecated)]
 fn to_bytes_panics_on_p256() {
     // `to_bytes` returns the 32-byte raw Ed25519 form and documents a
     // panic for P-256 keys (which have no 32-byte raw encoding). Lock
@@ -132,7 +140,12 @@ fn signature_round_trips_through_string() {
 fn from_aid_round_trips_through_pubkey_bytes() {
     let key = AitpSigningKey::from_seed(&[8u8; 32]);
     let vk = AitpVerifyingKey::from_aid(key.aid()).unwrap();
-    assert_eq!(vk.to_bytes(), key.verifying_key().to_bytes());
+    assert_eq!(
+        vk.try_to_ed25519_bytes().expect("key from_aid is Ed25519"),
+        key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256")
+    );
 }
 
 #[test]

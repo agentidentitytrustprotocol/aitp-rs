@@ -144,7 +144,11 @@ fn empty_extensions_omitted_from_canonical_form() {
 #[test]
 fn pinned_key_manifest_round_trips() {
     let key = alice_key();
-    let pubkey_b64 = aitp_core::base64url::encode(&key.verifying_key().to_bytes());
+    let pubkey_b64 = aitp_core::base64url::encode(
+        &key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
     let now = Timestamp(1_700_000_000);
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())

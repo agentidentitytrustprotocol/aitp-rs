@@ -31,12 +31,15 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Detect whether a PR touches Rust/build inputs. The two heavy net-new
-  # jobs below (conformance, wasm) gate on this so a docs-only PR skips
-  # them instead of spending several minutes rebuilding the workspace.
-  # The pre-existing required jobs (test, coverage, semver) are left
-  # ungated on purpose — skip semantics interact badly with branch
-  # protection's required-check list.
+  # Detect whether a PR touches Rust/build inputs. The heavy net-new jobs
+  # below (conformance, wasm) gate on this so a docs-only PR skips them
+  # instead of spending several minutes rebuilding the workspace — the
+  # same gating `xcheck`/`e2e-llm-build` already use safely as required
+  # checks (a job skipped via `if:` reports "skipped", which satisfies a
+  # required status check; it's a job that never runs at all — e.g. a
+  # typo'd name — that deadlocks branch protection). `test`/`coverage`/
+  # `semver` are not conditionally skipped at all — they always run — so
+  # there's no skip semantics to reason about for those three.
   changes:
     name: detect changes
     runs-on: ubuntu-latest

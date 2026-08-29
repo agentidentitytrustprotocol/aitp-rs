@@ -765,7 +765,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             subject: "verifier".into(),
             issuer: None,
             public_key: Some(aitp_core::base64url::encode(
-                &self_key.verifying_key().to_bytes(),
+                &self_key
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
             )),
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -1615,7 +1618,11 @@ fn generate_keypair(state: &mut AdapterState, id: &str, params: Value) -> Value 
     };
     let key = AitpSigningKey::from_seed(&seed);
     let aid = key.aid().as_str().to_string();
-    let pubkey = base64url::encode(&key.verifying_key().to_bytes());
+    let pubkey = base64url::encode(
+        &key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
     let handle = state.fresh_kp_handle();
     state.keypair_seeds.insert(handle.clone(), seed);
     json!({

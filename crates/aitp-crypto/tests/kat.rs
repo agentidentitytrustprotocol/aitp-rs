@@ -44,7 +44,11 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
         seed.copy_from_slice(&seed_bytes);
 
         let key = AitpSigningKey::from_seed(&seed);
-        let actual_pubkey = aitp_core::base64url::encode(&key.verifying_key().to_bytes());
+        let actual_pubkey = aitp_core::base64url::encode(
+            &key.verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        );
         assert_eq!(
             actual_pubkey, expected_pubkey,
             "{id}: pubkey mismatch (seed → pubkey derivation)"
