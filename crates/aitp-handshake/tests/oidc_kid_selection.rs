@@ -29,15 +29,7 @@ struct MultiKeyResolver {
 impl JwksResolver for MultiKeyResolver {
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         if issuer == &self.issuer {
-            Ok(self
-                .keys
-                .iter()
-                .map(|k| JwkPublicKey {
-                    kid: k.kid.clone(),
-                    alg: k.alg,
-                    key: k.key.clone(),
-                })
-                .collect())
+            Ok(self.keys.clone())
         } else {
             Err(ResolveError::NotTrusted(issuer.clone()))
         }

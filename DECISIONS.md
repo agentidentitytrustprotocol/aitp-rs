@@ -61,3 +61,46 @@ the version had not been bumped; fixing it properly (0.5.0) also made the
 release deterministic instead of inferred.
 **Consequence:** no check is dismissed as "expected red" without either
 fixing it or recording why it cannot be fixed.
+
+---
+
+# DECISIONS — drop the jsonwebtoken runtime dependency (issue #99)
+
+Decision approved ahead of implementation, 2026-08-29.
+
+## D1 — Drop `jsonwebtoken` from every runtime dependency graph rather than re-pinning it again.
+`jsonwebtoken` was held at 9.x with a long comment explaining why: 9.x carries its own
+`ring`-backed crypto, disjoint from this workspace's RustCrypto stack, and jsonwebtoken
+10+ requires opting into a backend feature. As of 11.0.0, both available backends are
+worse than staying on 9.x: `rust_crypto` pins the pre-bump RustCrypto stack (forking
+ed25519-dalek/p256/sha2 into two copies) and pulls `rsa` 0.9, which carries
+RUSTSEC-2023-0071 (Marvin timing sidechannel) with no patched release; `aws_lc_rs` avoids
+that but adds a C/CMake/NASM build dependency to both wheel matrices and would put two
+JOSE crypto backends (ring via 9.x, aws-lc-rs via 11.x) in the same cdylib. This is a
+closed, passively-maintained upstream line with no version on the horizon that both
+tracks current RustCrypto and avoids `rsa` 0.9 — waiting for one is not a plan.
+**Why not just re-pin to a newer 9.x patch or add an ignore for the advisory:** `rsa` 0.9's
+Marvin sidechannel has no fix; ignoring it would be the first crypto-advisory ignore in
+`deny.toml`, which exists specifically to make that kind of erosion visible and rare.
+**Consequence:** RS256 (RSA) verification moves to `ring`'s
+`RsaPublicKeyComponents::verify` with `RSA_PKCS1_2048_8192_SHA256` — the same code path
+jsonwebtoken 9's RS256 support used internally, so no crypto behavior changes, only the
+wrapper is removed. Verification-only usage is unaffected by RUSTSEC-2023-0071 (a
+signing/decryption padding-timing issue). EdDSA/ES256 move onto this workspace's own
+already-KAT-tested `aitp-crypto` JWS primitives. `jsonwebtoken` survives only as a
+dev-dependency differential test oracle (`jose_backend_tripwire.rs`,
+`aitp-crypto`'s JWS KATs).
+
+## D2 — `JwkPublicKey`'s public fields become owned types, decoupling the crate's public API from any JOSE library.
+`aitp_handshake::JwkPublicKey` exposed `jsonwebtoken::{Algorithm, DecodingKey}` directly,
+so any future jsonwebtoken major bump — even a dev-only one — would have been a breaking
+change for `aitp-handshake` and both bindings in lockstep. **Why go further than the
+minimum fix:** the plan could have kept `jsonwebtoken`'s types and just swapped what
+implements the traits, but that leaves the exact coupling this issue exists to remove.
+**Consequence:** `alg: JwsAlgorithm` (`EdDSA`/`ES256`/`RS256`) and
+`key: JwkKeyMaterial` (`Ed25519{x}`/`P256{x,y}`/`Rsa{n,e}`), both plain, owned, `Clone
++ Debug + PartialEq + Eq`. This is a breaking change to `aitp-handshake`'s public API
+(major bump on next release) but decouples it from any JOSE library's version
+permanently — considered an improvement, not just an accepted cost. A single shared
+parser, `JwkPublicKey::from_jwk_json`, replaces four duplicated hand-rolled JWK parsers
+(`aitp-transport-http`'s JWKS fetch and DPoP verification, both language bindings).

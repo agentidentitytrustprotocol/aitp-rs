@@ -325,6 +325,22 @@ impl AitpVerifyingKey {
         }
     }
 
+    /// Construct a P-256 verifier from separate big-endian affine
+    /// coordinates (`x`, `y`) — the encoding used by DPoP/JWKS `EC`
+    /// JWKs (RFC 7518 §6.2.1.2/§6.2.1.3), as opposed to
+    /// [`Self::from_compressed`]'s SEC1-compressed single-field form.
+    ///
+    /// Rejects `(x, y)` pairs that are not a valid point on the P-256
+    /// curve (including the point at infinity) as
+    /// `CryptoError::KeyParseFailed`; the underlying decode also
+    /// rejects non-canonical field-element encodings.
+    pub fn from_p256_affine(x: &[u8; 32], y: &[u8; 32]) -> Result<Self, CryptoError> {
+        let point = p256::Sec1Point::from_affine_coordinates(x.into(), y.into(), false);
+        P256VerifyingKey::from_sec1_point(&point)
+            .map(|k| Self(VerifyingKeyInner::P256(k)))
+            .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
+    }
+
     /// Verify a signature over `message`.
     ///
     /// Ed25519 path uses `verify_strict` to reject non-canonical
@@ -364,7 +380,16 @@ impl AitpVerifyingKey {
     /// already been pinned against the signer AID before this call.
     /// Ed25519 uses `verify_strict`; ES256 expects the JOSE raw
     /// `R || S` fixed-length encoding (RFC 7518 §3.4).
-    pub(crate) fn verify_raw(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+    ///
+    /// **Caller MUST pin the JOSE `alg` header against this key's own
+    /// algorithm before calling this** (e.g. via [`Self::algorithm`]
+    /// or, for a JWK-derived key, the `kty`/`crv` it was parsed from).
+    /// This method verifies the raw bytes against whichever algorithm
+    /// this key variant implements — it does not itself check that the
+    /// caller picked the right variant for an untrusted `alg` header,
+    /// so skipping that check reopens the algorithm-confusion class of
+    /// attack this type otherwise defends against (see [`Self::verify`]).
+    pub fn verify_raw(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
         if sig.len() != 64 {
             return Err(CryptoError::SignatureInvalid);
         }
@@ -959,5 +984,48 @@ mod tests {
         let ed_key = AitpSigningKey::from_seed(&[1u8; 32]);
         let ed_sig = ed_key.sign(b"msg");
         assert!(verifier.verify(b"msg", &ed_sig).is_err());
+    }
+
+    #[test]
+    fn from_p256_affine_round_trips_against_to_compressed() {
+        // Derive (x, y) affine coordinates the same way DPoP/JWKS carry
+        // them, then check `from_p256_affine` produces a verifier that
+        // agrees with the SEC1-compressed path already covered above.
+        let key = AitpSigningKey::generate_p256();
+        let vk = key.verifying_key();
+        let uncompressed = match &vk.0 {
+            VerifyingKeyInner::P256(pk) => pk.to_sec1_point(false),
+            VerifyingKeyInner::Ed25519(_) => unreachable!("generated as P-256"),
+        };
+        let bytes = uncompressed.as_bytes();
+        assert_eq!(bytes.len(), 65);
+        assert_eq!(bytes[0], 0x04);
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x.copy_from_slice(&bytes[1..33]);
+        y.copy_from_slice(&bytes[33..65]);
+
+        let from_affine = AitpVerifyingKey::from_p256_affine(&x, &y).expect("valid P-256 point");
+        assert_eq!(from_affine.to_compressed(), vk.to_compressed());
+
+        let msg = b"from_p256_affine round-trip";
+        let sig = key.sign(msg);
+        from_affine
+            .verify(msg, &sig)
+            .expect("affine-constructed verifier accepts the original signature");
+    }
+
+    #[test]
+    fn from_p256_affine_rejects_invalid_point() {
+        // (x, y) = (1, 1) is not on the P-256 curve for any real key —
+        // the decode must fail rather than silently accepting garbage.
+        let mut x = [0u8; 32];
+        let mut y = [0u8; 32];
+        x[31] = 1;
+        y[31] = 1;
+        assert!(matches!(
+            AitpVerifyingKey::from_p256_affine(&x, &y),
+            Err(CryptoError::KeyParseFailed(_))
+        ));
     }
 }

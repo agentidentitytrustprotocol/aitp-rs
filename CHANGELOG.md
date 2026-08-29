@@ -19,6 +19,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   constructor/accessor methods dropped their suffix, and
   `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
 
+### BREAKING
+
+- **`aitp_handshake::JwkPublicKey` no longer exposes `jsonwebtoken` types**
+  (closes #99). `pub alg: jsonwebtoken::Algorithm` and
+  `pub key: jsonwebtoken::DecodingKey` are replaced with owned,
+  library-independent types: `pub alg: JwsAlgorithm` (`EdDSA` / `ES256` /
+  `RS256`) and `pub key: JwkKeyMaterial` (`Ed25519 { x }` / `P256 { x, y }` /
+  `Rsa { n, e }`, all raw key bytes). `JwkPublicKey` now derives
+  `PartialEq`/`Eq` — it no longer needs to avoid equality because a
+  `DecodingKey` field hid internals. This is a breaking change to
+  `aitp-handshake`'s public API (major version bump on next release). Any
+  caller constructing a `JwkPublicKey` directly (custom `JwksResolver`
+  impls, test fixtures) must switch to the new fields; every in-repo call
+  site did.
+
+  New helpers land alongside: `JwkPublicKey::from_jwk_json` (a single
+  shared RFC 7517 JWK parser, replacing four duplicated hand-rolled ones
+  in `aitp-transport-http` and both language bindings) and
+  `verify_jws_signature` (JWS/DPoP signature verification against a
+  `JwkPublicKey`, replacing `jsonwebtoken`'s `decode`/`Validation`).
+  `aitp_crypto::AitpVerifyingKey::verify_raw` is now `pub` and a new
+  `AitpVerifyingKey::from_p256_affine(x, y)` constructor accepts the
+  separate affine coordinates JWKs carry for `EC` keys (as opposed to
+  `from_compressed`'s SEC1-compressed form).
+
+### Removed
+
+- **`jsonwebtoken` is dropped from every runtime dependency graph**
+  (issue #99). It remains only as a dev-dependency (differential test
+  oracle in `crates/aitp-transport-http/tests/jose_backend_tripwire.rs`
+  and `crates/aitp-crypto`'s JWS KATs). `aitp-handshake` and
+  `aitp-transport-http` no longer depend on it at all, in either
+  direction (both bindings dropped it too).
+
+  Upstream's current `jsonwebtoken` 11.0.0 `rust_crypto` backend still
+  pins the pre-bump RustCrypto stack (ed25519-dalek 2.1 / p256 0.13 /
+  sha2 0.10) and depends on `rsa` 0.9, which carries RUSTSEC-2023-0071
+  (the Marvin timing sidechannel) with no patched release — a closed,
+  passively-maintained upstream line staying on 9.x could not fix.
+  EdDSA/ES256 verification now goes through this workspace's own
+  KAT-tested `aitp-crypto` JWS primitives (`verify_raw`); RS256
+  verification goes directly through `ring`'s
+  `RsaPublicKeyComponents::verify` with `RSA_PKCS1_2048_8192_SHA256` —
+  the same code path `jsonwebtoken` 9's RS256 support used internally, so
+  this is not new cryptography, just the wrapper removed. Verification is
+  unaffected by RUSTSEC-2023-0071, which is a signing/decryption padding
+  timing issue, not a verification one. Ed25519 verification runs through
+  dalek's `verify_strict` (already the case via `verify_raw`), which is
+  strictly *more* rejecting than `ring`'s prior path — it additionally
+  rejects non-canonical signatures.
+
 ### Added
 
 - **Delegation revocation is reachable from the SDKs.** `verify_delegation` and

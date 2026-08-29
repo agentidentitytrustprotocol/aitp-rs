@@ -49,4 +49,3 @@ uuid = { workspace = true }
 # Ed25519 keypair so the demo runs without an HTTP IdP.
 ed25519-dalek = { workspace = true }
 base64ct = { workspace = true }
-jsonwebtoken = { workspace = true }

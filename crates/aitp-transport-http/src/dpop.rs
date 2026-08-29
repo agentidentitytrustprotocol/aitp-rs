@@ -301,32 +301,32 @@ pub fn verify_dpop_proof_full(
         .ok_or_else(|| DpopError::MalformedProof("alg missing".into()))?;
     let jwk = header_json.get("jwk").ok_or(DpopError::MissingJwk)?.clone();
 
-    // Step 2: build a DecodingKey from the embedded JWK and run
-    // jsonwebtoken's full verifier against the proof.
-    let decoding_key = jwk_to_decoding_key(&jwk, alg)?;
-    let jwt_alg = match alg {
-        "EdDSA" => jsonwebtoken::Algorithm::EdDSA,
-        "ES256" => jsonwebtoken::Algorithm::ES256,
-        "RS256" => jsonwebtoken::Algorithm::RS256,
-        other => return Err(DpopError::UnsupportedAlgorithm(other.to_string())),
-    };
-    let mut validation = jsonwebtoken::Validation::new(jwt_alg);
-    // RFC 9449 proofs do not carry `aud`; disable audience and
-    // expiry validation — we enforce iat-window separately.
-    validation.required_spec_claims.clear();
-    validation.validate_exp = false;
-    validation.validate_aud = false;
-    let token =
-        jsonwebtoken::decode::<DpopProof>(proof_jwt, &decoding_key, &validation).map_err(|e| {
-            // Differentiate signature failure from claim parse failure
-            // so callers can tell why a proof was refused.
-            use jsonwebtoken::errors::ErrorKind::*;
-            match e.kind() {
-                InvalidSignature => DpopError::InvalidProofSignature,
-                _ => DpopError::MalformedProof(format!("decode: {e}")),
+    // Step 2: parse the embedded JWK into owned key material (applying
+    // the DPoP-specific RSA modulus floor) and verify the proof's
+    // signature directly — no JOSE library involved (issue #99).
+    let key = parse_dpop_jwk(&jwk)?;
+    let signing_input = format!("{}.{}", parts[0], parts[1]);
+    let sig_bytes =
+        b64url_decode(parts[2]).map_err(|e| DpopError::MalformedProof(format!("sig b64: {e}")))?;
+    aitp_handshake::verify_jws_signature(&key, alg, signing_input.as_bytes(), &sig_bytes).map_err(
+        |e| {
+            let msg = e.to_string();
+            match e {
+                aitp_handshake::JwsVerifyError::SignatureInvalid => {
+                    DpopError::InvalidProofSignature
+                }
+                aitp_handshake::JwsVerifyError::AlgMismatch { .. } => {
+                    DpopError::UnsupportedAlgorithm(msg)
+                }
+                _ => DpopError::MalformedProof(msg),
             }
-        })?;
-    let proof = token.claims;
+        },
+    )?;
+
+    let payload_bytes = b64url_decode(parts[1])
+        .map_err(|e| DpopError::MalformedProof(format!("claims b64: {e}")))?;
+    let proof: DpopProof = serde_json::from_slice(&payload_bytes)
+        .map_err(|e| DpopError::MalformedProof(format!("claims json: {e}")))?;
 
     // Step 3: bind to request.
     if !proof.htm.eq_ignore_ascii_case(ctx.expected_method) {
@@ -392,63 +392,34 @@ pub fn verify_dpop_proof_full(
     Ok(proof)
 }
 
-/// Build a `jsonwebtoken::DecodingKey` from a JWK value.
-fn jwk_to_decoding_key(
-    jwk: &serde_json::Value,
-    alg: &str,
-) -> Result<jsonwebtoken::DecodingKey, DpopError> {
-    let kty = jwk
-        .get("kty")
-        .and_then(|v| v.as_str())
-        .ok_or_else(|| DpopError::MalformedProof("jwk.kty missing".into()))?;
-    match (kty, alg) {
-        ("OKP", "EdDSA") => {
-            let crv = jwk.get("crv").and_then(|v| v.as_str()).unwrap_or("");
-            if crv != "Ed25519" {
-                return Err(DpopError::UnsupportedAlgorithm(format!("OKP:{crv}")));
-            }
-            let x_b64 = jwk
-                .get("x")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| DpopError::MalformedProof("jwk.x missing".into()))?;
-            let x_bytes = b64url_decode(x_b64)
-                .map_err(|e| DpopError::MalformedProof(format!("jwk.x b64: {e}")))?;
-            Ok(jsonwebtoken::DecodingKey::from_ed_der(&x_bytes))
+/// Parse the DPoP proof's embedded `jwk` header value into an owned
+/// [`aitp_handshake::JwkPublicKey`], applying the DPoP-specific RSA
+/// modulus floor (RFC-AITP-0009 §4) before trusting the key material.
+///
+/// Delegates the actual JWK-shape parsing to the shared
+/// `aitp_handshake::JwkPublicKey::from_jwk_json` parser; algorithm
+/// pinning against the proof's declared `alg` happens separately in
+/// [`aitp_handshake::verify_jws_signature`].
+fn parse_dpop_jwk(jwk: &serde_json::Value) -> Result<aitp_handshake::JwkPublicKey, DpopError> {
+    if jwk.get("kty").and_then(|v| v.as_str()) == Some("RSA") {
+        let n = jwk
+            .get("n")
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| DpopError::MalformedProof("jwk.n missing".into()))?;
+        // Reject weak RSA keys (RFC-AITP-0009 §4): a DPoP proof
+        // carrying a <2048-bit RSA public key must not be honored.
+        if !crate::common::rsa_modulus_bits_ok(n) {
+            return Err(DpopError::UnsupportedAlgorithm(format!(
+                "RSA modulus below the {}-bit minimum",
+                crate::common::MIN_RSA_MODULUS_BITS
+            )));
         }
-        ("EC", "ES256") => {
-            let x = jwk
-                .get("x")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| DpopError::MalformedProof("jwk.x missing".into()))?;
-            let y = jwk
-                .get("y")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| DpopError::MalformedProof("jwk.y missing".into()))?;
-            jsonwebtoken::DecodingKey::from_ec_components(x, y)
-                .map_err(|e| DpopError::MalformedProof(format!("ec components: {e}")))
-        }
-        ("RSA", "RS256") => {
-            let n = jwk
-                .get("n")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| DpopError::MalformedProof("jwk.n missing".into()))?;
-            let e = jwk
-                .get("e")
-                .and_then(|v| v.as_str())
-                .ok_or_else(|| DpopError::MalformedProof("jwk.e missing".into()))?;
-            // Reject weak RSA keys (RFC-AITP-0009 §4): a DPoP proof
-            // carrying a <2048-bit RSA public key must not be honored.
-            if !crate::common::rsa_modulus_bits_ok(n) {
-                return Err(DpopError::UnsupportedAlgorithm(format!(
-                    "RSA modulus below the {}-bit minimum",
-                    crate::common::MIN_RSA_MODULUS_BITS
-                )));
-            }
-            jsonwebtoken::DecodingKey::from_rsa_components(n, e)
-                .map_err(|e| DpopError::MalformedProof(format!("rsa components: {e}")))
-        }
-        (kty, alg) => Err(DpopError::UnsupportedAlgorithm(format!("{kty}:{alg}"))),
     }
+    aitp_handshake::JwkPublicKey::from_jwk_json(jwk).map_err(|e| match e {
+        aitp_handshake::JwkParseError::Malformed(m) => DpopError::MalformedProof(m),
+        aitp_handshake::JwkParseError::Unsupported(m) => DpopError::UnsupportedAlgorithm(m),
+        other => DpopError::MalformedProof(other.to_string()),
+    })
 }
 
 /// Compute the RFC 7638 JWK thumbprint of a JWK value, returning
@@ -601,9 +572,7 @@ mod tests {
             "n": encode(&weak_n),
             "e": "AQAB",
         });
-        // Note: `DecodingKey` (the Ok type) has no `Debug`, so match
-        // on the result directly rather than `unwrap_err()`.
-        match jwk_to_decoding_key(&weak, "RS256") {
+        match parse_dpop_jwk(&weak) {
             Err(DpopError::UnsupportedAlgorithm(m)) => {
                 assert!(m.contains("2048"), "expected weak-RSA rejection, got: {m}");
             }
@@ -611,8 +580,7 @@ mod tests {
             Ok(_) => panic!("weak 1024-bit RSA key must be rejected"),
         }
 
-        // 2048-bit modulus clears the floor (parsing proceeds past the
-        // size gate; from_rsa_components then does its own validation).
+        // 2048-bit modulus clears the floor.
         let mut ok_n = vec![0xffu8; 256];
         ok_n[0] = 0x80;
         let ok = serde_json::json!({
@@ -620,14 +588,7 @@ mod tests {
             "n": encode(&ok_n),
             "e": "AQAB",
         });
-        // Must NOT be the size-floor error (it may still fail deeper
-        // parsing, but never on the modulus-size gate).
-        if let Err(DpopError::UnsupportedAlgorithm(m)) = jwk_to_decoding_key(&ok, "RS256") {
-            assert!(
-                !m.contains("2048"),
-                "2048-bit modulus must clear the size floor, got: {m}"
-            );
-        }
+        parse_dpop_jwk(&ok).expect("2048-bit modulus must clear the size floor");
     }
 
     #[test]

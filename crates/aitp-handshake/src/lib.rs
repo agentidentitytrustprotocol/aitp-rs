@@ -11,13 +11,17 @@ pub mod error;
 pub mod identity;
 pub mod identity_oidc;
 pub mod identity_pinned;
+pub mod jwk;
 pub mod payloads;
 pub mod state_machine;
 
 pub use error::HandshakeError;
 pub use identity::{IdentityDescriptor, IdentityKind};
-pub use identity_oidc::{verify_oidc, JwkPublicKey, JwksResolver, OidcVerifyContext, ResolveError};
+pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
 pub use identity_pinned::{sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext};
+pub use jwk::{
+    verify_jws_signature, JwkKeyMaterial, JwkParseError, JwkPublicKey, JwsAlgorithm, JwsVerifyError,
+};
 pub use payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };

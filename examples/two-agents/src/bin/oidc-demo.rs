@@ -13,12 +13,12 @@
 use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
-    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
+    Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, PeerConfig,
+    PresentedIdentity, ResolveError, Responder,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{Signer, SigningKey};
-use jsonwebtoken::{Algorithm, DecodingKey};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -305,8 +305,10 @@ impl MockOidcIssuer {
     fn as_jwk(&self) -> JwkPublicKey {
         JwkPublicKey {
             kid: Some(self.kid.clone()),
-            alg: Algorithm::EdDSA,
-            key: DecodingKey::from_ed_der(&self.pubkey_bytes()),
+            alg: JwsAlgorithm::EdDSA,
+            key: JwkKeyMaterial::Ed25519 {
+                x: self.pubkey_bytes(),
+            },
         }
     }
 
