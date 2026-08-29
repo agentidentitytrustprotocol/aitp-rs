@@ -81,6 +81,30 @@ test('every manifest failure cause is recoverable without parsing prose', () => 
   assert.equal(causeOf(() => verifyManifestJson('not json at all')), 'malformed');
 });
 
+// ── nowUnixSecs override ─────────────────────────────────────────────────
+//
+// verifyRevocationList has always accepted a clock override so tests can
+// pin "expired" deterministically instead of faking the system clock or
+// minting an already-negative TTL. verifyManifestJson lacked the same
+// parameter (aitp-rs#102) — a caller could not distinguish "this manifest
+// lapsed" from "this manifest is forged" without either faking system time
+// or, as the tests above do, minting a manifest that's born expired. This
+// exercises the override on an otherwise-valid (positive-TTL) manifest, so
+// it proves the parameter actually reaches the verifier rather than just
+// being accepted and ignored.
+
+test('nowUnixSecs overrides the verification clock to accept a normally-valid manifest', () => {
+  const manifest = signedManifest();
+  const soon = Math.floor(Date.now() / 1000) + 60;
+  assert.equal(verifyManifestJson(manifest, soon), undefined);
+});
+
+test('nowUnixSecs overrides the verification clock to expire a normally-valid manifest', () => {
+  const manifest = signedManifest();
+  const farFuture = Math.floor(Date.now() / 1000) + 10_000_000;
+  assert.equal(causeOf(() => verifyManifestJson(manifest, farFuture)), 'expired');
+});
+
 test('expired is distinct from signature_invalid', () => {
   // "That peer's manifest went stale" and "someone tampered with it" send an
   // operator to different places; a caller that cannot separate them cannot

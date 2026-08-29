@@ -73,18 +73,20 @@ fn verification_error(code: &str, message: String) -> PyErr {
 /// proof-of-possession, expiry, or identity-hint shape failures.
 ///
 /// On failure raises `ManifestVerificationError` with a stable `.code`.
+///
+/// `now_unix_secs` overrides the verification clock — omit it to use the
+/// system clock, or pass a pinned value in tests. Matches
+/// `verify_revocation_list`'s `now_unix_secs` parameter.
 #[pyfunction]
-#[pyo3(name = "verify_manifest_json")]
-pub fn verify_manifest_json_py(manifest_envelope_json: &str) -> PyResult<()> {
+#[pyo3(name = "verify_manifest_json", signature = (manifest_envelope_json, now_unix_secs=None))]
+pub fn verify_manifest_json_py(
+    manifest_envelope_json: &str,
+    now_unix_secs: Option<i64>,
+) -> PyResult<()> {
     let envelope: ManifestEnvelope = serde_json::from_str(manifest_envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid manifest JSON: {e}")))?;
-    verify_manifest(
-        &envelope.manifest,
-        &VerifyManifestContext {
-            now: Timestamp::now(),
-        },
-    )
-    .map_err(|e| {
+    let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
+    verify_manifest(&envelope.manifest, &VerifyManifestContext { now }).map_err(|e| {
         verification_error(
             verification_cause(&e),
             format!("manifest verification failed: {e}"),
