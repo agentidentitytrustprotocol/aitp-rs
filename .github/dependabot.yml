@@ -12,6 +12,39 @@ updates:
       major-updates:
         update-types: ["major"]
 
+  - package-ecosystem: cargo
+    directory: "/bindings/aitp-py"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
+
+  - package-ecosystem: cargo
+    directory: "/bindings/aitp-node"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
+
+  - package-ecosystem: npm
+    directory: "/bindings/aitp-node"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+    groups:
+      minor-and-patch:
+        update-types: ["minor", "patch"]
+      major-updates:
+        update-types: ["major"]
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

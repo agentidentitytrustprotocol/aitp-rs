@@ -31,7 +31,9 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp_manifest::Manifest {
             subject: name.into(),
             issuer: None,
             public_key: Some(aitp_core::base64url::encode(
-                &key.verifying_key().to_bytes(),
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
             )),
         })
         .accept_identity_type("pinned_key")

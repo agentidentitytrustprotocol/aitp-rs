@@ -943,7 +943,11 @@ mod cache_tests {
 
     fn build_manifest(published_at: Timestamp, expires_at: Timestamp) -> Manifest {
         let key = AitpSigningKey::generate();
-        let pubkey_b64 = aitp_core::base64url::encode(&key.verifying_key().to_bytes());
+        let pubkey_b64 = aitp_core::base64url::encode(
+            &key.verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        );
         let mut m = ManifestBuilder::new(&key)
             .handshake_endpoint("https://peer.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(IdentityHint {

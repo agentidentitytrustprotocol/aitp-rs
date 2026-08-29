@@ -24,7 +24,11 @@ pub fn build_demo_manifest(
     port: u16,
     offered: &[&str],
 ) -> Manifest {
-    let pubkey_b64 = aitp::core::base64url::encode(&key.verifying_key().to_bytes());
+    let pubkey_b64 = aitp::core::base64url::encode(
+        &key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
     let endpoint = format!("http://localhost:{port}/aitp/handshake/");
     let mut builder = ManifestBuilder::new(key)
         .display_name(display_name)

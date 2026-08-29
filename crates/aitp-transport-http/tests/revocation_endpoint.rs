@@ -63,7 +63,10 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
             subject: "issuer".into(),
             issuer: None,
             public_key: Some(aitp_core::base64url::encode(
-                &issuer.verifying_key().to_bytes(),
+                &issuer
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
             )),
         })
         .accept_identity_type("pinned_key")
@@ -137,7 +140,10 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
             subject: "issuer".into(),
             issuer: None,
             public_key: Some(aitp_core::base64url::encode(
-                &issuer.verifying_key().to_bytes(),
+                &issuer
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
             )),
         })
         .accept_identity_type("pinned_key")
