@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Security
+
+- **`bindings/aitp-py` bumps pyo3 `0.22` → `0.29`**, closing
+  [RUSTSEC-2025-0020](https://rustsec.org/advisories/RUSTSEC-2025-0020) and
+  [RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177), both
+  unfixable in the 0.22.x line and previously suppressed via `deny.toml` /
+  `cargo audit --ignore` pending this migration
+  ([#104](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/104)).
+  Mechanical only — `Python::with_gil` → `Python::attach`, the `_bound`-suffixed
+  constructor/accessor methods dropped their suffix, and
+  `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
+
 ### Added
 
 - **Delegation revocation is reachable from the SDKs.** `verify_delegation` and

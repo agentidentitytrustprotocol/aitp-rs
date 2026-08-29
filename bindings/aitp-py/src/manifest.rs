@@ -9,11 +9,6 @@ use aitp_manifest::{verify_manifest, ManifestEnvelope, ManifestError, VerifyMani
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 
-// pyo3 0.22's `create_exception!` expands a `#[cfg(feature = ...)]` naming a
-// feature of *pyo3*, not of this crate, which trips `unexpected_cfgs`. CI runs
-// clippy with `-D warnings`, so scope an allow to the macro rather than
-// loosening the lint crate-wide.
-#[allow(unexpected_cfgs)]
 mod verification_error_type {
     use pyo3::create_exception;
     use pyo3::exceptions::PyRuntimeError;
@@ -61,10 +56,10 @@ fn verification_cause(err: &ManifestError) -> &'static str {
 
 fn verification_error(code: &str, message: String) -> PyErr {
     let err = ManifestVerificationError::new_err(message);
-    Python::with_gil(|py| {
+    Python::attach(|py| {
         // Best-effort: if setting the attribute fails the exception still
         // carries its message, so verification still fails closed.
-        let _ = err.value_bound(py).setattr("code", code);
+        let _ = err.value(py).setattr("code", code);
     });
     err
 }

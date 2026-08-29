@@ -137,7 +137,7 @@ pub fn verify_session_bundle_py<'py>(
     let cb_fn: Option<RevocationFn> = cb_holder.as_ref().map(|callable| {
         let callable = callable.clone_ref(py);
         let f: RevocationFn = Box::new(move |jti: &Uuid| {
-            Python::with_gil(|py| {
+            Python::attach(|py| {
                 let bound = callable.bind(py);
                 match bound.call1((jti.to_string(),)) {
                     Ok(r) => r.extract::<bool>().unwrap_or(false),
@@ -158,7 +158,7 @@ pub fn verify_session_bundle_py<'py>(
     )
     .map_err(|e| PyRuntimeError::new_err(format!("bundle verification failed: {e}")))?;
 
-    let out = PyDict::new_bound(py);
+    let out = PyDict::new(py);
     match outcome {
         BundleOutcome::Clear { active_aids } => {
             out.set_item("kind", "clear")?;

@@ -25,7 +25,7 @@ pub fn compute_spki_hash<'py>(py: Python<'py>, cert_der: &[u8]) -> PyResult<Boun
     let mut hasher = Sha256::new();
     hasher.update(cert.tbs_certificate.subject_pki.raw);
     let digest = hasher.finalize();
-    Ok(PyBytes::new_bound(py, &digest))
+    Ok(PyBytes::new(py, &digest))
 }
 
 /// Holds a list of 32-byte SPKI pins and tells you whether a candidate
