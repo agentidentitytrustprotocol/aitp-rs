@@ -247,6 +247,20 @@ jobs:
         # 1.90, the whole workspace does.
         run: cargo msrv verify --manifest-path crates/aitp/Cargo.toml
 
+  # Compile-only smoke test for the criterion benches (crates/*/benches/).
+  # Not required yet — this catches a broken bench build without gating
+  # merges on it; promote to required once it's proven stable in CI.
+  bench-check:
+    name: bench-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - run: cargo bench -p aitp-core -p aitp-crypto -p aitp-tct --no-run
+
   coverage:
     name: coverage (tarpaulin)
     runs-on: ubuntu-latest
