@@ -32,3 +32,8 @@ sha2 = { workspace = true }
 [dev-dependencies]
 boon = { workspace = true }
 hex = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "verify"
+harness = false

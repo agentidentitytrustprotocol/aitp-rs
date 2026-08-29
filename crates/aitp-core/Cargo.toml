@@ -24,3 +24,8 @@ url = { workspace = true }
 
 [dev-dependencies]
 proptest = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "jcs_canonicalize"
+harness = false

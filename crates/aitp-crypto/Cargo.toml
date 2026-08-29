@@ -28,3 +28,8 @@ hex = { workspace = true }
 # alg confusion must corroborate ours. Dev-dependency ONLY — protocol
 # crates stay on RustCrypto.
 jsonwebtoken = { workspace = true }
+criterion = { workspace = true }
+
+[[bench]]
+name = "jws"
+harness = false
