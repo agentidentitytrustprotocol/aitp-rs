@@ -39,7 +39,7 @@
     "test": "node --test tests/*.mjs"
   },
   "devDependencies": {
-    "@napi-rs/cli": "^2.18.0",
+    "@napi-rs/cli": "^3.8.6",
     "node-forge": "^1.4.0"
   },
   "engines": {
