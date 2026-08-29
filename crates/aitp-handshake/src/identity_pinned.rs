@@ -196,7 +196,12 @@ mod tests {
             issuer: None,
             subject: "agent-x".into(),
             proof,
-            public_key: Some(base64url::encode(&signer.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &signer
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         }
     }
 
@@ -400,7 +405,11 @@ mod tests {
             issuer: None,
             subject: "agent-x".into(),
             proof: legacy_proof,
-            public_key: Some(base64url::encode(&key.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         };
         let err = verify_pinned_key(
             &desc,

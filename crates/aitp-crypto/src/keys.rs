@@ -422,6 +422,10 @@ impl AitpVerifyingKey {
     /// Prefer [`Self::try_to_ed25519_bytes`] for new code: it returns
     /// `None` for P-256 instead of panicking, so an algorithm-agile
     /// caller cannot inadvertently crash the process.
+    #[deprecated(
+        since = "0.8.1",
+        note = "Use try_to_ed25519_bytes or to_compressed: to_bytes panics on P-256 keys."
+    )]
     pub fn to_bytes(&self) -> [u8; 32] {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => vk.to_bytes(),
@@ -650,7 +654,12 @@ mod tests {
     fn verifying_key_from_aid_round_trips() {
         let key = AitpSigningKey::from_seed(&[42u8; 32]);
         let vk = AitpVerifyingKey::from_aid(key.aid()).unwrap();
-        assert_eq!(vk.to_bytes(), key.verifying_key().to_bytes());
+        assert_eq!(
+            vk.try_to_ed25519_bytes().expect("key from_aid is Ed25519"),
+            key.verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256")
+        );
     }
 
     #[test]
