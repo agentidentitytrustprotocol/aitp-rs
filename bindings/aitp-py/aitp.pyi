@@ -242,13 +242,20 @@ class ManifestVerificationError(RuntimeError):
 
     code: str
 
-def verify_manifest_json(manifest_envelope_json: str) -> None:
+def verify_manifest_json(
+    manifest_envelope_json: str,
+    now_unix_secs: Optional[int] = ...,
+) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure.
 
     Raises `ManifestVerificationError` (with `.code`) when the envelope does
     not verify, and `ValueError` when it is not parseable as a manifest at
     all — that second one is the caller handing us the wrong bytes, not a
-    peer failing verification."""
+    peer failing verification.
+
+    `now_unix_secs` overrides the verification clock — omit it to use the
+    system clock, or pass a pinned value in tests. Matches
+    `verify_revocation_list`'s `now_unix_secs` parameter."""
     ...
 
 class RevocationVerificationError(RuntimeError):

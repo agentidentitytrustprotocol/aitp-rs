@@ -64,17 +64,20 @@ fn manifest_verification_cause(err: &ManifestError) -> &'static str {
 /// `version_unknown`, `identity_hint_malformed`,
 /// `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
 /// on `error.message`: the code is the contract, the wording is not.
+///
+/// `nowUnixSecs` overrides the verification clock — omit it to use the
+/// system clock, or pass a pinned value in tests. Matches
+/// `verifyRevocationList`'s `nowUnixSecs` parameter.
 #[napi]
-pub fn verify_manifest_json(env: Env, manifest_envelope_json: String) -> Result<()> {
+pub fn verify_manifest_json(
+    env: Env,
+    manifest_envelope_json: String,
+    now_unix_secs: Option<i64>,
+) -> Result<()> {
     let envelope: ManifestEnvelope = serde_json::from_str(&manifest_envelope_json)
         .map_err(|e| throw_with_code(env, "malformed", format!("invalid manifest JSON: {e}")))?;
-    verify_manifest(
-        &envelope.manifest,
-        &VerifyManifestContext {
-            now: Timestamp::now(),
-        },
-    )
-    .map_err(|e| {
+    let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
+    verify_manifest(&envelope.manifest, &VerifyManifestContext { now }).map_err(|e| {
         throw_with_code(
             env,
             manifest_verification_cause(&e),

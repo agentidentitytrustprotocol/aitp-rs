@@ -283,8 +283,12 @@ export interface JsTctIdentity {
  * `version_unknown`, `identity_hint_malformed`,
  * `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
  * on `error.message`: the code is the contract, the wording is not.
+ *
+ * `nowUnixSecs` overrides the verification clock — omit it to use the
+ * system clock, or pass a pinned value in tests. Matches
+ * `verifyRevocationList`'s `nowUnixSecs` parameter.
  */
-export declare function verifyManifestJson(manifestEnvelopeJson: string): void
+export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null): void
 /** An AITP agent: a signing key and (once built) its Manifest. */
 export declare class AitpAgent {
   /**

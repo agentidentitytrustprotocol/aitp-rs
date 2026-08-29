@@ -79,6 +79,43 @@ def test_every_failure_cause_is_recoverable_without_parsing_a_message():
     assert _code_for(expired) == "expired"
 
 
+# ── now_unix_secs override ───────────────────────────────────────────────
+#
+# verify_revocation_list has always accepted a clock override so tests can
+# pin "expired" deterministically instead of faking the system clock or
+# minting an already-negative TTL. verify_manifest_json lacked the same
+# parameter (aitp-rs#102) — a caller could not distinguish "this manifest
+# lapsed" from "this manifest is forged" without either faking system time
+# or, as the tests above do, minting a manifest that's born expired. This
+# exercises the override on an otherwise-valid (positive-TTL) manifest, so
+# it proves the parameter actually reaches the verifier rather than just
+# being accepted and ignored.
+
+
+def test_now_unix_secs_override_accepts_a_normally_valid_manifest():
+    import time
+
+    manifest = _signed_manifest()
+    soon = int(time.time()) + 60
+    assert aitp.verify_manifest_json(manifest, soon) is None
+
+
+def test_now_unix_secs_override_expires_a_normally_valid_manifest():
+    import time
+
+    manifest = _signed_manifest()
+    far_future = int(time.time()) + 10_000_000
+    assert _code_for_with_now(manifest, far_future) == "expired"
+
+
+def _code_for_with_now(envelope_json: str, now_unix_secs: int) -> str:
+    try:
+        aitp.verify_manifest_json(envelope_json, now_unix_secs)
+    except aitp.ManifestVerificationError as exc:
+        return exc.code
+    raise AssertionError("expected verification to fail, but it succeeded")
+
+
 def test_expired_is_distinct_from_signature_invalid():
     """The distinction the playground previously had to get by substring match.
 
