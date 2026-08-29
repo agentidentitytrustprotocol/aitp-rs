@@ -55,7 +55,11 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp_manifest::Manifest {
             kind: IdentityHintKind::PinnedKey,
             subject: name.into(),
             issuer: None,
-            public_key: Some(base64url::encode(&key.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         })
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -86,7 +90,12 @@ fn p1_legacy_two_field_proof_rejected() {
         issuer: None,
         subject: "sender".into(),
         proof: legacy_sig,
-        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+        public_key: Some(base64url::encode(
+            &sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        )),
     };
 
     let ctx = PinnedKeyVerifyContext {
@@ -129,7 +138,12 @@ fn p1_wrong_receiver_in_proof_rejected() {
         issuer: None,
         subject: "sender".into(),
         proof,
-        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+        public_key: Some(base64url::encode(
+            &sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        )),
     };
     let ctx = PinnedKeyVerifyContext {
         sender_aid: sender.aid(),
@@ -158,7 +172,12 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
         issuer: None,
         subject: "sender".into(),
         proof,
-        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+        public_key: Some(base64url::encode(
+            &sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        )),
     };
     let ctx = PinnedKeyVerifyContext {
         sender_aid: sender.aid(),
@@ -188,7 +207,12 @@ fn oidc_descriptor_with_public_key_rejected() {
         subject: "sender".into(),
         proof: "eyJhbGc.placeholder.sig".into(),
         // Forbidden for oidc:
-        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+        public_key: Some(base64url::encode(
+            &sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        )),
     };
     let ctx = OidcVerifyContext {
         expected_audience: receiver.aid(),
@@ -225,7 +249,10 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
     let sender_manifest = manifest_for(&untrusted_sender, "sender");
 
     // Trust store contains only the receiver's own key, not the sender's.
-    let store = StaticPinnedKeyStore::new(vec![receiver.verifying_key().to_bytes()]);
+    let store = StaticPinnedKeyStore::new(vec![receiver
+        .verifying_key()
+        .try_to_ed25519_bytes()
+        .expect("key was constructed as Ed25519, never P-256")]);
 
     let resolver = NoOpResolver;
     let cfg = PeerConfig {
@@ -254,7 +281,10 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
         subject: "sender".into(),
         proof,
         public_key: Some(base64url::encode(
-            &untrusted_sender.verifying_key().to_bytes(),
+            &untrusted_sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
         )),
     };
     let envelope = AitpEnvelope {
@@ -313,7 +343,12 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         issuer: None,
         subject: "sender".into(),
         proof,
-        public_key: Some(base64url::encode(&sender.verifying_key().to_bytes())),
+        public_key: Some(base64url::encode(
+            &sender
+                .verifying_key()
+                .try_to_ed25519_bytes()
+                .expect("key was constructed as Ed25519, never P-256"),
+        )),
     };
 
     let receiver_manifest = manifest_for(&receiver, "receiver");

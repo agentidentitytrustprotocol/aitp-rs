@@ -87,7 +87,11 @@ fn write_pretty(path: PathBuf, value: serde_json::Value) {
 
 fn mint_manifest() {
     let key = key_from_hex(KAT_001_SEED_HEX);
-    let pubkey_b64 = base64url::encode(&key.verifying_key().to_bytes());
+    let pubkey_b64 = base64url::encode(
+        &key.verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
     let mut manifest = ManifestBuilder::new(&key)
         .display_name("kat-keypair-001")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())

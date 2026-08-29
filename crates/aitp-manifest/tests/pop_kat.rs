@@ -100,7 +100,11 @@ fn builder_pop_uses_decoded_challenge() {
             kind: IdentityHintKind::PinnedKey,
             subject: "alice".into(),
             issuer: None,
-            public_key: Some(base64url::encode(&key.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
@@ -135,7 +139,11 @@ fn legacy_ascii_bytes_pop_is_rejected() {
             kind: IdentityHintKind::PinnedKey,
             subject: "alice".into(),
             issuer: None,
-            public_key: Some(base64url::encode(&key.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
