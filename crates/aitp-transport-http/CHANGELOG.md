@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.8.0...aitp-transport-http-v0.9.0) - 2026-08-29
+
+### Added
+
+- [**breaking**] remove deprecated verify_dpop_proof shim
+
+### Fixed
+
+- deprecate AitpVerifyingKey::to_bytes panic path
+
 ## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.7.0...aitp-transport-http-v0.8.0) - 2026-08-28
 
 ### Other
