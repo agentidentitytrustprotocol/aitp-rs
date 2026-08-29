@@ -147,6 +147,10 @@ hex = "0.4"
 # JSON Schema validator — used in tests/schema.rs to catch wire-type drift
 # from the AITP JSON Schemas. Test-only; do NOT take a runtime dependency.
 boon = "0.6"
+# Benchmark harness for the JCS/JWS/TCT hot paths (crates/*/benches/).
+# `cargo_bench_support` pulls in `rayon`, which this workspace otherwise
+# has no reason to depend on — harmless as a dev-only dependency.
+criterion = "0.8"
 
 [profile.release]
 lto = "thin"
