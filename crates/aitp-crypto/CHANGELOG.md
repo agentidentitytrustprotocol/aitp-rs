@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.9.0...aitp-crypto-v0.10.0) - 2026-08-29
+
+### Other
+
+- *(aitp-handshake)* [**breaking**] drop jsonwebtoken from runtime deps ([#122](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/122))
+
 ## [0.9.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.8.0...aitp-crypto-v0.9.0) - 2026-08-29
 
 ### Fixed
