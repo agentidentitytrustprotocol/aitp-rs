@@ -392,47 +392,6 @@ pub fn verify_dpop_proof_full(
     Ok(proof)
 }
 
-/// Compatibility shim that preserves the rc.1 four-argument
-/// signature. The full verifier lives at
-/// [`verify_dpop_proof_full`].
-///
-/// **Deprecated.** This shim is unsafe in two ways:
-///
-/// - It builds a fresh per-call [`DpopReplayCache`], so replay
-///   defense is effectively disabled — every proof is "new" to
-///   a freshly constructed cache.
-/// - It cannot verify the `ath` access-token-binding claim,
-///   because the access-token bytes are not in the argument
-///   list. RFC 9449 §4.1 requires this binding at every
-///   resource-server check.
-///
-/// Production callers MUST use [`verify_dpop_proof_full`] with a
-/// long-lived cache and [`DpopVerifyContext::expected_access_token`]
-/// populated.
-#[deprecated(
-    since = "0.1.0-rc.2",
-    note = "Use verify_dpop_proof_full: the 4-arg shim disables replay defense and cannot verify the ath access-token binding."
-)]
-pub fn verify_dpop_proof(
-    header: &DpopHeader,
-    expected_method: &str,
-    expected_url: &str,
-    expected_jkt: &str,
-) -> Result<DpopProof, DpopError> {
-    let cache = DpopReplayCache::default();
-    let ctx = DpopVerifyContext {
-        expected_method,
-        expected_url,
-        expected_jkt,
-        expected_access_token: None,
-        expected_nonce: None,
-        replay_cache: &cache,
-        iat_tolerance_secs: 60,
-        now_unix_secs: chrono::Utc::now().timestamp(),
-    };
-    verify_dpop_proof_full(header, &ctx)
-}
-
 /// Build a `jsonwebtoken::DecodingKey` from a JWK value.
 fn jwk_to_decoding_key(
     jwk: &serde_json::Value,
