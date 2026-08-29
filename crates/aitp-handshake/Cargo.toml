@@ -19,11 +19,16 @@ aitp-tct = { path = "../aitp-tct", version = "=0.9.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
-jsonwebtoken = { workspace = true }
 uuid = { workspace = true }
 url = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
+# RS256 (RSA) JWS verification for OIDC ID tokens — see the
+# `verify_jws_signature` doc comment in `src/jwk.rs`. Already in the
+# dependency tree transitively via `rustls`; declared directly here
+# (rather than relying on the transitive pull) so this crate's use of
+# it is explicit and pinned by the workspace.
+ring = { workspace = true }
 
 [dev-dependencies]
 boon = { workspace = true }

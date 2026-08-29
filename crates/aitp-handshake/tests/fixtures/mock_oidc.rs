@@ -9,10 +9,9 @@
 //! sprinkle per-item attributes.
 #![allow(dead_code)]
 
-use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use aitp_handshake::{JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, ResolveError};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{Signer, SigningKey};
-use jsonwebtoken::{Algorithm, DecodingKey};
 use serde_json::{json, Value};
 use url::Url;
 
@@ -37,11 +36,6 @@ impl MockOidcIssuer {
     }
 
     /// Return the raw 32-byte Ed25519 pubkey.
-    ///
-    /// `jsonwebtoken::DecodingKey::from_ed_der` is misleadingly named:
-    /// it actually wants the raw 32-byte pubkey (which `ring`
-    /// internally accepts as the `UnparsedPublicKey` for ED25519), not
-    /// SPKI DER.
     fn pubkey_bytes(&self) -> [u8; 32] {
         self.signing.verifying_key().to_bytes()
     }
@@ -84,8 +78,10 @@ impl MockOidcIssuer {
     pub fn as_jwk(&self) -> JwkPublicKey {
         JwkPublicKey {
             kid: Some(self.kid.clone()),
-            alg: Algorithm::EdDSA,
-            key: DecodingKey::from_ed_der(&self.pubkey_bytes()),
+            alg: JwsAlgorithm::EdDSA,
+            key: JwkKeyMaterial::Ed25519 {
+                x: self.pubkey_bytes(),
+            },
         }
     }
 
@@ -95,8 +91,10 @@ impl MockOidcIssuer {
     pub fn as_jwk_no_kid(&self) -> JwkPublicKey {
         JwkPublicKey {
             kid: None,
-            alg: Algorithm::EdDSA,
-            key: DecodingKey::from_ed_der(&self.pubkey_bytes()),
+            alg: JwsAlgorithm::EdDSA,
+            key: JwkKeyMaterial::Ed25519 {
+                x: self.pubkey_bytes(),
+            },
         }
     }
 
@@ -139,17 +137,7 @@ pub struct MockJwksResolver {
 impl JwksResolver for MockJwksResolver {
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         if issuer == &self.issuer {
-            // Clone-by-rebuild: JwkPublicKey is Clone via its DecodingKey
-            // wrapper.
-            Ok(self
-                .keys
-                .iter()
-                .map(|k| JwkPublicKey {
-                    kid: k.kid.clone(),
-                    alg: k.alg,
-                    key: k.key.clone(),
-                })
-                .collect())
+            Ok(self.keys.clone())
         } else {
             Err(ResolveError::NotTrusted(issuer.clone()))
         }

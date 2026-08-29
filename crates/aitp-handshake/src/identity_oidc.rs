@@ -2,11 +2,10 @@
 
 use crate::error::HandshakeError;
 use crate::identity::IdentityDescriptor;
+use crate::jwk::{verify_jws_signature, JwkPublicKey};
 use aitp_core::Aid;
 use aitp_crypto::AitpVerifyingKey;
-use jsonwebtoken::{Algorithm, DecodingKey, Validation};
 use serde::Deserialize;
-use std::collections::HashSet;
 use url::Url;
 
 /// Trait implementations resolve an issuer URI to a set of acceptable
@@ -18,28 +17,6 @@ use url::Url;
 pub trait JwksResolver {
     /// Return the set of acceptable signing keys for `issuer`.
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError>;
-}
-
-/// A single JWK entry returned by [`JwksResolver`].
-#[derive(Clone)]
-pub struct JwkPublicKey {
-    /// Key identifier matching the JWT header `kid`.
-    pub kid: Option<String>,
-    /// Algorithm (`EdDSA`, `RS256`, …).
-    pub alg: Algorithm,
-    /// Decoding key material in `jsonwebtoken`'s representation.
-    pub key: DecodingKey,
-}
-
-impl std::fmt::Debug for JwkPublicKey {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("JwkPublicKey")
-            .field("kid", &self.kid)
-            .field("alg", &self.alg)
-            // DecodingKey deliberately does not implement Debug — its
-            // internals can hold key material.
-            .finish_non_exhaustive()
-    }
 }
 
 /// Errors from JWKS resolution.
@@ -122,8 +99,23 @@ pub fn verify_oidc(
         return Err(HandshakeError::IncompatibleTrustAnchors);
     }
 
-    let header = jsonwebtoken::decode_header(&proof.proof)
-        .map_err(|e| HandshakeError::Identity(format!("malformed JWT header: {e}")))?;
+    // Strict manual JWT parse: three dot-separated segments, no more
+    // and no fewer. Replaces `jsonwebtoken::decode_header` /
+    // `jsonwebtoken::decode` (issue #99: dropping the `jsonwebtoken`
+    // runtime dependency).
+    let segments: Vec<&str> = proof.proof.split('.').collect();
+    if segments.len() != 3 {
+        return Err(HandshakeError::Identity(format!(
+            "malformed JWT: expected 3 dot-separated segments, got {}",
+            segments.len()
+        )));
+    }
+    let (header_b64, payload_b64, sig_b64) = (segments[0], segments[1], segments[2]);
+
+    let header_bytes = aitp_core::base64url::decode_strict(header_b64)
+        .map_err(|e| HandshakeError::Identity(format!("malformed JWT header b64: {e}")))?;
+    let header: JwtHeader = serde_json::from_slice(&header_bytes)
+        .map_err(|e| HandshakeError::Identity(format!("malformed JWT header json: {e}")))?;
 
     // Parse the wire issuer string into a `url::Url` for the JWKS
     // resolver, which is transport-layer and does need a normalized
@@ -143,27 +135,27 @@ pub fn verify_oidc(
         _ => return Err(HandshakeError::Identity("no matching JWK".into())),
     };
 
-    let mut validation = Validation::new(key.alg);
-    let mut audiences = HashSet::new();
-    audiences.insert(ctx.expected_audience.as_str().to_string());
-    validation.aud = Some(audiences);
-    let mut issuers = HashSet::new();
-    issuers.insert(issuer.as_str().to_string());
-    validation.iss = Some(issuers);
-    validation.required_spec_claims = ["iss", "sub", "aud", "exp", "iat"]
-        .into_iter()
-        .map(String::from)
-        .collect();
-    // We drive `exp` and `iat` validation manually against
-    // `ctx.now_unix_secs` so tests can pin a fixed clock. jsonwebtoken's
-    // built-in `exp` check uses the system clock unconditionally, which
-    // breaks fixture-based testing.
-    validation.validate_exp = false;
-    validation.validate_nbf = false;
+    let sig_bytes = aitp_core::base64url::decode_strict(sig_b64)
+        .map_err(|e| HandshakeError::Identity(format!("malformed JWT signature b64: {e}")))?;
+    let signing_input = format!("{header_b64}.{payload_b64}");
+    verify_jws_signature(key, &header.alg, signing_input.as_bytes(), &sig_bytes)
+        .map_err(|e| HandshakeError::Identity(format!("jwt signature invalid: {e}")))?;
 
-    let token = jsonwebtoken::decode::<OidcClaims>(&proof.proof, &key.key, &validation)
-        .map_err(|e| HandshakeError::Identity(format!("jwt invalid: {e}")))?;
-    let claims = token.claims;
+    let payload_bytes = aitp_core::base64url::decode_strict(payload_b64)
+        .map_err(|e| HandshakeError::Identity(format!("malformed JWT payload b64: {e}")))?;
+    let claims: OidcClaims = serde_json::from_slice(&payload_bytes)
+        .map_err(|e| HandshakeError::Identity(format!("malformed JWT claims: {e}")))?;
+
+    // Reproduces jsonwebtoken's built-in `iss`/`aud` validation, now
+    // that the crate is gone: the JWT's own `iss` must equal the
+    // issuer declared (and already trust-anchor-checked) on the
+    // identity descriptor, and `aud` must contain our AID.
+    if claims.iss != issuer.as_str() {
+        return Err(HandshakeError::Identity("iss mismatch".into()));
+    }
+    if !claims.aud.contains(ctx.expected_audience.as_str()) {
+        return Err(HandshakeError::Identity("aud mismatch".into()));
+    }
 
     if claims.sub != proof.subject {
         return Err(HandshakeError::Identity("sub mismatch".into()));
@@ -199,15 +191,46 @@ pub fn verify_oidc(
     Ok(())
 }
 
+/// Minimal JWT protected-header shape needed for JWK selection and
+/// algorithm pinning. Replaces `jsonwebtoken::Header`.
+#[derive(Debug, Deserialize)]
+struct JwtHeader {
+    alg: String,
+    #[serde(default)]
+    kid: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 struct OidcClaims {
+    iss: String,
     sub: String,
+    aud: Aud,
     iat: i64,
     exp: i64,
     #[serde(default)]
     nonce: Option<String>,
     #[serde(default)]
     cnf: Option<Cnf>,
+}
+
+/// The `aud` claim per RFC 7519 §4.1.3: either a single string or an
+/// array of strings. Matches if the expected audience is present
+/// either way — the same semantics `jsonwebtoken`'s built-in `aud`
+/// validation enforced.
+#[derive(Debug, Deserialize)]
+#[serde(untagged)]
+enum Aud {
+    Single(String),
+    Multi(Vec<String>),
+}
+
+impl Aud {
+    fn contains(&self, expected: &str) -> bool {
+        match self {
+            Aud::Single(s) => s == expected,
+            Aud::Multi(v) => v.iter().any(|s| s == expected),
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
