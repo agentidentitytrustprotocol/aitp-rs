@@ -23,7 +23,11 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
             kind: IdentityHintKind::PinnedKey,
             subject: "subj".into(),
             issuer: None,
-            public_key: Some(base64url::encode(&key.verifying_key().to_bytes())),
+            public_key: Some(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")

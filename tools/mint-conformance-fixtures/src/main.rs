@@ -117,15 +117,30 @@ fn aid_role_substitution_table() -> Vec<(&'static str, String)> {
         // Bare pubkey forms used as binding.cnf etc.
         (
             "initiator_pubkey_AID_v01_placeholder_iiiiii",
-            base64url::encode(&key_from_hex(KAT_001_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_001_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "peerA_pubkey_AID_v01_placeholder_aaaaaaaaaa",
-            base64url::encode(&key_from_hex(KAT_001_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_001_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "peerB_pubkey_AID_v01_placeholder_bbbbbbbbbb",
-            base64url::encode(&key_from_hex(KAT_002_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_002_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
@@ -147,19 +162,39 @@ fn aid_role_substitution_table() -> Vec<(&'static str, String)> {
         // `binding.cnf`, etc.):
         (
             "workerA_pubkey_AID_v01_placeholder_aaaaaaaa",
-            base64url::encode(&key_from_hex(KAT_003_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_003_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
-            base64url::encode(&key_from_hex(KAT_001_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_001_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",
-            base64url::encode(&key_from_hex(KAT_002_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_002_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
         (
             "agentC_pubkey_AID_v01_placeholder_CCCCCCCCC",
-            base64url::encode(&key_from_hex(KAT_003_SEED_HEX).verifying_key().to_bytes()),
+            base64url::encode(
+                &key_from_hex(KAT_003_SEED_HEX)
+                    .verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            ),
         ),
     ];
     // Sort longest-first so prefix matches don't collide.
@@ -654,7 +689,12 @@ fn mint_id_jwt_fixture(value: &mut Value, jwt_kind: JwtDefect) {
         .unwrap()
         .to_string();
     let sender_key = key_for_aid(&sender_aid).unwrap();
-    let sender_pubkey_b64 = base64url::encode(&sender_key.verifying_key().to_bytes());
+    let sender_pubkey_b64 = base64url::encode(
+        &sender_key
+            .verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
 
     // 1. Re-sign manifest (PoP + outer signature).
     let manifest = envelope
@@ -827,7 +867,12 @@ fn mint_mh_oidc_envelope(value: &mut Value, jwt_defect: JwtDefect, tamper_manife
         .unwrap()
         .to_string();
     let sender_key = key_for_aid(&sender_aid).unwrap();
-    let sender_pubkey_b64 = base64url::encode(&sender_key.verifying_key().to_bytes());
+    let sender_pubkey_b64 = base64url::encode(
+        &sender_key
+            .verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    );
 
     // Receiver: use kat-001 (verifier role) by convention.
     let receiver_aid = key_from_hex(KAT_001_SEED_HEX).aid().as_str().to_string();
