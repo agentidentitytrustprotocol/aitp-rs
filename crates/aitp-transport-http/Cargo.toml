@@ -50,7 +50,6 @@ axum = { workspace = true, optional = true }
 # `net` is needed by `net_guard` (tokio::net::lookup_host) for
 # SSRF-guarded DNS resolution of peer-derived fetch URLs.
 tokio = { workspace = true, optional = true, features = ["net"] }
-jsonwebtoken = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
 metrics = { workspace = true, optional = true }
@@ -72,3 +71,8 @@ tower = { workspace = true, features = ["util"] }
 ed25519-dalek = { workspace = true }
 # Debugging recorder + snapshotter for the `metrics`-feature emission test.
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+# Differential test oracle only (issue #99): `jose_backend_tripwire.rs`
+# cross-checks `aitp_handshake::verify_jws_signature` against an
+# independent JOSE implementation for EdDSA/ES256/RS256. Never a
+# runtime dependency of this crate.
+jsonwebtoken = { workspace = true }

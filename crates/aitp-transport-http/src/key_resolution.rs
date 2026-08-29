@@ -83,10 +83,7 @@ pub enum KeyResolutionFailMode {
 /// degradation (where signature verification is impossible but the
 /// session may continue with a restricted grant subset).
 ///
-/// [`JwkPublicKey`] is not `PartialEq` (its `DecodingKey` field
-/// deliberately hides internals), so this enum doesn't derive
-/// equality. Match on the variants instead.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyResolutionOutcome {
     /// Keys resolved cleanly; downstream signature verification
     /// proceeds normally with this set.
@@ -606,13 +603,13 @@ impl KeyResolutionPolicyBuilder {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use jsonwebtoken::Algorithm;
+    use aitp_handshake::{JwkKeyMaterial, JwsAlgorithm};
 
     fn fake_jwk() -> JwkPublicKey {
         JwkPublicKey {
             kid: Some("k1".into()),
-            alg: Algorithm::EdDSA,
-            key: jsonwebtoken::DecodingKey::from_ed_der(&[0u8; 32]),
+            alg: JwsAlgorithm::EdDSA,
+            key: JwkKeyMaterial::Ed25519 { x: [0u8; 32] },
         }
     }
 

@@ -823,62 +823,30 @@ fn parse_jwks(
         .ok_or_else(|| JwksFetcherError::MalformedJson("missing keys array".into()))?;
     let mut out = Vec::new();
     for jwk in keys {
-        let kid = jwk.get("kid").and_then(|v| v.as_str()).map(String::from);
-        let kty = jwk
-            .get("kty")
-            .and_then(|v| v.as_str())
-            .ok_or_else(|| JwksFetcherError::MalformedJson("jwk missing kty".into()))?;
-        match kty {
-            "OKP" => {
-                let x = jwk
-                    .get("x")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| JwksFetcherError::MalformedJson("OKP jwk missing x".into()))?;
-                let bytes = aitp_core::base64url::decode_strict(x)
-                    .map_err(|e| JwksFetcherError::UnsupportedJwk(format!("OKP x: {e}")))?;
-                if bytes.len() != 32 {
-                    return Err(JwksFetcherError::UnsupportedJwk(
-                        "OKP x must decode to 32 bytes".into(),
-                    ));
-                }
-                out.push(aitp_handshake::JwkPublicKey {
-                    kid,
-                    alg: jsonwebtoken::Algorithm::EdDSA,
-                    // jsonwebtoken's `from_ed_der` wants the raw 32-byte
-                    // pubkey, not SPKI DER (the helper name notwithstanding).
-                    key: jsonwebtoken::DecodingKey::from_ed_der(&bytes),
-                });
-            }
-            "RSA" => {
-                let n = jwk
-                    .get("n")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| JwksFetcherError::MalformedJson("RSA jwk missing n".into()))?;
-                let e = jwk
-                    .get("e")
-                    .and_then(|v| v.as_str())
-                    .ok_or_else(|| JwksFetcherError::MalformedJson("RSA jwk missing e".into()))?;
-                // Reject weak RSA keys before trusting the IdP's JWK
-                // (RFC-AITP-0009 §4 hardening): a trust-anchored but
-                // sloppy IdP advertising a <2048-bit key must not be
-                // honored.
-                if !crate::common::rsa_modulus_bits_ok(n) {
-                    return Err(JwksFetcherError::UnsupportedJwk(format!(
-                        "RSA modulus below the {}-bit minimum",
-                        crate::common::MIN_RSA_MODULUS_BITS
-                    )));
-                }
-                out.push(aitp_handshake::JwkPublicKey {
-                    kid,
-                    alg: jsonwebtoken::Algorithm::RS256,
-                    key: jsonwebtoken::DecodingKey::from_rsa_components(n, e)
-                        .map_err(|err| JwksFetcherError::UnsupportedJwk(err.to_string()))?,
-                });
-            }
-            other => {
-                return Err(JwksFetcherError::UnsupportedJwk(format!("kty={other}")));
+        // Reject weak RSA keys before trusting the IdP's JWK
+        // (RFC-AITP-0009 §4 hardening): a trust-anchored but sloppy IdP
+        // advertising a <2048-bit key must not be honored. Checked
+        // against the raw base64url `n` directly, since
+        // `from_jwk_json` is shared across callers that don't all want
+        // this transport-specific hardening policy.
+        if jwk.get("kty").and_then(|v| v.as_str()) == Some("RSA") {
+            let n = jwk
+                .get("n")
+                .and_then(|v| v.as_str())
+                .ok_or_else(|| JwksFetcherError::MalformedJson("RSA jwk missing n".into()))?;
+            if !crate::common::rsa_modulus_bits_ok(n) {
+                return Err(JwksFetcherError::UnsupportedJwk(format!(
+                    "RSA modulus below the {}-bit minimum",
+                    crate::common::MIN_RSA_MODULUS_BITS
+                )));
             }
         }
+        let key = aitp_handshake::JwkPublicKey::from_jwk_json(jwk).map_err(|e| match e {
+            aitp_handshake::JwkParseError::Malformed(m) => JwksFetcherError::MalformedJson(m),
+            aitp_handshake::JwkParseError::Unsupported(m) => JwksFetcherError::UnsupportedJwk(m),
+            other => JwksFetcherError::UnsupportedJwk(other.to_string()),
+        })?;
+        out.push(key);
     }
     Ok(out)
 }
