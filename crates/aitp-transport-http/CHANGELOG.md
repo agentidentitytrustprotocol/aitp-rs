@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.11.0...aitp-transport-http-v0.11.1) - 2026-08-30
+
+### Other
+
+- *(spec)* adopt AITP spec @ 5063c08 ([#141](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/141))
+
 ## [0.11.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.10.0...aitp-transport-http-v0.11.0) - 2026-08-30
 
 ### Fixed
