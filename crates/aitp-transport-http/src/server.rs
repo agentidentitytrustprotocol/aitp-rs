@@ -1157,6 +1157,10 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
     use aitp_tct::TctError;
     match err {
         HE::Identity(_) => ErrorCode::IdentityFailed,
+        // RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3: an unresolvable
+        // issuer key is retryable and gets its own code, distinct from
+        // a bad proof.
+        HE::KeyResolutionFailed { .. } => ErrorCode::KeyResolutionFailed,
         // RFC-AITP-0005 §9: a peer-issued TCT can fail for distinct,
         // separately-registered reasons. Collapsing every TctError to
         // TCT_SIGNATURE_INVALID misreports a revoked or expired TCT to
@@ -1283,6 +1287,21 @@ mod tests {
         assert_eq!(
             handshake_error_code(&HandshakeError::Tct(TctError::AudienceMismatch)),
             ErrorCode::TctSignatureInvalid,
+        );
+    }
+
+    /// RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3: an unresolvable issuer
+    /// key is retryable and must not fall through the `_` catch-all to
+    /// `INVALID_ENVELOPE`, nor be conflated with a bad proof
+    /// (`IDENTITY_FAILED`).
+    #[test]
+    fn key_resolution_failed_maps_to_its_own_code() {
+        assert_eq!(
+            handshake_error_code(&HandshakeError::KeyResolutionFailed {
+                issuer: "https://idp.example.com".into(),
+                reason: "jwks fetch failed".into(),
+            }),
+            ErrorCode::KeyResolutionFailed,
         );
     }
 

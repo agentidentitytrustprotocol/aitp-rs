@@ -1097,6 +1097,7 @@ fn handshake_error_code(e: &aitp_handshake::HandshakeError) -> String {
     use aitp_handshake::HandshakeError::*;
     match e {
         Identity(_) => "IDENTITY_FAILED".to_string(),
+        KeyResolutionFailed { .. } => "KEY_RESOLUTION_FAILED".to_string(),
         Manifest(m) => manifest_error_code(m),
         Tct(t) => tct_error_code(t),
         InvalidEnvelope(_) => "INVALID_ENVELOPE".to_string(),
@@ -3144,6 +3145,16 @@ mod error_code_mapping_tests {
         assert_eq!(
             handshake_error_code(&HandshakeError::InsufficientGrants),
             "GRANT_OVERFLOW"
+        );
+        // Unresolvable issuer keys are distinct from a bad proof
+        // (RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3): retryable
+        // KEY_RESOLUTION_FAILED, not IDENTITY_FAILED.
+        assert_eq!(
+            handshake_error_code(&HandshakeError::KeyResolutionFailed {
+                issuer: "https://idp.example.com".into(),
+                reason: "jwks fetch failed".into(),
+            }),
+            "KEY_RESOLUTION_FAILED"
         );
     }
 

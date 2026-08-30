@@ -95,6 +95,15 @@ pub struct OidcVerifyContext<'a> {
 }
 
 /// Verify an OIDC identity proof per RFC-AITP-0002 §2.3.
+///
+/// Error mapping (RFC-AITP-0001 §5.4.3, RFC-AITP-0007 §3): if the
+/// issuer's key cannot be resolved at all — the [`JwksResolver`]
+/// returns an `Err`, or returns `Ok` with zero candidate keys — this
+/// returns [`HandshakeError::KeyResolutionFailed`] (retryable). Once
+/// candidate keys exist for the issuer, a `kid`/`alg` mismatch, an
+/// invalid signature, or any other claim failure returns
+/// [`HandshakeError::Identity`] (not retryable): the proof itself is
+/// what's wrong, not the resolution process.
 pub fn verify_oidc(
     proof: &IdentityDescriptor,
     ctx: &OidcVerifyContext<'_>,
@@ -132,10 +141,30 @@ pub fn verify_oidc(
     let issuer_url = issuer
         .parse_url()
         .map_err(|e| HandshakeError::Identity(format!("issuer not a URL: {e}")))?;
-    let candidates = ctx
-        .jwks_resolver
-        .resolve(&issuer_url)
-        .map_err(|e| HandshakeError::Identity(format!("jwks resolve failed: {e}")))?;
+    // A resolution error here means the issuer's key material could not
+    // be reached/resolved at all (network failure, malformed JWKS body,
+    // fail-closed SoftFail, …) — RFC-AITP-0001 §5.4.3 / RFC-AITP-0007
+    // §3 require this to report the retryable `KEY_RESOLUTION_FAILED`
+    // wire code rather than `IDENTITY_FAILED`.
+    let candidates = ctx.jwks_resolver.resolve(&issuer_url).map_err(|e| {
+        HandshakeError::KeyResolutionFailed {
+            issuer: issuer.as_str().to_string(),
+            reason: e.to_string(),
+        }
+    })?;
+
+    // Resolution succeeded but produced no candidates at all for this
+    // issuer — same "no key available" condition as an outright
+    // resolution error, so it gets the same retryable wire code. This
+    // is distinct from candidates existing but none matching the
+    // token's `kid`/`alg`, which is a proof defect (`Identity`) that
+    // will never clear on retry.
+    if candidates.is_empty() {
+        return Err(HandshakeError::KeyResolutionFailed {
+            issuer: issuer.as_str().to_string(),
+            reason: "issuer resolved zero candidate keys".to_string(),
+        });
+    }
 
     let key = match (&header.kid, candidates.iter().find(|k| k.kid == header.kid)) {
         (_, Some(k)) => k,

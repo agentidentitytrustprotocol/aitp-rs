@@ -126,6 +126,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   fixture pins that case — `rev-001`..`rev-004` cover staleness, soft-fail,
   success and lookup ordering — so nothing breaks, but the wire code moved.
 
+- **OIDC identity-binding verification reported every issuer-key-resolution
+  failure as `IDENTITY_FAILED`, including the case where the issuer's key
+  couldn't be resolved at all.** `verify_oidc` (`crates/aitp-handshake/src/identity_oidc.rs`)
+  mapped both "the JWKS couldn't be fetched/resolved" and "candidates were
+  resolved but none matched the token's `kid`" to the same
+  `HandshakeError::Identity`. RFC-AITP-0001 §5.4.3 says the distinction is
+  load-bearing: `KEY_RESOLUTION_FAILED` is retryable (§5.7) while
+  `IDENTITY_FAILED`-family codes are not, and RFC-AITP-0007 §3's
+  `fail_closed` mode explicitly requires `KEY_RESOLUTION_FAILED` when the
+  issuer's key can't be resolved. Reporting the wrong one invites a caller
+  to retry a request that can never succeed, or to give up on one that
+  would succeed once the transient resolution issue clears.
+
+  A new `HandshakeError::KeyResolutionFailed { issuer, reason }` variant now
+  covers the "no key available for this issuer at all" case — the
+  `JwksResolver` returned an error, or resolved successfully but produced
+  zero candidate keys. A `kid`/`alg` mismatch against a non-empty candidate
+  set, or an invalid signature, remains `HandshakeError::Identity`: the
+  proof itself is what's wrong there, not the resolution process.
+  `HandshakeError` is `#[non_exhaustive]`, so matching callers keep
+  compiling; `cargo-semver-checks` confirms adding this variant is not a
+  breaking change. Both wire-code mapping sites now route the new variant
+  to `KEY_RESOLUTION_FAILED` (`crates/aitp-rs-adapter/src/lib.rs`'s
+  `handshake_error_code`, and `crates/aitp-transport-http/src/server.rs`'s
+  `handshake_error_code`) — previously the transport-http mapper's
+  `#[non_exhaustive]` catch-all would have defaulted an unmatched new
+  variant to `INVALID_ENVELOPE`. The adapter's separate `env-003`
+  conformance-fixture path (`verify_envelope_key_resolution`) already
+  returned `KEY_RESOLUTION_FAILED` for its fixture-shaped scenario and is
+  unaffected — it doesn't go through `verify_oidc`.
+
 ### Note on scope
 
 `VerifyRevocationListContext` deliberately gains **no** staleness knob. It

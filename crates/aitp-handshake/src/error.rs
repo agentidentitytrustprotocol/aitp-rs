@@ -17,8 +17,36 @@ pub enum HandshakeError {
     #[error("manifest verification failed: {0}")]
     Manifest(#[from] aitp_manifest::ManifestError),
     /// Peer's identity proof did not verify.
+    ///
+    /// This covers proof-shaped failures: a malformed/expired JWT, a
+    /// `kid` that doesn't match any resolved candidate key, an `alg`
+    /// mismatch against the resolved key, an invalid signature, or any
+    /// other claim check. It does NOT cover the issuer's key being
+    /// unresolvable in the first place — see [`Self::KeyResolutionFailed`]
+    /// for that distinct, retryable case.
     #[error("identity verification failed: {0}")]
     Identity(String),
+    /// The issuer's signing key could not be resolved at all — the JWKS
+    /// endpoint was unreachable or returned malformed data, or
+    /// resolution otherwise produced zero candidate keys for the
+    /// issuer. Distinct from [`Self::Identity`] per RFC-AITP-0001 §5.4.3
+    /// and RFC-AITP-0007 §3 (`fail_closed`): this failure is in
+    /// *reaching/resolving* the key material, which may clear on retry,
+    /// so it reports the retryable `KEY_RESOLUTION_FAILED` wire code
+    /// rather than the non-retryable `IDENTITY_FAILED` family. Once
+    /// candidate keys DO exist for the issuer, a `kid`/`alg` mismatch or
+    /// bad signature is a proof defect that will never succeed on
+    /// retry, and stays `Identity`.
+    #[error("issuer key resolution failed for {issuer}: {reason}")]
+    KeyResolutionFailed {
+        /// The OIDC issuer whose key(s) could not be resolved.
+        issuer: String,
+        /// The underlying resolution failure (e.g. the [`ResolveError`]
+        /// display string).
+        ///
+        /// [`ResolveError`]: crate::identity_oidc::ResolveError
+        reason: String,
+    },
     /// `pop_nonce_echo` did not match own previously sent nonce.
     #[error("nonce mismatch")]
     NonceMismatch,
