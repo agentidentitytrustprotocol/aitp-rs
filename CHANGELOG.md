@@ -160,6 +160,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- **Vendored schemas re-synced to spec commit
+  `43f9d3937238a2cf9d727c9b5ca1b631060ecbc8`.** Picks up the RFC-AITP-0002
+  §3.1 pinned-key proof-input known-answer vector
+  (`kat-pinned-key-proof-001`), a new attacker keypair vector
+  (`kat-keypair-006-attacker`), a new session-bundle signed example, and two
+  new draft conformance fixtures (`bundle-004-signature-sibling-rejected`,
+  `bundle-005-extensions-accepted`). Also picked up: `oidc_issuers` in the
+  Manifest schema drops `minItems: 1`, and the Mutual Handshake schema's
+  root `oneOf` becomes `anyOf` (no runtime impact — this repo only ever
+  validates that schema's `$defs` sub-schemas, never its document root).
+  The separately-tracked RFC-AITP-0002 §3.1 pinned-key proof timestamp
+  encoding erratum is **not** part of this pin bump; it lands separately
+  pending a cross-implementation compatibility check.
+
+- **`verify_session_bundle` accepted the pre-erratum sibling-signature wire
+  shape**, silently discarding a `signature` sent as a SIBLING of the
+  `{"session_bundle": …}` transport wrapper instead of as a member of the
+  wrapped body, and then reporting the resulting deserialize failure as the
+  generic `INVALID_REQUEST` rather than a bundle-specific code.
+  RFC-AITP-0010 §3 fixes `signature` as a member of the signed body, never
+  a sibling of the wrapper, because a bundle is redistributable and must
+  carry its own proof across any hop that strips the transport wrapper
+  (RFC-AITP-0001 §5.4.1) — conformance fixture
+  `bundle-004-signature-sibling-rejected` pins this. A new
+  `aitp_session_bundle::parse_session_bundle_wire` routes both the
+  unwrap and the `additionalProperties: false` rejection through
+  `SessionBundleEnvelope`'s existing `deny_unknown_fields`, surfacing a new
+  `SessionBundleError::WireFormInvalid` variant that
+  `aitp-rs-adapter::bundle_error_code` maps to `SESSION_BUNDLE_INVALID`
+  (`ErrorCode::SessionBundleInvalid` already existed; only the mapping was
+  missing). `crates/aitp-transport-http/src/session_bundle_server.rs`
+  already rejected this shape with HTTP 400 via the same
+  `deny_unknown_fields` and needed no change — only a regression test.
+
 - **`verify_revocation_list` reported an issuer mismatch as
   `TctError::CnfMalformed`.** The code carried a comment explaining the
   variant was "chosen rather than introducing a new error variant for v0.1" —
