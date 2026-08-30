@@ -1,5 +1,5 @@
 {
-  "$comment": "AITP v0.1 Ed25519 keypair known-answer test vectors. Pinned reference values for cross-implementation interop. RFC-AITP-0001 \u00a75.3 references this file. Each entry takes a 32-byte seed and pins the resulting raw Ed25519 public key (base64url, unpadded, 43 chars) and the corresponding aid:pubkey: identifier.",
+  "$comment": "AITP Ed25519 and P-256 keypair known-answer test vectors. Pinned reference values for cross-implementation interop. RFC-AITP-0001 \u00a75.3 references this file. Each entry takes a 32-byte seed and pins the resulting raw Ed25519 public key (base64url, unpadded, 43 chars) and the corresponding aid:pubkey: identifier.",
   "vectors": [
     {
       "id": "kat-keypair-001",
@@ -34,6 +34,13 @@
       "pubkey_compressed_hex": "0307810ea974cea5773e63b897f37e3be9a09e7a5fe9b971a44d1065ac2a3a9311",
       "pubkey_b64url": "AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
       "aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR"
+    },
+    {
+      "id": "kat-keypair-006-attacker",
+      "$comment": "UNTRUSTED non-role key. Exists solely so mh-002 (RFC-AITP-0004 §5, MANIFEST_SIGNATURE_INVALID) is independently re-mintable: an implementer needs the ATTACKER's private key to produce a valid proof_of_possession.signature before the Manifest signature check is even reached (RFC-AITP-0003 §5 verifies PoP before signature). This key is deliberately NOT one of the agentA-D role keys above and MUST NOT be added to any trust_anchors / pinned_keys fixture — its only legitimate use is minting the attacker-signed content of mh-002. Seed pattern 0xAA × 32, chosen to be distinct from every other seed in this file (0x00, 0x00..1f, 0xff, 0x01, 0x05 repeats). Replaces mh-002's original attacker AID, whose seed was never published and is unrecoverable (issue #17 erratum 2); mh-002's signatures were placeholders, so nothing pinned depended on the old AID.",
+      "seed_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "pubkey_b64url": "5zTqbCtiV95yNV5HKqBaTEh-a0Y8Ap7TBt8vAbVja1g",
+      "aid": "aid:pubkey:5zTqbCtiV95yNV5HKqBaTEh-a0Y8Ap7TBt8vAbVja1g"
     }
   ]
 }

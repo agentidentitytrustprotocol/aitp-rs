@@ -53,6 +53,26 @@
       "signature_b64url": "3cL6ITDAazeyYrS3pm6Wd1boPvXttQ5iJp27l5cPc5unJ3txxme1myOW3mvAnmlIQsvZGmt-A_VJvdkBbFJcCw"
     },
     {
+      "id": "kat-pinned-key-proof-001",
+      "rfc_refs": [
+        "RFC-AITP-0002 §3.1"
+      ],
+      "$comment": "Pinned §3.1 pinned-key proof-input vector. Fixes issue #17 erratum 1: the prose once called the timestamp field `timestamp_be_8_bytes` (an 8-byte big-endian signed 64-bit integer), but the only concrete pinned proof in the conformance pack (id-007) only verifies when the timestamp is instead its base-10 ASCII decimal string — matching how message_id is already string-encoded. This vector reuses id-007's real (sender, receiver, message_id, timestamp, pop_nonce) tuple and its existing kat-keypair-003 Ed25519 signature verbatim (no new signature was minted) so the ASCII-decimal encoding is machine-checkable rather than a matter of prose interpretation. Implementations MUST confirm the pinned signature verifies over the ASCII-decimal proof_input and MUST confirm it does NOT verify when the timestamp is instead packed as an 8-byte big-endian integer.",
+      "source_fixture": "id-007-pinned-untrusted-key-rejected.json",
+      "sender_aid": "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
+      "receiver_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "message_id": "770e8400-e29b-41d4-a716-446655440701",
+      "timestamp": 1711900000,
+      "pop_nonce": "AAAAAAAAAAAAAAAAAAAAAA",
+      "proof_input_hex": "616974702d70696e6e65642d6b65792d7631006169643a7075626b65793a6471465a4945536d355055524a6c764b63365945325173464b6448665943766a43686d704a585a67306655006169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b0037373065383430302d653239622d343164342d613731362d34343636353534343037303100313731313930303030300000000000000000000000000000000000",
+      "proof_input_len_bytes": 193,
+      "sha256_hex": "061ea87d1cc52c860fbeece9f6ba266669ebb0581a0e0ed409267690c39edb09",
+      "sha256_b64url": "Bh6ofRzFLIYPvuzp9romZmnrsFgaDg7UCSZ2kMOe2wk",
+      "signing_keypair_id": "kat-keypair-003",
+      "signer_aid": "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
+      "signature_b64url": "vdLCEPGuUvVryXxnPdo_ZNYqaZmGuByZ5kRMU0ikKeVbn3SUjj2DD7y8e5pNBtp7jSHZ-Z0wzNdOl0NS1mSpCQ"
+    },
+    {
       "id": "kat-revocation-001",
       "signing_input": "body",
       "rfc_refs": [

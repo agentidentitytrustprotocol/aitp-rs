@@ -208,7 +208,7 @@
       "additionalProperties": false
     }
   },
-  "oneOf": [
+  "anyOf": [
     {
       "title": "MutualHello (message_type=mutual_hello)",
       "$ref": "#/$defs/MutualHelloPayload"
