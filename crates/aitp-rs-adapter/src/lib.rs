@@ -2915,38 +2915,34 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
 
     // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
-    // `signature` is already a member of the inner body (spec commit
-    // 45b5ef978e13 corrected the schema and all `bundle-*` fixtures to
-    // this shape). `SessionTrustBundle` deserializes the inner body
-    // directly, so accepting the wire form only requires unwrapping the
-    // transport envelope — no reassembly of a sibling `signature` is
-    // needed or performed. Accept either:
+    // `signature` is a member of the inner body (spec commit 45b5ef978e13
+    // corrected the schema and all `bundle-*` fixtures to this shape).
+    // `parse_session_bundle_wire` unwraps the transport envelope and
+    // rejects — via `SessionBundleEnvelope`'s `deny_unknown_fields` — any
+    // sibling member beside `session_bundle`, notably the pre-erratum
+    // shape where `signature` sat OUTSIDE the wrapped body
+    // (`bundle-004-signature-sibling-rejected`). Accept either:
     //
     // - `params.session_bundle = {<body with signature inside>}`
     //   (legacy internal callers, no envelope)
     // - `params.session_bundle = {"session_bundle": {<body with signature
     //   inside>}}` (spec wire envelope; `bundle-*` conformance fixtures)
     // - `params.bundle_envelope = <envelope>` (same shape, alternate key)
-    let mut bundle_value = if let Some(inner) = params.get("session_bundle") {
-        match inner.get("session_bundle") {
-            Some(body) => body.clone(),
-            None => inner.clone(),
-        }
+    let mut wire_value = if let Some(inner) = params.get("session_bundle") {
+        inner.clone()
     } else if let Some(env) = params.get("bundle_envelope") {
-        match env.get("session_bundle") {
-            Some(body) => body.clone(),
-            None => env.clone(),
-        }
+        env.clone()
     } else {
         return err(id, "INVALID_REQUEST", "missing 'session_bundle'");
     };
     // Participant entries may carry `tct_claims` companions (the
-    // claims-sibling minting convention); they are never wire bytes.
-    strip_claims_companions(&mut bundle_value);
-    let bundle: aitp_session_bundle::SessionTrustBundle = match serde_json::from_value(bundle_value)
-    {
+    // claims-sibling minting convention); they are never wire bytes. Must
+    // run BEFORE parsing: it mutates the raw wire value (stripping a
+    // per-participant key), not the deserialized bundle.
+    strip_claims_companions(&mut wire_value);
+    let bundle = match aitp_session_bundle::parse_session_bundle_wire(&wire_value) {
         Ok(b) => b,
-        Err(e) => return err(id, "INVALID_REQUEST", &format!("malformed bundle: {e}")),
+        Err(e) => return err(id, &bundle_error_code(&e), &e.to_string()),
     };
     // Spec's PLACEHOLDERS.md uses `self_aid` for the receiving
     // participant; older internal callers use `verifier_aid`.
@@ -3043,6 +3039,7 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
         Crypto(_) => "INVALID_SIGNATURE",
+        WireFormInvalid(_) => "SESSION_BUNDLE_INVALID",
     }
     .to_string()
 }

@@ -69,7 +69,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          node-version: '22'
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
         with:
           toolchain: "1.90.0"        # match rust-toolchain.toml
@@ -99,7 +99,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          node-version: '20'
+          node-version: '22'
           registry-url: 'https://registry.npmjs.org'
       - name: Install dependencies
         run: npm install
@@ -110,9 +110,9 @@ jobs:
           pattern: bindings-*
           merge-multiple: true
       - name: Scaffold per-platform npm package dirs
-        run: npx napi create-npm-dir -t .
+        run: npx napi create-npm-dirs
       - name: Assemble per-platform npm dirs
-        run: npx napi artifacts --dir artifacts
+        run: npx napi artifacts --output-dir artifacts
       - name: List what will be published
         run: ls -R npm && ls -la *.node 2>/dev/null || true
       # `napi prepublish` only publishes the per-platform binary packages
@@ -121,7 +121,7 @@ jobs:
       # both, as two steps.
       - name: Publish platform packages
         if: ${{ github.event_name == 'push' || !inputs.dry_run }}
-        run: npx napi prepublish -t npm --skip-gh-release
+        run: npx napi prepublish -t npm --no-gh-release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
           NPM_TOKEN: ${{ secrets.NPM_TOKEN }}

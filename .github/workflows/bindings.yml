@@ -145,13 +145,14 @@ jobs:
       - name: Build the native binary (full surface)
         working-directory: bindings/aitp-node
         run: npm run build:debug
-      # build:debug regenerates index.d.ts from the napi-rs macros. The
-      # committed file is what npm consumers actually get typed against,
-      # so a signature change that isn't reflected here ships correct
-      # runtime behavior with stale types.
-      - name: index.d.ts is up to date
+      # build:debug regenerates index.js and index.d.ts from the napi-rs
+      # macros. Both are committed and published verbatim to npm — index.d.ts
+      # is what consumers get typed against, and napi-rs 3's CLI now bakes
+      # package.json's version into index.js (NAPI_RS_ENFORCE_VERSION_CHECK),
+      # so a stale index.js can silently drift from the published version too.
+      - name: index.js / index.d.ts are up to date
         working-directory: bindings/aitp-node
-        run: git diff --exit-code index.d.ts
+        run: git diff --exit-code index.js index.d.ts
       - name: node --test
         working-directory: bindings/aitp-node
         # Explicit glob: Node 22+ treats `--test tests/` as a module path

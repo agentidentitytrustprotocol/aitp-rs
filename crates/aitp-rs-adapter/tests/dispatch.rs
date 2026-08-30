@@ -319,3 +319,122 @@ mod single_hop_revocation_check {
         assert_eq!(resp["result"]["verified"], json!(true));
     }
 }
+
+/// `verify_session_bundle`'s wire-form handling
+/// (`bundle-004-signature-sibling-rejected`).
+///
+/// Mints a real coordinator + single-participant bundle through the
+/// adapter's own `issue_session_bundle` op, then drives
+/// `verify_session_bundle` with both the well-formed wrapped shape and
+/// the pre-erratum sibling shape the fixture uses, to confirm the
+/// parsing-path change (routing through
+/// `aitp_session_bundle::parse_session_bundle_wire`) rejects the latter
+/// with `SESSION_BUNDLE_INVALID` while leaving the former unaffected.
+mod session_bundle_wire_shape {
+    use super::*;
+
+    const NOW: i64 = 1_711_900_000;
+
+    fn coordinator() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xC0; 32])
+    }
+    fn participant() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xA1; 32])
+    }
+
+    /// Issue a bundle via the adapter and return its `session_bundle`
+    /// body (a JSON object with `signature` as a member).
+    fn issue_bundle(state: &mut AdapterState) -> Value {
+        let coord = coordinator();
+        let part = participant();
+
+        let tct = TctBuilder::new(&coord)
+            .subject(part.aid().clone())
+            .audience(part.aid().clone())
+            .grants(["session.participate"])
+            .ttl_secs(3600)
+            .subject_pubkey(part.verifying_key())
+            .issued_at(Timestamp(NOW))
+            .build()
+            .unwrap()
+            .token;
+
+        let gen = handle(
+            state,
+            "gen",
+            "generate_keypair",
+            json!({"seed": aitp_core::base64url::encode(&[0xC0; 32])}),
+        );
+        let handle_name = gen["result"]["handle"]
+            .as_str()
+            .expect("generate_keypair returns a handle")
+            .to_string();
+
+        let resp = handle(
+            state,
+            "issue",
+            "issue_session_bundle",
+            json!({
+                "coordinator_keypair": handle_name,
+                "issued_at": NOW,
+                "participants": [
+                    {"aid": part.aid().to_string(), "tct": tct},
+                ],
+            }),
+        );
+        assert_eq!(
+            resp["ok"],
+            json!(true),
+            "issue_session_bundle should succeed, got {resp}"
+        );
+        resp["result"]["session_bundle"].clone()
+    }
+
+    #[test]
+    fn wellformed_wrapped_bundle_verifies() {
+        let mut state = AdapterState::default();
+        let body = issue_bundle(&mut state);
+
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_session_bundle",
+            json!({
+                "session_bundle": { "session_bundle": body },
+                "verifier_aid": participant().aid().to_string(),
+                "now": NOW + 100,
+            }),
+        );
+        assert_eq!(
+            resp["ok"],
+            json!(true),
+            "well-formed wrapped bundle must still verify, got {resp}"
+        );
+        assert_eq!(resp["result"]["verified"], json!(true));
+    }
+
+    #[test]
+    fn sibling_signature_shape_yields_session_bundle_invalid() {
+        let mut state = AdapterState::default();
+        let mut body = issue_bundle(&mut state);
+        let signature = body
+            .as_object_mut()
+            .unwrap()
+            .remove("signature")
+            .expect("issued bundle carries a signature");
+
+        // bundle-004-signature-sibling-rejected's exact input shape:
+        // `{"session_bundle": {<body sans signature>}, "signature": <sig>}`.
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_session_bundle",
+            json!({
+                "session_bundle": { "session_bundle": body, "signature": signature },
+                "verifier_aid": participant().aid().to_string(),
+                "now": NOW + 100,
+            }),
+        );
+        assert_err(&resp, "v", "SESSION_BUNDLE_INVALID");
+    }
+}

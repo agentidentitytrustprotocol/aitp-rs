@@ -13,12 +13,10 @@ use aitp_core::Aid;
 use aitp_crypto::AitpVerifyingKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
 use napi::bindgen_prelude::*;
-use napi::{Env, JsFunction, JsString, JsUnknown};
+use napi::{Env, JSON};
 use napi_derive::napi;
 use serde_json::Value as JsonValue;
 use url::Url;
-
-use crate::helpers::JsFnRef;
 
 /// Compute the RFC 7638 JWK thumbprint of the public key embedded in
 /// an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
@@ -78,7 +76,7 @@ impl JwksProvider {
     /// (`kty`, `crv`, `x`, ...). Pass `{}` for an empty provider and
     /// `upsert` later.
     #[napi(constructor)]
-    pub fn new(env: Env, keys: Option<JsUnknown>) -> Result<Self> {
+    pub fn new(env: Env, keys: Option<Unknown<'_>>) -> Result<Self> {
         let inner = Arc::new(JwksMap {
             keys: Mutex::new(HashMap::new()),
         });
@@ -108,7 +106,7 @@ impl JwksProvider {
     /// Add or replace the JWKs for an issuer. `keys` is a JS array of
     /// JWK objects.
     #[napi]
-    pub fn upsert(&self, env: Env, issuer: String, keys: JsUnknown) -> Result<()> {
+    pub fn upsert(&self, env: Env, issuer: String, keys: Unknown<'_>) -> Result<()> {
         let parsed: JsonValue = unknown_to_json(&env, &keys)?;
         let arr = parsed
             .as_array()
@@ -165,15 +163,10 @@ fn parse_jwk_list(arr: &[JsonValue]) -> Result<Vec<JwkPublicKey>> {
     Ok(out)
 }
 
-fn unknown_to_json(env: &Env, val: &JsUnknown) -> Result<JsonValue> {
-    let json = env
-        .get_global()?
-        .get_named_property::<napi::JsObject>("JSON")?;
-    let stringify: JsFunction = json.get_named_property("stringify")?;
-    let res: JsUnknown = stringify.call(Some(&json), &[val])?;
-    let s: JsString = res.try_into()?;
-    let s = s.into_utf8()?;
-    serde_json::from_str(s.as_str()?)
+fn unknown_to_json(env: &Env, val: &Unknown<'_>) -> Result<JsonValue> {
+    let json: JSON = env.get_global()?.get_named_property_unchecked("JSON")?;
+    let s: String = json.stringify(*val)?;
+    serde_json::from_str(&s)
         .map_err(|e| Error::from_reason(format!("could not re-parse JSON: {e}")))
 }
 
@@ -184,34 +177,20 @@ fn unknown_to_json(env: &Env, val: &JsUnknown) -> Result<JsonValue> {
 /// synchronously inside the same call. `OidcMintJwtFn` is intentionally
 /// not `Send + Sync` for exactly this case.
 ///
-/// The closure holds a [`JsFnRef`] guard that unrefs the JS handle on
-/// drop, so dropping the closure unused (e.g. when the state machine
-/// errors before `build_descriptor` runs) does not panic napi-rs's
-/// `Ref` Drop impl.
-pub(crate) fn make_oidc_minter(env: Env, js_fn: JsFunction) -> Result<Box<OidcMintJwtFn>> {
-    let fn_ref = JsFnRef::new(env, js_fn)?;
-    let env_raw = env.raw();
+/// `js_fn` is a [`FunctionRef`], napi 3's Drop-safe typed function
+/// reference — dropping the closure unused (e.g. when the state machine
+/// errors before `build_descriptor` runs) is handled cleanly by
+/// `FunctionRef`'s own `Drop` impl.
+pub(crate) fn make_oidc_minter(
+    env: Env,
+    js_fn: FunctionRef<String, String>,
+) -> Result<Box<OidcMintJwtFn>> {
     let closure = move |nonce: &str| -> std::result::Result<String, String> {
-        // SAFETY: env_raw is valid for the duration of the enclosing
-        // `#[napi]` method call; OidcMintJwtFn is !Send + !Sync so we
-        // never cross threads.
-        let env = unsafe { Env::from_raw(env_raw) };
-        let callable: JsFunction = fn_ref.get().map_err(|e| format!("oidc minter: {e}"))?;
-        let js_nonce: JsString = env
-            .create_string(nonce)
-            .map_err(|e| format!("oidc minter: create_string failed: {e}"))?;
-        let res: JsUnknown = callable
-            .call(None, &[js_nonce.into_unknown()])
-            .map_err(|e| format!("oidc_mint_jwt raised: {e}"))?;
-        let res_str: JsString = res
-            .try_into()
-            .map_err(|e| format!("oidc_mint_jwt must return a string: {e}"))?;
-        let s = res_str
-            .into_utf8()
-            .map_err(|e| format!("oidc_mint_jwt return: utf8 conversion failed: {e}"))?;
-        Ok(s.as_str()
-            .map_err(|e| format!("oidc_mint_jwt return: not valid utf8: {e}"))?
-            .to_string())
+        let f = js_fn
+            .borrow_back(&env)
+            .map_err(|e| format!("oidc minter: {e}"))?;
+        f.call(nonce.to_string())
+            .map_err(|e| format!("oidc_mint_jwt raised: {e}"))
     };
     Ok(Box::new(closure))
 }

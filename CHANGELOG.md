@@ -19,6 +19,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   constructor/accessor methods dropped their suffix, and
   `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
 
+### Changed
+
+- **`bindings/aitp-node` migrates `napi` / `napi-derive` `2.16` → `3.x`**
+  (`@napi-rs/cli` `^2.18.0` → `^3.8.6`). `compat-mode`, which napi-derive 3
+  no longer defaults on, retired the four types this binding used
+  (`JsFunction`, `JsUnknown`, `JsString`, `JsBoolean`); the hand-rolled
+  `JsFnRef` Drop guard in `src/helpers.rs` is deleted outright in favor of
+  napi 3's own `FunctionRef<Args, Return>`, a Drop-safe typed function
+  reference. `oidcMintJwt` and `revocationCheck` callback parameters move
+  from `Option<JsFunction>` to `Option<FunctionRef<String, String>>` /
+  `Option<FunctionRef<String, bool>>`; `JwksProvider`'s `unknown`-typed
+  constructor/`upsert` arguments move to napi 3's `Unknown<'_>`, and
+  JSON-stringifying them now goes through napi 3's `JSON::stringify`
+  helper instead of a hand-rolled `JSON.stringify` JS round-trip. No
+  runtime behavior change for correctly-typed callers.
+
+  The generated `index.d.ts` narrows the `oidcMintJwt` and
+  `revocationCheck` callback types from `(...args: any[]) => any` to
+  `(arg: string) => string` and `(arg: string) => boolean` respectively —
+  a real (if minor) type-level improvement for consumers with strict
+  TypeScript checking. `keys?: unknown` on `JwksProvider` is unchanged.
+
+  CI: `.github/workflows/bindings-release.yml` renames three
+  `@napi-rs/cli` v3 CLI invocations (`napi create-npm-dir -t .` →
+  `napi create-npm-dirs`, `napi artifacts --dir` → `--output-dir`,
+  `napi prepublish --skip-gh-release` → `--no-gh-release`) and bumps
+  `node-version` from `'20'` to `'22'` to match the CLI's own devDependency
+  floor. `.github/workflows/bindings.yml`'s generated-file freshness gate
+  now also covers `index.js`, which napi 3's CLI bakes
+  `package.json`'s version into (guarded by
+  `NAPI_RS_ENFORCE_VERSION_CHECK`) and which ships to npm verbatim
+  alongside `index.d.ts`. The published package's `engines.node` floor is
+  unchanged (`>=16`) — the CLI's own Node ≥20.17 requirement is a
+  contributor/build-time constraint, not a consumer-facing one.
+
 ### BREAKING
 
 - **Pinned-key proof `timestamp` is now encoded as ASCII-decimal, not
@@ -204,6 +239,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `version_unknown`, `expired`, `malformed`.
 
 ### Fixed
+
+- **Vendored schemas re-synced to spec commit
+  `43f9d3937238a2cf9d727c9b5ca1b631060ecbc8`.** Picks up the RFC-AITP-0002
+  §3.1 pinned-key proof-input known-answer vector
+  (`kat-pinned-key-proof-001`), a new attacker keypair vector
+  (`kat-keypair-006-attacker`), a new session-bundle signed example, and two
+  new draft conformance fixtures (`bundle-004-signature-sibling-rejected`,
+  `bundle-005-extensions-accepted`). Also picked up: `oidc_issuers` in the
+  Manifest schema drops `minItems: 1`, and the Mutual Handshake schema's
+  root `oneOf` becomes `anyOf` (no runtime impact — this repo only ever
+  validates that schema's `$defs` sub-schemas, never its document root).
+  The separately-tracked RFC-AITP-0002 §3.1 pinned-key proof timestamp
+  encoding erratum is **not** part of this pin bump; it lands separately
+  pending a cross-implementation compatibility check.
+
+- **`verify_session_bundle` accepted the pre-erratum sibling-signature wire
+  shape**, silently discarding a `signature` sent as a SIBLING of the
+  `{"session_bundle": …}` transport wrapper instead of as a member of the
+  wrapped body, and then reporting the resulting deserialize failure as the
+  generic `INVALID_REQUEST` rather than a bundle-specific code.
+  RFC-AITP-0010 §3 fixes `signature` as a member of the signed body, never
+  a sibling of the wrapper, because a bundle is redistributable and must
+  carry its own proof across any hop that strips the transport wrapper
+  (RFC-AITP-0001 §5.4.1) — conformance fixture
+  `bundle-004-signature-sibling-rejected` pins this. A new
+  `aitp_session_bundle::parse_session_bundle_wire` routes both the
+  unwrap and the `additionalProperties: false` rejection through
+  `SessionBundleEnvelope`'s existing `deny_unknown_fields`, surfacing a new
+  `SessionBundleError::WireFormInvalid` variant that
+  `aitp-rs-adapter::bundle_error_code` maps to `SESSION_BUNDLE_INVALID`
+  (`ErrorCode::SessionBundleInvalid` already existed; only the mapping was
+  missing). `crates/aitp-transport-http/src/session_bundle_server.rs`
+  already rejected this shape with HTTP 400 via the same
+  `deny_unknown_fields` and needed no change — only a regression test.
 
 - **`verify_revocation_list` reported an issuer mismatch as
   `TctError::CnfMalformed`.** The code carried a comment explaining the

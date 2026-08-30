@@ -55,6 +55,7 @@ jobs:
         # Release PR — so its required CI actually runs (GITHUB_TOKEN PRs don't
         # trigger workflows) and it doesn't need the org "Allow GitHub Actions
         # to create and approve pull requests" policy.
+        id: release-plz
         with:
           # `token` is the CARGO REGISTRY token (passed as `cargo publish
           # --token`), NOT the GitHub token. The GitHub App token is consumed
@@ -65,3 +66,78 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+
+      - name: Sync binding versions onto the release PR
+        # release-plz only ever bumps versions INSIDE the Cargo workspace, so
+        # the release PR it just opened/updated never touches
+        # bindings/aitp-node or bindings/aitp-py (both are workspace-excluded
+        # — see the root Cargo.toml `exclude` list). scripts/check-versions.sh's
+        # `lockstep versions` CI check (required on every PR, including this
+        # one) fails until those six binding files also declare the release
+        # version. Fix that by appending a second commit to the release PR's
+        # OWN branch, using the same aitp-deps-bot App token that already
+        # opened the PR — no new trust boundary: this identity could already
+        # push commits to release-plz's own branches, and the PR still needs
+        # its normal required checks + a human merge to land.
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          PR_JSON: ${{ steps.release-plz.outputs.pr }}
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          # Prefer the release-plz action's own output for the PR branch —
+          # no extra API call, and authoritative for the PR this exact run
+          # just created/updated. release-plz.toml labels its release PRs
+          # "release" (`pr_labels = ["release"]`); fall back to looking that
+          # up if the action produced no `pr` output (e.g. `prs_created ==
+          # false` because nothing changed this run, or the output shape
+          # changes upstream).
+          head_branch=""
+          if [ -n "${PR_JSON:-}" ] && [ "$PR_JSON" != "null" ]; then
+            head_branch="$(printf '%s' "$PR_JSON" | jq -r '.head_branch // empty')"
+          fi
+          if [ -z "$head_branch" ]; then
+            head_branch="$(gh pr list --state open --label release --json headRefName --jq '.[0].headRefName // empty')"
+          fi
+          if [ -z "$head_branch" ]; then
+            echo "::notice::no open release PR found — nothing to sync"
+            exit 0
+          fi
+          echo "syncing binding versions onto release PR branch: $head_branch"
+
+          git fetch origin "$head_branch"
+          git checkout "$head_branch"
+
+          # Run the sync script from the commit THIS WORKFLOW is running at
+          # (main, trusted) — never the copy living on the release PR branch.
+          # release-plz's release PRs only ever touch workspace version/
+          # changelog files, but pinning the script source to the trusted
+          # commit means a stale or altered copy on the PR branch can never
+          # get to run with this job's push access, regardless.
+          git checkout "$WORKFLOW_SHA" -- scripts/sync-binding-versions.sh scripts/check-versions.sh
+          chmod +x scripts/sync-binding-versions.sh scripts/check-versions.sh
+
+          ./scripts/sync-binding-versions.sh
+
+          # Stage ONLY the six binding manifests — never scripts/. The
+          # working tree now has the trusted-main copies of
+          # sync-binding-versions.sh / check-versions.sh sitting on top of
+          # (possibly not even present on) the release PR branch; leaving
+          # that untracked/modified in the ephemeral runner checkout is
+          # harmless, since only an explicit file list below ever reaches
+          # `git commit`.
+          git add \
+            bindings/aitp-node/Cargo.toml bindings/aitp-node/Cargo.lock bindings/aitp-node/package.json \
+            bindings/aitp-py/Cargo.toml bindings/aitp-py/Cargo.lock bindings/aitp-py/pyproject.toml
+
+          if git diff --cached --quiet; then
+            echo "::notice::binding manifests already in sync on $head_branch — nothing to commit"
+            exit 0
+          fi
+
+          git config user.name "${APP_SLUG}[bot]"
+          git config user.email "${APP_SLUG}[bot]@users.noreply.github.com"
+          git commit -m "chore: sync binding versions to release version"
+          git push origin "HEAD:$head_branch"

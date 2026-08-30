@@ -11,8 +11,8 @@ today — jump to [the matrix](#v02-conformance-matrix)).
 A conformance fixture is a JSON file describing a scenario and expected
 outcome. The runner's job is to feed each fixture's input into an
 implementation, observe what comes out, and assert it matches the
-expected outcome. The spec ships 53 fixtures today (45 v0.2 `core`, 1
-frozen in the v0.1 shape for v0.1 runners, and 7 `draft`); the count
+expected outcome. The spec ships 55 fixtures today (45 v0.2 `core`, 1
+frozen in the v0.1 shape for v0.1 runners, and 9 `draft`); the count
 grows with the spec.
 
 Many fixtures now carry the **v0.2 compact-JWS token family** (TCT, grant
@@ -271,7 +271,7 @@ aitp-conformance describe <FIXTURE_ID>
 Text output:
 
 ```
-Loaded 53 fixtures
+Loaded 55 fixtures
 Adapter: aitp-rs 0.4.0 (subprocess)
   ✓ id-001-oidc-missing-aud           [12ms]
   ✓ tct-008-alg-none-rejected         [10ms]
@@ -280,7 +280,7 @@ Adapter: aitp-rs 0.4.0 (subprocess)
   ✗ tct-002-expired                   [18ms]
       expected outcome=failure error_code=TCT_EXPIRED
       got      outcome=success
-Summary: ... passed, ... failed, ... skipped of 53 fixtures
+Summary: ... passed, ... failed, ... skipped of 55 fixtures
 ```
 
 (Illustrative — the line shapes, not a real run.)
@@ -356,9 +356,9 @@ spec's conformance suite (`schemas/conformance/`).
 |---|---|---|
 | `core` (required for v0.2) | 45 | **PASS** |
 | `core` frozen in the v0.1 shape (`del-004`, v0.1 runners only) | 1 | **SKIP** (not required for v0.2) |
-| `draft` — session bundle (`experimental-session-bundle`) | 3 | **PASS** (feature opt-in) |
+| `draft` — session bundle (`experimental-session-bundle`) | 5 | **PASS** (feature opt-in) |
 | `draft` — multi-hop delegation (`experimental-multihop-delegation`) | 4 | **PASS** (feature opt-in) |
-| **Total** | **53** | |
+| **Total** | **55** | |
 
 Reproduce:
 
@@ -369,7 +369,7 @@ cargo build -p aitp-rs-adapter --all-features
 cargo run -p aitp-conformance --all-features -- run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# opt-in (Draft RFCs): the 7 draft fixtures additionally run.
+# opt-in (Draft RFCs): the 9 draft fixtures additionally run.
 cargo run -p aitp-conformance --all-features -- run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -407,10 +407,10 @@ v0.2 runner SKIPs it (`del-007` is its v0.2 claim-shaped sibling).
 
 | RFC | Fixtures | Feature |
 |---|---|---|
-| 0010 — Session Trust Bundle | `bundle-001`–`bundle-003` | `experimental-session-bundle` |
+| 0010 — Session Trust Bundle | `bundle-001`–`bundle-005` | `experimental-session-bundle` |
 | 0011 — multi-hop delegation | `del-mh-001`–`del-mh-004` | `experimental-multihop-delegation` |
 
-In v0.2-strict mode these 7 SKIP (`required_for_v0_2: false`). Opting into
+In v0.2-strict mode these 9 SKIP (`required_for_v0_2: false`). Opting into
 the matching feature runs them.
 
 ### Notes
