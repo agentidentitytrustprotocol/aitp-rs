@@ -40,13 +40,11 @@
   },
   "devDependencies": {
     "@napi-rs/cli": "^2.18.0",
+    "jose": "^6.2.3",
     "node-forge": "^1.4.0"
   },
   "engines": {
     "node": ">=16"
-  },
-  "dependencies": {
-    "jose": "^6.2.3"
   },
   "publishConfig": {
     "access": "public",
