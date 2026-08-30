@@ -7,23 +7,36 @@ name: release-bindings
 # bindings-release.yml / aitp-py-release.yml).
 #
 # The bindings carry their own manifest versions (bindings/aitp-node/package.json
-# + Cargo.toml, bindings/aitp-py/pyproject.toml + Cargo.toml) and can drift from
-# the workspace crates. To keep the publish honest, each binding tag is created
-# on a commit that stamps that binding's manifests to the release version — kept
-# OFF `main` (main is branch-protected; the tag just needs a commit that carries
-# the right version, it doesn't have to live on a branch).
+# + Cargo.toml, bindings/aitp-py/pyproject.toml + Cargo.toml). They used to drift
+# from the workspace crates silently — up to 5 releases' worth (0.5.0 committed
+# vs. 0.10.0 published) — because release-plz can't reach them (both bindings are
+# excluded from the Cargo workspace) and nothing else kept them in sync. Two
+# things fixed that:
+#   - scripts/check-versions.sh's `lockstep versions` CI check now FAILS any PR
+#     (including release-plz's own release PRs) where a binding manifest
+#     disagrees with the workspace version.
+#   - release-plz.yml appends a binding-version-sync commit to its own release
+#     PR branch before that PR is merged.
+# So **main being in lockstep is now the expected steady state**: by the time
+# this workflow runs, every binding manifest should already declare the release
+# version, and the normal path below is just tagging `$GITHUB_SHA` as-is.
+#
+# The OLD behavior — stamping a detached commit that bumps the manifests to the
+# release version, kept OFF `main` (main is branch-protected; the tag just needs
+# a commit that carries the right version, it doesn't have to live on a branch)
+# — still exists, but only as an explicit opt-in escape hatch
+# (workflow_dispatch `stamp: true`) for the day lockstep breaks anyway (e.g. the
+# release-plz.yml sync step failed silently, or someone bypassed it). Without
+# `stamp: true`, an out-of-lockstep manifest now fails the job loudly instead of
+# silently drifting again — see the `stamp` input and the `tag_binding` function
+# below.
 #
 # A binding whose `<prefix>-v<X.Y.Z>` tag already exists is skipped, so a release
 # at a version the bindings already shipped (e.g. the current 0.4.1) won't try to
 # republish. Auth: the aitp-deps-bot App token (no PAT).
 #
-# Note the stamping commit is OPTIONAL. ci.yml's `lockstep versions` gate makes
-# every version in the repo move together, so when a release's version bump
-# lands in the feature PR rather than in the release PR, the manifests already
-# declare the release version by the time this workflow runs and there is
-# nothing to commit. The tag is then created on `$GITHUB_SHA` directly. The
-# version each manifest declares is asserted either way, so a tag never claims
-# a version its manifests don't carry.
+# The version each manifest declares is asserted either way, so a tag never
+# claims a version its manifests don't carry.
 
 on:
   push:
@@ -34,6 +47,16 @@ on:
       version:
         description: 'Version to tag the bindings at (e.g. 0.4.2)'
         required: true
+      stamp:
+        description: >-
+          Escape hatch: if the binding manifests do NOT already declare
+          `version` (main should normally already be in lockstep — see the
+          header comment), stamp them on a detached commit and tag that
+          instead of failing the job. Leave false unless you know lockstep is
+          broken and you need this release cut anyway.
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -69,6 +92,7 @@ jobs:
           GH_TOKEN: ${{ steps.app.outputs.token }}
           V: ${{ steps.v.outputs.version }}
           APP_SLUG: ${{ steps.app.outputs.app-slug }}
+          STAMP: ${{ github.event.inputs.stamp }}
         run: |
           set -euo pipefail
           git config user.name "${APP_SLUG}[bot]"
@@ -102,29 +126,40 @@ jobs:
               echo "::notice::$tag already exists — skipping (bindings already shipped $V)"; return 0
             fi
             git checkout -q --detach "$BASE"
+
+            # Steady state (see header comment): release-plz.yml's
+            # binding-version-sync step already landed $V on main's release
+            # PR before merge, so the manifests here normally ALREADY declare
+            # $V and there is nothing to stamp — just tag $BASE as-is.
+            local synced=1
             for f in "$@"; do
-              case "$f" in
-                *package.json)
-                  V="$V" node -e 'const fs=require("fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.version=process.env.V;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$f" ;;
-                *) set_ver "$f" ;;
-              esac
-              assert_ver "$f"
-              git add "$f"
+              if [ "$(read_ver "$f")" != "$V" ]; then
+                synced=0
+                break
+              fi
             done
-            # The manifests may ALREADY carry $V. ci.yml's `lockstep versions`
-            # gate requires every version in the repo to match, so a release
-            # whose bump landed in the feature PR rather than in the release
-            # PR arrives here with nothing left to stamp. That is a normal
-            # release, not a failure — but `git commit` exits 1 on a clean
-            # index and `set -e` then kills the job before `git push origin
-            # $tag` ever runs. That is what stranded npm/PyPI at 0.4.1 while
-            # crates.io shipped 0.5.0. Tag $BASE as-is instead; assert_ver
-            # above has already proved it declares $V, so the tag is honest.
-            if git diff --cached --quiet; then
+
+            if [ "$synced" -eq 1 ]; then
               echo "::notice::$prefix manifests already declare $V — tagging $BASE as-is"
-            else
+            elif [ "$STAMP" = "true" ]; then
+              echo "::warning::$prefix manifests do not declare $V — stamp=true escape hatch: stamping a detached commit instead of failing"
+              for f in "$@"; do
+                case "$f" in
+                  *package.json)
+                    V="$V" node -e 'const fs=require("fs");const p=process.argv[1];const j=JSON.parse(fs.readFileSync(p,"utf8"));j.version=process.env.V;fs.writeFileSync(p,JSON.stringify(j,null,2)+"\n")' "$f" ;;
+                  *) set_ver "$f" ;;
+                esac
+                git add "$f"
+              done
               git commit -q -m "chore(release): $prefix v$V (lockstep with aitp crate)"
+            else
+              echo "::error::$prefix manifests do not declare $V and main is out of lockstep. This should not happen — main is expected to always carry the release version (release-plz.yml syncs it onto the release PR before merge; scripts/check-versions.sh's 'lockstep versions' CI check enforces it on every PR). Run 'make sync-versions' (scripts/sync-binding-versions.sh) against the release PR and re-merge, or re-run this workflow_dispatch with stamp=true as a one-off escape hatch if you need this release cut anyway."
+              exit 1
             fi
+
+            for f in "$@"; do
+              assert_ver "$f"
+            done
             git tag "$tag"
             git push origin "$tag"
             echo "pushed $tag"

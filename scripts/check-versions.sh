@@ -145,11 +145,48 @@ while IFS= read -r line; do
   fi
 done < <(sed -n '/"optionalDependencies"/,/}/p' bindings/aitp-node/package.json)
 
+# 4. Each binding's Cargo.lock pins its own `aitp-*` PATH packages (the
+#    internal workspace-path crates the binding vendors — no `source =
+#    "..."` line in the lockfile, unlike a registry/git dependency) at
+#    the workspace version. `scripts/sync-binding-versions.sh` is the
+#    writer that keeps this in sync; this is the matching reader.
+extract_binding_lock_versions() { # $1 = path to a binding's Cargo.lock; emits "name<TAB>version" per aitp-* path package
+  awk '
+    function flush() {
+      if (name ~ /^aitp-/ && !has_source) print name "\t" version
+    }
+    /^\[\[package\]\]/ { flush(); name = ""; version = ""; has_source = 0; next }
+    /^name = "/ { name = $0; sub(/^name = "/, "", name); sub(/".*/, "", name) }
+    /^version = "/ { version = $0; sub(/^version = "/, "", version); sub(/".*/, "", version) }
+    /^source = / { has_source = 1 }
+    END { flush() }
+  ' "$1"
+}
+
+while IFS="$(printf '\t')" read -r name version; do
+  [ -z "$name" ] && continue
+  binding_count=$((binding_count + 1))
+  if [ "$version" != "$ws_version" ]; then
+    echo "✗ bindings/aitp-node/Cargo.lock: [[package]] \"$name\" (path dependency) pins \"$version\", expected \"$ws_version\""
+    fail=1
+  fi
+done < <(extract_binding_lock_versions bindings/aitp-node/Cargo.lock)
+
+while IFS="$(printf '\t')" read -r name version; do
+  [ -z "$name" ] && continue
+  binding_count=$((binding_count + 1))
+  if [ "$version" != "$ws_version" ]; then
+    echo "✗ bindings/aitp-py/Cargo.lock: [[package]] \"$name\" (path dependency) pins \"$version\", expected \"$ws_version\""
+    fail=1
+  fi
+done < <(extract_binding_lock_versions bindings/aitp-py/Cargo.lock)
+
 if [ "$fail" -ne 0 ]; then
   echo ""
   echo "lockstep check FAILED — every published crate, every inter-crate"
-  echo "pin, and both bindings' manifests must sit at the workspace version"
-  echo "($ws_version)."
+  echo "pin, and both bindings' manifests (incl. Cargo.lock path-package"
+  echo "pins) must sit at the workspace version ($ws_version)."
+  echo "Fix with: make sync-versions"
   exit 1
 fi
 
