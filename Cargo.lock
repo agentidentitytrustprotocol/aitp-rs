@@ -167,6 +167,7 @@ dependencies = [
  "base64ct",
  "boon",
  "ed25519-dalek",
+ "hex",
  "rand 0.10.2",
  "ring",
  "serde",

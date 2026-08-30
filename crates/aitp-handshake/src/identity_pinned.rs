@@ -8,7 +8,7 @@
 //!     || sender_aid_bytes       || b"\0"
 //!     || receiver_aid_bytes     || b"\0"
 //!     || message_id_bytes       || b"\0"
-//!     || timestamp_be_8_bytes   || b"\0"
+//!     || timestamp_ascii_bytes  || b"\0"
 //!     || pop_nonce_decoded_bytes
 //! proof = base64url(sign(agent_priv, sha256(proof_input)))
 //! ```
@@ -17,7 +17,15 @@
 //! - `sender_aid_bytes` = UTF-8 bytes of the full `aid:pubkey:...` string
 //! - `receiver_aid_bytes` = UTF-8 bytes of the verifying peer's own AID
 //! - `message_id_bytes` = UTF-8 bytes of the UUID in canonical lowercase form
-//! - `timestamp_be_8_bytes` = envelope timestamp as signed big-endian i64
+//! - `timestamp_ascii_bytes` = envelope timestamp encoded as its base-10
+//!   ASCII-decimal string (e.g. `1711900000` → UTF-8 bytes `"1711900000"`),
+//!   matching how `message_id_bytes` is already string-encoded above. Per
+//!   the RFC-AITP-0002 §3.1 erratum (spec issue #17), and made
+//!   machine-checkable by the `kat-pinned-key-proof-001` KAT vector, this
+//!   is NOT an 8-byte big-endian binary integer — an earlier revision of
+//!   this module encoded it that way, which was a bug: it never verified
+//!   against the reference `aitp-verifier-py` implementation, which has
+//!   always used the ASCII-decimal form.
 //! - `pop_nonce_decoded_bytes` = raw bytes from base64url-decoding the
 //!   `pop_nonce` (NOT the ASCII string)
 //! - `\0` = single null byte separator between every field
@@ -52,7 +60,7 @@ pub fn pinned_key_proof_input(
 ) -> Result<Vec<u8>, HandshakeError> {
     let pop_nonce_bytes = base64url::decode_strict(pop_nonce)
         .map_err(|_| HandshakeError::Identity("pop_nonce is not valid base64url".into()))?;
-    let ts_bytes = timestamp.0.to_be_bytes();
+    let ts_ascii = timestamp.0.to_string();
     let mut input = Vec::with_capacity(
         PINNED_KEY_PROOF_DOMAIN.len()
             + sender_aid.as_str().len()
@@ -61,7 +69,7 @@ pub fn pinned_key_proof_input(
             + 1
             + 36 // UUID canonical form
             + 1
-            + ts_bytes.len()
+            + ts_ascii.len()
             + 1
             + pop_nonce_bytes.len(),
     );
@@ -72,7 +80,7 @@ pub fn pinned_key_proof_input(
     input.push(0);
     input.extend_from_slice(message_id.to_string().as_bytes());
     input.push(0);
-    input.extend_from_slice(&ts_bytes);
+    input.extend_from_slice(ts_ascii.as_bytes());
     input.push(0);
     input.extend_from_slice(&pop_nonce_bytes);
     Ok(input)
