@@ -90,10 +90,25 @@ sync_package_json_version() { # $1 = path to bindings/aitp-node/package.json
 # the two exact generated patterns (`!== 'X.Y.Z'` and `expected X.Y.Z
 # but got`) to the new one, rather than a blind file-wide replace — this
 # file also contains this crate's own logic that must not be touched.
-sync_index_js_version() { # $1 = path to a binding's generated index.js, $2 = version currently baked in
-  local f="$1" old="$2"
+#
+# The "old" version is read from `index.js` ITSELF, not from
+# `package.json` — the two can already have drifted (e.g. a release PR
+# whose version got bumped again, by a second release-plz pass, before
+# this script's index.js patch had ever run against the first bump), and
+# trusting package.json's current value in that case searches for a
+# version that was never actually baked into this file, silently leaving
+# it stale. Reading index.js's own committed value is self-correcting
+# regardless of how far the two files have drifted apart.
+sync_index_js_version() { # $1 = path to a binding's generated index.js
+  local f="$1" old
   [ -f "$f" ] || return 0
+  # Require an X.Y.Z shape (>=2 dots) so a greedy match can't land on
+  # the unrelated `NAPI_RS_ENFORCE_VERSION_CHECK !== '0'` flag check
+  # that sits later on the same generated line — a bare digit has no
+  # dot and never matches this pattern.
+  old="$(sed -n "s/.*!== '\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)'.*/\1/p" "$f" | head -1)"
   [ -n "$old" ] || return 0
+  [ "$old" = "$ws_version" ] && return 0
   OLD="$old" V="$ws_version" perl -0777 -i -pe '
     s/!== \x27\Q$ENV{OLD}\E\x27/!== \x27$ENV{V}\x27/g;
     s/expected \Q$ENV{OLD}\E but got/expected $ENV{V} but got/g;
@@ -159,12 +174,10 @@ sync_pyproject_toml_version() { # $1 = path to bindings/aitp-py/pyproject.toml
 
 # --- apply -------------------------------------------------------------
 
-node_version_before="$(sed -n 's/^[[:space:]]*"version": "\([0-9][^"]*\)".*/\1/p' bindings/aitp-node/package.json | head -1)"
-
 sync_cargo_toml_version     bindings/aitp-node/Cargo.toml
 sync_package_json_version   bindings/aitp-node/package.json
 sync_cargo_lock_versions    bindings/aitp-node/Cargo.lock
-sync_index_js_version       bindings/aitp-node/index.js "$node_version_before"
+sync_index_js_version       bindings/aitp-node/index.js
 
 sync_cargo_toml_version     bindings/aitp-py/Cargo.toml
 sync_pyproject_toml_version bindings/aitp-py/pyproject.toml

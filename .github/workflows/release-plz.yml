@@ -121,15 +121,21 @@ jobs:
 
           ./scripts/sync-binding-versions.sh
 
-          # Stage ONLY the six binding manifests — never scripts/. The
-          # working tree now has the trusted-main copies of
-          # sync-binding-versions.sh / check-versions.sh sitting on top of
-          # (possibly not even present on) the release PR branch; leaving
-          # that untracked/modified in the ephemeral runner checkout is
-          # harmless, since only an explicit file list below ever reaches
-          # `git commit`.
+          # Stage ONLY the seven binding-owned files this script writes —
+          # never scripts/. The working tree now has the trusted-main
+          # copies of sync-binding-versions.sh / check-versions.sh sitting
+          # on top of (possibly not even present on) the release PR
+          # branch; leaving that untracked/modified in the ephemeral
+          # runner checkout is harmless, since only an explicit file list
+          # below ever reaches `git commit`. index.js is included because
+          # napi-rs 3 bakes package.json's version into a runtime check
+          # inside it (see sync-binding-versions.sh) — omitting it here
+          # left the file silently unstaged even though the script
+          # correctly rewrote it on disk, which is exactly what happened
+          # on the first attempt at this fix.
           git add \
             bindings/aitp-node/Cargo.toml bindings/aitp-node/Cargo.lock bindings/aitp-node/package.json \
+            bindings/aitp-node/index.js \
             bindings/aitp-py/Cargo.toml bindings/aitp-py/Cargo.lock bindings/aitp-py/pyproject.toml
 
           if git diff --cached --quiet; then
