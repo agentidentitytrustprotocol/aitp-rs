@@ -5,7 +5,9 @@
 
 use crate::error::SessionBundleError;
 use crate::types::{ParticipantEntry, SessionTrustBundle};
-use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
+use aitp_core::{
+    check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, ExtensionsMap, Timestamp,
+};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;
@@ -28,6 +30,17 @@ pub(crate) fn peek_tct_claims(token: &str) -> Result<TctClaims, SessionBundleErr
     // not an internal fault — it must not fall through to
     // `SessionBundleError::Canonicalization` (which the adapter maps to
     // `INTERNAL_ERROR`).
+    // RFC-AITP-0001 §5.4.5 / issue #140: raw-bytes duplicate-key guard
+    // ahead of the `Value` conversion below (last-write-wins on a
+    // duplicate key). Routed through the same `Canonicalization` class
+    // this peek already uses for any other malformed/unparseable claims
+    // payload, not `UnknownField` — a duplicate key is a different
+    // defect class from an unknown member.
+    if let Err(e) = reject_duplicate_keys(&payload) {
+        return Err(SessionBundleError::Canonicalization(format!(
+            "participant tct claims: {e}"
+        )));
+    }
     if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
         check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
             .map_err(|e| SessionBundleError::UnknownField(e.field))?;

@@ -26,7 +26,7 @@
 
 use crate::types::{IssuedTct, TctRenewalPayload, TCT_CLAIMS_MEMBERS};
 use crate::{verify_tct, TctBuilder, TctError, TctVerifyContext};
-use aitp_core::{base64url, check_members, from_serde_error, Timestamp};
+use aitp_core::{base64url, check_members, from_serde_error, reject_duplicate_keys, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -92,6 +92,10 @@ pub fn process_renewal_request(
     // check below, not misreported as an unrelated unknown claim here).
     let peek = aitp_crypto::jws::decode_payload_unverified(&request.current_tct)
         .map_err(TctError::Crypto)?;
+    // RFC-AITP-0001 §5.4.5 / issue #140: run the raw-bytes duplicate-key
+    // guard on `peek` BEFORE the `Value` conversion below, which would
+    // otherwise silently collapse a duplicate key to its last occurrence.
+    reject_duplicate_keys(&peek).map_err(TctError::ClaimsMalformed)?;
     let peek_value: serde_json::Value =
         serde_json::from_slice(&peek).map_err(|e| TctError::ClaimsMalformed(e.to_string()))?;
     if crate::verifier::peek_header_typ(&request.current_tct).as_deref()
@@ -256,6 +260,42 @@ mod tests {
         assert!(
             process_renewal_request(&request, &issuer, Timestamp(now.0 + 86_400), now, 3600)
                 .is_err()
+        );
+    }
+
+    /// RFC-AITP-0001 §5.4.5 / issue #140: a `current_tct` whose (unverified)
+    /// payload carries a duplicate top-level key must be rejected with
+    /// `ClaimsMalformed`, not silently accepted with the key's last
+    /// occurrence winning. Deliberately raw-text tampering of an
+    /// otherwise-validly-signed token's payload segment — a defect no
+    /// `serde_json::Value` can even represent.
+    #[test]
+    fn renewal_of_token_with_duplicate_claim_is_rejected() {
+        let issuer = AitpSigningKey::from_seed(&[0x50; 32]);
+        let holder = AitpSigningKey::from_seed(&[0x51; 32]);
+        let now = Timestamp(1_700_000_000);
+        let original = issue(&issuer, &holder, now, 60);
+
+        let parts: Vec<&str> = original.token.split('.').collect();
+        assert_eq!(parts.len(), 3);
+        let payload_bytes = base64url::decode_strict(parts[1]).unwrap();
+        let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+        assert!(payload_str.starts_with('{'));
+        let dup_payload = format!("{{\"ver\":\"aitp/0.2\",{}", &payload_str[1..]);
+        let dup_token = format!(
+            "{}.{}.{}",
+            parts[0],
+            base64url::encode(dup_payload.as_bytes()),
+            parts[2]
+        );
+
+        let request =
+            build_renewal_request(&holder, dup_token, base64url::encode(&[0x88; 16])).unwrap();
+        let err = process_renewal_request(&request, &issuer, Timestamp(now.0 + 86_400), now, 3600)
+            .unwrap_err();
+        assert!(
+            matches!(&err, TctError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+            "got {err:?}"
         );
     }
 }

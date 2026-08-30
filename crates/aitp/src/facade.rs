@@ -5,11 +5,15 @@
 //! that don't need the per-step state machine can drive a full
 //! handshake from a Manifest URL in a single call.
 
-use crate::core::{AitpEnvelope, MessageType, Timestamp};
+use crate::core::{
+    check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
+    EnvelopeParseError, MessageType, Timestamp,
+};
 use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
 use crate::handshake::{
-    Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload, OidcMintJwtFn,
-    PeerConfig, PinnedKeyStore, PresentedIdentity,
+    HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
+    OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
 use crate::manifest::Manifest;
 use crate::tct::VerifiedTct;
@@ -252,22 +256,21 @@ struct AitpErrorBody {
     message: String,
 }
 
-/// Interpret an HTTP response's status, Content-Type and body for an
-/// AITP JSON endpoint. Factored out of [`read_aitp_json_response`] so
-/// the status / content-type / size / parse logic is unit-testable
-/// without an HTTP round trip.
+/// Shared status / Content-Type / size validation for an AITP JSON
+/// response, common to [`interpret_aitp_response`] and
+/// [`interpret_aitp_envelope_response`]. Returns once the body is known
+/// to be a 2xx JSON response worth attempting to deserialize.
 ///
 /// - oversized body → [`FacadeError::Http`]
 /// - non-2xx carrying an AITP `error` envelope → [`FacadeError::Protocol`]
 /// - other non-2xx → [`FacadeError::Http`] with status + body excerpt
 /// - 2xx with a non-JSON Content-Type → [`FacadeError::Http`]
-/// - 2xx JSON → deserialized `T` (parse failure → [`FacadeError::Http`])
-fn interpret_aitp_response<T: serde::de::DeserializeOwned>(
+fn validate_aitp_response_shape(
     status: reqwest::StatusCode,
     content_type: &str,
     body: &[u8],
     max_bytes: usize,
-) -> Result<T, FacadeError> {
+) -> Result<(), FacadeError> {
     if body.len() > max_bytes {
         return Err(FacadeError::Http(format!(
             "response body {} bytes exceeds {max_bytes}-byte limit",
@@ -298,24 +301,87 @@ fn interpret_aitp_response<T: serde::de::DeserializeOwned>(
             "unexpected Content-Type `{content_type}` on a 2xx response (expected application/json)"
         )));
     }
+    Ok(())
+}
+
+/// Interpret an HTTP response's status, Content-Type and body for an
+/// AITP JSON endpoint. Factored out of [`read_aitp_json_response`] so
+/// the status / content-type / size / parse logic is unit-testable
+/// without an HTTP round trip.
+///
+/// See [`validate_aitp_response_shape`] for the shared prelude; on a 2xx
+/// JSON response this does a plain `serde_json::from_slice::<T>` — used
+/// for response bodies that are *not* an [`AitpEnvelope`] (e.g. the TCT
+/// renewal endpoint's `RenewedTct`), where there is no member-set check
+/// to route through. See [`interpret_aitp_envelope_response`] for the
+/// envelope-typed counterpart.
+///
+/// Only reachable in production code via the `experimental-renewal`
+/// gated [`renew_tct`]; kept available otherwise so the unit tests below
+/// can exercise it directly without an HTTP round trip.
+#[cfg(any(test, feature = "experimental-renewal"))]
+fn interpret_aitp_response<T: serde::de::DeserializeOwned>(
+    status: reqwest::StatusCode,
+    content_type: &str,
+    body: &[u8],
+    max_bytes: usize,
+) -> Result<T, FacadeError> {
+    validate_aitp_response_shape(status, content_type, body, max_bytes)?;
     serde_json::from_slice(body)
         .map_err(|e| FacadeError::Http(format!("malformed JSON in response body: {e}")))
 }
 
-/// Read and validate an AITP JSON response: status, Content-Type and
-/// size are checked before the body is deserialized. A peer's AITP
-/// error envelope is surfaced as [`FacadeError::Protocol`]; every other
-/// failure is [`FacadeError::Http`]. See [`interpret_aitp_response`].
+/// Same contract as [`interpret_aitp_response`], specialized to
+/// [`AitpEnvelope`]: the final parse routes through
+/// [`parse_envelope_wire`] so a peer response carrying an unknown
+/// top-level member is reported as `UNKNOWN_FIELD` rather than an opaque
+/// `deny_unknown_fields` serde error. This is a client-side diagnostic
+/// improvement only — a response that previously failed to deserialize
+/// (an unknown member already caused a bare `from_slice::<AitpEnvelope>`
+/// to fail its `deny_unknown_fields` check) still fails here; only the
+/// error text/class changes, never accept vs. reject.
+fn interpret_aitp_envelope_response(
+    status: reqwest::StatusCode,
+    content_type: &str,
+    body: &[u8],
+    max_bytes: usize,
+) -> Result<AitpEnvelope, FacadeError> {
+    validate_aitp_response_shape(status, content_type, body, max_bytes)?;
+    // RFC-AITP-0001 §5.4.5 / issue #140: same rationale as the server
+    // side's `parse_envelope_request` — a duplicate key anywhere in the
+    // response body (top level or nested inside `payload`) must be
+    // rejected against the ORIGINAL bytes, before a `Value` (which would
+    // already have silently collapsed it) is ever built.
+    if let Err(e) = reject_duplicate_keys(body) {
+        return Err(FacadeError::Http(format!(
+            "malformed JSON in response body: {e}"
+        )));
+    }
+    let value: serde_json::Value = serde_json::from_slice(body)
+        .map_err(|e| FacadeError::Http(format!("malformed JSON in response body: {e}")))?;
+    parse_envelope_wire(&value).map_err(|e| match e {
+        EnvelopeParseError::UnknownField(field) => {
+            FacadeError::Http(format!("unknown field `{field}` in response envelope"))
+        }
+        EnvelopeParseError::Malformed(msg) => {
+            FacadeError::Http(format!("malformed JSON in response body: {msg}"))
+        }
+    })
+}
+
+/// Drain a `reqwest::Response` body under a hard size cap, returning the
+/// status, Content-Type header and raw bytes for [`interpret_aitp_response`]
+/// / [`interpret_aitp_envelope_response`] to validate and parse.
 ///
-/// The body is read with a hard cap: a `Content-Length` declaring more
-/// than `max_bytes` is rejected before a single byte is read, and the
-/// streaming read aborts the moment the running total exceeds the cap.
-/// This stops a malicious handshake peer from exhausting initiator
-/// memory with an unbounded (or Content-Length-lying) response.
-async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
+/// A `Content-Length` declaring more than `max_bytes` is rejected before a
+/// single byte is read, and the streaming read aborts the moment the
+/// running total exceeds the cap. This stops a malicious handshake peer
+/// from exhausting initiator memory with an unbounded (or
+/// Content-Length-lying) response.
+async fn read_aitp_response_body(
     resp: reqwest::Response,
     max_bytes: usize,
-) -> Result<T, FacadeError> {
+) -> Result<(reqwest::StatusCode, String, Vec<u8>), FacadeError> {
     let status = resp.status();
     let content_type = resp
         .headers()
@@ -347,7 +413,36 @@ async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
         }
         body.extend_from_slice(&chunk);
     }
+    Ok((status, content_type, body))
+}
+
+/// Read and validate an AITP JSON response: status, Content-Type and
+/// size are checked before the body is deserialized. A peer's AITP
+/// error envelope is surfaced as [`FacadeError::Protocol`]; every other
+/// failure is [`FacadeError::Http`]. See [`interpret_aitp_response`].
+///
+/// Used for response bodies that are not an [`AitpEnvelope`] (e.g. the
+/// TCT renewal endpoint's `RenewedTct`). See
+/// [`read_aitp_envelope_response`] for the envelope-typed counterpart.
+#[cfg(feature = "experimental-renewal")]
+async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<T, FacadeError> {
+    let (status, content_type, body) = read_aitp_response_body(resp, max_bytes).await?;
     interpret_aitp_response(status, &content_type, &body, max_bytes)
+}
+
+/// Same contract as [`read_aitp_json_response`], specialized to
+/// [`AitpEnvelope`] via [`interpret_aitp_envelope_response`] so an
+/// unknown top-level member in a peer's handshake response is reported
+/// as `UNKNOWN_FIELD` rather than a bare malformed-JSON error.
+async fn read_aitp_envelope_response(
+    resp: reqwest::Response,
+    max_bytes: usize,
+) -> Result<AitpEnvelope, FacadeError> {
+    let (status, content_type, body) = read_aitp_response_body(resp, max_bytes).await?;
+    interpret_aitp_envelope_response(status, &content_type, &body, max_bytes)
 }
 
 /// Drive a complete initiator-side Mutual Handshake against a peer
@@ -486,13 +581,34 @@ pub async fn run_initiator_handshake(
         .map(String::from)
         .unwrap_or_default();
     let hello_ack_envelope: AitpEnvelope =
-        read_aitp_json_response(resp, MAX_RESPONSE_BYTES).await?;
+        read_aitp_envelope_response(resp, MAX_RESPONSE_BYTES).await?;
     let peer_pk = AitpVerifyingKey::from_aid(&hello_ack_envelope.sender.agent_id)
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     verify_envelope_signature(&hello_ack_envelope, &peer_pk)
         .map_err(|e| FacadeError::Http(e.to_string()))?;
+    // RFC-AITP-0001 §7: same member-set discipline the server side
+    // applies to an inbound MUTUAL_HELLO_ACK, applied here to the
+    // response we received as its peer. Diagnostic only — a payload
+    // that fails this check already fails the plain
+    // `serde_json::from_value` below via `deny_unknown_fields`; this
+    // only improves which `FacadeError` variant reports it.
+    if let Err(e) = check_members(
+        "MutualHelloAckPayload",
+        &hello_ack_envelope.payload,
+        MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+    ) {
+        return Err(FacadeError::Handshake(HandshakeError::UnknownField(
+            e.field,
+        )));
+    }
     let hello_ack: MutualHelloAckPayload =
-        serde_json::from_value(hello_ack_envelope.payload.clone())?;
+        serde_json::from_value(hello_ack_envelope.payload.clone()).map_err(|e| {
+            if let Some(field) = from_serde_error(&e) {
+                FacadeError::Handshake(HandshakeError::UnknownField(field))
+            } else {
+                FacadeError::Serde(e)
+            }
+        })?;
     let cfg = make_cfg();
     let commit = initiator.on_hello_ack(&hello_ack_envelope, &hello_ack, &cfg)?;
 
@@ -518,11 +634,27 @@ pub async fn run_initiator_handshake(
         .await
         .map_err(|e| FacadeError::Http(e.to_string()))?;
     let commit_ack_envelope: AitpEnvelope =
-        read_aitp_json_response(commit_resp, MAX_RESPONSE_BYTES).await?;
+        read_aitp_envelope_response(commit_resp, MAX_RESPONSE_BYTES).await?;
     verify_envelope_signature(&commit_ack_envelope, &peer_pk)
         .map_err(|e| FacadeError::Http(e.to_string()))?;
+    // See the MUTUAL_HELLO_ACK member-set check above — same rationale.
+    if let Err(e) = check_members(
+        "MutualCommitAckPayload",
+        &commit_ack_envelope.payload,
+        MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+    ) {
+        return Err(FacadeError::Handshake(HandshakeError::UnknownField(
+            e.field,
+        )));
+    }
     let commit_ack: MutualCommitAckPayload =
-        serde_json::from_value(commit_ack_envelope.payload.clone())?;
+        serde_json::from_value(commit_ack_envelope.payload.clone()).map_err(|e| {
+            if let Some(field) = from_serde_error(&e) {
+                FacadeError::Handshake(HandshakeError::UnknownField(field))
+            } else {
+                FacadeError::Serde(e)
+            }
+        })?;
     let cfg = make_cfg();
     let completed = initiator.on_commit_ack(&commit_ack_envelope, &commit_ack, &cfg)?;
 

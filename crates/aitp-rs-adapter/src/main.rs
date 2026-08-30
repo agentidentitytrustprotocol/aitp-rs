@@ -29,6 +29,27 @@ fn main() {
         if line.trim().is_empty() {
             continue;
         }
+        // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere
+        // in the request MUST be rejected. Every downstream dispatch path
+        // in `aitp_rs_adapter::handle` navigates a `serde_json::Value`
+        // built from this line — and `Value`'s object representation is
+        // last-write-wins on a duplicate key, which would silently
+        // discard the very information needed to reject it. This is the
+        // ONLY point in the whole request lifecycle where the original
+        // bytes still exist, so the check runs here, before the `Value`
+        // this request (and everything nested inside it — `envelope`,
+        // `manifest`, `issuer_revocation_list.snapshot`, `session_bundle`,
+        // handshake payloads, …) is ever built.
+        if let Err(e) = aitp_core::reject_duplicate_keys(line.as_bytes()) {
+            let resp = json!({
+                "id": "unknown",
+                "ok": false,
+                "error_code": "MALFORMED_REQUEST",
+                "message": e,
+            });
+            writeln!(out, "{resp}").ok();
+            continue;
+        }
         let request: Value = match serde_json::from_str(&line) {
             Ok(v) => v,
             Err(e) => {

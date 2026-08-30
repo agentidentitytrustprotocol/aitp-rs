@@ -36,7 +36,7 @@ pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;
 pub use raw_url::RawUrl;
 pub use time::Timestamp;
-pub use unknown_field::{check_members, from_serde_error, UnknownField};
+pub use unknown_field::{check_members, from_serde_error, reject_duplicate_keys, UnknownField};
 
 /// Protocol version this crate implements. Carried as the `version`
 /// field on JCS-profile artifacts and as the `ver` private claim on

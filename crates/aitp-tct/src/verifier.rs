@@ -4,7 +4,9 @@ use crate::types::{
     GrantVoucherClaims, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
 use crate::TctError;
-use aitp_core::{check_members, from_serde_error, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_core::{
+    check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
+};
 use aitp_crypto::{jws, AitpVerifyingKey};
 use uuid::Uuid;
 
@@ -317,6 +319,10 @@ pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct
     // own crypto/parse error.
     if peek_header_typ(token).as_deref() == Some(jws::TYP_TCT) {
         let peek = jws::decode_payload_unverified(token).map_err(TctError::Crypto)?;
+        // RFC-AITP-0001 §5.4.5 / issue #140: this peek's own `Value` step
+        // is last-write-wins on a duplicate key, so the raw-bytes check
+        // must run first, against `peek` itself.
+        reject_duplicate_keys(&peek).map_err(TctError::ClaimsMalformed)?;
         if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&peek) {
             check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
                 .map_err(|e| TctError::UnknownField(e.field))?;
@@ -404,6 +410,9 @@ pub fn verify_voucher(token: &str, issuer: &Aid) -> Result<GrantVoucherClaims, T
     // misreported as an unrelated unknown claim.
     if peek_header_typ(token).as_deref() == Some(jws::TYP_GRANT_VOUCHER) {
         let peek = jws::decode_payload_unverified(token).map_err(TctError::Crypto)?;
+        // RFC-AITP-0001 §5.4.5 / issue #140: same raw-bytes-first
+        // rationale as `verify_tct`'s peek above.
+        reject_duplicate_keys(&peek).map_err(TctError::ClaimsMalformed)?;
         if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&peek) {
             check_members(
                 "GrantVoucherClaims",
@@ -621,6 +630,67 @@ mod claim_set_tests {
         assert!(
             matches!(&err, TctError::UnknownField(f) if f == "rogue"),
             "expected UnknownField(\"rogue\") ahead of the corrupted signature, got {err:?}"
+        );
+    }
+
+    // ---- issue #140: duplicate claim rejected before signature verification ----
+
+    /// Inject a raw-text duplicate of `key` right after the payload's
+    /// opening `{` — a defect no `serde_json::Value` can even represent,
+    /// which is exactly the point. The signature is left untouched, so it
+    /// no longer matches the (now different) payload bytes; that must
+    /// not matter, since the duplicate-key guard runs on the unverified
+    /// peek, ahead of signature verification.
+    fn inject_duplicate_key_into_payload(
+        token: &str,
+        key: &str,
+        value: &serde_json::Value,
+    ) -> String {
+        let parts: Vec<&str> = token.split('.').collect();
+        assert_eq!(parts.len(), 3, "expected a 3-segment compact JWS");
+        let payload_bytes = aitp_core::base64url::decode_strict(parts[1]).unwrap();
+        let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+        assert!(
+            payload_str.starts_with('{'),
+            "expected a JSON object payload"
+        );
+        let dup = format!(
+            "\"{key}\":{},",
+            serde_json::to_string(value).expect("serializable")
+        );
+        let tampered_payload = format!("{{{dup}{}", &payload_str[1..]);
+        let tampered_payload_b64 = aitp_core::base64url::encode(tampered_payload.as_bytes());
+        format!("{}.{}.{}", parts[0], tampered_payload_b64, parts[2])
+    }
+
+    #[test]
+    fn tct_duplicate_claim_rejected_even_with_now_invalid_signature() {
+        let (issuer, subject) = issuer_subject();
+        let claims = base_tct_claims(&issuer, &subject);
+        let token = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
+        let dup_token = inject_duplicate_key_into_payload(&token, "ver", &claims["ver"]);
+
+        let ctx = permissive_ctx(issuer.aid(), subject.aid());
+        let err = verify_tct(&dup_token, &ctx).unwrap_err();
+        assert!(
+            matches!(&err, TctError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+            "expected ClaimsMalformed(duplicate field `ver`) ahead of the now-invalid \
+             signature, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn voucher_duplicate_claim_rejected_even_with_now_invalid_signature() {
+        let (issuer, subject) = issuer_subject();
+        let claims = base_voucher_claims(&issuer, &subject);
+        let token = jws::sign_compact(&issuer, jws::TYP_GRANT_VOUCHER, &claims).unwrap();
+        let dup_token = inject_duplicate_key_into_payload(&token, "ver", &claims["ver"]);
+
+        let err = verify_voucher(&dup_token, issuer.aid()).unwrap_err();
+        assert!(
+            matches!(&err, TctError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+            "expected ClaimsMalformed(duplicate field `ver`) ahead of the now-invalid \
+             signature, got {err:?}"
         );
     }
 

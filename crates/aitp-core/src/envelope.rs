@@ -368,6 +368,38 @@ mod tests {
         );
     }
 
+    /// RFC-AITP-0001 §5.4.5 / issue #140: `parse_envelope_wire` takes a
+    /// `Value`, which cannot represent a duplicate key at all — by the
+    /// time a `Value` exists, the duplicate is already gone. This is the
+    /// empirical confirmation of the bug: a wire body with a duplicate
+    /// top-level `version` key silently deserializes clean via
+    /// `parse_envelope_wire`, exactly as it always used to for a bare
+    /// `serde_json::from_slice::<AitpEnvelope>`. It pins WHY every real
+    /// call site (`aitp-transport-http`'s `parse_envelope_request`,
+    /// `aitp`'s `interpret_aitp_envelope_response`) MUST run
+    /// [`crate::reject_duplicate_keys`] against the ORIGINAL bytes before
+    /// ever constructing the `Value` this function takes.
+    #[test]
+    fn parse_envelope_wire_alone_cannot_see_a_duplicate_key_the_bytes_guard_must_run_first() {
+        let env = sample_envelope(MessageType::Tct);
+        let good = serde_json::to_string(&env).unwrap();
+        let needle = "\"version\":\"aitp/0.2\",";
+        assert!(good.contains(needle), "fixture shape changed: {good}");
+        let dup_bytes = good.replacen(needle, &format!("{needle}{needle}"), 1);
+
+        // The raw-bytes guard catches it...
+        let err = crate::reject_duplicate_keys(dup_bytes.as_bytes()).unwrap_err();
+        assert!(err.contains("duplicate field `version`"), "got: {err}");
+
+        // ...but `parse_envelope_wire` alone, given a `Value` already
+        // built from those same bytes, cannot: the duplicate is gone.
+        let value: serde_json::Value = serde_json::from_str(&dup_bytes).unwrap();
+        assert!(
+            parse_envelope_wire(&value).is_ok(),
+            "demonstrates why the raw-bytes guard must run before this, not after"
+        );
+    }
+
     #[test]
     fn extensions_round_trip_absent_vs_empty() {
         // Absent: no `extensions` key on the wire at all.

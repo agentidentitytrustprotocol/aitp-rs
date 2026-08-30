@@ -687,6 +687,44 @@ mod tests {
         );
     }
 
+    /// RFC-AITP-0001 §5.4.5 / issue #140: a duplicate key anywhere in the
+    /// wire body — including inside `revocation_list.entries[]` — is
+    /// unrecoverable once collapsed into a `serde_json::Value`, so every
+    /// real call site (the adapter, a `RevocationProvider::fetch`
+    /// implementation) MUST run [`aitp_core::reject_duplicate_keys`]
+    /// against the ORIGINAL bytes before ever building the `Value` that
+    /// `parse_revocation_snapshot_wire` takes. This pins that the
+    /// composed pipeline — raw bytes, then the duplicate-key guard, then
+    /// `Value`, then `parse_revocation_snapshot_wire` — actually rejects,
+    /// proving why the guard is necessary: `parse_revocation_snapshot_wire`
+    /// alone, given a `Value` built from these same bytes, could never
+    /// see the duplicate at all.
+    #[test]
+    fn wire_bytes_with_duplicate_entry_member_are_rejected_before_a_value_ever_exists() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let mut good = serde_json::to_string(&env).unwrap();
+        // Inject a raw-text duplicate of `revoked_at` inside the sole
+        // `entries[]` member — a defect no `serde_json::Value` can even
+        // represent, which is exactly the point.
+        let needle = "\"revoked_at\":1700001000";
+        assert!(good.contains(needle), "fixture shape changed: {good}");
+        good = good.replacen(needle, &format!("{needle},{needle}"), 1);
+
+        let err = aitp_core::reject_duplicate_keys(good.as_bytes()).unwrap_err();
+        assert!(err.contains("duplicate field `revoked_at`"), "got: {err}");
+
+        // And confirm the negative: parsing straight to `Value` first (the
+        // pre-fix call-site shape) silently swallows the duplicate and
+        // sails through `parse_revocation_snapshot_wire` — this is the
+        // regression the guard exists to close.
+        let value: serde_json::Value = serde_json::from_str(&good).unwrap();
+        assert!(
+            parse_revocation_snapshot_wire(&value).is_ok(),
+            "demonstrates why the raw-bytes guard must run before this, not after"
+        );
+    }
+
     /// `REVOCATION_LIST_MEMBERS` must equal the vendored schema's
     /// `properties.revocation_list.properties` keys — the drift firewall
     /// lives in `tests/schema.rs`, this is the quick smoke check that the

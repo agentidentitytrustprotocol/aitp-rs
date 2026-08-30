@@ -174,6 +174,177 @@ async fn unknown_envelope_version_returns_unknown_version() {
     assert_error_code(resp, "UNKNOWN_VERSION").await;
 }
 
+/// Phase 7b headline test (issue #140): a real HTTP POST carrying an
+/// envelope with an unknown top-level member must be rejected with
+/// `UNKNOWN_FIELD`, not the generic `INVALID_ENVELOPE` a bare
+/// `serde_json::from_slice::<AitpEnvelope>` would have produced. No
+/// conformance fixture covers the live HTTP server, so this integration
+/// test is the only thing that pins the behavior on this surface.
+#[tokio::test]
+async fn unknown_top_level_envelope_member_returns_unknown_field() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD0; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let mut wire = serde_json::to_value(&envelope).unwrap();
+    wire.as_object_mut()
+        .unwrap()
+        .insert("coordinator_note".to_string(), serde_json::json!("rogue"));
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(serde_json::to_vec(&wire).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "UNKNOWN_FIELD").await;
+}
+
+/// RFC-AITP-0001 §5.4.5 / issue #140: a duplicate top-level key in the
+/// posted envelope body must be rejected as malformed, not silently
+/// collapsed to its last occurrence by `serde_json::Value` and accepted.
+/// Deliberately raw text (not built via `serde_json::json!`/`Value`,
+/// which cannot even represent a duplicate key) posted straight to the
+/// live HTTP surface `parse_envelope_request` guards.
+#[tokio::test]
+async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let good = serde_json::to_string(&envelope).unwrap();
+    let needle = "\"version\":\"aitp/0.2\",";
+    assert!(good.contains(needle), "fixture shape changed: {good}");
+    let dup_body = good.replacen(needle, &format!("{needle}{needle}"), 1);
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(dup_body)
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "INVALID_ENVELOPE").await;
+}
+
+/// Same defect, but nested inside the handshake payload rather than at
+/// the envelope's own top level — proving the raw-bytes guard in
+/// `parse_envelope_request` protects the WHOLE document, including
+/// everything the `MUTUAL_HELLO` payload's own `check_members` call
+/// later navigates as an already-parsed `serde_json::Value`.
+#[tokio::test]
+async fn duplicate_key_nested_inside_hello_payload_is_rejected_not_silently_accepted() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({"pop_nonce": "AAAAAAAAAAAAAAAAAAAAAA"}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let good = serde_json::to_string(&envelope).unwrap();
+    let needle = "\"pop_nonce\":\"AAAAAAAAAAAAAAAAAAAAAA\"";
+    assert!(good.contains(needle), "fixture shape changed: {good}");
+    let dup_body = good.replacen(needle, &format!("{needle},{needle}"), 1);
+
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(dup_body)
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "INVALID_ENVELOPE").await;
+}
+
+/// AC 2: a *structurally valid* envelope (no unknown envelope-level
+/// member) whose `mutual_hello` payload carries an unknown sibling
+/// member must likewise be reported as `UNKNOWN_FIELD` — the member-set
+/// check on `MutualHelloPayload` runs before typed deserialization, so
+/// the required fields being absent never masks the unknown-field
+/// rejection.
+#[tokio::test]
+async fn unknown_hello_payload_sibling_member_returns_unknown_field() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD1; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({ "rogue_sibling": true }),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .json(&envelope)
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "UNKNOWN_FIELD").await;
+}
+
+/// AC 3 (regression pin): version checking (RFC-AITP-0001 §5.6) happens
+/// *after* envelope parsing in `enforce_envelope_boundary_checks`, and
+/// `parse_envelope_wire`'s member-set check never inspects `version`.
+/// An envelope that is both forward-versioned AND structurally clean
+/// (every top-level member is schema-declared, payload has no unknown
+/// sibling) must still report `UNKNOWN_VERSION` — proving the new
+/// member-set check placed in `parse_envelope_request` does not shadow
+/// or run ahead of the pre-existing version check. Complements (does
+/// not replace) `unknown_envelope_version_returns_unknown_version`
+/// above, which must keep passing unchanged.
+#[tokio::test]
+async fn forward_version_structurally_clean_envelope_returns_unknown_version_not_unknown_field() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let mut envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .unwrap();
+    envelope.version = "aitp/9.9".into();
+    // Round-trip through a raw `Value` (rather than relying on
+    // `AitpEnvelope`'s own `Serialize`) to exercise exactly the wire
+    // shape `parse_envelope_wire` sees — every top-level key present,
+    // none extra, `version` merely holding a forward value.
+    let wire = serde_json::to_value(&envelope).unwrap();
+    assert_eq!(
+        wire.as_object().unwrap().keys().count(),
+        7,
+        "envelope must carry exactly its declared top-level members \
+         (version, message_type, message_id, timestamp, sender, payload, \
+         signature) with `extensions` omitted (absent, not `{{}}`) — a \
+         drifted count would invalidate the 'structurally clean' premise \
+         of this test"
+    );
+    let resp = reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .header(reqwest::header::CONTENT_TYPE, "application/json")
+        .body(serde_json::to_vec(&wire).unwrap())
+        .send()
+        .await
+        .unwrap();
+    assert_error_code(resp, "UNKNOWN_VERSION").await;
+}
+
 #[tokio::test]
 async fn unknown_message_type_returns_invalid_envelope() {
     let port = spawn_server().await;

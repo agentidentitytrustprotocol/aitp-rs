@@ -9,7 +9,9 @@
 use crate::builder::compute_chain_hash;
 use crate::types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
 use crate::DelegationError;
-use aitp_core::{check_members, from_serde_error, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_core::{
+    check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
+};
 use aitp_crypto::{jws, AitpVerifyingKey};
 use aitp_tct::GrantVoucherClaims;
 use uuid::Uuid;
@@ -152,6 +154,10 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     // bytes is sound: no trust is ever extended on the strength of it.
     // A payload that isn't valid JSON at this stage is left for the
     // strict deserialize below to diagnose.
+    // RFC-AITP-0001 §5.4.5 / issue #140: the raw-bytes duplicate-key guard
+    // must run before the `Value` conversion below, whose map
+    // representation is last-write-wins on a duplicate key.
+    reject_duplicate_keys(&payload).map_err(DelegationError::ClaimsMalformed)?;
     if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
         check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
             .map_err(|e| DelegationError::UnknownField(e.field))?;

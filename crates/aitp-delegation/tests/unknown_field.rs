@@ -64,6 +64,50 @@ fn outer_claims_unknown_member_rejected_via_verify_delegation() {
     }
 }
 
+/// RFC-AITP-0001 §5.4.5 / issue #140: an outer delegation token whose
+/// (unverified) payload carries a duplicate top-level key must be
+/// rejected as `ClaimsMalformed`, not silently accepted with the key's
+/// last occurrence winning. Raw-text tampering of an otherwise-validly-
+/// signed token's payload segment — a defect no `serde_json::Value` can
+/// even represent, which is exactly why the JWS-payload "peek" in
+/// `peek_claims` must run [`aitp_core::reject_duplicate_keys`] against
+/// the raw decoded bytes before ever building a `Value` from them.
+#[test]
+fn outer_claims_duplicate_member_rejected_via_verify_delegation() {
+    let claims = serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": b().aid(),
+        "sub": c().aid(),
+        "aud": a().aid(),
+        "scope": ["read_data"],
+        "exp": NOW.0 + 600,
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "voucher": voucher_for_b(),
+    });
+    let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
+
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3);
+    let payload_bytes = aitp_core::base64url::decode_strict(parts[1]).unwrap();
+    let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+    assert!(payload_str.starts_with('{'));
+    let dup_payload = format!("{{\"ver\":\"{PROTOCOL_VERSION}\",{}", &payload_str[1..]);
+    let dup_token = format!(
+        "{}.{}.{}",
+        parts[0],
+        aitp_core::base64url::encode(dup_payload.as_bytes()),
+        parts[2]
+    );
+
+    let a_key = a();
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let err = verify_delegation(&dup_token, &ctx).unwrap_err();
+    assert!(
+        matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+        "expected ClaimsMalformed(duplicate field `ver`), got {err:?}"
+    );
+}
+
 /// Acceptance criterion 2, verify-time half: an unknown claim on the
 /// *embedded* grant voucher must surface as `UnknownField` through
 /// `verify_delegation`, not be swallowed into `InvalidVoucher` by
@@ -153,4 +197,71 @@ fn builder_extending_rejects_prior_hop_with_unknown_member() {
         DelegationError::UnknownField(field) => assert_eq!(field, "surprise"),
         other => panic!("expected UnknownField(\"surprise\"), got {other:?}"),
     }
+}
+
+fn inject_duplicate_ver(token: &str) -> String {
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3);
+    let payload_bytes = aitp_core::base64url::decode_strict(parts[1]).unwrap();
+    let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+    assert!(payload_str.starts_with('{'));
+    let dup_payload = format!("{{\"ver\":\"{PROTOCOL_VERSION}\",{}", &payload_str[1..]);
+    format!(
+        "{}.{}.{}",
+        parts[0],
+        aitp_core::base64url::encode(dup_payload.as_bytes()),
+        parts[2]
+    )
+}
+
+/// RFC-AITP-0001 §5.4.5 / issue #140: same duplicate-key rejection as
+/// `outer_claims_duplicate_member_rejected_via_verify_delegation`, but for
+/// `DelegationBuilder::new`'s embedded-voucher peek.
+#[test]
+fn builder_new_rejects_voucher_with_duplicate_member() {
+    let a_key = a();
+    let voucher_claims = serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": a_key.aid(),
+        "sub": b().aid(),
+        "grants": ["read_data"],
+        "iat": NOW.0,
+        "exp": NOW.0 + 7200,
+        "src_jti": Uuid::new_v4(),
+    });
+    let voucher_token = jws::sign_compact(&a_key, jws::TYP_GRANT_VOUCHER, &voucher_claims).unwrap();
+    let dup_token = inject_duplicate_ver(&voucher_token);
+    let err = match DelegationBuilder::new(&b(), &dup_token) {
+        Err(e) => e,
+        Ok(_) => panic!("voucher with a duplicate claim must not build"),
+    };
+    assert!(
+        matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+        "expected ClaimsMalformed(duplicate field `ver`), got {err:?}"
+    );
+}
+
+/// Same treatment for `DelegationBuilder::extending`'s prior-hop peek.
+#[test]
+fn builder_extending_rejects_prior_hop_with_duplicate_member() {
+    let prior_claims = serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": b().aid(),
+        "sub": c().aid(),
+        "aud": a().aid(),
+        "scope": ["read_data"],
+        "exp": NOW.0 + 3600,
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "jti": Uuid::new_v4(),
+    });
+    let prior_token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &prior_claims).unwrap();
+    let dup_token = inject_duplicate_ver(&prior_token);
+    let err = match DelegationBuilder::extending(&c(), &dup_token) {
+        Err(e) => e,
+        Ok(_) => panic!("prior hop with a duplicate claim must not extend"),
+    };
+    assert!(
+        matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
+        "expected ClaimsMalformed(duplicate field `ver`), got {err:?}"
+    );
 }

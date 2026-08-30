@@ -15,7 +15,8 @@
 use crate::types::{DelegationClaims, DELEGATION_CLAIMS_MEMBERS};
 use crate::DelegationError;
 use aitp_core::{
-    base64url, check_members, from_serde_error, jcs, Aid, Timestamp, PROTOCOL_VERSION,
+    base64url, check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, Timestamp,
+    PROTOCOL_VERSION,
 };
 use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey};
 use aitp_tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
@@ -73,6 +74,10 @@ impl<'a> DelegationBuilder<'a> {
         // ahead of anything else: an unknown claim on the embedded
         // voucher must surface as UNKNOWN_FIELD, not be swallowed into
         // DELEGATION_INVALID_VOUCHER by a later step.
+        // RFC-AITP-0001 §5.4.5 / issue #140: raw-bytes duplicate-key guard
+        // ahead of the `Value` conversion below (last-write-wins on a
+        // duplicate key).
+        reject_duplicate_keys(&payload).map_err(DelegationError::ClaimsMalformed)?;
         if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
             check_members(
                 "GrantVoucherClaims",
@@ -113,6 +118,9 @@ impl<'a> DelegationBuilder<'a> {
         let payload = jws::decode_payload_unverified(prior).map_err(DelegationError::Crypto)?;
         // Claim-set check (RFC-AITP-0001 §7) on the unverified peek of
         // the prior hop, same rationale as the voucher peek above.
+        // RFC-AITP-0001 §5.4.5 / issue #140: same raw-bytes-first
+        // rationale as the voucher peek above.
+        reject_duplicate_keys(&payload).map_err(DelegationError::ClaimsMalformed)?;
         if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
             check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
                 .map_err(|e| DelegationError::UnknownField(e.field))?;

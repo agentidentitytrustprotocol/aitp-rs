@@ -3,7 +3,7 @@
 use crate::client_config::ClientConfig;
 use crate::net_guard::HostGuard;
 use crate::retry::RetryPolicy;
-use aitp_core::{Aid, Timestamp};
+use aitp_core::{reject_duplicate_keys, Aid, Timestamp};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -345,6 +345,13 @@ impl ManifestFetcher {
                 return Err(FetchError::OversizedResponse { limit: max_bytes });
             }
             body.extend_from_slice(&chunk);
+        }
+        // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere
+        // in the manifest response body MUST be rejected, against the
+        // ORIGINAL bytes before a `Value` — last-write-wins on a
+        // duplicate key — is ever built.
+        if let Err(e) = reject_duplicate_keys(&body) {
+            return Err(FetchError::MalformedJson(e));
         }
         let value: serde_json::Value =
             serde_json::from_slice(&body).map_err(|e| FetchError::MalformedJson(e.to_string()))?;

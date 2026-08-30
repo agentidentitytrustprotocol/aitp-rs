@@ -195,6 +195,44 @@ async fn unknown_body_member_is_reported_as_unknown_field_and_not_stored() {
     );
 }
 
+/// RFC-AITP-0001 §5.4.5 / issue #140: a duplicate top-level key in the
+/// posted body — a raw text defect no `serde_json::Value` can even
+/// represent — must be rejected as malformed, not silently collapsed to
+/// its last occurrence and stored. Deliberately raw text, not built via
+/// `serde_json::json!`/`Value`, since that is exactly what the bug this
+/// guards against would otherwise erase.
+#[tokio::test]
+async fn duplicate_top_level_key_in_body_is_rejected_and_not_stored() {
+    let body = r#"{"session_bundle":{"version":"aitp/0.2","version":"aitp/0.3","session_id":"00000000-0000-4000-8000-000000000000","coordinator":"aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik","issued_at":1700000000,"expires_at":1700003600,"participants":[],"signature":"AA"}}"#;
+
+    let server = SessionBundleServer::new();
+    let router = server.clone().router();
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/aitp/session/bundle")
+                .header("content-type", "application/json")
+                .body(Body::from(body))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        text.contains("duplicate field `version`"),
+        "expected a duplicate-field diagnostic, got: {text}"
+    );
+    assert!(
+        server.is_empty(),
+        "a bundle with a duplicate top-level key must not be stored"
+    );
+}
+
 /// A **genuinely signed** bundle survives the store/fetch round trip and
 /// still verifies — and its signature is over the inner body, not the
 /// `{"session_bundle": …}` transport wrapper.

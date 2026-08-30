@@ -303,6 +303,43 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
     );
 }
 
+/// RFC-AITP-0001 §5.4.5 / issue #140: a participant TCT whose
+/// (unverified) payload carries a duplicate top-level key must be
+/// rejected at `build()` time — via `peek_tct_claims`'s raw-bytes
+/// `reject_duplicate_keys` guard — not silently accepted with the key's
+/// last occurrence winning. Raw-text tampering of an otherwise-validly-
+/// issued TCT's payload segment, since a `serde_json::Value` cannot
+/// represent a duplicate key at all.
+#[test]
+fn duplicate_claim_in_participant_tct_rejected_at_build() {
+    let coord = key(0xC1);
+    let alice = key(0xA1);
+    let token = issue_tct(&coord, &alice, 3600);
+
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3);
+    let payload_bytes = aitp_core::base64url::decode_strict(parts[1]).unwrap();
+    let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+    assert!(payload_str.starts_with('{'));
+    let dup_payload = format!("{{\"ver\":\"aitp/0.2\",{}", &payload_str[1..]);
+    let dup_token = format!(
+        "{}.{}.{}",
+        parts[0],
+        aitp_core::base64url::encode(dup_payload.as_bytes()),
+        parts[2]
+    );
+
+    let err = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), dup_token)
+        .build()
+        .unwrap_err();
+    assert!(
+        matches!(&err, SessionBundleError::Canonicalization(m) if m.contains("duplicate field `ver`")),
+        "expected Canonicalization(duplicate field `ver`), got {err:?}"
+    );
+}
+
 #[test]
 fn foreign_issued_tct_rejected_at_build() {
     // A participant TCT minted by someone *other* than the coordinator

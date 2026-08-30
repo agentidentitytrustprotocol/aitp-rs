@@ -223,6 +223,65 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
 }
 
 #[tokio::test]
+async fn duplicate_top_level_key_in_manifest_body_is_rejected_not_silently_accepted() {
+    // RFC-AITP-0001 §5.4.5 / issue #140: a `{"manifest": {...}}` response
+    // whose inner body carries a DUPLICATE member must be rejected, not
+    // silently collapsed to its last occurrence by `Value`'s
+    // last-write-wins map representation. Before the `reject_duplicate_keys`
+    // pre-check landed in `ManifestFetcher::fetch_attempt`, this body would
+    // have parsed clean (`aid` silently taking its second value) and sailed
+    // straight through `parse_manifest_wire`.
+    use axum::{
+        http::header,
+        response::{IntoResponse, Response},
+        routing::get,
+        Router,
+    };
+    // Raw text, deliberately NOT built via `serde_json::json!` /
+    // `Value` — a `Value` cannot represent a duplicate key at all, which
+    // is exactly the bug this test guards against. The manifest body
+    // need not be a fully valid, verifiable Manifest: the duplicate key
+    // must be rejected before `parse_manifest_wire` (let alone signature
+    // verification) is ever reached.
+    let sig = "A".repeat(86);
+    let body = format!(
+        r#"{{"manifest":{{"aid":"aid:pubkey:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","aid":"aid:pubkey:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","handshake_endpoint":"https://b.agents.example.com/aitp/handshake","published_at":1700000000,"expires_at":1700003600,"offered_capabilities":["demo.echo"],"pop":{{"nonce":"AAAAAAAAAAAAAAAAAAAAAA","signature":"{sig}"}}}}}}"#
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let body = body.clone();
+            async move {
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap()
+                    .into_response()
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::MalformedJson(ref m) if m.contains("duplicate field `aid`")),
+        "expected MalformedJson mentioning the duplicate `aid` field, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn malformed_wrapper_rejected() {
     // Server returns valid JSON but not the `{"manifest": {...}}` shape.
     use axum::{routing::get, Json, Router};
