@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.10.0...aitp-session-bundle-v0.11.0) - 2026-08-30
+
+### Fixed
+
+- *(session-bundle)* reject sibling-signature wire shape; adopt spec @ 43f9d39 ([#132](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/132))
+
 ## [0.8.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.7.0...aitp-session-bundle-v0.8.0) - 2026-08-28
 
 ### Other

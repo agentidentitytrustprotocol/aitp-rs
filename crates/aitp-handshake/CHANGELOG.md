@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.10.0...aitp-handshake-v0.11.0) - 2026-08-30
+
+### Fixed
+
+- [**breaking**] encode pinned-key proof timestamp as ASCII-decimal per RFC-AITP-0002 erratum ([#134](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/134))
+- *(handshake)* report unresolved issuer keys as KEY_RESOLUTION_FAILED ([#126](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/126))
+
 ## [0.10.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.9.0...aitp-handshake-v0.10.0) - 2026-08-29
 
 ### Other

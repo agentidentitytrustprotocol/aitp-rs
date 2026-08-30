@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.10.0...aitp-transport-http-v0.11.0) - 2026-08-30
+
+### Fixed
+
+- *(session-bundle)* reject sibling-signature wire shape; adopt spec @ 43f9d39 ([#132](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/132))
+- *(handshake)* report unresolved issuer keys as KEY_RESOLUTION_FAILED ([#126](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/126))
+
 ## [0.10.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.9.0...aitp-transport-http-v0.10.0) - 2026-08-29
 
 ### Other
