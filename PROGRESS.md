@@ -415,3 +415,30 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   fully green).
 - Next: Phase 6a (compact-JWS claims in TCT/grant voucher — the phase
   that turns the corpus green).
+
+### Phase 6a — TCT/grant-voucher claim registry · PASS · 2026-08-30
+- Commit `899da4d`. Verifier (Opus): **PASS**, 1 round. The one real
+  question this round: the plan's Approach text said the check runs
+  "before `typ` enforcement", but the implementation gates it on `typ`
+  matching first (needed to keep fixture `tct-010` — a voucher presented
+  where a TCT is expected — reporting `TOKEN_TYP_MISMATCH` rather than
+  an unrelated `UNKNOWN_FIELD` on `src_jti`). Verifier read
+  RFC-AITP-0005 §7.2 directly and confirmed its "before any
+  cryptographic step" guarantee scopes to alg-pin/signature, not to
+  `typ` — the plan's paraphrase was imprecise, the implementation is
+  correct. `tct-010` was already green pre-phase, so this wasn't a
+  shortcut to hit the tally, it was required to avoid a regression.
+  Logged to `ASSUMPTIONS.md`. Two trivial cleanups applied: fixed two
+  doc comments still claiming the old (wrong) ordering, reverted an
+  incidental `fuzz/Cargo.lock` regeneration unrelated to this phase.
+- `TctError::UnknownField` (from Phase 4) reused at the new call sites,
+  not duplicated; `voucher_error_code`'s fall-through to `tct_error_code`
+  confirmed intact and now pinned by a test. JWS protected-header split
+  preserved (unknown header member still reports its existing `TOKEN_*`
+  code).
+- **Conformance: 62 passed, 0 failed, 2 skipped of 64 — the full
+  corpus is green.** The 2 skips (`del-004`/`del-007`) are permanent,
+  frozen-v0.1-shape skips, not failures.
+- Next: Phase 6b (delegation claims + embedded-token sinks — unfixtured,
+  test-only gate) → 7a (handshake payloads) → 7b (HTTP transport) → 8
+  (docs/CHANGELOG). None of these should move the 62/0/2 tally.
