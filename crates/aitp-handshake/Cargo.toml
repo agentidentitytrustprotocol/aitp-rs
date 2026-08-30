@@ -34,3 +34,4 @@ ring = { workspace = true }
 boon = { workspace = true }
 ed25519-dalek = { workspace = true }
 base64ct = { workspace = true }
+hex = { workspace = true }
