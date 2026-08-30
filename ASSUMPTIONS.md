@@ -45,6 +45,26 @@
   point by pushing the accumulated branch early.
 - **Status:** UNCONFIRMED
 
+## Revocation snapshot `Some(extensions)` has no cross-impl witness
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 4)
+- **Assumed:** xcheck's local pass (mint with aitp-rs, verify with
+  `aitp-verifier-py` at the pinned SHA, byte-compare) is sufficient
+  cross-impl assurance for this phase's `extensions` addition.
+- **Chose:** accept it for the absent-`extensions` case, which is what
+  `tools/mint-signed-examples/src/bin/xcheck_mint.rs` actually mints
+  (byte-identical to the committed reference) — but flag that it never
+  mints a snapshot WITH `extensions` populated, so `rev-006`'s accept-side
+  shape (a snapshot carrying `extensions`) is only verified by this
+  repo's own tests, not independently cross-checked against
+  `aitp-verifier-py`.
+- **Alternatives:** extending `xcheck_mint.rs` to also mint a
+  populated-`extensions` variant — rejected for this pass as
+  out-of-scope busywork; low risk since `extensions` is an opaque,
+  schema-declared passthrough that never drives a trust decision.
+- **Blast radius if wrong:** low, same reasoning as the manifest entry
+  above — the KATs are the load-bearing gate and are untouched.
+- **Status:** UNCONFIRMED
+
 ## Manifest `Some(empty extensions)` has no cross-impl witness
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 3)
 - **Assumed:** running `aitp-verifier-py`'s xcheck locally (it passed) is

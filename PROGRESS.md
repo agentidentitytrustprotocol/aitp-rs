@@ -356,3 +356,33 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
 - Conformance: **58 passed, 4 failed, 2 skipped of 64** (man-004,
   man-005 now pass; bundle-006/rev-005/rev-006/tct-011 remain).
 - Next: Phase 4 (revocation snapshot).
+
+### Phase 4 — Revocation snapshot member-set check · PASS · 2026-08-30
+- Commit `2994ff4`. Verifier (Opus): **PASS**, 1 round. KAT gate clean
+  (`rfc_kat_canonical_bytes_match`, `spec_signed_example_snapshot_verifies`
+  diffed line-by-line — zero edits to expected digests/signatures, only
+  a new `extensions: None,` in the test fixture). Both wrapper and body
+  member-set checks confirmed to map to `UNKNOWN_FIELD` (no wrapper/body
+  split like Phase 5's session bundle — this artifact's RFC doesn't
+  split levels, and the verifier confirmed the executor didn't
+  accidentally copy that pattern).
+- Closed two real fail-open hazards found while wiring the adapter:
+  `verify_tct_op`'s `if let Ok(...)` (no else) and
+  `verify_delegation_op`'s `Err(_) => continue` both silently read an
+  unparseable revocation snapshot as "no revocation data" — now surface
+  the error. Verifier confirmed via before/after diff and a test with an
+  explicit baseline (ok:true with no snapshot) proving the OLD code would
+  have wrongly returned ok:true on a malformed snapshot too.
+- Fixed `transport-http`'s live snapshot-fetch path
+  (`RevocationError::SignatureInvalid` catch-all) miscategorizing an
+  unknown-member snapshot as a signature failure — new
+  `RevocationError::UnknownField` variant, tested end-to-end through
+  `RevocationCache::is_revoked`.
+- xcheck run locally against `aitp-verifier-py` at the pinned SHA:
+  byte-identical reproduction of the reference-minted snapshot. Noted
+  gap (non-blocking): xcheck's own mint never populates `extensions`, so
+  rev-006's `Some` shape has no cross-impl witness, only this repo's
+  own tests — logged to `ASSUMPTIONS.md`.
+- Conformance: **60 passed, 2 failed, 2 skipped of 64** (rev-005,
+  rev-006 now pass; bundle-006/tct-011 remain).
+- Next: Phase 5 (session bundle wrapper/body split).
