@@ -583,6 +583,21 @@ happened to test duplicate-key handling specifically, since no
 conformance fixture exercises it. Fixed in the same commit as Phase
 7b (`1c9c667`); see that phase's log entry above for the full account.
 
+## Reconcile — 2026-08-30
+
+Fable-reviewed all 6 `UNCONFIRMED` assumptions (per-entry recommendations,
+user decided each). Logged as `DECISIONS.md` D6-D11:
+- D6 (session-bundle unwrapped body), D10 (Phase 6a ordering), D11 (Phase 0
+  accumulate): **confirmed as-is**.
+- D7 (delegation missing typ-first gate), D8 (revocation xcheck coverage),
+  D9 (manifest xcheck coverage — found to be ZERO, not just an edge case):
+  **changed**, implemented in commit `9203799`, re-verified end-to-end
+  against the actual pinned `aitp-verifier-py` commit (not just local Rust
+  tests). Conformance tally unchanged at 62/0/2 of 64.
+- Two upstream spec-clarification issues filed per D6/D10's follow-up notes:
+  agentidentitytrustprotocol/agentidentitytrustprotocol#43 (session-bundle
+  wrapper ambiguity), #44 (TCT §7.2 step-ordering ambiguity).
+
 Next: this plan's own `/ship` pass (push `work/unknown-field-140` onto
 `origin/deps/spec-5063c08ed994`, i.e. PR #141; watch full CI; merge with
 `Closes #140`).

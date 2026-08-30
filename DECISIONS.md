@@ -121,7 +121,8 @@ asymmetry worth tracking: `aitp-verifier-py`'s own (non-HTTP) parser requires th
 **Verdict:** confirmed as-is. File an upstream spec-clarification issue on RFC-AITP-0010
 §4.3.1's ambiguous "the `session_bundle` object" wording, since it currently supports
 either implementation's reading.
-**Status:** CONFIRMED (2026-08-30).
+**Status:** CONFIRMED (2026-08-30). Follow-up filed:
+agentidentitytrustprotocol/agentidentitytrustprotocol#43.
 
 ## D7 — Add a `typ`-first gate to delegation's claim peek, closing a real cross-impl divergence (reconciled 2026-08-30, plan: unknown-field-error-code).
 **Assumption:** delegation's `peek_claims` lacking a `typ`-first gate (unlike TCT/voucher
@@ -184,7 +185,8 @@ arguably contradicts its own fixture's description of that same ordering — an 
 wording issue, not a code defect here.
 **Verdict:** confirmed as-is. Worth an upstream spec-clarification issue for RFC-AITP-0005
 §7.2's internally inconsistent step-ordering language.
-**Status:** CONFIRMED (2026-08-30).
+**Status:** CONFIRMED (2026-08-30). Follow-up filed:
+agentidentitytrustprotocol/agentidentitytrustprotocol#44.
 
 ## D11 — Accumulating all 11 phases locally before one closing `/ship` was the right call (reconciled 2026-08-30, plan: unknown-field-error-code).
 **Assumption:** shipping every phase individually (push + full CI watch after each) would
