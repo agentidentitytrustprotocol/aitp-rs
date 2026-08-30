@@ -19,6 +19,13 @@ sha2 = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
 uuid = { workspace = true }
+# xcheck-mint-only: decoding an OIDC issuer's P-256 SEC1-compressed
+# public key back into JWK x/y affine coordinates (RFC 7517 §6.2.2), so
+# the OIDC identity-binding cross-check vectors can emit real JWKs. Not
+# a library-crate dependency, and not new signing infrastructure -- it's
+# point-format conversion, already a transitive dependency via
+# aitp-crypto.
+p256 = { workspace = true }
 
 # Two binaries: `mint-signed-examples` writes the spec's committed
 # signed-examples; `xcheck-mint` emits artifacts on stdout for the
