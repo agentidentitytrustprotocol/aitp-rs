@@ -9,6 +9,7 @@
 //! - The [`Timestamp`] newtype for Unix-second timestamps.
 //! - The [`ExtensionsMap`] type for forward-compatible extensions.
 //! - The [`AitpError`] and [`ErrorCode`] taxonomy from RFC-AITP-0001.
+//! - The [`UnknownField`] member-set checker for RFC-AITP-0001 §7.
 //!
 //! Higher-level protocol crates (`aitp-manifest`, `aitp-tct`, `aitp-handshake`,
 //! `aitp-delegation`) build on these primitives.
@@ -24,6 +25,7 @@ pub mod extensions;
 pub mod jcs;
 pub mod raw_url;
 pub mod time;
+pub mod unknown_field;
 
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
@@ -33,6 +35,7 @@ pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;
 pub use raw_url::RawUrl;
 pub use time::Timestamp;
+pub use unknown_field::{check_members, from_serde_error, UnknownField};
 
 /// Protocol version this crate implements. Carried as the `version`
 /// field on JCS-profile artifacts and as the `ver` private claim on

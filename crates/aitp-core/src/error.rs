@@ -78,6 +78,9 @@ pub enum ErrorCode {
     /// for the verification context (`aitp-tct+jwt`, `aitp-grant+jwt`, or
     /// `aitp-delegation+jwt`) (RFC-AITP-0001 §5.4.5).
     TokenTypMismatch,
+    /// A JSON member outside the object's declared member set (and outside
+    /// any extension namespace) was present (RFC-AITP-0001 §7).
+    UnknownField,
 
     // ── Identity / Manifest ─────────────────────────────────────────────
     /// Identity binding could not be verified.
@@ -228,6 +231,7 @@ mod tests {
             (ErrorCode::UnknownVersion, "UNKNOWN_VERSION"),
             (ErrorCode::TokenAlgMismatch, "TOKEN_ALG_MISMATCH"),
             (ErrorCode::TokenTypMismatch, "TOKEN_TYP_MISMATCH"),
+            (ErrorCode::UnknownField, "UNKNOWN_FIELD"),
             (ErrorCode::IdentityFailed, "IDENTITY_FAILED"),
             (ErrorCode::PolicyViolation, "POLICY_VIOLATION"),
             (ErrorCode::GrantOverflow, "GRANT_OVERFLOW"),
@@ -325,6 +329,84 @@ mod tests {
             let back: ErrorCode = serde_json::from_value(v).unwrap();
             assert_eq!(back, *code, "decode {}", wire);
         }
+
+        // Completeness guard, part 1: this match is exhaustive (no `_` arm),
+        // so the crate fails to *compile* the moment a new `ErrorCode`
+        // variant is added without extending the or-pattern below.
+        // (`ErrorCode` is `#[non_exhaustive]` for downstream crates only —
+        // within this crate an exhaustive match is still enforced.)
+        fn assert_every_variant_named(code: ErrorCode) {
+            match code {
+                ErrorCode::InvalidEnvelope
+                | ErrorCode::InvalidSignature
+                | ErrorCode::ReplayDetected
+                | ErrorCode::TimestampExpired
+                | ErrorCode::UnknownVersion
+                | ErrorCode::TokenAlgMismatch
+                | ErrorCode::TokenTypMismatch
+                | ErrorCode::UnknownField
+                | ErrorCode::IdentityFailed
+                | ErrorCode::ManifestExpired
+                | ErrorCode::ManifestSignatureInvalid
+                | ErrorCode::ManifestPopFailed
+                | ErrorCode::ManifestVersionUnknown
+                | ErrorCode::TrustFailed
+                | ErrorCode::PolicyViolation
+                | ErrorCode::KeyResolutionFailed
+                | ErrorCode::IncompatibleTrustAnchors
+                | ErrorCode::PopVerificationFailed
+                | ErrorCode::NonceMismatch
+                | ErrorCode::AudienceMismatch
+                | ErrorCode::GrantOverflow
+                | ErrorCode::InsufficientGrants
+                | ErrorCode::HandshakeModeUnsupported
+                | ErrorCode::TctExpired
+                | ErrorCode::PopChallengeInvalid
+                | ErrorCode::PopResponseInvalid
+                | ErrorCode::DelegationAudienceMismatch
+                | ErrorCode::DelegationScopeExceeded
+                | ErrorCode::DelegationInvalidVoucher
+                | ErrorCode::DelegationSourceTctRevoked
+                | ErrorCode::DelegationInvalidSignature
+                | ErrorCode::DelegationExpired
+                | ErrorCode::DelegationPopFailed
+                | ErrorCode::DelegationMultihopNotSupported
+                | ErrorCode::DelegationHopLimitExceeded
+                | ErrorCode::DelegationChainHashMismatch
+                | ErrorCode::ManifestNotFound
+                | ErrorCode::TctSignatureInvalid
+                | ErrorCode::TctRevoked
+                | ErrorCode::TctExpiresAfterManifest
+                | ErrorCode::BundleInvalidSignature
+                | ErrorCode::BundleVersionMismatch
+                | ErrorCode::BundleExpired
+                | ErrorCode::BundleExpiryWindowInvariant
+                | ErrorCode::BundleCoordinatorIssuerMismatch
+                | ErrorCode::BundleAudienceMismatch
+                | ErrorCode::BundleEmptyParticipants
+                | ErrorCode::BundleParticipantTctInvalid
+                | ErrorCode::BundleNotMember
+                | ErrorCode::SessionBundleInvalid => {}
+            }
+        }
+        for (code, _) in cases {
+            assert_every_variant_named(*code);
+        }
+
+        // Completeness guard, part 2: pins the row count against the
+        // variant count enforced by the match above. Part 1 only forces a
+        // *compile error* when a variant is missing from the match's
+        // or-pattern — it says nothing about whether that variant also got
+        // a `cases` row. This assertion is what actually catches a missing
+        // row, but only if it's kept in sync: bump this number *and* add a
+        // row above whenever `ErrorCode` grows a variant — forgetting both
+        // together defeats this guard, since an unchanged row count still
+        // equals an unchanged (stale) target.
+        assert_eq!(
+            cases.len(),
+            50,
+            "ErrorCode variant count and pinned_wire_strings row count have diverged"
+        );
     }
 
     #[test]
