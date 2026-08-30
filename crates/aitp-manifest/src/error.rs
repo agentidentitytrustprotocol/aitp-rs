@@ -42,4 +42,15 @@ pub enum ManifestError {
     /// Source of randomness for the PoP challenge failed.
     #[error("rng failure: {0}")]
     Rng(String),
+    /// A top-level or nested member outside the schema-declared member set
+    /// (RFC-AITP-0001 §7), found by [`crate::verifier::parse_manifest_wire`]
+    /// before any expiry/PoP/signature check runs (RFC-AITP-0003 §5 step 2).
+    /// Carries the offending field name.
+    #[error("unknown field `{0}`")]
+    UnknownField(String),
+    /// Wire-form parse failure other than an unknown member (missing
+    /// required field, wrong type, invalid JSON shape, etc.), surfaced by
+    /// [`crate::verifier::parse_manifest_wire`].
+    #[error("malformed manifest: {0}")]
+    Malformed(String),
 }

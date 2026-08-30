@@ -39,6 +39,22 @@ pub struct Manifest {
     /// (including `Some(vec![])`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub accepted_identity_types: Option<Vec<String>>,
+    /// Signature algorithms this peer accepts from a proof-of-possession
+    /// signature (RFC-AITP-0001 §5.4.3 / RFC-AITP-0009 §4), e.g.
+    /// `["ed25519"]` or `["ed25519", "p256"]`.
+    ///
+    /// **Presence-sensitive** for the same canonical-form reason as
+    /// [`Self::accepted_identity_types`]: modeled as `Option<Vec<String>>`
+    /// so the canonical signing bytes preserve the on-the-wire shape —
+    /// `None` → field absent, `Some(_)` → field serialized verbatim.
+    ///
+    /// Modeling only: no verifier in this crate enforces a peer's PoP
+    /// signature algorithm against this list today (that's a distinct,
+    /// out-of-scope feature) — this field exists so a manifest that
+    /// legitimately carries it round-trips instead of being misclassified
+    /// as `UNKNOWN_FIELD`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub accepted_signature_algorithms: Option<Vec<String>>,
     /// Capabilities this peer is willing to grant.
     pub offered_capabilities: Vec<String>,
     /// Capabilities this peer requires of any peer that connects to it.
@@ -58,11 +74,52 @@ pub struct Manifest {
     /// When this Manifest stops being valid.
     pub expires_at: Timestamp,
     /// Forward-compatible extensions.
-    #[serde(default, skip_serializing_if = "ExtensionsMap::is_empty")]
-    pub extensions: ExtensionsMap,
+    ///
+    /// **Presence-sensitive**, deliberately modeled as `Option<ExtensionsMap>`
+    /// rather than a defaulted empty map with `skip_serializing_if =
+    /// "is_empty"`. Under RFC 8785 canonicalization, absent (`None`) emits
+    /// no `extensions` key at all, while present-but-empty
+    /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
+    /// bytes, different digest, different signature (this body IS
+    /// JCS-canonicalized for the outer signature, via
+    /// [`crate::builder::ManifestSigningView`]). Before this field was
+    /// `Option`, the two shapes collapsed onto the same empty map on
+    /// deserialize and the signing view then dropped it unconditionally —
+    /// so a manifest signed with a literal `"extensions":{}` on the wire
+    /// failed verification. Silently normalizing one shape into the other
+    /// would change the signing input and break verification against a
+    /// conformant peer (RFC-AITP-0001 §5.4.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ExtensionsMap>,
     /// Signature over JCS-canonicalized Manifest minus this field.
     pub signature: String,
 }
+
+/// Full set of top-level members `aitp-manifest.schema.json`'s inner
+/// `manifest` object declares, including the `extensions` namespace key
+/// itself. Used by [`crate::verifier::parse_manifest_wire`]'s member-set
+/// check (RFC-AITP-0001 §7).
+///
+/// Anchored to the vendored schema by `crates/aitp-manifest/tests/schema.rs`,
+/// which asserts this list equals `properties.manifest.properties`'s keys —
+/// so this cannot silently drift from the spec.
+pub const MANIFEST_MEMBERS: &[&str] = &[
+    "version",
+    "aid",
+    "display_name",
+    "identity_hint",
+    "handshake_endpoint",
+    "accepted_trust_anchors",
+    "offered_capabilities",
+    "required_peer_capabilities",
+    "accepted_identity_types",
+    "accepted_signature_algorithms",
+    "proof_of_possession",
+    "published_at",
+    "expires_at",
+    "extensions",
+    "signature",
+];
 
 /// HTTP-wrapped Manifest as published at `/.well-known/aitp-manifest`.
 ///
@@ -147,6 +204,7 @@ mod tests {
             handshake_endpoint: RawUrl::new("https://a.example.com/handshake"),
             accepted_trust_anchors: vec![RawUrl::new("https://idp.example.com")],
             accepted_identity_types: None,
+            accepted_signature_algorithms: None,
             offered_capabilities: vec!["demo.echo".into()],
             required_peer_capabilities: None,
             proof_of_possession: ManifestPop {
@@ -155,7 +213,7 @@ mod tests {
             },
             published_at: Timestamp(1_711_900_000),
             expires_at: Timestamp(1_711_986_400),
-            extensions: ExtensionsMap::new(),
+            extensions: None,
             signature: "A".repeat(86),
         }
     }
@@ -166,15 +224,17 @@ mod tests {
         let s = serde_json::to_string(&m).unwrap();
         // Optional fields modeled as `Option` round-trip absent
         // → absent. `display_name`, `extensions`,
-        // `accepted_identity_types`, and `required_peer_capabilities`
-        // are all skip-on-none / skip-on-empty, so they're missing
-        // from the wire form when the builder didn't set them.
+        // `accepted_identity_types`, `accepted_signature_algorithms`,
+        // and `required_peer_capabilities` are all skip-on-none /
+        // skip-on-empty, so they're missing from the wire form when
+        // the builder didn't set them.
         // (Preserving the absent-vs-explicit-empty distinction
         // through a serde round-trip is what keeps issuer and
         // verifier signing inputs in sync — see RFC-AITP-0001 §5.4.)
         assert!(!s.contains("\"display_name\":"));
         assert!(!s.contains("\"extensions\":"));
         assert!(!s.contains("\"accepted_identity_types\":"));
+        assert!(!s.contains("\"accepted_signature_algorithms\":"));
         assert!(!s.contains("\"required_peer_capabilities\":"));
         let back: Manifest = serde_json::from_str(&s).unwrap();
         assert_eq!(back, m);
@@ -194,6 +254,24 @@ mod tests {
         assert!(err.to_string().contains("description"), "got: {}", err);
     }
 
+    /// Gap A (issue #140 Phase 3 gap-closing): `accepted_signature_algorithms`
+    /// must round-trip when present, mirroring `accepted_identity_types`'s
+    /// present-case coverage. Before this field was modeled on `Manifest`,
+    /// a manifest carrying it passed the top-level member-set check (it's
+    /// schema-declared) but then failed `serde_json::from_value::<Manifest>`
+    /// (unknown to the struct), which `from_serde_error` relabeled as
+    /// `UnknownField` — a spec-legal field wrongly reported as
+    /// `UNKNOWN_FIELD`.
+    #[test]
+    fn round_trip_accepted_signature_algorithms_present() {
+        let mut m = build_minimal_manifest();
+        m.accepted_signature_algorithms = Some(vec!["ed25519".into()]);
+        let s = serde_json::to_string(&m).unwrap();
+        assert!(s.contains("\"accepted_signature_algorithms\":[\"ed25519\"]"));
+        let back: Manifest = serde_json::from_str(&s).unwrap();
+        assert_eq!(back, m);
+    }
+
     #[test]
     fn round_trip_pinned_key_manifest() {
         let mut m = build_minimal_manifest();
@@ -211,11 +289,34 @@ mod tests {
     #[test]
     fn extensions_when_present_serializes() {
         let mut m = build_minimal_manifest();
-        m.extensions.insert("vendor.example/foo", json!({"x": 1}));
+        let mut ext = ExtensionsMap::new();
+        ext.insert("vendor.example/foo", json!({"x": 1}));
+        m.extensions = Some(ext);
         let s = serde_json::to_string(&m).unwrap();
         assert!(s.contains("vendor.example/foo"));
         let back: Manifest = serde_json::from_str(&s).unwrap();
         assert_eq!(back, m);
+    }
+
+    /// OQ1 regression guard: absent and present-but-empty `extensions`
+    /// MUST NOT collapse onto the same wire bytes. See the doc comment on
+    /// `Manifest::extensions`.
+    #[test]
+    fn extensions_round_trip_absent_vs_empty() {
+        // Absent: no `extensions` key on the wire at all.
+        let absent = build_minimal_manifest();
+        let s = serde_json::to_value(&absent).unwrap();
+        assert!(!s.as_object().unwrap().contains_key("extensions"));
+
+        // Present-but-empty: `"extensions":{}` must appear on the wire.
+        let mut present = build_minimal_manifest();
+        present.extensions = Some(ExtensionsMap::new());
+        let s = serde_json::to_value(&present).unwrap();
+        assert_eq!(s.get("extensions"), Some(&json!({})));
+
+        // And it round-trips back to `Some(empty)`, not `None`.
+        let parsed: Manifest = serde_json::from_value(s).unwrap();
+        assert_eq!(parsed.extensions, Some(ExtensionsMap::new()));
     }
 
     #[test]

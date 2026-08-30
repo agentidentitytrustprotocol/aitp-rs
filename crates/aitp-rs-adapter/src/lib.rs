@@ -1160,9 +1160,15 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
     } else {
         return err(id, "INVALID_ENVELOPE", "missing manifest");
     };
-    let manifest = match serde_json::from_value::<Manifest>(manifest_value) {
+    let manifest = match aitp_manifest::parse_manifest_wire(&manifest_value) {
         Ok(m) => m,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("manifest parse: {e}")),
+        Err(e) => {
+            return err(
+                id,
+                &manifest_error_code(&e),
+                &format!("manifest parse: {e}"),
+            )
+        }
     };
     let now = params
         .get("now")
@@ -1189,6 +1195,15 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         Canonicalization(_) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         Rng(_) => "INTERNAL_ERROR",
+        // RFC-AITP-0001 §7 / issue #140: a top-level or nested member
+        // outside the schema-declared member set, found by
+        // `parse_manifest_wire` before any expiry/PoP/signature check.
+        // Explicit arm so a future variant added to the (non_exhaustive)
+        // `ManifestError` enum without a matching arm here fails loudly
+        // (as INTERNAL_ERROR) rather than THIS variant silently losing
+        // its dedicated code if the match were ever reordered.
+        UnknownField(_) => "UNKNOWN_FIELD",
+        Malformed(_) => "INVALID_ENVELOPE",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -3301,5 +3316,141 @@ mod error_code_mapping_tests {
             manifest_error_code(&ManifestError::AidMismatch),
             "MANIFEST_SIGNATURE_INVALID"
         );
+        // RFC-AITP-0001 §7 / issue #140 (AC5): UnknownField MUST have its
+        // own explicit arm, never fall through the `_ => "INTERNAL_ERROR"`
+        // catch-all. Asserted directly here so the arm cannot be quietly
+        // deleted without a red test, independent of the man-004 fixture.
+        assert_eq!(
+            manifest_error_code(&ManifestError::UnknownField("deployment_region".into())),
+            "UNKNOWN_FIELD"
+        );
+    }
+}
+
+#[cfg(test)]
+mod manifest_unknown_field_tests {
+    //! Adapter-level (not just library-level) coverage for RFC-AITP-0001
+    //! §7 on the Manifest `verify_manifest` op — mirrors the man-004 /
+    //! man-002 conformance fixtures and the member-check-before-signature
+    //! ordering, but drives the actual JSON-RPC `handle` dispatch rather
+    //! than calling `aitp_manifest::parse_manifest_wire` directly, so a
+    //! regression in the adapter's own wiring (not just the library) would
+    //! be caught here too.
+    use super::*;
+    use sha2::Digest;
+
+    fn signed_manifest_value() -> (Value, aitp_crypto::AitpSigningKey) {
+        let key = aitp_crypto::AitpSigningKey::from_seed(&[9u8; 32]);
+        let manifest = ManifestBuilder::new(&key)
+            .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "agent-b".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .offer("demo.echo")
+            .published_at(Timestamp(1_711_900_000))
+            .ttl_secs(86_400)
+            .build()
+            .unwrap();
+        (serde_json::to_value(&manifest).unwrap(), key)
+    }
+
+    /// man-004 shape: an unrecognized sibling member outside `extensions`
+    /// is rejected as UNKNOWN_FIELD via the real `verify_manifest` op.
+    #[test]
+    fn adapter_rejects_unknown_sibling_field() {
+        let (mut manifest, _key) = signed_manifest_value();
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("deployment_region".into(), json!("us-east-1"));
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-004-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Ordering gate via the adapter: an unknown member AND a corrupted
+    /// signature together must still report UNKNOWN_FIELD, proving the
+    /// member-set check the adapter now performs via `parse_manifest_wire`
+    /// runs before the signature is ever checked.
+    #[test]
+    fn adapter_reports_unknown_field_even_with_a_corrupt_signature() {
+        let (mut manifest, _key) = signed_manifest_value();
+        let obj = manifest.as_object_mut().unwrap();
+        obj.insert("deployment_region".into(), json!("us-east-1"));
+        let mut sig = obj.get("signature").unwrap().as_str().unwrap().to_string();
+        let last = sig.pop().unwrap();
+        sig.push(if last == 'A' { 'B' } else { 'A' });
+        obj.insert("signature".into(), json!(sig));
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-ordering",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(
+            out["error_code"],
+            json!("UNKNOWN_FIELD"),
+            "member-set check must precede signature verification"
+        );
+    }
+
+    /// man-002 regression, at the adapter level: an unknown *value* for
+    /// the known `version` member is MANIFEST_VERSION_UNKNOWN, never
+    /// UNKNOWN_FIELD.
+    #[test]
+    fn adapter_reports_version_unknown_not_unknown_field() {
+        let (mut manifest, _key) = signed_manifest_value();
+        manifest["version"] = json!("aitp/9.9");
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-002-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("MANIFEST_VERSION_UNKNOWN"));
+    }
+
+    /// man-005 shape: a vendor-namespaced key inside `extensions` is
+    /// ignored and the manifest still verifies.
+    #[test]
+    fn adapter_accepts_unknown_key_inside_extensions() {
+        let (mut manifest, key) = signed_manifest_value();
+        // Re-sign over a body that includes "extensions" so the outer
+        // signature covers it, mirroring what a real issuer would do.
+        let obj = manifest.as_object_mut().unwrap();
+        obj.insert(
+            "extensions".into(),
+            json!({"com.example.debug_trace": {"build_id": "worker-7"}}),
+        );
+        obj.remove("signature");
+        let canonical = aitp_core::jcs::canonicalize(&manifest).unwrap();
+        let signature = key.sign(&sha2::Sha256::digest(&canonical)).into_string();
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("signature".into(), json!(signature));
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-005-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(true), "got: {out}");
     }
 }

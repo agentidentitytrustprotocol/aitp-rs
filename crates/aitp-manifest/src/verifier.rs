@@ -1,9 +1,9 @@
 //! Manifest verification per RFC-AITP-0003 §5.
 
 use crate::builder::ManifestSigningView;
-use crate::types::{IdentityHintKind, Manifest};
+use crate::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
 use crate::ManifestError;
-use aitp_core::{base64url, jcs, Timestamp};
+use aitp_core::{base64url, check_members, from_serde_error, jcs, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use sha2::{Digest, Sha256};
 
@@ -81,12 +81,13 @@ pub fn verify_manifest(
         handshake_endpoint: &manifest.handshake_endpoint,
         accepted_trust_anchors: &manifest.accepted_trust_anchors,
         accepted_identity_types: manifest.accepted_identity_types.as_deref(),
+        accepted_signature_algorithms: manifest.accepted_signature_algorithms.as_deref(),
         offered_capabilities: &manifest.offered_capabilities,
         required_peer_capabilities: manifest.required_peer_capabilities.as_deref(),
         proof_of_possession: &manifest.proof_of_possession,
         published_at: &manifest.published_at,
         expires_at: &manifest.expires_at,
-        extensions: &manifest.extensions,
+        extensions: manifest.extensions.as_ref(),
     };
     let canonical = jcs::canonicalize_serializable(&view)
         .map_err(|e| ManifestError::Canonicalization(e.to_string()))?;
@@ -133,6 +134,59 @@ pub fn verify_manifest(
     }
 
     Ok(())
+}
+
+/// Parse a raw wire-form JSON value into a [`Manifest`], enforcing
+/// RFC-AITP-0001 §7's member-set check before typed deserialization.
+///
+/// RFC-AITP-0003 §5 makes the member-set check **step 2**, ahead of expiry
+/// (step 3), PoP (step 4), and signature (step 5). Calling this before
+/// [`verify_manifest`] makes that ordering structural: an unknown top-level
+/// member is rejected before the manifest is ever deserialized, let alone
+/// cryptographically checked.
+///
+/// `value` may be either shape:
+/// - the bare inner Manifest body (what the conformance fixtures and the
+///   adapter's `verify_manifest` op supply), or
+/// - the `{"manifest": {...}}` HTTP transport wrapper (RFC-AITP-0003 §6.1,
+///   [`crate::ManifestEnvelope`]) — detected structurally: no valid Manifest
+///   body has a top-level `manifest` key (it is not in [`MANIFEST_MEMBERS`]),
+///   so an object with that key is unambiguously the wrapper shape. When
+///   present, the wrapper's own member set (`["manifest"]`) is checked
+///   first, then the inner body's.
+///
+/// Order of operations:
+/// 1. If wrapped, [`check_members`] the wrapper against `["manifest"]`.
+/// 2. [`check_members`] the (unwrapped) body against [`MANIFEST_MEMBERS`] —
+///    rejects any top-level member the schema does not declare.
+/// 3. `serde_json::from_value` into [`Manifest`].
+/// 4. On a residual serde error (which, now that the top-level check has
+///    already passed, can only come from a nested closed object —
+///    `identity_hint` or `proof_of_possession`), [`from_serde_error`]
+///    recovers the offending field name so the caller still gets
+///    [`ManifestError::UnknownField`] rather than a generic parse failure.
+pub fn parse_manifest_wire(value: &serde_json::Value) -> Result<Manifest, ManifestError> {
+    const WRAPPER_MEMBERS: &[&str] = &["manifest"];
+
+    let body = match value.as_object() {
+        Some(obj) if obj.contains_key("manifest") => {
+            check_members("ManifestEnvelope", value, WRAPPER_MEMBERS)
+                .map_err(|e| ManifestError::UnknownField(e.field))?;
+            obj.get("manifest").expect("checked contains_key above")
+        }
+        _ => value,
+    };
+
+    check_members("Manifest", body, MANIFEST_MEMBERS)
+        .map_err(|e| ManifestError::UnknownField(e.field))?;
+
+    serde_json::from_value(body.clone()).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            ManifestError::UnknownField(field)
+        } else {
+            ManifestError::Malformed(e.to_string())
+        }
+    })
 }
 
 /// Check that `peer_manifest.accepted_identity_types` includes

@@ -392,6 +392,7 @@ pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
 pub fn revocation_list_uri_from_manifest(manifest: &aitp_manifest::Manifest) -> Option<url::Url> {
     manifest
         .extensions
+        .as_ref()?
         .get(REVOCATION_LIST_URI_EXT)
         .and_then(|v| v.as_str())
         .and_then(|s| url::Url::parse(s).ok())
