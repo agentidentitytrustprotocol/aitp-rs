@@ -274,4 +274,20 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   CI watches across the plan. Logged to `ASSUMPTIONS.md` as the one place this run
   diverges from a verifier's per-phase call.
 - Not pushed. Nothing outside `tests/schemas/` touched.
-- Next: Phase 1 (`aitp-core` primitives).
+
+### Phase 1 — `aitp-core` primitives · PASS · 2026-08-30
+- Commit `407daec`. Verifier (Opus): **PASS**, 1 round. Independently re-ran
+  `cargo test -p aitp-core` (52+3+3+3+1 pass), `cargo clippy -p aitp-core
+  --all-targets -D warnings` (clean), `cargo test --workspace` (green),
+  confirmed the diff touches only `crates/aitp-core/` and every AC has a
+  real, non-weak test (including the two `from_serde_error` negatives).
+  Verifier's one note (misleading comment on the row-count guard's actual
+  failure mode when both the row and the hardcoded count are forgotten
+  together) fixed inline, same commit — not a full gap round, since the
+  real protection (exhaustive match, no `_` arm) was already sound and the
+  fix was comment-only.
+- `ErrorCode::UnknownField` added beside `UnknownVersion`; new
+  `crates/aitp-core/src/unknown_field.rs` (`check_members`,
+  `from_serde_error`); re-exported from `lib.rs`.
+- No behavior change yet — conformance tally unchanged, 55/7/2 of 64.
+- Next: Phase 2 (envelope `extensions` slot + member-set check).
