@@ -46,4 +46,17 @@ pub enum SessionBundleError {
     /// Crypto error (e.g. malformed AID-derived key).
     #[error(transparent)]
     Crypto(#[from] aitp_crypto::CryptoError),
+    /// The wire form was structurally invalid before any cryptographic
+    /// check could run: the `{"session_bundle": …}` transport wrapper
+    /// carried a member besides `session_bundle` (the pre-erratum shape
+    /// where `signature` sat as a SIBLING of the wrapper), or the inner
+    /// body did not deserialize as a `SessionTrustBundle`.
+    ///
+    /// RFC-AITP-0010 §3 fixes `signature` as a member of the signed body,
+    /// never a sibling of the wrapper, precisely because a bundle is
+    /// redistributable and must carry its own proof across any hop that
+    /// strips the transport wrapper (RFC-AITP-0001 §5.4.1). Maps to
+    /// `SESSION_BUNDLE_INVALID`.
+    #[error("session bundle wire form is invalid: {0}")]
+    WireFormInvalid(String),
 }

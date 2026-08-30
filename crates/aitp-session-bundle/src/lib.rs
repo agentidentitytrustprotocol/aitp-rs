@@ -29,11 +29,13 @@ pub mod builder;
 pub mod error;
 pub mod types;
 pub mod verifier;
+pub mod wire;
 
 pub use builder::{SessionBundleBuilder, DEFAULT_BUNDLE_VERSION};
 pub use error::SessionBundleError;
 pub use types::{ParticipantEntry, SessionBundleEnvelope, SessionTrustBundle};
 pub use verifier::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+pub use wire::parse_session_bundle_wire;
 
 /// Manifest `extensions` key under which a coordinator advertises the
 /// concrete HTTPS URL of its session-bundle endpoint (RFC-AITP-0010

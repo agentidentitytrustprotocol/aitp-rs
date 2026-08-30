@@ -189,6 +189,16 @@ pub enum ErrorCode {
     /// Aggregate fallback — implementations MAY return this when a
     /// deployment policy requires a single-error surface for bundles,
     /// in lieu of the specific BUNDLE_* codes above.
+    ///
+    /// Also the mandatory code for a structurally invalid wire form,
+    /// ahead of any of the specific `BUNDLE_*` checks: e.g. the
+    /// `{"session_bundle": …}` transport wrapper carrying an
+    /// unexpected sibling member (notably the pre-erratum shape where
+    /// `signature` sat beside the wrapper instead of inside the signed
+    /// body — RFC-AITP-0010 §3, fixture
+    /// `bundle-004-signature-sibling-rejected`), or an inner body that
+    /// fails to deserialize as a bundle at all. These cases have no
+    /// bundle to run the specific `BUNDLE_*` checks against.
     SessionBundleInvalid,
 }
 

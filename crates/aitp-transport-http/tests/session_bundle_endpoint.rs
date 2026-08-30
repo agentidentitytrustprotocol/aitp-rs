@@ -106,6 +106,48 @@ async fn malformed_bundle_body_is_rejected() {
     assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
 }
 
+/// Regression for `bundle-004-signature-sibling-rejected`: `signature` as
+/// a SIBLING of the `{"session_bundle": …}` wrapper — the pre-erratum
+/// shape RFC-AITP-0010 §3 now forbids — must be rejected with HTTP 400
+/// and must NOT be stored. `SessionBundleEnvelope` is
+/// `#[serde(deny_unknown_fields)]` with a single `session_bundle` member,
+/// so `store_bundle`'s direct `serde_json::from_slice::<SessionBundleEnvelope>`
+/// already does this rejection for free — this test pins that it keeps
+/// doing so.
+#[tokio::test]
+async fn sibling_signature_shape_is_rejected_and_not_stored() {
+    let envelope = sample_bundle(Uuid::new_v4());
+    let mut wire = serde_json::to_value(&envelope).unwrap();
+    let inner = wire.get_mut("session_bundle").unwrap();
+    let signature = inner
+        .as_object_mut()
+        .unwrap()
+        .remove("signature")
+        .expect("sample bundle carries a signature");
+    wire.as_object_mut()
+        .unwrap()
+        .insert("signature".to_string(), signature);
+
+    let server = SessionBundleServer::new();
+    let router = server.clone().router();
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/aitp/session/bundle")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&wire).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    assert!(
+        server.is_empty(),
+        "sibling-shaped bundle must not be stored"
+    );
+}
+
 /// A **genuinely signed** bundle survives the store/fetch round trip and
 /// still verifies — and its signature is over the inner body, not the
 /// `{"session_bundle": …}` transport wrapper.
