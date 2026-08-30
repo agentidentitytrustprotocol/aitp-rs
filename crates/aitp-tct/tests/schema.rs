@@ -7,7 +7,8 @@
 use aitp_core::{ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{
-    sign_revocation_list, RevocationEntry, RevocationList, TctBuilder, REVOCATION_LIST_MEMBERS,
+    sign_revocation_list, RevocationEntry, RevocationList, TctBuilder,
+    GRANT_VOUCHER_CLAIMS_MEMBERS, REVOCATION_LIST_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
 use boon::{Compiler, Schemas};
 use std::collections::BTreeSet;
@@ -209,5 +210,64 @@ fn revocation_list_members_matches_vendored_schema_properties() {
         "REVOCATION_LIST_MEMBERS has drifted from \
          tests/schemas/aitp-revocation-list.schema.json's \
          `properties.revocation_list.properties` keys"
+    );
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `TCT_CLAIMS_MEMBERS`, the member set
+/// `verify_tct`'s member-set check enforces, must equal the vendored
+/// `aitp-tct.schema.json`'s declared member set. Unlike the JCS-profile
+/// schemas (Manifest, revocation list), this compact-JWS-profile schema
+/// validates the decoded claims object directly, so its `properties` sit
+/// at the top level — no `properties.<wrapper>.properties` nesting.
+#[test]
+fn tct_claims_members_matches_vendored_schema_properties() {
+    let path = schema_path_for("aitp-tct.schema.json");
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("read vendored TCT schema"))
+            .expect("parse vendored TCT schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]
+        .as_object()
+        .expect("schema has a top-level `properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = TCT_CLAIMS_MEMBERS.iter().map(|s| s.to_string()).collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "TCT_CLAIMS_MEMBERS has drifted from \
+         tests/schemas/aitp-tct.schema.json's top-level `properties` keys"
+    );
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `GRANT_VOUCHER_CLAIMS_MEMBERS`, the
+/// member set `verify_voucher`'s member-set check enforces, must equal the
+/// vendored `aitp-grant-voucher.schema.json`'s declared member set (also a
+/// flat, top-level `properties` shape).
+#[test]
+fn grant_voucher_claims_members_matches_vendored_schema_properties() {
+    let path = schema_path_for("aitp-grant-voucher.schema.json");
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("read vendored grant-voucher schema"))
+            .expect("parse vendored grant-voucher schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]
+        .as_object()
+        .expect("schema has a top-level `properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = GRANT_VOUCHER_CLAIMS_MEMBERS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "GRANT_VOUCHER_CLAIMS_MEMBERS has drifted from \
+         tests/schemas/aitp-grant-voucher.schema.json's top-level `properties` keys"
     );
 }

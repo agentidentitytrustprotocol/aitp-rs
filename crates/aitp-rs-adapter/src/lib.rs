@@ -3197,7 +3197,10 @@ mod error_code_mapping_tests {
     //! reports the wrong code on every negative fixture, so the
     //! non-obvious mappings (and the nested handshake→tct/manifest
     //! dispatch) are pinned here.
-    use super::{delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code};
+    use super::{
+        delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code,
+        voucher_error_code,
+    };
     use aitp_delegation::DelegationError;
     use aitp_handshake::HandshakeError;
     use aitp_manifest::ManifestError;
@@ -3269,6 +3272,24 @@ mod error_code_mapping_tests {
         );
     }
 
+    /// RFC-AITP-0001 §7 / issue #140 Phase 6a (AC6): `voucher_error_code`
+    /// has no explicit `UnknownField` arm of its own — it MUST fall
+    /// through its `other => tct_error_code(other)` arm to reach
+    /// `tct_error_code`'s explicit `UnknownField(_) => "UNKNOWN_FIELD"`
+    /// arm. Pinned directly (not only via the vch/tct fixtures) so a
+    /// future edit that adds an `UnknownField` case to
+    /// `voucher_error_code`'s bundled
+    /// `EmptyGrants | ClaimsMalformed(_) | MissingField(_)` arm — which
+    /// would silently capture it before the fall-through — turns this
+    /// test red.
+    #[test]
+    fn voucher_error_code_falls_through_to_tct_unknown_field() {
+        assert_eq!(
+            voucher_error_code(&TctError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
+    }
+
     #[test]
     fn delegation_codes() {
         assert_eq!(
@@ -3332,6 +3353,29 @@ mod error_code_mapping_tests {
                 aitp_crypto::CryptoError::SignatureInvalid
             )),
             "TCT_SIGNATURE_INVALID"
+        );
+        // Regression (issue #140 Phase 6a, AC7): the protected JWS
+        // header's own strictness (RFC-AITP-0001 §5.4.5, `deny_unknown_fields`
+        // on `alg`+`typ`) is orthogonal to the new claim-set check and MUST
+        // NOT be relabeled UNKNOWN_FIELD — `voucher_error_code` keeps the
+        // same token-generic codes as `tct_error_code` for header failures.
+        assert_eq!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::AlgMismatch(
+                "none".into()
+            ))),
+            "TOKEN_ALG_MISMATCH"
+        );
+        assert_eq!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::JwsMalformed(
+                "protected header: unknown field `kid`".into()
+            ))),
+            "INVALID_ENVELOPE"
+        );
+        assert_ne!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::JwsMalformed(
+                "protected header: unknown field `kid`".into()
+            ))),
+            "UNKNOWN_FIELD"
         );
     }
 

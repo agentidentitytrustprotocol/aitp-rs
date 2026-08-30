@@ -24,9 +24,9 @@
 //! - `exp = min(now + ttl, manifest.expires_at)` — same bound as the
 //!   original handshake (RFC-AITP-0004 §4.3).
 
-use crate::types::{IssuedTct, TctRenewalPayload};
+use crate::types::{IssuedTct, TctRenewalPayload, TCT_CLAIMS_MEMBERS};
 use crate::{verify_tct, TctBuilder, TctError, TctVerifyContext};
-use aitp_core::{base64url, Timestamp};
+use aitp_core::{base64url, check_members, from_serde_error, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -82,11 +82,31 @@ pub fn process_renewal_request(
     // check here pins aud to the holder the PoP will prove.
     let issuer_aid = issuer_key.aid();
     // Decode unverified only to learn which holder this claims to be
-    // for; every field is re-checked by verify_tct + PoP below.
+    // for; every field is re-checked by verify_tct + PoP below. The
+    // claim-set check applies here too (RFC-AITP-0005 §7.2's strict-parse
+    // step is unconditional on verification state) so an unknown claim on
+    // a still-unverified token is rejected before it is used for anything,
+    // including this audience peek. Gated on the peeked `typ` matching,
+    // same as `verify_tct` / `verify_voucher` (tct-010's ordering:
+    // typ-confusion is diagnosed by `verify_tct`'s own authoritative
+    // check below, not misreported as an unrelated unknown claim here).
     let peek = aitp_crypto::jws::decode_payload_unverified(&request.current_tct)
         .map_err(TctError::Crypto)?;
-    let peek_claims: crate::types::TctClaims =
+    let peek_value: serde_json::Value =
         serde_json::from_slice(&peek).map_err(|e| TctError::ClaimsMalformed(e.to_string()))?;
+    if crate::verifier::peek_header_typ(&request.current_tct).as_deref()
+        == Some(aitp_crypto::jws::TYP_TCT)
+    {
+        check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
+            .map_err(|e| TctError::UnknownField(e.field))?;
+    }
+    let peek_claims: crate::types::TctClaims = serde_json::from_value(peek_value).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            TctError::UnknownField(field)
+        } else {
+            TctError::ClaimsMalformed(e.to_string())
+        }
+    })?;
 
     // Renewal re-verifies the current TCT before minting a fresh one;
     // revocation and the Manifest cap are handled by the issuing peer's

@@ -36,7 +36,10 @@ pub use revocation::{
 };
 #[cfg(feature = "experimental-renewal")]
 pub use types::TctRenewalPayload;
-pub use types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct};
+pub use types::{
+    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS,
+    TCT_CLAIMS_MEMBERS,
+};
 pub use verifier::{
     verify_tct, verify_voucher, TctVerifyContext, TctVerifyContextBuilder, TctVerifyContextError,
 };

@@ -65,6 +65,59 @@
   above — the KATs are the load-bearing gate and are untouched.
 - **Status:** UNCONFIRMED
 
+## Phase 6a's claim-registry check runs after `typ` enforcement, not before
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 6a)
+- **Assumed:** the plan's Approach text ("RFC-AITP-0005 §7.2 folds the
+  claim-set check into step 1 — before `typ` enforcement, before
+  AID-pinned `alg`, before signature") was an imprecise paraphrase, not
+  the RFC's actual guarantee.
+- **Chose:** gate the member-set check on `typ` enforcement passing
+  FIRST — i.e. `typ` check, then claim-registry check, then `alg`
+  pin/signature. Verified against RFC-AITP-0005 §7.2 itself at the
+  pinned spec commit: the "before any cryptographic step" language
+  scopes to steps 3-4 (alg pin, signature), not step 2 (`typ`). Fixture
+  `tct-010` is the normative tiebreaker: a grant voucher presented where
+  a TCT is expected must report `TOKEN_TYP_MISMATCH` even though its
+  claims (e.g. `src_jti`) aren't TCT-registry members — a TCT claim
+  registry is meaningless against an artifact that isn't a TCT in the
+  first place. `tct-010` was already passing before this phase; a
+  literal step-1-first implementation would have regressed it.
+- **Alternatives:** implementing the plan's literal paraphrase
+  (member-set check strictly first) — rejected because it fails
+  `tct-010`, a fixture already in the corpus.
+- **Blast radius if wrong:** low and immediately visible — `tct-010` is
+  a real conformance fixture in CI; getting the order wrong fails a
+  currently-green check, it doesn't ship silently.
+- **Status:** UNCONFIRMED
+
+## Session-bundle HTTP endpoint now also accepts an unwrapped body
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 5)
+- **Assumed:** routing `session_bundle_server.rs`'s POST handler through
+  the shared `parse_session_bundle_wire` (this phase's approach for
+  every artifact) is fine even though that function has always accepted
+  a bare, unwrapped body as an alternative to `{"session_bundle": {...}}`
+  — the endpoint previously only accepted the wrapped shape (a bare
+  `serde_json::from_slice::<SessionBundleEnvelope>`), so this is a small
+  widening of the live network contract.
+- **Chose:** accept the widening rather than adding a wrapper-required
+  check at this one call site (the way Phase 3 did for the manifest's
+  `/.well-known` fetcher), because: (1) unlike the manifest case, no RFC
+  clause was found mandating the wrapper specifically at this HTTP
+  endpoint; (2) the bare-body path is pre-existing, deliberate library
+  behavior (documented in the adapter as serving "legacy internal
+  callers" since before this phase); (3) `signature` is a member of the
+  bundle body itself, not the wrapper, in both shapes — so accepting a
+  bare body does not accept an unsigned or less-verified bundle, only a
+  differently-shaped one that still goes through full cryptographic
+  verification.
+- **Alternatives:** requiring the wrapper at this endpoint specifically,
+  mirroring Phase 3's manifest-fetcher fix — rejected for now for lack of
+  a normative citation; worth revisiting if RFC-AITP-0010 turns out to
+  require it.
+- **Blast radius if wrong:** low — no cryptographic or trust-boundary
+  weakening either way, only an acceptance-shape question.
+- **Status:** UNCONFIRMED
+
 ## Manifest `Some(empty extensions)` has no cross-impl witness
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 3)
 - **Assumed:** running `aitp-verifier-py`'s xcheck locally (it passed) is
