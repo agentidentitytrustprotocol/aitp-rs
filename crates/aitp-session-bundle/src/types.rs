@@ -4,6 +4,30 @@ use aitp_core::{Aid, ExtensionsMap, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
+/// Full set of top-level members `aitp-session-bundle.schema.json`
+/// declares for the inner `session_bundle` object, including the
+/// `extensions` namespace key itself. Used by
+/// [`crate::wire::parse_session_bundle_wire`]'s body-level member-set
+/// check (RFC-AITP-0001 §7, RFC-AITP-0010 §5) — a violation here is
+/// [`crate::error::SessionBundleError::UnknownField`], distinct from a
+/// wrapper-level defect (RFC-AITP-0010 §3), which is
+/// [`crate::error::SessionBundleError::WireFormInvalid`] instead.
+///
+/// Anchored to the vendored schema by
+/// `crates/aitp-session-bundle/tests/schema.rs`, which asserts this list
+/// equals `properties.session_bundle.properties`'s keys — so this cannot
+/// silently drift from the spec.
+pub const SESSION_BUNDLE_MEMBERS: &[&str] = &[
+    "version",
+    "session_id",
+    "coordinator",
+    "issued_at",
+    "expires_at",
+    "participants",
+    "extensions",
+    "signature",
+];
+
 /// Coordinator-attested session membership artifact (RFC-AITP-0010 §3).
 ///
 /// The schema is `additionalProperties: false`, with an explicit

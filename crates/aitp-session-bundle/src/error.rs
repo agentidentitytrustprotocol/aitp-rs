@@ -59,4 +59,21 @@ pub enum SessionBundleError {
     /// `SESSION_BUNDLE_INVALID`.
     #[error("session bundle wire form is invalid: {0}")]
     WireFormInvalid(String),
+    /// A member outside the schema-declared member set was found on a
+    /// closed object — the wrapper's shape was fine, but the object
+    /// itself (the inner `session_bundle` body, or a nested closed
+    /// object such as a `participants[]` entry) carries a field the
+    /// schema does not define and which is not inside `extensions`.
+    ///
+    /// Distinct from [`SessionBundleError::WireFormInvalid`]: that
+    /// variant is for the wrapper-level defect where `signature` sits
+    /// beside `{"session_bundle": …}` instead of inside it
+    /// (RFC-AITP-0010 §3). This variant is the RFC-AITP-0001 §7 /
+    /// RFC-AITP-0010 §5 body-level check — checked ahead of any
+    /// cryptographic work, including the coordinator key resolution used
+    /// to verify the outer signature — and maps to the **core**
+    /// `UNKNOWN_FIELD` code rather than a `BUNDLE_*` draft code, even
+    /// though the session bundle artifact itself is draft.
+    #[error("unknown field: {0}")]
+    UnknownField(String),
 }

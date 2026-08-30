@@ -148,6 +148,53 @@ async fn sibling_signature_shape_is_rejected_and_not_stored() {
     );
 }
 
+/// `bundle-006-unknown-field-rejected`'s shape over HTTP: an unknown
+/// member of the INNER body (not a wrapper sibling, not inside
+/// `extensions`) must be reported as the `UNKNOWN_FIELD` class, not a
+/// bare "malformed session bundle" 400 — `store_bundle` now routes
+/// through `parse_session_bundle_wire`, the same wire-form discipline
+/// the conformance adapter has always applied.
+#[tokio::test]
+async fn unknown_body_member_is_reported_as_unknown_field_and_not_stored() {
+    let envelope = sample_bundle(Uuid::new_v4());
+    let mut wire = serde_json::to_value(&envelope).unwrap();
+    wire.get_mut("session_bundle")
+        .unwrap()
+        .as_object_mut()
+        .unwrap()
+        .insert(
+            "coordinator_note".to_string(),
+            serde_json::json!("primary-region"),
+        );
+
+    let server = SessionBundleServer::new();
+    let router = server.clone().router();
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/aitp/session/bundle")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_vec(&wire).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        text.contains("UNKNOWN_FIELD"),
+        "expected the UNKNOWN_FIELD class in the response body, got: {text}"
+    );
+    assert!(
+        server.is_empty(),
+        "a bundle with an unknown body member must not be stored"
+    );
+}
+
 /// A **genuinely signed** bundle survives the store/fetch round trip and
 /// still verifies — and its signature is over the inner body, not the
 /// `{"session_bundle": …}` transport wrapper.

@@ -437,4 +437,29 @@ mod session_bundle_wire_shape {
         );
         assert_err(&resp, "v", "SESSION_BUNDLE_INVALID");
     }
+
+    /// `bundle-006-unknown-field-rejected`'s shape: an unknown member of
+    /// the INNER body (not a wrapper sibling, not inside `extensions`)
+    /// is the body-level `UNKNOWN_FIELD` class, distinct from the
+    /// wrapper-level `SESSION_BUNDLE_INVALID` case above.
+    #[test]
+    fn unknown_body_member_yields_unknown_field() {
+        let mut state = AdapterState::default();
+        let mut body = issue_bundle(&mut state);
+        body.as_object_mut()
+            .unwrap()
+            .insert("coordinator_note".into(), json!("primary-region"));
+
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_session_bundle",
+            json!({
+                "session_bundle": { "session_bundle": body },
+                "verifier_aid": participant().aid().to_string(),
+                "now": NOW + 100,
+            }),
+        );
+        assert_err(&resp, "v", "UNKNOWN_FIELD");
+    }
 }

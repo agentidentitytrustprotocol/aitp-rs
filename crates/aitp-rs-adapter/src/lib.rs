@@ -2980,10 +2980,12 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     // `signature` is a member of the inner body (spec commit 45b5ef978e13
     // corrected the schema and all `bundle-*` fixtures to this shape).
     // `parse_session_bundle_wire` unwraps the transport envelope and
-    // rejects — via `SessionBundleEnvelope`'s `deny_unknown_fields` — any
-    // sibling member beside `session_bundle`, notably the pre-erratum
-    // shape where `signature` sat OUTSIDE the wrapped body
-    // (`bundle-004-signature-sibling-rejected`). Accept either:
+    // rejects any sibling member beside `session_bundle` as
+    // `WireFormInvalid` — notably the pre-erratum shape where `signature`
+    // sat OUTSIDE the wrapped body (`bundle-004-signature-sibling-rejected`).
+    // An unknown member of the inner body itself is a separate class,
+    // `UnknownField` (RFC-AITP-0001 §7, `bundle-006-unknown-field-rejected`).
+    // Accept either:
     //
     // - `params.session_bundle = {<body with signature inside>}`
     //   (legacy internal callers, no envelope)
@@ -3102,6 +3104,7 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
         Crypto(_) => "INVALID_SIGNATURE",
         WireFormInvalid(_) => "SESSION_BUNDLE_INVALID",
+        UnknownField(_) => "UNKNOWN_FIELD",
     }
     .to_string()
 }

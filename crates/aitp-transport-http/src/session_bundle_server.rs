@@ -19,7 +19,7 @@
 //! do not find that key MUST NOT probe these paths (§4.3.1 — the
 //! absence of the extension key is the discovery signal).
 
-use aitp_session_bundle::SessionBundleEnvelope;
+use aitp_session_bundle::{parse_session_bundle_wire, SessionBundleEnvelope, SessionBundleError};
 use axum::{
     body::to_bytes,
     extract::{Path, Request, State},
@@ -108,8 +108,8 @@ async fn store_bundle(State(store): State<BundleStore>, request: Request) -> Res
                 .into_response()
         }
     };
-    let envelope: SessionBundleEnvelope = match serde_json::from_slice(&body) {
-        Ok(e) => e,
+    let wire_value: serde_json::Value = match serde_json::from_slice(&body) {
+        Ok(v) => v,
         Err(e) => {
             return (
                 StatusCode::BAD_REQUEST,
@@ -118,7 +118,35 @@ async fn store_bundle(State(store): State<BundleStore>, request: Request) -> Res
                 .into_response()
         }
     };
-    let session_id = envelope.session_bundle.session_id;
+    // Route through the same `parse_session_bundle_wire` discipline the
+    // conformance adapter uses, so the live HTTP ingest also tells apart
+    // the wrapper-level `SESSION_BUNDLE_INVALID` class (RFC-AITP-0010 §3
+    // — e.g. `signature` sitting beside the wrapper) from the body-level
+    // `UNKNOWN_FIELD` class (RFC-AITP-0001 §7 / RFC-AITP-0010 §5 — an
+    // unrecognized member of the signed body). Before this, both classes
+    // fell out of a bare `serde_json::from_slice` as an undifferentiated
+    // "malformed" 400.
+    let bundle = match parse_session_bundle_wire(&wire_value) {
+        Ok(b) => b,
+        Err(SessionBundleError::UnknownField(field)) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("UNKNOWN_FIELD: unknown field `{field}` in session bundle"),
+            )
+                .into_response()
+        }
+        Err(e) => {
+            return (
+                StatusCode::BAD_REQUEST,
+                format!("SESSION_BUNDLE_INVALID: {e}"),
+            )
+                .into_response()
+        }
+    };
+    let session_id = bundle.session_id;
+    let envelope = SessionBundleEnvelope {
+        session_bundle: bundle,
+    };
     store.lock().insert(session_id, envelope);
     debug!(%session_id, "session bundle stored");
     Json(serde_json::json!({ "session_id": session_id })).into_response()
