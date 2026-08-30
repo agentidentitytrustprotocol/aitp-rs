@@ -1,5 +1,6 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
-        deny audit msrv semver coverage schemas-check ci
+        deny audit msrv semver coverage schemas-check ci \
+        check-versions sync-versions
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -68,6 +69,15 @@ semver:
 # hand-edit drifting one crate out of the shared version. CI runs this too.
 check-versions:
 	./scripts/check-versions.sh
+
+# Rewrite both bindings' manifests (Cargo.toml, package.json, pyproject.toml,
+# and each's Cargo.lock path-package pins) to the current workspace version.
+# The writer counterpart to `check-versions` above — run this, then
+# `check-versions` should pass. release-plz.yml runs this automatically
+# against its own release PR branch; use it locally after a manual version
+# bump or if `check-versions` fails on binding drift.
+sync-versions:
+	./scripts/sync-binding-versions.sh
 
 # Mirrors the ci.yml coverage job: same exclude list (kept in sync with
 # the COVERAGE_EXCLUDE_CRATES env there) and the explicit adapter build
