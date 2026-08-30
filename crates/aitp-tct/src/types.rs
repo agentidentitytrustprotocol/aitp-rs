@@ -60,6 +60,22 @@ pub struct TctClaims {
     pub ext: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+/// Full set of top-level members `aitp-tct.schema.json` declares,
+/// including the `ext` namespace key itself. Used by [`crate::verify_tct`]'s
+/// member-set check (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2) on the decoded
+/// JWS payload, applied after `typ` enforcement (RFC-AITP-0005 §7.2 step
+/// 2 — a `typ` mismatch means this claim registry doesn't even apply, see
+/// fixture `tct-010`) but before AID-pinned `alg` checking and signature
+/// verification — the RFC's "before any cryptographic step" guarantee
+/// scopes to steps 3-4, not step 2.
+///
+/// Anchored to the vendored schema by `crates/aitp-tct/tests/schema.rs`,
+/// which asserts this list equals the schema's top-level `properties`
+/// keys — so this cannot silently drift from the spec.
+pub const TCT_CLAIMS_MEMBERS: &[&str] = &[
+    "ver", "jti", "iss", "sub", "aud", "iat", "exp", "grants", "cnf", "ext",
+];
+
 /// Decoded claims of a grant voucher (RFC-AITP-0005 §8).
 ///
 /// Minted by the TCT issuer at TCT issuance time, alongside the TCT.
@@ -91,6 +107,22 @@ pub struct GrantVoucherClaims {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ext: Option<serde_json::Map<String, serde_json::Value>>,
 }
+
+/// Full set of top-level members `aitp-grant-voucher.schema.json` declares,
+/// including the `ext` namespace key itself. Used by [`crate::verify_voucher`]'s
+/// member-set check (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2) on the decoded
+/// JWS payload, applied after `typ` enforcement (RFC-AITP-0005 §7.2 step
+/// 2 — a `typ` mismatch means this claim registry doesn't even apply, see
+/// fixture `tct-010`) but before AID-pinned `alg` checking and signature
+/// verification — the RFC's "before any cryptographic step" guarantee
+/// scopes to steps 3-4, not step 2.
+///
+/// Anchored to the vendored schema by `crates/aitp-tct/tests/schema.rs`,
+/// which asserts this list equals the schema's top-level `properties`
+/// keys — so this cannot silently drift from the spec.
+pub const GRANT_VOUCHER_CLAIMS_MEMBERS: &[&str] = &[
+    "ver", "iss", "sub", "grants", "iat", "exp", "src_jti", "ext",
+];
 
 /// A freshly issued TCT: the signed compact string, its decoded claims,
 /// and the companion grant voucher (unless issuance policy declined to

@@ -83,6 +83,7 @@ fn envelope_with(
             agent_id: sender.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: sig.into_string(),
     }
 }

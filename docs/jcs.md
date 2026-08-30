@@ -167,9 +167,18 @@ them in `--release`.
 JCS canonicalizes the JSON it's given. It doesn't define what JSON to feed
 it. These are responsibilities of the protocol layer:
 
-**Consistent serialization.** Always serialize empty `extensions` as either
-omitted or `{}` — pick one. We pick: omit. Every protocol crate uses
-`#[serde(default, skip_serializing_if = "ExtensionsMap::is_empty")]`.
+**Presence-sensitive serialization.** Absent and present-but-empty
+`extensions` MUST NOT collapse onto the same wire shape or the two round
+trips would canonicalize to different bytes for the same logical value —
+or worse, silently normalize one into the other and invalidate a
+signature. Every `extensions` field across the protocol crates
+(`AitpEnvelope`, `Manifest`, `RevocationList`, `SessionTrustBundle`, and
+the four handshake payloads) is therefore modeled as `Option<ExtensionsMap>`
+with
+`#[serde(default, skip_serializing_if = "Option::is_none")]`: `None` omits
+the key entirely, `Some(ExtensionsMap::new())` serializes as
+`"extensions":{}`, and deserialization preserves the distinction rather
+than folding both into one Rust value (RFC-AITP-0001 §7).
 
 **No floats in protocol fields.** Timestamps are `i64`. UUIDs are strings.
 We never let a protocol field round-trip through `f64`.

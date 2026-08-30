@@ -22,8 +22,10 @@ itself issued, and a participant still verifies every embedded TCT.
 ## Wire format (RFC-AITP-0010 §3)
 
 Transport-wrapped as `{"session_bundle": { … }}` (`SessionBundleEnvelope`). The
-inner `SessionTrustBundle` (`additionalProperties: false`, no `extensions` slot
-yet). The bundle itself is a **JCS-profile** object (its outer `signature` is
+inner `SessionTrustBundle` (`additionalProperties: false`, with an
+`extensions` slot per RFC-AITP-0001 §7 — `Option<ExtensionsMap>`,
+presence-sensitive so absent and `{}` stay distinguishable). The bundle
+itself is a **JCS-profile** object (its outer `signature` is
 computed over the JCS canonicalization minus `signature`), but each embedded
 participant TCT is now an **opaque compact JWS string** (RFC-AITP-0001 §5.4.5)
 — carried verbatim and covered by the outer signature as a plain string:
@@ -81,7 +83,10 @@ peer — without any additional handshake.
   bogus roster, but cannot forge TCTs for agents it never issued to (each TCT
   is still independently verified). Participants who require mutual trust with a
   *specific* peer should still handshake directly.
-- **No `extensions` slot** — the bundle schema is closed.
+- **An unknown top-level member is rejected** (`UNKNOWN_FIELD`, distinct from
+  the wrapper-shape `SESSION_BUNDLE_INVALID` failure) — the bundle body's
+  member set is otherwise closed; only `extensions`'s own contents are
+  open.
 - Draft: gated behind a feature, excluded from the v0.2 conformance gate
   (fixtures `bundle-*` pass only under the opt-in feature).
 

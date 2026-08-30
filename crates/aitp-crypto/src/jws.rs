@@ -161,6 +161,32 @@ pub fn decode_payload_unverified(token: &str) -> Result<Vec<u8>, CryptoError> {
         .map_err(|e| CryptoError::JwsMalformed(format!("payload segment: {e}")))
 }
 
+/// Best-effort, **unverified** peek at a compact JWS's protected header
+/// `typ` member — no signature, no `alg` check, not even confirmation
+/// the header is a well-formed two-member object.
+///
+/// Shared by every artifact crate (`aitp-tct`'s TCT/voucher verifiers,
+/// `aitp-delegation`'s token verifier) to gate a pre-signature,
+/// unverified claim-set peek: a type-confused token (e.g. a grant
+/// voucher presented where a TCT is expected, or a TCT presented where a
+/// delegation token is expected) must be diagnosed by the authoritative
+/// `typ` enforcement in [`verify_compact`] as [`CryptoError::TypMismatch`],
+/// never misreported as an unrelated artifact's differently-shaped claims
+/// being an unknown field. Returns `None` on any decode/parse failure or
+/// a missing/non-string `typ` — callers must treat `None` the same as "no
+/// opinion" and let the full, verified path make the final call either
+/// way; this function's opinion is never trusted for anything but that
+/// gate.
+pub fn peek_typ(token: &str) -> Option<String> {
+    let header_b64 = token.split('.').next()?;
+    let header_bytes = base64url::decode_strict(header_b64).ok()?;
+    let header_value: serde_json::Value = serde_json::from_slice(&header_bytes).ok()?;
+    header_value
+        .get("typ")
+        .and_then(|v| v.as_str())
+        .map(str::to_string)
+}
+
 /// Exactly three non-empty `.`-separated segments (no unsecured JWS, no
 /// detached payload, no JSON serialization).
 fn split_strict(token: &str) -> Result<(&str, &str, &str), CryptoError> {

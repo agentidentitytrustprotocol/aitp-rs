@@ -9,8 +9,11 @@
 
 use aitp_core::ExtensionsMap;
 use aitp_crypto::AitpSigningKey;
-use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+use aitp_manifest::{
+    IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope, MANIFEST_MEMBERS,
+};
 use boon::{Compiler, Schemas};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 
 fn schema_path() -> PathBuf {
@@ -95,9 +98,9 @@ fn minimal_manifest_validates_against_spec_schema() {
         .offer("demo.echo")
         .build()
         .unwrap();
-    // Belt-and-braces: clear extensions to confirm the empty-map path
+    // Belt-and-braces: clear extensions to confirm the absent path
     // also validates (it should be skipped from serialization entirely).
-    m.extensions = ExtensionsMap::new();
+    m.extensions = None;
     let env = ManifestEnvelope { manifest: m };
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate(&value) {
@@ -122,5 +125,60 @@ fn manifest_with_legacy_description_is_rejected_by_schema() {
     assert!(
         err.contains("description") || err.contains("additionalProperties"),
         "unexpected error: {err}"
+    );
+}
+
+#[test]
+fn manifest_with_present_but_empty_extensions_validates_against_spec_schema() {
+    // OQ1: present-but-empty `extensions` (`Some(ExtensionsMap::new())`,
+    // distinct from absent) is still just an ordinary schema-permitted
+    // object member — it must validate identically to the absent and
+    // populated cases.
+    let key = AitpSigningKey::from_seed(&[0xAC; 32]);
+    let mut m = ManifestBuilder::new(&key)
+        .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "agent-a".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .build()
+        .unwrap();
+    m.extensions = Some(ExtensionsMap::new());
+    let env = ManifestEnvelope { manifest: m };
+    let value = serde_json::to_value(&env).unwrap();
+    assert_eq!(value["manifest"]["extensions"], serde_json::json!({}));
+    if let Err(e) = validate(&value) {
+        panic!("Manifest with present-but-empty extensions failed schema validation:\n{e}");
+    }
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `MANIFEST_MEMBERS`, the member set
+/// `parse_manifest_wire`'s member-set check enforces, must equal the
+/// vendored schema's declared member set for the inner `manifest` object —
+/// not a hand-maintained list that could silently diverge from the spec.
+#[test]
+fn manifest_members_matches_vendored_schema_properties() {
+    let path = schema_path();
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("read vendored manifest schema"))
+            .expect("parse vendored manifest schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]["manifest"]["properties"]
+        .as_object()
+        .expect("schema has a `properties.manifest.properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = MANIFEST_MEMBERS.iter().map(|s| s.to_string()).collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "MANIFEST_MEMBERS has drifted from tests/schemas/aitp-manifest.schema.json's \
+         `properties.manifest.properties` keys"
     );
 }

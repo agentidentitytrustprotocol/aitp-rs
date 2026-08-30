@@ -45,6 +45,7 @@ pub fn sign_envelope_with(
             agent_id: signing_key.aid().clone(),
         },
         payload,
+        extensions: None,
         signature,
     })
 }

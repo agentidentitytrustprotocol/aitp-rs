@@ -3,8 +3,8 @@
 use crate::client_config::ClientConfig;
 use crate::net_guard::HostGuard;
 use crate::retry::RetryPolicy;
-use aitp_core::{Aid, Timestamp};
-use aitp_manifest::{verify_manifest, Manifest, ManifestEnvelope, VerifyManifestContext};
+use aitp_core::{reject_duplicate_keys, Aid, Timestamp};
+use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -31,6 +31,13 @@ pub enum FetchError {
     /// Response did not match `{"manifest": {...}}`.
     #[error("malformed manifest wrapper")]
     MalformedWrapper,
+    /// A top-level or nested member outside the schema-declared member set
+    /// (RFC-AITP-0001 §7), found by [`aitp_manifest::parse_manifest_wire`]
+    /// before any expiry/PoP/signature check. Distinct from
+    /// [`FetchError::MalformedJson`] — the body parsed as JSON fine; a
+    /// specific member is not one the schema declares.
+    #[error("unknown field `{0}`")]
+    UnknownField(String),
     /// Manifest verification failed.
     #[error("manifest verification failed: {0}")]
     VerificationFailed(#[from] aitp_manifest::ManifestError),
@@ -67,6 +74,7 @@ fn is_transient(err: &FetchError) -> bool {
         FetchError::InsecureUrl
         | FetchError::MalformedJson(_)
         | FetchError::MalformedWrapper
+        | FetchError::UnknownField(_)
         | FetchError::WrongContentType(_)
         | FetchError::OversizedResponse { .. }
         | FetchError::VerificationFailed(_) => false,
@@ -338,12 +346,41 @@ impl ManifestFetcher {
             }
             body.extend_from_slice(&chunk);
         }
-        let env: ManifestEnvelope =
+        // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere
+        // in the manifest response body MUST be rejected, against the
+        // ORIGINAL bytes before a `Value` — last-write-wins on a
+        // duplicate key — is ever built.
+        if let Err(e) = reject_duplicate_keys(&body) {
+            return Err(FetchError::MalformedJson(e));
+        }
+        let value: serde_json::Value =
             serde_json::from_slice(&body).map_err(|e| FetchError::MalformedJson(e.to_string()))?;
-        verify_manifest(&env.manifest, &VerifyManifestContext::now())?;
-        let aid = env.manifest.aid.clone();
-        self.insert_cache(aid, env.manifest.clone());
-        Ok(env.manifest)
+        // RFC-AITP-0003 §6.1: `/.well-known/aitp-manifest` MUST respond
+        // with the `{"manifest": {...}}` transport wrapper specifically —
+        // unlike `aitp_manifest::parse_manifest_wire`, which is
+        // deliberately lenient and also accepts a bare unwrapped manifest
+        // body (the conformance adapter receives fixtures in both
+        // shapes). That leniency does not apply to this HTTP endpoint, so
+        // the wrapper is required here before handing off to the lenient
+        // parser.
+        let inner = match value.as_object() {
+            Some(obj) if obj.contains_key("manifest") => {
+                value.get("manifest").expect("checked contains_key above")
+            }
+            _ => return Err(FetchError::MalformedWrapper),
+        };
+        // RFC-AITP-0001 §7 (issue #140): the member-set check MUST run
+        // before any expiry/PoP/signature check (RFC-AITP-0003 §5 step 2).
+        // Distinguish an unknown-member rejection from a generic malformed
+        // body so callers can tell the two failure classes apart.
+        let manifest = aitp_manifest::parse_manifest_wire(inner).map_err(|e| match e {
+            aitp_manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
+            other => FetchError::MalformedJson(other.to_string()),
+        })?;
+        verify_manifest(&manifest, &VerifyManifestContext::now())?;
+        let aid = manifest.aid.clone();
+        self.insert_cache(aid, manifest.clone());
+        Ok(manifest)
     }
 
     /// Look up a previously-cached Manifest by AID. Returns `None` when

@@ -72,4 +72,14 @@ pub enum DelegationError {
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] aitp_crypto::CryptoError),
+    /// A member outside the schema-declared member set was found on a
+    /// closed object — the outer delegation claims, or the embedded
+    /// grant voucher's claims, carried a field neither schema defines
+    /// and which is not inside `ext` (RFC-AITP-0001 §7). Checked on the
+    /// unverified payload peek, ahead of AID-pinned `alg` checking and
+    /// signature verification. Maps to the **core** `UNKNOWN_FIELD`
+    /// code, not `DELEGATION_INVALID_VOUCHER` / an `INVALID_ENVELOPE`
+    /// draft code, even though delegation itself is a draft-RFC surface.
+    #[error("unknown field: {0}")]
+    UnknownField(String),
 }

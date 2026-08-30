@@ -99,6 +99,7 @@ async fn main() {
                 revoked_at: now,
                 reason: Some("compromised".into()),
             }],
+            extensions: None,
         },
         &issuer,
     )

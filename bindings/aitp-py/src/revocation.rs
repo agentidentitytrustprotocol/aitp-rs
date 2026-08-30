@@ -146,6 +146,7 @@ pub fn sign_revocation_list_py(
         published_at: now,
         expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
         entries: parsed,
+        extensions: None,
     };
     let envelope = sign_revocation_list(body, issuer_key)
         .map_err(|e| PyRuntimeError::new_err(format!("sign_revocation_list failed: {e}")))?;

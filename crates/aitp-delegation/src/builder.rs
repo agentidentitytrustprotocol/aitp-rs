@@ -12,11 +12,14 @@
 //!   fresh per-hop `jti`. No voucher on the outer token — authority
 //!   bottoms out in `chain[0]`'s voucher.
 
-use crate::types::DelegationClaims;
+use crate::types::{DelegationClaims, DELEGATION_CLAIMS_MEMBERS};
 use crate::DelegationError;
-use aitp_core::{base64url, jcs, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_core::{
+    base64url, check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, Timestamp,
+    PROTOCOL_VERSION,
+};
 use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey};
-use aitp_tct::{Cnf, GrantVoucherClaims};
+use aitp_tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
@@ -67,8 +70,29 @@ impl<'a> DelegationBuilder<'a> {
     /// B's TCT in the handshake commit payload.
     pub fn new(issuer_key: &'a AitpSigningKey, voucher: &str) -> Result<Self, DelegationError> {
         let payload = jws::decode_payload_unverified(voucher).map_err(DelegationError::Crypto)?;
-        let claims: GrantVoucherClaims = serde_json::from_slice(&payload)
-            .map_err(|e| DelegationError::ClaimsMalformed(format!("voucher: {e}")))?;
+        // Claim-set check (RFC-AITP-0001 §7) on the unverified peek,
+        // ahead of anything else: an unknown claim on the embedded
+        // voucher must surface as UNKNOWN_FIELD, not be swallowed into
+        // DELEGATION_INVALID_VOUCHER by a later step.
+        // RFC-AITP-0001 §5.4.5 / issue #140: raw-bytes duplicate-key guard
+        // ahead of the `Value` conversion below (last-write-wins on a
+        // duplicate key).
+        reject_duplicate_keys(&payload).map_err(DelegationError::ClaimsMalformed)?;
+        if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+            check_members(
+                "GrantVoucherClaims",
+                &peek_value,
+                GRANT_VOUCHER_CLAIMS_MEMBERS,
+            )
+            .map_err(|e| DelegationError::UnknownField(e.field))?;
+        }
+        let claims: GrantVoucherClaims = serde_json::from_slice(&payload).map_err(|e| {
+            if let Some(field) = from_serde_error(&e) {
+                DelegationError::UnknownField(field)
+            } else {
+                DelegationError::ClaimsMalformed(format!("voucher: {e}"))
+            }
+        })?;
         // The voucher must actually entitle this signer to delegate.
         if &claims.sub != issuer_key.aid() {
             return Err(DelegationError::InvalidVoucher);
@@ -92,8 +116,22 @@ impl<'a> DelegationBuilder<'a> {
     /// token carries `prior`'s chain plus `prior` itself, verbatim.
     pub fn extending(issuer_key: &'a AitpSigningKey, prior: &str) -> Result<Self, DelegationError> {
         let payload = jws::decode_payload_unverified(prior).map_err(DelegationError::Crypto)?;
-        let claims: DelegationClaims = serde_json::from_slice(&payload)
-            .map_err(|e| DelegationError::ClaimsMalformed(format!("prior hop: {e}")))?;
+        // Claim-set check (RFC-AITP-0001 §7) on the unverified peek of
+        // the prior hop, same rationale as the voucher peek above.
+        // RFC-AITP-0001 §5.4.5 / issue #140: same raw-bytes-first
+        // rationale as the voucher peek above.
+        reject_duplicate_keys(&payload).map_err(DelegationError::ClaimsMalformed)?;
+        if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+            check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
+                .map_err(|e| DelegationError::UnknownField(e.field))?;
+        }
+        let claims: DelegationClaims = serde_json::from_slice(&payload).map_err(|e| {
+            if let Some(field) = from_serde_error(&e) {
+                DelegationError::UnknownField(field)
+            } else {
+                DelegationError::ClaimsMalformed(format!("prior hop: {e}"))
+            }
+        })?;
         if &claims.sub != issuer_key.aid() {
             return Err(DelegationError::InvalidVoucher);
         }

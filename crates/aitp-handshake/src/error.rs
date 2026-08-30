@@ -81,4 +81,9 @@ pub enum HandshakeError {
     /// JCS canonicalization failure.
     #[error("canonicalization failed: {0}")]
     Canonicalization(String),
+    /// A JSON member outside a handshake payload's declared member set
+    /// (RFC-AITP-0001 §7), or inside a nested closed object (e.g.
+    /// `identity`) recovered via `aitp_core::from_serde_error`.
+    #[error("unknown field: {0}")]
+    UnknownField(String),
 }

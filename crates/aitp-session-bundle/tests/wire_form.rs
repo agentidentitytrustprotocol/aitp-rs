@@ -59,3 +59,20 @@ fn bare_body_missing_signature_with_no_sibling_is_wire_form_invalid() {
         Err(SessionBundleError::WireFormInvalid(_))
     ));
 }
+
+/// `bundle-006-unknown-field-rejected`: an unknown member of the INNER
+/// body — not a wrapper sibling, not inside `extensions` — is the
+/// body-level `UnknownField` class, distinct from every
+/// `WireFormInvalid` case above.
+#[test]
+fn unknown_inner_body_member_is_unknown_field() {
+    let mut body = valid_body();
+    body.as_object_mut()
+        .unwrap()
+        .insert("coordinator_note".into(), json!("primary-region"));
+    let wire = json!({ "session_bundle": body });
+    match parse_session_bundle_wire(&wire) {
+        Err(SessionBundleError::UnknownField(field)) => assert_eq!(field, "coordinator_note"),
+        other => panic!("expected UnknownField(\"coordinator_note\"), got {other:?}"),
+    }
+}

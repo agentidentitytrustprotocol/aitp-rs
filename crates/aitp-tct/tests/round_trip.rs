@@ -86,7 +86,13 @@ fn without_voucher_omits_voucher() {
 #[test]
 fn voucher_presented_as_tct_dies_on_typ() {
     // Cross-type confusion: a valid voucher must never verify in a TCT
-    // context (RFC 8725 explicit typing).
+    // context (RFC 8725 explicit typing). Since Phase 6a, RFC-AITP-0005
+    // §7.2's claim-set check runs on the unverified payload ahead of alg
+    // pin / signature — but `verify_tct` gates that check on the peeked
+    // header `typ` first matching `aitp-tct+jwt` (tct-010), so a grant
+    // voucher (typ `aitp-grant+jwt`, whose claims carry `src_jti` — not a
+    // member of `TCT_CLAIMS_MEMBERS`) still dies on the authoritative typ
+    // check rather than being misreported as an unrelated unknown claim.
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let subject = subject_key();
@@ -208,6 +214,9 @@ fn tampered_grants_rejected() {
 
 #[test]
 fn unknown_claim_rejected() {
+    // Since Phase 6a (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2), an unknown
+    // top-level claim is rejected by the member-set check as
+    // `UnknownField`, not the generic `ClaimsMalformed`.
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let subject = subject_key();
@@ -216,10 +225,11 @@ fn unknown_claim_rejected() {
     claims["rogue"] = serde_json::json!("x");
     let forged = forge(&issuer, &claims);
     let ctx = TctVerifyContext::permissive_at(subject.aid(), issuer.aid(), now);
-    assert!(matches!(
-        verify_tct(&forged, &ctx).unwrap_err(),
-        TctError::ClaimsMalformed(_)
-    ));
+    let err = verify_tct(&forged, &ctx).unwrap_err();
+    assert!(
+        matches!(&err, TctError::UnknownField(f) if f == "rogue"),
+        "got {err:?}"
+    );
 }
 
 #[test]

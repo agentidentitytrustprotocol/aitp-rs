@@ -503,11 +503,16 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         return verify_envelope_key_resolution(id, &params);
     }
 
-    let envelope = match serde_json::from_value::<AitpEnvelope>(
-        params.get("envelope").cloned().unwrap_or_default(),
-    ) {
+    let envelope_value = params.get("envelope").cloned().unwrap_or_default();
+    let envelope = match aitp_core::parse_envelope_wire(&envelope_value) {
         Ok(e) => e,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("envelope parse: {e}")),
+        Err(e) => {
+            return err(
+                id,
+                &envelope_parse_error_code(&e),
+                &format!("envelope parse: {e}"),
+            )
+        }
     };
     // RFC-AITP-0001 §5.5 / §5.6: version + freshness checks are part of
     // envelope verification. When the fixture supplies `tolerance_seconds`
@@ -555,6 +560,15 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(_) => err(id, "INVALID_SIGNATURE", "envelope signature invalid"),
     }
+}
+
+fn envelope_parse_error_code(e: &aitp_core::EnvelopeParseError) -> String {
+    use aitp_core::EnvelopeParseError::*;
+    match e {
+        UnknownField(_) => "UNKNOWN_FIELD",
+        Malformed(_) => "INVALID_ENVELOPE",
+    }
+    .to_string()
 }
 
 /// Stateless capability policy check (RFC-AITP-0004 §4): an
@@ -849,10 +863,14 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         now: envelope.timestamp,
     };
 
+    use aitp_core::{check_members, from_serde_error};
     use aitp_handshake::payloads::{
         MutualCommitAckPayload, MutualHelloAckPayload, MutualHelloPayload,
+        MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+        MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
     use aitp_handshake::state_machine::bootstrap_verify_peer;
+    use aitp_handshake::HandshakeError;
 
     let hello_family = matches!(
         envelope.message_type,
@@ -860,17 +878,59 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     );
     let result = match envelope.message_type {
         MessageType::MutualHello => {
+            if let Err(e) = check_members(
+                "MutualHelloPayload",
+                &envelope.payload,
+                MUTUAL_HELLO_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_HELLO payload",
+                );
+            }
             let p: MutualHelloPayload = match serde_json::from_value(envelope.payload.clone()) {
                 Ok(p) => p,
-                Err(e) => return err(id, "INVALID_ENVELOPE", &format!("hello payload: {e}")),
+                Err(e) => {
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("hello payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("hello payload: {e}"))
+                    }
+                }
             };
             bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
                 .map(|_| ())
         }
         MessageType::MutualHelloAck => {
+            if let Err(e) = check_members(
+                "MutualHelloAckPayload",
+                &envelope.payload,
+                MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_HELLO_ACK payload",
+                );
+            }
             let p: MutualHelloAckPayload = match serde_json::from_value(envelope.payload.clone()) {
                 Ok(p) => p,
-                Err(e) => return err(id, "INVALID_ENVELOPE", &format!("hello_ack payload: {e}")),
+                Err(e) => {
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("hello_ack payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("hello_ack payload: {e}"))
+                    }
+                }
             };
             // mh-005 supplies `sent_pop_nonce` — the nonce the
             // receiver sent in its prior HELLO. The receiver MUST
@@ -899,11 +959,33 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             // mh-008 uses MUTUAL_COMMIT with the same payload
             // shape (the responder verifies the initiator's PoP
             // on commit), so route both through the same path.
+            // `MutualCommitPayload` and `MutualCommitAckPayload` declare
+            // the same member set on the wire (RFC-AITP-0001 §7), so a
+            // single member-set check covers both message types here.
+            if let Err(e) = check_members(
+                "MutualCommitAckPayload",
+                &envelope.payload,
+                MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_COMMIT/MUTUAL_COMMIT_ACK payload",
+                );
+            }
             let p: MutualCommitAckPayload = match serde_json::from_value(envelope.payload.clone())
             {
                 Ok(p) => p,
                 Err(e) => {
-                    return err(id, "INVALID_ENVELOPE", &format!("commit_ack payload: {e}"))
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("commit_ack payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("commit_ack payload: {e}"))
+                    }
                 }
             };
             // Pull the fixture-supplied issuer offered capabilities
@@ -1132,6 +1214,13 @@ fn handshake_error_code(e: &aitp_handshake::HandshakeError) -> String {
         Crypto(c) => crypto_error_code(c, "INVALID_SIGNATURE"),
         Rng(_) => "INTERNAL_ERROR".to_string(),
         Canonicalization(_) => "INTERNAL_ERROR".to_string(),
+        // RFC-AITP-0001 §7 / issue #140 Phase 7a: a dedicated core code,
+        // never left to the `_ => INTERNAL_ERROR` catch-all below. No
+        // fixture covers this mapper (the spec's `mh-*` pack doesn't
+        // exercise §7 for handshake payloads), so the direct
+        // `error_code_mapping_tests::handshake_codes` assertion is the
+        // only thing that would catch a missing/misplaced arm.
+        UnknownField(_) => "UNKNOWN_FIELD".to_string(),
         // HandshakeError is #[non_exhaustive]; future variants default
         // to INTERNAL_ERROR so the adapter never panics on a new variant.
         _ => "INTERNAL_ERROR".to_string(),
@@ -1146,9 +1235,15 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
     } else {
         return err(id, "INVALID_ENVELOPE", "missing manifest");
     };
-    let manifest = match serde_json::from_value::<Manifest>(manifest_value) {
+    let manifest = match aitp_manifest::parse_manifest_wire(&manifest_value) {
         Ok(m) => m,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("manifest parse: {e}")),
+        Err(e) => {
+            return err(
+                id,
+                &manifest_error_code(&e),
+                &format!("manifest parse: {e}"),
+            )
+        }
     };
     let now = params
         .get("now")
@@ -1175,6 +1270,15 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         Canonicalization(_) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         Rng(_) => "INTERNAL_ERROR",
+        // RFC-AITP-0001 §7 / issue #140: a top-level or nested member
+        // outside the schema-declared member set, found by
+        // `parse_manifest_wire` before any expiry/PoP/signature check.
+        // Explicit arm so a future variant added to the (non_exhaustive)
+        // `ManifestError` enum without a matching arm here fails loudly
+        // (as INTERNAL_ERROR) rather than THIS variant silently losing
+        // its dedicated code if the match were ever reordered.
+        UnknownField(_) => "UNKNOWN_FIELD",
+        Malformed(_) => "INVALID_ENVELOPE",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1264,15 +1368,27 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
             }
         }
         if let Some(snapshot) = list.get("snapshot") {
-            if let Ok(env) =
-                serde_json::from_value::<aitp_tct::RevocationListEnvelope>(snapshot.clone())
-            {
-                let snapshot_issuer = env.revocation_list.issuer.clone();
-                let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
-                if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
-                    for entry in &env.revocation_list.entries {
-                        revoked_jtis.insert(entry.jti.to_string());
+            // A snapshot that fails to parse — including one rejected for
+            // an unknown member (RFC-AITP-0001 §7) — must not silently
+            // read as "nothing is revoked" (issue #140 hazard 4): that is
+            // a fail-open hazard under a permissive revocation policy.
+            // Surface the error instead of falling through.
+            match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
+                Ok(env) => {
+                    let snapshot_issuer = env.revocation_list.issuer.clone();
+                    let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
+                    if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
+                        for entry in &env.revocation_list.entries {
+                            revoked_jtis.insert(entry.jti.to_string());
+                        }
                     }
+                }
+                Err(e) => {
+                    return err(
+                        id,
+                        &tct_error_code(&e),
+                        &format!("issuer_revocation_list.snapshot: {e}"),
+                    );
                 }
             }
         }
@@ -1346,6 +1462,13 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
             "POP_RESPONSE_INVALID"
         }
         Crypto(c) => return crypto_error_code(c, "TCT_SIGNATURE_INVALID"),
+        // RFC-AITP-0001 §7 / issue #140: a JSON member outside the
+        // artifact's declared member set (revocation snapshot envelope or
+        // body, RFC-AITP-0008 §1.5) is a distinct structural-rejection
+        // class from a malformed envelope — it must not fall into
+        // `ClaimsMalformed`'s `INVALID_ENVELOPE` bucket above, nor into
+        // the `_` catch-all below.
+        UnknownField(_) => "UNKNOWN_FIELD",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1512,11 +1635,22 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
             let Some(snapshot) = entry.get("snapshot") else {
                 continue;
             };
-            // Verify the snapshot signature, then extract JTIs.
+            // Verify the snapshot signature, then extract JTIs. A
+            // snapshot that fails to parse — including one rejected for
+            // an unknown member (RFC-AITP-0001 §7) — must not silently
+            // read as "nothing is revoked" (issue #140 hazard 4): that is
+            // a fail-open hazard under a permissive revocation policy.
+            // Surface the error instead of skipping the entry.
             let env: aitp_tct::RevocationListEnvelope =
-                match serde_json::from_value(snapshot.clone()) {
+                match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(e) => {
+                        return err(
+                            id,
+                            &tct_error_code(&e),
+                            &format!("revocation_snapshots[].snapshot: {e}"),
+                        )
+                    }
                 };
             if env.revocation_list.issuer != issuer_aid {
                 // Issuer-AID mismatch — refuse to honor the snapshot.
@@ -1607,6 +1741,7 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // (the outer token's bad signature maps to InvalidSignature
         // in aitp-delegation) — hence DELEGATION_INVALID_VOUCHER.
         Crypto(c) => return crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
+        UnknownField(_) => "UNKNOWN_FIELD",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1994,6 +2129,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
             agent_id: key.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: sig.into_string(),
     };
     json!({"id": id, "ok": true, "result": {"envelope": env}})
@@ -2479,6 +2615,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
             agent_id: key.aid().clone(),
         },
         payload: payload_value,
+        extensions: None,
         signature: sig.into_string(),
     }
 }
@@ -2492,10 +2629,11 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .or_else(|| params.get("snapshot").cloned())
         .or_else(|| params.get("envelope").cloned())
         .unwrap_or_default();
-    let env: aitp_tct::RevocationListEnvelope = match serde_json::from_value(env_value) {
-        Ok(e) => e,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("revocation_list: {e}")),
-    };
+    let env: aitp_tct::RevocationListEnvelope =
+        match aitp_tct::parse_revocation_snapshot_wire(&env_value) {
+            Ok(e) => e,
+            Err(e) => return err(id, &tct_error_code(&e), &format!("revocation_list: {e}")),
+        };
     let expected_issuer = match params
         .get("expected_issuer")
         .and_then(|v| v.as_str())
@@ -2918,10 +3056,12 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     // `signature` is a member of the inner body (spec commit 45b5ef978e13
     // corrected the schema and all `bundle-*` fixtures to this shape).
     // `parse_session_bundle_wire` unwraps the transport envelope and
-    // rejects — via `SessionBundleEnvelope`'s `deny_unknown_fields` — any
-    // sibling member beside `session_bundle`, notably the pre-erratum
-    // shape where `signature` sat OUTSIDE the wrapped body
-    // (`bundle-004-signature-sibling-rejected`). Accept either:
+    // rejects any sibling member beside `session_bundle` as
+    // `WireFormInvalid` — notably the pre-erratum shape where `signature`
+    // sat OUTSIDE the wrapped body (`bundle-004-signature-sibling-rejected`).
+    // An unknown member of the inner body itself is a separate class,
+    // `UnknownField` (RFC-AITP-0001 §7, `bundle-006-unknown-field-rejected`).
+    // Accept either:
     //
     // - `params.session_bundle = {<body with signature inside>}`
     //   (legacy internal callers, no envelope)
@@ -3040,6 +3180,7 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
         Crypto(_) => "INVALID_SIGNATURE",
         WireFormInvalid(_) => "SESSION_BUNDLE_INVALID",
+        UnknownField(_) => "UNKNOWN_FIELD",
     }
     .to_string()
 }
@@ -3079,6 +3220,7 @@ mod p256_readiness_tests {
                 agent_id: key.aid().clone(),
             },
             payload,
+            extensions: None,
             signature: key.sign(&digest).into_string(),
         };
         serde_json::to_value(&envelope).unwrap()
@@ -3131,7 +3273,10 @@ mod error_code_mapping_tests {
     //! reports the wrong code on every negative fixture, so the
     //! non-obvious mappings (and the nested handshake→tct/manifest
     //! dispatch) are pinned here.
-    use super::{delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code};
+    use super::{
+        delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code,
+        voucher_error_code,
+    };
     use aitp_delegation::DelegationError;
     use aitp_handshake::HandshakeError;
     use aitp_manifest::ManifestError;
@@ -3174,6 +3319,15 @@ mod error_code_mapping_tests {
             }),
             "KEY_RESOLUTION_FAILED"
         );
+        // RFC-AITP-0001 §7 / issue #140 Phase 7a (AC2): UnknownField MUST
+        // have its own explicit arm, never fall through the
+        // `_ => "INTERNAL_ERROR"` catch-all. Asserted directly here so the
+        // arm cannot be quietly deleted without a red test — no fixture
+        // covers this mapper.
+        assert_eq!(
+            handshake_error_code(&HandshakeError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
     }
 
     #[test]
@@ -3200,6 +3354,24 @@ mod error_code_mapping_tests {
         assert_eq!(
             tct_error_code(&TctError::PopChallengeExpired),
             "POP_RESPONSE_INVALID"
+        );
+    }
+
+    /// RFC-AITP-0001 §7 / issue #140 Phase 6a (AC6): `voucher_error_code`
+    /// has no explicit `UnknownField` arm of its own — it MUST fall
+    /// through its `other => tct_error_code(other)` arm to reach
+    /// `tct_error_code`'s explicit `UnknownField(_) => "UNKNOWN_FIELD"`
+    /// arm. Pinned directly (not only via the vch/tct fixtures) so a
+    /// future edit that adds an `UnknownField` case to
+    /// `voucher_error_code`'s bundled
+    /// `EmptyGrants | ClaimsMalformed(_) | MissingField(_)` arm — which
+    /// would silently capture it before the fall-through — turns this
+    /// test red.
+    #[test]
+    fn voucher_error_code_falls_through_to_tct_unknown_field() {
+        assert_eq!(
+            voucher_error_code(&TctError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
         );
     }
 
@@ -3235,6 +3407,15 @@ mod error_code_mapping_tests {
             )),
             "DELEGATION_INVALID_VOUCHER"
         );
+        // §7 unknown-member rejection: a dedicated core code, not merged
+        // into ClaimsMalformed's INVALID_ENVELOPE and not left to the
+        // `_ => INTERNAL_ERROR` catch-all. No fixture covers this
+        // mapper, so this direct assertion is the only thing that would
+        // catch a missing/misplaced arm.
+        assert_eq!(
+            delegation_error_code(&DelegationError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
     }
 
     #[test]
@@ -3267,6 +3448,29 @@ mod error_code_mapping_tests {
             )),
             "TCT_SIGNATURE_INVALID"
         );
+        // Regression (issue #140 Phase 6a, AC7): the protected JWS
+        // header's own strictness (RFC-AITP-0001 §5.4.5, `deny_unknown_fields`
+        // on `alg`+`typ`) is orthogonal to the new claim-set check and MUST
+        // NOT be relabeled UNKNOWN_FIELD — `voucher_error_code` keeps the
+        // same token-generic codes as `tct_error_code` for header failures.
+        assert_eq!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::AlgMismatch(
+                "none".into()
+            ))),
+            "TOKEN_ALG_MISMATCH"
+        );
+        assert_eq!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::JwsMalformed(
+                "protected header: unknown field `kid`".into()
+            ))),
+            "INVALID_ENVELOPE"
+        );
+        assert_ne!(
+            voucher_error_code(&TctError::Crypto(aitp_crypto::CryptoError::JwsMalformed(
+                "protected header: unknown field `kid`".into()
+            ))),
+            "UNKNOWN_FIELD"
+        );
     }
 
     #[test]
@@ -3284,5 +3488,584 @@ mod error_code_mapping_tests {
             manifest_error_code(&ManifestError::AidMismatch),
             "MANIFEST_SIGNATURE_INVALID"
         );
+        // RFC-AITP-0001 §7 / issue #140 (AC5): UnknownField MUST have its
+        // own explicit arm, never fall through the `_ => "INTERNAL_ERROR"`
+        // catch-all. Asserted directly here so the arm cannot be quietly
+        // deleted without a red test, independent of the man-004 fixture.
+        assert_eq!(
+            manifest_error_code(&ManifestError::UnknownField("deployment_region".into())),
+            "UNKNOWN_FIELD"
+        );
+    }
+}
+
+#[cfg(test)]
+mod manifest_unknown_field_tests {
+    //! Adapter-level (not just library-level) coverage for RFC-AITP-0001
+    //! §7 on the Manifest `verify_manifest` op — mirrors the man-004 /
+    //! man-002 conformance fixtures and the member-check-before-signature
+    //! ordering, but drives the actual JSON-RPC `handle` dispatch rather
+    //! than calling `aitp_manifest::parse_manifest_wire` directly, so a
+    //! regression in the adapter's own wiring (not just the library) would
+    //! be caught here too.
+    use super::*;
+    use sha2::Digest;
+
+    fn signed_manifest_value() -> (Value, aitp_crypto::AitpSigningKey) {
+        let key = aitp_crypto::AitpSigningKey::from_seed(&[9u8; 32]);
+        let manifest = ManifestBuilder::new(&key)
+            .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "agent-b".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .offer("demo.echo")
+            .published_at(Timestamp(1_711_900_000))
+            .ttl_secs(86_400)
+            .build()
+            .unwrap();
+        (serde_json::to_value(&manifest).unwrap(), key)
+    }
+
+    /// man-004 shape: an unrecognized sibling member outside `extensions`
+    /// is rejected as UNKNOWN_FIELD via the real `verify_manifest` op.
+    #[test]
+    fn adapter_rejects_unknown_sibling_field() {
+        let (mut manifest, _key) = signed_manifest_value();
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("deployment_region".into(), json!("us-east-1"));
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-004-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Ordering gate via the adapter: an unknown member AND a corrupted
+    /// signature together must still report UNKNOWN_FIELD, proving the
+    /// member-set check the adapter now performs via `parse_manifest_wire`
+    /// runs before the signature is ever checked.
+    #[test]
+    fn adapter_reports_unknown_field_even_with_a_corrupt_signature() {
+        let (mut manifest, _key) = signed_manifest_value();
+        let obj = manifest.as_object_mut().unwrap();
+        obj.insert("deployment_region".into(), json!("us-east-1"));
+        let mut sig = obj.get("signature").unwrap().as_str().unwrap().to_string();
+        let last = sig.pop().unwrap();
+        sig.push(if last == 'A' { 'B' } else { 'A' });
+        obj.insert("signature".into(), json!(sig));
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-ordering",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(
+            out["error_code"],
+            json!("UNKNOWN_FIELD"),
+            "member-set check must precede signature verification"
+        );
+    }
+
+    /// man-002 regression, at the adapter level: an unknown *value* for
+    /// the known `version` member is MANIFEST_VERSION_UNKNOWN, never
+    /// UNKNOWN_FIELD.
+    #[test]
+    fn adapter_reports_version_unknown_not_unknown_field() {
+        let (mut manifest, _key) = signed_manifest_value();
+        manifest["version"] = json!("aitp/9.9");
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-002-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("MANIFEST_VERSION_UNKNOWN"));
+    }
+
+    /// man-005 shape: a vendor-namespaced key inside `extensions` is
+    /// ignored and the manifest still verifies.
+    #[test]
+    fn adapter_accepts_unknown_key_inside_extensions() {
+        let (mut manifest, key) = signed_manifest_value();
+        // Re-sign over a body that includes "extensions" so the outer
+        // signature covers it, mirroring what a real issuer would do.
+        let obj = manifest.as_object_mut().unwrap();
+        obj.insert(
+            "extensions".into(),
+            json!({"com.example.debug_trace": {"build_id": "worker-7"}}),
+        );
+        obj.remove("signature");
+        let canonical = aitp_core::jcs::canonicalize(&manifest).unwrap();
+        let signature = key.sign(&sha2::Sha256::digest(&canonical)).into_string();
+        manifest
+            .as_object_mut()
+            .unwrap()
+            .insert("signature".into(), json!(signature));
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-005-like",
+            "verify_manifest",
+            json!({ "manifest": manifest, "now": 1_711_900_100 }),
+        );
+        assert_eq!(out["ok"], json!(true), "got: {out}");
+    }
+}
+
+#[cfg(test)]
+mod revocation_unknown_field_tests {
+    //! Issue #140 / Phase 4: RFC-AITP-0001 §7 for the revocation snapshot
+    //! (RFC-AITP-0008 §1.5), driven through the real adapter dispatch —
+    //! mirrors `manifest_unknown_field_tests` above, but also covers the
+    //! two previously-silent-swallow call sites (`verify_tct`'s
+    //! `issuer_revocation_list.snapshot` and `verify_delegation_token`'s
+    //! `revocation_snapshots[]`), which must now surface an error rather
+    //! than silently treating an unparseable snapshot as "nothing is
+    //! revoked" (a fail-open hazard under a permissive revocation policy).
+    use super::*;
+
+    fn issuer() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xE1; 32])
+    }
+
+    fn signed_snapshot_value(issuer_key: &AitpSigningKey) -> Value {
+        let env = aitp_tct::sign_revocation_list(
+            aitp_tct::RevocationList {
+                version: aitp_core::PROTOCOL_VERSION.into(),
+                issuer: issuer_key.aid().clone(),
+                published_at: Timestamp(1_700_000_000),
+                expires_at: Timestamp(1_700_003_600),
+                entries: vec![],
+                extensions: None,
+            },
+            issuer_key,
+        )
+        .unwrap();
+        serde_json::to_value(&env).unwrap()
+    }
+
+    /// rev-005 shape, via the real `verify_revocation_snapshot` op: an
+    /// unrecognized member of the inner `revocation_list` body is
+    /// rejected as `UNKNOWN_FIELD`.
+    #[test]
+    fn verify_revocation_snapshot_rejects_unknown_body_member() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-005-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// rev-006 shape: a snapshot carrying a legitimate `extensions` member
+    /// still verifies.
+    #[test]
+    fn verify_revocation_snapshot_accepts_extensions() {
+        let key = issuer();
+        let env = aitp_tct::sign_revocation_list(
+            aitp_tct::RevocationList {
+                version: aitp_core::PROTOCOL_VERSION.into(),
+                issuer: key.aid().clone(),
+                published_at: Timestamp(1_700_000_000),
+                expires_at: Timestamp(1_700_003_600),
+                entries: vec![],
+                extensions: Some({
+                    let mut ext = aitp_core::ExtensionsMap::new();
+                    ext.insert("com.example.debug_trace", json!({"generator": "svc"}));
+                    ext
+                }),
+            },
+            &key,
+        )
+        .unwrap();
+        let snapshot = serde_json::to_value(&env).unwrap();
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-006-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(true), "got: {out}");
+    }
+
+    /// rev-004 shape stays unaffected: a tampered signature reports the
+    /// crypto failure, not `UNKNOWN_FIELD`.
+    #[test]
+    fn verify_revocation_snapshot_tampered_signature_is_not_unknown_field() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["signature"] = json!(
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-004-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_ne!(out["error_code"], json!("UNKNOWN_FIELD"));
+        assert_eq!(out["error_code"], json!("TCT_SIGNATURE_INVALID"));
+    }
+
+    /// `tct_error_code` has an explicit `UnknownField` arm reporting
+    /// `UNKNOWN_FIELD`, asserted directly rather than only via the
+    /// `verify_revocation_snapshot` fixture-shaped test above.
+    #[test]
+    fn tct_error_code_maps_unknown_field_directly() {
+        assert_eq!(
+            tct_error_code(&aitp_tct::TctError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
+    }
+
+    /// Hazard 4, first silent-swallow site (`verify_tct`'s
+    /// `issuer_revocation_list.snapshot`): before this phase, a snapshot
+    /// that failed to deserialize — including for an unknown member — was
+    /// discarded with `if let Ok(...) = ...`, so the surrounding
+    /// `verify_tct` call would still succeed as if the issuer had
+    /// published no revocations at all. That is a fail-open hazard for
+    /// any deployment that does not run this check under a strict
+    /// `fail_closed` policy. This test proves the snapshot's defect now
+    /// surfaces as an error instead.
+    #[test]
+    fn verify_tct_surfaces_unparseable_issuer_revocation_snapshot_instead_of_ignoring_it() {
+        let issuer_key = issuer();
+        let subject_key = AitpSigningKey::from_seed(&[0xE2; 32]);
+        let issued = TctBuilder::new(&issuer_key)
+            .subject(subject_key.aid().clone())
+            .audience(subject_key.aid().clone())
+            .grants(["demo.echo"])
+            .ttl_secs(3600)
+            .subject_pubkey(subject_key.verifying_key())
+            .issued_at(Timestamp(1_700_000_000))
+            .build()
+            .unwrap();
+
+        let mut snapshot = signed_snapshot_value(&issuer_key);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        // Sanity check: with NO revocation snapshot supplied at all, this
+        // exact TCT verifies (the fixture is otherwise well-formed).
+        let baseline = handle(
+            &mut state,
+            "rev-swallow-1-baseline",
+            "verify_tct",
+            json!({
+                "tct_token": issued.token,
+                "issuer": issuer_key.aid().as_str(),
+                "expected_audience": subject_key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(baseline["ok"], json!(true), "got: {baseline}");
+
+        // Under the OLD (silently-swallowing) behavior this would ALSO
+        // report ok:true — the malformed snapshot was quietly ignored and
+        // treated as "the issuer has revoked nothing", a fail-open
+        // outcome for a permissive caller that does not itself enforce
+        // fail_closed. It must now surface UNKNOWN_FIELD instead.
+        let out = handle(
+            &mut state,
+            "rev-swallow-1",
+            "verify_tct",
+            json!({
+                "tct_token": issued.token,
+                "issuer": issuer_key.aid().as_str(),
+                "expected_audience": subject_key.aid().as_str(),
+                "now": 1_700_000_100,
+                "issuer_revocation_list": { "snapshot": snapshot },
+            }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(false),
+            "an unparseable revocation snapshot must not silently read as \
+             'nothing is revoked': {out}"
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Hazard 4, second silent-swallow site (`verify_delegation_token`'s
+    /// `revocation_snapshots[]`, the multi-hop path): an entry whose
+    /// snapshot fails to deserialize was previously skipped with
+    /// `Err(_) => continue`, silently excluding it from the per-issuer
+    /// deny list rather than surfacing the defect.
+    #[test]
+    fn verify_delegation_surfaces_unparseable_revocation_snapshot_instead_of_skipping_it() {
+        let a = AitpSigningKey::from_seed(&[0xE3; 32]);
+        let b = AitpSigningKey::from_seed(&[0xE4; 32]);
+        let c = AitpSigningKey::from_seed(&[0xE5; 32]);
+
+        let voucher = TctBuilder::new(&a)
+            .subject(b.aid().clone())
+            .audience(b.aid().clone())
+            .grants(["read_data"])
+            .ttl_secs(7200)
+            .subject_pubkey(b.verifying_key())
+            .issued_at(Timestamp(1_700_000_000))
+            .build()
+            .unwrap()
+            .voucher
+            .unwrap();
+        let token = aitp_delegation::DelegationBuilder::new(&b, &voucher)
+            .unwrap()
+            .delegatee(c.aid().clone())
+            .scope(["read_data"])
+            .ttl_secs(3600)
+            .now(Timestamp(1_700_000_000))
+            .build()
+            .unwrap();
+
+        let mut snapshot = signed_snapshot_value(&a);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        // Baseline: with no `revocation_snapshots` supplied, this
+        // delegation token verifies.
+        let baseline = handle(
+            &mut state,
+            "rev-swallow-2-baseline",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(baseline["ok"], json!(true), "got: {baseline}");
+
+        let out = handle(
+            &mut state,
+            "rev-swallow-2",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a.aid().as_str(),
+                "now": 1_700_000_100,
+                "revocation_snapshots": [
+                    { "issuer_aid": a.aid().as_str(), "snapshot": snapshot }
+                ],
+            }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(false),
+            "an unparseable revocation snapshot entry must not silently be \
+             skipped as if it carried no revocations: {out}"
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+}
+
+#[cfg(test)]
+mod handshake_unknown_field_tests {
+    //! Issue #140 Phase 7a: RFC-AITP-0001 §7 for the four Mutual
+    //! Handshake payload types, driven through the real
+    //! `verify_handshake_payload` op dispatch — mirrors
+    //! `manifest_unknown_field_tests` / `revocation_unknown_field_tests`
+    //! above. No conformance fixture covers this surface (the spec's
+    //! `mh-*` pack doesn't exercise §7 for handshake payloads), so this
+    //! is the only thing that would catch a wiring regression in the
+    //! adapter itself (as opposed to the library-level tests in
+    //! `aitp-handshake`).
+    use super::*;
+
+    /// One of the three kat-keypair AIDs `kat_seed_for_aid` resolves —
+    /// used as the default receiver identity when a fixture/test omits
+    /// `self_aid`.
+    const KAT_KEYPAIR_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+
+    fn dummy_envelope(message_type: MessageType, payload: Value) -> Value {
+        json!({
+            "version": aitp_core::PROTOCOL_VERSION,
+            "message_type": message_type,
+            "message_id": Uuid::new_v4(),
+            "timestamp": 1_700_000_000,
+            "sender": {"agent_id": KAT_KEYPAIR_001_AID},
+            "payload": payload,
+            "signature": "A".repeat(86),
+        })
+    }
+
+    /// Real Ed25519-signed envelope, needed for the MUTUAL_COMMIT /
+    /// MUTUAL_COMMIT_ACK branch: `verify_handshake_payload_op` verifies
+    /// the envelope signature BEFORE the member-set check for those two
+    /// message types (unlike HELLO/HELLO_ACK, checked only after a
+    /// successful result), so a dummy signature would surface
+    /// INVALID_SIGNATURE before ever reaching UNKNOWN_FIELD.
+    fn signed_envelope(message_type: MessageType, payload: Value) -> Value {
+        let key = AitpSigningKey::from_seed(&[0x11; 32]);
+        let message_id = Uuid::new_v4();
+        let timestamp = Timestamp(1_700_000_000);
+        let digest =
+            aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
+                .unwrap();
+        let envelope = AitpEnvelope {
+            version: aitp_core::PROTOCOL_VERSION.into(),
+            message_type,
+            message_id,
+            timestamp,
+            sender: Sender {
+                agent_id: key.aid().clone(),
+            },
+            payload,
+            extensions: None,
+            signature: key.sign(&digest).into_string(),
+        };
+        serde_json::to_value(&envelope).unwrap()
+    }
+
+    /// Acceptance criterion 2: an unknown sibling member on a
+    /// MUTUAL_HELLO payload is rejected as UNKNOWN_FIELD before any
+    /// identity/manifest verification runs.
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_hello() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-hello",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHello, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Same check on MUTUAL_HELLO_ACK.
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_hello_ack() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+            "pop_nonce_echo": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-hello-ack",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHelloAck, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Same check on MUTUAL_COMMIT_ACK (shares its member-set check and
+    /// parse path with MUTUAL_COMMIT in `verify_handshake_payload_op`).
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_commit_ack() {
+        let payload = json!({
+            "tct": "aaaa.bbbb.cccc",
+            "pop_signature": "A".repeat(86),
+            "pop_nonce_echo": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-commit-ack",
+            "verify_handshake_payload",
+            json!({ "envelope": signed_envelope(MessageType::MutualCommitAck, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Acceptance criterion 3, via the real op: an unknown member nested
+    /// inside `identity` is also rejected as UNKNOWN_FIELD, through the
+    /// `from_serde_error` recovery path (not `check_members`, which only
+    /// inspects the payload's own top-level keys).
+    #[test]
+    fn adapter_rejects_unknown_field_inside_nested_identity() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+                "rogue": 1,
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-nested-identity",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHello, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
     }
 }

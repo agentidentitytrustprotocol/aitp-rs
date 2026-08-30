@@ -1,11 +1,15 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
 use crate::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
-use aitp_core::{AitpEnvelope, ErrorCode, MessageType, Timestamp};
+use aitp_core::{
+    check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
+    EnvelopeParseError, ErrorCode, MessageType, Timestamp,
+};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp_handshake::{
-    JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig, PinnedKeyStore,
-    PresentedIdentity, Responder,
+    HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig,
+    PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp_manifest::{Manifest, ManifestEnvelope};
 use aitp_tct::RevocationListEnvelope;
@@ -573,8 +577,19 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
         ));
     }
     let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
+    // `TctRenewalPayload` is `#[serde(deny_unknown_fields)]` with no
+    // `extensions` slot of its own (RFC-AITP-0013 defines no such
+    // member), so there is no separate member-set check to run first —
+    // `from_serde_error` recovers the offending name directly from the
+    // residual serde error, the same degradation path
+    // `aitp_tct::renewal::process_renewal_request` uses for the nested
+    // `TctClaims` object.
     let payload: TctRenewalPayload = serde_json::from_slice(&body).map_err(|e| {
-        ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
+        if let Some(field) = from_serde_error(&e) {
+            ResponseError::aitp(ErrorCode::UnknownField, format!("unknown field `{field}`"))
+        } else {
+            ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
+        }
     })?;
     let now = Timestamp::now();
     let renewed = process_renewal_request(
@@ -628,12 +643,34 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     let source_ip = extract_source_ip(&request);
     let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
     enforce_envelope_boundary_checks(&state, &envelope, source_ip.as_deref())?;
+    // RFC-AITP-0001 §7: an unknown sibling member of the payload is a
+    // reject, same as an unknown envelope member — checked before typed
+    // deserialization so it is never masked by `deny_unknown_fields`'
+    // opaque serde error.
+    check_members(
+        "MutualHelloPayload",
+        &envelope.payload,
+        MUTUAL_HELLO_PAYLOAD_MEMBERS,
+    )
+    .map_err(|e| {
+        ResponseError::aitp(
+            handshake_error_code(&HandshakeError::UnknownField(e.field.clone())),
+            format!("unknown field `{}` in MUTUAL_HELLO payload", e.field),
+        )
+    })?;
     let payload: MutualHelloPayload =
         serde_json::from_value(envelope.payload.clone()).map_err(|e| {
-            ResponseError::aitp(
-                ErrorCode::InvalidEnvelope,
-                format!("malformed payload: {e}"),
-            )
+            if let Some(field) = from_serde_error(&e) {
+                ResponseError::aitp(
+                    handshake_error_code(&HandshakeError::UnknownField(field.clone())),
+                    format!("unknown field `{field}` in MUTUAL_HELLO payload"),
+                )
+            } else {
+                ResponseError::aitp(
+                    ErrorCode::InvalidEnvelope,
+                    format!("malformed payload: {e}"),
+                )
+            }
         })?;
     // Verify envelope signature using the *peer's* claimed key. Bootstrap
     // verification will check that the AID's public key actually matches
@@ -775,12 +812,31 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
             ResponseError::aitp(ErrorCode::InvalidEnvelope, "unknown session".into())
         })?
     };
+    // RFC-AITP-0001 §7: same member-set discipline as MUTUAL_HELLO.
+    check_members(
+        "MutualCommitPayload",
+        &envelope.payload,
+        MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    )
+    .map_err(|e| {
+        ResponseError::aitp(
+            handshake_error_code(&HandshakeError::UnknownField(e.field.clone())),
+            format!("unknown field `{}` in MUTUAL_COMMIT payload", e.field),
+        )
+    })?;
     let payload: MutualCommitPayload =
         serde_json::from_value(envelope.payload.clone()).map_err(|e| {
-            ResponseError::aitp(
-                ErrorCode::InvalidEnvelope,
-                format!("malformed payload: {e}"),
-            )
+            if let Some(field) = from_serde_error(&e) {
+                ResponseError::aitp(
+                    handshake_error_code(&HandshakeError::UnknownField(field.clone())),
+                    format!("unknown field `{field}` in MUTUAL_COMMIT payload"),
+                )
+            } else {
+                ResponseError::aitp(
+                    ErrorCode::InvalidEnvelope,
+                    format!("malformed payload: {e}"),
+                )
+            }
         })?;
 
     let peer_pk = AitpVerifyingKey::from_aid(&envelope.sender.agent_id).map_err(|_| {
@@ -989,8 +1045,35 @@ async fn parse_envelope_request(
         ));
     }
     let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
-    let envelope: AitpEnvelope = serde_json::from_slice(&body).map_err(|e| {
+    // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere in
+    // the body — at the envelope's own top level or nested inside
+    // `payload`, `sender`, etc. — MUST be rejected. This has to run
+    // against the ORIGINAL bytes, before `Value` ever exists: `Value`'s
+    // object representation is last-write-wins on a duplicate key, so the
+    // information is unrecoverable one line down.
+    if let Err(e) = reject_duplicate_keys(&body) {
+        return Err(ResponseError::aitp(
+            ErrorCode::InvalidEnvelope,
+            format!("malformed JSON: {e}"),
+        ));
+    }
+    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
+    })?;
+    // RFC-AITP-0001 §7: reject an envelope carrying a top-level member
+    // outside the schema-declared set with `UNKNOWN_FIELD` rather than
+    // the generic `INVALID_ENVELOPE` a bare `from_value` would produce.
+    // Version checking (RFC-AITP-0001 §5.6) happens afterward in
+    // `enforce_envelope_boundary_checks`, so a structurally-clean but
+    // forward-versioned envelope still parses here and is only rejected
+    // there — `parse_envelope_wire` never inspects `version`.
+    let envelope: AitpEnvelope = parse_envelope_wire(&value).map_err(|e| match e {
+        EnvelopeParseError::UnknownField(field) => {
+            ResponseError::aitp(ErrorCode::UnknownField, format!("unknown field `{field}`"))
+        }
+        EnvelopeParseError::Malformed(msg) => {
+            ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {msg}"))
+        }
     })?;
     if envelope.message_type != expected {
         return Err(ResponseError::aitp(
@@ -1182,6 +1265,10 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
             ErrorCode::InvalidEnvelope
         }
         HE::Crypto(_) => ErrorCode::InvalidSignature,
+        // RFC-AITP-0001 §7 / issue #140 Phase 7b: a dedicated core code,
+        // never left to the `_ => INVALID_ENVELOPE` catch-all below —
+        // mirrors the conformance adapter's `handshake_error_code`.
+        HE::UnknownField(_) => ErrorCode::UnknownField,
         // `HandshakeError` is `#[non_exhaustive]`; any future variant
         // we haven't yet mapped to a specific wire code defaults to
         // INVALID_ENVELOPE rather than panicking.

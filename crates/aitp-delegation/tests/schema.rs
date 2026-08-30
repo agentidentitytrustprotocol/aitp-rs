@@ -5,9 +5,10 @@
 
 use aitp_core::Timestamp;
 use aitp_crypto::{jws, AitpSigningKey};
-use aitp_delegation::DelegationBuilder;
+use aitp_delegation::{DelegationBuilder, DELEGATION_CLAIMS_MEMBERS};
 use aitp_tct::TctBuilder;
 use boon::{Compiler, Schemas};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -107,4 +108,36 @@ fn minted_multihop_claims_validate() {
     if let Err(e) = validate(&decoded_claims(&outer)) {
         panic!("multi-hop delegation claims failed schema validation:\n{e}");
     }
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `DELEGATION_CLAIMS_MEMBERS`, the
+/// member set the unverified-peek claim-set check enforces in
+/// `verify_delegation`/`DelegationBuilder`, must equal the vendored
+/// `aitp-delegation.schema.json`'s declared member set. Like the TCT and
+/// grant-voucher schemas, this compact-JWS-profile schema validates the
+/// decoded claims object directly, so its `properties` sit at the top
+/// level — no `properties.<wrapper>.properties` nesting.
+#[test]
+fn delegation_claims_members_matches_vendored_schema_properties() {
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(schema_path()).expect("read vendored schema"))
+            .expect("parse vendored delegation schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]
+        .as_object()
+        .expect("schema has a top-level `properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = DELEGATION_CLAIMS_MEMBERS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "DELEGATION_CLAIMS_MEMBERS has drifted from \
+         tests/schemas/aitp-delegation.schema.json's top-level `properties` keys"
+    );
 }

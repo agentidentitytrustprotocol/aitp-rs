@@ -342,13 +342,18 @@ fn tct_presented_as_delegation_rejected() {
     let a_key = a();
     let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&issued.token, &ctx).unwrap_err();
-    // The TCT's claims don't deserialize as delegation claims (peek
-    // fails) — and even if they did, the typ check would fire.
+    // `peek_claims` now has a typ-first gate (D7 / issue #140 follow-up),
+    // mirroring `aitp_tct::verify_tct`/`verify_voucher`'s established
+    // `peek_header_typ` pattern: the TCT's header `typ` (`aitp-tct+jwt`)
+    // is peeked and compared against the expected delegation typ
+    // (`aitp-delegation+jwt`) before the claim-set check or strict
+    // deserialize ever runs, so the outcome is deterministically
+    // `TypMismatch` — matching `aitp-verifier-py`'s ordering (typ ahead
+    // of unknown-fields) and closing a real cross-impl divergence.
     assert!(
         matches!(
             err,
-            DelegationError::ClaimsMalformed(_)
-                | DelegationError::Crypto(CryptoError::TypMismatch { .. })
+            DelegationError::Crypto(CryptoError::TypMismatch { .. })
         ),
         "got {err:?}"
     );

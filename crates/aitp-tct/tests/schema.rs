@@ -4,10 +4,14 @@
 //! In v0.2 the TCT and grant-voucher schemas validate the **decoded
 //! claims object** (the wire form is an opaque compact JWS string).
 
-use aitp_core::Timestamp;
+use aitp_core::{ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder};
+use aitp_tct::{
+    sign_revocation_list, RevocationEntry, RevocationList, TctBuilder,
+    GRANT_VOUCHER_CLAIMS_MEMBERS, REVOCATION_LIST_MEMBERS, TCT_CLAIMS_MEMBERS,
+};
 use boon::{Compiler, Schemas};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -126,6 +130,7 @@ fn signed_revocation_list_validates_against_spec_schema() {
             revoked_at: Timestamp(1_700_001_000),
             reason: None,
         }],
+        extensions: None,
     };
     let env = sign_revocation_list(body, &issuer).unwrap();
     let value = serde_json::to_value(&env).unwrap();
@@ -143,10 +148,126 @@ fn empty_entries_revocation_list_validates() {
         published_at: Timestamp(1_700_000_000),
         expires_at: Timestamp(1_700_003_600),
         entries: vec![],
+        extensions: None,
     };
     let env = sign_revocation_list(body, &issuer).unwrap();
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate_against(&value, schema_path_for("aitp-revocation-list.schema.json")) {
         panic!("Empty-entries revocation list failed schema validation:\n{e}");
     }
+}
+
+#[test]
+fn revocation_list_with_present_but_empty_extensions_validates_against_spec_schema() {
+    let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
+    let body = RevocationList {
+        version: "aitp/0.2".into(),
+        issuer: issuer.aid().clone(),
+        published_at: Timestamp(1_700_000_000),
+        expires_at: Timestamp(1_700_003_600),
+        entries: vec![],
+        extensions: Some(ExtensionsMap::new()),
+    };
+    let env = sign_revocation_list(body, &issuer).unwrap();
+    let value = serde_json::to_value(&env).unwrap();
+    assert_eq!(
+        value["revocation_list"]["extensions"],
+        serde_json::json!({})
+    );
+    if let Err(e) = validate_against(&value, schema_path_for("aitp-revocation-list.schema.json")) {
+        panic!("Revocation list with present-but-empty extensions failed schema validation:\n{e}");
+    }
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `REVOCATION_LIST_MEMBERS`, the member
+/// set `parse_revocation_snapshot_wire`'s member-set check enforces, must
+/// equal the vendored schema's declared member set for the inner
+/// `revocation_list` object — not a hand-maintained list that could
+/// silently diverge from the spec.
+#[test]
+fn revocation_list_members_matches_vendored_schema_properties() {
+    let path = schema_path_for("aitp-revocation-list.schema.json");
+    let schema_json: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(&path).expect("read vendored revocation-list schema"),
+    )
+    .expect("parse vendored revocation-list schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]["revocation_list"]
+        ["properties"]
+        .as_object()
+        .expect("schema has a `properties.revocation_list.properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = REVOCATION_LIST_MEMBERS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "REVOCATION_LIST_MEMBERS has drifted from \
+         tests/schemas/aitp-revocation-list.schema.json's \
+         `properties.revocation_list.properties` keys"
+    );
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `TCT_CLAIMS_MEMBERS`, the member set
+/// `verify_tct`'s member-set check enforces, must equal the vendored
+/// `aitp-tct.schema.json`'s declared member set. Unlike the JCS-profile
+/// schemas (Manifest, revocation list), this compact-JWS-profile schema
+/// validates the decoded claims object directly, so its `properties` sit
+/// at the top level — no `properties.<wrapper>.properties` nesting.
+#[test]
+fn tct_claims_members_matches_vendored_schema_properties() {
+    let path = schema_path_for("aitp-tct.schema.json");
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("read vendored TCT schema"))
+            .expect("parse vendored TCT schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]
+        .as_object()
+        .expect("schema has a top-level `properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = TCT_CLAIMS_MEMBERS.iter().map(|s| s.to_string()).collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "TCT_CLAIMS_MEMBERS has drifted from \
+         tests/schemas/aitp-tct.schema.json's top-level `properties` keys"
+    );
+}
+
+/// Drift firewall (RFC-AITP-0001 §7): `GRANT_VOUCHER_CLAIMS_MEMBERS`, the
+/// member set `verify_voucher`'s member-set check enforces, must equal the
+/// vendored `aitp-grant-voucher.schema.json`'s declared member set (also a
+/// flat, top-level `properties` shape).
+#[test]
+fn grant_voucher_claims_members_matches_vendored_schema_properties() {
+    let path = schema_path_for("aitp-grant-voucher.schema.json");
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&path).expect("read vendored grant-voucher schema"))
+            .expect("parse vendored grant-voucher schema");
+
+    let schema_properties: BTreeSet<String> = schema_json["properties"]
+        .as_object()
+        .expect("schema has a top-level `properties` object")
+        .keys()
+        .cloned()
+        .collect();
+
+    let rust_members: BTreeSet<String> = GRANT_VOUCHER_CLAIMS_MEMBERS
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+
+    assert_eq!(
+        rust_members, schema_properties,
+        "GRANT_VOUCHER_CLAIMS_MEMBERS has drifted from \
+         tests/schemas/aitp-grant-voucher.schema.json's top-level `properties` keys"
+    );
 }

@@ -303,6 +303,43 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
     );
 }
 
+/// RFC-AITP-0001 §5.4.5 / issue #140: a participant TCT whose
+/// (unverified) payload carries a duplicate top-level key must be
+/// rejected at `build()` time — via `peek_tct_claims`'s raw-bytes
+/// `reject_duplicate_keys` guard — not silently accepted with the key's
+/// last occurrence winning. Raw-text tampering of an otherwise-validly-
+/// issued TCT's payload segment, since a `serde_json::Value` cannot
+/// represent a duplicate key at all.
+#[test]
+fn duplicate_claim_in_participant_tct_rejected_at_build() {
+    let coord = key(0xC1);
+    let alice = key(0xA1);
+    let token = issue_tct(&coord, &alice, 3600);
+
+    let parts: Vec<&str> = token.split('.').collect();
+    assert_eq!(parts.len(), 3);
+    let payload_bytes = aitp_core::base64url::decode_strict(parts[1]).unwrap();
+    let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
+    assert!(payload_str.starts_with('{'));
+    let dup_payload = format!("{{\"ver\":\"aitp/0.2\",{}", &payload_str[1..]);
+    let dup_token = format!(
+        "{}.{}.{}",
+        parts[0],
+        aitp_core::base64url::encode(dup_payload.as_bytes()),
+        parts[2]
+    );
+
+    let err = SessionBundleBuilder::new(&coord)
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), dup_token)
+        .build()
+        .unwrap_err();
+    assert!(
+        matches!(&err, SessionBundleError::Canonicalization(m) if m.contains("duplicate field `ver`")),
+        "expected Canonicalization(duplicate field `ver`), got {err:?}"
+    );
+}
+
 #[test]
 fn foreign_issued_tct_rejected_at_build() {
     // A participant TCT minted by someone *other* than the coordinator
@@ -567,4 +604,46 @@ fn present_but_empty_extensions_still_verifies() {
         "a bundle signed over \"extensions\":{{}} must verify against a \
          signing input that also carries it"
     );
+}
+
+/// Acceptance criterion 3 (Phase 6b, issue #140): a session bundle whose
+/// embedded participant TCT carries an unknown claim must report the
+/// `UNKNOWN_FIELD` class, not `INTERNAL_ERROR`. `peek_tct_claims` used
+/// to route every `serde_json` shape failure (including this one)
+/// through `SessionBundleError::Canonicalization`, which the adapter
+/// maps to `INTERNAL_ERROR` — an unknown claim on an embedded artifact
+/// is a §7 violation, not an internal fault.
+#[test]
+fn participant_tct_with_unknown_claim_rejected_as_unknown_field_not_internal_error() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let claims = serde_json::json!({
+        "ver": aitp_core::PROTOCOL_VERSION,
+        "jti": Uuid::new_v4(),
+        "iss": coord.aid(),
+        "sub": alice.aid(),
+        "aud": alice.aid(),
+        "iat": NOW.0,
+        "exp": NOW.0 + 3600,
+        "grants": ["session.participate"],
+        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint().unwrap() },
+        "rogue": "nope",
+    });
+    let bad_tct =
+        aitp_crypto::jws::sign_compact(&coord, aitp_crypto::jws::TYP_TCT, &claims).unwrap();
+
+    let err = SessionBundleBuilder::new(&coord)
+        .session_id(Uuid::parse_str("00000000-0000-4000-8000-000000000000").unwrap())
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), bad_tct)
+        .build()
+        .unwrap_err();
+
+    match err {
+        SessionBundleError::UnknownField(field) => assert_eq!(field, "rogue"),
+        other => panic!(
+            "expected UnknownField(\"rogue\"), not an INTERNAL_ERROR-mapped \
+             Canonicalization; got {other:?}"
+        ),
+    }
 }

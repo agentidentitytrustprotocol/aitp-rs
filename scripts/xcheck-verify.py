@@ -47,6 +47,7 @@ try:
     from aitp_verifier.b64 import b64url_decode, b64url_encode
     from aitp_verifier.errors import AitpError
     from aitp_verifier.identity import verify_identity
+    from aitp_verifier.manifest import verify_manifest
     from aitp_verifier.revocation import verify_revocation_snapshot
     from aitp_verifier.sessionbundle import verify_session_bundle
 except ImportError as exc:  # pragma: no cover - CI installs it
@@ -117,6 +118,39 @@ def main() -> int:
                 "expected_issuer": minted["expected_issuer"],
                 "snapshot": minted["snapshot"],
             }
+        ),
+    )
+    # D8 / issue #140 follow-up: `extensions` is not a trust-decision
+    # input, but it IS part of the JCS-canonicalized signing body, so a
+    # populated `extensions` map must flow through both implementations'
+    # canonicalization identically. Unlike the vector above, this one has
+    # no committed byte-identity reference to check against -- only that
+    # aitp-verifier-py accepts it and reproduces the same signature.
+    ok &= check(
+        "revocation snapshot with populated extensions",
+        lambda: verify_revocation_snapshot(
+            {
+                "policy": {"fail_mode": "fail_closed", "max_staleness_secs": 86400},
+                "now": now + 100,
+                "expected_issuer": minted["expected_issuer"],
+                "snapshot": minted["snapshot_with_extensions"],
+            }
+        ),
+    )
+    # D9 / issue #140 follow-up: manifest had zero cross-impl coverage of
+    # any kind before this -- not even the base signing-input shape, let
+    # alone the `Option<ExtensionsMap>` migration (Phase 3). Two vectors:
+    # no `extensions` at all, and a populated one.
+    ok &= check(
+        "manifest (no extensions)",
+        lambda: verify_manifest(
+            {"manifest": minted["manifest_no_extensions"], "now": now + 100}
+        ),
+    )
+    ok &= check(
+        "manifest with populated extensions",
+        lambda: verify_manifest(
+            {"manifest": minted["manifest_with_extensions"], "now": now + 100}
         ),
     )
     ok &= check(

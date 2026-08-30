@@ -12,9 +12,12 @@ use aitp_core::Timestamp;
 use aitp_crypto::AitpSigningKey;
 use aitp_handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use boon::{Compiler, Schemas};
+use std::collections::BTreeSet;
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -197,6 +200,42 @@ fn all_four_handshake_payloads_validate_against_schema() {
     );
 }
 
+/// Drift firewall (RFC-AITP-0001 §7 / issue #140 Phase 7a): each of the
+/// four handshake payload `*_MEMBERS` consts — which the adapter's
+/// `verify_handshake_payload_op` checks the raw payload against before
+/// typed deserialization — must equal the vendored
+/// `aitp-mutual-handshake.schema.json`'s corresponding `$defs.<Name>.properties`
+/// keys, not a hand-maintained list that could silently diverge from the
+/// spec.
+#[test]
+fn payload_member_sets_match_vendored_schema_defs() {
+    let schema_json: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(schema_path()).expect("read schema"))
+            .expect("parse schema");
+
+    let cases: &[(&str, &[&str])] = &[
+        ("MutualHelloPayload", MUTUAL_HELLO_PAYLOAD_MEMBERS),
+        ("MutualHelloAckPayload", MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS),
+        ("MutualCommitPayload", MUTUAL_COMMIT_PAYLOAD_MEMBERS),
+        ("MutualCommitAckPayload", MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS),
+    ];
+    for (def_name, members) in cases {
+        let schema_properties: BTreeSet<String> = schema_json["$defs"][*def_name]["properties"]
+            .as_object()
+            .unwrap_or_else(|| panic!("schema has no $defs.{def_name}.properties"))
+            .keys()
+            .cloned()
+            .collect();
+        let rust_members: BTreeSet<String> = members.iter().map(|s| s.to_string()).collect();
+        assert_eq!(
+            rust_members, schema_properties,
+            "{def_name}'s MEMBERS const has drifted from \
+             tests/schemas/aitp-mutual-handshake.schema.json's \
+             $defs.{def_name}.properties keys"
+        );
+    }
+}
+
 fn build_envelope(
     sender: &AitpSigningKey,
     mt: aitp_core::MessageType,
@@ -216,6 +255,7 @@ fn build_envelope(
             agent_id: sender.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: sig.into_string(),
     }
 }

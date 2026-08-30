@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- **A new `UNKNOWN_FIELD` error code, surfaced for every AITP artifact that
+  reserves an `extensions`/`ext` namespace**
+  ([#140](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/140),
+  spec
+  [agentidentitytrustprotocol/agentidentitytrustprotocol#41](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/pull/41)).
+  RFC-AITP-0001 §7's forward-compatibility rule is deliberately asymmetric,
+  and this release makes both halves of it hold everywhere the schema
+  declares an `extensions`/`ext` slot: a top-level member that is **not**
+  in the schema-declared member set — a sibling of `extensions`/`ext`, not
+  a key inside it — is now rejected with `UNKNOWN_FIELD` naming the
+  offending member (`UnknownField { field, object }`), replacing a bare
+  `serde` deserialize failure that previously surfaced as a generic
+  `INVALID_ENVELOPE`/`MALFORMED_REQUEST`-family code with no indication of
+  which field or which object was at fault. A key found **inside**
+  `extensions`/`ext`, at any nesting depth, is always ignored — never
+  rejected, regardless of shape — because that namespace is the one place
+  the spec asks implementations to tolerate content they don't understand.
+  These two behaviors were previously inconsistent across artifacts: some
+  over-rejected content inside `extensions` that should have been
+  tolerated, others under-rejected a stray top-level member that should
+  have been a hard failure. Every artifact's member-set check is now
+  anchored directly to `tests/schemas/*.schema.json` rather than a
+  hand-maintained list, so a future spec revision that adds a member
+  cannot silently start rejecting it here.
+
+  Three groups of types gain a new `extensions` slot they did not
+  previously have, closing the gap between what the vendored JSON schemas
+  already declared and what these Rust types accepted: the envelope
+  (`AitpEnvelope`), the revocation snapshot (`RevocationList`), and all
+  four Mutual Handshake payloads (`MutualHelloPayload`,
+  `MutualHelloAckPayload`, `MutualCommitPayload`, `MutualCommitAckPayload`).
+  **No existing signing input moved, and nothing needs re-signing.** Every
+  one of these new fields is `Option<ExtensionsMap>` with
+  `#[serde(default, skip_serializing_if = "Option::is_none")]`, so an
+  artifact that never sets the field serializes to exactly the same bytes
+  as before this change — the new member is opt-in on the wire, not a
+  default-populated one.
+
+  Two spec notes worth recording so they aren't rediscovered: RFC-AITP-0001
+  §5.1's prose says the envelope's `extensions` is "covered by the
+  envelope signature like any other member", but §5.4's actual envelope
+  signing input is the fixed four-tuple
+  `message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))`, which
+  never canonicalizes `extensions` at all — this implementation follows
+  the signing-input definition, not the prose, and the discrepancy has
+  been raised upstream rather than "fixed" here toward stale text. And
+  this release is pinned to spec commit `5063c08`; the upstream spec has
+  since moved to `ea22c71`, which already resolves a related schema
+  disagreement over whether `IdentityDescriptor` (nested inside a
+  handshake payload) has its own `extensions` slot — this repo follows
+  the pinned schema for now (no `extensions` on `IdentityDescriptor`) and
+  will pick up the fix on the next spec-pin bump.
+
+  Versioning note: this is a minor-*class*, patch-*position* change per
+  the spec's own pre-1.0 mapping — the affected RFCs move `0.2.x` →
+  `0.2.x+1`, the protocol literal stays `aitp/0.2`, and the schema
+  namespace stays `https://aitp.dev/schema/v0.2/`. No `aitp-rs` crate
+  version is bumped by this entry; that is release-plz's job at release
+  time, computed from the `!`/`BREAKING CHANGE` footers below.
+
 ### Security
 
 - **`bindings/aitp-py` bumps pyo3 `0.22` → `0.29`**, closing
@@ -101,7 +163,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   separate affine coordinates JWKs carry for `EC` keys (as opposed to
   `from_compressed`'s SEC1-compressed form).
 
+- **`cargo-semver-checks` reports four major findings from the
+  `UNKNOWN_FIELD` work above**, all expected and absorbed by this
+  already-breaking release: `constructible_struct_adds_field` on
+  `AitpEnvelope` (new `extensions` field) and on `RevocationList` (new
+  `extensions` field); the same finding on `Manifest`, plus a field-type
+  change on `Manifest::extensions` from `ExtensionsMap` to
+  `Option<ExtensionsMap>` (fixing a latent bug where a manifest's literal
+  `"extensions":{}` was indistinguishable from an absent `extensions` key,
+  which could silently change the reconstructed JCS signing input); and
+  `enum_variant_added` on `SessionBundleError` (new `UnknownField` variant)
+  — the one artifact error enum in this codebase that is not
+  `#[non_exhaustive]`, so the addition is semver-major rather than
+  transparent to matching callers.
+
 ### Fixed
+
+- **Duplicate top-level JSON keys are rejected again on every wire-parsing
+  path this release touches** (RFC-AITP-0001 §5.4.5), closing a regression
+  introduced by the `UNKNOWN_FIELD` work above rather than a pre-existing
+  gap. Checking a member set ahead of a typed deserialize requires first
+  parsing into an untyped `serde_json::Value` — but `Value`'s object
+  representation is last-write-wins on a repeated key, so by the time a
+  `Value` exists, the automatic duplicate-field rejection every
+  `serde`-derived struct normally provides (independent of
+  `deny_unknown_fields`) is already gone, at every nesting level. This
+  silently affected the envelope, manifest, revocation snapshot, session
+  bundle, handshake payload, and TCT/voucher/delegation claim parsing paths
+  wherever this release routed them through a member-set check, and
+  reached the live HTTP server and client facade — not just the
+  conformance adapter — before being caught. Fixed with a new
+  `aitp_core::reject_duplicate_keys`, which detects a repeated key
+  anywhere in a JSON document (every nesting level, including inside
+  arrays) directly from raw bytes, via `serde`'s own
+  `Deserializer`/`Visitor`/`DeserializeSeed` traits, without ever
+  constructing a `Value`; every affected entry point now calls it against
+  the original bytes before any `Value` is built. No conformance fixture
+  exercises a duplicate key, so this was undetected by the corpus; a new
+  regression test exists per affected artifact, including a live HTTP
+  test.
 
 - **Conformance adapter now enforces the pinned-key trust store**
   (RFC-AITP-0002 §3.2 step 1). `aitp-rs-adapter`'s

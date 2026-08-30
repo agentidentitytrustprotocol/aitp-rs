@@ -54,7 +54,7 @@
             "format": "uri"
           },
           "uniqueItems": true,
-          "description": "OIDC issuer URIs this agent accepts from peers. For an `oidc` peer, the peer's identity issuer MUST appear here for the handshake to proceed (RFC-AITP-0003 §5 step 5). Not consulted for a `pinned_key` (or other non-OIDC) peer — compatibility for those is instead governed by `accepted_identity_types` — so an empty array here is valid and does not by itself reject every peer."
+          "description": "OIDC issuer URIs this agent accepts from peers. For an `oidc` peer, the peer's identity issuer MUST appear here for the handshake to proceed (RFC-AITP-0003 §5 step 6). Not consulted for a `pinned_key` (or other non-OIDC) peer — compatibility for those is instead governed by `accepted_identity_types` — so an empty array here is valid and does not by itself reject every peer."
         },
         "offered_capabilities": {
           "type": "array",

@@ -98,6 +98,7 @@ impl RevocationListProducer for LiveRevocations {
                 published_at: now,
                 expires_at: Timestamp(now.0 + 3600),
                 entries,
+                extensions: None,
             },
             &self.issuer,
         )

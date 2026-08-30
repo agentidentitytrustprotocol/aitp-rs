@@ -7,7 +7,9 @@
 //! (`message_id`, `timestamp`, `sender.agent_id`, `payload`) gets a
 //! tamper test proving verification rejects when it changes.
 
-use aitp_core::{envelope_signing_digest, AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp_core::{
+    envelope_signing_digest, AitpEnvelope, ExtensionsMap, MessageType, Sender, Timestamp,
+};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp_envelope::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 use uuid::Uuid;
@@ -190,6 +192,28 @@ fn p256_tampered_payload_is_rejected() {
         ),
         "tampered P-256 envelope must not verify, got {err:?}"
     );
+}
+
+#[test]
+fn attaching_extensions_after_signing_does_not_invalidate_the_signature() {
+    // RFC-AITP-0001 §7 / the envelope signing input (message_id|timestamp|
+    // sender.agent_id|hex(sha256(JCS(payload)))) excludes `extensions` by
+    // construction. Unlike a unit test against `envelope_signing_input`
+    // directly (which can't vary `extensions` without also holding every
+    // other input fixed, making the comparison tautological), this drives
+    // the real production path: sign an envelope, then attach a populated
+    // `extensions` map to the *already-signed* value, and confirm
+    // verification still succeeds.
+    let k = key(0x40);
+    let mut env = signed(&k);
+    let mut ext = ExtensionsMap::new();
+    ext.insert(
+        "com.example/debug_trace",
+        serde_json::json!({"request_id": "abc"}),
+    );
+    env.extensions = Some(ext);
+    verify_envelope_signature(&env, &k.verifying_key())
+        .expect("attaching extensions must not affect the outer signature");
 }
 
 #[test]

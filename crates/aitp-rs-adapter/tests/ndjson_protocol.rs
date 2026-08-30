@@ -82,6 +82,55 @@ fn malformed_json_line_yields_error_and_stream_continues() {
 }
 
 #[test]
+fn duplicate_top_level_key_is_rejected_as_malformed_not_silently_accepted() {
+    // Issue #140 / RFC-AITP-0001 §5.4.5: a duplicate JSON key anywhere in
+    // the request must be rejected, not silently collapsed to its last
+    // occurrence by `Value`'s last-write-wins map representation. This is
+    // the wire-level regression test for `main.rs`'s raw-line
+    // `reject_duplicate_keys` pre-check, ahead of the following valid
+    // request continuing to be served.
+    let input = concat!(
+        "{\"id\":\"dup\",\"op\":\"init\",\"op\":\"shutdown\"}\n",
+        "{\"id\":\"ok\",\"op\":\"init\"}\n",
+    );
+    let out = run_lines(input);
+    assert_eq!(out.len(), 2, "one response per input line: {out:?}");
+    assert_eq!(out[0]["ok"], serde_json::json!(false));
+    assert_eq!(out[0]["error_code"], serde_json::json!("MALFORMED_REQUEST"));
+    assert!(
+        out[0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("duplicate field `op`")),
+        "expected a duplicate-field diagnostic, got: {:?}",
+        out[0]["message"]
+    );
+
+    assert_eq!(out[1]["id"], serde_json::json!("ok"));
+    assert_eq!(out[1]["ok"], serde_json::json!(true));
+}
+
+#[test]
+fn duplicate_key_nested_inside_envelope_payload_is_rejected() {
+    // The duplicate need not be at the request's own top level — it must
+    // be caught anywhere in the document, including nested inside
+    // `params.envelope.payload`, which downstream dispatch treats as an
+    // opaque `serde_json::Value` navigated out of the SAME parsed
+    // request document.
+    let input = "{\"id\":\"dup\",\"op\":\"verify_envelope\",\"params\":{\"envelope\":{\"payload\":{\"x\":1,\"x\":2}}}}\n";
+    let out = run_lines(input);
+    assert_eq!(out.len(), 1);
+    assert_eq!(out[0]["ok"], serde_json::json!(false));
+    assert_eq!(out[0]["error_code"], serde_json::json!("MALFORMED_REQUEST"));
+    assert!(
+        out[0]["message"]
+            .as_str()
+            .is_some_and(|m| m.contains("duplicate field `x`")),
+        "expected a duplicate-field diagnostic, got: {:?}",
+        out[0]["message"]
+    );
+}
+
+#[test]
 fn blank_lines_are_skipped() {
     let input = "\n   \n{\"id\":\"x\",\"op\":\"dump_session\",\"params\":{}}\n\n";
     let out = run_lines(input);

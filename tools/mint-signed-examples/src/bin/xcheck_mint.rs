@@ -19,8 +19,9 @@
 //! collapses "Rust mints → Python verifies" and "Rust reproduces the
 //! reference-minted bytes" into one check.
 
-use aitp_core::{AidAlgorithm, Timestamp};
+use aitp_core::{AidAlgorithm, ExtensionsMap, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp_session_bundle::SessionBundleBuilder;
 use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder};
 use uuid::Uuid;
@@ -85,8 +86,86 @@ fn main() {
             revoked_at: Timestamp(NOW + 60),
             reason: Some("key_compromised".into()),
         }],
+        extensions: None,
     };
     let snapshot = sign_revocation_list(body, &issuer).expect("sign revocation snapshot");
+
+    // Otherwise-identical revocation snapshot, but with a populated
+    // `extensions` map (D8 / issue #140 follow-up): `extensions` is not
+    // a trust-decision input, but it IS part of the JCS-canonicalized
+    // signing body (RFC-AITP-0001 §5.4.1), so a populated map must flow
+    // through both implementations' canonicalization identically. The
+    // content below deliberately stresses JCS agreement rather than just
+    // being "any non-empty map": a nested object, a key containing a
+    // non-ASCII character, and an integer value.
+    let mut extensions_with_content = ExtensionsMap::new();
+    extensions_with_content.insert("café", serde_json::json!("stress ünïcödé \u{1F600}"));
+    extensions_with_content.insert(
+        "nested",
+        serde_json::json!({"inner": {"count": 3, "flag": true}, "list": [1, 2, 3]}),
+    );
+    extensions_with_content.insert("count", serde_json::json!(42));
+    let body_with_extensions = RevocationList {
+        version: aitp_core::PROTOCOL_VERSION.to_string(),
+        issuer: issuer.aid().clone(),
+        published_at: Timestamp(NOW),
+        expires_at: Timestamp(NOW + 3600),
+        entries: vec![RevocationEntry {
+            jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
+            revoked_at: Timestamp(NOW + 60),
+            reason: Some("key_compromised".into()),
+        }],
+        extensions: Some(extensions_with_content),
+    };
+    let snapshot_with_extensions =
+        sign_revocation_list(body_with_extensions, &issuer).expect("sign revocation snapshot");
+
+    // ── Manifest ─────────────────────────────────────────────────────
+    // D9 / issue #140 follow-up: manifest had zero cross-impl coverage
+    // of any kind before this — not even the base signing-input shape,
+    // let alone the `Option<ExtensionsMap>` migration (Phase 3). Two
+    // vectors: no `extensions` at all, and a populated one (real
+    // content, not empty). `Some(ExtensionsMap::new())`
+    // (present-but-empty) is deliberately not covered here — it is
+    // unreachable from the public `ManifestBuilder` API.
+    let manifest_pubkey_b64 = aitp_core::base64url::encode(
+        &issuer
+            .verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("issuer key was constructed as Ed25519, never P-256"),
+    );
+    let manifest_identity_hint = || IdentityHint {
+        kind: IdentityHintKind::PinnedKey,
+        subject: "xcheck-manifest".into(),
+        issuer: None,
+        public_key: Some(manifest_pubkey_b64.clone()),
+    };
+    let manifest_no_extensions = ManifestBuilder::new(&issuer)
+        .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
+        .identity_hint(manifest_identity_hint())
+        .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
+        .accept_identity_type("pinned_key")
+        .offer("demo.echo")
+        .ttl_secs(3600)
+        .published_at(Timestamp(NOW))
+        .build()
+        .expect("mint manifest without extensions");
+    let manifest_with_extensions = ManifestBuilder::new(&issuer)
+        .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
+        .identity_hint(manifest_identity_hint())
+        .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
+        .accept_identity_type("pinned_key")
+        .offer("demo.echo")
+        .ttl_secs(3600)
+        .published_at(Timestamp(NOW))
+        .extension("café", serde_json::json!("stress ünïcödé"))
+        .extension(
+            "nested",
+            serde_json::json!({"inner": {"count": 3, "flag": true}, "list": [1, 2, 3]}),
+        )
+        .extension("count", serde_json::json!(42))
+        .build()
+        .expect("mint manifest with populated extensions");
 
     // ── Session trust bundle ─────────────────────────────────────────
     let tct = TctBuilder::new(&issuer)
@@ -137,6 +216,12 @@ fn main() {
         "expected_issuer": issuer.aid().to_string(),
         "verifier_aid": participant.aid().to_string(),
         "snapshot": { "revocation_list": snapshot.revocation_list, "signature": snapshot.signature },
+        "snapshot_with_extensions": {
+            "revocation_list": snapshot_with_extensions.revocation_list,
+            "signature": snapshot_with_extensions.signature,
+        },
+        "manifest_no_extensions": manifest_no_extensions,
+        "manifest_with_extensions": manifest_with_extensions,
         "session_bundle": { "session_bundle": body },
         "oidc_identity": {
             "now": NOW,

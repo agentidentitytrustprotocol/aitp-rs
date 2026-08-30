@@ -33,7 +33,9 @@ pub mod wire;
 
 pub use builder::{SessionBundleBuilder, DEFAULT_BUNDLE_VERSION};
 pub use error::SessionBundleError;
-pub use types::{ParticipantEntry, SessionBundleEnvelope, SessionTrustBundle};
+pub use types::{
+    ParticipantEntry, SessionBundleEnvelope, SessionTrustBundle, SESSION_BUNDLE_MEMBERS,
+};
 pub use verifier::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
 pub use wire::parse_session_bundle_wire;
 

@@ -50,6 +50,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
                 revoked_at: now,
                 reason: Some("test".into()),
             }],
+            extensions: None,
         },
         &issuer,
     )
@@ -127,6 +128,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
                 revoked_at: now,
                 reason: Some("wire-shape check".into()),
             }],
+            extensions: None,
         },
         &issuer,
     )

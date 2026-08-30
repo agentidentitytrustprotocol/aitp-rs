@@ -57,6 +57,7 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
             agent_id: sender.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: sender.sign(&digest).into_string(),
     }
 }

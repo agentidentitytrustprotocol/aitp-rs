@@ -220,6 +220,21 @@ impl<'a> ManifestBuilder<'a> {
             signature: pop_signature.into_string(),
         };
 
+        // OQ1: the builder has no public API for requesting a literal
+        // `"extensions":{}` on the wire (mirroring `accepted_identity_types`
+        // / `required_peer_capabilities`, `.extension()` is the only way to
+        // populate this field) — an empty `self.extensions` here means
+        // "the caller never called `.extension()`", i.e. absent, not
+        // present-but-empty. Preserve that as `None` so the canonical bytes
+        // (and this builder's own behavior) are unchanged from before the
+        // `Option<ExtensionsMap>` migration; `Some(ExtensionsMap::new())`
+        // is only reachable by constructing a `Manifest` directly.
+        let extensions: Option<ExtensionsMap> = if self.extensions.is_empty() {
+            None
+        } else {
+            Some(self.extensions)
+        };
+
         let unsigned = ManifestSigningView {
             version: "aitp/0.2",
             aid: &aid,
@@ -228,12 +243,13 @@ impl<'a> ManifestBuilder<'a> {
             handshake_endpoint: &handshake_endpoint,
             accepted_trust_anchors: &self.accepted_trust_anchors,
             accepted_identity_types: self.accepted_identity_types.as_deref(),
+            accepted_signature_algorithms: None,
             offered_capabilities: &self.offered_capabilities,
             required_peer_capabilities: self.required_peer_capabilities.as_deref(),
             proof_of_possession: &pop,
             published_at: &published_at,
             expires_at: &expires_at,
-            extensions: &self.extensions,
+            extensions: extensions.as_ref(),
         };
         let canonical = jcs::canonicalize_serializable(&unsigned)
             .map_err(|e| ManifestError::Canonicalization(e.to_string()))?;
@@ -248,12 +264,15 @@ impl<'a> ManifestBuilder<'a> {
             handshake_endpoint,
             accepted_trust_anchors: self.accepted_trust_anchors,
             accepted_identity_types: self.accepted_identity_types,
+            // No builder API sets this yet (see `Manifest::accepted_signature_algorithms`
+            // doc comment) — modeling only, no enforcement feature in scope here.
+            accepted_signature_algorithms: None,
             offered_capabilities: self.offered_capabilities,
             required_peer_capabilities: self.required_peer_capabilities,
             proof_of_possession: pop,
             published_at,
             expires_at,
-            extensions: self.extensions,
+            extensions,
             signature: signature.into_string(),
         })
     }
@@ -305,6 +324,18 @@ fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
 /// as `accepted_identity_types` — spec fixtures vary in whether
 /// they include explicit `[]` or omit the field, and the canonical
 /// signing bytes differ accordingly.
+///
+/// `extensions` is `Option<&'a ExtensionsMap>` with
+/// `skip_serializing_if = "Option::is_none"`, matching `Manifest::extensions`
+/// exactly (OQ1 / issue #140): `None` emits no `extensions` key, and
+/// `Some(&ExtensionsMap::new())` emits `"extensions":{}`. Before this, the
+/// field was a bare `&'a ExtensionsMap` skipped via `ExtensionsMap::is_empty`,
+/// which silently dropped a wire-present `"extensions":{}` from the signing
+/// input — a manifest signed with that literal shape failed verification.
+/// This field is populated at two independent call sites (`builder.rs`'s
+/// `.build()` and `verifier.rs`'s `verify_manifest`); both MUST derive their
+/// `Option` the same way `Manifest::extensions` does, or issuer and verifier
+/// disagree about the signing bytes.
 #[derive(Serialize)]
 pub(crate) struct ManifestSigningView<'a> {
     pub version: &'a str,
@@ -316,14 +347,16 @@ pub(crate) struct ManifestSigningView<'a> {
     pub accepted_trust_anchors: &'a [RawUrl],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub accepted_identity_types: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_signature_algorithms: Option<&'a [String]>,
     pub offered_capabilities: &'a [String],
     #[serde(skip_serializing_if = "Option::is_none")]
     pub required_peer_capabilities: Option<&'a [String]>,
     pub proof_of_possession: &'a ManifestPop,
     pub published_at: &'a Timestamp,
     pub expires_at: &'a Timestamp,
-    #[serde(skip_serializing_if = "ExtensionsMap::is_empty")]
-    pub extensions: &'a ExtensionsMap,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<&'a ExtensionsMap>,
 }
 
 impl Default for ManifestBuilder<'_> {
@@ -332,5 +365,86 @@ impl Default for ManifestBuilder<'_> {
         // We provide `Default` only via this stub that panics so we don't
         // accidentally encourage default-initialised builders.
         panic!("ManifestBuilder requires an issuer signing key; use ManifestBuilder::new")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aitp_core::Aid;
+
+    fn sample_view_parts() -> (
+        Aid,
+        IdentityHint,
+        RawUrl,
+        Vec<RawUrl>,
+        Vec<String>,
+        ManifestPop,
+    ) {
+        (
+            Aid::from_ed25519(&[0u8; 32]),
+            IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "agent-a".into(),
+                issuer: Some(RawUrl::new("https://idp.example.com")),
+                public_key: None,
+            },
+            RawUrl::new("https://a.example.com/handshake"),
+            vec![RawUrl::new("https://idp.example.com")],
+            vec!["demo.echo".into()],
+            ManifestPop {
+                challenge: "A".repeat(22),
+                signature: "A".repeat(86),
+            },
+        )
+    }
+
+    /// OQ1 gate: `ManifestSigningView::extensions` must be presence-sensitive
+    /// the same way `Manifest::extensions` is — `None` emits no key,
+    /// `Some(&ExtensionsMap::new())` emits `"extensions":{}`. This is the
+    /// exact bug that made a wire-present `"extensions":{}` fail
+    /// verification before the `Option` migration: the view used to skip
+    /// on `ExtensionsMap::is_empty`, which is `true` for both "absent" and
+    /// "present but empty", so it dropped the empty-but-present case from
+    /// the canonical bytes unconditionally.
+    #[test]
+    fn signing_view_extensions_is_presence_sensitive() {
+        let (aid, hint, endpoint, anchors, caps, pop) = sample_view_parts();
+        let published_at = Timestamp(1_711_900_000);
+        let expires_at = Timestamp(1_711_986_400);
+
+        let absent = ManifestSigningView {
+            version: "aitp/0.2",
+            aid: &aid,
+            display_name: None,
+            identity_hint: &hint,
+            handshake_endpoint: &endpoint,
+            accepted_trust_anchors: &anchors,
+            accepted_identity_types: None,
+            accepted_signature_algorithms: None,
+            offered_capabilities: &caps,
+            required_peer_capabilities: None,
+            proof_of_possession: &pop,
+            published_at: &published_at,
+            expires_at: &expires_at,
+            extensions: None,
+        };
+        let v = serde_json::to_value(&absent).unwrap();
+        assert!(
+            !v.as_object().unwrap().contains_key("extensions"),
+            "None must emit no `extensions` key in the signing view: {v}"
+        );
+
+        let empty = ExtensionsMap::new();
+        let present = ManifestSigningView {
+            extensions: Some(&empty),
+            ..absent
+        };
+        let v = serde_json::to_value(&present).unwrap();
+        assert_eq!(
+            v.get("extensions"),
+            Some(&serde_json::json!({})),
+            "Some(empty) must emit `\"extensions\":{{}}` in the signing view: {v}"
+        );
     }
 }

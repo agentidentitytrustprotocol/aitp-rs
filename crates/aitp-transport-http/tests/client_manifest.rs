@@ -161,6 +161,127 @@ async fn oversized_response_rejected() {
 }
 
 #[tokio::test]
+async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json() {
+    // RFC-AITP-0001 §7 / issue #140 (Phase 3, AC8): a `{"manifest": {...}}`
+    // response whose inner body carries an unrecognized sibling member
+    // (man-004 shape) must report `FetchError::UnknownField`, distinct
+    // from a body that fails to parse as JSON at all.
+    use aitp_crypto::AitpSigningKey;
+    use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use axum::{routing::get, Json, Router};
+
+    let key = AitpSigningKey::from_seed(&[11u8; 32]);
+    let manifest = ManifestBuilder::new(&key)
+        .handshake_endpoint(
+            "https://b.agents.example.com/aitp/handshake"
+                .parse()
+                .unwrap(),
+        )
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "agent-b".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .ttl_secs(3600)
+        .build()
+        .unwrap();
+    let mut manifest_value = serde_json::to_value(&manifest).unwrap();
+    manifest_value
+        .as_object_mut()
+        .unwrap()
+        .insert("deployment_region".into(), serde_json::json!("us-east-1"));
+    let wrapped = serde_json::json!({ "manifest": manifest_value });
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let wrapped = wrapped.clone();
+            async move { Json(wrapped) }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::UnknownField(ref f) if f == "deployment_region"),
+        "expected UnknownField(\"deployment_region\"), got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn duplicate_top_level_key_in_manifest_body_is_rejected_not_silently_accepted() {
+    // RFC-AITP-0001 §5.4.5 / issue #140: a `{"manifest": {...}}` response
+    // whose inner body carries a DUPLICATE member must be rejected, not
+    // silently collapsed to its last occurrence by `Value`'s
+    // last-write-wins map representation. Before the `reject_duplicate_keys`
+    // pre-check landed in `ManifestFetcher::fetch_attempt`, this body would
+    // have parsed clean (`aid` silently taking its second value) and sailed
+    // straight through `parse_manifest_wire`.
+    use axum::{
+        http::header,
+        response::{IntoResponse, Response},
+        routing::get,
+        Router,
+    };
+    // Raw text, deliberately NOT built via `serde_json::json!` /
+    // `Value` — a `Value` cannot represent a duplicate key at all, which
+    // is exactly the bug this test guards against. The manifest body
+    // need not be a fully valid, verifiable Manifest: the duplicate key
+    // must be rejected before `parse_manifest_wire` (let alone signature
+    // verification) is ever reached.
+    let sig = "A".repeat(86);
+    let body = format!(
+        r#"{{"manifest":{{"aid":"aid:pubkey:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","aid":"aid:pubkey:BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","handshake_endpoint":"https://b.agents.example.com/aitp/handshake","published_at":1700000000,"expires_at":1700003600,"offered_capabilities":["demo.echo"],"pop":{{"nonce":"AAAAAAAAAAAAAAAAAAAAAA","signature":"{sig}"}}}}}}"#
+    );
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let body = body.clone();
+            async move {
+                Response::builder()
+                    .header(header::CONTENT_TYPE, "application/json")
+                    .body(axum::body::Body::from(body))
+                    .unwrap()
+                    .into_response()
+            }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::MalformedJson(ref m) if m.contains("duplicate field `aid`")),
+        "expected MalformedJson mentioning the duplicate `aid` field, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn malformed_wrapper_rejected() {
     // Server returns valid JSON but not the `{"manifest": {...}}` shape.
     use axum::{routing::get, Json, Router};
@@ -180,13 +301,77 @@ async fn malformed_wrapper_rejected() {
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
         .unwrap_err();
-    // The fetcher tries to deserialise into `ManifestEnvelope`; any failure
-    // surfaces as `MalformedJson` (serde rejects the missing `manifest`
-    // key as a deserialise error rather than as a separate "wrapper"
-    // case).
+    // RFC-AITP-0003 §6.1: the `/.well-known/aitp-manifest` endpoint has a
+    // normative requirement to respond with the `{"manifest": {...}}`
+    // wrapper. The fetcher checks for that wrapper *before* handing off to
+    // `aitp_manifest::parse_manifest_wire` (which is deliberately lenient
+    // about the wrapper elsewhere, e.g. the conformance adapter) — a body
+    // with no `manifest` key at all must be rejected as `MalformedWrapper`,
+    // not treated as a bare manifest body.
     assert!(
-        matches!(err, FetchError::MalformedJson(_)),
-        "expected MalformedJson (missing manifest key), got: {err:?}"
+        matches!(err, FetchError::MalformedWrapper),
+        "expected MalformedWrapper, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
+async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
+    // RFC-AITP-0003 §6.1 conformance regression guard: a response body
+    // that IS a fully valid, otherwise-well-formed Manifest — just missing
+    // the `{"manifest": {...}}` transport wrapper — must still be rejected
+    // by this endpoint's fetcher as `MalformedWrapper`. The lenient
+    // unwrapped-body acceptance in `aitp_manifest::parse_manifest_wire` is
+    // intentional for other callers (the conformance adapter), but MUST
+    // NOT leak into this HTTP call site, which has a normative wrapper
+    // requirement.
+    use aitp_crypto::AitpSigningKey;
+    use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use axum::{routing::get, Json, Router};
+
+    let key = AitpSigningKey::from_seed(&[12u8; 32]);
+    let manifest = ManifestBuilder::new(&key)
+        .handshake_endpoint(
+            "https://c.agents.example.com/aitp/handshake"
+                .parse()
+                .unwrap(),
+        )
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "agent-c".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .ttl_secs(3600)
+        .build()
+        .unwrap();
+    let unwrapped = serde_json::to_value(&manifest).unwrap();
+
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let unwrapped = unwrapped.clone();
+            async move { Json(unwrapped) }
+        }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FetchError::MalformedWrapper),
+        "expected MalformedWrapper for an unwrapped (but otherwise valid) manifest body, got: {err:?}"
     );
     server.abort();
     let _ = server.await;
