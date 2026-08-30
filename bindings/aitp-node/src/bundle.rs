@@ -11,12 +11,11 @@ use aitp_session_bundle::{
     SessionBundleEnvelope, VerifySessionBundleContext,
 };
 use napi::bindgen_prelude::*;
-use napi::{Env, JsBoolean, JsFunction, JsString, JsUnknown};
+use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
 
 use crate::agent::AitpAgent;
-use crate::helpers::JsFnRef;
 
 /// Revocation-check closure: maps a TCT `jti` to "is it revoked?".
 type RevocationFn = Box<dyn Fn(&Uuid) -> bool>;
@@ -120,7 +119,7 @@ pub fn verify_session_bundle_js(
     bundle_envelope_json: String,
     verifier_aid: String,
     now_unix_secs: Option<i64>,
-    revocation_check: Option<JsFunction>,
+    revocation_check: Option<FunctionRef<String, bool>>,
 ) -> Result<JsBundleOutcome> {
     let envelope: SessionBundleEnvelope = serde_json::from_str(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
@@ -128,37 +127,18 @@ pub fn verify_session_bundle_js(
         .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
 
-    // Wrap the JS callback in a Drop-aware guard moved into the
-    // closure. When the closure drops (end of scope OR early error
-    // exit), the guard drops and unrefs the napi Ref. The verifier may
-    // never invoke the closure (e.g. version mismatch returns before
-    // iterating participants) — the guard handles that case cleanly.
+    // `revocation_check` is a `FunctionRef`, napi 3's Drop-safe typed
+    // function reference. The verifier may never invoke the closure
+    // (e.g. version mismatch returns before iterating participants) —
+    // `FunctionRef`'s own `Drop` impl handles that case cleanly, unlike
+    // napi 2's `Ref`, which panicked if dropped without an explicit
+    // `unref`.
     let closure: Option<RevocationFn> = match revocation_check {
         Some(cb) => {
-            let guard = JsFnRef::new(env, cb)?;
-            let env_raw = env.raw();
             let f: RevocationFn = Box::new(move |jti: &Uuid| {
-                // SAFETY: env_raw is valid for the duration of this
-                // `#[napi]` method call; the closure is never sent
-                // across threads.
-                let env = unsafe { Env::from_raw(env_raw) };
-                let callable: JsFunction = match guard.get() {
-                    Ok(c) => c,
-                    Err(_) => return false,
-                };
-                let js_jti: JsString = match env.create_string(&jti.to_string()) {
-                    Ok(s) => s,
-                    Err(_) => return false,
-                };
-                let res: JsUnknown = match callable.call(None, &[js_jti.into_unknown()]) {
-                    Ok(r) => r,
-                    Err(_) => return false,
-                };
-                let res_bool: JsBoolean = match res.try_into() {
-                    Ok(b) => b,
-                    Err(_) => return false,
-                };
-                res_bool.get_value().unwrap_or(false)
+                cb.borrow_back(&env)
+                    .and_then(|f| f.call(jti.to_string()))
+                    .unwrap_or(false)
             });
             Some(f)
         }
@@ -174,7 +154,7 @@ pub fn verify_session_bundle_js(
         },
     )
     .map_err(|e| Error::from_reason(format!("bundle verification failed: {e}")))?;
-    drop(closure); // explicit: guard unrefs on drop
+    drop(closure); // explicit: FunctionRef unrefs itself on drop
 
     let result = match outcome {
         BundleOutcome::Clear { active_aids } => JsBundleOutcome {

@@ -19,6 +19,41 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   constructor/accessor methods dropped their suffix, and
   `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
 
+### Changed
+
+- **`bindings/aitp-node` migrates `napi` / `napi-derive` `2.16` → `3.x`**
+  (`@napi-rs/cli` `^2.18.0` → `^3.8.6`). `compat-mode`, which napi-derive 3
+  no longer defaults on, retired the four types this binding used
+  (`JsFunction`, `JsUnknown`, `JsString`, `JsBoolean`); the hand-rolled
+  `JsFnRef` Drop guard in `src/helpers.rs` is deleted outright in favor of
+  napi 3's own `FunctionRef<Args, Return>`, a Drop-safe typed function
+  reference. `oidcMintJwt` and `revocationCheck` callback parameters move
+  from `Option<JsFunction>` to `Option<FunctionRef<String, String>>` /
+  `Option<FunctionRef<String, bool>>`; `JwksProvider`'s `unknown`-typed
+  constructor/`upsert` arguments move to napi 3's `Unknown<'_>`, and
+  JSON-stringifying them now goes through napi 3's `JSON::stringify`
+  helper instead of a hand-rolled `JSON.stringify` JS round-trip. No
+  runtime behavior change for correctly-typed callers.
+
+  The generated `index.d.ts` narrows the `oidcMintJwt` and
+  `revocationCheck` callback types from `(...args: any[]) => any` to
+  `(arg: string) => string` and `(arg: string) => boolean` respectively —
+  a real (if minor) type-level improvement for consumers with strict
+  TypeScript checking. `keys?: unknown` on `JwksProvider` is unchanged.
+
+  CI: `.github/workflows/bindings-release.yml` renames three
+  `@napi-rs/cli` v3 CLI invocations (`napi create-npm-dir -t .` →
+  `napi create-npm-dirs`, `napi artifacts --dir` → `--output-dir`,
+  `napi prepublish --skip-gh-release` → `--no-gh-release`) and bumps
+  `node-version` from `'20'` to `'22'` to match the CLI's own devDependency
+  floor. `.github/workflows/bindings.yml`'s generated-file freshness gate
+  now also covers `index.js`, which napi 3's CLI bakes
+  `package.json`'s version into (guarded by
+  `NAPI_RS_ENFORCE_VERSION_CHECK`) and which ships to npm verbatim
+  alongside `index.d.ts`. The published package's `engines.node` floor is
+  unchanged (`>=16`) — the CLI's own Node ≥20.17 requirement is a
+  contributor/build-time constraint, not a consumer-facing one.
+
 ### BREAKING
 
 - **`aitp_handshake::JwkPublicKey` no longer exposes `jsonwebtoken` types**
