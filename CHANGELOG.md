@@ -66,6 +66,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   separate affine coordinates JWKs carry for `EC` keys (as opposed to
   `from_compressed`'s SEC1-compressed form).
 
+### Fixed
+
+- **Conformance adapter now enforces the pinned-key trust store**
+  (RFC-AITP-0002 §3.2 step 1). `aitp-rs-adapter`'s
+  `verify_handshake_payload_op` always configured `PeerConfig::pinned_key_store`
+  as `None` — a documented no-op in `aitp-handshake` meaning "no local
+  trust store enforced" — so fixtures could never actually exercise the
+  gate that rejects a pinned-key proof whose signer key is not locally
+  trusted, even though the underlying gate in
+  `aitp_handshake::state_machine::bootstrap_verify_peer` was already
+  implemented correctly. This went undetected because the one fixture
+  exercising it, `id-007-pinned-untrusted-key-rejected`, coincidentally
+  still failed for an unrelated reason: the pinned-key proof timestamp
+  encoding bug above meant its signature never verified in the first
+  place, masking the missing trust-store check behind a different
+  rejection. Fixing the timestamp encoding surfaced this as a real CI
+  regression (`id-007` unexpectedly passing) rather than a coincidental
+  pass. The adapter now builds a `StaticPinnedKeyStore` from the
+  fixture's `trust_store` field when present, so `id-007` is now
+  correctly rejected with `IDENTITY_FAILED` for the right reason. This
+  is a conformance-test-harness fix, not a change to
+  `aitp-handshake`'s public library behavior.
+
 ### Removed
 
 - **`jsonwebtoken` is dropped from every runtime dependency graph**
