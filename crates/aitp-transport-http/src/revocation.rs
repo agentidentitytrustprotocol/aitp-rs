@@ -24,6 +24,23 @@ use uuid::Uuid;
 /// bridges into a tokio runtime to call its async client.
 pub trait RevocationProvider: Send + Sync {
     /// Fetch the latest signed snapshot for `issuer`.
+    ///
+    /// An implementation that decodes untrusted bytes off the wire (an
+    /// HTTP response body, a file, …) MUST apply RFC-AITP-0001 §7's
+    /// member-set check before returning — via
+    /// [`aitp_tct::parse_revocation_snapshot_wire`] on the raw
+    /// [`serde_json::Value`], not a bare `serde_json::from_value` /
+    /// `from_slice` into [`RevocationListEnvelope`], which would only
+    /// surface an unknown member as an opaque `serde_json::Error` for the
+    /// caller to (mis)classify. Map the resulting
+    /// `Err(aitp_tct::TctError::UnknownField(_))` to
+    /// [`RevocationError::UnknownField`] — **never** to
+    /// [`RevocationError::SignatureInvalid`], which would misreport a
+    /// structural rejection (the signature is never reached) as a
+    /// cryptographic one, exactly the miscategorization
+    /// [`RevocationCache`]'s own signature/expiry check
+    /// (see its `snapshot_for` internals) is careful to avoid for errors
+    /// that originate *after* this call.
     fn fetch(&self, issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError>;
 }
 
@@ -75,6 +92,7 @@ impl RevocationProvider for EmptyRevocationProvider {
                 published_at: now,
                 expires_at: Timestamp(now.0 + self.ttl_secs),
                 entries: vec![],
+                extensions: None,
             },
             &self.issuer_key,
         )
@@ -106,6 +124,16 @@ pub enum RevocationError {
     /// No snapshot available and policy refuses to fail open.
     #[error("revocation provider returned no snapshot and policy is fail-closed")]
     NoSnapshotFailClosed,
+    /// The fetched snapshot carried a JSON member outside its
+    /// schema-declared member set (RFC-AITP-0001 §7), at either the
+    /// envelope or the inner `revocation_list` body. Distinct from
+    /// [`RevocationError::SignatureInvalid`]: a structural member-set
+    /// violation means the signature was never reached, so reporting it
+    /// as a signature failure would be a miscategorization — exactly the
+    /// spec's new structural-rejection table (RFC-AITP-0008 §1.5) exists
+    /// to prevent.
+    #[error("revocation snapshot has unknown field: {0}")]
+    UnknownField(String),
 }
 
 /// What to do when revocation cannot be checked freshly (network down,
@@ -326,10 +354,18 @@ impl<P: RevocationProvider> RevocationCache<P> {
             .as_ref()
             .ok_or(RevocationError::NoSnapshotFailClosed)?;
         let env = provider.fetch(issuer)?;
-        // Verify signature + expiry.
+        // Verify signature + expiry. `TctError::UnknownField` gets its own
+        // arm rather than falling into the `other` catch-all below: a
+        // provider that parses the raw wire form via
+        // `aitp_tct::parse_revocation_snapshot_wire` (as it MUST, to honor
+        // RFC-AITP-0001 §7's member-set check on a live fetch) surfaces an
+        // unknown-member snapshot as this error, and collapsing it into
+        // `SignatureInvalid` here would misreport a structural rejection —
+        // whose signature was never reached — as a cryptographic one.
         verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer, now)).map_err(
             |e| match e {
                 TctError::Expired => RevocationError::Expired,
+                TctError::UnknownField(field) => RevocationError::UnknownField(field),
                 other => RevocationError::SignatureInvalid(other),
             },
         )?;
@@ -428,6 +464,7 @@ mod tests {
                     revoked_at: published_at,
                     reason: None,
                 }],
+                extensions: None,
             },
             issuer_key,
         )
@@ -551,6 +588,55 @@ mod tests {
         assert!(
             matches!(err, RevocationError::SignatureInvalid(_)),
             "got {err:?}"
+        );
+    }
+
+    /// Third collapse site (issue #140 hazard 4 addendum): a provider
+    /// whose `fetch` decodes untrusted wire bytes via
+    /// `aitp_tct::parse_revocation_snapshot_wire` — the documented
+    /// contract on [`RevocationProvider::fetch`] — and maps an
+    /// unknown-member rejection to [`RevocationError::UnknownField`] must
+    /// have that classification survive through [`RevocationCache`]
+    /// unchanged. Before this phase, `RevocationError` had no variant
+    /// other than `SignatureInvalid` a provider could plausibly map a
+    /// `TctError` onto, so a live snapshot fetch that rejected on a
+    /// member-set violation could only be reported as a signature
+    /// failure — even though the signature was never reached.
+    struct WireParsingProvider {
+        raw: serde_json::Value,
+    }
+    impl RevocationProvider for WireParsingProvider {
+        fn fetch(&self, _issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError> {
+            aitp_tct::parse_revocation_snapshot_wire(&self.raw).map_err(|e| match e {
+                TctError::UnknownField(field) => RevocationError::UnknownField(field),
+                other => RevocationError::SignatureInvalid(other),
+            })
+        }
+    }
+
+    #[test]
+    fn unknown_member_snapshot_is_not_reported_as_signature_invalid() {
+        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let now = Timestamp::now();
+        let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
+        let mut raw = serde_json::to_value(&env).unwrap();
+        raw["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), serde_json::json!("team-trust"));
+
+        let cache = RevocationCache::new(WireParsingProvider { raw }, RevocationPolicy::default());
+        let err = cache
+            .is_revoked(&Uuid::new_v4(), key.aid(), now)
+            .unwrap_err();
+        assert!(
+            matches!(err, RevocationError::UnknownField(ref f) if f == "list_owner"),
+            "an unknown-member snapshot must report UnknownField, not a signature \
+             failure — the signature was never reached: got {err:?}"
+        );
+        assert!(
+            !matches!(err, RevocationError::SignatureInvalid(_)),
+            "must not collapse a structural rejection into SignatureInvalid: got {err:?}"
         );
     }
 

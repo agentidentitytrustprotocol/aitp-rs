@@ -275,6 +275,7 @@ fn mint_revocation_snapshot() {
             revoked_at: Timestamp(FIXED_NOW + 60),
             reason: Some("key_compromised".into()),
         }],
+        extensions: None,
     };
     let env = sign_revocation_list(body, &issuer).expect("sign revocation");
     write_pretty(

@@ -51,6 +51,12 @@ pub enum TctError {
     /// parsing).
     #[error("claims malformed: {0}")]
     ClaimsMalformed(String),
+    /// A JSON member outside the artifact's schema-declared member set was
+    /// present (RFC-AITP-0001 §7). Carries the offending member's name.
+    /// Raised by [`crate::revocation::parse_revocation_snapshot_wire`] for
+    /// both the envelope and the inner `revocation_list` body.
+    #[error("unknown field: {0}")]
+    UnknownField(String),
     /// Builder was missing a required field.
     #[error("missing required field: {0}")]
     MissingField(&'static str),

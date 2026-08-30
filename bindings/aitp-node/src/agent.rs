@@ -411,6 +411,7 @@ impl AitpAgent {
             published_at: now,
             expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
             entries: rust_entries,
+            extensions: None,
         };
         let envelope = sign_revocation_list(body, &self.key)
             .map_err(|e| Error::from_reason(format!("sign_revocation_list failed: {e}")))?;

@@ -85,6 +85,7 @@ fn main() {
             revoked_at: Timestamp(NOW + 60),
             reason: Some("key_compromised".into()),
         }],
+        extensions: None,
     };
     let snapshot = sign_revocation_list(body, &issuer).expect("sign revocation snapshot");
 

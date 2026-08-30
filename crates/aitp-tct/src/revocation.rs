@@ -8,7 +8,7 @@
 //! a network attacker that suppresses fresher snapshots to roll back
 //! revocations.
 
-use aitp_core::{jcs, Aid, Timestamp};
+use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -31,7 +31,44 @@ pub struct RevocationList {
     pub expires_at: Timestamp,
     /// Revoked-entry records. MAY be empty.
     pub entries: Vec<RevocationEntry>,
+    /// Forward-compatible extensions (RFC-AITP-0001 §7, RFC-AITP-0012).
+    ///
+    /// **Presence-sensitive**, deliberately modeled as `Option<ExtensionsMap>`
+    /// rather than a defaulted empty map with `skip_serializing_if =
+    /// "is_empty"`. Under RFC 8785 canonicalization, absent (`None`) emits
+    /// no `extensions` key at all, while present-but-empty
+    /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
+    /// bytes, different digest, different signature. Unlike the envelope
+    /// (`AitpEnvelope`), this body IS JCS-canonicalized for the signature
+    /// (see [`revocation_signing_bytes`]), so conflating the two shapes
+    /// here would be a live signature bug, not a cosmetic one: a snapshot
+    /// signed with a literal `"extensions":{}` on the wire would fail to
+    /// verify if this were silently normalized to absent, or vice versa.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ExtensionsMap>,
 }
+
+/// Full set of top-level members `aitp-revocation-list.schema.json`'s inner
+/// `revocation_list` object declares, including the `extensions` namespace
+/// key itself. Used by [`parse_revocation_snapshot_wire`]'s member-set
+/// check (RFC-AITP-0001 §7).
+///
+/// Anchored to the vendored schema by `crates/aitp-tct/tests/schema.rs`,
+/// which asserts this list equals `properties.revocation_list.properties`'s
+/// keys — so this cannot silently drift from the spec.
+pub const REVOCATION_LIST_MEMBERS: &[&str] = &[
+    "version",
+    "issuer",
+    "published_at",
+    "expires_at",
+    "entries",
+    "extensions",
+];
+
+/// Full set of top-level members of the on-wire revocation snapshot
+/// envelope (`{"revocation_list": {...}, "signature": "..."}`). Used by
+/// [`parse_revocation_snapshot_wire`]'s member-set check.
+pub const REVOCATION_ENVELOPE_MEMBERS: &[&str] = &["revocation_list", "signature"];
 
 /// A single revoked-TCT record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -103,6 +140,46 @@ pub fn sign_revocation_list(
     Ok(RevocationListEnvelope {
         revocation_list: body,
         signature: sig.into_string(),
+    })
+}
+
+/// Parse an on-wire revocation snapshot with RFC-AITP-0001 §7's
+/// unknown-member rejection applied.
+///
+/// Per RFC-AITP-0008 §1.5 (as amended), `UNKNOWN_FIELD` applies to **both**
+/// levels of this artifact — the envelope and the inner `revocation_list`
+/// body — unlike the session bundle, whose wrapper- and body-level
+/// violations report distinct error classes. There is deliberately no
+/// wrapper/body split here.
+///
+/// Order of operations:
+/// 1. [`check_members`] the envelope against
+///    [`REVOCATION_ENVELOPE_MEMBERS`] (`{revocation_list, signature}`).
+/// 2. If a `revocation_list` member is present, [`check_members`] it
+///    against [`REVOCATION_LIST_MEMBERS`].
+/// 3. `serde_json::from_value` into [`RevocationListEnvelope`]. A residual
+///    serde error — which, now that both top-level member sets have
+///    already passed, can only come from a nested closed object (a member
+///    of `entries[]`) — is recovered via [`from_serde_error`] so it, too,
+///    reports [`TctError::UnknownField`] rather than a generic parse
+///    failure.
+pub fn parse_revocation_snapshot_wire(
+    value: &serde_json::Value,
+) -> Result<RevocationListEnvelope, TctError> {
+    check_members("RevocationListEnvelope", value, REVOCATION_ENVELOPE_MEMBERS)
+        .map_err(|e| TctError::UnknownField(e.field))?;
+
+    if let Some(body) = value.get("revocation_list") {
+        check_members("RevocationList", body, REVOCATION_LIST_MEMBERS)
+            .map_err(|e| TctError::UnknownField(e.field))?;
+    }
+
+    serde_json::from_value(value.clone()).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            TctError::UnknownField(field)
+        } else {
+            TctError::ClaimsMalformed(e.to_string())
+        }
     })
 }
 
@@ -192,6 +269,7 @@ mod tests {
                 revoked_at: Timestamp(1_700_001_000),
                 reason: None,
             }],
+            extensions: None,
         }
     }
 
@@ -442,5 +520,181 @@ mod tests {
             ),
             "a wrapped-signed snapshot must be rejected with SignatureInvalid"
         );
+    }
+
+    // ---- Phase 4: `extensions` slot + member-set check --------------------
+
+    /// Absent vs. present-but-empty `extensions` must canonicalize to
+    /// different bytes (mirrors the envelope's and manifest's round-trip
+    /// test for the same `Option<ExtensionsMap>` shape).
+    #[test]
+    fn absent_and_empty_extensions_round_trip_distinctly() {
+        let key = issuer_key();
+        let mut absent = sample_body(key.aid().clone());
+        absent.extensions = None;
+        let absent_json = serde_json::to_value(&absent).unwrap();
+        assert!(
+            absent_json.get("extensions").is_none(),
+            "absent extensions must emit no `extensions` key at all"
+        );
+
+        let mut present_empty = sample_body(key.aid().clone());
+        present_empty.extensions = Some(ExtensionsMap::new());
+        let present_json = serde_json::to_value(&present_empty).unwrap();
+        assert_eq!(present_json["extensions"], serde_json::json!({}));
+
+        // Round-trips.
+        let parsed_absent: RevocationList = serde_json::from_value(absent_json).unwrap();
+        assert_eq!(parsed_absent.extensions, None);
+        let parsed_present: RevocationList = serde_json::from_value(present_json).unwrap();
+        assert_eq!(parsed_present.extensions, Some(ExtensionsMap::new()));
+
+        // Different bytes, hence different signing input.
+        let absent_bytes = revocation_signing_bytes(&absent).unwrap();
+        let present_bytes = revocation_signing_bytes(&present_empty).unwrap();
+        assert_ne!(
+            absent_bytes, present_bytes,
+            "absent and present-but-empty extensions must NOT canonicalize identically"
+        );
+    }
+
+    /// **Non-negotiable correctness gate.** `revocation_signing_bytes` for a
+    /// body with `extensions: None` must be byte-identical to what it
+    /// produced before this field existed — a `RevocationList` value built
+    /// exactly as the pre-Phase-4 struct literal would have, with no
+    /// `extensions` field to omit. This is a belt-and-braces companion to
+    /// `rfc_kat_canonical_bytes_match` and `spec_signed_example_snapshot_verifies`,
+    /// which already pin the exact digests: if this test and those two both
+    /// pass, the field was modeled correctly (`Option` + `skip_serializing_if`
+    /// keeping the omitted case wire-identical to "the field never existed").
+    #[test]
+    fn signing_bytes_for_none_extensions_omit_the_key_entirely() {
+        let key = issuer_key();
+        let body = sample_body(key.aid().clone());
+        assert_eq!(body.extensions, None);
+        let canonical = revocation_signing_bytes(&body).unwrap();
+        let as_str = String::from_utf8(canonical).unwrap();
+        assert!(
+            !as_str.contains("extensions"),
+            "signing bytes for extensions:None must contain no `extensions` member: {as_str}"
+        );
+    }
+
+    /// rev-005 equivalent: an unknown member in the wrapper is rejected as
+    /// `UnknownField`, at the envelope level.
+    #[test]
+    fn unknown_member_in_envelope_is_rejected() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let mut value = serde_json::to_value(&env).unwrap();
+        value
+            .as_object_mut()
+            .unwrap()
+            .insert("rogue".into(), serde_json::json!("nope"));
+
+        match parse_revocation_snapshot_wire(&value) {
+            Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
+            other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
+        }
+    }
+
+    /// rev-005 equivalent: an unknown member of the inner `revocation_list`
+    /// body is rejected as `UnknownField` too — RFC-AITP-0008 §1.5 assigns
+    /// `UNKNOWN_FIELD` to both levels of this artifact, unlike the session
+    /// bundle.
+    #[test]
+    fn unknown_member_in_body_is_rejected() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let mut value = serde_json::to_value(&env).unwrap();
+        value["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("rogue".into(), serde_json::json!("nope"));
+
+        match parse_revocation_snapshot_wire(&value) {
+            Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
+            other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
+        }
+    }
+
+    /// An unknown member nested inside `entries[]` is caught by
+    /// `from_serde_error` recovering from the residual
+    /// `#[serde(deny_unknown_fields)]` failure on `RevocationEntry`, since
+    /// the top-level member-set check never looks inside array elements.
+    #[test]
+    fn unknown_member_inside_entries_is_rejected_via_from_serde_error() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let mut value = serde_json::to_value(&env).unwrap();
+        value["revocation_list"]["entries"][0]
+            .as_object_mut()
+            .unwrap()
+            .insert("rogue".into(), serde_json::json!("nope"));
+
+        match parse_revocation_snapshot_wire(&value) {
+            Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
+            other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
+        }
+    }
+
+    /// rev-006 equivalent: a snapshot with a legitimate `extensions` member
+    /// (both at rest and after a wire round-trip) is accepted.
+    #[test]
+    fn snapshot_with_extensions_is_accepted() {
+        let key = issuer_key();
+        let mut body = sample_body(key.aid().clone());
+        let mut ext = ExtensionsMap::new();
+        ext.insert(
+            "vendor.example/feature",
+            serde_json::json!({"enabled": true}),
+        );
+        body.extensions = Some(ext);
+        let env = sign_revocation_list(body, &key).unwrap();
+        let value = serde_json::to_value(&env).unwrap();
+
+        let parsed = parse_revocation_snapshot_wire(&value)
+            .expect("a snapshot with a declared `extensions` member must parse");
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        verify_revocation_list(&parsed, &ctx)
+            .expect("a snapshot with extensions must still verify");
+    }
+
+    /// `rev-004` must keep reporting the crypto failure, not `UnknownField`
+    /// — a tampered signature is a different failure class from a
+    /// structural member-set violation, and the two must stay
+    /// distinguishable through `parse_revocation_snapshot_wire` +
+    /// `verify_revocation_list`.
+    #[test]
+    fn tampered_signature_still_reports_signature_invalid_not_unknown_field() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        let mut value = serde_json::to_value(&env).unwrap();
+        // Flip the signature to something else well-formed-looking but wrong.
+        value["signature"] = serde_json::json!(
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+
+        let parsed =
+            parse_revocation_snapshot_wire(&value).expect("well-formed shape still parses");
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        assert!(
+            matches!(
+                verify_revocation_list(&parsed, &ctx),
+                Err(TctError::SignatureInvalid)
+            ),
+            "tampered signature must report SignatureInvalid, not UnknownField"
+        );
+    }
+
+    /// `REVOCATION_LIST_MEMBERS` must equal the vendored schema's
+    /// `properties.revocation_list.properties` keys — the drift firewall
+    /// lives in `tests/schema.rs`, this is the quick smoke check that the
+    /// const at least contains the field this phase added.
+    #[test]
+    fn revocation_list_members_includes_extensions() {
+        assert!(REVOCATION_LIST_MEMBERS.contains(&"extensions"));
+        assert!(REVOCATION_ENVELOPE_MEMBERS.contains(&"revocation_list"));
+        assert!(REVOCATION_ENVELOPE_MEMBERS.contains(&"signature"));
     }
 }

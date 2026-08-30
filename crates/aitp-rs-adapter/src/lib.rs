@@ -1293,15 +1293,27 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
             }
         }
         if let Some(snapshot) = list.get("snapshot") {
-            if let Ok(env) =
-                serde_json::from_value::<aitp_tct::RevocationListEnvelope>(snapshot.clone())
-            {
-                let snapshot_issuer = env.revocation_list.issuer.clone();
-                let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
-                if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
-                    for entry in &env.revocation_list.entries {
-                        revoked_jtis.insert(entry.jti.to_string());
+            // A snapshot that fails to parse — including one rejected for
+            // an unknown member (RFC-AITP-0001 §7) — must not silently
+            // read as "nothing is revoked" (issue #140 hazard 4): that is
+            // a fail-open hazard under a permissive revocation policy.
+            // Surface the error instead of falling through.
+            match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
+                Ok(env) => {
+                    let snapshot_issuer = env.revocation_list.issuer.clone();
+                    let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
+                    if aitp_tct::verify_revocation_list(&env, &rev_ctx).is_ok() {
+                        for entry in &env.revocation_list.entries {
+                            revoked_jtis.insert(entry.jti.to_string());
+                        }
                     }
+                }
+                Err(e) => {
+                    return err(
+                        id,
+                        &tct_error_code(&e),
+                        &format!("issuer_revocation_list.snapshot: {e}"),
+                    );
                 }
             }
         }
@@ -1375,6 +1387,13 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
             "POP_RESPONSE_INVALID"
         }
         Crypto(c) => return crypto_error_code(c, "TCT_SIGNATURE_INVALID"),
+        // RFC-AITP-0001 §7 / issue #140: a JSON member outside the
+        // artifact's declared member set (revocation snapshot envelope or
+        // body, RFC-AITP-0008 §1.5) is a distinct structural-rejection
+        // class from a malformed envelope — it must not fall into
+        // `ClaimsMalformed`'s `INVALID_ENVELOPE` bucket above, nor into
+        // the `_` catch-all below.
+        UnknownField(_) => "UNKNOWN_FIELD",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1541,11 +1560,22 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
             let Some(snapshot) = entry.get("snapshot") else {
                 continue;
             };
-            // Verify the snapshot signature, then extract JTIs.
+            // Verify the snapshot signature, then extract JTIs. A
+            // snapshot that fails to parse — including one rejected for
+            // an unknown member (RFC-AITP-0001 §7) — must not silently
+            // read as "nothing is revoked" (issue #140 hazard 4): that is
+            // a fail-open hazard under a permissive revocation policy.
+            // Surface the error instead of skipping the entry.
             let env: aitp_tct::RevocationListEnvelope =
-                match serde_json::from_value(snapshot.clone()) {
+                match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
                     Ok(e) => e,
-                    Err(_) => continue,
+                    Err(e) => {
+                        return err(
+                            id,
+                            &tct_error_code(&e),
+                            &format!("revocation_snapshots[].snapshot: {e}"),
+                        )
+                    }
                 };
             if env.revocation_list.issuer != issuer_aid {
                 // Issuer-AID mismatch — refuse to honor the snapshot.
@@ -2523,10 +2553,11 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .or_else(|| params.get("snapshot").cloned())
         .or_else(|| params.get("envelope").cloned())
         .unwrap_or_default();
-    let env: aitp_tct::RevocationListEnvelope = match serde_json::from_value(env_value) {
-        Ok(e) => e,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("revocation_list: {e}")),
-    };
+    let env: aitp_tct::RevocationListEnvelope =
+        match aitp_tct::parse_revocation_snapshot_wire(&env_value) {
+            Ok(e) => e,
+            Err(e) => return err(id, &tct_error_code(&e), &format!("revocation_list: {e}")),
+        };
     let expected_issuer = match params
         .get("expected_issuer")
         .and_then(|v| v.as_str())
@@ -3452,5 +3483,284 @@ mod manifest_unknown_field_tests {
             json!({ "manifest": manifest, "now": 1_711_900_100 }),
         );
         assert_eq!(out["ok"], json!(true), "got: {out}");
+    }
+}
+
+#[cfg(test)]
+mod revocation_unknown_field_tests {
+    //! Issue #140 / Phase 4: RFC-AITP-0001 §7 for the revocation snapshot
+    //! (RFC-AITP-0008 §1.5), driven through the real adapter dispatch —
+    //! mirrors `manifest_unknown_field_tests` above, but also covers the
+    //! two previously-silent-swallow call sites (`verify_tct`'s
+    //! `issuer_revocation_list.snapshot` and `verify_delegation_token`'s
+    //! `revocation_snapshots[]`), which must now surface an error rather
+    //! than silently treating an unparseable snapshot as "nothing is
+    //! revoked" (a fail-open hazard under a permissive revocation policy).
+    use super::*;
+
+    fn issuer() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xE1; 32])
+    }
+
+    fn signed_snapshot_value(issuer_key: &AitpSigningKey) -> Value {
+        let env = aitp_tct::sign_revocation_list(
+            aitp_tct::RevocationList {
+                version: aitp_core::PROTOCOL_VERSION.into(),
+                issuer: issuer_key.aid().clone(),
+                published_at: Timestamp(1_700_000_000),
+                expires_at: Timestamp(1_700_003_600),
+                entries: vec![],
+                extensions: None,
+            },
+            issuer_key,
+        )
+        .unwrap();
+        serde_json::to_value(&env).unwrap()
+    }
+
+    /// rev-005 shape, via the real `verify_revocation_snapshot` op: an
+    /// unrecognized member of the inner `revocation_list` body is
+    /// rejected as `UNKNOWN_FIELD`.
+    #[test]
+    fn verify_revocation_snapshot_rejects_unknown_body_member() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-005-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// rev-006 shape: a snapshot carrying a legitimate `extensions` member
+    /// still verifies.
+    #[test]
+    fn verify_revocation_snapshot_accepts_extensions() {
+        let key = issuer();
+        let env = aitp_tct::sign_revocation_list(
+            aitp_tct::RevocationList {
+                version: aitp_core::PROTOCOL_VERSION.into(),
+                issuer: key.aid().clone(),
+                published_at: Timestamp(1_700_000_000),
+                expires_at: Timestamp(1_700_003_600),
+                entries: vec![],
+                extensions: Some({
+                    let mut ext = aitp_core::ExtensionsMap::new();
+                    ext.insert("com.example.debug_trace", json!({"generator": "svc"}));
+                    ext
+                }),
+            },
+            &key,
+        )
+        .unwrap();
+        let snapshot = serde_json::to_value(&env).unwrap();
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-006-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(true), "got: {out}");
+    }
+
+    /// rev-004 shape stays unaffected: a tampered signature reports the
+    /// crypto failure, not `UNKNOWN_FIELD`.
+    #[test]
+    fn verify_revocation_snapshot_tampered_signature_is_not_unknown_field() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["signature"] = json!(
+            "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+        );
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-004-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_ne!(out["error_code"], json!("UNKNOWN_FIELD"));
+        assert_eq!(out["error_code"], json!("TCT_SIGNATURE_INVALID"));
+    }
+
+    /// `tct_error_code` has an explicit `UnknownField` arm reporting
+    /// `UNKNOWN_FIELD`, asserted directly rather than only via the
+    /// `verify_revocation_snapshot` fixture-shaped test above.
+    #[test]
+    fn tct_error_code_maps_unknown_field_directly() {
+        assert_eq!(
+            tct_error_code(&aitp_tct::TctError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
+    }
+
+    /// Hazard 4, first silent-swallow site (`verify_tct`'s
+    /// `issuer_revocation_list.snapshot`): before this phase, a snapshot
+    /// that failed to deserialize — including for an unknown member — was
+    /// discarded with `if let Ok(...) = ...`, so the surrounding
+    /// `verify_tct` call would still succeed as if the issuer had
+    /// published no revocations at all. That is a fail-open hazard for
+    /// any deployment that does not run this check under a strict
+    /// `fail_closed` policy. This test proves the snapshot's defect now
+    /// surfaces as an error instead.
+    #[test]
+    fn verify_tct_surfaces_unparseable_issuer_revocation_snapshot_instead_of_ignoring_it() {
+        let issuer_key = issuer();
+        let subject_key = AitpSigningKey::from_seed(&[0xE2; 32]);
+        let issued = TctBuilder::new(&issuer_key)
+            .subject(subject_key.aid().clone())
+            .audience(subject_key.aid().clone())
+            .grants(["demo.echo"])
+            .ttl_secs(3600)
+            .subject_pubkey(subject_key.verifying_key())
+            .issued_at(Timestamp(1_700_000_000))
+            .build()
+            .unwrap();
+
+        let mut snapshot = signed_snapshot_value(&issuer_key);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        // Sanity check: with NO revocation snapshot supplied at all, this
+        // exact TCT verifies (the fixture is otherwise well-formed).
+        let baseline = handle(
+            &mut state,
+            "rev-swallow-1-baseline",
+            "verify_tct",
+            json!({
+                "tct_token": issued.token,
+                "issuer": issuer_key.aid().as_str(),
+                "expected_audience": subject_key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(baseline["ok"], json!(true), "got: {baseline}");
+
+        // Under the OLD (silently-swallowing) behavior this would ALSO
+        // report ok:true — the malformed snapshot was quietly ignored and
+        // treated as "the issuer has revoked nothing", a fail-open
+        // outcome for a permissive caller that does not itself enforce
+        // fail_closed. It must now surface UNKNOWN_FIELD instead.
+        let out = handle(
+            &mut state,
+            "rev-swallow-1",
+            "verify_tct",
+            json!({
+                "tct_token": issued.token,
+                "issuer": issuer_key.aid().as_str(),
+                "expected_audience": subject_key.aid().as_str(),
+                "now": 1_700_000_100,
+                "issuer_revocation_list": { "snapshot": snapshot },
+            }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(false),
+            "an unparseable revocation snapshot must not silently read as \
+             'nothing is revoked': {out}"
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Hazard 4, second silent-swallow site (`verify_delegation_token`'s
+    /// `revocation_snapshots[]`, the multi-hop path): an entry whose
+    /// snapshot fails to deserialize was previously skipped with
+    /// `Err(_) => continue`, silently excluding it from the per-issuer
+    /// deny list rather than surfacing the defect.
+    #[test]
+    fn verify_delegation_surfaces_unparseable_revocation_snapshot_instead_of_skipping_it() {
+        let a = AitpSigningKey::from_seed(&[0xE3; 32]);
+        let b = AitpSigningKey::from_seed(&[0xE4; 32]);
+        let c = AitpSigningKey::from_seed(&[0xE5; 32]);
+
+        let voucher = TctBuilder::new(&a)
+            .subject(b.aid().clone())
+            .audience(b.aid().clone())
+            .grants(["read_data"])
+            .ttl_secs(7200)
+            .subject_pubkey(b.verifying_key())
+            .issued_at(Timestamp(1_700_000_000))
+            .build()
+            .unwrap()
+            .voucher
+            .unwrap();
+        let token = aitp_delegation::DelegationBuilder::new(&b, &voucher)
+            .unwrap()
+            .delegatee(c.aid().clone())
+            .scope(["read_data"])
+            .ttl_secs(3600)
+            .now(Timestamp(1_700_000_000))
+            .build()
+            .unwrap();
+
+        let mut snapshot = signed_snapshot_value(&a);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .insert("list_owner".into(), json!("team-trust"));
+
+        let mut state = AdapterState::default();
+        // Baseline: with no `revocation_snapshots` supplied, this
+        // delegation token verifies.
+        let baseline = handle(
+            &mut state,
+            "rev-swallow-2-baseline",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(baseline["ok"], json!(true), "got: {baseline}");
+
+        let out = handle(
+            &mut state,
+            "rev-swallow-2",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a.aid().as_str(),
+                "now": 1_700_000_100,
+                "revocation_snapshots": [
+                    { "issuer_aid": a.aid().as_str(), "snapshot": snapshot }
+                ],
+            }),
+        );
+        assert_eq!(
+            out["ok"],
+            json!(false),
+            "an unparseable revocation snapshot entry must not silently be \
+             skipped as if it carried no revocations: {out}"
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
     }
 }

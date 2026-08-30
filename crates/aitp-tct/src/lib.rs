@@ -30,8 +30,9 @@ pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse}
 #[cfg(feature = "experimental-renewal")]
 pub use renewal::{build_renewal_request, process_renewal_request};
 pub use revocation::{
-    revocation_signing_bytes, sign_revocation_list, verify_revocation_list, RevocationEntry,
-    RevocationList, RevocationListEnvelope, VerifyRevocationListContext,
+    parse_revocation_snapshot_wire, revocation_signing_bytes, sign_revocation_list,
+    verify_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope,
+    VerifyRevocationListContext, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
 };
 #[cfg(feature = "experimental-renewal")]
 pub use types::TctRenewalPayload;
