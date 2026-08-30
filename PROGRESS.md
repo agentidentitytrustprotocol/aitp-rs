@@ -290,4 +290,31 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   `crates/aitp-core/src/unknown_field.rs` (`check_members`,
   `from_serde_error`); re-exported from `lib.rs`.
 - No behavior change yet — conformance tally unchanged, 55/7/2 of 64.
-- Next: Phase 2 (envelope `extensions` slot + member-set check).
+
+### Phase 2 — Envelope extensions + UNKNOWN_FIELD · PASS · 2026-08-30
+- Commit `dd0b2c3`. Verifier (Opus): **PASS**, 1 round. Independently
+  re-ran the full gate (`cargo test --workspace --all-features`, clippy,
+  fmt, `wasm32-wasip1` check) and rebuilt+re-ran the conformance corpus
+  against spec `5063c08`'s fixtures — confirmed 57/5/2 of 64 with env-006
+  (UNKNOWN_FIELD) and env-007 (accept) both passing, and confirmed
+  `envelope_signing_input` is untouched and structurally excludes
+  `extensions`.
+- Verifier's one finding: the plan's own AC5 test compared
+  `envelope_signing_input` output using two clones that differed only in
+  a field the function's signature can't see — tautological (`f(x)==f(x)`).
+  Fixed inline (not a full gap round): added
+  `attaching_extensions_after_signing_does_not_invalidate_the_signature`
+  to `crates/aitp-envelope/tests/signing.rs`, which signs a real envelope,
+  attaches `extensions` to the already-signed value, and confirms
+  `verify_envelope_signature` still succeeds — a genuine end-to-end proof
+  instead of a same-crate unit test that can't vary the field it's
+  testing.
+- `AitpEnvelope.extensions: Option<ExtensionsMap>` (absent/`{}` stay
+  distinguishable), `AITP_ENVELOPE_MEMBERS` anchored to the vendored
+  schema, `parse_envelope_wire` wired into `verify_envelope_op` after the
+  existing replay/key-resolution early returns. False "no extensions
+  slot" doc comment + the test enforcing it removed.
+- Conformance: **57 passed, 5 failed, 2 skipped of 64** (env-006, env-007
+  now pass; bundle-006/man-004/rev-005/rev-006/tct-011 remain, all later
+  phases).
+- Next: Phase 3 (Manifest member-set check + OQ1 fix).
