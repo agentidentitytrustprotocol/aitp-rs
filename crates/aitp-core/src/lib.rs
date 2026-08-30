@@ -29,7 +29,8 @@ pub mod unknown_field;
 
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
-    envelope_signing_digest, envelope_signing_input, AitpEnvelope, MessageType, Sender,
+    envelope_signing_digest, envelope_signing_input, parse_envelope_wire, AitpEnvelope,
+    EnvelopeParseError, MessageType, Sender, AITP_ENVELOPE_MEMBERS,
 };
 pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;

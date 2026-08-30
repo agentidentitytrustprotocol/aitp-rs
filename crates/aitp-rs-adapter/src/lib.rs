@@ -503,11 +503,16 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         return verify_envelope_key_resolution(id, &params);
     }
 
-    let envelope = match serde_json::from_value::<AitpEnvelope>(
-        params.get("envelope").cloned().unwrap_or_default(),
-    ) {
+    let envelope_value = params.get("envelope").cloned().unwrap_or_default();
+    let envelope = match aitp_core::parse_envelope_wire(&envelope_value) {
         Ok(e) => e,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("envelope parse: {e}")),
+        Err(e) => {
+            return err(
+                id,
+                &envelope_parse_error_code(&e),
+                &format!("envelope parse: {e}"),
+            )
+        }
     };
     // RFC-AITP-0001 §5.5 / §5.6: version + freshness checks are part of
     // envelope verification. When the fixture supplies `tolerance_seconds`
@@ -555,6 +560,15 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(_) => err(id, "INVALID_SIGNATURE", "envelope signature invalid"),
     }
+}
+
+fn envelope_parse_error_code(e: &aitp_core::EnvelopeParseError) -> String {
+    use aitp_core::EnvelopeParseError::*;
+    match e {
+        UnknownField(_) => "UNKNOWN_FIELD",
+        Malformed(_) => "INVALID_ENVELOPE",
+    }
+    .to_string()
 }
 
 /// Stateless capability policy check (RFC-AITP-0004 §4): an
@@ -1994,6 +2008,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
             agent_id: key.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: sig.into_string(),
     };
     json!({"id": id, "ok": true, "result": {"envelope": env}})
@@ -2479,6 +2494,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
             agent_id: key.aid().clone(),
         },
         payload: payload_value,
+        extensions: None,
         signature: sig.into_string(),
     }
 }
@@ -3079,6 +3095,7 @@ mod p256_readiness_tests {
                 agent_id: key.aid().clone(),
             },
             payload,
+            extensions: None,
             signature: key.sign(&digest).into_string(),
         };
         serde_json::to_value(&envelope).unwrap()

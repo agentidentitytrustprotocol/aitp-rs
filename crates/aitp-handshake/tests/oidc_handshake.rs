@@ -58,6 +58,7 @@ fn envelope_with(
             agent_id: key.aid().clone(),
         },
         payload,
+        extensions: None,
         signature: key.sign(&digest).into_string(),
     }
 }

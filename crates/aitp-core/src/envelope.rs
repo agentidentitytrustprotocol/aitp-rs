@@ -21,7 +21,8 @@
 //! the actual 32 bytes that get fed into Ed25519.
 
 use crate::jcs;
-use crate::{Aid, Timestamp};
+use crate::unknown_field::{check_members, from_serde_error};
+use crate::{Aid, ExtensionsMap, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -32,9 +33,8 @@ use uuid::Uuid;
 /// payload structs. The envelope crate does not need to know every payload
 /// type.
 ///
-/// The schema is `additionalProperties: false` — the envelope has no
-/// `extensions` slot. Forward compatibility happens inside `payload` per
-/// RFC-AITP-0012.
+/// The schema is `additionalProperties: false`, with an explicit
+/// `extensions` slot reserved per RFC-AITP-0001 §7.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AitpEnvelope {
@@ -58,9 +58,84 @@ pub struct AitpEnvelope {
     /// crate.
     pub payload: serde_json::Value,
 
+    /// Forward-compatible extension namespace (RFC-AITP-0001 §7).
+    ///
+    /// **Presence-sensitive**, deliberately modeled as `Option<ExtensionsMap>`
+    /// rather than a defaulted empty map with `skip_serializing_if =
+    /// "is_empty"`. Under RFC 8785 canonicalization, absent (`None`) emits
+    /// no `extensions` key at all, while present-but-empty
+    /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
+    /// bytes, different digest, different signature. Silently normalizing
+    /// one into the other would change the signing input and break
+    /// verification against a conformant peer (RFC-AITP-0001 §5.4.1). Note
+    /// that for this particular struct the point is moot for
+    /// [`envelope_signing_input`], which never canonicalizes the whole
+    /// envelope — see the module docs — but the field is modeled the same
+    /// way as every other signed AITP object for consistency and because a
+    /// future signing-input revision must not have to fix this again.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ExtensionsMap>,
+
     /// base64url-unpadded Ed25519 signature over
     /// `sha256(message_id|ts|sender|hex(sha256(jcs(payload))))`.
     pub signature: String,
+}
+
+/// Full set of top-level members `aitp-envelope.schema.json` declares,
+/// including the `extensions` namespace key itself. Used by
+/// [`parse_envelope_wire`]'s member-set check (RFC-AITP-0001 §7).
+///
+/// Anchored to the vendored schema by
+/// `crates/aitp-core/tests/schema.rs`, which asserts this list equals the
+/// schema's `properties` keys — so this cannot silently drift from the
+/// spec.
+pub const AITP_ENVELOPE_MEMBERS: &[&str] = &[
+    "version",
+    "message_type",
+    "message_id",
+    "timestamp",
+    "sender",
+    "payload",
+    "extensions",
+    "signature",
+];
+
+/// Error from [`parse_envelope_wire`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum EnvelopeParseError {
+    /// A top-level or nested member outside the schema-declared member
+    /// set (RFC-AITP-0001 §7). Carries the offending field name.
+    #[error("unknown field `{0}`")]
+    UnknownField(String),
+    /// Any other parse failure (missing required field, wrong type,
+    /// etc.).
+    #[error("malformed envelope: {0}")]
+    Malformed(String),
+}
+
+/// Parse a raw wire-form JSON value into an [`AitpEnvelope`], enforcing
+/// RFC-AITP-0001 §7's member-set check before typed deserialization.
+///
+/// Order of operations:
+/// 1. [`check_members`] against [`AITP_ENVELOPE_MEMBERS`] — rejects any
+///    top-level member the schema does not declare, before anything else
+///    runs.
+/// 2. `serde_json::from_value` into [`AitpEnvelope`].
+/// 3. On a residual serde error (which, now that the top-level check has
+///    already passed, can only come from the nested `Sender` object's own
+///    `deny_unknown_fields`), [`from_serde_error`] recovers the offending
+///    field name so the caller can still report `UnknownField` rather
+///    than a generic parse failure.
+pub fn parse_envelope_wire(value: &serde_json::Value) -> Result<AitpEnvelope, EnvelopeParseError> {
+    check_members("AitpEnvelope", value, AITP_ENVELOPE_MEMBERS)
+        .map_err(|e| EnvelopeParseError::UnknownField(e.field))?;
+    serde_json::from_value(value.clone()).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            EnvelopeParseError::UnknownField(field)
+        } else {
+            EnvelopeParseError::Malformed(e.to_string())
+        }
+    })
 }
 
 /// Sender identification block.
@@ -178,6 +253,7 @@ mod tests {
                 agent_id: sample_aid(),
             },
             payload: json!({"x": 1}),
+            extensions: None,
             signature: "A".repeat(86),
         }
     }
@@ -226,14 +302,124 @@ mod tests {
     }
 
     #[test]
-    fn rejects_extensions_field() {
-        // Schema is additionalProperties:false — no top-level `extensions`.
+    fn accepts_extensions_field() {
+        // aitp-envelope.schema.json declares a top-level `extensions`
+        // slot (RFC-AITP-0001 §7) — a vendor-namespaced key inside it
+        // must round-trip, not be rejected.
         let mut v = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        let mut ext = ExtensionsMap::new();
+        ext.insert("com.example/junk", json!({"anything": true}));
         v.as_object_mut()
             .unwrap()
-            .insert("extensions".into(), json!({}));
-        let err = serde_json::from_str::<AitpEnvelope>(&v.to_string()).unwrap_err();
-        assert!(err.to_string().contains("extensions"), "got: {}", err);
+            .insert("extensions".into(), serde_json::to_value(&ext).unwrap());
+        let parsed: AitpEnvelope = serde_json::from_str(&v.to_string()).unwrap();
+        assert_eq!(parsed.extensions, Some(ext));
+    }
+
+    #[test]
+    fn parse_envelope_wire_rejects_unknown_top_level_sibling() {
+        let mut v = serde_json::to_value(sample_envelope(MessageType::MutualHello)).unwrap();
+        v.as_object_mut().unwrap().insert("rogue".into(), json!(1));
+        let err = parse_envelope_wire(&v).unwrap_err();
+        assert_eq!(err, EnvelopeParseError::UnknownField("rogue".into()));
+    }
+
+    #[test]
+    fn parse_envelope_wire_ignores_junk_key_inside_extensions() {
+        let mut v = serde_json::to_value(sample_envelope(MessageType::MutualHello)).unwrap();
+        v.as_object_mut().unwrap().insert(
+            "extensions".into(),
+            json!({"junk_key_of_any_shape": {"deeply": {"nested": true}}}),
+        );
+        let env = parse_envelope_wire(&v).expect("junk inside extensions must be ignored");
+        assert!(env.extensions.is_some());
+    }
+
+    #[test]
+    fn parse_envelope_wire_reports_unknown_field_from_nested_sender() {
+        let bad = json!({
+            "version": "aitp/0.2",
+            "message_type": "tct",
+            "message_id": "550e8400-e29b-41d4-a716-446655440000",
+            "timestamp": 1711900000,
+            "sender": {"agent_id": sample_aid().as_str(), "rogue": 1},
+            "payload": {},
+            "signature": "A".repeat(86),
+        });
+        let err = parse_envelope_wire(&bad).unwrap_err();
+        assert_eq!(err, EnvelopeParseError::UnknownField("rogue".into()));
+    }
+
+    #[test]
+    fn parse_envelope_wire_reports_malformed_for_non_unknown_field_errors() {
+        let bad = json!({
+            "version": "aitp/0.2",
+            "message_type": "tct",
+            // message_id missing entirely.
+            "timestamp": 1711900000,
+            "sender": {"agent_id": sample_aid().as_str()},
+            "payload": {},
+            "signature": "A".repeat(86),
+        });
+        let err = parse_envelope_wire(&bad).unwrap_err();
+        assert!(
+            matches!(err, EnvelopeParseError::Malformed(_)),
+            "got: {err:?}"
+        );
+    }
+
+    #[test]
+    fn extensions_round_trip_absent_vs_empty() {
+        // Absent: no `extensions` key on the wire at all.
+        let absent = sample_envelope(MessageType::MutualHello);
+        let s = serde_json::to_value(&absent).unwrap();
+        assert!(!s.as_object().unwrap().contains_key("extensions"));
+
+        // Present-but-empty: `"extensions":{}` must appear on the wire.
+        let mut present = sample_envelope(MessageType::MutualHello);
+        present.extensions = Some(ExtensionsMap::new());
+        let s = serde_json::to_value(&present).unwrap();
+        assert_eq!(s.get("extensions"), Some(&json!({})));
+
+        // And it round-trips back to `Some(empty)`, not `None`.
+        let parsed: AitpEnvelope = serde_json::from_value(s).unwrap();
+        assert_eq!(parsed.extensions, Some(ExtensionsMap::new()));
+    }
+
+    #[test]
+    fn signing_input_is_identical_with_and_without_extensions() {
+        // envelope_signing_input takes explicit scalar arguments and never
+        // sees the AitpEnvelope struct or its `extensions` field, so this
+        // is necessarily a compile-time/type-level guarantee rather than a
+        // runtime one — there is no way to vary `extensions` through this
+        // function's own signature, which is what makes the invariant
+        // hold. `aitp-envelope`'s
+        // `attaching_extensions_after_signing_does_not_invalidate_the_signature`
+        // exercises the real end-to-end path instead: sign a full
+        // envelope, attach a populated `extensions` map afterward, and
+        // confirm the outer signature still verifies.
+        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let aid = sample_aid();
+        let payload = json!({"hello": true});
+
+        let mut without = sample_envelope(MessageType::MutualHello);
+        without.message_id = mid;
+        without.sender.agent_id = aid.clone();
+        without.payload = payload.clone();
+        without.extensions = None;
+
+        let mut with = without.clone();
+        let mut ext = ExtensionsMap::new();
+        ext.insert("com.example/debug_trace", json!({"request_id": "abc"}));
+        with.extensions = Some(ext);
+
+        let input_without =
+            envelope_signing_input(&mid, without.timestamp, &aid, &without.payload).unwrap();
+        let input_with = envelope_signing_input(&mid, with.timestamp, &aid, &with.payload).unwrap();
+        assert_eq!(
+            input_without, input_with,
+            "envelope_signing_input must be byte-identical regardless of `extensions`"
+        );
     }
 
     #[test]

@@ -296,6 +296,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
             agent_id: untrusted_sender.aid().clone(),
         },
         payload: serde_json::json!({}),
+        extensions: None,
         signature: "A".repeat(86),
     };
     let err = bootstrap_verify_peer(&envelope, &sender_manifest, &descriptor, pop_nonce, &cfg)
@@ -372,6 +373,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
             agent_id: sender.aid().clone(),
         },
         payload: serde_json::json!({}),
+        extensions: None,
         signature: "A".repeat(86),
     };
     let err = bootstrap_verify_peer(&envelope, &sender_manifest, &descriptor, pop_nonce, &cfg)
