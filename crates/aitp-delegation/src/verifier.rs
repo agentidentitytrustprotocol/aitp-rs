@@ -146,6 +146,31 @@ pub fn verify_delegation(
 }
 
 fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
+    // typ-first gate (RFC-AITP-0006 §4 step 1; D7 / issue #140 follow-up):
+    // mirrors `aitp_tct::verifier::peek_header_typ`'s pattern via the
+    // shared `aitp_crypto::jws::peek_typ` helper. Unlike TCT/voucher —
+    // where a typ mismatch defers silently, letting the *next*
+    // `jws::verify_compact` call make the authoritative call — this
+    // function's own next step (below) is a strict `deny_unknown_fields`
+    // deserialize, which would misdiagnose a TCT- or voucher-shaped
+    // payload as `ClaimsMalformed`/`UnknownField` before
+    // `verify_hop_jws`'s later `jws::verify_compact` ever gets a chance
+    // to run. So a present-but-wrong `typ` is reported directly as
+    // `TypMismatch` here, matching `aitp-verifier-py`'s ordering (typ
+    // ahead of unknown-fields) and closing a real cross-impl divergence.
+    // An absent `typ` falls through unchanged, exactly as TCT/voucher
+    // treat it.
+    if let Some(typ) = jws::peek_typ(token) {
+        if typ != jws::TYP_DELEGATION {
+            return Err(DelegationError::Crypto(
+                aitp_crypto::CryptoError::TypMismatch {
+                    expected: jws::TYP_DELEGATION.to_string(),
+                    got: typ,
+                },
+            ));
+        }
+    }
+
     let payload = jws::decode_payload_unverified(token).map_err(DelegationError::Crypto)?;
     // Claim-set check (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2 step 1) on
     // the still-unverified payload — structurally ahead of AID-pinned

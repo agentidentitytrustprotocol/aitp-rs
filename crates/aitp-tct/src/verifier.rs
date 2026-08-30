@@ -246,13 +246,7 @@ impl<'a> TctVerifyContextBuilder<'a> {
 /// way; this function's opinion is never trusted for anything but that
 /// gate.
 pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
-    let header_b64 = token.split('.').next()?;
-    let header_bytes = aitp_core::base64url::decode_strict(header_b64).ok()?;
-    let header_value: serde_json::Value = serde_json::from_slice(&header_bytes).ok()?;
-    header_value
-        .get("typ")
-        .and_then(|v| v.as_str())
-        .map(str::to_string)
+    jws::peek_typ(token)
 }
 
 /// Verify a TCT compact JWS.

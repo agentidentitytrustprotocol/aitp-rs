@@ -342,21 +342,18 @@ fn tct_presented_as_delegation_rejected() {
     let a_key = a();
     let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&issued.token, &ctx).unwrap_err();
-    // The TCT's claims carry members outside `DELEGATION_CLAIMS_MEMBERS`
-    // (`grants`, `iat`) — the unverified-peek claim-set check (RFC-AITP-
-    // 0001 §7, Phase 6b) rejects those before the strict deserialize
-    // even runs, so `UnknownField` fires ahead of `ClaimsMalformed` and
-    // the crypto-layer `typ` check never gets a chance to run. Unlike
-    // `aitp_tct::verify_tct`/`verify_voucher`, delegation's peek has no
-    // `typ` gate ahead of its claim-set check (there is no del-equivalent
-    // of fixture tct-010 forcing that ordering), so any of the three
-    // codes is an acceptable refusal here.
+    // `peek_claims` now has a typ-first gate (D7 / issue #140 follow-up),
+    // mirroring `aitp_tct::verify_tct`/`verify_voucher`'s established
+    // `peek_header_typ` pattern: the TCT's header `typ` (`aitp-tct+jwt`)
+    // is peeked and compared against the expected delegation typ
+    // (`aitp-delegation+jwt`) before the claim-set check or strict
+    // deserialize ever runs, so the outcome is deterministically
+    // `TypMismatch` — matching `aitp-verifier-py`'s ordering (typ ahead
+    // of unknown-fields) and closing a real cross-impl divergence.
     assert!(
         matches!(
             err,
-            DelegationError::UnknownField(_)
-                | DelegationError::ClaimsMalformed(_)
-                | DelegationError::Crypto(CryptoError::TypMismatch { .. })
+            DelegationError::Crypto(CryptoError::TypMismatch { .. })
         ),
         "got {err:?}"
     );
