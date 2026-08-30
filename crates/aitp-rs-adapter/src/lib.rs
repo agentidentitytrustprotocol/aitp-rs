@@ -18,7 +18,7 @@ use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature}
 use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
     Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
-    PeerConfig, PresentedIdentity, ResolveError,
+    PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{TctBuilder, TctClaims};
@@ -813,6 +813,25 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // bootstrap_verify_peer (steps 3–5); HELLO-family envelope
     // signatures are verified after it succeeds (step 6).
     let resolver = NoOpResolver;
+    // RFC-AITP-0002 §3.2 step 1: fixtures that want to exercise the
+    // local pinned-key trust store (e.g. id-007) supply `trust_store`
+    // as a list of AID strings. When present, build a real
+    // `StaticPinnedKeyStore` from it so the gate in `bootstrap_verify_peer`
+    // actually runs instead of silently no-op'ing on `None`. Fixtures
+    // that omit `trust_store` keep today's behavior (no local store
+    // configured — the proof only needs to prove key possession).
+    let trust_store = params.get("trust_store").and_then(|v| v.as_array()).map(
+        |entries| -> StaticPinnedKeyStore {
+            let keys = entries
+                .iter()
+                .filter_map(|v| v.as_str())
+                .filter_map(|aid| Aid::parse(aid).ok())
+                .filter_map(|aid| AitpVerifyingKey::from_aid(&aid).ok())
+                .filter_map(|vk| vk.try_to_ed25519_bytes())
+                .collect();
+            StaticPinnedKeyStore::new(keys)
+        },
+    );
     let cfg = PeerConfig {
         signing_key: &self_key,
         manifest: &self_manifest,
@@ -822,7 +841,9 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             "https://idp.example.com".parse().unwrap(),
         ],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: trust_store
+            .as_ref()
+            .map(|s| s as &dyn aitp_handshake::PinnedKeyStore),
         grant_policy: None,
         revocation_check: None,
         now: envelope.timestamp,
