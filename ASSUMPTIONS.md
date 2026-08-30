@@ -25,3 +25,22 @@
       failure.
   Final: aitp-rs **34/34 green**; spec repo `main` green at 5f8e588;
   aitp-verifier-py green on 3.11/3.12/3.13.
+
+## Phase 0 shipped as accumulate, not ship-now
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 0)
+- **Assumed:** the Phase 0 verifier's "ship now" call (independently shippable,
+  flips `vendored schemas in sync` green) is technically correct but not the
+  better call for this run.
+- **Chose:** accumulate all 11 phases locally and run one closing `/ship` pass
+  against PR #141's branch, rather than pushing after every phase.
+- **Alternatives:** push+watch-CI after each phase per the verifier's literal
+  call — rejected because 9 of the remaining 10 phases will still leave
+  `conformance fixtures` red by design (the corpus only reaches 0 failures once
+  Phase 6b lands), so an early push buys no additional signal beyond what local
+  `cargo test`/diff review already gives, at the cost of a full CI matrix watch
+  (`/ship` §5, blocking) repeated up to 10 extra times.
+- **Blast radius if wrong:** none structurally — every phase is still a
+  separate, revertable commit; the only cost of this choice being wrong is a
+  later, larger CI watch instead of several smaller ones. Reversible at any
+  point by pushing the accumulated branch early.
+- **Status:** UNCONFIRMED

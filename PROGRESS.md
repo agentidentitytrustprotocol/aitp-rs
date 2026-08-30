@@ -146,3 +146,132 @@ Plan: `plans/jcs-inner-body-signing-input.md` · Issue: #82 · Branch: `deps/spe
 - **D3 applied:** `cross-impl acceptance (aitp-verifier-py)` added to `main` branch protection (now 11 required checks).
 - Version NOT bumped by hand: release-plz runs default `release-pr + release` and computes 0.5.0 from the `!`/`BREAKING CHANGE` footers; `release-bindings.yml` stamps binding versions off the `aitp-v*` tag.
 - Downstream issues filed: aitp-control-plane#45, aitp-playground#44. Spec issue filed: agentidentitytrustprotocol#23.
+
+---
+
+# PROGRESS — unknown-field-error-code
+
+Plan: `plans/unknown-field-error-code.md` · Issue: #140 · Branch: `deps/spec-5063c08ed994` (PR #141)
+Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes spec issue #37).
+
+## Repo map
+
+### The new core primitive (Phase 1)
+- `crates/aitp-core/src/error.rs` — `AitpError` :18-48 (vestigial, nothing constructs it); `ErrorCode` :50-203, `#[non_exhaustive]` :60, `rename_all = "SCREAMING_SNAKE_CASE"` :59. **No `as_str`, no `Display`, no `FromStr`** — serde is the only wire mapping. `// ── Envelope-level ──` block :62-77 is where `UnknownField` goes (beside `UnknownVersion` :66).
+- `crates/aitp-core/src/error.rs:211-328` — `pinned_wire_strings`, a hand-kept `&[(ErrorCode, &str)]` slice. **No exhaustive match, no count assertion → cannot fail on an omission.** Also `:330-336` `round_trip_through_json_string`, `:338-342` `rejects_unknown_wire_strings`.
+- `crates/aitp-core/src/lib.rs:32` — `pub use error::{AitpError, ErrorCode};`
+- `crates/aitp-core/src/extensions.rs:18` — `ExtensionsMap(BTreeMap<String, Value>)`, `#[serde(transparent)]`, `is_empty` :30. Module doc :3 cites "§6" and says "MAY be ignored" — **both wrong**, spec says §7 / MUST (Phase 8).
+- NEW: `crates/aitp-core/src/unknown_field.rs` — `UnknownField`, `check_members`, `from_serde_error`.
+
+### Artifact inventory — namespace slot present / absent
+| Artifact | Rust type | `deny_unknown_fields` | namespace slot |
+|---|---|---|---|
+| Envelope | `crates/aitp-core/src/envelope.rs:40` | `:39` | **MISSING** (schema `aitp-envelope.schema.json:67` has it) |
+| `Sender` (nested) | `envelope.rs:69` | `:68` | n/a |
+| Manifest | `crates/aitp-manifest/src/types.rs:12` | `:11` | `extensions: ExtensionsMap` `:60-62` — **non-`Option`, conflates absent/`{}`** (OQ 1) |
+| `ManifestEnvelope` / `IdentityHint` / `ManifestPop` | `types.rs:74` / `:87` / `:120` | `:73` / `:86` / `:119` | none |
+| MutualHello / …Ack / Commit / CommitAck | `crates/aitp-handshake/src/payloads.rs:11,26,43,61` | `:10,25,42,60` | **MISSING ×4** (schema `:101,141,172,203`) |
+| `IdentityDescriptor` | `crates/aitp-handshake/src/identity.rs:28` | `:27` | MISSING — **schemas disagree** (OQ 3) |
+| `TctClaims` | `crates/aitp-tct/src/types.rs:35` | `:34` | `ext: Option<Map>` `:57-60` ✓ |
+| `Cnf` | `crates/aitp-tct/src/types.rs:24` | `:23` | none |
+| `GrantVoucherClaims` | `crates/aitp-tct/src/types.rs:73` | `:72` | `ext: Option<Map>` `:90-92` ✓ |
+| `DelegationClaims` | `crates/aitp-delegation/src/types.rs:28` | `:27` | `ext: Option<Map>` `:65-68` ✓ |
+| `RevocationList` | `crates/aitp-tct/src/revocation.rs:22` | `:21` | **MISSING** (schema `aitp-revocation-list.schema.json:60`) |
+| `RevocationEntry` / `RevocationListEnvelope` | `revocation.rs:39` / `:58` | `:38` / `:57` | none (spec agrees) |
+| `SessionTrustBundle` | `crates/aitp-session-bundle/src/types.rs:13` | `:12` | `Option<ExtensionsMap>` `:27-38` ✓ **reference model** |
+| `ParticipantEntry` / `SessionBundleEnvelope` | `types.rs:49` / `:62` | `:48` / `:61` | none |
+| `TctRenewalPayload` | `crates/aitp-tct/src/types.rs:131` | `:130` | none (feature-gated) |
+| `PopChallenge` / `PopResponse` | `crates/aitp-tct/src/pop.rs:24` / `:36` | `:23` / `:35` | none |
+| `JwsHeader` (private) | `crates/aitp-crypto/src/jws.rs:60` | `:59` | n/a — §5.4.5 pins `alg`+`typ` |
+
+**No namespace is modeled as a struct anywhere.** The ignore-half is already sound wherever the slot exists.
+
+### The reference precedent (copy this shape)
+- `crates/aitp-session-bundle/src/wire.rs:17-30` — `parse_session_bundle_wire(&Value)`; doc `:8-17`; unit tests `:32-89`.
+- `crates/aitp-session-bundle/tests/wire_form.rs` — public-API copy of the same five cases.
+- `crates/aitp-session-bundle/src/error.rs:49-61` — `WireFormInvalid(String)`. `SessionBundleError` is the **only** error enum that is NOT `#[non_exhaustive]`.
+- `crates/aitp-rs-adapter/src/lib.rs:3021-3045` — `bundle_error_code`, the **only exhaustive mapper** (adding a variant is a compile error — preserve this).
+- `crates/aitp-rs-adapter/src/lib.rs:2917-2946` — adapter routes through the library fn.
+- `crates/aitp-manifest/tests/schema.rs:16-24` — the `boon` harness that reads `tests/schemas/` from a crate's `tests/`. Reuse for every anchor test.
+
+### Verify entry points (structs in, no byte parsing — parsing is at call sites)
+- `crates/aitp-envelope/src/lib.rs:70` `verify_envelope_signature`; signing input `crates/aitp-core/src/envelope.rs:117-143` (4-tuple, **excludes** `extensions`).
+- `crates/aitp-manifest/src/verifier.rs:49` `verify_manifest` (JCS recanonicalization `:91`). `ManifestError` has **no** parse variant.
+- `crates/aitp-tct/src/verifier.rs:260` `verify_tct` (claims parse `:262-263`), `:326` `verify_voucher` (`:329-330`). `crates/aitp-tct/src/renewal.rs:88-89`.
+- `crates/aitp-delegation/src/verifier.rs:114` `verify_delegation`; `peek_claims` `:146-149` (**unverified payload, strict, pre-crypto**); `verify_hop_jws` `:155-163`; builder peeks `builder.rs:69-71`, `:94-96`.
+- `crates/aitp-tct/src/revocation.rs:126` `verify_revocation_list`; signing bytes `:87`; sign `:96`.
+- `crates/aitp-session-bundle/src/verifier.rs:63` `verify_session_bundle`; `peek_tct_claims` `builder.rs:22-27` (**folds parse failure into `Canonicalization` → `INTERNAL_ERROR`**).
+- `crates/aitp-crypto/src/jws.rs:102-147` `verify_compact` — 3 segments `:166`, header `:116`, typ/alg before signature, payload object-ness only `:140-147`; claim strictness deferred by design `:98-101`. `decode_payload_unverified` `:158`.
+
+### Adapter — the six error-code mappers (all bare `&str`, `ErrorCode` never imported)
+- `err()` `crates/aitp-rs-adapter/src/lib.rs:2852`; router `handle` `:132-182`.
+- `crypto_error_code` `:409-424` · `handshake_error_code` `:1117-1139` · `manifest_error_code` `:1164-1181` · `tct_error_code` `:1326-1352` · `voucher_error_code` `:1404-1417` · `delegation_error_code` `:1586-1613` · `bundle_error_code` `:3021-3045`.
+- **Four have `_ => "INTERNAL_ERROR"` catch-alls** (`:1136`, `:1176`, `:1350`, `:1610`) — a new variant without an explicit arm silently becomes `INTERNAL_ERROR` with a green build.
+- Op fns: `verify_envelope_op` `:464` (parse `:506-511`) · `verify_handshake_payload_op` `:696` (parses `:705-710`, `:863-908`) · `verify_manifest_op` `:1141` (parse `:1149-1151`) · `verify_tct_op` `:1183` · `verify_grant_voucher_op` `:1361` · `verify_delegation_op` `:1419` · `verify_revocation_snapshot_op` `:2486` (parse `:2495-2497`) · `verify_session_bundle_op` `:2914`.
+- **Silent-swallow sites (fail-open hazard):** `:1267-1268` and `:1516-1520` discard an unparseable revocation snapshot as "no revocation data".
+- Stateful handshake hardcodes unregistered `HANDSHAKE_FAILED` at `:2121, 2249, 2280, 2362, 2429` — out of scope, recorded.
+- Mapper unit tests `mod error_code_mapping_tests` `:3127-3288` (no coverage for `bundle_error_code` / `voucher_error_code`).
+
+### Adapter dispatch tests
+- `crates/aitp-rs-adapter/tests/dispatch.rs` — `assert_err` `:20-33`; `every_advertised_op_is_routed` `:76`; `malformed_artifact_returns_structured_error_not_panic` `:181` (**deliberately pins no code** — the hole to fill); `mod session_bundle_wire_shape` `:333-440`, `sibling_signature_shape_yields_session_bundle_invalid` `:417-440`.
+
+### Live transport surfaces (Phases 5 + 7)
+- `crates/aitp-transport-http/src/server.rs:992-994` envelope · `:631-637` hello · `:778-784` commit · `:576-578` renewal. All → `ErrorCode::InvalidEnvelope`.
+- `crates/aitp-transport-http/src/session_bundle_server.rs:111` — **bypasses `parse_session_bundle_wire`**, bare `from_slice` → HTTP 400.
+- `crates/aitp-transport-http/src/client.rs:341-343` manifest fetch → `FetchError::MalformedJson`.
+- `crates/aitp-transport-http/src/revocation.rs:27` provider trait, `:328-335` `snapshot_for` mapping.
+- `crates/aitp/src/facade.rs:301` generic response parse; `:488`, `:520` envelope; `:494-495`, `:524-525` ack payloads.
+- `crates/aitp-transport-http/tests/handshake_boundary.rs:152-174` — pins `UNKNOWN_VERSION`; must not be shadowed.
+
+### Conformance harness
+- Runner `crates/aitp-conformance/src/` — subprocess NDJSON (`adapter/subprocess.rs:31-51`, request `:64-71`, id echo `:87-91`); `OpResult` `adapter/mod.rs:38-50` (`error_code` is a plain `String` — never checked against `ErrorCode`); `assert_outcome` `runner/executor.rs:366-393`; feature skip `:435-442`.
+- Fixture type `fixture/types.rs:169-185` — `expected: { outcome, error_code }`.
+- Placeholder minting `fixture/placeholder.rs` — `substitute_signatures` `:332`, envelope-vs-generic selection `:433-457`, `sign_generic_body` `:669-700`, `TRANSPORT_WRAPPERS` `:667`. **Mints over raw JSON `Value`, never through Rust structs** — so adding struct fields cannot change minted bytes.
+- Fixtures live in the **spec repo**, not here (`--fixtures-dir ../spec/schemas/conformance`).
+
+### Vendored schemas + CI
+- `scripts/sync-schemas.sh` — `AITP_SPEC` :19 (default `../agentidentitytrustprotocol`); **mirrors** (`rm -f` :31) from the WORKING TREE, not a commit.
+- `tests/schemas/SPEC_VERSION` — `main` = `c4edc5f…`; branch `deps/spec-5063c08ed994` = `5063c08…`.
+- `.github/workflows/ci.yml:307-384` `vendored schemas in sync` (+ the spec's own `verify-known-answer.mjs` :375-384).
+- `.github/workflows/ci.yml:386-427` `conformance fixtures` — **stale comment at :418-420** ("53 pass / 0 fail / 2 skip of 55").
+- `.github/workflows/ci.yml:429-474` `cross-impl acceptance` (pin `tests/AITP_VERIFIER_PY_VERSION` = `c5ecb604…`).
+- `.github/workflows/ci.yml:476-506` wasm portability (`aitp-core` included).
+
+### Docs to touch (Phase 8)
+- `docs/conformance.md:14, 274, 283` — "55 fixtures" → 64; `:321` is HISTORY (51), leave it.
+- `docs/testing.md:158-162`, `docs/architecture.md`, `docs/session-bundle.md`, `docs/jcs.md` — audit.
+- `CHANGELOG.md` `[Unreleased]` :8 — `### Added`; `### BREAKING` already present (pinned-key timestamp erratum), so the next release is already breaking.
+
+### Siblings (read-only)
+- `../agentidentitytrustprotocol` — spec, HEAD `5063c08`, **working tree DIRTY** (modified `schemas/json/aitp-mutual-handshake.schema.json`, `scripts/check-doc-coherence.sh`, `scripts/fixture-validation-map.json`, `rfcs/RFC-AITP-0002-identity.md`; untracked `id-008`/`id-009` fixtures). **Never point `AITP_SPEC` at it — use a clean `git worktree` at the pinned commit.**
+- `../aitp-verifier-py` — independent verifier, pinned `c5ecb604…`. No change needed (no minted bytes move).
+- No `seam/` repo. No `CLAUDE.md` in aitp-rs (gitignored).
+
+## Baseline (pre-Phase-0, measured 2026-08-30 from PR #141 run 33315687519)
+- `conformance fixtures`: **55 passed, 7 failed, 2 skipped of 64**. Failures: `bundle-006` (got `SESSION_BUNDLE_INVALID`), `env-006`/`man-004`/`rev-005`/`tct-011` (got `INVALID_ENVELOPE`), `env-007`/`rev-006` (expected success, got `INVALID_ENVELOPE` — over-rejection).
+- `vendored schemas in sync`: RED — `tests/schemas/aitp-manifest.schema.json` `oidc_issuers` description drift.
+- All 19 other checks green.
+- **Target: 62 passed, 0 failed, 2 skipped of 64.**
+
+## Phase log
+
+### Phase 0 — Rebase + vendor · PASS · 2026-08-30
+- Branch `work/unknown-field-140` (built on `origin/deps/spec-5063c08ed994`, PR #141).
+- Merge `ca4bf5f` (brought in `origin/main`'s 2 extra commits: v0.11.0 release +
+  release-plz sync-onto-PR CI fix — neither touched `tests/schemas/` beyond the
+  expected file) + sync commit `331adb3`. Verifier (Opus): **PASS**, 1 round.
+  Independently re-derived the vendored diff via `git archive` on the spec repo at
+  `5063c08` — byte-identical, no extra/missing files.
+- `git diff --stat` for `331adb3`: `tests/schemas/SPEC_VERSION` (trailing-newline
+  normalization only) + `tests/schemas/aitp-manifest.schema.json` (the `oidc_issuers`
+  §5-step-5→step-6 description edit) — exactly as predicted.
+- **Verifier called this independently shippable now** (flips `vendored schemas in
+  sync` green with zero feature coupling). **Orchestrator decision: accumulate
+  instead, ship once at the end of the plan** — pushing now would trigger a full CI
+  matrix watch (`/ship` §5) that we already know will still fail on `conformance
+  fixtures` (by design, until Phase 6b lands), so an early push buys no signal
+  `git diff`/local review didn't already provide, at the cost of ~10 avoidable full
+  CI watches across the plan. Logged to `ASSUMPTIONS.md` as the one place this run
+  diverges from a verifier's per-phase call.
+- Not pushed. Nothing outside `tests/schemas/` touched.
+- Next: Phase 1 (`aitp-core` primitives).
