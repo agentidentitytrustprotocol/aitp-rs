@@ -90,6 +90,33 @@
   currently-green check, it doesn't ship silently.
 - **Status:** UNCONFIRMED
 
+## Delegation's `peek_claims` has no `typ`-first gate like TCT's (pre-existing gap, unaltered)
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 6b)
+- **Assumed:** `tct_presented_as_delegation_rejected`'s updated expectation
+  (now includes `UnknownField` alongside `ClaimsMalformed`/`TypMismatch`)
+  is correct, not a regression of Phase 6a's typ-before-claims lesson.
+- **Chose:** verified `DelegationClaims`'s pre-existing
+  `deny_unknown_fields` already rejected the same inputs at the same
+  call site before this phase — `check_members`'s rejection set is a
+  strict subset, so no outcome that used to report `TypMismatch` can
+  flip to `UnknownField`; this phase only relabels a subset of what was
+  previously `ClaimsMalformed`. RFC-AITP-0006 §4 step 1 does specify a
+  `typ`-check-first ordering (`TOKEN_TYP_MISMATCH`) that delegation
+  doesn't implement — but that gap predates this phase (a TCT-as-
+  delegation reported `INVALID_ENVELOPE` before, `UNKNOWN_FIELD` now;
+  neither is the RFC's `TOKEN_TYP_MISMATCH`), and the plan explicitly
+  directed this phase to change only the error code, not the ordering.
+- **Alternatives:** adding a `peek_header_typ`-style gate to
+  `peek_claims` (mirroring Phase 6a's TCT/voucher fix) — would genuinely
+  improve delegation to the RFC-correct code, but is out of scope for
+  issue #140 (a wire-format completeness gap, not part of the
+  UNKNOWN_FIELD rollout) and no fixture exercises it.
+- **Blast radius if wrong:** low — `del-004`/`del-007` are the only
+  delegation-adjacent fixtures and are frozen permanent skips; no
+  fixture in the corpus exercises this ordering, so getting it "wrong"
+  changes no CI signal today.
+- **Status:** UNCONFIRMED
+
 ## Session-bundle HTTP endpoint now also accepts an unwrapped body
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 5)
 - **Assumed:** routing `session_bundle_server.rs`'s POST handler through

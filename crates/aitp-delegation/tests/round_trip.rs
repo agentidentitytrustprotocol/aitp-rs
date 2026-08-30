@@ -342,12 +342,20 @@ fn tct_presented_as_delegation_rejected() {
     let a_key = a();
     let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&issued.token, &ctx).unwrap_err();
-    // The TCT's claims don't deserialize as delegation claims (peek
-    // fails) — and even if they did, the typ check would fire.
+    // The TCT's claims carry members outside `DELEGATION_CLAIMS_MEMBERS`
+    // (`grants`, `iat`) — the unverified-peek claim-set check (RFC-AITP-
+    // 0001 §7, Phase 6b) rejects those before the strict deserialize
+    // even runs, so `UnknownField` fires ahead of `ClaimsMalformed` and
+    // the crypto-layer `typ` check never gets a chance to run. Unlike
+    // `aitp_tct::verify_tct`/`verify_voucher`, delegation's peek has no
+    // `typ` gate ahead of its claim-set check (there is no del-equivalent
+    // of fixture tct-010 forcing that ordering), so any of the three
+    // codes is an acceptable refusal here.
     assert!(
         matches!(
             err,
-            DelegationError::ClaimsMalformed(_)
+            DelegationError::UnknownField(_)
+                | DelegationError::ClaimsMalformed(_)
                 | DelegationError::Crypto(CryptoError::TypMismatch { .. })
         ),
         "got {err:?}"

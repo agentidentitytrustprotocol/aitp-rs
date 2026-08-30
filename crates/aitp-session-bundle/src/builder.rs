@@ -5,9 +5,9 @@
 
 use crate::error::SessionBundleError;
 use crate::types::{ParticipantEntry, SessionTrustBundle};
-use aitp_core::{jcs, Aid, ExtensionsMap, Timestamp};
+use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::TctClaims;
+use aitp_tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -22,8 +22,23 @@ pub const DEFAULT_BUNDLE_VERSION: &str = "aitp/0.2";
 pub(crate) fn peek_tct_claims(token: &str) -> Result<TctClaims, SessionBundleError> {
     let payload = aitp_crypto::jws::decode_payload_unverified(token)
         .map_err(|e| SessionBundleError::Canonicalization(format!("participant tct: {e}")))?;
-    serde_json::from_slice(&payload)
-        .map_err(|e| SessionBundleError::Canonicalization(format!("participant tct claims: {e}")))
+    // Claim-set check (RFC-AITP-0001 §7) on the unverified peek, same
+    // registry `aitp_tct::verify_tct`/`verify_voucher` enforce. An
+    // unknown claim on an embedded participant TCT is a §7 violation,
+    // not an internal fault — it must not fall through to
+    // `SessionBundleError::Canonicalization` (which the adapter maps to
+    // `INTERNAL_ERROR`).
+    if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+        check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
+            .map_err(|e| SessionBundleError::UnknownField(e.field))?;
+    }
+    serde_json::from_slice(&payload).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            SessionBundleError::UnknownField(field)
+        } else {
+            SessionBundleError::Canonicalization(format!("participant tct claims: {e}"))
+        }
+    })
 }
 
 /// Fluent builder for issuing a [`SessionTrustBundle`] as the

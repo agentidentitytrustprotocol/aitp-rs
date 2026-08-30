@@ -568,3 +568,45 @@ fn present_but_empty_extensions_still_verifies() {
          signing input that also carries it"
     );
 }
+
+/// Acceptance criterion 3 (Phase 6b, issue #140): a session bundle whose
+/// embedded participant TCT carries an unknown claim must report the
+/// `UNKNOWN_FIELD` class, not `INTERNAL_ERROR`. `peek_tct_claims` used
+/// to route every `serde_json` shape failure (including this one)
+/// through `SessionBundleError::Canonicalization`, which the adapter
+/// maps to `INTERNAL_ERROR` — an unknown claim on an embedded artifact
+/// is a §7 violation, not an internal fault.
+#[test]
+fn participant_tct_with_unknown_claim_rejected_as_unknown_field_not_internal_error() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let claims = serde_json::json!({
+        "ver": aitp_core::PROTOCOL_VERSION,
+        "jti": Uuid::new_v4(),
+        "iss": coord.aid(),
+        "sub": alice.aid(),
+        "aud": alice.aid(),
+        "iat": NOW.0,
+        "exp": NOW.0 + 3600,
+        "grants": ["session.participate"],
+        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint().unwrap() },
+        "rogue": "nope",
+    });
+    let bad_tct =
+        aitp_crypto::jws::sign_compact(&coord, aitp_crypto::jws::TYP_TCT, &claims).unwrap();
+
+    let err = SessionBundleBuilder::new(&coord)
+        .session_id(Uuid::parse_str("00000000-0000-4000-8000-000000000000").unwrap())
+        .issued_at(NOW)
+        .participant(alice.aid().clone(), bad_tct)
+        .build()
+        .unwrap_err();
+
+    match err {
+        SessionBundleError::UnknownField(field) => assert_eq!(field, "rogue"),
+        other => panic!(
+            "expected UnknownField(\"rogue\"), not an INTERNAL_ERROR-mapped \
+             Canonicalization; got {other:?}"
+        ),
+    }
+}

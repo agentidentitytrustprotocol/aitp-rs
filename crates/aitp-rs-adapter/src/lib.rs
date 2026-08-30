@@ -1666,6 +1666,7 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // (the outer token's bad signature maps to InvalidSignature
         // in aitp-delegation) — hence DELEGATION_INVALID_VOUCHER.
         Crypto(c) => return crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
+        UnknownField(_) => "UNKNOWN_FIELD",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -3321,6 +3322,15 @@ mod error_code_mapping_tests {
                 aitp_crypto::CryptoError::SignatureInvalid
             )),
             "DELEGATION_INVALID_VOUCHER"
+        );
+        // §7 unknown-member rejection: a dedicated core code, not merged
+        // into ClaimsMalformed's INVALID_ENVELOPE and not left to the
+        // `_ => INTERNAL_ERROR` catch-all. No fixture covers this
+        // mapper, so this direct assertion is the only thing that would
+        // catch a missing/misplaced arm.
+        assert_eq!(
+            delegation_error_code(&DelegationError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
         );
     }
 

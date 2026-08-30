@@ -7,9 +7,9 @@
 //! `grant_proof` source-TCT reconstruction is gone.)
 
 use crate::builder::compute_chain_hash;
-use crate::types::{DelegationClaims, VerifiedDelegation};
+use crate::types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
 use crate::DelegationError;
-use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_core::{check_members, from_serde_error, Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpVerifyingKey};
 use aitp_tct::GrantVoucherClaims;
 use uuid::Uuid;
@@ -145,7 +145,24 @@ pub fn verify_delegation(
 
 fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     let payload = jws::decode_payload_unverified(token).map_err(DelegationError::Crypto)?;
-    serde_json::from_slice(&payload).map_err(|e| DelegationError::ClaimsMalformed(e.to_string()))
+    // Claim-set check (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2 step 1) on
+    // the still-unverified payload — structurally ahead of AID-pinned
+    // `alg` checking and signature verification, same ordering rationale
+    // as `aitp_tct::verify_tct`. A reject decision drawn from unverified
+    // bytes is sound: no trust is ever extended on the strength of it.
+    // A payload that isn't valid JSON at this stage is left for the
+    // strict deserialize below to diagnose.
+    if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
+        check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
+            .map_err(|e| DelegationError::UnknownField(e.field))?;
+    }
+    serde_json::from_slice(&payload).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            DelegationError::UnknownField(field)
+        } else {
+            DelegationError::ClaimsMalformed(e.to_string())
+        }
+    })
 }
 
 /// Strictly verify one delegation JWS under its own `iss` and return
@@ -159,8 +176,13 @@ fn verify_hop_jws(token: &str) -> Result<DelegationClaims, DelegationError> {
             aitp_crypto::CryptoError::SignatureInvalid => DelegationError::InvalidSignature,
             other => DelegationError::Crypto(other),
         })?;
-    let claims: DelegationClaims = serde_json::from_slice(&payload)
-        .map_err(|e| DelegationError::ClaimsMalformed(e.to_string()))?;
+    let claims: DelegationClaims = serde_json::from_slice(&payload).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            DelegationError::UnknownField(field)
+        } else {
+            DelegationError::ClaimsMalformed(e.to_string())
+        }
+    })?;
     if claims.ver != PROTOCOL_VERSION {
         return Err(DelegationError::VersionUnknown);
     }
@@ -206,6 +228,10 @@ fn verify_root_voucher(
     let voucher = aitp_tct::verify_voucher(voucher_token, ctx.verifier).map_err(|e| match e {
         aitp_tct::TctError::Crypto(c) => DelegationError::Crypto(c),
         aitp_tct::TctError::VersionUnknown => DelegationError::VersionUnknown,
+        // RFC-AITP-0001 §7: the embedded voucher's claim-set violation
+        // must surface as UNKNOWN_FIELD, not be swallowed into
+        // DELEGATION_INVALID_VOUCHER by this catch-all.
+        aitp_tct::TctError::UnknownField(f) => DelegationError::UnknownField(f),
         _ => DelegationError::InvalidVoucher,
     })?;
     if &voucher.sub != expected_delegator {

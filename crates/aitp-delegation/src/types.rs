@@ -68,6 +68,31 @@ pub struct DelegationClaims {
     pub ext: Option<serde_json::Map<String, serde_json::Value>>,
 }
 
+/// Full set of top-level members `aitp-delegation.schema.json` declares,
+/// including the `ext` namespace key itself. Used by the claim-set check
+/// (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2) performed on the decoded JWS
+/// payload — before AID-pinned `alg` checking and signature verification
+/// — by [`crate::verifier::verify_delegation`]'s unverified peek and by
+/// [`crate::builder::DelegationBuilder`]'s prior-hop peek.
+///
+/// Anchored to the vendored schema by `crates/aitp-delegation/tests/schema.rs`,
+/// which asserts this list equals the schema's top-level `properties`
+/// keys — so this cannot silently drift from the spec.
+pub const DELEGATION_CLAIMS_MEMBERS: &[&str] = &[
+    "ver",
+    "iss",
+    "sub",
+    "aud",
+    "scope",
+    "exp",
+    "cnf",
+    "voucher",
+    "jti",
+    "chain",
+    "chain_hash",
+    "ext",
+];
+
 /// A delegation token that passed [`crate::verify_delegation`]: the
 /// verbatim outer token, its trusted claims, and the root voucher's
 /// claims (the authority the chain bottomed out in).
@@ -111,6 +136,22 @@ mod tests {
         let mut v = sample_claims_json();
         v.as_object_mut().unwrap().insert("rogue".into(), json!(1));
         assert!(serde_json::from_value::<DelegationClaims>(v).is_err());
+    }
+
+    /// Acceptance criterion 4 (Phase 6b): RFC-AITP-0001 §7's asymmetry —
+    /// an unknown sibling claim is rejected (`unknown_claim_rejected`
+    /// above), but an arbitrary key *inside* `ext` MUST be accepted.
+    /// Library-level, independent of any conformance fixture.
+    #[test]
+    fn junk_key_inside_ext_accepted() {
+        let mut v = sample_claims_json();
+        v.as_object_mut().unwrap().insert(
+            "ext".into(),
+            json!({"any_junk_key_at_all": {"deeply": ["nested", 1, true]}}),
+        );
+        let claims: DelegationClaims =
+            serde_json::from_value(v).expect("junk key inside ext must be accepted");
+        assert!(claims.ext.is_some());
     }
 
     #[test]
