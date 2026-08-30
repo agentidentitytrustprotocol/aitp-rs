@@ -17,7 +17,7 @@ use aitp_handshake::{
 use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
 use aitp_tct::VerifiedTct;
 use napi::bindgen_prelude::*;
-use napi::{Env, JsFunction};
+use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
 
@@ -37,7 +37,7 @@ impl SessionContext {
     fn presented_identity(
         &self,
         env: Env,
-        oidc_mint_jwt: Option<JsFunction>,
+        oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<PresentedIdentity> {
         match self.identity_kind {
             IdentityHintKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
@@ -201,7 +201,7 @@ impl JsInitiatorSession {
         env: Env,
         peer_manifest_json: String,
         requested_grants: Vec<String>,
-        oidc_mint_jwt: Option<JsFunction>,
+        oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<String> {
         let ManifestEnvelope {
             manifest: peer_manifest,
@@ -338,7 +338,7 @@ impl JsResponderSession {
         &mut self,
         env: Env,
         hello_json: String,
-        oidc_mint_jwt: Option<JsFunction>,
+        oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<JsHelloAckResult> {
         let envelope: AitpEnvelope = serde_json::from_str(&hello_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
