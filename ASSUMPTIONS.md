@@ -43,7 +43,7 @@
   separate, revertable commit; the only cost of this choice being wrong is a
   later, larger CI watch instead of several smaller ones. Reversible at any
   point by pushing the accumulated branch early.
-- **Status:** UNCONFIRMED
+- **Status:** CONFIRMED (2026-08-30). See DECISIONS.md D11.
 
 ## Revocation snapshot `Some(extensions)` has no cross-impl witness
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 4)
@@ -63,7 +63,11 @@
   schema-declared passthrough that never drives a trust decision.
 - **Blast radius if wrong:** low, same reasoning as the manifest entry
   above — the KATs are the load-bearing gate and are untouched.
-- **Status:** UNCONFIRMED
+- **Status:** NEEDS-CHANGE (2026-08-30) → CHANGED. See DECISIONS.md D8.
+  `extensions` was found to enter the JCS signing input in both
+  implementations (not merely an opaque passthrough), so this was
+  fixed: `xcheck_mint.rs` now also mints a populated-`extensions`
+  snapshot, cross-verified in `xcheck-verify.py`.
 
 ## Phase 6a's claim-registry check runs after `typ` enforcement, not before
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 6a)
@@ -88,7 +92,7 @@
 - **Blast radius if wrong:** low and immediately visible — `tct-010` is
   a real conformance fixture in CI; getting the order wrong fails a
   currently-green check, it doesn't ship silently.
-- **Status:** UNCONFIRMED
+- **Status:** CONFIRMED (2026-08-30). See DECISIONS.md D10.
 
 ## Delegation's `peek_claims` has no `typ`-first gate like TCT's (pre-existing gap, unaltered)
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 6b)
@@ -115,7 +119,12 @@
   delegation-adjacent fixtures and are frozen permanent skips; no
   fixture in the corpus exercises this ordering, so getting it "wrong"
   changes no CI signal today.
-- **Status:** UNCONFIRMED
+- **Status:** NEEDS-CHANGE (2026-08-30) → CHANGED. See DECISIONS.md D7.
+  A real cross-implementation divergence with `aitp-verifier-py` was
+  found (it reports `TOKEN_TYP_MISMATCH`, aitp-rs reported
+  `UNKNOWN_FIELD`, for the same input), so this was fixed rather than
+  left as a follow-up: a `typ`-first gate was added to delegation's
+  `peek_claims`, mirroring TCT/voucher's Phase 6a fix.
 
 ## Session-bundle HTTP endpoint now also accepts an unwrapped body
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 5)
@@ -143,7 +152,12 @@
   require it.
 - **Blast radius if wrong:** low — no cryptographic or trust-boundary
   weakening either way, only an acceptance-shape question.
-- **Status:** UNCONFIRMED
+- **Status:** CONFIRMED (2026-08-30). See DECISIONS.md D6. RFC-AITP-0010
+  §4.3.1 is non-normative for Draft and its wording arguably favors the
+  bare shape; the server normalizes both shapes on read/write regardless.
+  Follow-up: file an upstream spec-clarification issue for §4.3.1's
+  ambiguous wording (`aitp-verifier-py`'s own parser requires the
+  wrapper, an asymmetry worth resolving upstream, not by code here).
 
 ## Manifest `Some(empty extensions)` has no cross-impl witness
 - **Plan:** `plans/unknown-field-error-code.md` (Phase 3)
@@ -168,4 +182,10 @@
   this case, the first real cross-impl manifest carrying
   `"extensions":{}` would surface it as a signature mismatch, not a
   silent divergence.
-- **Status:** UNCONFIRMED
+- **Status:** NEEDS-CHANGE (2026-08-30) → CHANGED. See DECISIONS.md D9.
+  Reconciliation found the situation was worse than logged here: `xcheck`
+  had ZERO manifest coverage of any kind, not just the extensions edge
+  case, so Phase 3's real JCS signing-input change had never been
+  cross-verified at all. Fixed by adding two manifest vectors (no
+  extensions, populated extensions — not the unreachable `Some(empty)`
+  case) to `xcheck_mint.rs`/`xcheck-verify.py`.

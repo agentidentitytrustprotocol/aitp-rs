@@ -104,3 +104,97 @@ implements the traits, but that leaves the exact coupling this issue exists to r
 permanently — considered an improvement, not just an accepted cost. A single shared
 parser, `JwkPublicKey::from_jwk_json`, replaces four duplicated hand-rolled JWK parsers
 (`aitp-transport-http`'s JWKS fetch and DPoP verification, both language bindings).
+
+## D6 — Session-bundle HTTP endpoint keeps accepting both wrapped and bare bodies (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** routing `session_bundle_server.rs` through `parse_session_bundle_wire`
+(which has always accepted a bare body as an alternative to `{"session_bundle": {...}}`)
+widens the live network contract, since the endpoint previously only accepted the wrapped
+shape.
+**Fable's recommendation:** confirm as-is. RFC-AITP-0010 §4.3.1 is explicitly
+non-normative for Draft, and its wording ("Request body is the `session_bundle` object
+defined in §3") arguably favors the bare shape over the wrapper — unlike the manifest's
+RFC-AITP-0003 §6.1 explicit wrapper MUST, which is a genuinely different RFC clause, not
+an inconsistency in this repo. The server re-wraps whatever it accepts before storing and
+always serves the wrapped form on GET, so the leniency never propagates downstream; both
+shapes go through identical member-set checks and full signature verification. One
+asymmetry worth tracking: `aitp-verifier-py`'s own (non-HTTP) parser requires the wrapper.
+**Verdict:** confirmed as-is. File an upstream spec-clarification issue on RFC-AITP-0010
+§4.3.1's ambiguous "the `session_bundle` object" wording, since it currently supports
+either implementation's reading.
+**Status:** CONFIRMED (2026-08-30).
+
+## D7 — Add a `typ`-first gate to delegation's claim peek, closing a real cross-impl divergence (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** delegation's `peek_claims` lacking a `typ`-first gate (unlike TCT/voucher
+after Phase 6a) was a pre-existing, out-of-scope wire-format completeness gap with no
+fixture coverage.
+**Fable's recommendation:** change. Confirmed by reading all three sources directly:
+`aitp-verifier-py/aitp_verifier/delegation.py` checks `typ` before unknown-fields and
+reports `TOKEN_TYP_MISMATCH` for a TCT presented as a delegation token; `aitp-rs`'s
+`peek_claims` runs the member-set check first and reports `UNKNOWN_FIELD` for the same
+input; RFC-AITP-0006 §4 step 1 mandates the Python side's ordering. This is a live
+interop divergence between the two implementations, not a dormant purity gap, and the
+fix mirrors an already-proven pattern (`peek_header_typ`) one file away.
+**Verdict:** change now, before shipping. Mirror `peek_header_typ` into
+`aitp-delegation`'s `peek_claims`, gate the member-set check on `typ` matching first,
+update `tct_presented_as_delegation_rejected`'s expectation to `TypMismatch` only.
+**Status:** NEEDS-CHANGE — implemented in this same session before `/ship`.
+
+## D8 — Extend xcheck to cross-verify a revocation snapshot with populated `extensions` (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** `extensions` is an opaque, schema-declared passthrough that never drives
+a trust decision, so xcheck never minting a populated-`extensions` snapshot was low-risk,
+out-of-scope busywork.
+**Fable's recommendation:** change. The "opaque passthrough" framing is correct for trust
+decisions but wrong for the signing input: `aitp-verifier-py`'s `verify_revocation_snapshot`
+JCS-canonicalizes the entire body, including `extensions`, before verifying the
+signature — a populated `extensions` map flows through both implementations' JCS
+canonicalization and must agree byte-for-byte. `xcheck` is a required CI check; the
+one-time local verification run for this PR dies at merge, while a CI vector runs
+forever, including against every future Python-pin bump.
+**Verdict:** change now, before shipping. Add a populated-`extensions` revocation
+snapshot vector to `xcheck_mint.rs` and a matching check in `xcheck-verify.py`.
+**Status:** NEEDS-CHANGE — implemented in this same session before `/ship`.
+
+## D9 — Add manifest vectors to xcheck; manifest had zero cross-impl coverage, not just the `extensions` edge case (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** the logged entry stated only that `Some(empty extensions)` specifically
+lacked a cross-impl witness, with the KATs as the load-bearing gate in the meantime.
+**Fable's recommendation:** change — and the situation is worse than the logged
+assumption stated. `xcheck_mint.rs` mints no manifest vector of any kind; `xcheck-verify.py`
+never calls `verify_manifest`. Phase 3's real JCS signing-input change (the
+`ExtensionsMap` → `Option<ExtensionsMap>` fix) has never been independently cross-verified
+at all, in any shape. `aitp-verifier-py` already has a working `verify_manifest()`, so
+this needs no cross-repo edit — only a local addition. `Some(ExtensionsMap::new())`
+(present-but-empty) stays genuinely unreachable from the public `ManifestBuilder` and is
+correctly left out of the new vectors; a populated-extensions manifest (a reachable state)
+is the one that matters.
+**Verdict:** change now, before shipping. Add two manifest vectors (no extensions,
+populated extensions) to `xcheck_mint.rs` and matching `verify_manifest` checks to
+`xcheck-verify.py`.
+**Status:** NEEDS-CHANGE — implemented in this same session before `/ship`.
+
+## D10 — Phase 6a's claim-registry check running after `typ` enforcement is correct, CI-enforced ordering (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** the plan's Approach text said the claim-set check runs before `typ`
+enforcement; the implementation gates it on `typ` matching first instead, per an earlier
+verify round's finding.
+**Fable's recommendation:** confirm. Independently re-read `crates/aitp-tct/src/verifier.rs`
+(the `peek_header_typ` gate), RFC-AITP-0005 §7.2's actual text ("before any cryptographic
+step" scopes to alg-pin/signature, not `typ`), and fixture `tct-010` (already green,
+requires exactly this order) — all confirm the implementation's ordering, not the plan's
+paraphrase, is correct. One residual note: the RFC's own "MUST, in order" step list
+arguably contradicts its own fixture's description of that same ordering — an upstream
+wording issue, not a code defect here.
+**Verdict:** confirmed as-is. Worth an upstream spec-clarification issue for RFC-AITP-0005
+§7.2's internally inconsistent step-ordering language.
+**Status:** CONFIRMED (2026-08-30).
+
+## D11 — Accumulating all 11 phases locally before one closing `/ship` was the right call (reconciled 2026-08-30, plan: unknown-field-error-code).
+**Assumption:** shipping every phase individually (push + full CI watch after each) would
+have cost far more than it bought, since the conformance corpus stayed red by design
+until Phase 6b landed.
+**Fable's recommendation:** confirm. Git history shows 22 clean, independently-revertable
+commits (11 feature + 11 doc-tracking). Specifically tested whether accumulating delayed
+catching the duplicate-key security regression found during Phase 7b's review: it did
+not — that bug was caught by a verifier's own investigation, not by any test, and CI runs
+the same suites as local `cargo test`, so an earlier push would not have surfaced it any
+sooner. No actual cost materialized from accumulating.
+**Verdict:** confirmed as-is.
+**Status:** CONFIRMED (2026-08-30).
