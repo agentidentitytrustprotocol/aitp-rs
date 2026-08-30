@@ -548,3 +548,41 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   unknown member.
 - **This closes out every feature phase in the plan.** Only Phase 8
   (docs/CHANGELOG/CI-comment refresh) remains.
+
+### Phase 8 — Docs, CHANGELOG, CI refresh · PASS · 2026-08-30
+- Commit `fb3c876`. Verifier (Opus): PASS with 5 minor gaps, all
+  doc-fidelity, zero logic risk, closed inline: `docs/session-bundle.md`
+  had two stale "no extensions slot" claims (it's had one since #95);
+  `extensions.rs`'s `is_empty` doc still recommended the exact
+  `skip_serializing_if = "is_empty"` pattern that caused Manifest's OQ1
+  bug; `docs/jcs.md`'s extensions-bearing type list omitted
+  `SessionTrustBundle`; `docs/testing.md` still said "51 pass" instead
+  of 62. Also added the plan's required spec-divergence/versioning notes
+  to the CHANGELOG entry, and a separate `### Fixed` entry for the
+  duplicate-key security fix (distinct from the UNKNOWN_FIELD feature
+  entry — a real, user-visible fix in its own right). Doc build, full
+  test suite, and the 62/0/2 conformance tally all reconfirmed clean
+  after the fixes.
+
+## Plan complete
+
+All 11 phases (0, 1, 2, 3, 4, 5, 6a, 6b, 7a, 7b, 8) are `Status: DONE`,
+each independently Opus-verified (Phase 3 and 7b needed a second
+verify round to close real gaps; every other phase passed on the first
+round). Final state on `work/unknown-field-140` (built on PR #141's
+branch `deps/spec-5063c08ed994`): conformance corpus **62 passed, 0
+failed, 2 skipped of 64** (was 55/7/2 at the start), `cargo test
+--workspace --all-features` green, clippy/fmt/doc-build clean. Nothing
+accumulated needs a separate closing pass beyond the final `/ship`.
+
+**The single most consequential finding of the whole plan**: a
+plan-wide duplicate-JSON-key rejection regression (RFC-AITP-0001
+§5.4.5), introduced by Phase 2's Value-first parsing design and present
+through Phase 7a undetected — caught only when Phase 7b's verifier
+happened to test duplicate-key handling specifically, since no
+conformance fixture exercises it. Fixed in the same commit as Phase
+7b (`1c9c667`); see that phase's log entry above for the full account.
+
+Next: this plan's own `/ship` pass (push `work/unknown-field-140` onto
+`origin/deps/spec-5063c08ed994`, i.e. PR #141; watch full CI; merge with
+`Closes #140`).
