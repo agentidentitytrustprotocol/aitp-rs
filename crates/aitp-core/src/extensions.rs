@@ -1,9 +1,9 @@
 //! Forward-compatible extension fields.
 //!
-//! Per RFC-AITP-0001 §6, every signed object reserves an `extensions` slot.
+//! Per RFC-AITP-0001 §7, every signed object reserves an `extensions` slot.
 //! Unknown JSON fields _outside_ `extensions` MUST be rejected (because
 //! signature canonicalization depends on the exact field set). Unknown keys
-//! _inside_ `extensions` MAY be ignored.
+//! _inside_ `extensions` MUST be ignored.
 
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -25,10 +25,17 @@ impl ExtensionsMap {
 
     /// True if no extensions are set.
     ///
-    /// Used with `#[serde(skip_serializing_if = "ExtensionsMap::is_empty")]`
-    /// so that empty extensions are omitted from canonical JSON entirely
-    /// rather than serialized as `"extensions":{}` — this matters for
-    /// signature interop.
+    /// Callers embedding this map in a signed struct MUST wrap the field
+    /// as `Option<ExtensionsMap>` with
+    /// `#[serde(default, skip_serializing_if = "Option::is_none")]`, NOT
+    /// `skip_serializing_if = "ExtensionsMap::is_empty"` on a bare
+    /// (non-`Option`) field — the latter conflates an absent `extensions`
+    /// member with a present-but-empty `"extensions":{}`, which are
+    /// different canonical bytes and therefore different signatures
+    /// (RFC-AITP-0001 §5.4.1). See `docs/jcs.md` for the full rationale
+    /// and the list of types that follow this pattern. This method exists
+    /// for callers that only need to check emptiness directly, not as a
+    /// `skip_serializing_if` target.
     pub fn is_empty(&self) -> bool {
         self.0.is_empty()
     }

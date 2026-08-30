@@ -82,7 +82,7 @@ pub struct Manifest {
     /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
     /// bytes, different digest, different signature (this body IS
     /// JCS-canonicalized for the outer signature, via
-    /// [`crate::builder::ManifestSigningView`]). Before this field was
+    /// `crate::builder::ManifestSigningView`). Before this field was
     /// `Option`, the two shapes collapsed onto the same empty map on
     /// deserialize and the signing view then dropped it unconditionally —
     /// so a manifest signed with a literal `"extensions":{}` on the wire

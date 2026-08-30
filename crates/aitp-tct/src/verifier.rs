@@ -264,7 +264,7 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 ///    valid grant voucher, `typ aitp-grant+jwt`, presented as a TCT MUST
 ///    report `TOKEN_TYP_MISMATCH`, not an unrelated claims defect, even
 ///    though voucher claims carry `src_jti`, which is not a member of
-///    [`TCT_CLAIMS_MEMBERS`]). [`peek_header_typ`] reads the header
+///    [`TCT_CLAIMS_MEMBERS`]). `peek_header_typ` reads the header
 ///    unverified purely to gate step 2 below; a mismatch (or a peek that
 ///    fails to parse at all) skips step 2 and defers straight to
 ///    [`jws::verify_compact`], which performs the authoritative,

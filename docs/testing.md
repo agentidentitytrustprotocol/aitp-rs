@@ -171,8 +171,8 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
   --feature experimental-session-bundle
 ```
 
-Expected: **51 pass / 0 fail / 2 skip** with the draft features enabled
-(`del-004` is a frozen v0.1 shape). The `conformance` job in `ci.yml`
+Expected: **62 pass / 0 fail / 2 skip** with the draft features enabled
+(`del-004`/`del-007` are frozen v0.1 shapes). The `conformance` job in `ci.yml`
 runs exactly this against the pinned spec commit. See
 [`conformance.md`](conformance.md) for the per-fixture matrix.
 

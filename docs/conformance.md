@@ -11,8 +11,8 @@ today — jump to [the matrix](#v02-conformance-matrix)).
 A conformance fixture is a JSON file describing a scenario and expected
 outcome. The runner's job is to feed each fixture's input into an
 implementation, observe what comes out, and assert it matches the
-expected outcome. The spec ships 55 fixtures today (45 v0.2 `core`, 1
-frozen in the v0.1 shape for v0.1 runners, and 9 `draft`); the count
+expected outcome. The spec ships 64 fixtures today (53 v0.2 `core`, 1
+frozen in the v0.1 shape for v0.1 runners, and 10 `draft`); the count
 grows with the spec.
 
 Many fixtures now carry the **v0.2 compact-JWS token family** (TCT, grant
@@ -271,7 +271,7 @@ aitp-conformance describe <FIXTURE_ID>
 Text output:
 
 ```
-Loaded 55 fixtures
+Loaded 64 fixtures
 Adapter: aitp-rs 0.4.0 (subprocess)
   ✓ id-001-oidc-missing-aud           [12ms]
   ✓ tct-008-alg-none-rejected         [10ms]
@@ -280,7 +280,7 @@ Adapter: aitp-rs 0.4.0 (subprocess)
   ✗ tct-002-expired                   [18ms]
       expected outcome=failure error_code=TCT_EXPIRED
       got      outcome=success
-Summary: ... passed, ... failed, ... skipped of 55 fixtures
+Summary: ... passed, ... failed, ... skipped of 64 fixtures
 ```
 
 (Illustrative — the line shapes, not a real run.)
@@ -354,11 +354,11 @@ spec's conformance suite (`schemas/conformance/`).
 
 | Tier | Fixtures | `aitp-rs` |
 |---|---|---|
-| `core` (required for v0.2) | 45 | **PASS** |
+| `core` (required for v0.2) | 53 | **PASS** |
 | `core` frozen in the v0.1 shape (`del-004`, v0.1 runners only) | 1 | **SKIP** (not required for v0.2) |
-| `draft` — session bundle (`experimental-session-bundle`) | 5 | **PASS** (feature opt-in) |
+| `draft` — session bundle (`experimental-session-bundle`) | 6 | **PASS** (feature opt-in) |
 | `draft` — multi-hop delegation (`experimental-multihop-delegation`) | 4 | **PASS** (feature opt-in) |
-| **Total** | **55** | |
+| **Total** | **64** | |
 
 Reproduce:
 
@@ -369,7 +369,7 @@ cargo build -p aitp-rs-adapter --all-features
 cargo run -p aitp-conformance --all-features -- run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# opt-in (Draft RFCs): the 9 draft fixtures additionally run.
+# opt-in (Draft RFCs): the 10 draft fixtures additionally run.
 cargo run -p aitp-conformance --all-features -- run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -390,14 +390,16 @@ regressing required coverage into a SKIP.
 
 | RFC | Fixtures | Notes |
 |---|---|---|
-| 0001 / 0007 — envelope & key resolution | `env-001`–`env-005` | Timestamp window, policy violation, key-resolution failure, replay; `env-005` is a P-256 sender (`aid:pubkey:p256:`) with the algorithm-tagged signature wire form. |
-| 0003 — manifest | `man-001`–`man-003` | Verification + expiry (cached + at-fetch). |
+| 0001 / 0007 — envelope & key resolution | `env-001`–`env-007` | Timestamp window, policy violation, key-resolution failure, replay; `env-005` is a P-256 sender (`aid:pubkey:p256:`) with the algorithm-tagged signature wire form. `env-006` is a top-level member outside the schema-declared set, rejected with `UNKNOWN_FIELD` (RFC-AITP-0001 §7); `env-007` is an unrecognized key *inside* `extensions`, which is always ignored and the envelope still verifies. |
+| 0003 — manifest | `man-001`–`man-005` | Verification + expiry (cached + at-fetch). `man-004` is a sibling-of-`extensions` unknown member, rejected with `UNKNOWN_FIELD`; `man-005` is an unknown key inside `extensions`, ignored. |
 | 0002 / 0004 — identity & handshake | `id-001`–`id-007`, `mh-001`–`mh-009`, `mh-success-001` | `verify_handshake_payload` op; pinned-key + OIDC identity proofs; four-message exchange (commit carries the TCT **and** grant voucher as compact JWS); replay. |
 | 0005 — TCT (compact JWS) | `tct-002`–`tct-007` | Expiry, JWS signature invalid, revocation, manifest-expiry bound, downstream PoP round-trip, and PoP-enforcement. The TCT is an opaque compact JWS; `verify_tct` enforces strict parsing. |
 | 0005 §5.4.5 — JWS algorithm/type pinning | `tct-008`, `tct-009`, `tct-010` | `alg: none` and ES256-for-Ed25519-AID rejected with `TOKEN_ALG_MISMATCH` before any signature work; a grant voucher presented as a TCT rejected with `TOKEN_TYP_MISMATCH`. |
+| 0005 §7 — unknown fields | `tct-011`, `tct-012` | `tct-011` is an unknown top-level claim, rejected with `UNKNOWN_FIELD`; `tct-012` is an unknown key inside the TCT's `ext` claim, ignored. |
 | 0005 §8 — grant voucher | `vch-001`, `vch-002` | Valid voucher verifies under the issuer's own key; expired voucher surfaces (in delegation context) as `DELEGATION_EXPIRED`. |
 | 0008 — revocation | `rev-001`–`rev-003` | Stale snapshot (`fail_closed` / `soft_fail`), fresh snapshot. |
 | 0008 §3.3 — revocation ordering | `rev-004` | An invalid TCT signature is rejected with `TCT_SIGNATURE_INVALID` before any revocation lookup. |
+| 0008 §7 — unknown fields | `rev-005`, `rev-006` | `rev-005` is a sibling-of-`extensions` unknown member, rejected with `UNKNOWN_FIELD`; `rev-006` is an unknown key inside `extensions`, ignored. |
 | 0006 — delegation (voucher-based) | `del-001`, `del-003`, `del-005`, `del-006`, `del-007` | Single-hop happy path (scope ⊆ `voucher.grants`); scope-exceeded; third-party voucher (`voucher.iss` ≠ verifier) and wrong-subject voucher (`voucher.sub` ≠ outer `iss`) both `DELEGATION_INVALID_VOUCHER`; `del-007` is the v0.2 structural multi-hop refusal (`DELEGATION_MULTIHOP_NOT_SUPPORTED`). |
 
 `del-004` is **frozen in the v0.1 wire shape** for v0.1 runners only; a
@@ -407,10 +409,13 @@ v0.2 runner SKIPs it (`del-007` is its v0.2 claim-shaped sibling).
 
 | RFC | Fixtures | Feature |
 |---|---|---|
-| 0010 — Session Trust Bundle | `bundle-001`–`bundle-005` | `experimental-session-bundle` |
+| 0010 — Session Trust Bundle | `bundle-001`–`bundle-006` | `experimental-session-bundle` |
 | 0011 — multi-hop delegation | `del-mh-001`–`del-mh-004` | `experimental-multihop-delegation` |
 
-In v0.2-strict mode these 9 SKIP (`required_for_v0_2: false`). Opting into
+`bundle-006` is a top-level member outside the bundle's schema-declared
+set, rejected with `UNKNOWN_FIELD` (RFC-AITP-0001 §7).
+
+In v0.2-strict mode these 10 SKIP (`required_for_v0_2: false`). Opting into
 the matching feature runs them.
 
 ### Notes
