@@ -20,7 +20,9 @@ fn fixture() -> Value {
         .parent()
         .and_then(|p| p.parent())
         .expect("repo root")
-        .join("tests/schemas/known-answer/signed-examples/session-bundle/kat-keypair-001-bundle.json");
+        .join(
+            "tests/schemas/known-answer/signed-examples/session-bundle/kat-keypair-001-bundle.json",
+        );
     let raw = std::fs::read(&path)
         .unwrap_or_else(|e| panic!("read vendored signed example {path:?}: {e}"));
     serde_json::from_slice(&raw).expect("vendored fixture is valid JSON")
@@ -43,7 +45,8 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
     // Read it the way the adapter does: through the wire-form parser,
     // wrapped in the transport envelope.
     let wire = serde_json::json!({ "session_bundle": body });
-    let bundle = parse_session_bundle_wire(&wire).expect("vendored bundle parses as valid wire form");
+    let bundle =
+        parse_session_bundle_wire(&wire).expect("vendored bundle parses as valid wire form");
 
     let verifier_aid = participant_aid();
     let ctx = aitp_session_bundle::VerifySessionBundleContext {
