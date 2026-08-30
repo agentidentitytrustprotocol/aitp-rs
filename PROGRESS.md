@@ -471,3 +471,26 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
 - Next: Phase 7a (handshake payloads — closes a real over-rejection, all
   four payload types are missing their schema-declared `extensions`
   slot).
+
+### Phase 7a — Handshake payload extensions · PASS · 2026-08-30
+- Commit `dd3a830`. Verifier (Opus): **PASS**, 1 round. Highest-risk
+  item — 4 production struct-literal sites in `state_machine.rs` the
+  plan's file list didn't flag — confirmed purely mechanical (diff is
+  exactly `+ extensions: None,` × 4, zero other changes, no match arms
+  or conditionals touched). `IdentityDescriptor` confirmed untouched;
+  verifier independently parsed the vendored handshake schema and
+  confirmed its inline `$defs.IdentityDescriptor` genuinely lacks
+  `extensions` at the pinned commit (the standalone identity schema has
+  it, the handshake schema's own copy doesn't) — the deliberate
+  exclusion is correct, not an oversight.
+- Closes a spec-mandated over-rejection (RFC-AITP-0001 §7 as amended
+  explicitly names all four handshake payload procedures) with zero
+  fixture coverage — gated entirely by new tests. `handshake_error_code`
+  tested directly (no fixture covers this mapper either).
+- Conformance tally confirmed **unchanged at 62/0/2 of 64**.
+- Non-blocking cosmetic note: the shared Commit/CommitAck adapter branch
+  labels its check with the CommitAck member-set const for both message
+  types — harmless (the two sets are identical) but slightly mislabeled;
+  not worth a fixer round.
+- Next: Phase 7b (HTTP transport + facade — makes UNKNOWN_FIELD visible
+  to real peers, not just the conformance adapter).
