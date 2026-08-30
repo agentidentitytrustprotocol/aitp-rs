@@ -804,6 +804,7 @@ impl Initiator {
             manifest: cfg.manifest.clone(),
             requested_grants,
             pop_nonce: pop_nonce.clone(),
+            extensions: None,
         };
         Ok((
             Self {
@@ -885,6 +886,7 @@ impl Initiator {
             grant_voucher: issued.voucher,
             pop_signature,
             pop_nonce_echo: ack.pop_nonce.clone(),
+            extensions: None,
         };
         self.state = InitiatorState::AwaitingCommitAck {
             session_id,
@@ -1034,6 +1036,7 @@ impl Responder {
             requested_grants: my_requested_grants,
             pop_nonce: my_pop_nonce.clone(),
             pop_nonce_echo: hello.pop_nonce.clone(),
+            extensions: None,
         };
         Ok((
             Self {
@@ -1135,6 +1138,7 @@ impl Responder {
             grant_voucher: issued.voucher,
             pop_signature: sign_pop(cfg.signing_key, &peer_pop_nonce)?,
             pop_nonce_echo: peer_pop_nonce.clone(),
+            extensions: None,
         };
         self.state = ResponderState::Done;
         Ok((

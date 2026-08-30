@@ -863,10 +863,14 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         now: envelope.timestamp,
     };
 
+    use aitp_core::{check_members, from_serde_error};
     use aitp_handshake::payloads::{
         MutualCommitAckPayload, MutualHelloAckPayload, MutualHelloPayload,
+        MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+        MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
     use aitp_handshake::state_machine::bootstrap_verify_peer;
+    use aitp_handshake::HandshakeError;
 
     let hello_family = matches!(
         envelope.message_type,
@@ -874,17 +878,59 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     );
     let result = match envelope.message_type {
         MessageType::MutualHello => {
+            if let Err(e) = check_members(
+                "MutualHelloPayload",
+                &envelope.payload,
+                MUTUAL_HELLO_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_HELLO payload",
+                );
+            }
             let p: MutualHelloPayload = match serde_json::from_value(envelope.payload.clone()) {
                 Ok(p) => p,
-                Err(e) => return err(id, "INVALID_ENVELOPE", &format!("hello payload: {e}")),
+                Err(e) => {
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("hello payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("hello payload: {e}"))
+                    }
+                }
             };
             bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
                 .map(|_| ())
         }
         MessageType::MutualHelloAck => {
+            if let Err(e) = check_members(
+                "MutualHelloAckPayload",
+                &envelope.payload,
+                MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_HELLO_ACK payload",
+                );
+            }
             let p: MutualHelloAckPayload = match serde_json::from_value(envelope.payload.clone()) {
                 Ok(p) => p,
-                Err(e) => return err(id, "INVALID_ENVELOPE", &format!("hello_ack payload: {e}")),
+                Err(e) => {
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("hello_ack payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("hello_ack payload: {e}"))
+                    }
+                }
             };
             // mh-005 supplies `sent_pop_nonce` — the nonce the
             // receiver sent in its prior HELLO. The receiver MUST
@@ -913,11 +959,33 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             // mh-008 uses MUTUAL_COMMIT with the same payload
             // shape (the responder verifies the initiator's PoP
             // on commit), so route both through the same path.
+            // `MutualCommitPayload` and `MutualCommitAckPayload` declare
+            // the same member set on the wire (RFC-AITP-0001 §7), so a
+            // single member-set check covers both message types here.
+            if let Err(e) = check_members(
+                "MutualCommitAckPayload",
+                &envelope.payload,
+                MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+            ) {
+                return err(
+                    id,
+                    &handshake_error_code(&HandshakeError::UnknownField(e.field)),
+                    "unknown field in MUTUAL_COMMIT/MUTUAL_COMMIT_ACK payload",
+                );
+            }
             let p: MutualCommitAckPayload = match serde_json::from_value(envelope.payload.clone())
             {
                 Ok(p) => p,
                 Err(e) => {
-                    return err(id, "INVALID_ENVELOPE", &format!("commit_ack payload: {e}"))
+                    return if let Some(field) = from_serde_error(&e) {
+                        err(
+                            id,
+                            &handshake_error_code(&HandshakeError::UnknownField(field)),
+                            &format!("commit_ack payload: {e}"),
+                        )
+                    } else {
+                        err(id, "INVALID_ENVELOPE", &format!("commit_ack payload: {e}"))
+                    }
                 }
             };
             // Pull the fixture-supplied issuer offered capabilities
@@ -1146,6 +1214,13 @@ fn handshake_error_code(e: &aitp_handshake::HandshakeError) -> String {
         Crypto(c) => crypto_error_code(c, "INVALID_SIGNATURE"),
         Rng(_) => "INTERNAL_ERROR".to_string(),
         Canonicalization(_) => "INTERNAL_ERROR".to_string(),
+        // RFC-AITP-0001 §7 / issue #140 Phase 7a: a dedicated core code,
+        // never left to the `_ => INTERNAL_ERROR` catch-all below. No
+        // fixture covers this mapper (the spec's `mh-*` pack doesn't
+        // exercise §7 for handshake payloads), so the direct
+        // `error_code_mapping_tests::handshake_codes` assertion is the
+        // only thing that would catch a missing/misplaced arm.
+        UnknownField(_) => "UNKNOWN_FIELD".to_string(),
         // HandshakeError is #[non_exhaustive]; future variants default
         // to INTERNAL_ERROR so the adapter never panics on a new variant.
         _ => "INTERNAL_ERROR".to_string(),
@@ -3244,6 +3319,15 @@ mod error_code_mapping_tests {
             }),
             "KEY_RESOLUTION_FAILED"
         );
+        // RFC-AITP-0001 §7 / issue #140 Phase 7a (AC2): UnknownField MUST
+        // have its own explicit arm, never fall through the
+        // `_ => "INTERNAL_ERROR"` catch-all. Asserted directly here so the
+        // arm cannot be quietly deleted without a red test — no fixture
+        // covers this mapper.
+        assert_eq!(
+            handshake_error_code(&HandshakeError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
     }
 
     #[test]
@@ -3818,6 +3902,170 @@ mod revocation_unknown_field_tests {
             "an unparseable revocation snapshot entry must not silently be \
              skipped as if it carried no revocations: {out}"
         );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+}
+
+#[cfg(test)]
+mod handshake_unknown_field_tests {
+    //! Issue #140 Phase 7a: RFC-AITP-0001 §7 for the four Mutual
+    //! Handshake payload types, driven through the real
+    //! `verify_handshake_payload` op dispatch — mirrors
+    //! `manifest_unknown_field_tests` / `revocation_unknown_field_tests`
+    //! above. No conformance fixture covers this surface (the spec's
+    //! `mh-*` pack doesn't exercise §7 for handshake payloads), so this
+    //! is the only thing that would catch a wiring regression in the
+    //! adapter itself (as opposed to the library-level tests in
+    //! `aitp-handshake`).
+    use super::*;
+
+    /// One of the three kat-keypair AIDs `kat_seed_for_aid` resolves —
+    /// used as the default receiver identity when a fixture/test omits
+    /// `self_aid`.
+    const KAT_KEYPAIR_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+
+    fn dummy_envelope(message_type: MessageType, payload: Value) -> Value {
+        json!({
+            "version": aitp_core::PROTOCOL_VERSION,
+            "message_type": message_type,
+            "message_id": Uuid::new_v4(),
+            "timestamp": 1_700_000_000,
+            "sender": {"agent_id": KAT_KEYPAIR_001_AID},
+            "payload": payload,
+            "signature": "A".repeat(86),
+        })
+    }
+
+    /// Real Ed25519-signed envelope, needed for the MUTUAL_COMMIT /
+    /// MUTUAL_COMMIT_ACK branch: `verify_handshake_payload_op` verifies
+    /// the envelope signature BEFORE the member-set check for those two
+    /// message types (unlike HELLO/HELLO_ACK, checked only after a
+    /// successful result), so a dummy signature would surface
+    /// INVALID_SIGNATURE before ever reaching UNKNOWN_FIELD.
+    fn signed_envelope(message_type: MessageType, payload: Value) -> Value {
+        let key = AitpSigningKey::from_seed(&[0x11; 32]);
+        let message_id = Uuid::new_v4();
+        let timestamp = Timestamp(1_700_000_000);
+        let digest =
+            aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
+                .unwrap();
+        let envelope = AitpEnvelope {
+            version: aitp_core::PROTOCOL_VERSION.into(),
+            message_type,
+            message_id,
+            timestamp,
+            sender: Sender {
+                agent_id: key.aid().clone(),
+            },
+            payload,
+            extensions: None,
+            signature: key.sign(&digest).into_string(),
+        };
+        serde_json::to_value(&envelope).unwrap()
+    }
+
+    /// Acceptance criterion 2: an unknown sibling member on a
+    /// MUTUAL_HELLO payload is rejected as UNKNOWN_FIELD before any
+    /// identity/manifest verification runs.
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_hello() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-hello",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHello, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Same check on MUTUAL_HELLO_ACK.
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_hello_ack() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+            "pop_nonce_echo": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-hello-ack",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHelloAck, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Same check on MUTUAL_COMMIT_ACK (shares its member-set check and
+    /// parse path with MUTUAL_COMMIT in `verify_handshake_payload_op`).
+    #[test]
+    fn adapter_rejects_unknown_sibling_on_mutual_commit_ack() {
+        let payload = json!({
+            "tct": "aaaa.bbbb.cccc",
+            "pop_signature": "A".repeat(86),
+            "pop_nonce_echo": "A".repeat(22),
+            "rogue": 1,
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-commit-ack",
+            "verify_handshake_payload",
+            json!({ "envelope": signed_envelope(MessageType::MutualCommitAck, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// Acceptance criterion 3, via the real op: an unknown member nested
+    /// inside `identity` is also rejected as UNKNOWN_FIELD, through the
+    /// `from_serde_error` recovery path (not `check_members`, which only
+    /// inspects the payload's own top-level keys).
+    #[test]
+    fn adapter_rejects_unknown_field_inside_nested_identity() {
+        let payload = json!({
+            "identity": {
+                "type": "pinned_key",
+                "subject": "x",
+                "proof": "A".repeat(86),
+                "public_key": "A".repeat(43),
+                "rogue": 1,
+            },
+            "manifest": {},
+            "requested_grants": [],
+            "pop_nonce": "A".repeat(22),
+        });
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-unknown-field-nested-identity",
+            "verify_handshake_payload",
+            json!({ "envelope": dummy_envelope(MessageType::MutualHello, payload) }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
         assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
     }
 }
