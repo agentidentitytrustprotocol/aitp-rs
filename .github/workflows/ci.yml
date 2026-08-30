@@ -415,8 +415,9 @@ jobs:
         working-directory: aitp-rs
         # Opt into the draft features so the bundle-*/multihop fixtures
         # run instead of being SKIPped. The runner exits non-zero if any
-        # required fixture FAILs. Expected: 51 pass / 0 fail / 2 skip
-        # (del-004 is a frozen v0.1 shape; see docs/conformance.md).
+        # required fixture FAILs. Expected: 53 pass / 0 fail / 2 skip
+        # of 55 fixtures (del-004 is a frozen v0.1 shape; see
+        # docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
             --target ./target/debug/aitp-rs-adapter \

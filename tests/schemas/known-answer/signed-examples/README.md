@@ -10,8 +10,8 @@ any placeholder substitution.
 The portable trust artifacts (TCT, grant voucher, delegation token)
 are compact JWS strings (RFC-AITP-0001 §5.4.5); their files pin the
 exact compact string. The JCS-profile artifacts (Manifest, revocation
-snapshot) pin the signed JSON object. The off-the-shelf JOSE smoke
-test over the TCT artifact is documented in
+snapshot, session bundle) pin the signed JSON object. The off-the-shelf
+JOSE smoke test over the TCT artifact is documented in
 [`../README.md`](../README.md).
 
 ## Why a separate directory
@@ -36,11 +36,22 @@ both implementations, because those fixtures carry a placeholder signature
 that each minting tool substitutes for itself. Re-minting is the escape
 hatch that hid it.
 
-For the two JCS-profile artifacts, the signature covers the **inner**
-artifact body — never the `{"manifest": …}` / `{"revocation_list": …}`
-wrapper (RFC-AITP-0001 §5.4.1). `make kat-verify` checks both directions:
-that each signature verifies over the inner body, and that it *fails* over
-the wrapped form. A signature valid under both shapes would pin nothing.
+For the three JCS-profile artifacts, the signature covers the **inner**
+artifact body — never the `{"manifest": …}` / `{"revocation_list": …}` /
+`{"session_bundle": …}` wrapper (RFC-AITP-0001 §5.4.1). `make kat-verify`
+checks both directions: that each signature verifies over the inner body,
+and that it *fails* over the wrapped form. A signature valid under both
+shapes would pin nothing. This is the property the session bundle got
+wrong through a full release — its schema placed `signature` beside the
+wrapper instead of inside the body — until fixed in PR #30; the
+`session-bundle/` fixture below and its bidirectional check are what
+would have caught it.
+
+The session bundle's inner body and coordinator signature are the same
+pinned artifact as vector `kat-session-bundle-001` in
+[`../jcs-sha256.json`](../jcs-sha256.json) (922 canonical bytes,
+`sha256_hex` starting `c577854d…`) — restated here as a full, standalone,
+schema-validating artifact rather than a replacement for that vector.
 
 ## Layout
 
@@ -55,8 +66,10 @@ signed-examples/
 │   └── kat-voucher-001.json                Grant voucher compact JWS (companion of a two-grant TCT)
 ├── delegation/
 │   └── single-hop-001-002-003.json         Single-hop delegation compact JWS (embeds kat-voucher-001)
-└── revocation/
-    └── kat-keypair-001-snapshot.json       Signed revocation snapshot (JCS profile)
+├── revocation/
+│   └── kat-keypair-001-snapshot.json       Signed revocation snapshot (JCS profile)
+└── session-bundle/
+    └── kat-keypair-001-bundle.json         Signed session trust bundle (JCS profile)
 ```
 
 Each file MUST:

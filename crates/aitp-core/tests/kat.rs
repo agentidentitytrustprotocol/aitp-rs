@@ -50,10 +50,16 @@ const JCS_ARTIFACT_VECTORS: &[(&str, &str)] = &[
 /// upstream — cannot silently remove it from coverage. Skipping on
 /// absence lets the file decide what gets tested; an allowlist keeps that
 /// decision here.
+///
+/// `kat-pinned-key-proof-001` is the RFC-AITP-0002 §3.1 pinned-key
+/// proof-input vector: like `kat-manifest-pop-001`, it pins a
+/// `proof_input_hex`/signature over a signing input, not a JCS-canonical
+/// `object`.
 const NON_CANONICAL_VECTORS: &[&str] = &[
     "kat-manifest-pop-001",
     "kat-multihop-chain-001",
     "kat-multihop-truncation-001",
+    "kat-pinned-key-proof-001",
 ];
 
 /// Members every canonical-form vector must carry. Absence is a failure,

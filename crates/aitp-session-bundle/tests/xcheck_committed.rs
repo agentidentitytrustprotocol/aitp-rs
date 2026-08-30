@@ -16,7 +16,10 @@
 //! output.
 
 use aitp_core::{Aid, Timestamp};
-use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+use aitp_session_bundle::{
+    parse_session_bundle_wire, verify_session_bundle, BundleOutcome, SessionBundleError,
+    VerifySessionBundleContext,
+};
 use serde_json::Value;
 use std::path::PathBuf;
 
@@ -102,17 +105,15 @@ fn aitp_verifier_py_committed_bundle_rejects_the_sibling_shape() {
     // signature>, "signature": <sig>}`.
     let sibling = serde_json::json!({ "session_bundle": body, "signature": signature });
 
-    // Read it the same way a conformant reader does: unwrap the single
-    // `session_bundle` transport key and deserialize what's inside.
-    let inner = sibling
-        .get("session_bundle")
-        .expect("sibling envelope still carries the wrapper key")
-        .clone();
-    let result: Result<aitp_session_bundle::SessionTrustBundle, _> = serde_json::from_value(inner);
+    // Read it the same way a conformant reader does: through
+    // `parse_session_bundle_wire`, which unwraps the transport envelope
+    // and rejects any sibling member via `SessionBundleEnvelope`'s
+    // `deny_unknown_fields`.
+    let result = parse_session_bundle_wire(&sibling);
     assert!(
-        result.is_err(),
-        "sibling-shaped bundle (signature outside the inner body) must not \
-         deserialize as a valid SessionTrustBundle -- RFC-AITP-0010 §3 places \
-         `signature` inside the body"
+        matches!(result, Err(SessionBundleError::WireFormInvalid(_))),
+        "sibling-shaped bundle (signature outside the inner body) must be \
+         rejected as an invalid wire form -- RFC-AITP-0010 §3 places \
+         `signature` inside the body, never beside the wrapper, got {result:?}"
     );
 }

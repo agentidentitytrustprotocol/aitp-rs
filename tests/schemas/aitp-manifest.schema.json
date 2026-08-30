@@ -53,7 +53,6 @@
             "type": "string",
             "format": "uri"
           },
-          "minItems": 1,
           "uniqueItems": true,
           "description": "OIDC issuer URIs this agent accepts from peers. Peer's identity issuer MUST appear here for handshake to proceed."
         },
@@ -140,7 +139,7 @@
         "signature": {
           "type": "string",
           "minLength": 1,
-          "description": "base64url signature over canonical Manifest JSON (excluding this field, keys sorted lexicographically). Signed by the agent's private key.",
+          "description": "Agent's unpadded base64url signature, optionally algorithm-tagged per RFC-AITP-0001 §5.4.3, over the JCS-canonical bytes (RFC 8785) of the INNER `manifest` body with the `signature` member itself excluded: `sig_input = sha256(canonical_json(manifest_without_signature))`. The `{\"manifest\": …}` wrapper is transport routing metadata and is never part of the signing bytes; a verifier MUST unwrap to the inner object before computing the signing input. The signature is a member of the signed body, not a sibling of the wrapper, because the Manifest is redistributable — it MAY be exchanged inline during the Mutual Handshake rather than always fetched from its own well-known origin — so it must carry its own proof across any hop that strips the wrapper (RFC-AITP-0001 §5.4.1, RFC-AITP-0003 §6.1).",
           "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
         }
       },

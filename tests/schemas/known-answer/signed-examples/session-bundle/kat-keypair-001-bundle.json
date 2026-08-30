@@ -1,0 +1,29 @@
+{
+  "_kat_input": {
+    "coordinator_seed_id": "kat-keypair-001",
+    "session_id": "650e8400-e29b-41d4-a716-446655440000",
+    "issued_at": 1711900000,
+    "expires_at": 1711903600,
+    "participants": [
+      {
+        "seed_id": "kat-keypair-002",
+        "aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "tct_source": "signed-examples/tct/kat-keypair-001-issues-002.json"
+      }
+    ]
+  },
+  "session_bundle": {
+    "version": "aitp/0.2",
+    "session_id": "650e8400-e29b-41d4-a716-446655440000",
+    "coordinator": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+    "issued_at": 1711900000,
+    "expires_at": 1711903600,
+    "participants": [
+      {
+        "aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OkE2RUh2X1BPRUw0ZGNOMFk1MHZBbVdmazFqQ2JwUTFmSGR5R1pCSlZNYmciLCJjbmYiOnsiamt0IjoiMUlHMnRNSDdKMndiSlpuT2Y4TEp6UWl0S2Y3TE12b0FFbHN1RE1WTTU0WSJ9LCJleHAiOjE3MTE5MDM2MDAsImdyYW50cyI6WyJtYWNwLm1vZGUudGFzay52MSJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6TzJvbnZNNjJwQzFpbzZqUUttOE5jMlV5RlhjZDRrT21Pc0JJb1l0WjJpayIsImp0aSI6IjU1MGU4NDAwLWUyOWItNDFkNC1hNzE2LTQ0NjY1NTQ0MDAwMCIsInN1YiI6ImFpZDpwdWJrZXk6QTZFSHZfUE9FTDRkY04wWTUwdkFtV2ZrMWpDYnBRMWZIZHlHWkJKVk1iZyIsInZlciI6ImFpdHAvMC4yIn0.-hVZMF6zG0ACQkRmTUb5fdw06_qlnJ772YFoqvrbG6h_frC1BL2hDVm1RmfxjVVZ7uRoa3Xl4OqZxb6dOoRADw"
+      }
+    ],
+    "signature": "czzmjpVf5rtZ2-FvfMcviSUCeY2WSu69v2ZECpflHAKVaEikz4w6m5fOVuBZkCL8DXX-lkY905NvYxjQTg_TBw"
+  }
+}
