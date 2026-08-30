@@ -44,3 +44,28 @@
   later, larger CI watch instead of several smaller ones. Reversible at any
   point by pushing the accumulated branch early.
 - **Status:** UNCONFIRMED
+
+## Manifest `Some(empty extensions)` has no cross-impl witness
+- **Plan:** `plans/unknown-field-error-code.md` (Phase 3)
+- **Assumed:** running `aitp-verifier-py`'s xcheck locally (it passed) is
+  sufficient cross-implementation assurance for Phase 3's manifest
+  signing-input change.
+- **Chose:** accept it as sufficient for the *absent-extensions* case
+  (covered by `crates/aitp-cli/tests/cli.rs`'s spec-minted manifest
+  round-trip and fixtures man-001/man-005 going through the full
+  `ManifestSigningView` path), but flag that xcheck's own vectors
+  (`scripts/xcheck-verify.py`) cover only the revocation snapshot and
+  session bundle — zero manifest coverage — so the *`Some(empty)`
+  extensions* case this phase's OQ1 fix specifically introduces has no
+  independent cross-implementation witness, only this repo's own KATs.
+- **Alternatives:** hand-authoring a new xcheck vector for
+  `Some(ExtensionsMap::new())` manifests — rejected for this pass because
+  it requires either a cross-repo edit to `aitp-verifier-py` (gated) or a
+  local-only script that CI can't enforce going forward, so it wouldn't
+  reduce ongoing risk, only one-time risk.
+- **Blast radius if wrong:** low — the KAT vectors are the load-bearing
+  gate here and are untouched; if `aitp-verifier-py` ever disagreed about
+  this case, the first real cross-impl manifest carrying
+  `"extensions":{}` would surface it as a signature mismatch, not a
+  silent divergence.
+- **Status:** UNCONFIRMED

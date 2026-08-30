@@ -318,3 +318,41 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   now pass; bundle-006/man-004/rev-005/rev-006/tct-011 remain, all later
   phases).
 - Next: Phase 3 (Manifest member-set check + OQ1 fix).
+
+### Phase 3 — Manifest member-set check + OQ1 fix · PASS (2 rounds) · 2026-08-30
+- Commit `b78e608`. Round 1 verifier (Opus): PASS on the load-bearing core
+  (both `ManifestSigningView` population sites — `builder.rs` issue path,
+  `verifier.rs` verify path — updated identically; KAT vectors
+  `signing_input_kat.rs`/`pop_kat.rs` byte-identical, zero diff), but 2
+  gaps found:
+  - **Gap A:** `MANIFEST_MEMBERS` (schema-anchored, per this plan's own
+    design) included `accepted_signature_algorithms`, which `Manifest`
+    never modeled — a legitimate manifest field was misreported as
+    `UNKNOWN_FIELD`. Closed by adding the field for real
+    (`Option<Vec<String>>`, matching `accepted_identity_types`'s
+    convention exactly, no enforcement logic — no fixture asks for it).
+  - **Gap B:** the `/.well-known/aitp-manifest` HTTP fetcher, once routed
+    through the new (intentionally lenient, for the conformance adapter's
+    mixed-shape fixtures) `parse_manifest_wire`, silently started
+    accepting an unwrapped manifest body — a real RFC-AITP-0003 §6.1
+    regression this phase introduced (`FetchError::MalformedWrapper` had
+    gone dead). Closed by checking for the `{"manifest": {...}}` wrapper
+    explicitly at that one call site before delegating; `parse_manifest_wire`
+    itself untouched (other callers rely on its leniency).
+  - Round 2 verifier (fresh Opus, given the round-1 gap list): **PASS** —
+    both fixes confirmed closed by direct file/test verification, KAT
+    bytes still unmoved, tally still exactly 58/4/2 (neither fix moves
+    it, as predicted).
+- `Manifest.extensions` → `Option<ExtensionsMap>` (was the OQ1 bug:
+  `ExtensionsMap` + `is_empty` conflated absent with `{}`, so a manifest
+  signed with a literal `"extensions":{}` already failed verification
+  before this fix). `parse_manifest_wire` runs the member-set check
+  before expiry/PoP/signature (RFC-AITP-0003 §5 step 2, structural).
+- Cross-impl acceptance run locally against `aitp-verifier-py` at the
+  pinned SHA — passed (though its xcheck vectors don't directly cover
+  Manifest; the untouched KATs remain the stronger signal for this
+  phase specifically — noted as a coverage gap, not a defect, logged to
+  `ASSUMPTIONS.md`).
+- Conformance: **58 passed, 4 failed, 2 skipped of 64** (man-004,
+  man-005 now pass; bundle-006/rev-005/rev-006/tct-011 remain).
+- Next: Phase 4 (revocation snapshot).
