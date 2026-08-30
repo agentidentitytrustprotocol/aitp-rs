@@ -21,6 +21,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **Pinned-key proof `timestamp` is now encoded as ASCII-decimal, not
+  8-byte big-endian binary** (RFC-AITP-0002 §3.1 erratum, spec issue #17).
+  `identity_pinned::pinned_key_proof_input` (used by both
+  `sign_pinned_key_proof` and `verify_pinned_key`) previously packed the
+  envelope `timestamp` field into the proof-input bytes as a signed
+  8-byte big-endian integer. Per the §3.1 erratum, it MUST instead be the
+  timestamp's base-10 ASCII-decimal string (e.g. `1711900000` → UTF-8
+  bytes `"1711900000"`), matching how `message_id` is already
+  string-encoded in the same construction. This is a wire-visible change:
+  **a pinned-key proof minted by aitp-rs at the old encoding will not
+  verify against the fixed version, and vice versa.** The fix is now
+  machine-checked against the spec's `kat-pinned-key-proof-001` KAT
+  vector. It also brings `aitp-rs` in line with the reference Python
+  implementation, `aitp-verifier-py`, which has always used the
+  ASCII-decimal form — this closes a previously-existing, undetected
+  interop gap between the two implementations rather than introducing a
+  new incompatibility with a pairing that previously worked. The gap went
+  undetected by this repo's own conformance suite because the only
+  fixture exercising this code path (`id-007`) is rejected earlier, at
+  the trust-store gate (RFC-AITP-0002 §3.2 step 1), before the signature
+  is ever checked.
+
 - **`aitp_handshake::JwkPublicKey` no longer exposes `jsonwebtoken` types**
   (closes #99). `pub alg: jsonwebtoken::Algorithm` and
   `pub key: jsonwebtoken::DecodingKey` are replaced with owned,
