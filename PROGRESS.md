@@ -494,3 +494,57 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
   not worth a fixer round.
 - Next: Phase 7b (HTTP transport + facade — makes UNKNOWN_FIELD visible
   to real peers, not just the conformance adapter).
+
+### Phase 7b — HTTP transport/facade + a plan-wide duplicate-key fix · PASS (2 rounds) · 2026-08-30
+- Commit `1c9c667`. Phase 7b's own work (envelope/handshake-payload
+  parsing routed through Phase 2/7a's parse functions on the HTTP
+  server; the client facade's response parsing similarly routed;
+  version-check-ordering regression explicitly tested and avoided —
+  `handshake_boundary.rs`'s `unknown_envelope_version_returns_unknown_version`
+  unchanged, plus a new forward-version+clean test) verified clean on
+  round 1.
+- **Round 1 verifier found something much bigger while reviewing this
+  phase's diff: a real, already-shipped security regression spanning
+  every phase since Phase 2, not specific to 7b.** Every wire-parsing
+  function this plan introduced (`parse_envelope_wire`,
+  `parse_manifest_wire`, `parse_revocation_snapshot_wire`,
+  `parse_session_bundle_wire`, plus the inline `check_members` sites for
+  handshake payloads and TCT/voucher/delegation claims) parses raw bytes
+  into an untyped `serde_json::Value` FIRST so it can run the member-set
+  check ahead of a typed deserialize. `serde_json::Value`'s object
+  representation is last-write-wins on a duplicate key — the moment a
+  `Value` exists, duplicate-key information is gone at every nesting
+  level, silently forfeiting the automatic duplicate-field rejection
+  every `serde`-derived struct normally provides regardless of
+  `deny_unknown_fields`. RFC-AITP-0001 §5.4.5 requires rejecting
+  duplicate keys. Empirically confirmed: `serde_json::from_slice::<AitpEnvelope>`
+  rejected a duplicate `version` key; `parse_envelope_wire` on the same
+  bytes accepted it. **This hole existed since Phase 2 (already
+  committed, 2026-08-30) but Phase 7b was the first phase to expose it
+  on a live network surface** — no fixture in the 64-fixture corpus has
+  a duplicate key, so nothing caught it across 5 prior verify rounds
+  until this one specifically tested for it.
+- Fixed with a new `aitp_core::unknown_field::reject_duplicate_keys`
+  primitive — recursive (every object level, including inside arrays),
+  built entirely on `serde`'s own Deserializer/Visitor/DeserializeSeed
+  traits, never constructs a `Value` — wired into every affected entry
+  point: the HTTP server's envelope/session-bundle/manifest-fetch paths,
+  the client facade's envelope-response path, and the TCT/voucher/
+  delegation unverified-payload peeks. The conformance adapter's whole
+  request lifecycle needed exactly ONE call site (`main.rs`'s single
+  raw-bytes-to-`Value` conversion) — traced all 5 downstream op
+  functions (envelope/manifest/revocation/session-bundle/handshake) and
+  confirmed none of them independently re-parses a raw string field, so
+  protection is transitive rather than needing five separate wirings.
+- Round 2 verifier (fresh Opus, independent): **PASS**. Confirmed the
+  transitive-protection claim by tracing all 5 op functions personally
+  (the single check most likely to have a subtle hole); confirmed no
+  unwired call site exists anywhere; confirmed live end-to-end via a new
+  HTTP test proving a raw-text duplicate top-level key is now rejected;
+  confirmed manifest/revocation KATs unchanged and conformance tally
+  still exactly 62/0/2 of 64.
+- A duplicate key maps to each artifact's existing "malformed" error
+  class, never `UNKNOWN_FIELD` — a structurally different defect from an
+  unknown member.
+- **This closes out every feature phase in the plan.** Only Phase 8
+  (docs/CHANGELOG/CI-comment refresh) remains.
