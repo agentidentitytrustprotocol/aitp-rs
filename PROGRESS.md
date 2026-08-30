@@ -386,3 +386,32 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
 - Conformance: **60 passed, 2 failed, 2 skipped of 64** (rev-005,
   rev-006 now pass; bundle-006/tct-011 remain).
 - Next: Phase 5 (session bundle wrapper/body split).
+
+### Phase 5 — Session bundle wrapper/body split · PASS · 2026-08-30
+- Commit `b84c74b`. Verifier (Opus): **PASS**, 1 round. Hand-traced
+  `bundle-004`'s shape (`signature` sibling of `{"session_bundle": ...}`)
+  through the wrapper-level `check_members(["session_bundle"])` →
+  `WireFormInvalid` → `SESSION_BUNDLE_INVALID`, and `bundle-006`'s shape
+  (extra key inside the body) through the separate body-level
+  `check_members(SESSION_BUNDLE_MEMBERS)` → `UnknownField` →
+  `UNKNOWN_FIELD` — confirmed these are two independent checks, not one
+  check with a post-hoc translation, so `bundle-004` structurally cannot
+  regress. `bundle_error_code`'s exhaustive match (no `_` arm — the one
+  error enum in the codebase not `#[non_exhaustive]`) confirmed still
+  exhaustive; `BundleSigningBody`/`bundle_signing_bytes` confirmed
+  untouched (this phase adds no field).
+- Two non-blocking nits from the verifier: a stale comment in the
+  adapter (fixed inline, same commit) and the live HTTP endpoint now
+  also accepting an unwrapped body as a side effect of routing through
+  the shared (pre-existingly lenient) `parse_session_bundle_wire` —
+  logged to `ASSUMPTIONS.md` rather than fixed, since no RFC clause was
+  found requiring the wrapper at this specific endpoint (unlike Phase
+  3's manifest fetcher) and `signature` is a body member in both shapes,
+  so no cryptographic weakening either way.
+- Live HTTP session-bundle ingest now shares the same wire-form
+  discipline the conformance adapter always had (hazard 5, closed).
+- Conformance: **61 passed, 1 failed, 2 skipped of 64** (bundle-006 now
+  passes; only tct-011 remains — the last failure before the corpus goes
+  fully green).
+- Next: Phase 6a (compact-JWS claims in TCT/grant voucher — the phase
+  that turns the corpus green).
