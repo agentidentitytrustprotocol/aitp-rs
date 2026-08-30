@@ -17,6 +17,21 @@ The existing `interop (python <-> node)` job does not close this either:
 both bindings wrap the same Rust core, so it is Rust-to-Rust across
 runtimes.
 
+OIDC identity binding (RFC-AITP-0002) gets the same treatment below. It was
+the one identity-binding profile with *zero* cross-implementation coverage
+of any kind before this was added -- discovered while investigating a
+fail-open bug in `aitp-verifier-py`'s OIDC verifier
+(agentidentitytrustprotocol/aitp-verifier-py#14): a JWT whose issuer key
+could not be resolved used to verify successfully instead of failing
+closed. The fix added EdDSA/ES256/RS256 issuer-key support, an
+alg-confusion guard, and stricter claim checks -- none of which had ever
+run against bytes `aitp-rs` actually emits on the wire. The vectors below
+mint real, validly signed `aitp-rs` JWTs (EdDSA and ES256; see
+`tools/mint-signed-examples/src/bin/xcheck_mint.rs` for why RS256 is out of
+scope) and reuse that exact token/key material for two negatives: an
+unresolvable issuer key, and a header `alg` rewritten to a different
+key-type than what actually signed it.
+
 Usage:  cargo run -p mint-signed-examples --bin xcheck-mint | \
             python3 scripts/xcheck-verify.py [--committed <path>]
 """
@@ -29,6 +44,9 @@ import sys
 from pathlib import Path
 
 try:
+    from aitp_verifier.b64 import b64url_decode, b64url_encode
+    from aitp_verifier.errors import AitpError
+    from aitp_verifier.identity import verify_identity
     from aitp_verifier.revocation import verify_revocation_snapshot
     from aitp_verifier.sessionbundle import verify_session_bundle
 except ImportError as exc:  # pragma: no cover - CI installs it
@@ -55,6 +73,20 @@ def check(name: str, fn) -> bool:
         return False
     print(f"  ok    {name}")
     return True
+
+
+def check_rejects(name: str, fn) -> bool:
+    """Like `check`, but success means `fn()` raised `AitpError`."""
+    try:
+        fn()
+    except AitpError as exc:
+        print(f"  ok    {name}\n          rejected as {exc.code}")
+        return True
+    except Exception as exc:  # noqa: BLE001 - report any failure verbatim
+        print(f"  FAIL  {name}\n          unexpected {type(exc).__name__}: {exc}")
+        return False
+    print(f"  FAIL  {name}\n          accepted a proof that must be rejected")
+    return False
 
 
 def main() -> int:
@@ -98,6 +130,84 @@ def main() -> int:
             }
         ),
     )
+
+    # OIDC identity binding (RFC-AITP-0002). Each vector is the minimal
+    # identity-descriptor + envelope shape `verify_oidc`'s own unit tests
+    # build, not a full MUTUAL_HELLO envelope -- see xcheck_mint.rs for why.
+    oidc = minted["oidc_identity"]
+    oidc_now = int(oidc["now"]) + 100
+    for alg_label in ("eddsa", "es256"):
+        vec = oidc[alg_label]
+        identity = {"type": "oidc", "issuer": vec["issuer"], "subject": vec["subject"], "proof": vec["proof"]}
+        envelope = vec["envelope"]
+        self_aid = vec["self_aid"]
+        trust_anchors = [vec["issuer"]]
+
+        ok &= check(
+            f"oidc identity binding ({alg_label})",
+            lambda identity=identity, envelope=envelope, self_aid=self_aid, trust_anchors=trust_anchors, vec=vec: verify_identity(
+                identity,
+                envelope,
+                self_aid,
+                trust_anchors=trust_anchors,
+                trust_store=None,
+                issuer_keys={vec["issuer"]: vec["issuer_jwk"]},
+                now=oidc_now,
+            ),
+        )
+
+        # Negative (a): withhold the issuer key entirely (simulating an
+        # unresolvable key) -- reusing the identical valid token. This
+        # is the exact fail-open bug aitp-verifier-py#14 fixed: a
+        # well-formed, correctly signed JWT MUST NOT verify when its
+        # issuer key cannot be resolved.
+        #
+        # We deliberately assert only that *some* AitpError is raised,
+        # not a specific code. aitp-verifier-py maps this to the
+        # retryable KEY_RESOLUTION_FAILED; aitp-rs's identity_oidc.rs
+        # currently maps the same condition to the non-retryable
+        # IDENTITY_FAILED (tracked, not yet fixed, as
+        # agentidentitytrustprotocol/aitp-rs#126). Asserting the specific
+        # code here would assert a cross-repo fact the two
+        # implementations don't yet agree on -- which would read as
+        # coverage of something it doesn't actually cover, the same
+        # trap this script's module docstring warns about for a quietly
+        # skipped check.
+        ok &= check_rejects(
+            f"oidc identity binding ({alg_label}) -- withheld issuer key is rejected",
+            lambda identity=identity, envelope=envelope, self_aid=self_aid, trust_anchors=trust_anchors: verify_identity(
+                identity,
+                envelope,
+                self_aid,
+                trust_anchors=trust_anchors,
+                trust_store=None,
+                issuer_keys={},
+                now=oidc_now,
+            ),
+        )
+
+        # Negative (b): alg-confusion. Same token, same signature, but
+        # the header's `alg` is rewritten to a different (still
+        # allow-listed) algorithm than the key that actually signed it.
+        # The resolved key's *structural* algorithm must be pinned
+        # against the header, never trusted from the header alone.
+        header_b64, payload_b64, sig_b64 = vec["proof"].split(".")
+        header = json.loads(b64url_decode(header_b64))
+        header["alg"] = "ES256" if alg_label == "eddsa" else "EdDSA"
+        confused_header_b64 = b64url_encode(json.dumps(header, separators=(",", ":")).encode())
+        confused_identity = dict(identity, proof=f"{confused_header_b64}.{payload_b64}.{sig_b64}")
+        ok &= check_rejects(
+            f"oidc identity binding ({alg_label}) -- alg-confusion header rewrite is rejected",
+            lambda confused_identity=confused_identity, envelope=envelope, self_aid=self_aid, trust_anchors=trust_anchors, vec=vec: verify_identity(
+                confused_identity,
+                envelope,
+                self_aid,
+                trust_anchors=trust_anchors,
+                trust_store=None,
+                issuer_keys={vec["issuer"]: vec["issuer_jwk"]},
+                now=oidc_now,
+            ),
+        )
 
     print("\nDirection (b) -- minted by the Python reference, verified by aitp-rs:")
     print("  ok    committed revocation snapshot verified by aitp-rs")

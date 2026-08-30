@@ -1599,6 +1599,7 @@ dependencies = [
  "aitp-session-bundle",
  "aitp-tct",
  "hex",
+ "p256",
  "serde",
  "serde_json",
  "sha2",
