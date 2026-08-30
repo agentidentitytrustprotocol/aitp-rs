@@ -80,6 +80,26 @@ sync_package_json_version() { # $1 = path to bindings/aitp-node/package.json
   ' "$1"
 }
 
+# napi-rs 3's generated `index.js` bakes `package.json`'s version into a
+# runtime `NAPI_RS_ENFORCE_VERSION_CHECK`-gated assertion (once per
+# platform-specific optional dependency, plus the WASI fallback) — it is
+# not just cosmetic. `bindings.yml`'s freshness gate rebuilds `index.js`
+# from a fresh `napi build` and diffs it against the committed copy, so a
+# stale baked-in version fails that check the moment `package.json`
+# changes underneath it. Rewrite every occurrence of the OLD version in
+# the two exact generated patterns (`!== 'X.Y.Z'` and `expected X.Y.Z
+# but got`) to the new one, rather than a blind file-wide replace — this
+# file also contains this crate's own logic that must not be touched.
+sync_index_js_version() { # $1 = path to a binding's generated index.js, $2 = version currently baked in
+  local f="$1" old="$2"
+  [ -f "$f" ] || return 0
+  [ -n "$old" ] || return 0
+  OLD="$old" V="$ws_version" perl -0777 -i -pe '
+    s/!== \x27\Q$ENV{OLD}\E\x27/!== \x27$ENV{V}\x27/g;
+    s/expected \Q$ENV{OLD}\E but got/expected $ENV{V} but got/g;
+  ' "$f"
+}
+
 # Rewrite every `aitp-*` PATH package's version in a binding's Cargo.lock.
 # A path package is identified the same way cargo's lockfile does: it has
 # no `source = "..."` line in its `[[package]]` block (registry /
@@ -139,9 +159,12 @@ sync_pyproject_toml_version() { # $1 = path to bindings/aitp-py/pyproject.toml
 
 # --- apply -------------------------------------------------------------
 
+node_version_before="$(sed -n 's/^[[:space:]]*"version": "\([0-9][^"]*\)".*/\1/p' bindings/aitp-node/package.json | head -1)"
+
 sync_cargo_toml_version     bindings/aitp-node/Cargo.toml
 sync_package_json_version   bindings/aitp-node/package.json
 sync_cargo_lock_versions    bindings/aitp-node/Cargo.lock
+sync_index_js_version       bindings/aitp-node/index.js "$node_version_before"
 
 sync_cargo_toml_version     bindings/aitp-py/Cargo.toml
 sync_pyproject_toml_version bindings/aitp-py/pyproject.toml
