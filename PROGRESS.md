@@ -442,3 +442,32 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` (spec PR #41, closes s
 - Next: Phase 6b (delegation claims + embedded-token sinks — unfixtured,
   test-only gate) → 7a (handshake payloads) → 7b (HTTP transport) → 8
   (docs/CHANGELOG). None of these should move the 62/0/2 tally.
+
+### Phase 6b — Delegation claim registry + embedded-token sinks · PASS · 2026-08-30
+- Commit `0ccb6d9`. Verifier (Opus): **PASS**, 1 round. Priority check
+  (given Phase 6a's ordering lesson): does the new claim-registry check
+  shadow a wrong-artifact-type signal the way a naive Phase 6a
+  implementation would have? Verified NOT a regression —
+  `DelegationClaims`'s pre-existing `deny_unknown_fields` already
+  rejected the same inputs at the same call site before this phase, so
+  the new check's rejection set is a strict subset of what was already
+  rejected; no outcome that used to report `TypMismatch` can flip to
+  `UnknownField`. Delegation does still lack RFC-AITP-0006 §4 step 1's
+  typ-first gate (the TCT/voucher fix from Phase 6a wasn't mirrored
+  here) — a pre-existing gap, not introduced by this phase, and no
+  fixture exercises it; logged to `ASSUMPTIONS.md` as a legitimate
+  follow-up.
+- `TctError::UnknownField` (Phase 4) and `SessionBundleError::UnknownField`
+  (Phase 5) reused, not duplicated, for the two embedded-artifact sinks:
+  a grant voucher embedded in a delegation token (was
+  `DELEGATION_INVALID_VOUCHER`), and a participant TCT embedded in a
+  session bundle (was `INTERNAL_ERROR`, via `peek_tct_claims` routing any
+  shape failure through `Canonicalization`). Also fixed a `_ =>
+  InvalidVoucher` catch-all in `verify_root_voucher`'s `TctError ->
+  DelegationError` mapping that would have silently swallowed the reused
+  `UnknownField`.
+- No fixture pins any of this — `delegation_error_code`'s new arm tested
+  directly. Conformance tally confirmed **unchanged at 62/0/2 of 64**.
+- Next: Phase 7a (handshake payloads — closes a real over-rejection, all
+  four payload types are missing their schema-declared `extensions`
+  slot).
