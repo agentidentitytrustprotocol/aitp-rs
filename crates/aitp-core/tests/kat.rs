@@ -54,6 +54,7 @@ const NON_CANONICAL_VECTORS: &[&str] = &[
     "kat-manifest-pop-001",
     "kat-multihop-chain-001",
     "kat-multihop-truncation-001",
+    "kat-pinned-key-proof-001",
 ];
 
 /// Members every canonical-form vector must carry. Absence is a failure,
