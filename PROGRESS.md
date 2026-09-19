@@ -63,6 +63,18 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   `IssuerMismatch` non-change was already a recorded plan decision (Edge cases note, same
   class as Phase 2's `AidMismatch`), not a new ambiguous one. What's next: Phase 4 (identity
   descriptor `extensions` slot).
+- **Phase 4** — DONE, 2026-09-19. Verifier: Opus, 1 round, **PASS**, 0 gaps. Commit:
+  `decba91`. Files touched: `crates/aitp-handshake/src/identity.rs` (new field),
+  `state_machine.rs`/`identity_pinned.rs`/`payloads.rs` and 3 integration test files (16
+  `IdentityDescriptor` construction sites updated — every literal in the workspace, forced by
+  the compiler since the struct has no `#[non_exhaustive]`/`Default`), plus this file and the
+  plan. Verifier independently confirmed AC4's exact-one-semver-flag claim and empirically
+  proved the `id-009` failure-reason shift (`UNKNOWN_FIELD`→`IDENTITY_FAILED`) by building
+  both this commit and its parent in separate worktrees and diffing real output, not
+  inference. `identity_oidc.rs` confirmed untouched by the whole branch so far (`git diff
+  main...HEAD -- .../identity_oidc.rs` empty) — Phase 5's file to touch next. No
+  `ASSUMPTIONS.md` entries. What's next: Phase 5 (OIDC test-issuer KAT key / real JWT
+  minting).
 
 ## Branch state (read this before touching anything)
 
@@ -200,19 +212,19 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   (`verify_revocation_snapshot_tampered_signature_is_not_unknown_field`, currently asserts
   `"TCT_SIGNATURE_INVALID"` at `:3750`).
 
-## Identity descriptor (Phase 4) and OIDC minting (Phase 5)
+## Identity descriptor (Phase 4 — DONE) and OIDC minting (Phase 5)
 
-- `crates/aitp-handshake/src/identity.rs:26-44` `IdentityDescriptor` — flat struct
-  (`type`/`issuer`/`subject`/`proof`/`public_key`), `deny_unknown_fields` (`:27`), **no
-  `extensions` field**. Lives in `aitp-handshake`, not `aitp-core`; no `aitp-identity` crate
-  exists.
+- `crates/aitp-handshake/src/identity.rs` `IdentityDescriptor` — **DONE**: gained
+  `extensions: Option<ExtensionsMap>`, same shape as the four payload structs.
+  `deny_unknown_fields` stays on. 16 construction sites workspace-wide updated (compiler-
+  forced, no `#[non_exhaustive]`/`Default` on this struct).
 - `crates/aitp-handshake/src/identity_oidc.rs:88-96` — the OIDC/`public_key` exclusivity rule
   (`id-008`'s concern) is **already enforced in Rust**, first check in `verify_oidc`, tested
-  at `crates/aitp-handshake/tests/p1_p8_regressions.rs:194-232`. Phase 4 needs no change here.
-- `crates/aitp-handshake/src/payloads.rs:382-402`
-  `nested_identity_still_rejects_extensions_field` — doc comment (`:373-381`) explicitly
-  documents this test's own expiry the moment `extensions` is added. Flip it, don't just
-  delete it.
+  at `crates/aitp-handshake/tests/p1_p8_regressions.rs:194-232`. Confirmed untouched by Phase
+  4 (and by the whole branch so far) — still Phase 5's file to touch, not before.
+- `crates/aitp-handshake/src/payloads.rs` — **DONE**: renamed/inverted to
+  `nested_identity_now_accepts_extensions_field`; companion
+  `nested_identity_omits_extensions_when_absent` added.
 - `identity_oidc.rs:88-218` `verify_oidc` — full check order (18 steps) read in full; see the
   plan's Phase 5 approach section for the claim set a minted JWT needs
   (`iss`/`sub`/`aud`/`nonce`/`exp`/`iat`/`cnf.jkt`). Resolver trait: `JwksResolver`
