@@ -102,6 +102,32 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   merge — also inert, no current fixture exercises it. No `ASSUMPTIONS.md` entries — the
   plan's Approach section was directly implementable with no ambiguous judgment call. What's
   next: Phase 6 (Docs, CHANGELOG, and CI expectation refresh) — the last phase.
+- **Phase 6** — DONE, 2026-09-19. Verifier: Opus, 2 rounds. Round 1: **GAPS** — two minor
+  doc-wording inaccuracies introduced by this phase's own new text: `CHANGELOG.md`'s
+  `### Fixed` entry double-counted `Malformed` among the "already-registered code" classes
+  (should be six of seven, not seven, since `Malformed` is the one getting the *new* code);
+  `docs/jcs.md` overclaimed `IdentityDescriptor` nests inside all four handshake payloads
+  when it's only two (`MutualHelloPayload`/`MutualHelloAckPayload` — the commit payloads have
+  no `identity` field). Round 2: **PASS**, both confirmed closed against the live text and
+  re-checked against the code (the six/seven split verified true against
+  `server.rs:1262-1284` and `main`'s pre-existing `ErrorCode` variants; the payload-nesting
+  claim verified true against `payloads.rs`). Commits: `d8b46bc` (initial), `56dc5c8` (gap
+  fixes). Files touched exactly per the plan's Files list, no scope creep: `CHANGELOG.md`
+  (new `[Unreleased]`/`### Added` entry for the three codes + `extensions`, a `### Fixed`
+  entry for the HTTP-transport behavior change, and a correction to the now-stale "pending
+  next spec bump" claim), `docs/conformance.md` (fixture-table rows for
+  `man-006`/`rev-007`/`rev-008`/`id-008`/`id-009`), `.github/workflows/ci.yml` (fixture-count
+  comment `62/0/2 of 64` → `67/0/2 of 69`, the real measured number, not hand-computed), plus
+  three deferred doc fixes from earlier phases' verifiers (`aitp-core`'s `ManifestInvalid` doc
+  wording, `server.rs`'s `IncompatibleIdentityType` arm comment cross-referencing Open
+  Question 5, `docs/jcs.md`'s `Option<ExtensionsMap>` type list). Both round-1-touched `.rs`
+  files confirmed comment-only (byte-identical to their parent commit with comments
+  stripped) — no logic slipped in under a docs phase. All 3 acceptance criteria independently
+  measured, not assumed: conformance corpus re-run confirms `67 passed, 0 failed, 2 skipped
+  of 69`; full workspace suite `725 passed, 0 failed, 5 ignored`; `fmt --check`/clippy clean.
+  No `ASSUMPTIONS.md` entries. **This was the plan's last phase** — what's next: the
+  `/implement` Finalization pass (whole-feature tests, integration tests across phase seams,
+  one final cumulative Opus verification pass) before anything ships.
 
 ## Branch state (read this before touching anything)
 
