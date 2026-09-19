@@ -11,9 +11,9 @@ today — jump to [the matrix](#v02-conformance-matrix)).
 A conformance fixture is a JSON file describing a scenario and expected
 outcome. The runner's job is to feed each fixture's input into an
 implementation, observe what comes out, and assert it matches the
-expected outcome. The spec ships 64 fixtures today (53 v0.2 `core`, 1
-frozen in the v0.1 shape for v0.1 runners, and 10 `draft`); the count
-grows with the spec.
+expected outcome. The spec ships 69 fixtures today (58 v0.2 `core`
+fixtures required for v0.2, 1 more `core` fixture frozen in the v0.1
+shape for v0.1 runners, and 10 `draft`); the count grows with the spec.
 
 Many fixtures now carry the **v0.2 compact-JWS token family** (TCT, grant
 voucher, delegation token) as opaque strings; the placeholder and

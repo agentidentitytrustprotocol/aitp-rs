@@ -68,57 +68,101 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   version is bumped by this entry; that is release-plz's job at release
   time, computed from the `!`/`BREAKING CHANGE` footers below.
 
-- **Three new `ErrorCode` variants replace a borrowed signature-family
-  code for structural (non-cryptographic) rejections**
+- **Three new `ErrorCode` variants distinguish a structural
+  (non-cryptographic) rejection from a cryptographic one, for the two
+  JCS-profile artifacts that previously had no dedicated code for it**
   ([#144](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/144),
   spec
   [agentidentitytrustprotocol/agentidentitytrustprotocol#42](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/pull/42),
-  bumping the vendored spec pin `5063c08` → `ea22c71`). Previously, a
-  manifest that failed to parse at all — an unknown top-level member (now
-  `UNKNOWN_FIELD`, per the entry above) aside — reported the same
-  `MANIFEST_SIGNATURE_INVALID` code as a manifest that parsed fine but
-  had a broken cryptographic signature, conflating "this isn't a
-  well-formed manifest" with "this manifest's signature doesn't verify."
-  The registry now distinguishes them: a manifest that fails to parse
-  (missing required member, wrong type) reports the new
-  `MANIFEST_INVALID`; a revocation snapshot with the same class of
-  defect reports the new `REVOCATION_SNAPSHOT_INVALID`; a revocation
-  snapshot whose signature specifically fails reports the new
-  `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` (previously folded into the
-  TCT signature-family code it shared a mapper with). TCT, grant-voucher,
-  and delegation artifacts are deliberately **unchanged** — the registry
-  keeps them on their existing signature-family codes, since those
-  artifacts are JWS-profile, not JCS-profile, and the spec's structural-
-  rejection carve-out is JCS-specific.
+  bumping the vendored spec pin `5063c08` → `ea22c71`). A manifest that
+  fails to parse at all (missing required member, wrong type — an
+  unknown top-level member is the distinct `UNKNOWN_FIELD` case from the
+  entry above) now reports the new `MANIFEST_INVALID`; a revocation
+  snapshot with the same class of defect reports the new
+  `REVOCATION_SNAPSHOT_INVALID`; a revocation snapshot whose signature
+  specifically fails reports the new `REVOCATION_SNAPSHOT_SIGNATURE_INVALID`.
+  What each replaces differs by call site, since the two crates in this
+  repo that map these errors to wire codes, the published
+  `crates/aitp-transport-http` and the unpublished conformance harness's
+  `aitp-rs-adapter`, previously disagreed with each other: the HTTP
+  transport collapsed every manifest defect into the signature-family
+  `MANIFEST_SIGNATURE_INVALID` (see the `### Fixed` entry below), while
+  the adapter mapped a malformed manifest to the generic
+  `INVALID_ENVELOPE` and a malformed revocation snapshot to the generic
+  `INVALID_ENVELOPE` as well — `REVOCATION_SNAPSHOT_SIGNATURE_INVALID`
+  is the one variant that uniformly replaces a genuine signature-family
+  code (`TCT_SIGNATURE_INVALID`) on every call site, since a revocation
+  snapshot's own signature check was previously sharing a mapper with
+  the TCT it lists. TCT, grant-voucher, and delegation artifacts are
+  deliberately **unchanged** — the registry keeps them on their existing
+  signature-family codes, since those artifacts are JWS-profile, not
+  JCS-profile, and the spec's structural-rejection carve-out is
+  JCS-specific. Note that both `REVOCATION_SNAPSHOT_*` codes are, today,
+  reachable only through the unpublished conformance adapter — no
+  published crate's own error type currently has a call site that
+  produces them as a typed `ErrorCode` (a deliberate scope decision, not
+  an oversight: see the plan's Open Question 3 at
+  `plans/manifest-revocation-error-codes.md` for the pre-existing,
+  separate gap this surfaced but does not fix).
 
-  `IdentityDescriptor` (the identity proof nested inside a Mutual
-  Handshake payload) also gains the `extensions` slot the canonical
-  identity schema already declared but the handshake schema's own copy
-  of the descriptor was missing — closing the gap called out as an open
-  item in the `UNKNOWN_FIELD` entry above. A `mutual_hello`/
-  `mutual_hello_ack` payload whose `identity.extensions` carries an
-  unrecognized key now verifies and succeeds (`id-009`), matching every
-  other artifact's `extensions` namespace behavior; a member outside the
-  namespace on the identity descriptor itself continues to fail
-  (`id-008`, unchanged).
+  `IdentityDescriptor` (the identity proof nested inside the
+  `mutual_hello` / `mutual_hello_ack` handshake payloads) also gains the
+  `extensions` slot the canonical identity schema already declared but
+  the handshake schema's own copy of the descriptor was missing —
+  closing the gap called out as an open item in the `UNKNOWN_FIELD`
+  entry above. A `mutual_hello`/`mutual_hello_ack` payload whose
+  `identity.extensions` carries an unrecognized key now verifies and
+  succeeds (`id-009`), matching every other artifact's `extensions`
+  namespace behavior; a member outside the namespace on the identity
+  descriptor itself continues to fail (`id-008`, unchanged). **This is a
+  breaking change to `aitp-handshake`'s public API** (major version bump
+  on next release): `IdentityDescriptor` has neither `#[non_exhaustive]`
+  nor `Default`, so every existing struct-literal construction of it —
+  in a custom identity-verification caller, a test fixture — needs the
+  new `extensions` field added (every in-repo call site was updated as
+  part of this change). `cargo-semver-checks` flags exactly this one
+  finding (`constructible_struct_adds_field`) for this change, distinct
+  from the four `aitp-handshake`/`aitp-core` findings the
+  `cargo-semver-checks` entry further down this section discloses for
+  the separate `UNKNOWN_FIELD` work.
+
+- **Conformance harness gains a real OIDC test-issuer key** (issue #144).
+  `aitp-rs-adapter`'s `verify_handshake_payload_op` previously used a
+  `NoOpResolver` that never returned any JWKS key, so no fixture using
+  the `__VALID_JWT__` placeholder could ever reach a successful OIDC
+  verification — `id-009` (the identity descriptor's `extensions`
+  accept-side fixture) needs exactly that to exercise the `extensions`
+  fix above end-to-end. The adapter now resolves a real, fixed test key
+  for the one issuer the corpus uses (`https://auth.openai.com`), and
+  the conformance harness mints a genuinely verifiable JWT for it. This
+  is a conformance-test-harness fix, not a change to `aitp-handshake`'s
+  public library behavior — `verify_oidc` itself is untouched.
 
 ### Fixed
 
 - **The HTTP transport's `handshake_error_code` no longer collapses
-  seven distinct manifest-defect classes into `MANIFEST_SIGNATURE_INVALID`**
+  every `ManifestError` variant into `MANIFEST_SIGNATURE_INVALID`**
   ([#144](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/144)).
   `crates/aitp-transport-http/src/server.rs`'s error-code mapper
   previously mapped every `HandshakeError::Manifest(_)` variant to the
-  same signature-failure code, regardless of which of `Expired`,
-  `PopFailed`, `VersionUnknown`, `UnknownField`, `Malformed`,
-  `IdentityHintMalformed`, or `IncompatibleIdentityType` actually
-  occurred. This is a behavior change for real deployed traffic, not
-  only the conformance fixture corpus — a production `aitp-rs` HTTP
-  server handling live Mutual Handshake requests now reports the
-  correct, already-registered code for six of those seven defect
-  classes, plus the new `MANIFEST_INVALID` for the seventh,
-  `Malformed`. Any
-  downstream consumer pattern-matching on the literal string
+  same signature-failure code via a single wildcard arm; it now matches
+  each variant individually, mirroring the pre-existing `HandshakeError::Tct`
+  arm right above it. This is a behavior change for real deployed
+  traffic, not only the conformance fixture corpus: the manifest this
+  code path actually verifies has already passed structural parsing by
+  the time it reaches here (`bootstrap_verify_peer` calls `verify_manifest`,
+  the signature/expiry path, not the wire-parsing path), so the classes
+  a live HTTP handshake can actually surface through it are `Expired` →
+  `MANIFEST_EXPIRED`, `PopFailed` → `MANIFEST_POP_FAILED`,
+  `VersionUnknown` → `MANIFEST_VERSION_UNKNOWN`, and
+  `IdentityHintMalformed` → `IDENTITY_FAILED` — each now its own correct
+  code instead of a misleading signature failure. `UnknownField`,
+  `Malformed` (→ the new `MANIFEST_INVALID`), and `IncompatibleIdentityType`
+  (→ `IDENTITY_FAILED`, the closest registered code — `ErrorCode` has no
+  dedicated variant for it, a separate pre-existing registry gap) are
+  also mapped correctly for completeness and for any future caller of
+  this same match, but aren't reachable through this exact call path
+  today. Any downstream consumer pattern-matching on the literal string
   `MANIFEST_SIGNATURE_INVALID` (rather than treating it as "manifest
   verification failed, see message") will see it far less often
   post-upgrade. `HandshakeError::GrantOverflow` — previously falling
@@ -231,7 +275,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `enum_variant_added` on `SessionBundleError` (new `UnknownField` variant)
   — the one artifact error enum in this codebase that is not
   `#[non_exhaustive]`, so the addition is semver-major rather than
-  transparent to matching callers.
+  transparent to matching callers. A fifth major finding, unrelated to
+  the `UNKNOWN_FIELD` work, is disclosed separately under issue #144's
+  `IdentityDescriptor.extensions` entry above.
 
 ### Fixed
 
