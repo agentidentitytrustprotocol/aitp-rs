@@ -55,12 +55,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   never canonicalizes `extensions` at all — this implementation follows
   the signing-input definition, not the prose, and the discrepancy has
   been raised upstream rather than "fixed" here toward stale text. And
-  this release is pinned to spec commit `5063c08`; the upstream spec has
-  since moved to `ea22c71`, which already resolves a related schema
-  disagreement over whether `IdentityDescriptor` (nested inside a
-  handshake payload) has its own `extensions` slot — this repo follows
-  the pinned schema for now (no `extensions` on `IdentityDescriptor`) and
-  will pick up the fix on the next spec-pin bump.
+  this release was pinned to spec commit `5063c08`, under which
+  `IdentityDescriptor` (nested inside a handshake payload) had no
+  `extensions` slot of its own even though the canonical identity schema
+  already declared one — the entry below, bumping the pin to `ea22c71`,
+  resolves that disagreement and closes the gap described here.
 
   Versioning note: this is a minor-*class*, patch-*position* change per
   the spec's own pre-1.0 mapping — the affected RFCs move `0.2.x` →
@@ -68,6 +67,62 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   namespace stays `https://aitp.dev/schema/v0.2/`. No `aitp-rs` crate
   version is bumped by this entry; that is release-plz's job at release
   time, computed from the `!`/`BREAKING CHANGE` footers below.
+
+- **Three new `ErrorCode` variants replace a borrowed signature-family
+  code for structural (non-cryptographic) rejections**
+  ([#144](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/144),
+  spec
+  [agentidentitytrustprotocol/agentidentitytrustprotocol#42](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/pull/42),
+  bumping the vendored spec pin `5063c08` → `ea22c71`). Previously, a
+  manifest that failed to parse at all — an unknown top-level member (now
+  `UNKNOWN_FIELD`, per the entry above) aside — reported the same
+  `MANIFEST_SIGNATURE_INVALID` code as a manifest that parsed fine but
+  had a broken cryptographic signature, conflating "this isn't a
+  well-formed manifest" with "this manifest's signature doesn't verify."
+  The registry now distinguishes them: a manifest that fails to parse
+  (missing required member, wrong type) reports the new
+  `MANIFEST_INVALID`; a revocation snapshot with the same class of
+  defect reports the new `REVOCATION_SNAPSHOT_INVALID`; a revocation
+  snapshot whose signature specifically fails reports the new
+  `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` (previously folded into the
+  TCT signature-family code it shared a mapper with). TCT, grant-voucher,
+  and delegation artifacts are deliberately **unchanged** — the registry
+  keeps them on their existing signature-family codes, since those
+  artifacts are JWS-profile, not JCS-profile, and the spec's structural-
+  rejection carve-out is JCS-specific.
+
+  `IdentityDescriptor` (the identity proof nested inside a Mutual
+  Handshake payload) also gains the `extensions` slot the canonical
+  identity schema already declared but the handshake schema's own copy
+  of the descriptor was missing — closing the gap called out as an open
+  item in the `UNKNOWN_FIELD` entry above. A `mutual_hello`/
+  `mutual_hello_ack` payload whose `identity.extensions` carries an
+  unrecognized key now verifies and succeeds (`id-009`), matching every
+  other artifact's `extensions` namespace behavior; a member outside the
+  namespace on the identity descriptor itself continues to fail
+  (`id-008`, unchanged).
+
+### Fixed
+
+- **The HTTP transport's `handshake_error_code` no longer collapses
+  seven distinct manifest-defect classes into `MANIFEST_SIGNATURE_INVALID`**
+  ([#144](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/144)).
+  `crates/aitp-transport-http/src/server.rs`'s error-code mapper
+  previously mapped every `HandshakeError::Manifest(_)` variant to the
+  same signature-failure code, regardless of which of `Expired`,
+  `PopFailed`, `VersionUnknown`, `UnknownField`, `Malformed`,
+  `IdentityHintMalformed`, or `IncompatibleIdentityType` actually
+  occurred. This is a behavior change for real deployed traffic, not
+  only the conformance fixture corpus — a production `aitp-rs` HTTP
+  server handling live Mutual Handshake requests now reports the
+  correct, already-registered code for each of those seven defect
+  classes, plus the new `MANIFEST_INVALID` for `Malformed`. Any
+  downstream consumer pattern-matching on the literal string
+  `MANIFEST_SIGNATURE_INVALID` (rather than treating it as "manifest
+  verification failed, see message") will see it far less often
+  post-upgrade. `HandshakeError::GrantOverflow` — previously falling
+  through to the generic `INVALID_ENVELOPE` catch-all — now also
+  reports its own dedicated `GRANT_OVERFLOW` code.
 
 ### Security
 

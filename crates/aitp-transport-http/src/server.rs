@@ -1267,6 +1267,13 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
                 ManifestError::VersionUnknown => ErrorCode::ManifestVersionUnknown,
                 ManifestError::UnknownField(_) => ErrorCode::UnknownField,
                 ManifestError::Malformed(_) => ErrorCode::ManifestInvalid,
+                // `IncompatibleIdentityType` deliberately does not match the
+                // conformance adapter's bare `"INCOMPATIBLE_IDENTITY_TYPE"`
+                // string (`crates/aitp-rs-adapter/src/lib.rs`) — `ErrorCode`
+                // has no dedicated variant for it, so this maps to the
+                // closest registered code instead. A pre-existing registry
+                // gap, out of issue #144's scope; see the plan's Open
+                // Question 5 (`plans/manifest-revocation-error-codes.md`).
                 ManifestError::IdentityHintMalformed(_)
                 | ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
                 // SignatureInvalid, AidMismatch, Crypto, Canonicalization,

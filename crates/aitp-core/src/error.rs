@@ -208,10 +208,11 @@ pub enum ErrorCode {
     /// Manifest failed schema validation — a missing REQUIRED member, a
     /// member of the wrong type, or a value outside its grammar
     /// (RFC-AITP-0003 §5 step 2). Mirrors `InvalidEnvelope` for the
-    /// Manifest. MUST NOT be reported for a signature failure: the
-    /// signature was never reached. When the only defect is an unknown
-    /// member outside `extensions`, `UnknownField` is more specific and
-    /// wins instead.
+    /// Manifest. MUST NOT be reported as `ManifestSignatureInvalid`: the
+    /// signature was never reached, and a misleading signature code sends
+    /// an operator debugging keys and signing when the real defect is the
+    /// object's shape. When the only defect is an unknown member outside
+    /// `extensions`, `UnknownField` is more specific and wins instead.
     ManifestInvalid,
 
     // ── Revocation (RFC-AITP-0008) ──────────────────────────────────────
