@@ -4,6 +4,25 @@ Plan: `plans/manifest-revocation-error-codes.md`. Tracking issue: #144. Spec com
 `ea22c710f50bc74c6331dcc1983a0ec6fa82a0de` (spec PR #42).
 Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6331dcc1983a0ec6fa82a0de`.
 
+## Checkpoint trail
+
+- **Phase 0** — DONE, 2026-09-19. Verifier: Opus, 1 round, **PASS**, 0 gaps (3 minor
+  non-blocking notes, all closed by this checkpoint: plan status flip, this file's
+  "ahead of the pin" line, and the not-yet-done force-push noted below). Commits:
+  `eddc5d2` (rebase onto `main`), `aa669ce` (vendor `tests/schemas/SPEC_VERSION` +
+  `tests/schemas/aitp-mutual-handshake.schema.json`). Files touched: those two plus this
+  file and the plan. Real observed conformance count: **63 passed, 4 failed, 2 skipped of
+  69** — failures exactly at `id-009`/`man-006`/`rev-007`/`rev-008` (Phases 1-5's targets),
+  `id-008` and everything pre-existing green. Verifier re-ran both the "vendored schemas in
+  sync" check and the full conformance run independently (via a git worktree, since the
+  sibling spec repo was mid-use by a concurrent lane at verification time) and reproduced
+  identical results, plus the spec's own 59-check known-answer verifier, all passing.
+  Outstanding from Phase 0: branch history was rewritten by the rebase, so
+  `deps/spec-ea22c710f50b` needs a force-push to `origin` at ship time (not done — `/ship`'s
+  job, no push has occurred this session). No `ASSUMPTIONS.md` entries — mechanical phase,
+  no ambiguous judgment calls. What's next: Phase 1 (add the three `ErrorCode` variants to
+  `aitp-core`).
+
 ## Branch state (read this before touching anything)
 
 - `deps/spec-ea22c710f50b` (PR #145) has one commit, `cf23ca5`, branched from `7e338b6`
@@ -17,9 +36,11 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   `tools/mint-conformance-fixtures/src/main.rs:488-492` via `$AITP_SPEC_DIR`, default
   `../agentidentitytrustprotocol`). `man-006`/`rev-007`/`rev-008`/`id-008`/`id-009` do not
   exist anywhere in this repo's tree.
-- Sibling spec repo, checked out at `ea22c71` (ahead of the pin — do not treat as this repo's
-  current state, only as ground truth for what the bump will bring):
-  `/Users/Shared/agentIdenitytrustprotocol/agentidentitytrustprotocol`.
+- Sibling spec repo (ground truth for what the bump brings, restored after Phase 0's vendor
+  step — do not assume its checkout still sits at `ea22c71`, another concurrent lane in this
+  workspace has since moved it to a different branch):
+  `/Users/Shared/agentIdenitytrustprotocol/agentidentitytrustprotocol`. `ea22c71` **is now
+  this repo's own pin** (`tests/schemas/SPEC_VERSION`), not just a future target.
 - Only one vendored schema file actually changes at `ea22c71`:
   `tests/schemas/aitp-mutual-handshake.schema.json` (+30 lines: `$defs.IdentityDescriptor`
   gains `extensions`, a `public_key` pattern, and
