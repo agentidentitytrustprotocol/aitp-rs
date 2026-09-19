@@ -354,11 +354,11 @@ spec's conformance suite (`schemas/conformance/`).
 
 | Tier | Fixtures | `aitp-rs` |
 |---|---|---|
-| `core` (required for v0.2) | 53 | **PASS** |
+| `core` (required for v0.2) | 58 | **PASS** |
 | `core` frozen in the v0.1 shape (`del-004`, v0.1 runners only) | 1 | **SKIP** (not required for v0.2) |
 | `draft` — session bundle (`experimental-session-bundle`) | 6 | **PASS** (feature opt-in) |
 | `draft` — multi-hop delegation (`experimental-multihop-delegation`) | 4 | **PASS** (feature opt-in) |
-| **Total** | **64** | |
+| **Total** | **69** | |
 
 Reproduce:
 
