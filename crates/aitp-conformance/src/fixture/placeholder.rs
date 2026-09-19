@@ -131,6 +131,15 @@ impl RunnerContext {
         // `__NOW_*__` values) and before JCS signatures (envelope
         // payloads may embed the minted tokens).
         self.substitute_jws_tokens(value);
+        // `__VALID_JWT__` (an OIDC identity proof, not an AITP-profile
+        // compact JWS) — its own pass, not folded into
+        // `substitute_jws_tokens`/`is_jws_placeholder`: it has no
+        // `X_claims` sibling, and its claims are assembled from
+        // several sibling fields instead (see `substitute_valid_jwt`).
+        // Runs after scalars (needs `pop_nonce` already resolved) and
+        // before JCS signatures (the minted JWT lives inside a signed
+        // envelope/manifest body).
+        self.substitute_valid_jwt(value);
         self.substitute_signatures(value);
     }
 
@@ -305,6 +314,88 @@ impl RunnerContext {
                 Some(format!("{signing_input}.{}", sig.as_str()))
             }
             _ => None,
+        }
+    }
+
+    /// Mint `__VALID_JWT__` wherever it appears as an OIDC identity
+    /// descriptor's `proof`. Unlike the `__JWS_*__` family, this has no
+    /// `X_claims` sibling — the claims are assembled from other fields
+    /// already present at the same object level (issue #144 Phase 5;
+    /// see the plan's Phase 5 Approach for the full per-fixture safety
+    /// trace this design is based on).
+    ///
+    /// Depth-first tree walk, mirroring `substitute_jws_tokens`. At each
+    /// object level that has an `identity.proof == "__VALID_JWT__"`,
+    /// mints using siblings **of that same object**: `identity.issuer`,
+    /// `identity.subject`, `manifest.aid` (→ `cnf.jkt`'s thumbprint),
+    /// and `pop_nonce` (→ `nonce`; the sibling of `identity`, not
+    /// `pop_nonce_echo` or a root-level `sent_pop_nonce`). `aud` has no
+    /// uniform sibling source: use the fixture root's `self_aid` when
+    /// present, else the same hardcoded fallback AID
+    /// `verify_handshake_payload_op` itself falls back to
+    /// (`crates/aitp-rs-adapter/src/lib.rs`) — safe only because every
+    /// fixture that omits `self_aid` never reaches JWT parsing (see the
+    /// plan's per-fixture trace table); this is a documented convention
+    /// duplication, not a spec mechanism.
+    fn substitute_valid_jwt(&self, value: &mut Value) {
+        let self_aid = value
+            .get("self_aid")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        self.substitute_valid_jwt_at(value, self_aid.as_deref());
+    }
+
+    fn substitute_valid_jwt_at(&self, value: &mut Value, self_aid: Option<&str>) {
+        match value {
+            Value::Array(items) => {
+                for item in items {
+                    self.substitute_valid_jwt_at(item, self_aid);
+                }
+            }
+            Value::Object(map) => {
+                for v in map.values_mut() {
+                    self.substitute_valid_jwt_at(v, self_aid);
+                }
+                self.mint_identity_jwt_if_present(map, self_aid);
+            }
+            _ => {}
+        }
+    }
+
+    fn mint_identity_jwt_if_present(
+        &self,
+        map: &mut serde_json::Map<String, Value>,
+        self_aid: Option<&str>,
+    ) {
+        let is_valid_jwt = matches!(
+            map.get("identity")
+                .and_then(|i| i.get("proof"))
+                .and_then(|p| p.as_str()),
+            Some("__VALID_JWT__")
+        );
+        if !is_valid_jwt {
+            return;
+        }
+        let Some(minted) = (|| {
+            let identity = map.get("identity")?;
+            let issuer = identity.get("issuer")?.as_str()?;
+            let subject = identity.get("subject")?.as_str()?;
+            let nonce = map.get("pop_nonce")?.as_str()?;
+            let manifest_aid = map.get("manifest")?.get("aid")?.as_str()?;
+            let subject_aid = aitp_core::Aid::parse(manifest_aid).ok()?;
+            let cnf_jkt = aitp_crypto::AitpVerifyingKey::from_aid(&subject_aid)
+                .ok()?
+                .to_jwk_thumbprint()
+                .ok()?;
+            let audience = self_aid.unwrap_or(OIDC_TEST_ADAPTER_FALLBACK_AUD);
+            Some(mint_oidc_jwt(
+                issuer, subject, audience, nonce, &cnf_jkt, self.now,
+            ))
+        })() else {
+            return;
+        };
+        if let Some(identity) = map.get_mut("identity").and_then(|v| v.as_object_mut()) {
+            identity.insert("proof".into(), Value::from(minted));
         }
     }
 
@@ -485,8 +576,18 @@ impl RunnerContext {
 
         // Compact-JWS whole-token and chain-hash markers resolve in the
         // dedicated JWS pass (claims-sibling convention) — leave them
-        // for `substitute_jws_tokens`.
-        if is_jws_placeholder(s) || s == "__COMPUTED_CHAIN_HASH__" || s == "__ANY_CHAIN_HASH__" {
+        // for `substitute_jws_tokens`. `__VALID_JWT__` (an OIDC
+        // identity proof) resolves in its own dedicated pass,
+        // `substitute_valid_jwt` — leave it for that pass too, same
+        // reasoning as the JWS family (mechanical trap #1, issue #144
+        // Phase 5: it has no `X_claims` sibling, so it must not be
+        // treated as either a resolvable scalar or an unknown
+        // placeholder here).
+        if is_jws_placeholder(s)
+            || s == "__COMPUTED_CHAIN_HASH__"
+            || s == "__ANY_CHAIN_HASH__"
+            || s == "__VALID_JWT__"
+        {
             return None;
         }
 
@@ -797,6 +898,66 @@ fn kat_key_for_aid(aid: &str) -> Option<AitpSigningKey> {
     None
 }
 
+/// Fixed Ed25519 seed for the one OIDC conformance test issuer
+/// (`"https://auth.openai.com"`, the only issuer any `__VALID_JWT__`
+/// fixture uses today). Not an AID-keyed KAT seed like
+/// `kat_seed_for_aid` above — this is an external OIDC provider's key,
+/// unrelated to any AITP peer's own signing key. Duplicated in
+/// `crates/aitp-rs-adapter/src/lib.rs`'s OIDC test-issuer resolver (no
+/// shared module between the two crates for the default subprocess
+/// build — see `PROGRESS.md`'s Conformance harness architecture
+/// section); keep the two seeds in sync if either changes. If a future
+/// fixture needs a second real-JWT issuer, this single constant should
+/// become a small issuer→seed map rather than being duplicated again.
+const OIDC_TEST_ISSUER_SEED: [u8; 32] = [0x4Fu8; 32];
+
+/// `aud` fallback for a minted `__VALID_JWT__` when the fixture omits
+/// `self_aid` at its root — mirrors
+/// `crates/aitp-rs-adapter/src/lib.rs`'s `verify_handshake_payload_op`
+/// hardcoded fallback AID. Only safe because every fixture that omits
+/// `self_aid` never reaches JWT parsing (the plan's Phase 5 trace
+/// table) — an imprecise `aud` on their minted-but-unverified JWT is
+/// inconsequential. If a future fixture uses `__VALID_JWT__` with no
+/// `self_aid` AND reaches `verify_oidc` for real, this fallback stops
+/// being safe.
+const OIDC_TEST_ADAPTER_FALLBACK_AUD: &str =
+    "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+
+/// Mint an OIDC-profile JWT (RFC-AITP-0002 §2) acceptable to
+/// `aitp_handshake::identity_oidc::verify_oidc`. Ported from
+/// `crates/aitp-handshake/tests/fixtures/mock_oidc.rs`'s
+/// `MockOidcIssuer::mint_jwt`/`mint_aitp_jwt` (test-only there,
+/// unreachable from this crate as a module import) — same hand-built
+/// three-segment compact JWT, plain (non-JCS) JSON, no `kid` in the
+/// header (the adapter's matching resolver returns exactly one
+/// candidate key, so `verify_oidc`'s no-`kid` single-key fallback
+/// applies).
+fn mint_oidc_jwt(
+    issuer: &str,
+    subject: &str,
+    audience: &str,
+    nonce: &str,
+    cnf_jkt: &str,
+    now: i64,
+) -> String {
+    let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+    let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
+    let claims = serde_json::json!({
+        "iss": issuer,
+        "sub": subject,
+        "aud": audience,
+        "iat": now,
+        "exp": now + 3600,
+        "nonce": nonce,
+        "cnf": { "jkt": cnf_jkt },
+    });
+    let header_b64 = base64url::encode(header.as_bytes());
+    let payload_b64 = base64url::encode(claims.to_string().as_bytes());
+    let signing_input = format!("{header_b64}.{payload_b64}");
+    let sig = key.sign(signing_input.as_bytes());
+    format!("{signing_input}.{}", sig.into_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1024,5 +1185,161 @@ mod tests {
         assert!(!is_placeholder("hello"));
         assert!(!is_placeholder("__"));
         assert!(!is_placeholder("__lower__"));
+    }
+
+    /// Issue #144 Phase 5. A `mutual_hello`-shaped payload whose
+    /// `identity.proof` is `__VALID_JWT__` gets a real, decodable,
+    /// verifiable JWT minted from its sibling fields — `iss`/`sub` from
+    /// `identity`, `nonce` from the payload's `pop_nonce`, `cnf.jkt`
+    /// from `manifest.aid`'s public thumbprint, `aud` from the fixture
+    /// root's `self_aid`.
+    #[test]
+    fn valid_jwt_placeholder_mints_a_real_oidc_jwt() {
+        const KP_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "self_aid": KP_001_AID,
+            "envelope": {
+                "payload": {
+                    "identity": {
+                        "type": "oidc",
+                        "issuer": "https://auth.openai.com",
+                        "subject": "agent-A",
+                        "proof": "__VALID_JWT__",
+                    },
+                    "manifest": { "aid": KP_001_AID },
+                    "pop_nonce": "DLdiOypCLaEk3O1-E8a5TA",
+                },
+            },
+        });
+        ctx.substitute(&mut v);
+
+        let proof = v["envelope"]["payload"]["identity"]["proof"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert_ne!(proof, "__VALID_JWT__", "placeholder must be replaced");
+        let segments: Vec<&str> = proof.split('.').collect();
+        assert_eq!(segments.len(), 3, "must be a 3-segment compact JWT");
+
+        let header: Value =
+            serde_json::from_slice(&base64url::decode_strict(segments[0]).unwrap()).unwrap();
+        assert_eq!(header["alg"], json!("EdDSA"));
+
+        let claims: Value =
+            serde_json::from_slice(&base64url::decode_strict(segments[1]).unwrap()).unwrap();
+        assert_eq!(claims["iss"], json!("https://auth.openai.com"));
+        assert_eq!(claims["sub"], json!("agent-A"));
+        assert_eq!(claims["aud"], json!(KP_001_AID));
+        assert_eq!(claims["nonce"], json!("DLdiOypCLaEk3O1-E8a5TA"));
+        assert_eq!(claims["iat"], json!(ctx.now));
+        assert_eq!(claims["exp"], json!(ctx.now + 3600));
+        let expected_jkt =
+            aitp_crypto::AitpVerifyingKey::from_aid(&aitp_core::Aid::parse(KP_001_AID).unwrap())
+                .unwrap()
+                .to_jwk_thumbprint()
+                .unwrap();
+        assert_eq!(claims["cnf"]["jkt"], json!(expected_jkt));
+
+        // The signature segment must actually verify under the OIDC
+        // test issuer's key (same signer `OidcTestIssuerResolver` in
+        // `aitp-rs-adapter` resolves for `OIDC_TEST_ISSUER`).
+        let signing_input = format!("{}.{}", segments[0], segments[1]);
+        let sig = aitp_crypto::Signature::parse(segments[2]).unwrap();
+        let issuer_key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        issuer_key
+            .verifying_key()
+            .verify(signing_input.as_bytes(), &sig)
+            .expect("minted JWT signature must verify under the OIDC test issuer key");
+    }
+
+    /// When the fixture root has no `self_aid` (`mh-002`/`mh-003`/
+    /// `mh-005`'s shape), minting falls back to the same hardcoded AID
+    /// `verify_handshake_payload_op` itself falls back to — safe only
+    /// because those fixtures never reach JWT parsing (Phase 5's plan
+    /// section trace table).
+    #[test]
+    fn valid_jwt_falls_back_to_default_aud_when_self_aid_absent() {
+        const KP_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "envelope": {
+                "payload": {
+                    "identity": {
+                        "type": "oidc",
+                        "issuer": "https://auth.openai.com",
+                        "subject": "agent-A",
+                        "proof": "__VALID_JWT__",
+                    },
+                    "manifest": { "aid": KP_001_AID },
+                    "pop_nonce": "DLdiOypCLaEk3O1-E8a5TA",
+                },
+            },
+        });
+        ctx.substitute(&mut v);
+        let proof = v["envelope"]["payload"]["identity"]["proof"]
+            .as_str()
+            .unwrap();
+        let payload_b64 = proof.split('.').nth(1).unwrap();
+        let claims: Value =
+            serde_json::from_slice(&base64url::decode_strict(payload_b64).unwrap()).unwrap();
+        assert_eq!(claims["aud"], json!(OIDC_TEST_ADAPTER_FALLBACK_AUD));
+    }
+
+    /// Issue #144 Phase 5, acceptance criterion 4. The minting pass must
+    /// run before `substitute_signatures`: the minted JWT lives inside
+    /// the payload the envelope signature covers, so the final
+    /// signature must verify over the *minted* bytes, not the
+    /// placeholder string. If the ordering regressed (signing before
+    /// minting), the stored signature would verify against stale bytes
+    /// and this check — recomputed against the final, post-mint
+    /// payload — would fail.
+    #[test]
+    fn valid_jwt_minting_runs_before_envelope_signature_pass() {
+        const KP_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+        let message_id = uuid::Uuid::parse_str("770e8400-e29b-41d4-a716-446655440901").unwrap();
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "self_aid": KP_001_AID,
+            "envelope": {
+                "version": "aitp/0.2",
+                "message_type": "mutual_hello",
+                "message_id": message_id,
+                "timestamp": ctx.now,
+                "sender": { "agent_id": KP_001_AID },
+                "payload": {
+                    "identity": {
+                        "type": "oidc",
+                        "issuer": "https://auth.openai.com",
+                        "subject": "agent-A",
+                        "proof": "__VALID_JWT__",
+                    },
+                    "manifest": { "aid": KP_001_AID },
+                    "pop_nonce": "DLdiOypCLaEk3O1-E8a5TA",
+                },
+                "signature": "__VALID_ENVELOPE_SIG__",
+            },
+        });
+        ctx.substitute(&mut v);
+
+        let envelope = &v["envelope"];
+        let proof = envelope["payload"]["identity"]["proof"].as_str().unwrap();
+        assert_ne!(proof, "__VALID_JWT__", "must have been minted already");
+
+        let sender_aid = aitp_core::Aid::parse(KP_001_AID).unwrap();
+        let digest = aitp_core::envelope_signing_digest(
+            &message_id,
+            aitp_core::Timestamp(ctx.now),
+            &sender_aid,
+            &envelope["payload"],
+        )
+        .unwrap();
+        let sig_b64 = envelope["signature"].as_str().unwrap();
+        let sig = aitp_crypto::Signature::parse(sig_b64).unwrap();
+        let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();
+        pubkey.verify(&digest, &sig).expect(
+            "envelope signature must verify over the post-JWT-minting payload bytes \
+             (proves the minting pass ran before the signature pass, not after)",
+        );
     }
 }
