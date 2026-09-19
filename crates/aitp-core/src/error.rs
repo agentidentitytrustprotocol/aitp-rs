@@ -93,11 +93,6 @@ pub enum ErrorCode {
     ManifestPopFailed,
     /// Manifest version not supported by this implementation.
     ManifestVersionUnknown,
-    /// Manifest JCS body is structurally invalid — an unknown member, a
-    /// missing required member, or a member of the wrong type — as
-    /// distinct from a signature or PoP failure (RFC-AITP-0002 registry,
-    /// spec PR #42).
-    ManifestInvalid,
 
     // ── Trust ───────────────────────────────────────────────────────────
     /// Trust evaluation failed for an unspecified policy reason.
@@ -170,15 +165,6 @@ pub enum ErrorCode {
     /// Manifest `expires_at` (RFC-AITP-0004 §4.3).
     TctExpiresAfterManifest,
 
-    // ── Revocation (RFC-AITP-0008) ──────────────────────────────────────
-    /// Revocation snapshot JCS body is structurally invalid — an unknown
-    /// member, a missing required member, or a member of the wrong type —
-    /// as distinct from a signature failure (RFC-AITP-0008 registry, spec
-    /// PR #42).
-    RevocationSnapshotInvalid,
-    /// Revocation snapshot signature did not verify.
-    RevocationSnapshotSignatureInvalid,
-
     // ── Session Bundle (RFC-AITP-0010, Draft) ───────────────────────────
     /// Coordinator's outer bundle signature failed verification under
     /// the coordinator's Manifest key.
@@ -217,6 +203,28 @@ pub enum ErrorCode {
     /// fails to deserialize as a bundle at all. These cases have no
     /// bundle to run the specific `BUNDLE_*` checks against.
     SessionBundleInvalid,
+
+    // ── Manifest (RFC-AITP-0003) ────────────────────────────────────────
+    /// Manifest failed schema validation — a missing REQUIRED member, a
+    /// member of the wrong type, or a value outside its grammar
+    /// (RFC-AITP-0003 §5 step 2). Mirrors `InvalidEnvelope` for the
+    /// Manifest. MUST NOT be reported for a signature failure: the
+    /// signature was never reached. When the only defect is an unknown
+    /// member outside `extensions`, `UnknownField` is more specific and
+    /// wins instead.
+    ManifestInvalid,
+
+    // ── Revocation (RFC-AITP-0008) ──────────────────────────────────────
+    /// Revocation snapshot failed schema validation — the transport
+    /// wrapper carried members other than `revocation_list` and
+    /// `signature`, or the inner body has a missing/mistyped member. When
+    /// the only defect is an unknown member outside `extensions`,
+    /// `UnknownField` is more specific and wins instead.
+    RevocationSnapshotInvalid,
+    /// Revocation snapshot signature does not validate under the issuing
+    /// peer's key, resolved from that peer's Manifest. Distinct from
+    /// `TctSignatureInvalid`, which is about a token's own JWS.
+    RevocationSnapshotSignatureInvalid,
 }
 
 #[cfg(test)]
