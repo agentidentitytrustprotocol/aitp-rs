@@ -128,6 +128,38 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   No `ASSUMPTIONS.md` entries. **This was the plan's last phase** — what's next: the
   `/implement` Finalization pass (whole-feature tests, integration tests across phase seams,
   one final cumulative Opus verification pass) before anything ships.
+- **Finalization pass** — DONE, 2026-09-19. Whole-workspace `cargo build`/`test --all-features`
+  (725 passed, 0 failed, 5 ignored) and `fmt --all --check` re-confirmed clean; conformance
+  corpus re-confirmed `67 passed, 0 failed, 2 skipped of 69`. An isolated-worktree empirical
+  check proved the Phase 4→Phase 5 dependency is real (reverting Phase 4's commit alone while
+  keeping Phase 5's code drops `id-009` to failing, 66/1/2) — not just claimed by the plan.
+  `cargo semver-checks` re-confirmed exactly the one expected major break
+  (`aitp-handshake`'s `IdentityDescriptor.extensions`, `constructible_struct_adds_field`),
+  consistent across every check this session. Verifier: Opus, cumulative whole-branch review
+  (all 6 phases as one unit, not phase-by-phase) — **GAPS**, all documentation-accuracy, zero
+  code defects: (1, blocking) `CHANGELOG.md`'s `IdentityDescriptor.extensions` entry didn't
+  disclose the semver-major break; (2, blocking) `docs/conformance.md`'s headline fixture
+  count was stale (64) against `ci.yml`'s already-updated 69; (3–8, minor) CHANGELOG
+  overclaims/underclaims — HTTP-transport reachability scoped to only 4 of 7 `ManifestError`
+  classes (traced `state_machine.rs:441`'s `bootstrap_verify_peer` → `verify_manifest`, never
+  `parse_manifest_wire`), `IncompatibleIdentityType`'s mapping softened to "closest registered
+  code", the "replaces a signature-family code" headline rescoped (only
+  `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` truly does), a missing note that both
+  `REVOCATION_SNAPSHOT_*` codes are reachable only via the unpublished adapter today (plan's
+  Open Question 3), and a missing CHANGELOG entry for Phase 5's `NoOpResolver` →
+  `OidcTestIssuerResolver` fix. Round 2 (fresh Opus, given the itemized gap list): **GAPS** —
+  7/8 confirmed closed against the live text and re-traced code citations; item 2 found only
+  half-fixed (the headline was right but the same file's separate "v0.2 conformance matrix"
+  Summary table three paragraphs down still said `53`/`64`, contradicting both the headline
+  and this branch's own already-updated per-RFC detail table below it). Round 3 (fresh Opus,
+  scoped to just that one remaining item): **PASS** — independently re-summed the detail
+  table's per-RFC rows (58) and cross-checked against the pinned fixture corpus directly
+  (58 `required_for_v0_2: true` of 69 total). Commits: `fdd6dc6` (7 of 8 items),
+  `45d52de` (the 8th). Files touched: `CHANGELOG.md`, `docs/conformance.md` only — no code.
+  No `ASSUMPTIONS.md` entries. **This closes `/implement`'s phase loop + Finalization pass for
+  issue #144.** What's next: `/ship` (opening/updating PR #145) was not requested this session
+  and is a deliberately separate, not-yet-authorized step per the plan's Branch strategy
+  section — do not initiate it without explicit direction.
 
 ## Branch state (read this before touching anything)
 
