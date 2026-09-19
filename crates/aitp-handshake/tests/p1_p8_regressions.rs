@@ -96,6 +96,7 @@ fn p1_legacy_two_field_proof_rejected() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
 
     let ctx = PinnedKeyVerifyContext {
@@ -144,6 +145,7 @@ fn p1_wrong_receiver_in_proof_rejected() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
     let ctx = PinnedKeyVerifyContext {
         sender_aid: sender.aid(),
@@ -178,6 +180,7 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
     let ctx = PinnedKeyVerifyContext {
         sender_aid: sender.aid(),
@@ -213,6 +216,7 @@ fn oidc_descriptor_with_public_key_rejected() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
     let ctx = OidcVerifyContext {
         expected_audience: receiver.aid(),
@@ -286,6 +290,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
     let envelope = AitpEnvelope {
         version: "aitp/0.1".into(),
@@ -350,6 +355,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         )),
+        extensions: None,
     };
 
     let receiver_manifest = manifest_for(&receiver, "receiver");

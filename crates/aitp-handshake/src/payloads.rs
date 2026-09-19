@@ -201,6 +201,7 @@ mod tests {
             subject: "alice".into(),
             proof: "A".repeat(86),
             public_key: Some("A".repeat(43)),
+            extensions: None,
         }
     }
 
@@ -370,17 +371,18 @@ mod tests {
         assert_eq!(aitp_core::from_serde_error(&err), Some("rogue".to_string()));
     }
 
-    /// Acceptance criterion 3, second half: `IdentityDescriptor` — per the
-    /// pinned handshake schema's inline `$defs/IdentityDescriptor` copy —
-    /// deliberately has NO `extensions` field (unlike the standalone
-    /// `aitp-identity.schema.json`, which disagrees at this pinned spec
-    /// commit; see the Phase 7a plan notes). Putting `extensions` inside a
-    /// nested identity object must therefore still be rejected exactly
-    /// like any other unknown member. This test intentionally regresses
-    /// the moment `IdentityDescriptor` gains `extensions` — that is the
-    /// documented, tracked expiry of this decision, not a bug in this test.
+    /// Issue #144 / RFC-AITP-0002 §1: `IdentityDescriptor` now carries its
+    /// own `extensions` field, matching the standalone
+    /// `aitp-identity.schema.json` (the canonical schema — the pinned
+    /// handshake schema's inline `$defs/IdentityDescriptor` copy had
+    /// drifted from it; see spec PR #42). This test previously asserted
+    /// the opposite — a nested identity descriptor's `extensions` member
+    /// was rejected as unknown — and its own doc comment predicted this
+    /// exact expiry: gaining the field is additive, not a loosening of
+    /// the member-set check, so a nested identity descriptor carrying
+    /// `extensions` now round-trips instead of being rejected.
     #[test]
-    fn nested_identity_still_rejects_extensions_field() {
+    fn nested_identity_now_accepts_extensions_field() {
         let key = alice();
         let mut v = serde_json::to_value(MutualHelloPayload {
             identity: sample_identity(),
@@ -393,11 +395,35 @@ mod tests {
         v["identity"]
             .as_object_mut()
             .unwrap()
-            .insert("extensions".into(), json!({}));
-        let err = serde_json::from_value::<MutualHelloPayload>(v).unwrap_err();
-        assert_eq!(
-            aitp_core::from_serde_error(&err),
-            Some("extensions".to_string())
+            .insert("extensions".into(), json!({"vendor.example/tag": "v1"}));
+        let payload: MutualHelloPayload = serde_json::from_value(v).unwrap();
+        let mut expected = aitp_core::ExtensionsMap::new();
+        expected.insert("vendor.example/tag", json!("v1"));
+        assert_eq!(payload.identity.extensions, Some(expected));
+    }
+
+    /// A nested identity descriptor's `extensions` field still round-trips
+    /// through the whole payload when absent — `skip_serializing_if` keeps
+    /// the wire form byte-identical to before this field existed.
+    #[test]
+    fn nested_identity_omits_extensions_when_absent() {
+        let key = alice();
+        let payload = MutualHelloPayload {
+            identity: sample_identity(),
+            manifest: build_manifest(&key),
+            requested_grants: vec![],
+            pop_nonce: "A".repeat(22),
+            extensions: None,
+        };
+        let v = serde_json::to_value(&payload).unwrap();
+        assert!(
+            !v["identity"]
+                .as_object()
+                .unwrap()
+                .contains_key("extensions"),
+            "absent extensions must be omitted from the wire form, not emitted as null"
         );
+        let round_tripped: MutualHelloPayload = serde_json::from_value(v).unwrap();
+        assert_eq!(round_tripped, payload);
     }
 }

@@ -8,14 +8,15 @@
 //!   "issuer":     "...",      // required when type=oidc
 //!   "subject":    "...",
 //!   "proof":      "...",      // JWT for oidc; base64url sig for pinned_key
-//!   "public_key": "..."       // required when type=pinned_key
+//!   "public_key": "...",      // required when type=pinned_key
+//!   "extensions": { ... }     // optional (RFC-AITP-0002 §1)
 //! }
 //! ```
 //!
 //! This module defines the wire struct, plus helper enums/methods to make
 //! the type-vs-shape distinction ergonomic in Rust.
 
-use aitp_core::RawUrl;
+use aitp_core::{ExtensionsMap, RawUrl};
 use serde::{Deserialize, Serialize};
 
 /// Identity descriptor carried in handshake payloads (`payload.identity`).
@@ -41,6 +42,14 @@ pub struct IdentityDescriptor {
     /// type=pinned_key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
+    /// Optional extension namespace (RFC-AITP-0001 §7 / RFC-AITP-0002 §1).
+    ///
+    /// **Presence-sensitive**, deliberately modeled as `Option<ExtensionsMap>`
+    /// rather than a defaulted empty map — absence (`None`) omits the key
+    /// entirely on the wire, matching the shared convention used
+    /// throughout this codebase.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<ExtensionsMap>,
 }
 
 /// Identity mechanism discriminator.
