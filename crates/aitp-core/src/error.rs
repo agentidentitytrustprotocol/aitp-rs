@@ -93,6 +93,11 @@ pub enum ErrorCode {
     ManifestPopFailed,
     /// Manifest version not supported by this implementation.
     ManifestVersionUnknown,
+    /// Manifest JCS body is structurally invalid — an unknown member, a
+    /// missing required member, or a member of the wrong type — as
+    /// distinct from a signature or PoP failure (RFC-AITP-0002 registry,
+    /// spec PR #42).
+    ManifestInvalid,
 
     // ── Trust ───────────────────────────────────────────────────────────
     /// Trust evaluation failed for an unspecified policy reason.
@@ -164,6 +169,15 @@ pub enum ErrorCode {
     /// TCT verification: TCT `expires_at` exceeds the issuing peer's
     /// Manifest `expires_at` (RFC-AITP-0004 §4.3).
     TctExpiresAfterManifest,
+
+    // ── Revocation (RFC-AITP-0008) ──────────────────────────────────────
+    /// Revocation snapshot JCS body is structurally invalid — an unknown
+    /// member, a missing required member, or a member of the wrong type —
+    /// as distinct from a signature failure (RFC-AITP-0008 registry, spec
+    /// PR #42).
+    RevocationSnapshotInvalid,
+    /// Revocation snapshot signature did not verify.
+    RevocationSnapshotSignatureInvalid,
 
     // ── Session Bundle (RFC-AITP-0010, Draft) ───────────────────────────
     /// Coordinator's outer bundle signature failed verification under
@@ -243,6 +257,7 @@ mod tests {
                 ErrorCode::ManifestVersionUnknown,
                 "MANIFEST_VERSION_UNKNOWN",
             ),
+            (ErrorCode::ManifestInvalid, "MANIFEST_INVALID"),
             (
                 ErrorCode::IncompatibleTrustAnchors,
                 "INCOMPATIBLE_TRUST_ANCHORS",
@@ -292,6 +307,15 @@ mod tests {
             (
                 ErrorCode::TctExpiresAfterManifest,
                 "TCT_EXPIRES_AFTER_MANIFEST",
+            ),
+            // Revocation (RFC-AITP-0008)
+            (
+                ErrorCode::RevocationSnapshotInvalid,
+                "REVOCATION_SNAPSHOT_INVALID",
+            ),
+            (
+                ErrorCode::RevocationSnapshotSignatureInvalid,
+                "REVOCATION_SNAPSHOT_SIGNATURE_INVALID",
             ),
             // Session Bundle (RFC-AITP-0010, Draft)
             (
@@ -350,6 +374,7 @@ mod tests {
                 | ErrorCode::ManifestSignatureInvalid
                 | ErrorCode::ManifestPopFailed
                 | ErrorCode::ManifestVersionUnknown
+                | ErrorCode::ManifestInvalid
                 | ErrorCode::TrustFailed
                 | ErrorCode::PolicyViolation
                 | ErrorCode::KeyResolutionFailed
@@ -377,6 +402,8 @@ mod tests {
                 | ErrorCode::TctSignatureInvalid
                 | ErrorCode::TctRevoked
                 | ErrorCode::TctExpiresAfterManifest
+                | ErrorCode::RevocationSnapshotInvalid
+                | ErrorCode::RevocationSnapshotSignatureInvalid
                 | ErrorCode::BundleInvalidSignature
                 | ErrorCode::BundleVersionMismatch
                 | ErrorCode::BundleExpired
@@ -404,7 +431,7 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            50,
+            53,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
     }
