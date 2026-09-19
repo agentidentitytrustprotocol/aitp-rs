@@ -1278,7 +1278,7 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         // (as INTERNAL_ERROR) rather than THIS variant silently losing
         // its dedicated code if the match were ever reordered.
         UnknownField(_) => "UNKNOWN_FIELD",
-        Malformed(_) => "INVALID_ENVELOPE",
+        Malformed(_) => "MANIFEST_INVALID",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -3495,6 +3495,17 @@ mod error_code_mapping_tests {
         assert_eq!(
             manifest_error_code(&ManifestError::UnknownField("deployment_region".into())),
             "UNKNOWN_FIELD"
+        );
+        // Issue #144: a structurally-invalid manifest (missing required
+        // member, wrong type) must report MANIFEST_INVALID, not the
+        // borrowed INVALID_ENVELOPE code. Asserted directly here so the
+        // arm cannot be quietly reverted without a red test, independent
+        // of the man-006 fixture.
+        assert_eq!(
+            manifest_error_code(&ManifestError::Malformed(
+                "missing required field `handshake_endpoint`".into()
+            )),
+            "MANIFEST_INVALID"
         );
     }
 }
