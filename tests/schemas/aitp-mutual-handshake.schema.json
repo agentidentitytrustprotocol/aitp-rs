@@ -5,6 +5,8 @@
   "description": "AITP v0.2 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack. Commit payloads carry the peer's TCT (and optional grant voucher) as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
   "$defs": {
     "IdentityDescriptor": {
+      "$comment": "Mirror of schemas/json/aitp-identity.schema.json (RFC-AITP-0002 §1 names that file the canonical identity-descriptor schema). This $defs copy exists so the handshake schema stays self-contained — no schema in this repo resolves a cross-file $ref — and it MUST stay byte-equivalent to the canonical file minus its $schema/$id/title/examples metadata. scripts/check-doc-coherence.sh stage 5 enforces that; edit the canonical file and re-run `make validate` rather than editing this copy.",
+      "description": "AITP v0.2 identity binding. Connects an AID to a verifiable issuer claim.",
       "type": "object",
       "required": [
         "type",
@@ -17,22 +19,33 @@
           "enum": [
             "oidc",
             "pinned_key"
-          ]
+          ],
+          "description": "Identity mechanism. v0.2 supports: oidc, pinned_key"
         },
         "issuer": {
           "type": "string",
-          "format": "uri"
+          "format": "uri",
+          "description": "Issuer URI. Required for type=oidc."
         },
         "subject": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Agent subject identifier."
         },
         "proof": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: an unpadded base64url Ed25519 signature whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor."
         },
         "public_key": {
-          "type": "string"
+          "type": "string",
+          "description": "base64url public key. Required for pinned_key.",
+          "pattern": "^[A-Za-z0-9_-]{43,44}$",
+          "minLength": 43
+        },
+        "extensions": {
+          "type": "object",
+          "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
         }
       },
       "if": {
@@ -45,7 +58,12 @@
       "then": {
         "required": [
           "issuer"
-        ]
+        ],
+        "not": {
+          "required": [
+            "public_key"
+          ]
+        }
       },
       "else": {
         "required": [
