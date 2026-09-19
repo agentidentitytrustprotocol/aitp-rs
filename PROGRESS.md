@@ -38,6 +38,18 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   required. No `ASSUMPTIONS.md` entries — the semver-placement question had a single
   empirically-verified correct answer, not an ambiguous judgment call. What's next: Phase 2
   (manifest structural-vs-signature codes in the adapter + HTTP transport).
+- **Phase 2** — DONE, 2026-09-19. Verifier: Opus, 1 round, **PASS**, 0 gaps. Commit:
+  `777133a`. Files touched: `crates/aitp-rs-adapter/src/lib.rs` (one-line `Malformed(_)` arm
+  fix + one new test assertion), `crates/aitp-transport-http/src/server.rs`
+  (`handshake_error_code`'s `HE::Manifest(_)` collapse replaced with a per-variant match, plus
+  the previously-missing `HE::GrantOverflow` arm; two new tests), plus this file and the plan.
+  Verifier independently re-ran the full fixture corpus in an isolated worktree of the pinned
+  spec commit (without disturbing the sibling checkout, which is mid-use by a concurrent
+  lane): `64 passed, 3 failed, 2 skipped of 69`, `man-006`/`man-004` both green, remaining
+  failures exactly `id-009`/`rev-007`/`rev-008`. `cargo semver-checks` clean for both crates.
+  No `ASSUMPTIONS.md` entries — the `IncompatibleIdentityType`→`IdentityFailed` call was
+  already a recorded plan decision (Open Question 5), not a new ambiguous one. What's next:
+  Phase 3 (revocation snapshot codes).
 
 ## Branch state (read this before touching anything)
 
@@ -99,7 +111,7 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   is the spec repo's `registries/error-codes.md`, not vendored here). `docs/conformance.md`'s
   fixture table (`:390-416`) is the closest thing and is what Phase 6 updates.
 
-## Manifest — structural vs. signature (Phase 2)
+## Manifest — structural vs. signature (Phase 2) — DONE
 
 - `crates/aitp-manifest/src/verifier.rs:168-190` `parse_manifest_wire` — structural path.
   Member-set violations → `ManifestError::UnknownField` (`:174`, `:181`); residual
@@ -112,16 +124,15 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
 - `crates/aitp-manifest/src/error.rs:6-56` `ManifestError`, `#[non_exhaustive]` — full variant
   list, no `impl From<ManifestError> for ErrorCode` anywhere in the workspace. Two independent
   hand-written mapping tables (no shared conversion):
-  - `crates/aitp-rs-adapter/src/lib.rs:1259-1285` `manifest_error_code` — **already mostly
-    correct**; only `Malformed(_) => "INVALID_ENVELOPE"` (`:1281`) needs to become
-    `"MANIFEST_INVALID"`. `AidMismatch => "MANIFEST_SIGNATURE_INVALID"` (`:1268`) is
-    deliberate, tested (`lib.rs:3489` area), leave alone.
-  - `crates/aitp-transport-http/src/server.rs:1238-1277` `handshake_error_code` — **the real
-    defect**. `:1257` `HE::Manifest(_) => ErrorCode::ManifestSignatureInvalid` collapses ALL
-    12 `ManifestError` variants (not just structural-vs-signature) — production HTTP
-    handshakes today misreport `Expired`/`PopFailed`/`VersionUnknown`/`UnknownField` manifests
-    as signature failures. Precedent to copy: `HE::Tct(tct_err)` arm at `:1251-1256`, two
-    lines above, already does correct per-variant splitting.
+  - `crates/aitp-rs-adapter/src/lib.rs` `manifest_error_code` — **DONE**: `Malformed(_)` now
+    maps to `"MANIFEST_INVALID"`. `AidMismatch => "MANIFEST_SIGNATURE_INVALID"` and
+    `MissingField(_) => "INVALID_ENVELOPE"` left deliberately unchanged, per plan.
+  - `crates/aitp-transport-http/src/server.rs` `handshake_error_code` — **DONE**: the
+    `HE::Manifest(_)` collapse replaced with a per-variant match (mirroring the `HE::Tct`
+    precedent), fixing a real production bug — HTTP handshakes no longer misreport
+    `Expired`/`PopFailed`/`VersionUnknown`/`UnknownField` manifests as signature failures.
+    `HE::GrantOverflow` also gained its own arm (adjacent one-line fix, was falling to the
+    catch-all as `InvalidEnvelope`).
   - `types.rs:94-95` — `Manifest.signature` is body-level (last struct member), confirms
     JCS-profile "signature inside the signed body" framing.
 - `crates/aitp-manifest/tests/pop_kat.rs:168-174`, `round_trip.rs:101-108` — both already
