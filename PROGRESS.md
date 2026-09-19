@@ -75,6 +75,33 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   main...HEAD -- .../identity_oidc.rs` empty) — Phase 5's file to touch next. No
   `ASSUMPTIONS.md` entries. What's next: Phase 5 (OIDC test-issuer KAT key / real JWT
   minting).
+- **Phase 5** — DONE, 2026-09-19. Verifier: Opus, 1 round, **PASS**, 0 gaps (3 minor
+  non-blocking notes, see below). Commit: `8ba29cf`. Files touched:
+  `crates/aitp-conformance/src/fixture/placeholder.rs` (new `__VALID_JWT__` substitution pass
+  — `substitute_valid_jwt`/`substitute_valid_jwt_at`/`mint_identity_jwt_if_present` — plus
+  `mint_oidc_jwt`, `OIDC_TEST_ISSUER_SEED`/`OIDC_TEST_ADAPTER_FALLBACK_AUD`, a `materialize`
+  exclusion so `__VALID_JWT__` isn't caught by the unknown-placeholder sentinel, and 3 new
+  unit tests), `crates/aitp-rs-adapter/src/lib.rs` (`NoOpResolver` → `OidcTestIssuerResolver`
+  resolving one real JWK for `https://auth.openai.com`, matching `OIDC_TEST_ISSUER_SEED`
+  constants, and a new `oidc_test_issuer_tests` module, 2 tests), plus this file and the plan.
+  Verifier independently built the parent commit in a separate isolated worktree and diffed
+  real conformance output (not inference) to prove `id-009` flipped fail→pass; also
+  mutation-tested AC4 by swapping the mint/sign pass order in a throwaway worktree and
+  confirming the ordering test actually fails when the order regresses. Fixture re-run in two
+  independent isolated worktrees: **67 passed, 0 failed, 2 skipped of 69** — `id-009` now
+  passing, `mh-002`/`mh-003`/`mh-005`/`id-008` holding their exact pre-Phase-5 codes. Full
+  workspace suite: 725 passed, 0 failed, 5 ignored. `cargo fmt --check`/`clippy -D warnings`
+  clean on both touched crates. Three non-blocking verifier notes (all accepted as-is, no code
+  change): (1) the plan's AC1 predicted `id-009`'s pre-Phase-5 failure as
+  `KEY_RESOLUTION_FAILED`; actual observed baseline is `IDENTITY_FAILED` (the literal
+  placeholder string fails JWT parsing before key resolution) — plan-text-only inaccuracy,
+  corrected in the plan's Phase 5 section; (2) the minted `aud` fallback mirrors only the
+  adapter's hardcoded fallback AID, not its `tct.aud` peek — inert, no current `__VALID_JWT__`
+  fixture carries a `tct` in its payload; (3) a `__VALID_JWT__` living in a Sequence input's
+  shared `context` rather than a step's own params would mint before the step-level `self_aid`
+  merge — also inert, no current fixture exercises it. No `ASSUMPTIONS.md` entries — the
+  plan's Approach section was directly implementable with no ambiguous judgment call. What's
+  next: Phase 6 (Docs, CHANGELOG, and CI expectation refresh) — the last phase.
 
 ## Branch state (read this before touching anything)
 
