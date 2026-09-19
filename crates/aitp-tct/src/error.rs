@@ -48,7 +48,12 @@ pub enum TctError {
     /// Decoded JWS payload did not deserialize as the artifact's claims
     /// object — unknown claim outside `ext`, duplicate claim, missing
     /// required claim, or a type mismatch (RFC-AITP-0001 §5.4.5 strict
-    /// parsing).
+    /// parsing). Also raised by
+    /// [`crate::revocation::parse_revocation_snapshot_wire`] for a
+    /// residual deserialize failure on the JCS-profile revocation
+    /// snapshot body (missing/mistyped member other than an unknown
+    /// one) — the name predates that artifact, but the shape is the
+    /// same: a body that doesn't match its declared schema.
     #[error("claims malformed: {0}")]
     ClaimsMalformed(String),
     /// A JSON member outside the artifact's schema-declared member set was
