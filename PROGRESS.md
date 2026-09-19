@@ -50,6 +50,19 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   No `ASSUMPTIONS.md` entries — the `IncompatibleIdentityType`→`IdentityFailed` call was
   already a recorded plan decision (Open Question 5), not a new ambiguous one. What's next:
   Phase 3 (revocation snapshot codes).
+- **Phase 3** — DONE, 2026-09-19. Verifier: Opus, 1 round, **PASS**, 0 gaps. Commit:
+  `62e0b5e`. Files touched: `crates/aitp-rs-adapter/src/lib.rs` (new sibling
+  `revocation_error_code` function + 4 call-site updates + 1 new test), `crates/aitp-tct/src/error.rs`
+  (doc-only `ClaimsMalformed` addition), plus this file and the plan. Verifier independently
+  confirmed `tct_error_code` has zero changed lines (true sibling, not a retarget) and that
+  the two embedded call sites genuinely swallow their verify-half error (so
+  `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` is reachable only via the standalone op — a claim
+  re-derived from the current code, not just repeated from the plan). Fixture re-run in an
+  isolated worktree: `66 passed, 1 failed, 2 skipped of 69`, only `id-009` remaining.
+  `cargo semver-checks` clean for `aitp-tct`. No `ASSUMPTIONS.md` entries — the
+  `IssuerMismatch` non-change was already a recorded plan decision (Edge cases note, same
+  class as Phase 2's `AidMismatch`), not a new ambiguous one. What's next: Phase 4 (identity
+  descriptor `extensions` slot).
 
 ## Branch state (read this before touching anything)
 
@@ -146,7 +159,7 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   `verify_manifest` → `manifest_error_code`. String-compare assertion:
   `crates/aitp-conformance/src/runner/executor.rs:374-381`.
 
-## Revocation snapshot — structural vs. signature (Phase 3)
+## Revocation snapshot — structural vs. signature (Phase 3) — DONE
 
 - `crates/aitp-tct/src/revocation.rs:166-184` `parse_revocation_snapshot_wire` — structural.
   Member-set → `TctError::UnknownField` (`:170,174,179`); residual deserialize failure (e.g.
@@ -157,25 +170,24 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   variant exists; `ClaimsMalformed`'s doc comment (`:49-52`) is written about JWS claims, not
   JCS bodies — Phase 3 adds a clarifying line, doesn't rename.
 - Mapping (again no `From` impl, hand-written):
-  - `crates/aitp-rs-adapter/src/lib.rs:1442-1475` `tct_error_code` — the one the conformance
-    corpus actually drives. `ClaimsMalformed(_) => "INVALID_ENVELOPE"` (`:1458`, **not**
-    signature-borrowed, contrary to the issue's framing); `SignatureInvalid => …
-    "TCT_SIGNATURE_INVALID"` (`:1446`, **the real borrowed-code defect**);
-    `IssuerMismatch => "TCT_SIGNATURE_INVALID"` (`:1450`, left alone, see plan's Open
-    Questions #2). **Do not retarget this function** — it's shared with real `tct-*`
-    fixtures. Add a sibling `revocation_error_code` instead.
+  - `crates/aitp-rs-adapter/src/lib.rs` `tct_error_code` — **unchanged (DONE, deliberately
+    left alone)**, still shared with real `tct-*` fixtures. `IssuerMismatch =>
+    "TCT_SIGNATURE_INVALID"` stays, per plan's Open Questions #2.
+  - `crates/aitp-rs-adapter/src/lib.rs` `revocation_error_code` (new, sibling of
+    `tct_error_code`, right after it) — **DONE**: overrides `ClaimsMalformed(_)` →
+    `"REVOCATION_SNAPSHOT_INVALID"` and `SignatureInvalid` → `"REVOCATION_SNAPSHOT_SIGNATURE_INVALID"`,
+    falls through to `tct_error_code` for everything else.
   - `crates/aitp-transport-http/src/server.rs:1252-1255` — `TctError → ErrorCode`, but only
     reachable via `HandshakeError::Tct`, never from the standalone revocation-snapshot path.
     Not touched by this plan.
-- `verify_revocation_snapshot_op`, `crates/aitp-rs-adapter/src/lib.rs:2623-2689` — the op
-  fixtures actually call; parse at `:2632-2636`, verify at `:2652-2661`. `TCT_REVOKED` for a
-  stale snapshot under `fail_closed` is a **separate, hardcoded literal at `:2676`**,
-  structurally independent of `tct_error_code`/`revocation_error_code` — `rev-001` is
-  unaffected by this phase.
-- Two more call sites reusing the same (to-be-forked) mapping: `verify_tct_op`'s
-  `issuer_revocation_list.snapshot` (`lib.rs:1376-1393`); delegation's
-  `revocation_snapshots[]` (`lib.rs:1644-1652`). Plan applies `revocation_error_code` to both
-  (Open Question #1, decided).
+- `verify_revocation_snapshot_op` — **DONE**: both error sites (parse, verify) now use
+  `revocation_error_code`. `TCT_REVOKED` for a stale snapshot under `fail_closed` remains a
+  separate, untouched hardcoded literal — `rev-001` unaffected, confirmed still green.
+- Two more call sites, both switched to `revocation_error_code` (parse-half only — **DONE**):
+  `verify_tct_op`'s `issuer_revocation_list.snapshot`; delegation's `revocation_snapshots[]`.
+  Verify-half errors at both sites are swallowed (not propagated), so
+  `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` is reachable only through the standalone op —
+  confirmed against the current code by Phase 3's verifier, not just asserted by the plan.
 - `crates/aitp-transport-http/src/revocation.rs:103-138` `RevocationError` — already splits
   structural/signature at its own mapping site (`:365-371`) for the **client-side cache**
   path, but is `pub`, **not** `#[non_exhaustive]` (unlike every sibling error enum), and is
