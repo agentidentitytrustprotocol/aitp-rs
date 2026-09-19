@@ -115,8 +115,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   occurred. This is a behavior change for real deployed traffic, not
   only the conformance fixture corpus — a production `aitp-rs` HTTP
   server handling live Mutual Handshake requests now reports the
-  correct, already-registered code for each of those seven defect
-  classes, plus the new `MANIFEST_INVALID` for `Malformed`. Any
+  correct, already-registered code for six of those seven defect
+  classes, plus the new `MANIFEST_INVALID` for the seventh,
+  `Malformed`. Any
   downstream consumer pattern-matching on the literal string
   `MANIFEST_SIGNATURE_INVALID` (rather than treating it as "manifest
   verification failed, see message") will see it far less often
