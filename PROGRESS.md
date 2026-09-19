@@ -22,6 +22,22 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   job, no push has occurred this session). No `ASSUMPTIONS.md` entries — mechanical phase,
   no ambiguous judgment calls. What's next: Phase 1 (add the three `ErrorCode` variants to
   `aitp-core`).
+- **Phase 1** — DONE, 2026-09-19. Verifier: Opus, 2 rounds. Round 1: **GAPS** — inserting the
+  three new variants mid-enum shifted every later variant's implicit discriminant on this
+  `#[repr]`-less fieldless enum, tripping `cargo-semver-checks`'s
+  `enum_no_repr_variant_discriminant_changed` lint as **major** (a required CI check) —
+  the plan's Phase 1 AC3 had wrongly assumed any `#[non_exhaustive]` addition is
+  automatically minor; plus a wrong RFC citation (`0002`→`0003`) and a doc-comment
+  contradicting the registry's `UNKNOWN_FIELD`-wins carve-out. Fixed by moving all three
+  variants to the enum's tail (after `SessionBundleInvalid`) instead of their originally
+  planned mid-enum sections, and correcting both doc comments to mirror the registry's exact
+  wording. Round 2: **PASS**, 0 gaps (one new non-blocking doc-wording nit, deferred to
+  Phase 6 per the verifier's own call). Commits: `21466ee` (initial), `734cccd` (gap fixes).
+  Files touched: `crates/aitp-core/src/error.rs` only, plus this file and the plan.
+  `cargo semver-checks --baseline-rev main -p aitp-core` now reports no semver update
+  required. No `ASSUMPTIONS.md` entries — the semver-placement question had a single
+  empirically-verified correct answer, not an ambiguous judgment call. What's next: Phase 2
+  (manifest structural-vs-signature codes in the adapter + HTTP transport).
 
 ## Branch state (read this before touching anything)
 
@@ -62,17 +78,22 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
 
 ## `aitp-core` — where the 3 new `ErrorCode` variants go (Phase 1)
 
-- `crates/aitp-core/src/error.rs:58-206` — `ErrorCode` enum, `#[non_exhaustive]` (`:60`),
-  `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]` (`:59`) is the **only** wire mapping — no
-  `Display`/`as_str`/`FromStr`.
-  - `ManifestInvalid` → insert after `ManifestVersionUnknown` (`:95`).
-  - `RevocationSnapshotInvalid`, `RevocationSnapshotSignatureInvalid` → new section after
-    `TctExpiresAfterManifest` (`:166`), before `// ── Session Bundle ──` (`:168`).
-- Three coupled sites, same file, must move together:
-  - `pinned_wire_strings`' `cases` table, `:216-325`.
-  - `assert_every_variant_named`'s exhaustive or-pattern, `:338-391` — **no `_` arm**, compile
-    error if a variant is added without a row here. This is the hard gate.
-  - `assert_eq!(cases.len(), 50, ...)`, `:405-409` → `53`.
+- `crates/aitp-core/src/error.rs` — `ErrorCode` enum, `#[non_exhaustive]`,
+  `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]` is the **only** wire mapping — no
+  `Display`/`as_str`/`FromStr`. **DONE (Phase 1).** `ManifestInvalid`, `RevocationSnapshotInvalid`,
+  `RevocationSnapshotSignatureInvalid` all live at the **tail of the enum**, after
+  `SessionBundleInvalid` — NOT mid-enum after `ManifestVersionUnknown`/`TctExpiresAfterManifest`
+  as originally planned. That placement was rejected by Phase 1's verification gate: this is a
+  `#[repr]`-less fieldless enum, so a mid-enum insertion shifts every later variant's implicit
+  discriminant and trips `cargo-semver-checks` as major. Any later phase reasoning about "where
+  a new `ErrorCode` variant should go" should default to the tail, not its conceptually-grouped
+  section, unless a variant is added at the very end of the enum's current range anyway.
+- Three coupled sites, same file, already updated together for these three variants — pattern
+  to repeat if a later phase ever adds another variant:
+  - `pinned_wire_strings`' `cases` table.
+  - `assert_every_variant_named`'s exhaustive or-pattern — **no `_` arm**, compile error if a
+    variant is added without a row here. This is the hard gate.
+  - `assert_eq!(cases.len(), 53, ...)`.
 - `AitpError` (`:18-48`) is a separate, vestigial enum — nothing constructs it, not relevant.
 - No file in this repo enumerates the error-code registry for humans (the authoritative list
   is the spec repo's `registries/error-codes.md`, not vendored here). `docs/conformance.md`'s
