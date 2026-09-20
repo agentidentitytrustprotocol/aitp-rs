@@ -160,13 +160,31 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   issue #144.** What's next: `/ship` (opening/updating PR #145) was not requested this session
   and is a deliberately separate, not-yet-authorized step per the plan's Branch strategy
   section — do not initiate it without explicit direction.
+- **`/ship`** — authorized 2026-09-20. Local gates green: build/clippy/fmt clean,
+  `cargo test --workspace --all-features` 725 passed/0 failed/5 ignored, conformance corpus
+  67 passed/0 failed/2 skipped of 69 (CI's exact invocation, matching `ci.yml`'s documented
+  expectation). Ship-gate verifier: fresh Opus, full `git diff main...HEAD` (all 19 files) —
+  **PASS**, no blocking gaps; independently re-derived all 5 Open Questions from code rather
+  than trusting the plan text, spot-checked doc claims against source, confirmed
+  `ASSUMPTIONS.md`/`DECISIONS.md` untouched by this plan. Flagged two pre-existing (not
+  introduced by this branch) imprecisions in `docs/conformance.md`'s Summary table
+  (`del-004`'s SKIP row and the "2 skip" attribution) — not blocking, same shape existed at
+  the old 64-fixture counts. **pushed `deps/spec-ea22c710f50b` `5a4ded3`** (force-with-lease;
+  Phase 0 rebased the branch's original single bot commit `cf23ca5` onto `main`'s current tip,
+  so the remote history diverged and required a force-push — expected and plan-documented, not
+  an accident). Updates PR #145 in place. `cargo-semver-checks` is expected to show red on this
+  PR (the single disclosed `constructible_struct_adds_field` on `IdentityDescriptor` — matches
+  precedent PR #141, which merged with the same check red); confirm on the CI run that it's
+  *exactly* that one finding before treating a non-green rollup as mergeable.
 
 ## Branch state (read this before touching anything)
 
-- `deps/spec-ea22c710f50b` (PR #145) has one commit, `cf23ca5`, branched from `7e338b6`
-  (pre-PR #141) — **behind `main`'s tip `9f887dd`**. PR #145's two red CI checks
-  (`vendored schemas in sync`, `conformance fixtures`) are this stale-base problem, not a real
-  defect in the bump itself. Phase 0 rebases and re-syncs properly.
+- `deps/spec-ea22c710f50b` (PR #145) originally had one commit, `cf23ca5`, branched from
+  `7e338b6` (pre-PR #141) — behind `main`'s tip `9f887dd`, which is why PR #145's two red CI
+  checks (`vendored schemas in sync`, `conformance fixtures`) were red: a stale-base problem,
+  not a real defect in the bump itself. Phase 0 rebased and re-synced properly; the branch now
+  has 20 feature/doc commits on top of `main`'s `9f887dd`, force-pushed to `origin` at `5a4ded3`
+  (see Checkpoint trail).
 - aitp-rs vendors **only** `schemas/json/*.schema.json` and
   `schemas/conformance/known-answer/**` (`scripts/sync-schemas.sh:41-64`). Conformance
   fixtures themselves are read live from the sibling spec checkout, resolved via
