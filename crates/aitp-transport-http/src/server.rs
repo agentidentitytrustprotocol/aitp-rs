@@ -1254,7 +1254,35 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
             TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
             _ => ErrorCode::TctSignatureInvalid,
         },
-        HE::Manifest(_) => ErrorCode::ManifestSignatureInvalid,
+        // RFC-AITP-0003 §5 / issue #144: a wrapped ManifestError can fail
+        // for distinct, separately-registered reasons. Collapsing every
+        // variant to MANIFEST_SIGNATURE_INVALID misreports an expired,
+        // PoP-failed, version-mismatched, or structurally-invalid
+        // manifest as a signature failure. Mirrors the HE::Tct arm above.
+        HE::Manifest(m) => {
+            use aitp_manifest::ManifestError;
+            match m {
+                ManifestError::Expired => ErrorCode::ManifestExpired,
+                ManifestError::PopFailed => ErrorCode::ManifestPopFailed,
+                ManifestError::VersionUnknown => ErrorCode::ManifestVersionUnknown,
+                ManifestError::UnknownField(_) => ErrorCode::UnknownField,
+                ManifestError::Malformed(_) => ErrorCode::ManifestInvalid,
+                // `IncompatibleIdentityType` deliberately does not match the
+                // conformance adapter's bare `"INCOMPATIBLE_IDENTITY_TYPE"`
+                // string (`crates/aitp-rs-adapter/src/lib.rs`) — `ErrorCode`
+                // has no dedicated variant for it, so this maps to the
+                // closest registered code instead. A pre-existing registry
+                // gap, out of issue #144's scope; see the plan's Open
+                // Question 5 (`plans/manifest-revocation-error-codes.md`).
+                ManifestError::IdentityHintMalformed(_)
+                | ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
+                // SignatureInvalid, AidMismatch, Crypto, Canonicalization,
+                // Rng, MissingField (builder-side only, unreachable from
+                // wire parsing) — and any future #[non_exhaustive] variant.
+                _ => ErrorCode::ManifestSignatureInvalid,
+            }
+        }
+        HE::GrantOverflow => ErrorCode::GrantOverflow,
         HE::PolicyViolation => ErrorCode::PolicyViolation,
         HE::PopVerificationFailed => ErrorCode::PopVerificationFailed,
         HE::NonceMismatch => ErrorCode::NonceMismatch,
@@ -1374,6 +1402,76 @@ mod tests {
         assert_eq!(
             handshake_error_code(&HandshakeError::Tct(TctError::AudienceMismatch)),
             ErrorCode::TctSignatureInvalid,
+        );
+    }
+
+    /// Issue #144: `handshake_error_code` previously collapsed every
+    /// `HandshakeError::Manifest(_)` to `MANIFEST_SIGNATURE_INVALID`, so
+    /// a peer presenting an expired, PoP-failed, version-mismatched, or
+    /// structurally-invalid manifest during the handshake was told its
+    /// signature was bad. Each `ManifestError` reason now maps to its
+    /// own registered code.
+    #[test]
+    fn manifest_error_variants_map_to_distinct_codes() {
+        use aitp_manifest::ManifestError;
+
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::Malformed(
+                "missing handshake_endpoint".into()
+            ))),
+            ErrorCode::ManifestInvalid,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::Expired)),
+            ErrorCode::ManifestExpired,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::PopFailed)),
+            ErrorCode::ManifestPopFailed,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::VersionUnknown)),
+            ErrorCode::ManifestVersionUnknown,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::UnknownField(
+                "extra".into()
+            ))),
+            ErrorCode::UnknownField,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(
+                ManifestError::IdentityHintMalformed("missing issuer")
+            )),
+            ErrorCode::IdentityFailed,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(
+                ManifestError::IncompatibleIdentityType("oidc")
+            )),
+            ErrorCode::IdentityFailed,
+        );
+        // Reasons without a dedicated code still fall back to
+        // MANIFEST_SIGNATURE_INVALID — the catch-all is intentional.
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::SignatureInvalid)),
+            ErrorCode::ManifestSignatureInvalid,
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Manifest(ManifestError::AidMismatch)),
+            ErrorCode::ManifestSignatureInvalid,
+        );
+    }
+
+    /// Issue #144: `HE::GrantOverflow` had no arm and fell through the
+    /// `_` catch-all to `INVALID_ENVELOPE`, despite `GrantOverflow`
+    /// already being a registered code the conformance adapter maps
+    /// correctly.
+    #[test]
+    fn grant_overflow_maps_to_its_own_code() {
+        assert_eq!(
+            handshake_error_code(&HandshakeError::GrantOverflow),
+            ErrorCode::GrantOverflow,
         );
     }
 

@@ -172,8 +172,10 @@ it. These are responsibilities of the protocol layer:
 trips would canonicalize to different bytes for the same logical value —
 or worse, silently normalize one into the other and invalidate a
 signature. Every `extensions` field across the protocol crates
-(`AitpEnvelope`, `Manifest`, `RevocationList`, `SessionTrustBundle`, and
-the four handshake payloads) is therefore modeled as `Option<ExtensionsMap>`
+(`AitpEnvelope`, `Manifest`, `RevocationList`, `SessionTrustBundle`, the
+four handshake payloads, and the `IdentityDescriptor` nested inside the
+`mutual_hello` / `mutual_hello_ack` payloads) is therefore modeled as
+`Option<ExtensionsMap>`
 with
 `#[serde(default, skip_serializing_if = "Option::is_none")]`: `None` omits
 the key entirely, `Some(ExtensionsMap::new())` serializes as

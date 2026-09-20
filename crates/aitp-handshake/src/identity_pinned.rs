@@ -210,6 +210,7 @@ mod tests {
                     .try_to_ed25519_bytes()
                     .expect("key was constructed as Ed25519, never P-256"),
             )),
+            extensions: None,
         }
     }
 
@@ -252,6 +253,7 @@ mod tests {
             // is even compared.
             proof: base64url::encode(&[0u8; 64]),
             public_key: Some(base64url::encode(&[0u8; 32])),
+            extensions: None,
         };
         let err = verify_pinned_key(
             &desc,
@@ -418,6 +420,7 @@ mod tests {
                     .try_to_ed25519_bytes()
                     .expect("key was constructed as Ed25519, never P-256"),
             )),
+            extensions: None,
         };
         let err = verify_pinned_key(
             &desc,

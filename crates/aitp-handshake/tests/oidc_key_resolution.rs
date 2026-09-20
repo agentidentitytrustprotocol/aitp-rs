@@ -105,6 +105,7 @@ fn descriptor(proof: String) -> IdentityDescriptor {
         subject: "sender".into(),
         proof,
         public_key: None,
+        extensions: None,
     }
 }
 

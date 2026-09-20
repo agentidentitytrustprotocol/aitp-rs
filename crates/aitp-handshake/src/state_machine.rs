@@ -366,6 +366,7 @@ impl PresentedIdentity {
                     subject: subject.clone(),
                     proof,
                     public_key: Some(base64url::encode(&pk_bytes)),
+                    extensions: None,
                 })
             }
             Self::Oidc {
@@ -388,6 +389,7 @@ impl PresentedIdentity {
                     subject: subject.clone(),
                     proof: proof_jwt.clone(),
                     public_key: None,
+                    extensions: None,
                 })
             }
             Self::OidcMinter {
@@ -404,6 +406,7 @@ impl PresentedIdentity {
                     subject: subject.clone(),
                     proof,
                     public_key: None,
+                    extensions: None,
                 })
             }
         }

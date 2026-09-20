@@ -17,8 +17,8 @@ use aitp_core::{base64url, jcs, Aid, AitpEnvelope, MessageType, Sender, Timestam
 use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
-    Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
-    PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
+    Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, MutualCommitAckPayload,
+    MutualHelloAckPayload, PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{TctBuilder, TctClaims};
@@ -826,7 +826,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // Parse payload as MutualHello / MutualHelloAck and run
     // bootstrap_verify_peer (steps 3–5); HELLO-family envelope
     // signatures are verified after it succeeds (step 6).
-    let resolver = NoOpResolver;
+    let resolver = OidcTestIssuerResolver;
     // RFC-AITP-0002 §3.2 step 1: fixtures that want to exercise the
     // local pinned-key trust store (e.g. id-007) supply `trust_store`
     // as a list of AID strings. When present, build a real
@@ -1189,10 +1189,41 @@ fn verify_commit_ack_stateless(
     Ok(verified)
 }
 
-struct NoOpResolver;
-impl JwksResolver for NoOpResolver {
-    fn resolve(&self, _issuer: &url::Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
-        Ok(vec![])
+/// The one OIDC issuer the conformance corpus mints real JWTs for
+/// (issue #144 Phase 5). Duplicated from
+/// `crates/aitp-conformance/src/fixture/placeholder.rs`'s
+/// `OIDC_TEST_ISSUER_SEED` — no shared module between the two crates
+/// for the default subprocess build (same duplication pattern as
+/// `kat_seed_for_aid` above). Keep the two seeds in sync.
+const OIDC_TEST_ISSUER: &str = "https://auth.openai.com";
+const OIDC_TEST_ISSUER_SEED: [u8; 32] = [0x4Fu8; 32];
+
+/// Resolves the single OIDC test issuer's JWK for
+/// `verify_handshake_payload_op`; every other issuer stays untrusted
+/// (empty candidate list), matching the prior always-empty
+/// `NoOpResolver` for any fixture that never reaches key resolution
+/// (see the Phase 5 plan's per-fixture trace table).
+struct OidcTestIssuerResolver;
+impl JwksResolver for OidcTestIssuerResolver {
+    fn resolve(&self, issuer: &url::Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
+        // Compare parsed `Url`s, not raw strings: `Url::parse` adds a
+        // trailing slash to a bare-domain URL, so a string compare
+        // against `OIDC_TEST_ISSUER` would silently never match.
+        let Ok(test_issuer) = url::Url::parse(OIDC_TEST_ISSUER) else {
+            return Ok(vec![]);
+        };
+        if issuer != &test_issuer {
+            return Ok(vec![]);
+        }
+        let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        let Some(x) = key.verifying_key().try_to_ed25519_bytes() else {
+            return Ok(vec![]);
+        };
+        Ok(vec![JwkPublicKey {
+            kid: None,
+            alg: JwsAlgorithm::EdDSA,
+            key: JwkKeyMaterial::Ed25519 { x },
+        }])
     }
 }
 
@@ -1278,7 +1309,7 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         // (as INTERNAL_ERROR) rather than THIS variant silently losing
         // its dedicated code if the match were ever reordered.
         UnknownField(_) => "UNKNOWN_FIELD",
-        Malformed(_) => "INVALID_ENVELOPE",
+        Malformed(_) => "MANIFEST_INVALID",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1386,7 +1417,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
                 Err(e) => {
                     return err(
                         id,
-                        &tct_error_code(&e),
+                        &revocation_error_code(&e),
                         &format!("issuer_revocation_list.snapshot: {e}"),
                     );
                 }
@@ -1472,6 +1503,23 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         _ => "INTERNAL_ERROR",
     }
     .to_string()
+}
+
+/// Like `tct_error_code`, but for a revocation *snapshot* rather than a
+/// TCT's own JWS (RFC-AITP-0008 §1.5 / registry §"Revocation codes").
+/// `tct_error_code` stays untouched and shared with real `tct-*`
+/// fixtures; this sibling overrides only the two structural/signature
+/// arms a revocation snapshot needs its own codes for.
+/// `IssuerMismatch` deliberately falls through to `TCT_SIGNATURE_INVALID`
+/// via `tct_error_code` — same treatment as `ManifestError::AidMismatch`
+/// in `manifest_error_code`, not a registry gap.
+fn revocation_error_code(e: &aitp_tct::TctError) -> String {
+    use aitp_tct::TctError::*;
+    match e {
+        ClaimsMalformed(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
+        SignatureInvalid => "REVOCATION_SNAPSHOT_SIGNATURE_INVALID".to_string(),
+        other => tct_error_code(other),
+    }
 }
 
 /// `verify_grant_voucher` — standalone grant-voucher verification
@@ -1647,7 +1695,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
                     Err(e) => {
                         return err(
                             id,
-                            &tct_error_code(&e),
+                            &revocation_error_code(&e),
                             &format!("revocation_snapshots[].snapshot: {e}"),
                         )
                     }
@@ -2632,7 +2680,13 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
     let env: aitp_tct::RevocationListEnvelope =
         match aitp_tct::parse_revocation_snapshot_wire(&env_value) {
             Ok(e) => e,
-            Err(e) => return err(id, &tct_error_code(&e), &format!("revocation_list: {e}")),
+            Err(e) => {
+                return err(
+                    id,
+                    &revocation_error_code(&e),
+                    &format!("revocation_list: {e}"),
+                )
+            }
         };
     let expected_issuer = match params
         .get("expected_issuer")
@@ -2650,7 +2704,7 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .unwrap_or_else(|| state.now());
     let ctx = aitp_tct::VerifyRevocationListContext::new(&expected_issuer, now);
     if let Err(e) = aitp_tct::verify_revocation_list(&env, &ctx) {
-        return err(id, &tct_error_code(&e), &e.to_string());
+        return err(id, &revocation_error_code(&e), &e.to_string());
     }
     // Apply the optional RevocationPolicy when supplied (rev-001 /
     // rev-002 fixtures). The wire shape is `policy: {fail_mode,
@@ -3274,8 +3328,8 @@ mod error_code_mapping_tests {
     //! non-obvious mappings (and the nested handshake→tct/manifest
     //! dispatch) are pinned here.
     use super::{
-        delegation_error_code, handshake_error_code, manifest_error_code, tct_error_code,
-        voucher_error_code,
+        delegation_error_code, handshake_error_code, manifest_error_code, revocation_error_code,
+        tct_error_code, voucher_error_code,
     };
     use aitp_delegation::DelegationError;
     use aitp_handshake::HandshakeError;
@@ -3474,6 +3528,36 @@ mod error_code_mapping_tests {
     }
 
     #[test]
+    fn revocation_codes() {
+        // The two overridden arms: a revocation snapshot's own
+        // structural/signature defects get their own codes, distinct
+        // from a TCT's own JWS.
+        assert_eq!(
+            revocation_error_code(&TctError::ClaimsMalformed(
+                "missing required field `published_at`".into()
+            )),
+            "REVOCATION_SNAPSHOT_INVALID"
+        );
+        assert_eq!(
+            revocation_error_code(&TctError::SignatureInvalid),
+            "REVOCATION_SNAPSHOT_SIGNATURE_INVALID"
+        );
+        // Everything else falls through to tct_error_code unchanged.
+        // IssuerMismatch in particular is a deliberate non-change (same
+        // treatment as ManifestError::AidMismatch in Phase 2) — pinned
+        // directly so it can't silently drift.
+        assert_eq!(
+            revocation_error_code(&TctError::IssuerMismatch),
+            "TCT_SIGNATURE_INVALID"
+        );
+        assert_eq!(
+            revocation_error_code(&TctError::UnknownField("rogue".into())),
+            "UNKNOWN_FIELD"
+        );
+        assert_eq!(revocation_error_code(&TctError::Revoked), "TCT_REVOKED");
+    }
+
+    #[test]
     fn manifest_codes() {
         assert_eq!(
             manifest_error_code(&ManifestError::Expired),
@@ -3495,6 +3579,17 @@ mod error_code_mapping_tests {
         assert_eq!(
             manifest_error_code(&ManifestError::UnknownField("deployment_region".into())),
             "UNKNOWN_FIELD"
+        );
+        // Issue #144: a structurally-invalid manifest (missing required
+        // member, wrong type) must report MANIFEST_INVALID, not the
+        // borrowed INVALID_ENVELOPE code. Asserted directly here so the
+        // arm cannot be quietly reverted without a red test, independent
+        // of the man-006 fixture.
+        assert_eq!(
+            manifest_error_code(&ManifestError::Malformed(
+                "missing required field `handshake_endpoint`".into()
+            )),
+            "MANIFEST_INVALID"
         );
     }
 }
@@ -3746,7 +3841,13 @@ mod revocation_unknown_field_tests {
         );
         assert_eq!(out["ok"], json!(false), "got: {out}");
         assert_ne!(out["error_code"], json!("UNKNOWN_FIELD"));
-        assert_eq!(out["error_code"], json!("TCT_SIGNATURE_INVALID"));
+        // Issue #144: a revocation snapshot's own signature failure now
+        // reports REVOCATION_SNAPSHOT_SIGNATURE_INVALID, distinct from a
+        // TCT's own JWS signature failure.
+        assert_eq!(
+            out["error_code"],
+            json!("REVOCATION_SNAPSHOT_SIGNATURE_INVALID")
+        );
     }
 
     /// `tct_error_code` has an explicit `UnknownField` arm reporting
@@ -4067,5 +4168,100 @@ mod handshake_unknown_field_tests {
         );
         assert_eq!(out["ok"], json!(false), "got: {out}");
         assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+}
+
+#[cfg(test)]
+mod oidc_test_issuer_tests {
+    //! Issue #144 Phase 5, acceptance criterion 3: `OidcTestIssuerResolver`
+    //! (the real resolver `verify_handshake_payload_op` now uses in place
+    //! of `NoOpResolver`) must actually resolve a key that makes
+    //! `verify_oidc` accept a JWT from `OIDC_TEST_ISSUER` — proven here at
+    //! the `verify_oidc` layer directly, independent of the full
+    //! MUTUAL_HELLO envelope/fixture machinery
+    //! (`crates/aitp-conformance/src/fixture/placeholder.rs`'s
+    //! `mint_oidc_jwt` mints the same shape via the duplicated
+    //! `OIDC_TEST_ISSUER_SEED`, exercised end-to-end by the `id-009`
+    //! conformance fixture instead).
+    use super::*;
+    use aitp_handshake::{verify_oidc, IdentityDescriptor, IdentityKind, OidcVerifyContext};
+
+    /// Mint a JWT with the OIDC-profile claims `verify_oidc` requires
+    /// (`identity_oidc.rs`'s full check order), signed by the test
+    /// issuer's key. Deliberately independent of
+    /// `aitp-conformance`'s `mint_oidc_jwt` (that crate depends on this
+    /// one, not the reverse) — same recipe, ported the same way that
+    /// function was: header/payload/sig, no `kid` (the resolver returns
+    /// exactly one candidate key).
+    fn mint_test_issuer_jwt(sub: &str, aud: &Aid, nonce: &str, cnf_jkt: &str, now: i64) -> String {
+        let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
+        let claims = json!({
+            "iss": OIDC_TEST_ISSUER,
+            "sub": sub,
+            "aud": aud.as_str(),
+            "iat": now,
+            "exp": now + 3600,
+            "nonce": nonce,
+            "cnf": { "jkt": cnf_jkt },
+        });
+        let header_b64 = base64url::encode(header.as_bytes());
+        let payload_b64 = base64url::encode(claims.to_string().as_bytes());
+        let signing_input = format!("{header_b64}.{payload_b64}");
+        let sig = key.sign(signing_input.as_bytes());
+        format!("{signing_input}.{}", sig.into_string())
+    }
+
+    #[test]
+    fn oidc_test_issuer_resolver_makes_verify_oidc_accept() {
+        let subject_key = AitpSigningKey::from_seed(&[0x61; 32]);
+        let audience_key = AitpSigningKey::from_seed(&[0x62; 32]);
+        let cnf_jkt = AitpVerifyingKey::from_aid(subject_key.aid())
+            .unwrap()
+            .to_jwk_thumbprint()
+            .unwrap();
+        let now = 1_711_900_000_i64;
+        let nonce = "test-nonce-oidc-resolver";
+
+        let jwt =
+            mint_test_issuer_jwt("agent-under-test", audience_key.aid(), nonce, &cnf_jkt, now);
+
+        let descriptor = IdentityDescriptor {
+            kind: IdentityKind::Oidc,
+            issuer: Some(OIDC_TEST_ISSUER.parse().unwrap()),
+            subject: "agent-under-test".into(),
+            proof: jwt,
+            public_key: None,
+            extensions: None,
+        };
+        let anchors: Vec<aitp_core::RawUrl> = vec![OIDC_TEST_ISSUER.parse().unwrap()];
+        let resolver = OidcTestIssuerResolver;
+        let ctx = OidcVerifyContext {
+            expected_audience: audience_key.aid(),
+            expected_nonce: nonce,
+            trust_anchors: &anchors,
+            jwks_resolver: &resolver,
+            subject_aid: subject_key.aid(),
+            iat_tolerance_secs: 300,
+            now_unix_secs: now,
+        };
+        let result = verify_oidc(&descriptor, &ctx);
+        assert!(
+            result.is_ok(),
+            "expected verify_oidc to accept, got {result:?}"
+        );
+    }
+
+    #[test]
+    fn oidc_test_issuer_resolver_returns_no_keys_for_other_issuers() {
+        let resolver = OidcTestIssuerResolver;
+        let other: url::Url = "https://not-the-test-issuer.example.com".parse().unwrap();
+        let keys = resolver
+            .resolve(&other)
+            .expect("resolve must not hard-error");
+        assert!(
+            keys.is_empty(),
+            "resolver must not hand out the test issuer's key for a different issuer"
+        );
     }
 }
