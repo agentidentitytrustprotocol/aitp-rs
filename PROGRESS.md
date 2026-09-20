@@ -176,6 +176,28 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
   PR (the single disclosed `constructible_struct_adds_field` on `IdentityDescriptor` — matches
   precedent PR #141, which merged with the same check red); confirm on the CI run that it's
   *exactly* that one finding before treating a non-green rollup as mergeable.
+- **CI run 1** (`5a4ded3`) surfaced two *unplanned* required-check failures, unrelated to
+  issue #144: `cargo-audit`/`cargo-deny` both red on `RUSTSEC-2026-0285` (rustls TLS 1.3
+  handshake-message validation bug, published 2026-09-14 — after this branch's work started)
+  plus a yanked `wnaf 0.14.0` (transitive via `aitp-crypto`'s `p256` dep). Confirmed via
+  `git diff main...HEAD -- Cargo.lock` that this branch's diff never touched `Cargo.lock` —
+  genuine environment drift, not a regression from this PR's changes. Fixed with a narrow,
+  tested `cargo update -p rustls -p wnaf` (0.23.43→0.23.45, 0.14.0→0.14.1, both within
+  existing `Cargo.toml` ranges, zero source changes) — commit `8f07149`. `bindings cargo-deny`
+  also failed (a `--config` CLI-arg incompatibility, unrelated) but is **not** a required
+  check, left alone.
+- **CI run 2** (`8f07149`) — `cargo-audit`/`cargo-deny` now green. Only two checks red:
+  `cargo-semver-checks` (required — confirmed via job log: every crate but `aitp-handshake`
+  reports "no semver update required"; `aitp-handshake` shows exactly one finding,
+  `constructible_struct_adds_field` on `IdentityDescriptor.extensions` at
+  `identity.rs:52` — the single disclosed break, nothing else) and `bindings cargo-deny`
+  (not required, pre-existing unrelated CLI issue). `gh pr view 145` reports
+  `mergeStateStatus: BLOCKED`, `mergeable: MERGEABLE` — no conflicts, blocked purely by the
+  required `cargo-semver-checks` check, identical to PR #141's situation (merged there by a
+  human admin override, `merged_by: ajit-zer07`). **`/ship` stops here per its own
+  guardrail** ("do not try to bypass branch protection") — ready to merge, needs a manual
+  admin override of `cargo-semver-checks` from a repo admin. PR:
+  https://github.com/agentidentitytrustprotocol/aitp-rs/pull/145
 
 ## Branch state (read this before touching anything)
 
