@@ -43,10 +43,10 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (stable)
         with:
           toolchain: stable
-      - uses: MarcoIeni/release-plz-action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5
+      - uses: MarcoIeni/release-plz-action@d6c56271d640b6c1b61d1e00593641c400a9f4bd # v0.5
         # Default command = release-pr + release. On each push to main it
         # opens/updates a "Release PR" (version bumps + changelogs from
         # conventional commits, lockstep across the crate family); merging that
