@@ -7,9 +7,10 @@ Each section names the RFC, the Cargo feature flag (if any), and a
 
 The Python SDK has a symmetric surface; see [`sdk-python.md`](sdk-python.md).
 
-> **Current release: 0.4.1** — carries the 0.4.0 crate hardening
+> **Current release: 0.12.0** — builds on the 0.4.0 crate hardening
 > (canonical low-S P-256 signatures, RSA-2048 floor on the OIDC/DPoP
-> paths, SSRF-guarded fetches). No SDK function signatures changed.
+> paths, SSRF-guarded fetches); subsequent releases added `core` error
+> codes and `extensions` support. No SDK function signatures changed.
 
 ## Build
 
