@@ -7,18 +7,21 @@
 
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
-> **Status: 0.4.0** — Tracks AITP specification **v0.2** (wire protocol
-> `aitp/0.2`; spec RFCs at `0.2.0-draft`). All 45 required v0.2 `core`
-> conformance fixtures pass; the 7 `draft` fixtures pass under their
-> opt-in features (53 fixtures total, 1 v0.1-frozen SKIP).
-> 0.4.0 is a security-hardening + tooling release — SSRF-guarded peer
-> fetches, canonical low-S P-256 signatures, an RSA-2048 floor on the
-> OIDC/DPoP paths, a strict `TctVerifyContext` builder, an offline
-> [`aitp` CLI](crates/aitp-cli/README.md) (in-repo tool, not yet
-> published to crates.io), an optional `metrics`
-> feature, and operator docs — with the on-the-wire protocol unchanged.
-> See [`docs/conformance.md`](docs/conformance.md) for the per-fixture
-> breakdown and [`CHANGELOG.md`](CHANGELOG.md) for the full history.
+> **Status: 0.12.0** — Tracks AITP specification **v0.2** (wire protocol
+> `aitp/0.2`; spec RFCs at `0.2.0-draft`). All 58 required v0.2 `core`
+> conformance fixtures pass; the 10 `draft` fixtures pass under their
+> opt-in features (69 fixtures total, 1 v0.1-frozen SKIP).
+> Builds on the 0.4.0 security-hardening + tooling release (SSRF-guarded
+> peer fetches, canonical low-S P-256 signatures, an RSA-2048 floor on
+> the OIDC/DPoP paths, a strict `TctVerifyContext` builder, an offline
+> [`aitp` CLI](crates/aitp-cli/README.md), an optional `metrics`
+> feature) — subsequent 0.x releases added `core` error codes
+> (`MANIFEST_INVALID`, `REVOCATION_SNAPSHOT_INVALID`,
+> `REVOCATION_SNAPSHOT_SIGNATURE_INVALID`, `UNKNOWN_FIELD`) and
+> `extensions` slots on more artifacts, with the on-the-wire protocol
+> unchanged since v0.2. See [`docs/conformance.md`](docs/conformance.md)
+> for the per-fixture breakdown and [`CHANGELOG.md`](CHANGELOG.md) for
+> the full history.
 
 ## What is AITP?
 
@@ -253,8 +256,10 @@ transport-layer status register.
 The runtime is feature-complete and conformant for the common case (two
 agents; pinned-key or OIDC identity; single-hop delegation; the
 `aitp/0.2` wire). 0.4.0 closed the security-review action items and
-stabilized the crates' public API — any further breaking API change now
-targets 0.5.0. The remaining directions are the opt-in Draft RFCs
+stabilized the crates' public API — this crate is pre-1.0, so any
+further breaking API change bumps the minor version (see
+[`CHANGELOG.md`](CHANGELOG.md) for the current version). The remaining
+directions are the opt-in Draft RFCs
 (Session Trust Bundle, multi-hop delegation, TCT renewal) and their
 eventual graduation to Final.
 
