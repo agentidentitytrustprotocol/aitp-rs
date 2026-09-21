@@ -74,6 +74,21 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ steps.app.outputs.token }}
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+          # cargo-semver-checks@0.50 (installed above) needs rustc >=1.93
+          # to build its rustdoc JSON. This step's internal calls run
+          # against a copy of this repo, which carries rust-toolchain.toml
+          # (pinned to 1.90.0) — rustup silently applies that pin to any
+          # cargo/rustc invocation from inside the copy, regardless of the
+          # `stable` toolchain installed above, and cargo-semver-checks
+          # then fails outright ("rustc version is not high enough").
+          # RUSTUP_TOOLCHAIN outranks a toolchain file in rustup's own
+          # resolution order, so this forces the newer installed `stable`
+          # for just this step's tool invocations, without touching this
+          # workspace's actual declared MSRV (1.90) anywhere. Same idiom
+          # ci.yml's `msrv` job already uses (there: running from outside
+          # the repo instead, since it just needs to `cargo install` a
+          # tool rather than analyze this repo's own tree).
+          RUSTUP_TOOLCHAIN: stable
 
       - name: Sync binding versions onto the release PR
         # release-plz only ever bumps versions INSIDE the Cargo workspace, so
