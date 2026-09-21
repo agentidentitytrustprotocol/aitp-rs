@@ -46,7 +46,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
         with:
           toolchain: stable
-      - uses: MarcoIeni/release-plz-action@2eb1d8bcb770b4c48ccfaad919734b38b51958c9 # v0.5
+      - uses: MarcoIeni/release-plz-action@51e32d708d306b2c2e98540245b276439f3137c3 # v0.5.139
+        # Bumped from v0.5 (2eb1d8b) specifically to pick up this action's
+        # internal `cargo-semver-checks@0.48` -> `0.50` pin, matching
+        # ci.yml's own (unpinned) cargo-semver-checks resolution. 0.48
+        # predates the `constructible_struct_adds_field` lint, which is
+        # what let PR #143 miscompute IdentityDescriptor gaining a field
+        # (#144) as a patch bump instead of a breaking (minor, pre-1.0)
+        # one — see PR #143's manual correction to 0.12.0.
+        #
         # Default command = release-pr + release. On each push to main it
         # opens/updates a "Release PR" (version bumps + changelogs from
         # conventional commits, lockstep across the crate family); merging that
