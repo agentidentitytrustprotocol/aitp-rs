@@ -34,7 +34,10 @@ pub trait RevocationProvider: Send + Sync {
     /// surface an unknown member as an opaque `serde_json::Error` for the
     /// caller to (mis)classify. Map the resulting
     /// `Err(aitp_tct::TctError::UnknownField(_))` to
-    /// [`RevocationError::UnknownField`] — **never** to
+    /// [`RevocationError::UnknownField`], and
+    /// `Err(aitp_tct::TctError::ClaimsMalformed(_))` (a missing/mistyped
+    /// known member — the member set itself was intact) to
+    /// [`RevocationError::Malformed`] — **never** either one to
     /// [`RevocationError::SignatureInvalid`], which would misreport a
     /// structural rejection (the signature is never reached) as a
     /// cryptographic one, exactly the miscategorization
@@ -101,7 +104,14 @@ impl RevocationProvider for EmptyRevocationProvider {
 }
 
 /// Errors raised when fetching or applying a revocation snapshot.
+///
+/// Marked `#[non_exhaustive]` so a future structural-rejection category
+/// (mirroring [`aitp_manifest::ManifestError`], which carries the same
+/// attribute) doesn't force a breaking change on every downstream match —
+/// this variant set is still expected to grow as RFC-AITP-0008 §1.5's
+/// structural-rejection table does.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum RevocationError {
     /// Underlying network/transport error.
     #[error("network error: {0}")]
@@ -134,6 +144,16 @@ pub enum RevocationError {
     /// to prevent.
     #[error("revocation snapshot has unknown field: {0}")]
     UnknownField(String),
+    /// The fetched snapshot's member set was intact (nothing extra, see
+    /// [`RevocationError::UnknownField`]) but a required member was
+    /// missing or a known member had the wrong shape —
+    /// [`aitp_tct::TctError::ClaimsMalformed`] from
+    /// [`aitp_tct::parse_revocation_snapshot_wire`]. Also never the
+    /// signature check's fault: the signature was never reached. This is
+    /// the `REVOCATION_SNAPSHOT_INVALID` case, the revocation-snapshot
+    /// sibling of `ManifestError::Malformed` (RFC-AITP-0008 §1.5).
+    #[error("revocation snapshot is malformed: {0}")]
+    Malformed(String),
 }
 
 /// What to do when revocation cannot be checked freshly (network down,
@@ -354,18 +374,20 @@ impl<P: RevocationProvider> RevocationCache<P> {
             .as_ref()
             .ok_or(RevocationError::NoSnapshotFailClosed)?;
         let env = provider.fetch(issuer)?;
-        // Verify signature + expiry. `TctError::UnknownField` gets its own
-        // arm rather than falling into the `other` catch-all below: a
-        // provider that parses the raw wire form via
-        // `aitp_tct::parse_revocation_snapshot_wire` (as it MUST, to honor
-        // RFC-AITP-0001 §7's member-set check on a live fetch) surfaces an
-        // unknown-member snapshot as this error, and collapsing it into
-        // `SignatureInvalid` here would misreport a structural rejection —
-        // whose signature was never reached — as a cryptographic one.
+        // Verify signature + expiry. `TctError::UnknownField` and
+        // `TctError::ClaimsMalformed` each get their own arm rather than
+        // falling into the `other` catch-all below: a provider that parses
+        // the raw wire form via `aitp_tct::parse_revocation_snapshot_wire`
+        // (as it MUST, to honor RFC-AITP-0001 §7's member-set check on a
+        // live fetch) surfaces a structurally-rejected snapshot as one of
+        // these two errors, and collapsing either into `SignatureInvalid`
+        // here would misreport a structural rejection — whose signature was
+        // never reached — as a cryptographic one.
         verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer, now)).map_err(
             |e| match e {
                 TctError::Expired => RevocationError::Expired,
                 TctError::UnknownField(field) => RevocationError::UnknownField(field),
+                TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
                 other => RevocationError::SignatureInvalid(other),
             },
         )?;
@@ -609,6 +631,7 @@ mod tests {
         fn fetch(&self, _issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError> {
             aitp_tct::parse_revocation_snapshot_wire(&self.raw).map_err(|e| match e {
                 TctError::UnknownField(field) => RevocationError::UnknownField(field),
+                TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
                 other => RevocationError::SignatureInvalid(other),
             })
         }
@@ -633,6 +656,40 @@ mod tests {
             matches!(err, RevocationError::UnknownField(ref f) if f == "list_owner"),
             "an unknown-member snapshot must report UnknownField, not a signature \
              failure — the signature was never reached: got {err:?}"
+        );
+        assert!(
+            !matches!(err, RevocationError::SignatureInvalid(_)),
+            "must not collapse a structural rejection into SignatureInvalid: got {err:?}"
+        );
+    }
+
+    /// issue #144 regression, sibling of the unknown-member test above: a
+    /// snapshot whose member set is intact but is missing a required member
+    /// (`published_at`) must report `RevocationError::Malformed`, not
+    /// `SignatureInvalid` — the signature was never reached, and it isn't
+    /// an *unknown* field either (nothing extra is present). Before this
+    /// fix, `RevocationError` had no variant other than `SignatureInvalid`
+    /// a provider could map `TctError::ClaimsMalformed` onto, reproducing
+    /// — for revocation snapshots — the exact manifest/signature
+    /// conflation bug `MANIFEST_INVALID` was introduced to fix.
+    #[test]
+    fn claims_malformed_snapshot_is_not_reported_as_signature_invalid() {
+        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let now = Timestamp::now();
+        let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
+        let mut raw = serde_json::to_value(&env).unwrap();
+        raw["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .remove("published_at");
+
+        let cache = RevocationCache::new(WireParsingProvider { raw }, RevocationPolicy::default());
+        let err = cache
+            .is_revoked(&Uuid::new_v4(), key.aid(), now)
+            .unwrap_err();
+        assert!(
+            matches!(err, RevocationError::Malformed(_)),
+            "a snapshot missing a required field must report Malformed, not {err:?}"
         );
         assert!(
             !matches!(err, RevocationError::SignatureInvalid(_)),

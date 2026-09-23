@@ -3781,6 +3781,36 @@ mod revocation_unknown_field_tests {
         assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
     }
 
+    /// issue #144 regression, sibling of the unknown-member test above: a
+    /// snapshot missing a required inner member (`published_at`) — member
+    /// set intact, nothing extra — must report `REVOCATION_SNAPSHOT_INVALID`
+    /// via the real `verify_revocation_snapshot` op, exercising
+    /// `revocation_error_code`'s `ClaimsMalformed` arm end-to-end rather
+    /// than only via the hand-built mapping test.
+    #[test]
+    fn verify_revocation_snapshot_rejects_missing_required_field() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["revocation_list"]
+            .as_object_mut()
+            .unwrap()
+            .remove("published_at");
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "man-006-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("REVOCATION_SNAPSHOT_INVALID"));
+    }
+
     /// rev-006 shape: a snapshot carrying a legitimate `extensions` member
     /// still verifies.
     #[test]
