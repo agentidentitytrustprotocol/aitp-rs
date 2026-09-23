@@ -390,3 +390,32 @@ fn parse_manifest_wire_accepts_accepted_signature_algorithms() {
         Some(vec!["ed25519".to_string()])
     );
 }
+
+/// issue #144 regression: a manifest missing a required member
+/// (`handshake_endpoint`) must report `ManifestError::Malformed`, not
+/// `UnknownField` — the member set is intact (nothing extra is present),
+/// so `check_members` passes and only the typed `serde_json::from_value`
+/// deserialize fails, with a "missing field" message `from_serde_error`
+/// does not recognize as an unknown-field pattern. This is the MANIFEST_INVALID
+/// case (man-006): a structural defect distinct from both `UnknownField`
+/// (an extra member) and `ManifestSignatureInvalid` (a bad signature on an
+/// otherwise well-formed manifest) — exercised here via the real
+/// `parse_manifest_wire` entry point rather than by constructing
+/// `ManifestError::Malformed` by hand.
+#[test]
+fn parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field() {
+    let now = Timestamp(1_700_000_000);
+    let m = build_alice_manifest_at(now);
+    let mut body = serde_json::to_value(&m).unwrap();
+    body.as_object_mut().unwrap().remove("handshake_endpoint");
+
+    let err = parse_manifest_wire(&body).unwrap_err();
+    assert!(
+        matches!(err, ManifestError::Malformed(_)),
+        "a manifest missing a required field must be Malformed, not {err:?}"
+    );
+    assert!(
+        !matches!(err, ManifestError::UnknownField(_)),
+        "a missing member is not an unknown one: got {err:?}"
+    );
+}

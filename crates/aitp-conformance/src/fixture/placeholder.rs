@@ -1286,6 +1286,38 @@ mod tests {
         assert_eq!(claims["aud"], json!(OIDC_TEST_ADAPTER_FALLBACK_AUD));
     }
 
+    /// When a sibling field minting needs (`pop_nonce`, here) is absent,
+    /// `mint_identity_jwt_if_present` must leave the `__VALID_JWT__`
+    /// sentinel literally in place rather than silently substituting
+    /// something else — so a fixture that reaches JWT parsing without the
+    /// fields minting requires fails loudly on the sentinel string, not
+    /// quietly on a malformed token that looks like an accident.
+    #[test]
+    fn valid_jwt_placeholder_left_intact_when_sibling_fields_missing() {
+        const KP_001_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({
+            "envelope": {
+                "payload": {
+                    "identity": {
+                        "type": "oidc",
+                        "issuer": "https://auth.openai.com",
+                        "subject": "agent-A",
+                        "proof": "__VALID_JWT__",
+                    },
+                    "manifest": { "aid": KP_001_AID },
+                    // `pop_nonce` deliberately omitted.
+                },
+            },
+        });
+        ctx.substitute(&mut v);
+        assert_eq!(
+            v["envelope"]["payload"]["identity"]["proof"],
+            json!("__VALID_JWT__"),
+            "minting must no-op, not fabricate a token, when a required sibling is absent"
+        );
+    }
+
     /// Issue #144 Phase 5, acceptance criterion 4. The minting pass must
     /// run before `substitute_signatures`: the minted JWT lives inside
     /// the payload the envelope signature covers, so the final
