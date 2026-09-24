@@ -1,0 +1,28 @@
+# Ad hoc runner for the tier-3 real-LLM integration tests
+# (tests/e2e-llm/) inside a container, so they build and run on a
+# stock Linux Rust toolchain regardless of the host's local setup.
+#
+# tests/e2e-llm is excluded from the root .dockerignore, so it is bind
+# mounted in directly rather than copied at build time — the image only
+# needs cargo + the rest of the workspace (path deps).
+#
+#   docker compose -f docker-compose.e2e-llm.yml run --rm e2e-llm \
+#     cargo test --test handshake_then_delegate -- --nocapture
+#
+services:
+  e2e-llm:
+    image: rust:1.90-bookworm
+    working_dir: /workspace/tests/e2e-llm
+    volumes:
+      - .:/workspace
+      - cargo-registry:/usr/local/cargo/registry
+      - e2e-llm-target:/workspace/tests/e2e-llm/target
+    env_file:
+      - tests/e2e-llm/.env
+    environment:
+      AITP_RUN_LLM_TESTS: "1"
+    entrypoint: []
+
+volumes:
+  cargo-registry:
+  e2e-llm-target:
