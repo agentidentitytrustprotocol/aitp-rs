@@ -558,7 +558,13 @@ both `pub(crate)`).
 - Phase 2 implemented 2026-09-25 (same branch): `signing_input_kat.rs` rewritten with
   `kat_keypair_aid()` helper, Test A (`committed_manifest_example_verifies_via_verify_manifest`),
   Test B kept as-is, Test C (`wrapped_signed_manifest_is_rejected_by_verify_manifest`). Local:
-  3/3 new-file tests green, `aitp-manifest` crate total now 49. Verification pending.
+  3/3 new-file tests green, `aitp-manifest` crate total now 49, workspace 731/731. Fresh-Opus
+  verify: **PASS** — full deliberate-mutation matrix run in an isolated worktree, confirming
+  Test A/C catch the issue's exact both-sides-flipped repro (see plan's Phase 2 status note
+  for the table). One wording correction applied to the plan and the test file's module doc
+  comment (AC2's "Test A is the only thing that fails" overstated it — a pre-existing,
+  incidental `round_trip.rs` test also fails under the same mutations; doesn't weaken the
+  phase's actual claim). Committed as its own commit.
 
 # Progress — issue #148 (cross-impl coverage for the committed manifest fixture)
 
