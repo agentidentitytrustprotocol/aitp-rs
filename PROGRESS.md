@@ -580,3 +580,4 @@ both `pub(crate)`).
   `CHANGELOG.md` — resolved by keeping both sections/entries in sequence). Full workspace
   suite + clippy re-confirmed clean post-rebase.
   pushed chore/manifest-signing-regression-coverage 5814c3639b48ab7c0b4e31688d4afdc5d6db8e09
+- PR #181 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/181
