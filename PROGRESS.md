@@ -573,3 +573,10 @@ both `pub(crate)`).
   `Some(empty)`) confirmed to break the byte match. `CHANGELOG.md` entry added under
   `[Unreleased]` → `### Added`. Local: `aitp-manifest` crate total now 50, full workspace
   suite and clippy `-D warnings` both clean. This closes all 3 phases of issue #147's plan.
+- Ship-gate: fresh-Opus full-diff verify **GAPS** (3 doc-only items), all fixed in `83acdc9`;
+  re-verify closure pass found one item (a 1-line truncation from the #148-section removal)
+  needing a follow-up fix, applied in `5814c36`. Rebased onto `origin/main` after #148's PR
+  #180 merged (2 conflicts, both in files both plans append to — `PROGRESS.md`,
+  `CHANGELOG.md` — resolved by keeping both sections/entries in sequence). Full workspace
+  suite + clippy re-confirmed clean post-rebase.
+  pushed chore/manifest-signing-regression-coverage 5814c3639b48ab7c0b4e31688d4afdc5d6db8e09
