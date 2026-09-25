@@ -427,11 +427,13 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
 
 ## Repo map
 
-- `scripts/xcheck-verify.py` — the only file Phase 1 touches. `DEFAULT_COMMITTED`/`--committed`
-  (`:61-66`, `:94-100`, revocation-only today), `check()`/`check_rejects()` helpers (`:69-90`),
-  existing manifest checks (`:144-155`, both freshly-minted), Direction (b) narration
-  (`:246-257`, print-only, doesn't semantically fit the new checks), byte-identity block
-  (`:259-272`, revocation-only, the closest existing "committed fixture" precedent in spirit).
+- `scripts/xcheck-verify.py` — the main file Phase 1 touches (`.github/workflows/ci.yml`'s
+  path filter is the other, see below). `DEFAULT_COMMITTED`/`--committed`
+  (`:66-70`, `:104-109`, revocation-only before this plan), `check()`/`check_rejects()`
+  helpers (`:78-99`), existing manifest checks (`:159-170`, both freshly-minted), Direction
+  (b) narration (`:297-308`, print-only, doesn't semantically fit the new checks),
+  byte-identity block (`:314-323`, revocation-only, the closest existing "committed fixture"
+  precedent in spirit).
 - `tools/mint-signed-examples/src/bin/xcheck_mint.rs:123-168` — manifest minting (D9); confirmed
   this plan needs zero changes here.
 - `.github/workflows/ci.yml` — `changes` job (`:43-62` post-fix, filter list `:54-62`,

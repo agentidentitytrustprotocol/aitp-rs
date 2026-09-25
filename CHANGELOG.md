@@ -152,12 +152,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   script now verifies the committed fixture through `aitp-verifier-py`,
   with a paired negative confirming its signature does not verify over the
   wrapped `{"manifest": ...}` form — both reuse `verify_manifest`'s own
-  internal primitives, nothing is re-signed on either side. Also closes
-  the part of issue #150's CI path-filter gap this fix's own coverage
-  depended on: `.github/workflows/ci.yml`'s `changes` job now triggers the
-  `rust` output (and `xcheck`/`conformance`/`wasm`/`e2e-llm-build`) on
-  `scripts/**` and `tools/**`, not just `crates/**`/`tests/**`. Test/CI
-  tooling only — no public API, no schema, no wire-behavior change.
+  internal primitives, nothing is re-signed on either side. Also fully
+  closes issue #150's CI path-filter defect (this fix's own coverage
+  depended on it): `.github/workflows/ci.yml`'s `changes` job now
+  triggers the `rust` output (and `xcheck`/`conformance`/`wasm`/
+  `e2e-llm-build`) on `scripts/**` and `tools/**`, not just
+  `crates/**`/`tests/**`. Issue #150's second, unrelated defect (Direction
+  (b) printing `ok` unconditionally) remains open. Test/CI tooling only —
+  no public API, no schema, no wire-behavior change.
 
 ### Fixed
 
