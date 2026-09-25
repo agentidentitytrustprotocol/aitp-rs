@@ -161,6 +161,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (b) printing `ok` unconditionally) remains open. Test/CI tooling only —
   no public API, no schema, no wire-behavior change.
 
+- **Manifest signing now has a single, shared signing-view derivation, and
+  a production-funnel regression test to prove it**
+  ([#147](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/147)).
+  `ManifestBuilder::build()` and `verify_manifest()` previously each
+  hand-built their own `ManifestSigningView`, independently — a symmetric
+  mistake at both call sites (e.g. both canonicalizing the wrapped
+  `{"manifest": ...}` form instead of the inner body) would be
+  self-consistent and pass `cargo test -p aitp-manifest` green but for one
+  incidental failure unrelated to the wrapper convention itself, the same
+  bug class already fixed for the revocation snapshot (PR #168) and still
+  present in the session bundle. Both call sites now derive the
+  view through a single `impl From<&Manifest> for ManifestSigningView`, so
+  there is exactly one place that can get the derivation wrong, not two
+  that could disagree. New tests in `signing_input_kat.rs` drive the
+  committed, spec-vendored fixture through the real `parse_manifest_wire` +
+  `verify_manifest` funnel (not a local re-canonicalization), plus a
+  from-scratch wrapped-form-signature rejection test and a byte-pinned KAT
+  test against the spec's `kat-manifest-001` vector. `ManifestSigningView`
+  and its `From` impl are `pub(crate)` only — no public API or wire-behavior
+  change.
+
 ### Fixed
 
 - **The HTTP transport's `handshake_error_code` no longer collapses

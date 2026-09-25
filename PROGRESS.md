@@ -493,3 +493,91 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
 - Ship-gate: fresh-Opus full-diff verify **PASS** (3 non-blocking doc nits, fixed in
   `ec71123`). pushed chore/cross-impl-manifest-coverage ec711232f846dab3213b6a916a7386f66bca1a9a
 - PR #180 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/180
+
+# Progress — issue #147 (manifest signing-input regression coverage)
+
+Plan: `plans/manifest-signing-regression-coverage.md`. Tracking issue: #147. No spec bump,
+no cross-repo work, no public API change (`ManifestSigningView`/`manifest_signing_bytes` are
+both `pub(crate)`).
+
+## Repo map
+
+- `crates/aitp-manifest/src/builder.rs` — `ManifestBuilder::build()` (`:182`), inline
+  signing-bytes construction (`:238-257`, the sign-side half of the gap),
+  `ManifestSigningView` def (`pub(crate)`, `:339-360`), existing `#[cfg(test)] mod tests`
+  (`:371` onward). Phase 1 adds `manifest_signing_bytes` here; Phase 3 adds a KAT test to the
+  existing `mod tests`.
+- `crates/aitp-manifest/src/verifier.rs` — `verify_manifest()` (`:49-137`, verify-side half of
+  the gap at `:76-92`), `parse_manifest_wire()` (`:168-190`, the wrapper-detecting public entry
+  point Phase 2's Test A should route through instead of a bare `serde_json::from_value`).
+- `crates/aitp-manifest/src/error.rs` — `ManifestError` (`#[non_exhaustive]`), `Malformed`
+  and `SignatureInvalid` variants already exist; no new variant needed for this plan.
+- `crates/aitp-manifest/src/types.rs` — `Manifest`, `MANIFEST_MEMBERS`, `IdentityHint`,
+  `ManifestPop` — all `pub` fields, no new dependency needed to construct one in a test.
+- `crates/aitp-manifest/tests/signing_input_kat.rs` — the file the issue names; confirmed
+  self-referential (no `aitp_manifest` import at all). Phase 2 rewrites it.
+- `crates/aitp-manifest/tests/round_trip.rs` — 20 existing tests, all against freshly-minted
+  manifests (none against the committed fixture); PR #168 added
+  `parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field` (`:406`) here as
+  the closest existing precedent for this plan's approach. Not otherwise touched by this plan.
+- `crates/aitp-cli/tests/cli.rs:220-241` — `manifest_verify_ok_within_validity_window`, the
+  one existing test (subprocess, wrong crate/altitude) that currently catches the issue's
+  regression. Not modified — stays as an additional CLI-surface check.
+- `tests/schemas/known-answer/signed-examples/manifest/kat-keypair-001-manifest.json` — the
+  committed fixture Phase 2 pins against. `aid = aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik`,
+  `published_at: 1711900000`, `expires_at: 1711986400`.
+- `tests/schemas/known-answer/jcs-sha256.json` → `kat-manifest-001` — the spec-pinned
+  canonical-bytes vector Phase 3 pins against (623 bytes, `signing_input: "body"`). Currently
+  only consumed raw (no production code path) by `crates/aitp-core/tests/kat.rs:40`.
+- `tests/schemas/known-answer/keypairs.json` — `kat-keypair-001` vector, read by the
+  `kat_keypair_aid()` helper Phase 2 copies from `crates/aitp-tct/src/revocation.rs:354-368`.
+- **Precedent to mirror**, all already on `main`: `crates/aitp-tct/src/revocation.rs:105-126`
+  (`revocation_signing_bytes`, Phase 1's model), `:392-433` (`rfc_kat_canonical_bytes_match`,
+  Phase 3's model), `:435-523` (three-test committed-fixture pattern, Phase 2's model);
+  `crates/aitp-session-bundle/src/builder.rs:168-274` (`bundle_signing_bytes` +
+  `production_signing_bytes_match_the_pinned_vector`, Phase 1 and Phase 3's other model);
+  `crates/aitp-transport-http/src/revocation.rs:676-698` (PR #168's own regression-test style
+  — positive assertion paired with a negative ruling out the mis-classification).
+
+## Checkpoint trail
+
+- Plan drafted 2026-09-25. Research: two parallel Opus subagents (manifest funnel +
+  revocation/PR#168 pattern), plus direct reads of `builder.rs`, `verifier.rs`, `types.rs`,
+  `error.rs`, `signing_input_kat.rs`, `revocation.rs:340-524`, and `jcs-sha256.json`'s
+  `kat-manifest-001` vector to ground Phase 3's exact field shapes before committing to the
+  phase design. Plan review: 2 rounds, both REVISE, all findings applied — see plan's own
+  "Plan review" section.
+- Phase 1 implemented 2026-09-25 on branch `chore/manifest-signing-regression-coverage`:
+  `impl From<&Manifest> for ManifestSigningView` + `manifest_signing_bytes` added to
+  `builder.rs`; `build()` reordered to construct the `Manifest` first (placeholder
+  `signature`), derive the view, sign, then splice in the real signature;
+  `verifier.rs`'s hand-built 14-field view replaced with `ManifestSigningView::from(manifest)`,
+  dead `aitp_core::jcs` import removed. Local: 47/47 `aitp-manifest` + 14/14 `aitp-cli` green,
+  clippy `-D warnings` clean. Fresh-Opus verify: **PASS** (see plan's Phase 1 status note).
+  Committed as its own commit, separate from Phase 2's test file.
+- Phase 2 implemented 2026-09-25 (same branch): `signing_input_kat.rs` rewritten with
+  `kat_keypair_aid()` helper, Test A (`committed_manifest_example_verifies_via_verify_manifest`),
+  Test B kept as-is, Test C (`wrapped_signed_manifest_is_rejected_by_verify_manifest`). Local:
+  3/3 new-file tests green, `aitp-manifest` crate total now 49, workspace 731/731. Fresh-Opus
+  verify: **PASS** — full deliberate-mutation matrix run in an isolated worktree, confirming
+  Test A/C catch the issue's exact both-sides-flipped repro (see plan's Phase 2 status note
+  for the table). One wording correction applied to the plan and the test file's module doc
+  comment (AC2's "Test A is the only thing that fails" overstated it — a pre-existing,
+  incidental `round_trip.rs` test also fails under the same mutations; doesn't weaken the
+  phase's actual claim). Committed as its own commit.
+- Phase 3 implemented 2026-09-25 (same branch): `signing_bytes_match_the_pinned_kat_vector`
+  added to `builder.rs`'s existing `#[cfg(test)] mod tests`, driving the spec's
+  `kat-manifest-001` vector through the shared `ManifestSigningView::from` +
+  `manifest_signing_bytes`, asserting byte length/hex/digest match the pinned vector, plus two
+  load-bearing mutation checks (`required_peer_capabilities` → `None`, `extensions` →
+  `Some(empty)`) confirmed to break the byte match. `CHANGELOG.md` entry added under
+  `[Unreleased]` → `### Added`. Local: `aitp-manifest` crate total now 50, full workspace
+  suite and clippy `-D warnings` both clean. This closes all 3 phases of issue #147's plan.
+- Ship-gate: fresh-Opus full-diff verify **GAPS** (3 doc-only items), all fixed in `83acdc9`;
+  re-verify closure pass found one item (a 1-line truncation from the #148-section removal)
+  needing a follow-up fix, applied in `5814c36`. Rebased onto `origin/main` after #148's PR
+  #180 merged (2 conflicts, both in files both plans append to — `PROGRESS.md`,
+  `CHANGELOG.md` — resolved by keeping both sections/entries in sequence). Full workspace
+  suite + clippy re-confirmed clean post-rebase.
+  pushed chore/manifest-signing-regression-coverage 5814c3639b48ab7c0b4e31688d4afdc5d6db8e09
+- PR #181 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/181
