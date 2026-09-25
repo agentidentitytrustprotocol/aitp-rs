@@ -572,3 +572,4 @@ both `pub(crate)`).
   load-bearing mutation checks (`required_peer_capabilities` → `None`, `extensions` →
   `Some(empty)`) confirmed to break the byte match. `CHANGELOG.md` entry added under
   `[Unreleased]` → `### Added`. Local: `aitp-manifest` crate total now 50, full workspace
+  suite and clippy `-D warnings` both clean. This closes all 3 phases of issue #147's plan.
