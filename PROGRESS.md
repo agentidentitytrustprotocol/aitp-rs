@@ -419,3 +419,77 @@ Upstream: spec `5063c08ed994d6da71292ce9f0f99812462be997` → `ea22c710f50bc74c6
 - `.github/workflows/ci.yml:417-419` — hardcoded fixture-count comment, currently "62 pass /
   0 fail / 2 skip of 64 fixtures" at the `5063c08` pin; Phase 6 replaces with the real number
   observed after all other phases land.
+
+# Progress — issue #148 (cross-impl coverage for the committed manifest fixture)
+
+Plan: `plans/cross-impl-manifest-coverage.md`. Tracking issue: #148 (mostly stale — D9/PR#141
+already covers the freshly-minted half). No spec bump, no Rust-side change, no public API.
+
+## Repo map
+
+- `scripts/xcheck-verify.py` — the main file Phase 1 touches (`.github/workflows/ci.yml`'s
+  path filter is the other, see below). `DEFAULT_COMMITTED`/`--committed`
+  (`:66-70`, `:104-109`, revocation-only before this plan), `check()`/`check_rejects()`
+  helpers (`:78-99`), existing manifest checks (`:159-170`, both freshly-minted), Direction
+  (b) narration (`:297-308`, print-only, doesn't semantically fit the new checks),
+  byte-identity block (`:314-323`, revocation-only, the closest existing "committed fixture"
+  precedent in spirit).
+- `tools/mint-signed-examples/src/bin/xcheck_mint.rs:123-168` — manifest minting (D9); confirmed
+  this plan needs zero changes here.
+- `.github/workflows/ci.yml` — `changes` job (`:43-62` post-fix, filter list `:54-62`,
+  `scripts/**`/`tools/**` now present — Phase 1 fixed the part of issue #150's path-filter
+  gap that this plan's own PR depended on) and `xcheck` job (`:430-476`, job id `xcheck`,
+  display name `cross-impl acceptance (aitp-verifier-py)`, pin file
+  `tests/AITP_VERIFIER_PY_VERSION` read at `:442`).
+- `tests/AITP_VERIFIER_PY_VERSION` — pinned SHA `c5ecb604441f041e734f610b5f372299c97dfcda`
+  (stale relative to aitp-verifier-py `main`, tracked separately as issue #149; confirmed this
+  plan's fix works correctly at the current pin, no bump needed).
+- `tests/schemas/known-answer/signed-examples/manifest/kat-keypair-001-manifest.json` — the
+  committed fixture this plan cross-checks; same file `plans/manifest-signing-regression-coverage.md`
+  (issue #147) pins on the Rust side — the code changes are disjoint files, but both plans add
+  a `CHANGELOG.md` bullet under the same `[Unreleased]` → `### Added` section (trivial
+  merge-conflict risk, not disjoint there); order still doesn't matter either way.
+- `/Users/Shared/agentIdenitytrustprotocol/aitp-verifier-py` — sibling checkout (read-only for
+  this plan). `aitp_verifier/manifest.py` at the pinned SHA (read directly via
+  `git show <sha>:aitp_verifier/manifest.py`) is the source of the exact primitives
+  (`parse_aid`, `b64url_decode`, `sha256`, `canonicalize`, `decode_tagged_signature`) Phase 1's
+  negative check reuses.
+- `DECISIONS.md:158-173` (D9) and `ASSUMPTIONS.md:162-191` — existing, already-closed records
+  of the freshly-minted half's fix; not touched by this plan (see Open Questions #3).
+- `plans/cross-repo/aitp-verifier-py-post-0.12.0-sync.md` — a pre-existing, unrelated
+  cross-repo plan (spec-drift `signing_input` companion-field bug in aitp-verifier-py's own
+  pytest suite). Confirmed no overlap: different files, different repo-side, different bug.
+
+## Checkpoint trail
+
+- Plan drafted 2026-09-25. Research: one Opus subagent (confirmed script structure, CI filter
+  gap, fixture shape) plus a direct read of `scripts/xcheck-verify.py` in full and
+  `aitp_verifier/manifest.py` at the pinned SHA to ground the negative check's exact API
+  surface before committing to the phase design (avoided relying on the subagent's
+  un-cited API sketch). Plan review: 1 round, REVISE, all 6 findings applied (AC2's inverted
+  observable, the CI path-filter self-defeat, the `python3.11` requirement, and 3 smaller
+  fixes) — see plan's own "Plan review" section.
+- Phase 1 implemented 2026-09-25 in git worktree `aitp-rs-148` (branch
+  `chore/cross-impl-manifest-coverage`, isolated from #147's concurrent work in the main
+  checkout): `scripts/xcheck-verify.py` gained `DEFAULT_COMMITTED_MANIFEST` +
+  `--committed-manifest`, a positive check (committed manifest fixture verifies via
+  `aitp-verifier-py`'s real `verify_manifest`) and a negative check (same signature must not
+  verify over the wrapped `{"manifest": ...}` form, reusing `verify_manifest`'s own internal
+  primitives, no re-signing); `.github/workflows/ci.yml`'s `changes` job `rust` filter gained
+  `'scripts/**'`/`'tools/**'` so this plan's own PR doesn't skip the `xcheck` check it depends
+  on. Local: Docker-minted `xcheck-mint` output piped into `python3.11 scripts/xcheck-verify.py`
+  (pinned `aitp-verifier-py` @ `c5ecb604...` in a scratch venv) — both new checks `ok`, exit 0;
+  AC2's reversed-mutation probe confirmed to `FAIL` exactly as the plan states;
+  `py_compile` clean. Fresh-Opus verify: **PASS** (independently reproduced AC1/AC2 from a
+  clean venv, confirmed the pinned-vs-ahead-of-pin package distinction via
+  `direct_url.json`, confirmed the `ImportError` guard is real via a stub-package probe, and
+  confirmed the positive check is non-vacuous by tampering individual signed fields). 3
+  non-blocking repo-map citation nits fixed in a follow-up commit (see plan's Phase 1 status
+  note).
+- Phase 2 implemented 2026-09-25 (same branch): `CHANGELOG.md` entry added under
+  `[Unreleased]` → `### Added`, referencing issue #148, noting issue #150's path-filter gap
+  is partially closed by this PR. Comments on issues #148 and #150 to be posted via `gh` at
+  ship time (communication, not a merge gate). This closes both phases of issue #148's plan.
+- Ship-gate: fresh-Opus full-diff verify **PASS** (3 non-blocking doc nits, fixed in
+  `ec71123`). pushed chore/cross-impl-manifest-coverage ec711232f846dab3213b6a916a7386f66bca1a9a
+- PR #180 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/180
