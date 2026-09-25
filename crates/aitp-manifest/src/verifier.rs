@@ -1,9 +1,9 @@
 //! Manifest verification per RFC-AITP-0003 §5.
 
-use crate::builder::ManifestSigningView;
+use crate::builder::{manifest_signing_bytes, ManifestSigningView};
 use crate::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
 use crate::ManifestError;
-use aitp_core::{base64url, check_members, from_serde_error, jcs, Timestamp};
+use aitp_core::{base64url, check_members, from_serde_error, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use sha2::{Digest, Sha256};
 
@@ -73,24 +73,8 @@ pub fn verify_manifest(
     //    the outer-sig check first surfaces the higher-level error
     //    that matches spec semantics — the manifest body itself
     //    isn't trustworthy, so PoP details are moot.
-    let view = ManifestSigningView {
-        version: &manifest.version,
-        aid: &manifest.aid,
-        display_name: manifest.display_name.as_deref(),
-        identity_hint: &manifest.identity_hint,
-        handshake_endpoint: &manifest.handshake_endpoint,
-        accepted_trust_anchors: &manifest.accepted_trust_anchors,
-        accepted_identity_types: manifest.accepted_identity_types.as_deref(),
-        accepted_signature_algorithms: manifest.accepted_signature_algorithms.as_deref(),
-        offered_capabilities: &manifest.offered_capabilities,
-        required_peer_capabilities: manifest.required_peer_capabilities.as_deref(),
-        proof_of_possession: &manifest.proof_of_possession,
-        published_at: &manifest.published_at,
-        expires_at: &manifest.expires_at,
-        extensions: manifest.extensions.as_ref(),
-    };
-    let canonical = jcs::canonicalize_serializable(&view)
-        .map_err(|e| ManifestError::Canonicalization(e.to_string()))?;
+    let view = ManifestSigningView::from(manifest);
+    let canonical = manifest_signing_bytes(&view)?;
     let digest = Sha256::digest(&canonical);
     let outer_sig =
         Signature::parse(&manifest.signature).map_err(|_| ManifestError::SignatureInvalid)?;
