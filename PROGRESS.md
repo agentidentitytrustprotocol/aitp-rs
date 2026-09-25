@@ -516,7 +516,7 @@ both `pub(crate)`).
   `ManifestPop` — all `pub` fields, no new dependency needed to construct one in a test.
 - `crates/aitp-manifest/tests/signing_input_kat.rs` — the file the issue names; confirmed
   self-referential (no `aitp_manifest` import at all). Phase 2 rewrites it.
-- `crates/aitp-manifest/tests/round_trip.rs` — 19 existing tests, all against freshly-minted
+- `crates/aitp-manifest/tests/round_trip.rs` — 20 existing tests, all against freshly-minted
   manifests (none against the committed fixture); PR #168 added
   `parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field` (`:406`) here as
   the closest existing precedent for this plan's approach. Not otherwise touched by this plan.
@@ -572,48 +572,3 @@ both `pub(crate)`).
   load-bearing mutation checks (`required_peer_capabilities` → `None`, `extensions` →
   `Some(empty)`) confirmed to break the byte match. `CHANGELOG.md` entry added under
   `[Unreleased]` → `### Added`. Local: `aitp-manifest` crate total now 50, full workspace
-  suite and clippy `-D warnings` both clean. This closes all 3 phases of issue #147's plan.
-
-# Progress — issue #148 (cross-impl coverage for the committed manifest fixture)
-
-Plan: `plans/cross-impl-manifest-coverage.md`. Tracking issue: #148 (mostly stale — D9/PR#141
-already covers the freshly-minted half). No spec bump, no Rust-side change, no public API.
-
-## Repo map
-
-- `scripts/xcheck-verify.py` — the only file Phase 1 touches. `DEFAULT_COMMITTED`/`--committed`
-  (`:61-66`, `:94-100`, revocation-only today), `check()`/`check_rejects()` helpers (`:69-90`),
-  existing manifest checks (`:144-155`, both freshly-minted), Direction (b) narration
-  (`:246-257`, print-only, doesn't semantically fit the new checks), byte-identity block
-  (`:259-272`, revocation-only, the closest existing "committed fixture" precedent in spirit).
-- `tools/mint-signed-examples/src/bin/xcheck_mint.rs:123-168` — manifest minting (D9); confirmed
-  this plan needs zero changes here.
-- `.github/workflows/ci.yml` — `changes` job (`:43-60`, filter list `:53-60`, missing
-  `scripts/**`/`tools/**` — out of scope, tracked as issue #150) and `xcheck` job (`:428-474`,
-  job id `xcheck`, display name `cross-impl acceptance (aitp-verifier-py)`, pin file
-  `tests/AITP_VERIFIER_PY_VERSION` read at `:440`).
-- `tests/AITP_VERIFIER_PY_VERSION` — pinned SHA `c5ecb604441f041e734f610b5f372299c97dfcda`
-  (stale relative to aitp-verifier-py `main`, tracked separately as issue #149; confirmed this
-  plan's fix works correctly at the current pin, no bump needed).
-- `tests/schemas/known-answer/signed-examples/manifest/kat-keypair-001-manifest.json` — the
-  committed fixture this plan cross-checks; same file `plans/manifest-signing-regression-coverage.md`
-  (issue #147) pins on the Rust side — disjoint files touched, no conflict, either plan can
-  land first.
-- `/Users/Shared/agentIdenitytrustprotocol/aitp-verifier-py` — sibling checkout (read-only for
-  this plan). `aitp_verifier/manifest.py` at the pinned SHA (read directly via
-  `git show <sha>:aitp_verifier/manifest.py`) is the source of the exact primitives
-  (`parse_aid`, `b64url_decode`, `sha256`, `canonicalize`, `decode_tagged_signature`) Phase 1's
-  negative check reuses.
-- `DECISIONS.md:158-173` (D9) and `ASSUMPTIONS.md:165-192` — existing, already-closed records
-  of the freshly-minted half's fix; not touched by this plan (see Open Questions #3).
-- `plans/cross-repo/aitp-verifier-py-post-0.12.0-sync.md` — a pre-existing, unrelated
-  cross-repo plan (spec-drift `signing_input` companion-field bug in aitp-verifier-py's own
-  pytest suite). Confirmed no overlap: different files, different repo-side, different bug.
-
-## Checkpoint trail
-
-- Plan drafted 2026-09-25. Research: one Opus subagent (confirmed script structure, CI filter
-  gap, fixture shape) plus a direct read of `scripts/xcheck-verify.py` in full and
-  `aitp_verifier/manifest.py` at the pinned SHA to ground the negative check's exact API
-  surface before committing to the phase design (avoided relying on the subagent's
-  un-cited API sketch). Plan review round 1 pending.

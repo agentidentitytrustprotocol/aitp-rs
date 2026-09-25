@@ -168,9 +168,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   hand-built their own `ManifestSigningView`, independently — a symmetric
   mistake at both call sites (e.g. both canonicalizing the wrapped
   `{"manifest": ...}` form instead of the inner body) would be
-  self-consistent and pass `cargo test -p aitp-manifest` completely green,
-  the same bug class already fixed for the revocation snapshot (PR #168)
-  and still present in the session bundle. Both call sites now derive the
+  self-consistent and pass `cargo test -p aitp-manifest` green but for one
+  incidental failure unrelated to the wrapper convention itself, the same
+  bug class already fixed for the revocation snapshot (PR #168) and still
+  present in the session bundle. Both call sites now derive the
   view through a single `impl From<&Manifest> for ManifestSigningView`, so
   there is exactly one place that can get the derivation wrong, not two
   that could disagree. New tests in `signing_input_kat.rs` drive the
