@@ -413,6 +413,15 @@ mod tests {
     use super::*;
     use aitp_core::Aid;
 
+    fn vendored(rel: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root")
+            .join("tests/schemas")
+            .join(rel)
+    }
+
     fn sample_view_parts() -> (
         Aid,
         IdentityHint,
@@ -485,6 +494,106 @@ mod tests {
             v.get("extensions"),
             Some(&serde_json::json!({})),
             "Some(empty) must emit `\"extensions\":{{}}` in the signing view: {v}"
+        );
+    }
+
+    /// Pins this implementation's canonical manifest signing bytes against
+    /// the spec's own `kat-manifest-001` vector
+    /// (`tests/schemas/known-answer/jcs-sha256.json`) — catches this
+    /// implementation silently canonicalizing something other than what the
+    /// spec says it signs. Mirrors `crates/aitp-tct/src/revocation.rs`'s
+    /// `rfc_kat_canonical_bytes_match` and
+    /// `crates/aitp-session-bundle/src/builder.rs`'s
+    /// `production_signing_bytes_match_the_pinned_vector`.
+    #[test]
+    fn signing_bytes_match_the_pinned_kat_vector() {
+        let kat: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(vendored("known-answer/jcs-sha256.json")).unwrap(),
+        )
+        .unwrap();
+        let v = kat["vectors"]
+            .as_array()
+            .expect("vectors array")
+            .iter()
+            .find(|v| v["id"].as_str() == Some("kat-manifest-001"))
+            .expect("kat-manifest-001 missing from jcs-sha256.json")
+            .clone();
+
+        // The vector must declare its signing input. A vector that pins
+        // canonical bytes without saying what they are the canonicalization
+        // *of* is unfalsifiable — fail loudly rather than guessing.
+        assert_eq!(
+            v["signing_input"].as_str(),
+            Some("body"),
+            "kat-manifest-001 must declare signing_input=body (RFC-AITP-0003 §6.1)"
+        );
+
+        // `object` carries every Manifest field except `signature` (never
+        // part of the signing view — the type structurally elides it, see
+        // `ManifestSigningView` above). Insert a placeholder so the value
+        // deserializes into `Manifest`; the placeholder is never read by
+        // `ManifestSigningView::from`.
+        let mut object = v["object"].clone();
+        object
+            .as_object_mut()
+            .expect("object is a JSON object")
+            .insert("signature".into(), serde_json::json!("A".repeat(86)));
+        let manifest: Manifest =
+            serde_json::from_value(object).expect("vector deserializes into Manifest");
+
+        // Drive the SHARED derivation, not a local reconstruction: this
+        // test must not be able to go green while the production
+        // sign/verify path canonicalizes something else.
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view).expect("canonicalize");
+
+        assert_eq!(
+            canonical.len(),
+            v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize,
+            "canonical byte length diverges from spec kat-manifest-001"
+        );
+        assert_eq!(
+            hex::encode(&canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "canonical bytes diverge from spec kat-manifest-001 — the implementation is \
+             canonicalizing a different JSON shape than the spec signs"
+        );
+        assert_eq!(
+            hex::encode(Sha256::digest(&canonical)),
+            v["sha256_hex"].as_str().unwrap(),
+            "digest diverges from spec kat-manifest-001"
+        );
+
+        // Load-bearing, not vacuous: mutating the deserialized `Manifest`
+        // before deriving the view must break the byte match.
+        // `required_peer_capabilities` is explicit `[]` in the vector, not
+        // absent — dropping it to `None` must change the canonical bytes
+        // (presence-sensitive field, RFC-AITP-0003 §3.2).
+        let mut mutated = manifest.clone();
+        mutated.required_peer_capabilities = None;
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "dropping required_peer_capabilities to None must change the canonical bytes \
+             (presence-sensitive field) — this test would be vacuous otherwise"
+        );
+
+        // The vector has no `extensions` key at all — adding a
+        // present-but-empty map must also break the match (the same
+        // presence-sensitivity property `signing_view_extensions_is_presence_sensitive`
+        // above pins directly, exercised here through the shared derivation
+        // instead of a hand-built view).
+        let mut mutated = manifest;
+        mutated.extensions = Some(ExtensionsMap::new());
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "adding Some(empty) extensions must change the canonical bytes (presence-sensitive \
+             field) — this test would be vacuous otherwise"
         );
     }
 }

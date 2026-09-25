@@ -565,6 +565,14 @@ both `pub(crate)`).
   comment (AC2's "Test A is the only thing that fails" overstated it — a pre-existing,
   incidental `round_trip.rs` test also fails under the same mutations; doesn't weaken the
   phase's actual claim). Committed as its own commit.
+- Phase 3 implemented 2026-09-25 (same branch): `signing_bytes_match_the_pinned_kat_vector`
+  added to `builder.rs`'s existing `#[cfg(test)] mod tests`, driving the spec's
+  `kat-manifest-001` vector through the shared `ManifestSigningView::from` +
+  `manifest_signing_bytes`, asserting byte length/hex/digest match the pinned vector, plus two
+  load-bearing mutation checks (`required_peer_capabilities` → `None`, `extensions` →
+  `Some(empty)`) confirmed to break the byte match. `CHANGELOG.md` entry added under
+  `[Unreleased]` → `### Added`. Local: `aitp-manifest` crate total now 50, full workspace
+  suite and clippy `-D warnings` both clean. This closes all 3 phases of issue #147's plan.
 
 # Progress — issue #148 (cross-impl coverage for the committed manifest fixture)
 
