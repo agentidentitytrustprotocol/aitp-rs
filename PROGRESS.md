@@ -484,3 +484,7 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
   confirmed the positive check is non-vacuous by tampering individual signed fields). 3
   non-blocking repo-map citation nits fixed in a follow-up commit (see plan's Phase 1 status
   note).
+- Phase 2 implemented 2026-09-25 (same branch): `CHANGELOG.md` entry added under
+  `[Unreleased]` → `### Added`, referencing issue #148, noting issue #150's path-filter gap
+  is partially closed by this PR. Comments on issues #148 and #150 to be posted via `gh` at
+  ship time (communication, not a merge gate). This closes both phases of issue #148's plan.

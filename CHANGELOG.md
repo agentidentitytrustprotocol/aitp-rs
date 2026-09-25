@@ -138,6 +138,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is a conformance-test-harness fix, not a change to `aitp-handshake`'s
   public library behavior — `verify_oidc` itself is untouched.
 
+- **Committed manifest fixture now covered by cross-implementation
+  acceptance**
+  ([#148](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/148)).
+  `scripts/xcheck-verify.py` already verified freshly-minted manifests
+  through `aitp-verifier-py`'s real `verify_manifest` (issue #148's
+  original, mostly-stale premise — that half already shipped via PR #141),
+  but never the already-committed, spec-vendored reference fixture
+  (`kat-keypair-001-manifest.json`). Two fresh mints agreeing with each
+  other only proves the two implementations agree on *a* convention, not
+  that either agrees with the spec's actual committed bytes — the same trap
+  this script's own module docstring names as its reason for existing. The
+  script now verifies the committed fixture through `aitp-verifier-py`,
+  with a paired negative confirming its signature does not verify over the
+  wrapped `{"manifest": ...}` form — both reuse `verify_manifest`'s own
+  internal primitives, nothing is re-signed on either side. Also closes
+  the part of issue #150's CI path-filter gap this fix's own coverage
+  depended on: `.github/workflows/ci.yml`'s `changes` job now triggers the
+  `rust` output (and `xcheck`/`conformance`/`wasm`/`e2e-llm-build`) on
+  `scripts/**` and `tools/**`, not just `crates/**`/`tests/**`. Test/CI
+  tooling only — no public API, no schema, no wire-behavior change.
+
 ### Fixed
 
 - **The HTTP transport's `handshake_error_code` no longer collapses
