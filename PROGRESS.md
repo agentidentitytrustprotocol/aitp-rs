@@ -490,3 +490,6 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
   `[Unreleased]` → `### Added`, referencing issue #148, noting issue #150's path-filter gap
   is partially closed by this PR. Comments on issues #148 and #150 to be posted via `gh` at
   ship time (communication, not a merge gate). This closes both phases of issue #148's plan.
+- Ship-gate: fresh-Opus full-diff verify **PASS** (3 non-blocking doc nits, fixed in
+  `ec71123`). pushed chore/cross-impl-manifest-coverage ec711232f846dab3213b6a916a7386f66bca1a9a
+- PR #180 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/180
