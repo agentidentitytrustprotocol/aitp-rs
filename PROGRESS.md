@@ -434,23 +434,25 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
   (`:259-272`, revocation-only, the closest existing "committed fixture" precedent in spirit).
 - `tools/mint-signed-examples/src/bin/xcheck_mint.rs:123-168` — manifest minting (D9); confirmed
   this plan needs zero changes here.
-- `.github/workflows/ci.yml` — `changes` job (`:43-60`, filter list `:53-60`, missing
-  `scripts/**`/`tools/**` — out of scope, tracked as issue #150) and `xcheck` job (`:428-474`,
-  job id `xcheck`, display name `cross-impl acceptance (aitp-verifier-py)`, pin file
-  `tests/AITP_VERIFIER_PY_VERSION` read at `:440`).
+- `.github/workflows/ci.yml` — `changes` job (`:43-62` post-fix, filter list `:54-62`,
+  `scripts/**`/`tools/**` now present — Phase 1 fixed the part of issue #150's path-filter
+  gap that this plan's own PR depended on) and `xcheck` job (`:430-476`, job id `xcheck`,
+  display name `cross-impl acceptance (aitp-verifier-py)`, pin file
+  `tests/AITP_VERIFIER_PY_VERSION` read at `:442`).
 - `tests/AITP_VERIFIER_PY_VERSION` — pinned SHA `c5ecb604441f041e734f610b5f372299c97dfcda`
   (stale relative to aitp-verifier-py `main`, tracked separately as issue #149; confirmed this
   plan's fix works correctly at the current pin, no bump needed).
 - `tests/schemas/known-answer/signed-examples/manifest/kat-keypair-001-manifest.json` — the
   committed fixture this plan cross-checks; same file `plans/manifest-signing-regression-coverage.md`
-  (issue #147) pins on the Rust side — disjoint files touched, no conflict, either plan can
-  land first.
+  (issue #147) pins on the Rust side — the code changes are disjoint files, but both plans add
+  a `CHANGELOG.md` bullet under the same `[Unreleased]` → `### Added` section (trivial
+  merge-conflict risk, not disjoint there); order still doesn't matter either way.
 - `/Users/Shared/agentIdenitytrustprotocol/aitp-verifier-py` — sibling checkout (read-only for
   this plan). `aitp_verifier/manifest.py` at the pinned SHA (read directly via
   `git show <sha>:aitp_verifier/manifest.py`) is the source of the exact primitives
   (`parse_aid`, `b64url_decode`, `sha256`, `canonicalize`, `decode_tagged_signature`) Phase 1's
   negative check reuses.
-- `DECISIONS.md:158-173` (D9) and `ASSUMPTIONS.md:165-192` — existing, already-closed records
+- `DECISIONS.md:158-173` (D9) and `ASSUMPTIONS.md:162-191` — existing, already-closed records
   of the freshly-minted half's fix; not touched by this plan (see Open Questions #3).
 - `plans/cross-repo/aitp-verifier-py-post-0.12.0-sync.md` — a pre-existing, unrelated
   cross-repo plan (spec-drift `signing_input` companion-field bug in aitp-verifier-py's own
@@ -476,4 +478,9 @@ already covers the freshly-minted half). No spec bump, no Rust-side change, no p
   on. Local: Docker-minted `xcheck-mint` output piped into `python3.11 scripts/xcheck-verify.py`
   (pinned `aitp-verifier-py` @ `c5ecb604...` in a scratch venv) — both new checks `ok`, exit 0;
   AC2's reversed-mutation probe confirmed to `FAIL` exactly as the plan states;
-  `py_compile` clean. Verification pending.
+  `py_compile` clean. Fresh-Opus verify: **PASS** (independently reproduced AC1/AC2 from a
+  clean venv, confirmed the pinned-vs-ahead-of-pin package distinction via
+  `direct_url.json`, confirmed the `ImportError` guard is real via a stub-package probe, and
+  confirmed the positive check is non-vacuous by tampering individual signed fields). 3
+  non-blocking repo-map citation nits fixed in a follow-up commit (see plan's Phase 1 status
+  note).
