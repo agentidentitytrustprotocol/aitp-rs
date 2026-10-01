@@ -43,10 +43,10 @@ jobs:
         with:
           fetch-depth: 0
           token: ${{ steps.app.outputs.token }}
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master (stable)
         with:
           toolchain: stable
-      - uses: MarcoIeni/release-plz-action@51e32d708d306b2c2e98540245b276439f3137c3 # v0.5.139
+      - uses: MarcoIeni/release-plz-action@b8d6b54b02889ff2ae2bb82e8b57c3a8fc1683a5 # v0.5.139
         # Bumped from v0.5 (2eb1d8b) specifically to pick up this action's
         # internal `cargo-semver-checks@0.48` -> `0.50` pin, matching
         # ci.yml's own (unpinned) cargo-semver-checks resolution. 0.48
