@@ -1294,7 +1294,7 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         SignatureInvalid => "MANIFEST_SIGNATURE_INVALID",
         PopFailed => "MANIFEST_POP_FAILED",
         VersionUnknown => "MANIFEST_VERSION_UNKNOWN",
-        IdentityHintMalformed(_) => "IDENTITY_FAILED",
+        IdentityHintMalformed(_) => "MANIFEST_INVALID",
         IncompatibleIdentityType(_) => "INCOMPATIBLE_IDENTITY_TYPE",
         AidMismatch => "MANIFEST_SIGNATURE_INVALID",
         MissingField(_) => "INVALID_ENVELOPE",
