@@ -54,6 +54,8 @@ jobs:
             rust:
               - 'crates/**'
               - 'tests/**'
+              - 'scripts/**'
+              - 'tools/**'
               - 'Cargo.toml'
               - 'Cargo.lock'
               - 'rust-toolchain.toml'

@@ -213,7 +213,13 @@ impl<'a> ManifestBuilder<'a> {
         let published_at = self.now_override.unwrap_or_else(Timestamp::now);
         let expires_at = published_at.plus_secs(self.ttl_secs);
 
-        // 5. Assemble the unsigned Manifest body for JCS canonicalization.
+        // 5. Assemble every field except `signature` into a `Manifest`
+        //    (placeholder `signature`, never read by the `From` impl below —
+        //    `ManifestSigningView` structurally elides it), then derive the
+        //    signing view from that `Manifest` via the same `From` impl
+        //    `verify_manifest` uses, instead of hand-constructing a second,
+        //    independent view here. See `ManifestSigningView::from`'s doc
+        //    comment for why a single shared derivation matters.
         let aid = self.signing_key.aid().clone();
         let pop = ManifestPop {
             challenge,
@@ -235,28 +241,7 @@ impl<'a> ManifestBuilder<'a> {
             Some(self.extensions)
         };
 
-        let unsigned = ManifestSigningView {
-            version: "aitp/0.2",
-            aid: &aid,
-            display_name: self.display_name.as_deref(),
-            identity_hint: &identity_hint,
-            handshake_endpoint: &handshake_endpoint,
-            accepted_trust_anchors: &self.accepted_trust_anchors,
-            accepted_identity_types: self.accepted_identity_types.as_deref(),
-            accepted_signature_algorithms: None,
-            offered_capabilities: &self.offered_capabilities,
-            required_peer_capabilities: self.required_peer_capabilities.as_deref(),
-            proof_of_possession: &pop,
-            published_at: &published_at,
-            expires_at: &expires_at,
-            extensions: extensions.as_ref(),
-        };
-        let canonical = jcs::canonicalize_serializable(&unsigned)
-            .map_err(|e| ManifestError::Canonicalization(e.to_string()))?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.signing_key.sign(&digest);
-
-        Ok(Manifest {
+        let mut manifest = Manifest {
             version: "aitp/0.2".into(),
             aid,
             display_name: self.display_name,
@@ -273,8 +258,16 @@ impl<'a> ManifestBuilder<'a> {
             published_at,
             expires_at,
             extensions,
-            signature: signature.into_string(),
-        })
+            signature: String::new(),
+        };
+
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view)?;
+        let digest = Sha256::digest(&canonical);
+        let signature = self.signing_key.sign(&digest);
+        manifest.signature = signature.into_string();
+
+        Ok(manifest)
     }
 }
 
@@ -332,10 +325,10 @@ fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
 /// field was a bare `&'a ExtensionsMap` skipped via `ExtensionsMap::is_empty`,
 /// which silently dropped a wire-present `"extensions":{}` from the signing
 /// input — a manifest signed with that literal shape failed verification.
-/// This field is populated at two independent call sites (`builder.rs`'s
-/// `.build()` and `verifier.rs`'s `verify_manifest`); both MUST derive their
-/// `Option` the same way `Manifest::extensions` does, or issuer and verifier
-/// disagree about the signing bytes.
+/// This field, like every other field on this type, is populated by the
+/// single `From<&Manifest>` derivation below — shared by `.build()` and
+/// `verify_manifest` — so there is exactly one place that can get this
+/// `Option` derivation wrong, not two independent ones that could disagree.
 #[derive(Serialize)]
 pub(crate) struct ManifestSigningView<'a> {
     pub version: &'a str,
@@ -359,6 +352,53 @@ pub(crate) struct ManifestSigningView<'a> {
     pub extensions: Option<&'a ExtensionsMap>,
 }
 
+/// The single derivation of a Manifest's signing view.
+///
+/// Both [`ManifestBuilder::build`] and [`crate::verify_manifest`] route
+/// through this `From` impl instead of hand-constructing
+/// [`ManifestSigningView`] independently. Before this existed, the two call
+/// sites derived the view field-by-field, separately — self-consistent
+/// under a symmetric mistake (e.g. both accidentally signing/verifying the
+/// `{"manifest": ...}` transport wrapper instead of the inner body), which
+/// is exactly the regression class issue #147 found no test could catch.
+/// A single derivation used by both sites removes the mechanism that let
+/// that happen, not just the symptom.
+impl<'a> From<&'a Manifest> for ManifestSigningView<'a> {
+    fn from(manifest: &'a Manifest) -> Self {
+        ManifestSigningView {
+            version: &manifest.version,
+            aid: &manifest.aid,
+            display_name: manifest.display_name.as_deref(),
+            identity_hint: &manifest.identity_hint,
+            handshake_endpoint: &manifest.handshake_endpoint,
+            accepted_trust_anchors: &manifest.accepted_trust_anchors,
+            accepted_identity_types: manifest.accepted_identity_types.as_deref(),
+            accepted_signature_algorithms: manifest.accepted_signature_algorithms.as_deref(),
+            offered_capabilities: &manifest.offered_capabilities,
+            required_peer_capabilities: manifest.required_peer_capabilities.as_deref(),
+            proof_of_possession: &manifest.proof_of_possession,
+            published_at: &manifest.published_at,
+            expires_at: &manifest.expires_at,
+            extensions: manifest.extensions.as_ref(),
+        }
+    }
+}
+
+/// The canonical signing input for a Manifest: JCS of a
+/// [`ManifestSigningView`].
+///
+/// The single definition of what gets signed, mirroring
+/// `aitp_tct::revocation_signing_bytes`. Combined with the `From` impl
+/// above, this means [`ManifestBuilder::build`] and
+/// [`crate::verify_manifest`] cannot independently canonicalize something
+/// different — they call the same function over a view derived the same
+/// way.
+pub(crate) fn manifest_signing_bytes(
+    view: &ManifestSigningView<'_>,
+) -> Result<Vec<u8>, ManifestError> {
+    jcs::canonicalize_serializable(view).map_err(|e| ManifestError::Canonicalization(e.to_string()))
+}
+
 impl Default for ManifestBuilder<'_> {
     fn default() -> Self {
         // No reasonable default key; consumers must call `new`.
@@ -372,6 +412,15 @@ impl Default for ManifestBuilder<'_> {
 mod tests {
     use super::*;
     use aitp_core::Aid;
+
+    fn vendored(rel: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root")
+            .join("tests/schemas")
+            .join(rel)
+    }
 
     fn sample_view_parts() -> (
         Aid,
@@ -445,6 +494,106 @@ mod tests {
             v.get("extensions"),
             Some(&serde_json::json!({})),
             "Some(empty) must emit `\"extensions\":{{}}` in the signing view: {v}"
+        );
+    }
+
+    /// Pins this implementation's canonical manifest signing bytes against
+    /// the spec's own `kat-manifest-001` vector
+    /// (`tests/schemas/known-answer/jcs-sha256.json`) — catches this
+    /// implementation silently canonicalizing something other than what the
+    /// spec says it signs. Mirrors `crates/aitp-tct/src/revocation.rs`'s
+    /// `rfc_kat_canonical_bytes_match` and
+    /// `crates/aitp-session-bundle/src/builder.rs`'s
+    /// `production_signing_bytes_match_the_pinned_vector`.
+    #[test]
+    fn signing_bytes_match_the_pinned_kat_vector() {
+        let kat: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(vendored("known-answer/jcs-sha256.json")).unwrap(),
+        )
+        .unwrap();
+        let v = kat["vectors"]
+            .as_array()
+            .expect("vectors array")
+            .iter()
+            .find(|v| v["id"].as_str() == Some("kat-manifest-001"))
+            .expect("kat-manifest-001 missing from jcs-sha256.json")
+            .clone();
+
+        // The vector must declare its signing input. A vector that pins
+        // canonical bytes without saying what they are the canonicalization
+        // *of* is unfalsifiable — fail loudly rather than guessing.
+        assert_eq!(
+            v["signing_input"].as_str(),
+            Some("body"),
+            "kat-manifest-001 must declare signing_input=body (RFC-AITP-0003 §6.1)"
+        );
+
+        // `object` carries every Manifest field except `signature` (never
+        // part of the signing view — the type structurally elides it, see
+        // `ManifestSigningView` above). Insert a placeholder so the value
+        // deserializes into `Manifest`; the placeholder is never read by
+        // `ManifestSigningView::from`.
+        let mut object = v["object"].clone();
+        object
+            .as_object_mut()
+            .expect("object is a JSON object")
+            .insert("signature".into(), serde_json::json!("A".repeat(86)));
+        let manifest: Manifest =
+            serde_json::from_value(object).expect("vector deserializes into Manifest");
+
+        // Drive the SHARED derivation, not a local reconstruction: this
+        // test must not be able to go green while the production
+        // sign/verify path canonicalizes something else.
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view).expect("canonicalize");
+
+        assert_eq!(
+            canonical.len(),
+            v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize,
+            "canonical byte length diverges from spec kat-manifest-001"
+        );
+        assert_eq!(
+            hex::encode(&canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "canonical bytes diverge from spec kat-manifest-001 — the implementation is \
+             canonicalizing a different JSON shape than the spec signs"
+        );
+        assert_eq!(
+            hex::encode(Sha256::digest(&canonical)),
+            v["sha256_hex"].as_str().unwrap(),
+            "digest diverges from spec kat-manifest-001"
+        );
+
+        // Load-bearing, not vacuous: mutating the deserialized `Manifest`
+        // before deriving the view must break the byte match.
+        // `required_peer_capabilities` is explicit `[]` in the vector, not
+        // absent — dropping it to `None` must change the canonical bytes
+        // (presence-sensitive field, RFC-AITP-0003 §3.2).
+        let mut mutated = manifest.clone();
+        mutated.required_peer_capabilities = None;
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "dropping required_peer_capabilities to None must change the canonical bytes \
+             (presence-sensitive field) — this test would be vacuous otherwise"
+        );
+
+        // The vector has no `extensions` key at all — adding a
+        // present-but-empty map must also break the match (the same
+        // presence-sensitivity property `signing_view_extensions_is_presence_sensitive`
+        // above pins directly, exercised here through the shared derivation
+        // instead of a hand-built view).
+        let mut mutated = manifest;
+        mutated.extensions = Some(ExtensionsMap::new());
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "adding Some(empty) extensions must change the canonical bytes (presence-sensitive \
+             field) — this test would be vacuous otherwise"
         );
     }
 }

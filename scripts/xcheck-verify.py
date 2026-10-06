@@ -33,7 +33,7 @@ unresolvable issuer key, and a header `alg` rewritten to a different
 key-type than what actually signed it.
 
 Usage:  cargo run -p mint-signed-examples --bin xcheck-mint | \
-            python3 scripts/xcheck-verify.py [--committed <path>]
+            python3 scripts/xcheck-verify.py [--committed <path>] [--committed-manifest <path>]
 """
 
 from __future__ import annotations
@@ -44,12 +44,16 @@ import sys
 from pathlib import Path
 
 try:
+    from aitp_verifier.aid import parse_aid
     from aitp_verifier.b64 import b64url_decode, b64url_encode
+    from aitp_verifier.crypto import sha256
     from aitp_verifier.errors import AitpError
     from aitp_verifier.identity import verify_identity
+    from aitp_verifier.jcs import canonicalize
     from aitp_verifier.manifest import verify_manifest
     from aitp_verifier.revocation import verify_revocation_snapshot
     from aitp_verifier.sessionbundle import verify_session_bundle
+    from aitp_verifier.sigfield import decode_tagged_signature
 except ImportError as exc:  # pragma: no cover - CI installs it
     sys.exit(
         f"aitp-verifier-py is not importable ({exc}).\n"
@@ -63,6 +67,11 @@ DEFAULT_COMMITTED = (
     REPO
     / "tests/schemas/known-answer/signed-examples/revocation"
     / "kat-keypair-001-snapshot.json"
+)
+DEFAULT_COMMITTED_MANIFEST = (
+    REPO
+    / "tests/schemas/known-answer/signed-examples/manifest"
+    / "kat-keypair-001-manifest.json"
 )
 
 
@@ -97,6 +106,12 @@ def main() -> int:
         type=Path,
         default=DEFAULT_COMMITTED,
         help="the spec's committed, Python-reference-minted revocation snapshot",
+    )
+    ap.add_argument(
+        "--committed-manifest",
+        type=Path,
+        default=DEFAULT_COMMITTED_MANIFEST,
+        help="the spec's committed, reference-signed manifest example",
     )
     args = ap.parse_args()
 
@@ -153,6 +168,42 @@ def main() -> int:
             {"manifest": minted["manifest_with_extensions"], "now": now + 100}
         ),
     )
+
+    # issue #148: the two manifest vectors above are freshly minted by
+    # aitp-rs *this run* -- they prove the two implementations agree on a
+    # manifest neither has seen before, but not that either one agrees with
+    # the spec's actual, committed reference bytes. This is the same
+    # "re-minting is the escape hatch" trap this file's own module
+    # docstring warns about, just for the one artifact that never got the
+    # committed-fixture treatment the revocation snapshot has (see the
+    # byte-identity block below).
+    committed_manifest = json.loads(args.committed_manifest.read_text())["manifest"]
+    ok &= check(
+        "committed manifest fixture verified by aitp-verifier-py",
+        lambda: verify_manifest({"manifest": committed_manifest, "now": now + 100}),
+    )
+
+    def _committed_manifest_signature_must_reject_wrapped_form() -> None:
+        # Deliberately does NOT re-sign (this script's whole premise, see
+        # module docstring): re-checks the EXISTING committed signature
+        # against a different canonicalization, reusing `verify_manifest`'s
+        # own internal primitives.
+        aid = parse_aid(committed_manifest["aid"])
+        body = {k: v for k, v in committed_manifest.items() if k != "signature"}
+        man_sig = decode_tagged_signature(
+            committed_manifest["signature"], aid, sig_err="MANIFEST_SIGNATURE_INVALID"
+        )
+        wrapped_digest = sha256(canonicalize({"manifest": body}))
+        if aid.public_key.verify_digest(wrapped_digest, man_sig):
+            raise AssertionError(
+                "committed manifest signature verified over the WRAPPED form"
+            )
+
+    ok &= check(
+        "committed manifest signature does not verify over the wrapped form",
+        _committed_manifest_signature_must_reject_wrapped_form,
+    )
+
     ok &= check(
         "session trust bundle",
         lambda: verify_session_bundle(
