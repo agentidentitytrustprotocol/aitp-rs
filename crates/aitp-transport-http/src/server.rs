@@ -1274,8 +1274,11 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
                 // closest registered code instead. A pre-existing registry
                 // gap, out of issue #144's scope; see the plan's Open
                 // Question 5 (`plans/manifest-revocation-error-codes.md`).
-                ManifestError::IdentityHintMalformed(_)
-                | ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
+                ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
+                // A malformed Manifest `identity_hint` is a Manifest
+                // structural rejection (RFC-AITP-0003 §3.1, `man-006` /
+                // `man-007`), matching the conformance adapter (issue #179).
+                ManifestError::IdentityHintMalformed(_) => ErrorCode::ManifestInvalid,
                 // SignatureInvalid, AidMismatch, Crypto, Canonicalization,
                 // Rng, MissingField (builder-side only, unreachable from
                 // wire parsing) — and any future #[non_exhaustive] variant.
@@ -1443,7 +1446,7 @@ mod tests {
             handshake_error_code(&HandshakeError::Manifest(
                 ManifestError::IdentityHintMalformed("missing issuer")
             )),
-            ErrorCode::IdentityFailed,
+            ErrorCode::ManifestInvalid,
         );
         assert_eq!(
             handshake_error_code(&HandshakeError::Manifest(
