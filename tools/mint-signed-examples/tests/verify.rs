@@ -119,7 +119,10 @@ fn minted_revocation_snapshot_verifies() {
     let Some(mut v) = try_load("revocation/kat-keypair-001-snapshot.json") else {
         return;
     };
-    v.as_object_mut().unwrap().remove("_kat_input");
+    let obj = v.as_object_mut().unwrap();
+    obj.remove("_kat_input");
+    // Newer spec fixtures self-declare their JCS signing input; the envelope type rejects unknown fields.
+    obj.remove("signing_input");
     let env: RevocationListEnvelope = serde_json::from_value(v).unwrap();
     let issuer = env.revocation_list.issuer.clone();
     let ctx = VerifyRevocationListContext::new(&issuer, fixed_now());
