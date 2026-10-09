@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+> This `[Unreleased]` section has not been rotated since 0.4.0 and covers
+> changes shipped in 0.4.1 through 0.13.2 as well as unreleased work. For
+> what shipped in each version, see the
+> [GitHub releases and tags](https://github.com/agentidentitytrustprotocol/aitp-rs/releases)
+> and the release-plz-generated `crates/*/CHANGELOG.md` files. Splitting
+> this section into per-version headings is tracked in
+> [#201](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/201).
+
+### BREAKING
+
+- **`RevocationError` gains a `Malformed` variant and is now
+  `#[non_exhaustive]`** (`aitp-transport-http`, released in 0.13.0,
+  [#168](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/168)).
+  A fetched revocation snapshot whose member set is intact but has a
+  missing or mistyped required member (`aitp_tct::TctError::ClaimsMalformed`)
+  now surfaces as `RevocationError::Malformed` — the
+  `REVOCATION_SNAPSHOT_INVALID` case — instead of being folded into
+  `RevocationError::SignatureInvalid` by `RevocationCache`. The conformance
+  adapter reports `REVOCATION_SNAPSHOT_INVALID` for the same input.
+  Downstream code that matches `RevocationError` exhaustively needs a
+  wildcard arm. `RevocationProvider` implementations should map
+  `ClaimsMalformed` to the new variant.
+
+### Fixed
+
+- **A malformed manifest `identity_hint` now reports `MANIFEST_INVALID`,
+  not `IDENTITY_FAILED`** (issue
+  [#179](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/179);
+  the conformance adapter in
+  [#184](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/184),
+  the HTTP transport's `handshake_error_code` in
+  [#185](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/185),
+  released in 0.13.2). `ManifestError::IdentityHintMalformed` now maps to
+  `MANIFEST_INVALID` in both places. This supersedes the
+  `IdentityHintMalformed` → `IDENTITY_FAILED` mapping described in the
+  #144 entry under "Fixed" below. `IncompatibleIdentityType` is unchanged
+  (`IDENTITY_FAILED` in the HTTP transport, `INCOMPATIBLE_IDENTITY_TYPE` in
+  the adapter).
+
 ### Added
 
 - **A new `UNKNOWN_FIELD` error code, surfaced for every AITP artifact that
