@@ -2,7 +2,10 @@
 
 How `aitp-rs` is tested, layer by layer, and the command to run each.
 The one-shot local gauntlet is `make test` (fmt + clippy + workspace
-tests); `make ci` adds the doc build, `cargo-deny`, and `cargo-audit`.
+tests). `make ci` adds the lockstep-version check (`check-versions`), the
+doc build, `cargo-deny` and `cargo-audit`. The other CI jobs need extra
+tools or a sibling checkout, so you run them separately. They are listed
+below.
 
 ## Layers at a glance
 
@@ -16,6 +19,10 @@ tests); `make ci` adds the doc build, `cargo-deny`, and `cargo-audit`.
 | Conformance | The spec's fixture corpus, driven through the NDJSON adapter | see [Conformance](#conformance) below |
 | Bindings | Node (`node --test`) and Python (`pytest`) SDK suites | see [Language bindings](#language-bindings) |
 | Cross-language interop | A real Python ↔ Node handshake through the native bindings | `make interop` |
+| Cross-implementation acceptance | `aitp-rs`-minted artifacts verified by the independent `aitp-verifier-py`, and the reverse on committed bytes | see [xcheck](#cross-implementation-acceptance-xcheck) |
+| Vendored schemas | `tests/schemas/` is byte-identical to the pinned spec commit | `make schemas-check` (needs a sibling spec checkout) |
+| Fixture / KAT minting tools | `tools/mint-conformance-fixtures`, `tools/mint-signed-examples` | see [Minting tools](#minting-tools) |
+| Release hygiene | Lockstep versions, public-API semver, MSRV, bench build | `make check-versions`, `make semver`, `make msrv`, `cargo bench … --no-run` |
 | End-to-end (LLM) | Two agents driven by live LLM calls (opt-in, networked) | `AITP_RUN_LLM_TESTS=1` in `tests/e2e-llm/` |
 
 ## Unit and integration tests
@@ -149,9 +156,9 @@ cargo +nightly miri test -p aitp-core -p aitp-crypto --lib
 The pure verify/protocol crates must not pull in a native-only syscall
 dependency. CI checks this with `cargo check --target wasm32-wasip1` on
 `aitp-core`, `aitp-crypto`, `aitp-envelope`, `aitp-manifest`, `aitp-tct`,
-`aitp-delegation`, and `aitp-session-bundle`. (Full browser
-`wasm32-unknown-unknown` additionally needs a `uuid` randomness feature;
-see `../plans/defered/deferred.md`.)
+`aitp-delegation`, and `aitp-session-bundle`. (A full browser build for
+`wasm32-unknown-unknown` also needs a `uuid` randomness feature. That is
+not wired up yet.)
 
 ## Conformance
 
@@ -171,10 +178,59 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
   --feature experimental-session-bundle
 ```
 
-Expected: **62 pass / 0 fail / 2 skip** with the draft features enabled
-(`del-004`/`del-007` are frozen v0.1 shapes). The `conformance` job in `ci.yml`
-runs exactly this against the pinned spec commit. See
-[`conformance.md`](conformance.md) for the per-fixture matrix.
+The `conformance` job in `ci.yml` runs exactly this against the pinned
+spec commit. The expected pass/fail/skip counts are given once, in the
+[conformance matrix summary](conformance.md#v02-conformance-matrix). That
+section also explains why `del-004` and `del-007` are skipped when the
+draft features are enabled, and covers the known gap in the runner's exit
+code
+([#194](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/194)).
+
+## Cross-implementation acceptance (xcheck)
+
+Conformance and `make interop` are both Rust checking Rust. Conformance
+re-mints fixtures with the harness's own key. The interop test drives two
+bindings that wrap the same core. The `xcheck` job in `ci.yml` closes that
+gap with an implementation that shares no code with this repo:
+
+```bash
+# Requires aitp-verifier-py installed at the commit in tests/AITP_VERIFIER_PY_VERSION.
+cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
+  | python3 scripts/xcheck-verify.py
+```
+
+`xcheck-mint` mints artifacts with `aitp-rs`.
+[`aitp-verifier-py`](https://github.com/agentidentitytrustprotocol/aitp-verifier-py)
+then verifies those exact bytes, without re-signing anything. The reverse
+direction is the committed session bundle in
+`tests/xcheck-fixtures/session-bundle/`. `aitp-verifier-py` minted it, and
+`crates/aitp-session-bundle/tests/xcheck_committed.rs` verifies it.
+
+## Minting tools
+
+- `tools/mint-signed-examples` (binary `mint-signed-examples`) mints the
+  spec's `known-answer/signed-examples/` files from the pinned KAT
+  keypairs. Its second binary, `xcheck-mint`, feeds the xcheck job above.
+- `tools/mint-conformance-fixtures` writes real signed values into the
+  spec's conformance fixtures, following the placeholder rules.
+
+Both are workspace tools for keeping the spec's vectors reproducible, not
+tests. `make coverage` leaves them out.
+
+## Other CI jobs
+
+The jobs below are in `.github/workflows/ci.yml` and are not part of `make
+test`:
+
+| Job | What it checks | Local equivalent |
+|---|---|---|
+| `spec-schemas` | Vendored schemas match the pinned spec commit, and the spec's own known-answer verifier passes | `make schemas-check` |
+| `versions` | Crate and binding versions move in lockstep | `make check-versions` |
+| `semver` | `cargo-semver-checks` against the PR base (PRs only) | `make semver` |
+| `msrv` | The pinned MSRV still builds the facade crate | `make msrv` |
+| `bench-check` | The criterion benches compile | `cargo bench -p aitp-core -p aitp-crypto -p aitp-tct --no-run` |
+| `wasm` | Pure crates build for `wasm32-wasip1` | see [WASM portability](#wasm-portability) |
+| `e2e-llm-build` | `tests/e2e-llm` formats, lints, and runs with the skip gate engaged (no provider calls) | see [End-to-end (LLM)](#end-to-end-llm) |
 
 ## Language bindings
 
@@ -200,9 +256,10 @@ maturin develop           # add --no-default-features for the minimal surface
 pytest tests/ -v
 ```
 
-> A stale, git-tracked `aitp*.so` in the Python package dir can shadow a
-> fresh `maturin develop` build — remove it if pytest imports an old
-> binding.
+> A stale `aitp*.so` left in the Python package dir by an earlier build
+> can shadow a fresh `maturin develop` build. These files are git-ignored
+> (`bindings/**/*.so`), so `git status` will not show them. Remove the
+> file if pytest imports an old binding.
 
 ## Cross-language interop
 
@@ -221,6 +278,19 @@ is opt-in and networked — run it by hand:
 cd tests/e2e-llm
 AITP_RUN_LLM_TESTS=1 cargo test
 ```
+
+To run it in a container on a stock Linux toolchain, use
+`docker-compose.e2e-llm.yml` at the repo root. It reads the provider keys
+from the git-ignored `tests/e2e-llm/.env` (copy it from `.env.example`):
+
+```bash
+docker compose -f docker-compose.e2e-llm.yml run --rm e2e-llm \
+  cargo test --test handshake_then_delegate -- --nocapture
+```
+
+CI never calls a provider. The `e2e-llm-build` job compiles and lints the
+crate, then runs it with `AITP_RUN_LLM_TESTS=0`, so every test takes its
+skip branch.
 
 ## Coverage
 

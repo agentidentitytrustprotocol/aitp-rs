@@ -10,7 +10,7 @@ Issue map (this repo): G1 gate flag #194 · G2 bundle bare body #195 · G3 renew
 Risk tiers: P0 simple · P1 simple · P2 simple · P3 complex · P4 complex · P5 simple · P6 complex.
 
 ## Checkpoint trail
-- Phase 0 — in progress.
+- Phase 0 — DONE 2026-10-09 (commit fd450ab; verifier Opus batched with P1, GAPS minor: footer boilerplate on issues, DECISIONS.md not appended — D1–D6 live in ASSUMPTIONS.md only; plan wording corrected).
 
 ## Repo map
 
