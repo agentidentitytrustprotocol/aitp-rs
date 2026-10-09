@@ -22,7 +22,7 @@ Everything below is a consequence of that rule.
 |---|---|---|
 | `aitp-core`, `aitp-crypto`, `aitp-tct`, `aitp-delegation`, `aitp-handshake`, `aitp-manifest`, `aitp-envelope` | **No** | Pure functions. Verify/sign take inputs and return outputs; revocation is a caller-supplied callback. Run as many instances as you like — nothing to share. |
 | **Replay deny-list** (envelope `message_id`, DPoP `jti`) | Yes | **Supply a shared [`ReplayGuard`](../crates/aitp-transport-http/src/replay_store.rs) or use sticky routing.** This is the one place per-node in-memory state silently weakens a guarantee at scale — see below. |
-| **In-flight handshake sessions** | Yes | **Use sticky routing.** A handshake is a ~tens-of-ms, 4-message conversation holding live state; it is not a shared-store problem. The built-in `max_sessions` + TTL + sweeper bound per-node memory. See below. |
+| **In-flight handshake sessions** | Yes | **Use sticky routing.** A handshake is a ~tens-of-ms, 4-message conversation holding live state; it is not a shared-store problem. The built-in `max_sessions` cap and session TTL, plus an opt-in sweeper, bound per-node memory. See below. |
 | Manifest cache, OIDC discovery cache, JWKS (positive + negative) cache, revocation-snapshot cache | Yes (caches) | **Nothing to do.** All are re-fetchable and TTL-bounded. A cache miss just re-fetches; there is no correctness impact from not sharing them, so they are deliberately in-memory and not pluggable. |
 | Facade `TctStore` (held TCTs) | Yes | Client-side convenience your code already owns — hold/replace it as you see fit. |
 
@@ -78,14 +78,22 @@ token. The right multi-node answer is **sticky routing**: keep a client's
 HELLO and COMMIT on the same node. A handshake completes in tens of
 milliseconds, so affinity for that window is cheap.
 
-Per-node memory is bounded out of the box:
+Per-node memory is bounded, partly out of the box and partly by you:
 
 - `with_max_sessions(n)` — oldest-first eviction once `n` in-flight
-  sessions are held (defends against a HELLO flood); default 10 000.
-- `with_session_ttl(d)` — half-finished sessions are swept after `d`;
-  default 60 s.
-- A background sweeper (default every 30 s) reclaims expired sessions
-  even without traffic.
+  sessions are held (defends against a HELLO flood). Default
+  `DEFAULT_MAX_SESSIONS` = 10 000; RFC-AITP-0009 §3.1 recommends at most
+  1 000 concurrent in-flight sessions, so set it explicitly.
+- Session TTL — half-finished sessions expire after `DEFAULT_SESSION_TTL`
+  (60 s). To change it, construct the server with
+  `HandshakeServer::with_session_ttl(...)`, a constructor that takes
+  `new`'s arguments plus the TTL (it is not a builder method).
+- Expired sessions are swept on the next HELLO or COMMIT. **No background
+  sweeper runs unless you start one**: call
+  `server.spawn_session_sweeper(interval)` from inside a Tokio runtime
+  (`DEFAULT_SESSION_SWEEP_INTERVAL` is 30 s) so a burst that goes quiet
+  doesn't hold memory until the next request
+  ([#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)).
 
 There is deliberately **no** shared session store: it would require
 serializing the handshake state machine and buys nothing that sticky
@@ -96,21 +104,30 @@ routing does not, for a conversation this short-lived.
 Independent of clustering, production servers/clients should set:
 
 - **SSRF guard** on peer-derived fetches — `ManifestFetcher` and
-  `JwksFetcher` default to `HostGuard::WarnPrivate`; call
-  `.with_host_guard(HostGuard::strict())` on internet-facing deployments
-  where no legitimate peer/IdP host is on a private network, and
-  `.with_insecure_localhost(false)` to drop the dev exception. (See
+  `JwksFetcher` default to `HostGuard::default()`, i.e.
+  `GuardMode::WarnPrivate` (link-local/metadata always denied, private
+  ranges logged but allowed). Call `.with_host_guard(HostGuard::strict())`
+  (`GuardMode::DenyPrivate`) on internet-facing deployments where no
+  legitimate peer/IdP host is on a private network. (See
   [`transport-hardening.md`](transport-hardening.md).)
 - **Strict TCT verification** — build `TctVerifyContext` via
   `::builder(...)` and supply a revocation source and the issuer-Manifest
   expiry cap, rather than the permissive `::now()` / `::permissive_at()`
   shortcuts. The builder refuses to construct until both decisions are
   made (RFC-AITP-0005 §10.4, RFC-AITP-0008).
-- **Rate limiting** — `with_rate_limit(...)` (RFC-AITP-0009 §3.1). Note
-  the rate-limit counters are also per-node; for hard global limits,
-  enforce at the edge/LB.
-- **HTTPS everywhere** — the fetchers reject non-HTTPS peers by default;
-  keep it that way outside local dev.
+- **Rate limiting** — off until you call
+  `.with_rate_limit(RateLimitConfig { requests_per_ip_per_60s: Some(30), requests_per_aid_per_60s: Some(10) })`
+  (the RFC-AITP-0009 §3.1 recommended values; see *Known limitations* for
+  why not to rely on `RateLimitConfig::default()`). The hello/commit
+  handlers apply the RFC-AITP-0009 §3.1 check order: replay deny list,
+  then rate limit, then timestamp. The per-AID key is the
+  still-unauthenticated envelope `sender`, so the per-IP limit is the firmer
+  one. Counters are per-node; for hard global limits, enforce at the
+  edge/LB. The spec's defaults and normative check order are in
+  [Rate limiting and the handshake endpoint](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#rate-limiting-and-the-handshake-endpoint).
+- **HTTPS everywhere** — the fetchers reject non-HTTPS URLs, except that
+  `ManifestFetcher` accepts `http://localhost` / `http://127.0.0.1` by
+  default. Call `.with_insecure_localhost(false)` in production.
 - **Observability** — the optional `metrics` feature on
   `aitp-transport-http` emits low-cardinality counters via the
   [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
@@ -120,6 +137,37 @@ Independent of clustering, production servers/clients should set:
   tracing/dashboard wiring.
 - **Key handling** — see [`key-management.md`](key-management.md) for seed
   storage, in-memory hygiene, KMS/HSM reality, and the rotation runbook.
+
+## Known limitations
+
+`HandshakeServer` and fetcher defaults that fall short of the RFCs, tracked
+in [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)
+(file paths under `crates/aitp-transport-http/src/`):
+
+- **Rate limiting is off by default.** `rate_limit_config` starts as `None`
+  (`server.rs:355`) and only `with_rate_limit` sets it.
+  [RFC-AITP-0004 §11.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md#114-denial-of-service-on-handshake-endpoint)
+  says implementations MUST rate-limit the handshake endpoint per source
+  AID or IP (RECOMMENDED: 10 initiations per minute per AID).
+- **Defaults are looser than RFC-AITP-0009 §3.1 recommends.**
+  `RateLimitConfig::default()` is 120 per IP and 60 per AID per 60 s
+  (`server.rs:141-148`; RFC: 30 and 10). `DEFAULT_MAX_SESSIONS` is 10 000
+  (`server.rs:50`; RFC: 1 000). `DEFAULT_MAX_BODY_BYTES` is 256 KiB
+  (`server.rs:266`; RFC: 64 KB for `MUTUAL_HELLO`). These are RECOMMENDED
+  values, so this is a weaker default, not a violation.
+- **No automatic session sweeper.** `spawn_session_sweeper` (`server.rs:389`)
+  is never called by the library; without it, expired sessions are only
+  swept when the next HELLO or COMMIT arrives.
+- **The renewal route bypasses these protections.** With
+  `experimental-renewal`, `/aitp/handshake/renew` skips the replay guard, rate
+  limiter and timestamp check — see
+  [tct-renewal.md](tct-renewal.md#known-limitations)
+  ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196)).
+- **Dev conveniences are on by default.** `ManifestFetcher` sets
+  `allow_insecure_localhost: true` (`client.rs:135`), and `HostGuard::default()`
+  is `GuardMode::WarnPrivate` (`net_guard.rs:61-68`). Their rustdoc says these
+  defaults flip "in 0.4"; that note is stale and the defaults are unchanged
+  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200)).
 
 ## Summary
 

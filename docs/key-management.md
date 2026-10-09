@@ -55,7 +55,11 @@ lifecycle is: keep the seed somewhere protected at rest, load it at
 startup, construct the `AitpSigningKey`, and let it drop (zeroizing) at
 shutdown.
 
-Reasonable homes for the seed, roughly in order of preference:
+[RFC-AITP-0009 §3](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md#3-implementation-security-requirements)
+says implementations **MUST** store private keys in secure storage (HSM,
+OS keychain, or equivalent). `aitp-rs` leaves storage to you, so meeting
+that requirement is your job. Reasonable homes for the seed, roughly in
+order of preference:
 
 1. **A secrets manager / KMS** (AWS Secrets Manager, GCP Secret Manager,
    Vault, k8s Secrets with encryption-at-rest). Fetch at startup,
@@ -65,8 +69,9 @@ Reasonable homes for the seed, roughly in order of preference:
    ends up in your process memory to sign with.
 3. **An injected file / mounted secret** with tight file permissions
    (e.g. a `tmpfs`-mounted k8s secret), read once at startup.
-4. **An environment variable** — acceptable for local/dev, weakest for
-   production (leaks via `/proc`, crash dumps, child processes).
+4. **An environment variable** — local/dev only. It leaks via `/proc`,
+   crash dumps and child processes, and is not "secure storage" in the
+   RFC-AITP-0009 §3 sense.
 
 Never bake a seed into a container image or a source file. The demo's
 seeds are hard-coded precisely because they are throwaway demo identities.
@@ -88,38 +93,55 @@ noted as possible future work (an HSM/KMS external-signer seam).
 
 ## Rotation
 
+The normative rules — the Manifest rotation schedule
+([RFC-AITP-0003 §8](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md#8-manifest-rotation)),
+the emergency steps on key compromise (§8.1), and the 90-day key-rotation
+SHOULD (RFC-AITP-0009 §3) — are summarised in the spec's
+[Manifest and key rotation](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#manifest-and-key-rotation)
+guide. What follows is the `aitp-rs` runbook.
+
 Because the AID is derived from the public key, **rotating the signing
 key produces a new AID** (RFC-AITP-0003 §8.1). There is no in-band
-cryptographic link from the old AID to the new one in the current
-protocol — peers learn the new AID out of band, and every pinned
-reference, trust-anchor entry, and outstanding TCT `iss` that named the
-old AID must be updated. Plan rotation as an identity change, not a
-transparent key swap:
+cryptographic link from the old AID to the new one in v0.2 — peers learn
+the new AID out of band, and every pinned reference, trust-anchor entry,
+and outstanding TCT `iss` that named the old AID must be updated. Plan
+rotation as an identity change, not a transparent key swap:
 
-- **Routine rotation.** Publish a fresh Manifest under the new AID,
+- **Routine rotation.** Generate a new key (`AitpSigningKey::generate` /
+  `generate_p256`), build and publish a Manifest under the new AID,
   distribute the new AID to peers / your registry, then retire the old
   one once no outstanding TCTs reference it (TCT lifetimes are short by
   design, so the drain window is small).
-- **Emergency rotation (suspected compromise).** Per RFC-AITP-0003 §8.1:
-  set the compromised agent's Manifest `expires_at` to a near-future
-  time so cached copies stop being honored, revoke outstanding TCTs
-  issued to/for the affected subject (RFC-AITP-0008), and stand up the
-  new AID. Note the current limitation: there is no AID-level revocation
-  in v0.2 (§8.2) — a fully compromised host that can still publish is
-  bounded only by Manifest expiry.
+- **Emergency rotation (suspected compromise).** RFC-AITP-0003 §8.1 makes
+  these steps MUST:
+  1. Generate a new key and publish a Manifest under the new AID.
+  2. Revoke every TCT issued **by** the old AID, by publishing a signed
+     revocation snapshot covering all known `jti`s
+     ([RFC-AITP-0008 §1.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md#15-signed-revocation-response)).
+     With `aitp-transport-http`, that is what a `RevocationListProducer`
+     attached via `HandshakeServer::with_revocation_producer` serves.
+  3. Notify known peers of the new AID out of band.
 
-> **Coming:** key-rotation *continuity* — a signed rotation statement so
-> the old key can vouch for its successor, plus a dual-key overlap
-> window — is the single largest protocol gap the runtime review calls
-> out (§4.1) and is planned as a new RFC. Until it lands, treat every
-> rotation as a fresh trust bootstrap.
+  If the compromised host can still publish, first set a short
+  `expires_at` on the old Manifest (e.g. `now + 300`) so cached copies
+  expire quickly. There is no AID-level revocation in v0.2 (RFC-AITP-0003
+  §8.1, last paragraph): trust in the old AID ends when its Manifest
+  expires and its TCTs are revoked.
+
+> **Not in v0.2:** key-rotation *continuity* — a signed statement by which
+> the old key vouches for its successor, or a dual-key overlap window. No
+> AITP RFC specifies it yet. Until one does, treat every rotation as a
+> fresh trust bootstrap.
 
 ## Checklist
 
-- [ ] Seed stored in a secrets manager / KMS, not in the image or source.
+- [ ] Seed stored in a secrets manager / KMS, not in the image or source
+      (RFC-AITP-0009 §3 secure-storage MUST).
 - [ ] Seed loaded at startup and the fetched bytes dropped promptly.
 - [ ] No key material, raw TCTs, or PoP nonces in logs.
 - [ ] A rotation runbook that treats a new key as a new AID (update
       pinned refs / trust anchors / registry entries).
-- [ ] For suspected compromise: shorten Manifest expiry + revoke
-      outstanding TCTs + provision a new AID.
+- [ ] Keys rotated on a schedule (RFC-AITP-0009 §3 recommends 90 days).
+- [ ] For suspected compromise: shorten the old Manifest's expiry, publish
+      under a new AID, revoke every TCT the old AID issued via a signed
+      revocation snapshot, and notify peers out of band.
