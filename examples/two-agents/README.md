@@ -42,15 +42,16 @@ sleep 0.3
 ./target/release/agent-a
 ```
 
-Sample output (AIDs vary because they're seeded from the CLI):
+Sample output. The AIDs come from the `--seed` flags, which have fixed
+defaults, so they are the same on every run unless you pass `--seed`:
 
 ```text
-agent-b: AID = aid:pubkey:7VOvad1ssMw_gyeOki_heG6Y3Tx6Ep5GVMf9J80fxO0
+agent-b: AID = aid:pubkey:LfBBJfABWvtHzoU674dyCU_5SYwUyxueEpc8KSfaD6Y
 agent-b: listening on http://localhost:8002
-agent-a: AID = aid:pubkey:HYiLSklPVkOe2GysNkraj2EmQpZKbXjE6QA4S7ROIzQ
-agent-a: fetched B's manifest, AID = aid:pubkey:7VOvad1ssMw_gyeOki_heG6Y3Tx6Ep5GVMf9J80fxO0
-agent-a: handshake complete — holding TCT issued by aid:pubkey:7VO… with grants ["demo.echo"]
-agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:HYi…: hello world
+agent-a: AID = aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne-B1R_KJODNB0
+agent-a: fetched B's manifest, AID = aid:pubkey:LfBBJfABWvtHzoU674dyCU_5SYwUyxueEpc8KSfaD6Y
+agent-a: handshake complete — holding TCT issued by aid:pubkey:LfBBJfABWvtHzoU674dyCU_5SYwUyxueEpc8KSfaD6Y with grants ["demo.echo"]
+agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne-B1R_KJODNB0: hello world
 ```
 
 ### What the code shows
@@ -76,9 +77,10 @@ agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:HYi…: hello world
 ./target/release/agent-b --host 0.0.0.0 --port 9002
 ```
 
-To watch a handshake *fail*, change what each peer offers in
-`lib.rs::build_demo_manifest` so the grant intersection is empty — the
-initiator surfaces a `FacadeError::Protocol` carrying the peer's
+To watch a handshake *fail*, change what each peer offers so the grant
+intersection is empty. The offer list is the last argument of the
+`build_demo_manifest` call in `src/bin/agent-a.rs` and `src/bin/agent-b.rs`.
+The initiator then surfaces a `FacadeError::Protocol` carrying the peer's
 `POLICY_VIOLATION` code.
 
 ### Why HTTP, not HTTPS?

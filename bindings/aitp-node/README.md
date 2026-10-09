@@ -1,17 +1,33 @@
 # aitp — Node.js SDK
 
 Node.js bindings for the **Agent Identity & Trust Protocol (AITP)**, built on
-the pure-Rust `aitp-rs` protocol crates via [NAPI-rs](https://napi.rs).
+the pure-Rust [`aitp-rs`](https://github.com/agentidentitytrustprotocol/aitp-rs)
+protocol crates via [NAPI-rs](https://napi.rs).
 
-A thin SDK: an `AitpAgent` plus initiator/responder session objects whose
-methods take and return JSON strings — the HTTP request/response bodies — so
-agent code never handles a Rust type across the FFI boundary. The API is the
-symmetric counterpart of the Python SDK (`buildManifest` ↔ `build_manifest`).
+A thin SDK: an `AitpAgent` plus initiator/responder session objects. Their
+methods take and return JSON strings (the HTTP request/response bodies) and
+compact-JWS strings (TCTs, grant vouchers, delegation tokens). Agent code
+never handles a Rust type across the FFI boundary. The API is the camelCase
+counterpart of the Python SDK (`buildManifest` ↔ `build_manifest`); the two
+differ in a few return shapes, listed in
+[Python vs Node differences](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/sdk-python.md#python-vs-node-differences).
 
-## Build
+The feature-by-feature guide, with an example for every capability, is
+[`docs/sdk-node.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/sdk-node.md).
+
+## Install
+
+```bash
+npm install @agentidentitytrustprotocol/aitp
+```
+
+Prebuilt native binaries ship for macOS (x64, arm64) and Linux GNU (x64,
+arm64).
+
+## Build from source
 
 This crate is **not** part of the `aitp-rs` Cargo workspace. Build it with
-the [NAPI-rs CLI](https://napi.rs):
+the [NAPI-rs CLI](https://napi.rs) and a Rust toolchain:
 
 ```bash
 npm install
@@ -22,27 +38,30 @@ npm run build                        # full release (all capabilities)
 npm run build:minimal                # minimal release (--no-default-features)
 ```
 
-This produces `aitp.node` and `index.js` in the package root. Generated
-TypeScript typings (`index.d.ts`) cover the full surface; a
-`--no-default-features` build narrows it accordingly.
+The build produces the platform `.node` binary and regenerates `index.js`
+and `index.d.ts`. The generated TypeScript typings in `index.d.ts` cover the
+full surface; a `--no-default-features` build narrows it.
 
 ### Cargo features
 
-The published `.node` ships the **full** capability surface by default —
-handshake, TCT, delegation, manifest verify, revocation-list signing, OIDC
-identity, **plus** TCT renewal, session bundles, SPKI pinning, and multi-hop
-delegation. Each capability is a named feature (all on by default) so a
-minimal build can opt out with `--no-default-features`:
+By default the published `.node` ships the **full** capability surface:
+
+- handshake, TCT, delegation, manifest verification and OIDC identity
+- revocation-list signing and verification
+- TCT renewal, session bundles, SPKI pinning and multi-hop delegation
+
+Each capability below is a named feature, all on by default. A minimal build
+can opt out with `--no-default-features`:
 
 | Feature               | Enables                                                                  | RFC                  |
 |-----------------------|--------------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0013    |
-| `session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010        |
+| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0013 (Planned) |
+| `session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010 (Draft) |
 | `spki-pinning`        | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
-| `multihop-delegation` | `verifyDelegationMultihop`                                               | RFC-AITP-0011        |
+| `multihop-delegation` | `verifyDelegationMultihop`                                               | RFC-AITP-0011 (Draft) |
 
-Capabilities whose underlying RFC has not yet graduated do not promise wire
-stability across binding versions.
+Capabilities whose RFC has not graduated make no wire-stability promise
+across binding versions.
 
 ## Usage
 
@@ -83,98 +102,80 @@ console.log(ident.peerAid, ident.grants);
 // `buildDelegation(grantVoucher, delegateeAid, scope)` to delegate.
 ```
 
-In a real deployment each message moves over HTTP: `buildHello` returns the
-`POST /aitp/handshake/hello` body, `processHello` returns the response body
-plus the value for the `X-Aitp-Session-Id` header, and so on.
+In a real deployment each message moves over HTTP. `buildHello` returns the
+body for `POST /aitp/handshake/hello`. `processHello` returns the response
+body plus the value for the `X-Aitp-Session-Id` header, and so on.
 
 ## API
 
-The full public surface is described in the generated `index.d.ts`; below
-is a summary. Manifests, revocation lists, and handshake envelopes cross
-the boundary as JSON strings; **TCTs, grant vouchers, and delegations are
-opaque compact-JWS token strings** (`header.payload.signature`).
+The generated `index.d.ts` describes the full public surface; the table below
+summarizes it. Manifests, revocation lists and handshake envelopes cross the
+boundary as JSON strings. **TCTs, grant vouchers and delegations are opaque
+compact-JWS token strings** (`header.payload.signature`).
 
-| Type                      | Default? | Notes                                                                                                          |
-|---------------------------|:--------:|----------------------------------------------------------------------------------------------------------------|
-| `AitpAgent`               |    ✅    | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)`, `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(...)`, `signRevocationList(...)` |
-| `InitiatorSession`        |    ✅    | `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
-| `ResponderSession`        |    ✅    | `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
-| `TctIdentity`             |    ✅    | `peerAid` (issuer), `grants`, `expiresAt`, `jti`                                                                |
-| `DelegationVerified`      |    ✅    | `delegator`, `delegatee`, `issuedBy`, `grants`, `expiresAt`, `cnfJkt`                                           |
-| `JwksProvider`            |    ✅    | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()`                                            |
-| `TctStore` / `verifyTctCached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
-| `verifyDelegation()`      |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                                               |
-| `verifyManifestJson()`    |    ✅    | Control-plane manifest enrollment                                                                               |
-| `buildRenewalRequest()` / `processRenewalRequest()`           | `renewal` | RFC-AITP-0013 |
-| `SessionBundleBuilder`, `verifySessionBundle()`               | `session-bundle`  | RFC-AITP-0010      |
-| `computeSpkiHash()`, `SpkiPinVerifier`                        | `spki-pinning` | HPKP outbound pinning |
-| `verifyDelegationMultihop()`                      | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
+| Export                    | Feature | Notes |
+|---------------------------|:-------:|-------|
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` (bare compact JWS), `signRevocationList(entries, expiresInSecs?)` |
+| `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
+| `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
+| `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
+| `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
+| `verifyDelegation(token, verifierAid, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
+| `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `malformed`) |
+| `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
+| `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
+| `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
+| `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` returns a bare compact-JWS TCT |
+| `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010 |
+| `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
+| `verifyDelegationMultihop(token, verifierAid, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+
+`verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
+the issuer.
 
 ### Revocation
 
-`verifyTct` / `verifyTctCached` accept an optional final `revokedJtis`
-argument — an array of revoked TCT `jti` strings. Any TCT whose `jti` is in
-the array is rejected even if its signature, audience, and expiry are
-otherwise valid:
+`verifyTct` and `verifyTctCached` take an optional final `revokedJtis`
+argument, an array of revoked TCT `jti` strings. A TCT whose `jti` is in the
+array is rejected, even if its signature, audience and expiry are otherwise
+valid:
 
 ```javascript
+// not executed: fragment; see docs/sdk-node.md § TCT verification for the runnable flow
 const revoked = ['11111111-2222-3333-4444-555555555555'];
 agent.verifyTct(tctToken, 'demo.write', null, revoked);  // throws if revoked
 ```
 
 **Obligation.** The SDK does **not** fetch or maintain the revoked set for
-you; supplying it is the caller's responsibility. Source it from a
-`RevocationList` you fetched and verified out-of-band (issue one with
-`signRevocationList`). The set is passed up-front (rather than via a JS
-callback invoked per-`jti`) to stay sound under napi threading constraints.
-Omitting the argument leaves the revocation gate **off** — an unexpired but
-revoked TCT will pass, so wire `revokedJtis` in wherever revocation matters.
+you. Supplying it is the caller's responsibility: source it from a
+revocation snapshot you fetched and checked with `verifyRevocationList`
+(issue one with `signRevocationList`).
 
-### OIDC identity (RFC-AITP-0002)
+The set is passed up-front rather than through a JS callback invoked per
+`jti`, so that it stays sound under napi threading constraints.
 
-```javascript
-import { AitpAgent, JwksProvider } from '@agentidentitytrustprotocol/aitp';
+If you omit the argument, the revocation gate is **off** and an unexpired but
+revoked TCT will pass. Wire `revokedJtis` in wherever revocation matters.
 
-const jwks = new JwksProvider({
-  'https://idp.example/': [{ kty: 'OKP', crv: 'Ed25519', x: '...', kid: 'k1', alg: 'EdDSA' }],
-});
+### OIDC identity and P-256
 
-const agent = AitpAgent.generate();
-agent.buildManifest({
-  displayName: 'alice',
-  handshakeEndpoint: 'https://alice.example/aitp/handshake/',
-  offeredCaps: ['demo.echo'],
-  identityType: 'oidc',
-  oidcIssuer: 'https://idp.example/',
-  oidcSubject: 'alice',
-});
-const sess = agent.newSession(jwks);
+See
+[OIDC identity](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/sdk-node.md#oidc-identity-rfc-aitp-0002)
+and
+[P-256 signing suite](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/sdk-node.md#p-256-signing-suite-rfc-aitp-0001-543).
+The `oidcMintJwt` callback is synchronous.
 
-const mintJwt = (nonce) => myIdp.mintJwtSync({ nonce, sub: 'alice', aud: peerAid });
-const hello = sess.buildHello(peerManifest, ['demo.echo'], mintJwt);
-```
+> **Breaking change in v0.2:** the P-256-specific factory methods were
+> removed in favor of the parameterized `generate({ suite })` /
+> `fromSeed(seed, { suite })` API, which matches the Python SDK's
+> `AitpAgent.generate(suite="p256")`. To migrate, call
+> `AitpAgent.generate({ suite: 'p256' })` or
+> `AitpAgent.fromSeed(seed, { suite: 'p256' })`.
 
-### P-256 signing (RFC-AITP-0001 §5.4.3)
-
-```javascript
-const agent = AitpAgent.generate({ suite: 'p256' });   // aid:pubkey:p256:<44>
-// Deterministic from a seed:
-const seeded = AitpAgent.fromSeed(seed, { suite: 'p256' });
-// All other methods identical; signatures emitted as `p256.<86b64u>`.
-```
-
-> **Breaking change in v0.2:** `AitpAgent.generateP256()` and
-> `AitpAgent.fromP256Seed(seed)` were removed in favor of the
-> parameterized `generate({ suite })` / `fromSeed(seed, { suite })`
-> API. This matches the Python SDK's
-> `AitpAgent.generate(suite="p256")` shape — CLAUDE.md mandates SDK
-> symmetry. Migration: replace `generateP256()` with
-> `generate({ suite: 'p256' })` and `fromP256Seed(seed)` with
-> `fromSeed(seed, { suite: 'p256' })`.
-
-> **Note.** In v0.1 the `pinned_key` identity_hint embeds an Ed25519 raw
-> public key. P-256 agents must therefore use `identityType: 'oidc'` until
-> the manifest's identity_hint shape is extended.
+> **Note.** `pinned_key` identities are Ed25519-only **in this SDK**. The
+> v0.2 manifest schema itself accepts a P-256 `public_key`, but
+> `buildManifest` cannot emit one. P-256 agents must therefore use
+> `identityType: 'oidc'`.
 
 ## Tests
 
@@ -184,5 +185,10 @@ npm run build:debug
 npm test                 # node --test tests/*.mjs
 ```
 
+`tests/test_docs_samples.mjs` runs every JavaScript block in
+[`docs/sdk-node.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/sdk-node.md)
+and the Usage block above.
+
 The cross-language interop suite (Python ↔ Node) lives in
-[`../interop`](../interop) — run it with `make interop` from the repo root.
+[`bindings/interop`](https://github.com/agentidentitytrustprotocol/aitp-rs/tree/main/bindings/interop).
+Run it with `make interop` from the repo root.

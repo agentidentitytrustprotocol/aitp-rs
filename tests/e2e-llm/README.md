@@ -2,10 +2,11 @@
 
 End-to-end tests that wire **real LLM agents** together over a full
 AITP handshake. The planner handshakes with the worker, then delegates
-a task to the worker over a signed envelope authenticated by a
-peer-issued Trust Context Token (TCT). The worker's `/work` endpoint
-verifies the TCT, prompts an LLM to produce an answer, and returns
-it inside a signed envelope.
+a task to the worker by POSTing a plain JSON request to `/work`. That
+request carries the peer-issued Trust Context Token (TCT) in the
+`X-AITP-TCT` header. The worker verifies the TCT, prompts an LLM to
+produce an answer, and returns it as a plain JSON response. Only the
+handshake messages and the TCT are signed; the `/work` bodies are not.
 
 This package is **outside the Cargo workspace** so it never runs under
 `cargo test --workspace` and never burns API credits in CI. It mirrors
@@ -39,20 +40,38 @@ AITP_RUN_LLM_TESTS=1 cargo test -- --nocapture
 AITP_RUN_LLM_TESTS=1 cargo test --test handshake_then_delegate -- --nocapture
 ```
 
-Without `AITP_RUN_LLM_TESTS=1` (or with no API key set), each test
-prints a `SKIPPED` line to stderr and exits successfully. This is the
-default so running `cargo test` in the repo root never touches a
-provider API.
+Without `AITP_RUN_LLM_TESTS=1`, or with neither API key variable set
+at all, each test prints a `SKIPPED` line to stderr and exits
+successfully. This is the default so running `cargo test` in the repo
+root never touches a provider API.
+
+A key variable that is set but **empty** counts as set. `.env.example`
+ships `ANTHROPIC_API_KEY=` and `OPENAI_API_KEY=` empty, so if you copy
+it, set `AITP_RUN_LLM_TESTS=1` and fill in no key, the tests do not
+skip. They fail when the harness tries to build a provider. Fill in a
+key, or delete the empty lines.
+
+### In a container
+
+`docker-compose.e2e-llm.yml` at the repo root runs the same tests on a
+stock Linux Rust image. It reads `tests/e2e-llm/.env` and forces
+`AITP_RUN_LLM_TESTS=1`:
+
+```sh
+docker compose -f docker-compose.e2e-llm.yml run --rm e2e-llm \
+  cargo test --test handshake_then_delegate -- --nocapture
+```
 
 ## Provider selection
 
 The harness picks a provider at runtime:
 
-1. `ANTHROPIC_API_KEY` set → Anthropic Messages API, model
+1. `ANTHROPIC_API_KEY` non-empty → Anthropic Messages API, model
    `claude-haiku-4-5` (overridable via `AITP_LLM_MODEL`)
-2. Otherwise `OPENAI_API_KEY` set → OpenAI Chat Completions, model
+2. Otherwise `OPENAI_API_KEY` non-empty → OpenAI Chat Completions, model
    `gpt-4o-mini` (overridable via `AITP_LLM_MODEL`)
-3. Neither set → tests skip
+3. Neither variable set → tests skip. If both are set but empty, the
+   tests fail with a configuration error (see above).
 
 No `rig-core` dependency: the LLM is just a text-in / text-out
 function. If the tests grow into multi-turn tool-using agents later,
