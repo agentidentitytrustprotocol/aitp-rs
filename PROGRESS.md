@@ -5,7 +5,7 @@ PR strategy: one PR (docs + executable-sample tests + docs checker) — docs-onl
 
 Measured at the pin (existing `target/debug` binaries, 3 independent audits agree): strict 59 pass / 0 fail / 10 skip of 69; with both draft features 67 / 0 / 2 (`del-004`, `del-007`); at spec HEAD 70/0/2 of 72. Local rebuild blocked by macOS linker error ("tapi: unknown architecture") — CI is the oracle.
 
-Issue map (this repo): G1 gate flag #194 · G2 bundle bare body #195 · G3 renewal #196 · G4 bundle check order #197 · G5 server defaults #198 · G6/G7 binding kwarg + return asymmetry #199 · G8 UNKNOWN_FIELD→malformed #152 · G9 stale rustdoc #200 · CHANGELOG rotation #201.
+Issue map (this repo): G1 gate flag #194 · G2 bundle bare body #195 · G3 renewal #196 · G4 bundle check order #197 · G5 server defaults #198 · G6/G7 binding kwarg + return asymmetry #199 · G8 UNKNOWN_FIELD→malformed #152 · G9 stale rustdoc #200 · multi-hop hop-key source #202 · CHANGELOG rotation #201.
 
 Risk tiers: P0 simple · P1 simple · P2 simple · P3 complex · P4 complex · P5 simple · P6 complex.
 
@@ -40,4 +40,5 @@ Siblings (link targets, read-only): `../agentidentitytrustprotocol/{rfcs,docs,re
 - Phase 3 — DONE (543d7bb), complex/solo. Verifier GAPS (5 citation/precision items) → fixed; new issue #202.
 - Phase 4 — DONE (8c275b1), complex/solo. Verifier GAPS (Python unknown-member is ValueError, bindings.yml path filter, stale count, 5 minor) → fixed; #152/#199 comments added.
 - Phase 5 — DONE (0770200). Verifier PASS (nits applied).
-- Phase 6 — DONE. Verifier PASS (checker fence-closer, banned-string advice, protected files tightened).
+- Phase 6 — DONE (40ae70b). Verifier PASS (checker fence-closer, banned-string advice, protected files tightened).
+- Final cumulative verify: GAPS (docs/README index row fixed in 4e99149; PROGRESS ordering). Remaining: /ship (push, PR with `Closes #192`, watch CI incl. new test_docs_samples), then /reconcile for ASSUMPTIONS D1-D6.
