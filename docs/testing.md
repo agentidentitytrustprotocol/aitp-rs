@@ -231,6 +231,7 @@ test`:
 | `bench-check` | The criterion benches compile | `cargo bench -p aitp-core -p aitp-crypto -p aitp-tct --no-run` |
 | `wasm` | Pure crates build for `wasm32-wasip1` | see [WASM portability](#wasm-portability) |
 | `e2e-llm-build` | `tests/e2e-llm` formats, lints, and runs with the skip gate engaged (no provider calls) | see [End-to-end (LLM)](#end-to-end-llm) |
+| `docs-check` (not required) | Doc links and anchors, `RFC-AITP-NNNN §x.y` citations against the pinned spec, protected inbound anchors, banned stale strings | `make docs-check` |
 
 ## Language bindings
 

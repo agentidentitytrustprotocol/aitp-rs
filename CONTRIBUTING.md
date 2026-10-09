@@ -32,6 +32,11 @@ conformance runner, the vendored-schema check); `make msrv`, `make semver`,
 `make coverage` and `make schemas-check` run them locally when you have the
 tools and a spec-repo clone.
 
+- `make docs-check` (`scripts/check-docs.py`, the non-required CI
+  `docs-check` job) checks doc links and anchors, `RFC-AITP-NNNN §x.y`
+  citations against the pinned spec, protected inbound anchors and banned
+  stale strings. Run it when you touch any `.md`; it is not part of `make ci`.
+
 ## Versions
 
 All published crates share one version, set once in `[workspace.package]`

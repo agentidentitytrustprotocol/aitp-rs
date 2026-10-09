@@ -1,6 +1,6 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
         deny audit msrv semver coverage schemas-check ci \
-        check-versions sync-versions
+        check-versions sync-versions docs-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -95,6 +95,14 @@ coverage:
 schemas-check:
 	./scripts/sync-schemas.sh
 	@git diff --quiet -- tests/schemas/ || { echo "vendored schemas drift from the spec repo — review 'git diff tests/schemas/'"; exit 1; }
+
+# Documentation drift guard: relative links + anchors, RFC-AITP-NNNN §x.y
+# citations against the PINNED spec (sibling clone or AITP_SPEC=/path;
+# skipped with a notice when absent), protected inbound anchors, banned
+# stale strings, MDX hazards. Deliberately NOT part of `ci` below, which
+# stays hermetic; CI runs it as the non-required `docs-check` job.
+docs-check:
+	python3 scripts/check-docs.py
 
 # Everything a PR gates on that can run locally without extra repos.
 # (schemas-check needs a spec-repo clone; msrv/semver/coverage need

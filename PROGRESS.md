@@ -35,3 +35,9 @@ Code truth:
 - `Makefile` (`ci`, `check-versions`, `schemas-check`), `scripts/`, `.github/workflows/ci.yml` (conformance expectations ~420, xcheck 430, e2e 509), `.gitignore:69` (`plans/` ignored)
 
 Siblings (link targets, read-only): `../agentidentitytrustprotocol/{rfcs,docs,registries,schemas/conformance}`, `../aitp-verifier-py`, `../aitp-playground/docs/aitp-integration.md` (inbound anchors), `../aitp-website/scripts/sync-content.sh` (republishes SDK pages), `../aitp-docs/kb`.
+- Phase 1 — DONE (17cc1a2). Opus verifier batched with P0: GAPS (2 factual, 1 anchor) → fixed in the same commit.
+- Phase 2 — DONE (2887833). Verifier GAPS (renew_tct feature gate, KAT list) → fixed.
+- Phase 3 — DONE (543d7bb), complex/solo. Verifier GAPS (5 citation/precision items) → fixed; new issue #202.
+- Phase 4 — DONE (8c275b1), complex/solo. Verifier GAPS (Python unknown-member is ValueError, bindings.yml path filter, stale count, 5 minor) → fixed; #152/#199 comments added.
+- Phase 5 — DONE (0770200). Verifier PASS (nits applied).
+- Phase 6 — DONE. Verifier PASS (checker fence-closer, banned-string advice, protected files tightened).
