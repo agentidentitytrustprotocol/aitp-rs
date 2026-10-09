@@ -44,7 +44,7 @@ that governs it.
 | [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, WASM, conformance, xcheck, bindings, interop, e2e) + how to run each | — (test rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
 | [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, the v0.2 fixture matrix (the only page with fixture counts) and the gate caveat | spec `schemas/conformance/` |
-| [`handshake-transcripts.md`](handshake-transcripts.md) | Reproducible four-message byte transcript | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
+| [`handshake-transcripts.md`](handshake-transcripts.md) | Four-message handshake shapes and where `aitp-rs` builds each signing input | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
 | [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (RFC Draft; opt-in feature) | RFC-AITP-0010 |
 | [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (RFC Draft; runtime opt-in) | RFC-AITP-0011 |
 | [`tct-renewal.md`](tct-renewal.md) | Shortened TCT renewal (RFC Planned, implementation ahead of spec; opt-in feature) | RFC-AITP-0013, RFC-AITP-0004 §8.1 |
