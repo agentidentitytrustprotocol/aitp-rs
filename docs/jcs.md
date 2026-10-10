@@ -23,7 +23,9 @@ edge cases that are easy to get wrong and silent when you do:
    form (`1`), because that's what ECMAScript would produce.
 7. **Negative zero.** `-0` becomes `0`.
 8. **NaN and Infinity.** Forbidden; canonicalization MUST error.
-9. **Duplicate keys.** RFC 8259 leaves this undefined; JCS rejects.
+9. **Duplicate keys.** RFC 8259 leaves this undefined. JCS input must be
+   I-JSON, which forbids duplicate names. See below for where `aitp-rs`
+   enforces this.
 10. **String escapes.** Only `\"`, `\\`, `\b`, `\f`, `\n`, `\r`, `\t`, and
     `\uXXXX` for control characters and forced escapes. Forward slash is
     NOT escaped.
@@ -32,7 +34,26 @@ edge cases that are easy to get wrong and silent when you do:
 12. **Empty objects and arrays.** Exactly `{}` and `[]`, no whitespace.
 
 A naive `serde_json::to_string` with `sort_keys` solves about 4 of these.
-We need all 12.
+We need all 12. The canonicalizer handles 11 of them.
+
+Duplicate keys are not handled in `aitp_core::jcs`. The canonicalizer
+takes an already-parsed `serde_json::Value`, and by then `serde_json` has
+silently kept the last of any duplicate keys. `JcsError::DuplicateKey` is
+never constructed. Duplicates are rejected earlier, from the raw bytes, by
+`aitp_core::reject_duplicate_keys` (`crates/aitp-core/src/unknown_field.rs`).
+That check runs at the wire-parse entry points, before any `Value`
+exists:
+
+- the JWS claim parsers in `aitp-tct` and `aitp-delegation`
+- HTTP request and response parsing in `aitp-transport-http`
+- the session-bundle builder, on each participant TCT's claims
+- the NDJSON adapter
+
+[RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts)
+requires this check for JWS payloads. The language bindings reach it for TCT
+claims (they call `aitp_tct::verify_tct`), but their manifest, revocation,
+bundle and envelope entry points bypass the hardened wire parsers
+([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
 
 ## Strategy: depend on `serde_jcs`, vet with test vectors
 
@@ -51,25 +72,34 @@ So our investment is in the **test vectors**, not the JCS implementation.
 
 ## Test vectors, three layers
 
-### Layer 1: JCS standard vectors (`tests/jcs_standard_vectors.rs`)
+<a id="layer-1-jcs-standard-vectors-testsjcs_standard_vectorsrs"></a>
 
-Imported from RFC 8785 plus hand-constructed cases for every edge condition
-above. Examples:
+### Layer 1: JCS standard vectors (`crates/aitp-core/tests/jcs_standard_vectors.rs`)
+
+Hand-constructed cases for the edge conditions above. They are not copied
+from RFC 8785's examples. The `VECTORS` table, run by
+`jcs_standard_vectors`, includes:
 
 | Name | Input | Expected |
 |---|---|---|
 | `empty_object` | `{}` | `{}` |
 | `empty_array` | `[]` | `[]` |
 | `key_ordering_simple` | `{"b":1,"a":2}` | `{"a":2,"b":1}` |
-| `no_whitespace` | `{ "a" : 1 }` | `{"a":1}` |
+| `no_whitespace` | `{ "a" :   1 ,  "b" :  2 }` | `{"a":1,"b":2}` |
 | `number_no_trailing_zeros` | `{"x":1.0}` | `{"x":1}` |
 | `number_negative_zero` | `{"x":-0}` | `{"x":0}` |
 | `string_unicode_literal` | `{"x":"café"}` | `{"x":"café"}` |
 | `string_control_char_escaped` | `{"x":"\u0001"}` | `{"x":"\u0001"}` |
 | `string_forward_slash_not_escaped` | `{"x":"/"}` | `{"x":"/"}` |
-| `key_ordering_utf16_surrogates` | `{"𝄞":1,"ﬃ":2}` | `{"ﬃ":2,"𝄞":1}` |
 | `nested_objects` | `{"b":{"d":1,"c":2},"a":{}}` | `{"a":{},"b":{"c":2,"d":1}}` |
 | `array_preserves_order` | `{"x":[3,1,2]}` | `{"x":[3,1,2]}` |
+| `key_with_unicode` | `{"é":1,"a":2}` | `{"a":2,"é":1}` |
+
+UTF-16 surrogate ordering has its own test, `jcs_surrogate_pair_ordering`.
+It feeds in `{"𝄞":1,"ﬃ":2}` and expects the same order back:
+`{"𝄞":1,"ﬃ":2}`. `𝄞` (U+1D11E) starts with the high surrogate 0xD834,
+and that sorts before `ﬃ` (U+FB03, 0xFB03). Sorting by code point or by
+UTF-8 bytes gets this wrong.
 
 **Discipline: never delete a test vector.** New edge cases are added; old
 ones stay forever.
@@ -102,34 +132,38 @@ been normative since v0.2:
 > The signing input is the **inner artifact body**. The artifact-naming
 > key (`{"revocation_list": …}`, `{"session_bundle": …}`, `{"manifest": …}`)
 > is routing metadata for the transport and is **never** part of the
-> signing bytes — RFC-AITP-0001 §5.4.1, restated per-artifact in
-> RFC-AITP-0003 §6.1, RFC-AITP-0008 §1.5 and RFC-AITP-0010 §3.
+> signing bytes.
 
-Two placements of `signature` follow from that, and confusing them is the
-easiest way to get this wrong:
+The rule is in
+[RFC-AITP-0001 §5.4.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#541-signing-input-jcs-profile).
+Each artifact's RFC restates it: RFC-AITP-0003 §6.1, RFC-AITP-0008 §1.5
+and RFC-AITP-0010 §3. The same section also explains when `signature` is
+a member of the body and when it sits beside it. Mixing up the two
+placements is the easiest way to get this wrong:
 
 | Artifact | Where `signature` lives | Signing input |
 |---|---|---|
 | Manifest | a **member** of the body | body **minus** `signature` |
-| Session bundle | see note | body **minus** `signature` |
+| Session bundle | a **member** of the body | body **minus** `signature` |
 | Revocation snapshot | a **sibling** of the wrapped body | the body **as-is** — nothing to strip |
 
-> **Note — the spec is currently inconsistent about the session bundle's
-> `signature` placement.** RFC-AITP-0010 §3's example and field table put
-> it *inside* the inner body; the JSON schema
-> (`aitp-session-bundle.schema.json`, top-level `required: [session_bundle,
-> signature]` with the inner body `additionalProperties: false` and no
-> `signature` property) and the `bundle-001` conformance fixture put it as a
-> *sibling* of the wrapper. **The signing input is identical under both
-> readings** — the body excluding `signature` either way — so there is no
-> byte-level consequence, but `aitp-rs` emits the §3 shape and would fail
-> the schema. Tracked upstream; `verify_session_bundle` accepts both.
+The session-bundle placement is settled. An erratum in RFC-AITP-0010 §3
+corrected the schema and the `bundle-*` fixtures to the placement the RFC
+always specified: `signature` is a member of the inner body. `aitp-rs` rejects the old sibling shape,
+`{"session_bundle": …, "signature": …}`, with `SESSION_BUNDLE_INVALID`
+(`parse_session_bundle_wire` in `crates/aitp-session-bundle/src/wire.rs`;
+fixture `bundle-004`). That parser still accepts a bare, unwrapped body
+for internal callers. The HTTP server exposes that path; see
+[#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195).
 
-Each artifact has exactly one function defining its signing input —
-`revocation_signing_bytes` (`crates/aitp-tct/src/revocation.rs`) and
-`bundle_signing_bytes` (`crates/aitp-session-bundle/src/builder.rs`) —
-and the signer, the verifier and the known-answer test all route through
-it. Reconstructing the signing input at a call site is how a signer and
+Each artifact has exactly one function that defines its signing input.
+The signer, the verifier and the known-answer test all go through it:
+
+- `manifest_signing_bytes` (`crates/aitp-manifest/src/builder.rs`)
+- `revocation_signing_bytes` (`crates/aitp-tct/src/revocation.rs`)
+- `bundle_signing_bytes` (`crates/aitp-session-bundle/src/builder.rs`)
+
+Reconstructing the signing input at a call site is how a signer and
 its own verifier drift apart.
 
 Do not document one artifact's convention by pointing at another's. A
@@ -150,7 +184,9 @@ over a canonicalized form; their known-answer vectors live under
 [architecture.md](architecture.md#the-two-signing-profiles) for the
 profile boundary.
 
-### Layer 3: Property tests (`tests/jcs_properties.rs`)
+<a id="layer-3-property-tests-testsjcs_propertiesrs"></a>
+
+### Layer 3: Property tests (`crates/aitp-core/tests/jcs_properties.rs`)
 
 Three properties:
 
@@ -159,8 +195,10 @@ Three properties:
   same canonical form.
 - **Whitespace-free:** the output never contains spaces, tabs, or newlines.
 
-Run with `proptest`. Property tests are slow (thousands of cases); CI runs
-them in `--release`.
+They run under `proptest` with 64 cases per property, set by
+`ProptestConfig` in the file. CI runs them as part of the ordinary
+`cargo nextest run --workspace --all-features` in the `test` job, which is
+a debug build, not `--release`.
 
 ## What JCS does NOT solve
 
@@ -180,7 +218,8 @@ with
 `#[serde(default, skip_serializing_if = "Option::is_none")]`: `None` omits
 the key entirely, `Some(ExtensionsMap::new())` serializes as
 `"extensions":{}`, and deserialization preserves the distinction rather
-than folding both into one Rust value (RFC-AITP-0001 §7).
+than folding both into one Rust value. See RFC-AITP-0001 §5.4.1 (the
+"Optional-array round-trip" note) and §7.
 
 **No floats in protocol fields.** Timestamps are `i64`. UUIDs are strings.
 We never let a protocol field round-trip through `f64`.

@@ -17,12 +17,16 @@ on:
       - 'crates/**'
       - 'bindings/**'
       - 'scripts/interop.sh'
+      - 'docs/sdk-python.md'
+      - 'docs/sdk-node.md'
       - '.github/workflows/bindings.yml'
   pull_request:
     paths:
       - 'crates/**'
       - 'bindings/**'
       - 'scripts/interop.sh'
+      - 'docs/sdk-python.md'
+      - 'docs/sdk-node.md'
       - '.github/workflows/bindings.yml'
   workflow_dispatch:
 

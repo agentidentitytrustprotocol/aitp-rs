@@ -11,13 +11,13 @@ today — jump to [the matrix](#v02-conformance-matrix)).
 A conformance fixture is a JSON file describing a scenario and expected
 outcome. The runner's job is to feed each fixture's input into an
 implementation, observe what comes out, and assert it matches the
-expected outcome. The spec ships 69 fixtures today (58 v0.2 `core`
-fixtures required for v0.2, 1 more `core` fixture frozen in the v0.1
-shape for v0.1 runners, and 10 `draft`); the count grows with the spec.
+expected outcome. The corpus grows with the spec; the fixture counts at
+the spec commit this repo pins are in the
+[matrix summary](#v02-conformance-matrix).
 
 Many fixtures now carry the **v0.2 compact-JWS token family** (TCT, grant
 voucher, delegation token) as opaque strings; the placeholder and
-claims-sibling conventions for minting them are described under
+claims-sibling conventions for minting them are linked under
 [Fixture format](#fixture-format).
 
 The architectural question: how does the runner talk to an implementation?
@@ -95,12 +95,16 @@ human-readable; the runner ignores it for pass/fail logic.
   "ok": true,
   "result": {
     "implementation": "aitp-rs",
-    "version": "0.4.0",
+    "version": "<the adapter crate's version>",
     "supported_ops": ["verify_tct", "verify_grant_voucher", "verify_manifest", ...],
     "supported_features": ["pinned_key_identity", "oidc_identity"]
   }
 }
 ```
+
+`aitp-rs-adapter` reports its own crate version
+(`env!("CARGO_PKG_VERSION")` in `crates/aitp-rs-adapter/src/lib.rs`), so
+the value tracks the workspace release.
 
 The runner uses `supported_ops` and `supported_features` to skip fixtures
 the adapter cannot handle. A partial implementation declares only what it
@@ -206,86 +210,61 @@ Three methods, the trait is intentionally simple.
 
 ## Fixture format
 
-The fixture schema carries a few adapter-runner conventions. The `input`
-block has an `operation` field naming which adapter op to invoke, and a
-`preconditions` field lets a fixture set up adapter state before running
-the input. In v0.2 the TCT is an opaque compact JWS, so a fixture cannot
-embed a final token statically — instead it carries a **`__JWS_*__`
-placeholder** with a **claims-sibling** companion that names the decoded
-claims to mint:
+The fixture format belongs to the spec, not to this repo. Read it there:
 
-```json
-{
-  "id": "tct-002-expired",
-  "preconditions": {
-    "set_clock": 1700000000
-  },
-  "input": {
-    "operation": "verify_tct",
-    "tct_token": "__JWS_TCT__",
-    "tct_claims": { "ver": "aitp/0.2", "jti": "...", "iss": "...", "exp": ... },
-    "expected_audience": "aid:pubkey:..."
-  },
-  "expected": {
-    "outcome": "failure",
-    "error_code": "TCT_EXPIRED"
-  }
-}
-```
+- [Fixture Format](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#fixture-format):
+  the metadata fields (`status`, `feature`, `required_for_v0_2`), the
+  multi-step `sequence` form, side-effect assertions, dynamic fixtures and
+  structural-rejection fixtures.
+- [Compact-JWS token placeholders](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/PLACEHOLDERS.md#compact-jws-token-placeholders-v02-portable-trust-artifacts):
+  the `__JWS_*__` placeholders and their claims-sibling companions.
+- [Reference clock for byte-stable minting](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/PLACEHOLDERS.md#reference-clock-for-byte-stable-minting):
+  the pinned `__NOW__` value.
 
-### Compact-JWS placeholders and the claims-sibling convention
+How `aitp-conformance` implements those rules:
 
-The v0.2 token-family fixtures carry the artifact field as a
-`__JWS_TCT__` / `__JWS_GRANT_VOUCHER__` / `__JWS_DELEGATION__` placeholder
-with an **`X_claims` sibling** (e.g. a `tct_token` field has a `tct_claims`
-sibling; a `voucher` field has a `voucher_claims` sibling) in the **same
-object**, carrying the decoded payload the runner must mint with the
-pinned KAT keypairs. The runner mints each token from its `*_claims`
-companion, strips every `*_claims` field, then runs the op. For the
-multi-hop `chain` array the rule extends as a **parallel array**: `chain`
-holds the `__JWS_DELEGATION__` placeholders and a `chain_claims` sibling
-array holds the per-entry claims (each entry may carry its own nested
-`voucher`/`voucher_claims`, resolved innermost-first); `chain_hash` uses
-`__COMPUTED_CHAIN_HASH__`, recomputed from the minted chain strings.
-
-The runner **pins a reference clock** (`__NOW__` = `1711900000`) so that
-re-minted time-sensitive tokens are reproducible. Tampered-signature
-variants use dedicated placeholders such as `__JWS_TCT_TAMPERED_SIG__`.
-
-Multi-step fixtures like `mh-001` use `input.sequence` (already in the
-spec). The runner detects the variant and dispatches accordingly. Some
-fixtures (`tct-006`, `tct-007`) are marked `dynamic` because they drive a
-live PoP exchange whose nonces and signatures must be freshly minted per
-run; the runner MUST regenerate the listed `dynamic_fields` and never feed
-the placeholders through verbatim.
+- `crates/aitp-conformance/src/fixture/placeholder.rs` does the
+  substitution. For every field `X` that holds a `__JWS_*__` placeholder
+  and has an `X_claims` sibling in the same object, it mints `X` from
+  those claims with the pinned KAT keypairs. Examples are
+  `tct_token` / `tct_token_claims` (`tct-002`) and `voucher` /
+  `voucher_claims`. It then strips every `*_claims` companion before the
+  op runs. The reference clock is the constant `REFERENCE_NOW` in that
+  file.
+- `crates/aitp-conformance/src/fixture/types.rs` deserializes the
+  fixture. Its `required_for_v0_1` field drives the exit-code gate; see
+  [v0.2 conformance gate](#v02-conformance-gate).
 
 ## CLI surface
 
 ```
-aitp-conformance run --target <CMD> [--filter <PAT>] [--tag <TAG>] \
+aitp-conformance run --target <CMD> [--fixtures-dir <DIR>] [--filter <PAT>] \
+                     [--tag <TAG>] [--feature <NAME>]... \
                      [--output text|json|tap] [--fail-fast]
-aitp-conformance list [--tag <TAG>]
-aitp-conformance describe <FIXTURE_ID>
+aitp-conformance list [--fixtures-dir <DIR>] [--tag <TAG>]
+aitp-conformance describe [--fixtures-dir <DIR>] <FIXTURE_ID>
 ```
 
-Text output:
+`--fixtures-dir` defaults to `./schemas/conformance`. `--feature` can be
+repeated. Each one opts into a draft feature (for example
+`experimental-session-bundle`), so fixtures tagged with it run instead of
+being skipped. The flags are defined in
+`crates/aitp-conformance/src/main.rs`.
+
+Text output has this shape (from `crates/aitp-conformance/src/runner/output.rs`):
 
 ```
-Loaded 64 fixtures
-Adapter: aitp-rs 0.4.0 (subprocess)
-  ✓ id-001-oidc-missing-aud           [12ms]
-  ✓ tct-008-alg-none-rejected         [10ms]
-  ✓ vch-001                           [11ms]
-  ⊘ bundle-001                        [skipped: feature 'experimental-session-bundle' off]
-  ✗ tct-002-expired                   [18ms]
-      expected outcome=failure error_code=TCT_EXPIRED
-      got      outcome=success
-Summary: ... passed, ... failed, ... skipped of 64 fixtures
+Loaded <N> fixtures
+Adapter: aitp-rs <adapter version>
+  PASS env-001 [3ms]
+  SKIP bundle-001 (non-core fixture (status=Draft); requires feature `experimental-session-bundle`)
+  FAIL tct-002 [4ms]
+        reason: <expected vs. actual>
+Summary: <p> passed, <f> failed, <s> skipped of <N> fixtures
 ```
 
-(Illustrative — the line shapes, not a real run.)
-
-CI-friendly TAP and machine-readable JSON formats are also provided.
+`--output tap` prints TAP 13. `--output json` prints a JSON array with one
+object per fixture.
 
 ## Why not gRPC for the adapter protocol
 
@@ -331,7 +310,14 @@ Two things close that gap, and conformance is neither:
    verified by another that shares no code with it. Note the
    `interop (python ↔ node)` job does *not* qualify: both bindings wrap the
    same Rust core, so it is Rust-to-Rust across runtimes and is blind to a
-   wire divergence for the same reason re-minting is.
+   wire divergence for the same reason re-minting is. In this repo the
+   `xcheck` job in `.github/workflows/ci.yml` does qualify. `aitp-rs` mints
+   with `cargo run -p mint-signed-examples --bin xcheck-mint`, and
+   [`aitp-verifier-py`](https://github.com/agentidentitytrustprotocol/aitp-verifier-py),
+   pinned by `tests/AITP_VERIFIER_PY_VERSION`, verifies those exact bytes
+   through `scripts/xcheck-verify.py`. The reverse direction is covered by
+   the committed bytes in `tests/xcheck-fixtures/`. See
+   [testing.md](testing.md#cross-implementation-acceptance-xcheck).
 
 When a conformance number and an interop failure disagree, the interop
 failure is the one telling the truth.
@@ -339,38 +325,69 @@ failure is the one telling the truth.
 ## Why fixtures live in the spec repo, not here
 
 Conformance fixtures are part of the protocol definition. They belong in
-`agentidentitytrustprotocol/schemas/conformance/`. This crate consumes
-them via a configured path or git submodule. Other-language
-implementations consume the same fixtures.
+`agentidentitytrustprotocol/schemas/conformance/`. The runner reads them
+from the directory passed in `--fixtures-dir`. There is no git submodule.
+The `conformance` job in `.github/workflows/ci.yml` checks out the spec
+repo at the commit pinned in `tests/schemas/SPEC_VERSION` and points the
+runner at that checkout. Implementations in other languages use the same
+fixtures.
 
 The runner does not bundle fixtures.
 
 ## v0.2 conformance matrix
 
-Per-fixture status of the `aitp-rs` reference implementation against the
-spec's conformance suite (`schemas/conformance/`).
+This is where the `aitp-rs` reference implementation stands against the
+spec's conformance suite (`schemas/conformance/`). The spec's
+[Fixture Index](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#fixture-index)
+says what each fixture tests. This page only records how `aitp-rs` does on
+them.
 
 ### Summary
 
-| Tier | Fixtures | `aitp-rs` |
-|---|---|---|
-| `core` (required for v0.2) | 58 | **PASS** |
-| `core` frozen in the v0.1 shape (`del-004`, v0.1 runners only) | 1 | **SKIP** (not required for v0.2) |
-| `draft` — session bundle (`experimental-session-bundle`) | 6 | **PASS** (feature opt-in) |
-| `draft` — multi-hop delegation (`experimental-multihop-delegation`) | 4 | **PASS** (feature opt-in) |
-| **Total** | **69** | |
+These counts are **at pin `ea22c71`**, the spec commit in
+[`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
+the only place in these docs where fixture counts appear. Other pages link
+here.
 
-Reproduce:
+| Tier | Fixtures | Strict run (no `--feature`) | With both draft features |
+|---|---|---|---|
+| `core`, `required_for_v0_2: true` | 58 | 58 PASS | 57 PASS, 1 SKIP (`del-007`) |
+| `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
+| `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
+| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
+| **Total** | **69** | **59 pass / 0 fail / 10 skip** | **67 pass / 0 fail / 2 skip** |
+
+Why the skips look the way they do:
+
+- **Strict run.** `del-004` runs and passes. It expects
+  `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
+  multi-hop returns. The 10 skips are the 6 session-bundle fixtures and
+  the 4 multi-hop fixtures. A `draft` fixture is skipped unless its
+  `feature` has been enabled.
+- **With `--feature experimental-multihop-delegation`.** `del-004` and
+  `del-007` both expect `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Turning the
+  feature on makes that assertion meaningless, so the runner skips them.
+  The skip reason reads "assertion … no longer applies". The mapping from
+  error code to feature is `negated_by_feature` in
+  `crates/aitp-conformance/src/runner/executor.rs`. This is intended
+  behaviour, not a gap.
+
+Newer spec commits add fixtures this pin does not have: `man-007`,
+`del-002` and `rev-009`. Run against spec `main`, the adapter already
+passes them. Moving the pin is a separate change.
+
+Reproduce. The fixture path assumes a sibling checkout of the spec repo at
+the pinned commit:
 
 ```bash
-cargo build -p aitp-rs-adapter --all-features
-# v0.2-strict: every required_for_v0_2 core fixture PASS; draft fixtures SKIP;
-# del-004 (v0.1-frozen) SKIP.
-cargo run -p aitp-conformance --all-features -- run \
+cargo build -p aitp-rs-adapter -p aitp-conformance
+# Strict: 59 pass / 0 fail / 10 skip at the pin.
+./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# opt-in (Draft RFCs): the 10 draft fixtures additionally run.
-cargo run -p aitp-conformance --all-features -- run \
+# Opt-in (Draft RFCs): 67 pass / 0 fail / 2 skip at the pin.
+# This is what the `conformance` CI job runs.
+./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
   --feature experimental-multihop-delegation \
@@ -379,75 +396,80 @@ cargo run -p aitp-conformance --all-features -- run \
 
 ### v0.2 conformance gate
 
-`aitp-conformance run` exits non-zero if any fixture marked
-`required_for_v0_2: true` either fails or is SKIPped because the adapter
-lacks the operation. Fixtures frozen in the v0.1 wire shape (`del-004`)
-and all `draft` fixtures are `required_for_v0_2: false`, so a v0.2 runner
-SKIPs them without failing the gate. This stops CI from silently
-regressing required coverage into a SKIP.
+`aitp-conformance run` exits non-zero in two cases:
 
-### Core fixtures (required for v0.2)
+1. Any fixture fails.
+2. A fixture marked **`required_for_v0_1: true`** is skipped. A
+   feature-negation skip, like the ones described above, does not count.
 
-| RFC | Fixtures | Notes |
-|---|---|---|
-| 0001 / 0007 — envelope & key resolution | `env-001`–`env-007` | Timestamp window, policy violation, key-resolution failure, replay; `env-005` is a P-256 sender (`aid:pubkey:p256:`) with the algorithm-tagged signature wire form. `env-006` is a top-level member outside the schema-declared set, rejected with `UNKNOWN_FIELD` (RFC-AITP-0001 §7); `env-007` is an unrecognized key *inside* `extensions`, which is always ignored and the envelope still verifies. |
-| 0003 — manifest | `man-001`–`man-006` | Verification + expiry (cached + at-fetch). `man-004` is a sibling-of-`extensions` unknown member, rejected with `UNKNOWN_FIELD`; `man-005` is an unknown key inside `extensions`, ignored; `man-006` is a Manifest missing a REQUIRED member (`handshake_endpoint`), rejected with `MANIFEST_INVALID` (RFC-AITP-0003 §5 step 2's structural-validation-before-crypto ordering) — not `MANIFEST_SIGNATURE_INVALID`, which is reserved for a Manifest that parses fine but whose signature doesn't verify. |
-| 0002 / 0004 — identity & handshake | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` | `verify_handshake_payload` op; pinned-key + OIDC identity proofs; four-message exchange (commit carries the TCT **and** grant voucher as compact JWS); replay. `id-008` is an OIDC identity descriptor forbidden from also carrying `public_key` (RFC-AITP-0002 §1 — the key is already the envelope's `sender.agent_id`), rejected with `IDENTITY_FAILED`; `id-009` is its extensions-accept-side counterpart, an unrecognized key *inside* `identity.extensions`, which succeeds (RFC-AITP-0001 §7 — the identity descriptor reserves an `extensions` slot like every other signed object). |
-| 0005 — TCT (compact JWS) | `tct-002`–`tct-007` | Expiry, JWS signature invalid, revocation, manifest-expiry bound, downstream PoP round-trip, and PoP-enforcement. The TCT is an opaque compact JWS; `verify_tct` enforces strict parsing. |
-| 0005 §5.4.5 — JWS algorithm/type pinning | `tct-008`, `tct-009`, `tct-010` | `alg: none` and ES256-for-Ed25519-AID rejected with `TOKEN_ALG_MISMATCH` before any signature work; a grant voucher presented as a TCT rejected with `TOKEN_TYP_MISMATCH`. |
-| 0005 §7 — unknown fields | `tct-011`, `tct-012` | `tct-011` is an unknown top-level claim, rejected with `UNKNOWN_FIELD`; `tct-012` is an unknown key inside the TCT's `ext` claim, ignored. |
-| 0005 §8 — grant voucher | `vch-001`, `vch-002` | Valid voucher verifies under the issuer's own key; expired voucher surfaces (in delegation context) as `DELEGATION_EXPIRED`. |
-| 0008 — revocation | `rev-001`–`rev-003` | Stale snapshot (`fail_closed` / `soft_fail`), fresh snapshot. |
-| 0008 §3.3 — revocation ordering | `rev-004` | An invalid TCT signature is rejected with `TCT_SIGNATURE_INVALID` before any revocation lookup. |
-| 0008 §7 — unknown fields | `rev-005`, `rev-006` | `rev-005` is a sibling-of-`extensions` unknown member, rejected with `UNKNOWN_FIELD`; `rev-006` is an unknown key inside `extensions`, ignored. |
-| 0008 §1.5 — revocation snapshot structural validation | `rev-007`, `rev-008` | Structural validation runs before signature work, same ordering as the manifest's `man-006`. `rev-007` is a snapshot missing a REQUIRED member (`published_at`), rejected with `REVOCATION_SNAPSHOT_INVALID` — distinct from a snapshot that is merely stale or unreachable (§3.1's `revocation_policy.mode`, which `rev-001` pins as `TCT_REVOKED` under `fail_closed`). `rev-008` is a structurally valid snapshot whose signature fails under the issuing peer's key, rejected with `REVOCATION_SNAPSHOT_SIGNATURE_INVALID` — not `TCT_SIGNATURE_INVALID`, since the artifact that failed is the snapshot, not the TCT it lists. |
-| 0006 — delegation (voucher-based) | `del-001`, `del-003`, `del-005`, `del-006`, `del-007` | Single-hop happy path (scope ⊆ `voucher.grants`); scope-exceeded; third-party voucher (`voucher.iss` ≠ verifier) and wrong-subject voucher (`voucher.sub` ≠ outer `iss`) both `DELEGATION_INVALID_VOUCHER`; `del-007` is the v0.2 structural multi-hop refusal (`DELEGATION_MULTIHOP_NOT_SUPPORTED`). |
+The gate is built in `run()` in `crates/aitp-conformance/src/main.rs`,
+using the `required_for_v0_1` field in
+`crates/aitp-conformance/src/fixture/types.rs`.
 
-`del-004` is **frozen in the v0.1 wire shape** for v0.1 runners only; a
-v0.2 runner SKIPs it (`del-007` is its v0.2 claim-shaped sibling).
+#### Known limitations
 
-### Draft fixtures (post-v0.2, opt-in) under feature flags
+- **The gate checks the v0.1 flag, not the v0.2 flag**
+  ([#194](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/194)).
+  At the pin only `del-004` has `required_for_v0_1: true`. So a
+  `required_for_v0_2` fixture that is skipped because the adapter lacks
+  its op does **not** fail the run. It shows up only as a higher skip
+  count. Until #194 is fixed, compare the skip count with the summary
+  above. The `conformance` CI job has the same blind spot.
+- **`aitp-conformance --help` still says "AITP v0.1 conformance test
+  runner"**
+  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200)).
+  It is the same runner.
 
-| RFC | Fixtures | Feature |
-|---|---|---|
-| 0010 — Session Trust Bundle | `bundle-001`–`bundle-006` | `experimental-session-bundle` |
-| 0011 — multi-hop delegation | `del-mh-001`–`del-mh-004` | `experimental-multihop-delegation` |
+### Fixtures by area
 
-`bundle-006` is a top-level member outside the bundle's schema-declared
-set, rejected with `UNKNOWN_FIELD` (RFC-AITP-0001 §7).
+Each row gives the governing RFC sections and the fixture IDs. Every
+fixture in the rows below passes in both runs. The one exception is
+`del-007`: it is skipped when `--feature experimental-multihop-delegation`
+is set, as explained above.
 
-In v0.2-strict mode these 10 SKIP (`required_for_v0_2: false`). Opting into
-the matching feature runs them.
+| Area | Fixtures |
+|---|---|
+| Envelope and key resolution: RFC-AITP-0001, RFC-AITP-0007 | `env-001`–`env-007` |
+| Manifest: RFC-AITP-0003 | `man-001`–`man-006` |
+| Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` |
+| TCT: RFC-AITP-0005 | `tct-002`–`tct-007` |
+| JWS `alg`/`typ` pinning: RFC-AITP-0001 §5.4.5, RFC-AITP-0005 §7.2 steps 2–3 | `tct-008`, `tct-009`, `tct-010` |
+| TCT unknown claims: RFC-AITP-0005 §7.2 step 1 | `tct-011`, `tct-012` |
+| Grant voucher: RFC-AITP-0005 §8 | `vch-001`, `vch-002` |
+| Revocation: RFC-AITP-0008 | `rev-001`–`rev-003` |
+| Revocation lookup ordering: RFC-AITP-0008 §3.3 | `rev-004` |
+| Revocation snapshot unknown members: RFC-AITP-0008 §1.5, RFC-AITP-0001 §7 | `rev-005`, `rev-006` |
+| Revocation snapshot structural validation: RFC-AITP-0008 §1.5 | `rev-007`, `rev-008` |
+| Delegation (voucher-based): RFC-AITP-0006 | `del-001`, `del-003`, `del-005`, `del-006`, `del-007`; `del-004` (v0.1 shape) |
+| Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-006` |
+| Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-004` |
+
+The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md).
 
 ### Notes
 
-- Side-effect assertions (`side_effects` block on a fixture's
-  `expected`, e.g. `rev-004`'s `revocation_lookup_called` and
-  `tct-007`'s `pop_challenge_issued` / `capability_authorized`) are
-  honored by the runner: any side effect the adapter reports in its
-  result's `side_effects` object is asserted against the fixture, and a
-  *reported* mismatch is a hard failure. Side effects the adapter does
-  not instrument are skipped (treated as un-instrumented, never a
-  silent pass). `tct-007` step 2's `pop_challenge_issued` is asserted
-  this way; its step 3 outcome (`POP_RESPONSE_INVALID`) independently
-  catches a PoP-skipping adapter.
-- **Structural-rejection fixtures** reject before reaching the crypto
-  layer, so their placeholder signatures are never resolved: `del-004` /
-  `del-007` (a `chain`-bearing token rejected with
-  `DELEGATION_MULTIHOP_NOT_SUPPORTED`), and `tct-008` / `tct-009` (the
-  AID-derived `alg` pin fails first). `tct-010` is the exception in spirit
-  — it carries a *cryptographically valid* voucher, and the explicit-typing
-  check is what rejects it.
-- Fixture metadata (`status`, `feature`, `required_for_v0_2`) and the
-  vendored schemas track the spec commit pinned in
-  `tests/schemas/SPEC_VERSION`; re-run `scripts/sync-schemas.sh` after
-  the spec commit advances.
-- **P-256 (RFC-AITP-0001 §5.4.3)** now has a dedicated envelope fixture
-  (`env-005`) in addition to the local coverage: the `kat-keypair-005-p256`
-  vector (`tests/schemas/known-answer/keypairs.json`) exercised by
-  `aitp-crypto`'s `p256_keypair_kat_scalar_pubkey_aid_and_signature`;
-  `aitp-tct`'s `p256_subject_round_trip_and_pop`; the pure-Rust OIDC
-  handshakes `oidc_minter_handshake_p256_initiator` / `_p256_responder`;
-  and the cross-language `test_p256_handshake_via_oidc_python_to_node`
-  interop test. On the JWS side, a P-256 issuer AID pins `alg: ES256`
-  (RFC-AITP-0001 §5.4.5) with raw `R || S` signature encoding.
+- **Side-effect assertions.** A fixture's `expected.side_effects` block is
+  checked against the `side_effects` object the adapter reports in its
+  result. A reported value that does not match is a hard failure. A side
+  effect the adapter does not report is skipped as un-instrumented, never
+  counted as a pass. See `assert_side_effects` in
+  `crates/aitp-conformance/src/runner/executor.rs`. The spec's rule is
+  under
+  [Side-effect assertions](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#side-effect-assertions).
+- **Fixture metadata and vendored schemas follow the pin.** That covers
+  `status`, `feature`, `required_for_v0_1` and `required_for_v0_2`, and
+  the schemas under `tests/schemas/`. All of them track the spec commit in
+  `tests/schemas/SPEC_VERSION`. Re-run `scripts/sync-schemas.sh` (or
+  `make schemas-check`) after the pin moves.
+- **P-256 coverage beyond `env-005`:**
+  - `aitp-crypto`'s `p256_keypair_kat_scalar_pubkey_aid_and_signature`
+    tests the `kat-keypair-005-p256` vector in
+    `tests/schemas/known-answer/keypairs.json`.
+  - `aitp-tct`'s `p256_issuer_and_subject_round_trip_and_pop`.
+  - The pure-Rust OIDC handshakes `oidc_minter_handshake_p256_initiator`
+    and `oidc_minter_handshake_p256_responder`.
+  - The cross-language interop test
+    `test_p256_handshake_via_oidc_python_to_node`.
+
+  The JWS rules for a P-256 issuer (`alg: ES256`, raw `R || S` signatures)
+  are in RFC-AITP-0001 §5.4.5.

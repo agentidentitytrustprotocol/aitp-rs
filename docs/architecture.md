@@ -10,15 +10,13 @@ Context Tokens (TCTs), and then invoke each other's capabilities
 under those TCTs.
 
 This workspace tracks **AITP v0.2** (protocol version literal
-`aitp/0.2`). v0.2's headline change: the **portable trust artifacts**
-— the TCT, the new grant voucher, and the delegation token — are now
-[RFC 7515](https://datatracker.ietf.org/doc/html/rfc7515) **compact
-JWS** strings with explicit JOSE typing, verifiable by any off-the-shelf
-JOSE library given only the issuer's public key. The
-**protocol-internal artifacts** (envelopes, manifests, revocation
-snapshots, the session-bundle outer signature, handshake payloads) stay
-on the JCS embedded-signature profile. The two signing profiles are
-laid out in the [boundary table](#the-two-signing-profiles) below.
+`aitp/0.2`). v0.2 signs its artifacts under two profiles: the portable
+trust artifacts (TCT, grant voucher, delegation token) are RFC 7515
+compact JWS, and the protocol-internal artifacts stay on the JCS
+embedded-signature profile. The protocol side of that split is in the
+spec's [architecture overview §2.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/architecture.md#21-two-signing-profiles);
+which `aitp-rs` code implements each profile is in the
+[table below](#the-two-signing-profiles).
 
 This document covers the topology — what the pieces are and how they
 fit — and then the rationale for why the workspace is split the way it
@@ -41,29 +39,19 @@ artifact. Each has its own RFC, JSON Schema, and a crate.
 
 ### The two signing profiles
 
-v0.2 splits the artifacts across **two signing profiles** along one
-axis: does a non-AITP party ever need to verify it?
+The profiles themselves (wire form, signing input, the boundary rule, the
+`alg`/`typ` pinning) are defined in
+[RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md) and explained in
+the spec's [architecture overview §2.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/architecture.md#21-two-signing-profiles)
+and the [Implementer Quickstart](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/implementer-quickstart.md#the-headline-v02-change-two-signing-profiles).
+This is where each one lives in `aitp-rs`:
 
-| Profile | Wire form | Signing input | Artifacts |
-|---|---|---|---|
-| **Compact JWS** (RFC-AITP-0001 §5.4.5) | RFC 7515 compact JWS string `header.payload.signature`, explicit `typ` | The exact transmitted bytes (`ASCII(header.payload)`) — no canonicalization, no reconstruction | TCT (`typ: aitp-tct+jwt`), grant voucher (`typ: aitp-grant+jwt`), delegation token (`typ: aitp-delegation+jwt`) |
-| **JCS embedded-signature** (RFC-AITP-0001 §5.4.1) | JSON object with an inline `signature` field | [JCS](https://datatracker.ietf.org/doc/html/rfc8785) canonicalization of the object minus its `signature` field | Envelope, Manifest, revocation snapshot, session-bundle outer signature, handshake payloads |
+| Profile | Shared machinery | Artifacts and their crates |
+|---|---|---|
+| **Compact JWS** (RFC-AITP-0001 §5.4.5) | `aitp-crypto/src/jws.rs`: strict compact parsing, `alg` derived from the signer's AID, exact `typ` match (`TOKEN_ALG_MISMATCH` / `TOKEN_TYP_MISMATCH`) | TCT and grant voucher: `aitp-tct`. Delegation token: `aitp-delegation` |
+| **JCS embedded-signature** (RFC-AITP-0001 §5.4.1) | `aitp-core/src/jcs.rs` (canonicalization) + `aitp-crypto` (Ed25519 / P-256 signing); see [`jcs.md`](jcs.md) | Envelope: `aitp-envelope`. Manifest: `aitp-manifest`. Revocation snapshot: `aitp-tct/src/revocation.rs`. Session-bundle outer signature: `aitp-session-bundle`. Handshake payloads: `aitp-handshake/src/payloads.rs` |
 
-The split is the point of v0.2. **Portable trust artifacts** — the
-ones that flow between organizations and get parked in logs, headers,
-and audit trails — are compact JWS so a gateway or auditor in another
-language can verify them with a stock JOSE library and the issuer's
-public key. **Protocol-internal artifacts** — the ones only an AITP peer
-ever inspects — stay on JCS, where they already have an `extensions`
-slot and live inside the handshake state machine.
-
-Both profiles pin the signature algorithm to the signer's AID method:
-**EdDSA** (Ed25519) for `aid:pubkey:…` / `aid:pubkey:ed25519:…`, **ES256**
-for `aid:pubkey:p256:…`. On the JWS side the verifier derives the sole
-acceptable `alg` from the issuer's AID and rejects any other value —
-including `alg: none` — with `TOKEN_ALG_MISMATCH`; the `typ` is enforced
-exactly with `TOKEN_TYP_MISMATCH`. There is no algorithm negotiation and
-no header-supplied key material.
+Both profiles support Ed25519 and P-256 (ES256) in every crate above.
 
 ### Debugging a TCT
 
@@ -81,58 +69,54 @@ at all:
   is the RFC 7638 thumbprint of the subject key.
 
 The claims you'll see on a TCT are the registered JWT names
-`ver, jti, iss, sub, aud, iat, exp` plus the private `grants` array and
-the RFC 7800 `cnf: {"jkt": …}` confirmation claim.
+`ver, jti, iss, sub, aud, iat, exp` plus the private `grants` array,
+the RFC 7800 `cnf` confirmation claim (`jkt` member) and an optional
+`ext` object (`TctClaims` in `aitp-tct/src/types.rs`).
 
 ## The four-message handshake
 
-Defined in [RFC-AITP-0004](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md).
-Implemented in [`aitp-handshake`](../crates/aitp-handshake) as two
-state machines, `Initiator` and `Responder`:
+The exchange (`MUTUAL_HELLO`, `MUTUAL_HELLO_ACK`, `MUTUAL_COMMIT`,
+`MUTUAL_COMMIT_ACK`) is defined in
+[RFC-AITP-0004](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md) and walked
+through in the spec's
+[architecture overview §3.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/architecture.md#32-mutual-handshake).
+In `aitp-rs` it is split across three layers:
 
-```
-A (Initiator)                                       B (Responder)
-  │                                                       │
-  │ ── MUTUAL_HELLO        (identity_A, manifest_A)      ────► │
-  │ ◄─ MUTUAL_HELLO_ACK    (identity_B, manifest_B)      ──── │
-  │ ── MUTUAL_COMMIT       (TCT_A_for_B + voucher_A)     ────► │
-  │ ◄─ MUTUAL_COMMIT_ACK   (TCT_B_for_A + voucher_B)     ──── │
-  ▼                                                            ▼
-holds TCT_B (+ voucher_B)                       holds TCT_A (+ voucher_A)
-```
+| Layer | Where | What it does |
+|---|---|---|
+| State machines | `aitp-handshake/src/state_machine.rs` (`Initiator`, `Responder`) | Sync, no I/O. Build and verify each message; identity proofs in `identity_pinned.rs` / `identity_oidc.rs`; issue the peer TCT and grant voucher through `aitp-tct` |
+| HTTP binding | `aitp-transport-http` (`HandshakeServer`, `ManifestFetcher`) | Serve the responder side and fetch the peer Manifest over SSRF-guarded HTTPS |
+| One-call driver | `aitp::facade::run_initiator_handshake` (async) | Runs the initiator side end to end against a peer's handshake endpoint |
 
-Each commit carries the peer-issued TCT **and** its companion grant
-voucher (RFC-AITP-0005 §8), both as opaque compact JWS strings. An issuer
-whose policy forbids the subject from delegating MAY omit the voucher;
-the subject then holds a TCT it can present but cannot delegate.
-
-After the handshake, capability invocation is just a normal
-HTTP/JSON request signed with the holder's key, where the receiver
-verifies the request's TCT against the issuer's revocation list
-before honoring it.
+For the bytes on the wire, see
+[`handshake-transcripts.md`](handshake-transcripts.md).
 
 ## Crate map
 
 ```
-aitp                       facade — re-exports the protocol surface
+aitp                       facade: re-exports the protocol crates + async
+│                          run_initiator_handshake / renew_tct + TctStore
 ├── aitp-core              primitives: Aid, JCS, base64url, Timestamp,
 │                          ExtensionsMap, AitpEnvelope, ErrorCode
 ├── aitp-crypto            Ed25519 (verify_strict) + P-256/ES256
-│                          (canonical low-S) + RSA-2048 floor (OIDC/
-│                          DPoP paths) + JWK thumbprint
-├── aitp-envelope          sign_envelope + verify_envelope_signature —
-│                          sync, no I/O; reused by the language bindings
+│                          (canonical low-S) + compact JWS + JWK thumbprint
 ├── aitp-manifest          ManifestBuilder + verify_manifest
 ├── aitp-tct               TctBuilder + verify_tct + PoP exchange +
-│                          revocation snapshots
+│                          revocation snapshots + renewal (feature-gated)
 ├── aitp-delegation        DelegationBuilder + verify_delegation
+│                          (single-hop; multi-hop chains opt-in at runtime)
 ├── aitp-handshake         Initiator/Responder state machines, OIDC
-│                          and pinned-key identity proofs
+│                          and pinned-key identity proofs, RSA-2048 floor
+│                          on OIDC RSA keys
 ├── aitp-session-bundle    SessionBundleBuilder + verify_session_bundle
-│                          (RFC-0010 draft, opt-in feature)
+│                          (RFC-0010, optional: experimental-session-bundle)
 └── aitp-transport-http    ManifestServer + HandshakeServer (axum) +
-                           ManifestFetcher + JwksFetcher (reqwest)
+                           ManifestFetcher + JwksFetcher (reqwest),
+                           RSA-2048 floor on DPoP keys
 
+aitp-envelope              sign_envelope + verify_envelope_signature —
+                           sync, no I/O; used by aitp-transport-http and
+                           the language bindings, not a facade dependency
 aitp-cli                   `aitp` binary — offline keygen / aid /
                            tct inspect+verify / manifest verify
 aitp-conformance           runner + Adapter trait + SubprocessAdapter
@@ -148,11 +132,27 @@ tools/mint-signed-examples       mint signed artifacts from spec KAT seeds
 tools/mint-conformance-fixtures  walk spec fixtures, substitute placeholders
 ```
 
-The dependency direction is strict: `aitp-core` has no AITP
-dependencies; every other crate depends on it. Protocol crates
-(`manifest`, `tct`, `delegation`, `handshake`) depend on `core` and
-`crypto` only. `aitp-transport-http` is the only crate with
-async/HTTP/network surface; everything below it is sync.
+The tree shows what the facade bundles, not a dependency chain. The
+dependency edges between workspace crates (from each `Cargo.toml`) are:
+
+- `aitp-core` depends on no other AITP crate.
+- `aitp-crypto` depends on `core`.
+- `aitp-manifest`, `aitp-tct` and `aitp-envelope` depend on `core` +
+  `crypto`.
+- `aitp-delegation` and `aitp-session-bundle` depend on `core` + `crypto`
+  + `tct`.
+- `aitp-handshake` depends on `core` + `crypto` + `manifest` + `tct`.
+- `aitp-transport-http` depends on `core` + `crypto` + `envelope` +
+  `manifest` + `handshake` + `tct`, plus `session-bundle` when its
+  `experimental-session-bundle` feature is on. It does not depend on
+  `aitp-delegation`.
+- `aitp` (the facade) depends on every protocol crate and on
+  `aitp-transport-http`; `aitp-session-bundle` is optional. It reaches
+  `aitp-envelope` only through `aitp-transport-http`.
+
+The protocol crates are sync. Async code lives in `aitp-transport-http`
+(behind its `client` / `server` features) and in the facade's
+`run_initiator_handshake` and `renew_tct`.
 
 ## Why the workspace is split this way
 
@@ -173,9 +173,9 @@ the minimum split that does:
 - **`aitp-core` has no crypto.** Wire types, JCS, base64url, AID parsing —
   importable by anything that handles AITP data (storage, logging,
   analysis) without inheriting an Ed25519 dependency.
-- **`aitp-crypto` has no protocol.** It wraps `ed25519-dalek` with AITP
-  key handling and the JWK thumbprint; it does not know what a Manifest or
-  TCT is.
+- **`aitp-crypto` has no protocol.** It wraps `ed25519-dalek` and `p256`
+  with AITP key handling, implements the compact-JWS profile and the JWK
+  thumbprint; it does not know what a Manifest or TCT is.
 - **`aitp-envelope` is the sync envelope codec.** `sign_envelope` /
   `verify_envelope_signature` depend only on `core` + `crypto` — no HTTP,
   no async. It was split out of `aitp-transport-http` precisely so the
@@ -187,23 +187,52 @@ the minimum split that does:
   compile the state machine. `aitp-handshake` depends on `tct` +
   `manifest` — it issues TCTs and verifies Manifests, so that direction is
   correct.
-- **`aitp-transport-http` is feature-gated and the only async crate.** Its
+- **`aitp-transport-http` is feature-gated and is where the HTTP lives.** Its
   `client` feature pulls `reqwest`, `server` pulls `axum`. No protocol
   crate depends on it, so a consumer on a different transport (gRPC,
   MessagePack) can implement just the wire layer and reuse every protocol
   crate.
-- **`aitp` (the facade) re-exports the protocol crates** plus a `prelude` —
-  this is what most users depend on.
+- **`aitp` (the facade) re-exports the protocol crates** plus a `prelude`,
+  and adds the async `run_initiator_handshake` helper (plus `renew_tct` behind `experimental-renewal`)
+  (`facade` module, `http-client` feature, on by default). This is what
+  most users depend on. A TCT-only consumer depends on `aitp-tct` +
+  `aitp-crypto` instead.
 - **`aitp-conformance` and `aitp-rs-adapter` stay separate.** The runner is
   language-agnostic; the adapter is `aitp-rs`-specific. Keeping them apart
   lets future-language adapters live alongside the Rust one.
 
 ### Async story
 
-The protocol crates are sync; only `aitp-transport-http` is async (because
-`reqwest` / `axum` are). This keeps TCT verification callable from sync
-codebases and from non-Rust runtimes via FFI, and leaves room to add async
-wrappers in the facade later without changing the protocol crates.
+The protocol crates are sync. Async code lives in `aitp-transport-http`
+(because `reqwest` / `axum` are) and in the facade's
+`run_initiator_handshake` and `renew_tct`, which drive it. This keeps TCT
+verification callable from sync codebases and from non-Rust runtimes via
+FFI: the language bindings depend on the protocol crates directly, not on
+the facade.
+
+## Why multi-hop delegation is unreachable by default
+
+Until a verifier opts into RFC-AITP-0011, the multi-hop guard in
+[RFC-AITP-0006 §4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md) requires it to
+reject any delegation token carrying a `chain` claim with
+`DELEGATION_MULTIHOP_NOT_SUPPORTED`. A chain also widens what the verifier
+must get right: per-hop signatures, issuer/subject continuity, transitive
+scope subsetting, `chain_hash` truncation defence, per-hop revocation and a
+hop limit against verification DoS
+([RFC-AITP-0011 §9](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md)).
+The grant voucher inside `chain[0]` also discloses the root grant
+profile to every later hop. A deployment that never asked for chains should not carry that surface.
+
+So the multi-hop code is always compiled, but nothing reaches it without an
+explicit call. `VerifyDelegationContext::new` sets
+`max_delegation_hops = 0`, and in that state `verify_delegation` rejects a
+`chain` claim before any per-hop processing. It also rejects the
+multi-hop-only `jti` claim (`aitp-delegation/src/verifier.rs`). Only
+`with_max_delegation_hops(n)` with `n > 0` enables chain verification. The
+language bindings follow the same rule: `verify_delegation` /
+`verifyDelegation` stays strict,
+and chains need the separate `verify_delegation_multihop` /
+`verifyDelegationMultihop` call. Details: [`multihop-delegation.md`](multihop-delegation.md).
 
 ## Workspace conventions
 
@@ -217,28 +246,35 @@ wrappers in the facade later without changing the protocol crates.
   pulled in `ordered-float` 5.5.0; `cargo msrv verify` gates it in CI.
 - **Dual MIT OR Apache-2.0** — standard Rust convention (same as `tokio`,
   `serde`, `tower`), friendlier to enterprise adoption than either alone.
-- **`#![forbid(unsafe_code)]`** on every workspace crate (the binding
-  crates omit it — the PyO3 / NAPI-rs export macros expand to `unsafe`
-  glue) and **`#![warn(missing_docs)]`** on public crates.
+- **`#![forbid(unsafe_code)]`** on every library root under `crates/`
+  (`src/lib.rs`). It is **not** set on the separate binary roots
+  `crates/aitp-cli/src/main.rs`, `crates/aitp-conformance/src/main.rs` and
+  `crates/aitp-rs-adapter/src/main.rs`, on `examples/two-agents` (library
+  and bins), or on the `tools/*` binaries. The binding crates omit it on
+  purpose: the PyO3 / NAPI-rs export macros expand to `unsafe` glue.
+  **`#![warn(missing_docs)]`** is set on the protocol crates and the
+  facade.
 
 ## What's anchored to the spec, not just self-consistent
 
 A common failure mode for early protocol implementations is
 "works against itself, fails against any other implementation."
-Four test families pin `aitp-rs` against spec-published reference
+Five test families pin `aitp-rs` against spec-published reference
 values rather than its own output:
 
 - **Keypair derivation** (`crates/aitp-crypto/tests/kat.rs`) —
-  seed → pubkey → AID for three pinned keypairs
+  seed → pubkey → AID for every pinned keypair (Ed25519 and P-256)
 - **JWK thumbprints** (same file) — RFC 7638 thumbprints for the
-  three pinned keypairs (also the `cnf.jkt` value on a v0.2 TCT)
+  pinned keypairs (also the `cnf.jkt` value on a v0.2 TCT)
 - **JCS + SHA-256** (`crates/aitp-core/tests/kat.rs`) — canonical
   bytes and SHA-256 digest of the **JCS-profile** artifacts (Manifest,
-  revocation snapshot). The v0.1 TCT and delegation JCS vectors are
+  revocation snapshot, session bundle). The v0.1 TCT and delegation JCS vectors are
   retired with the move to compact JWS.
-- **Compact-JWS vectors** (`known-answer/signed-examples/`) — the pinned
-  TCT, grant voucher, and delegation tokens; verified over their exact
-  transmitted bytes, not reconstructed.
+- **Compact-JWS vectors** (`tests/schemas/known-answer/signed-examples/`,
+  checked by `crates/aitp-crypto/tests/jws_kat.rs` and
+  `crates/aitp-tct/tests/kat.rs`) — the pinned TCT, grant voucher, and
+  delegation tokens; verified over their exact transmitted bytes, not
+  reconstructed.
 - **Revocation snapshot** (`crates/aitp-tct/src/revocation.rs::rfc_kat_canonical_bytes_match`)
   — canonical bytes byte-for-byte against `kat-revocation-001`
 
@@ -313,7 +349,8 @@ bindings and runs that suite.
   exchange, byte by byte
 - [`session-bundle.md`](session-bundle.md),
   [`multihop-delegation.md`](multihop-delegation.md),
-  [`tct-renewal.md`](tct-renewal.md) — the draft, opt-in extensions
+  [`tct-renewal.md`](tct-renewal.md) — the opt-in extensions (RFC-0010 and
+  RFC-0011 are Draft, RFC-0013 is Planned)
 - [`sdk-python.md`](sdk-python.md) / [`sdk-node.md`](sdk-node.md) and
   [`transport-hardening.md`](transport-hardening.md) — SDK guides and the
   HTTP-transport hardening register

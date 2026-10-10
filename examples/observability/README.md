@@ -29,14 +29,14 @@ into traces/metrics.
 
 ## First-class metrics (`metrics` feature)
 
-Beyond the tracing events above, `aitp-transport-http` emits counters at
+Alongside the tracing events below, `aitp-transport-http` emits counters at
 the operational trust-decision points when built with the `metrics`
 feature. They route through the [`metrics`](https://docs.rs/metrics)
 facade — zero-cost until you install a recorder in your binary:
 
-```toml
-aitp-transport-http = { version = "0.4", features = ["server", "metrics"] }
-metrics-exporter-prometheus = "0.16"
+```bash
+cargo add aitp-transport-http --features server,metrics
+cargo add metrics-exporter-prometheus
 ```
 
 ```rust
@@ -70,7 +70,7 @@ means consumers are seeing snapshots past `max_staleness_secs`).
 |---|---|---|
 | `fetch` | `aitp-transport-http::client` (`ManifestFetcher::fetch`) | `origin` |
 | `resolve` | `aitp-transport-http::client` (`JwksFetcher::resolve`) | `issuer` |
-| `handle_renew` | `aitp-transport-http::server` | (request-scoped) |
+| `handle_renew` | `aitp-transport-http::server` (only with the `experimental-renewal` feature) | (request-scoped) |
 
 Add `aid`, `session_id`, `message_id` as span fields on outer
 caller spans for end-to-end traceability.
@@ -95,6 +95,8 @@ as a Grafana / Datadog log query.
 |---|---|---|
 | `JWKS resolved` | `issuer`, `source = cache \| pinned_store \| network` | `key_resolution.rs` |
 | `JWKS resolved (after lock)` | `issuer`, `source = cache` | `key_resolution.rs` |
+| `JWKS resolved (async)` | `issuer`, `source = cache \| pinned_store \| network` | `key_resolution.rs` |
+| `JWKS resolution suppressed` (also `(after lock)`, `(async)` variants) | `issuer`, `source = negative_cache` | `key_resolution.rs` |
 | `JWKS kid miss; invalidating discovery cache and refetching` | `kid`, `issuer` | `client.rs::resolve_with_kid_hint` |
 | `skipping malformed root CA PEM` | `error` | `client_config.rs` |
 
@@ -132,19 +134,23 @@ as a Grafana / Datadog log query.
 
 The companion `grafana-dashboard.json` defines:
 
-1. **Error envelope rate by code** — `count_over_time({target="aitp.error.envelope"}[5m])` grouped by `code`.
-2. **Revocation outcome split** — log query on `outcome` field.
-3. **JWKS resolution source** — split between `cache`, `pinned_store`, `network` reveals cache effectiveness.
-4. **Manifest cache hit ratio** — `count(message="manifest cache hit") / (hit + miss)`.
-5. **Handshake state-transition latency** — derive from span durations on `fetch` + `resolve`.
-6. **Retry pressure** — count of `manifest fetch transient error; retrying`.
+1. **AITP error envelope rate (by code)**: `rate({target="aitp.error.envelope"} [1m])` summed by `code`.
+2. **Revocation outcomes**: rate of `revocation check` log lines, split by the `outcome` field.
+3. **JWKS resolution source split**: `JWKS resolved` lines by `source` (`cache`, `pinned_store`, `network`), which shows cache effectiveness.
+4. **Manifest cache hit ratio**: `manifest cache hit` / (`hit` + `miss`).
+5. **Manifest fetch retry pressure**: rate of `manifest fetch transient error; retrying`, by `attempt`.
+6. **Handshake completions**: rate of the `Initiator: AwaitingCommitAck → Done` and `Responder: AwaitingCommit → Done` state-transition lines.
+7. **Expired handshake sessions swept**: the `evicted` count from `swept expired handshake sessions`.
+
+Handshake latency has no panel. You can derive it from the `fetch` and
+`resolve` span durations.
 
 ## Cardinality guidance
 
 `session_id` and `message_id` are UUIDv4s — never use them as label
 keys in Prometheus/metrics. They're fine in log/trace fields. Use
-`code` (32 fixed strings), `outcome` (3 values), and `source` (3
-values) for label-cardinality-bounded metrics.
+`code` (the fixed `ErrorCode` set — see the [error-code registry](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/registries/error-codes.md)), `outcome` (3 values), and `source` (4
+values: `cache`, `pinned_store`, `network`, `negative_cache`) for label-cardinality-bounded metrics.
 
 ## Server request limits
 
@@ -176,7 +182,7 @@ revoked JTIs); 256 KiB is a reasonable ceiling.
 
 ### Header limit (hyper-builder level)
 
-axum 0.7 does not expose a knob for the header buffer; it inherits
+axum 0.8 does not expose a knob for the header buffer; it inherits
 hyper's defaults. To cap headers, drop down to `hyper-util` and
 launch each connection through a configured
 `hyper::server::conn::http1::Builder`:

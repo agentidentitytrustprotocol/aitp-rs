@@ -4,12 +4,19 @@
 
 | Version | Supported |
 |---|---|
-| 0.4.x | ✅ Active security fixes |
-| < 0.4.0 | ❌ End of life |
+| Latest released minor line (0.13.x at the time of writing; the workspace version is in `Cargo.toml`) | ✅ Active security fixes |
+| Earlier minor lines | ❌ Not patched — upgrade to the latest minor |
+
+All published crates ship in lockstep at one shared version, so "the
+latest minor line" means the same thing for every crate. While the project
+is pre-1.0, a breaking change bumps the minor digit (for example 0.12 →
+0.13), and security fixes ship as a patch release on the latest minor line
+only. Releases are listed on the
+[GitHub releases page](https://github.com/agentidentitytrustprotocol/aitp-rs/releases).
 
 Language SDKs (`@agentidentitytrustprotocol/aitp` on npm, `aitp-sdk` on
-PyPI) follow the same policy: the latest published minor line receives
-security fixes.
+PyPI) are versioned in lockstep with the crates and follow the same policy:
+the latest published minor line receives security fixes.
 
 ## Reporting a vulnerability
 
@@ -30,7 +37,11 @@ decisions, signature handling, or cryptographic verification.
 - Key handling; memory hygiene of secret material (`AitpSigningKey`
   zeroizes its secret scalar on drop and redacts it from `Debug`)
 - Replay, downgrade, or audience-confusion attacks against handshake, TCT
-  verification, or delegation flows (single- and multi-hop)
+  verification, or single-hop delegation flows
+- Any way to get a multi-hop delegation `chain` accepted while
+  `max_delegation_hops` is at its default of 0 (the strict default must
+  reject every chained token; see
+  [`docs/multihop-delegation.md`](docs/multihop-delegation.md))
 - Parser denial-of-service in any AITP protocol message
 - Policy bypass in revocation, soft-fail grant restriction, or trust-mode enforcement
 - The language SDK bindings (`bindings/aitp-node`, `bindings/aitp-py`)
@@ -41,6 +52,6 @@ decisions, signature handling, or cryptographic verification.
 - Denial-of-service requiring transport-layer control below `aitp-transport-http`
 - Third-party dependency issues — report those upstream
 - Feature-gated draft-RFC surfaces (`experimental-renewal`,
-  `experimental-session-bundle`) and multi-hop delegation enabled via
-  `max_delegation_hops > 0` — reports welcome, but no patching SLA until the
+  `experimental-session-bundle`) and multi-hop delegation once a caller has
+  opted in with `max_delegation_hops > 0` — reports welcome, but no patching SLA until the
   corresponding RFCs leave Draft

@@ -41,13 +41,13 @@ that governs it.
 | Doc | Topic | Normative spec |
 |---|---|---|
 | [`architecture.md`](architecture.md) | Topology, crate map, workspace-split rationale, sync/async boundary, MSRV | — (build rationale) |
-| [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, conformance, bindings, interop, e2e) + how to run each | — (test rationale) |
+| [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, WASM, conformance, xcheck, bindings, interop, e2e) + how to run each | — (test rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
-| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, and the v0.2 fixture matrix | spec `schemas/conformance/` |
-| [`handshake-transcripts.md`](handshake-transcripts.md) | Reproducible four-message byte transcript | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
-| [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (draft, opt-in) | RFC-AITP-0010 |
-| [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (draft, opt-in) | RFC-AITP-0011 |
-| [`tct-renewal.md`](tct-renewal.md) | Shortened TCT renewal (draft, opt-in) | RFC-AITP-0013, RFC-AITP-0004 §8.1 |
+| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, the v0.2 fixture matrix (the only page with fixture counts) and the gate caveat | spec `schemas/conformance/` |
+| [`handshake-transcripts.md`](handshake-transcripts.md) | Four-message handshake shapes and where `aitp-rs` builds each signing input | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
+| [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (RFC Draft; opt-in feature) | RFC-AITP-0010 |
+| [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (RFC Draft; runtime opt-in) | RFC-AITP-0011 |
+| [`tct-renewal.md`](tct-renewal.md) | Shortened TCT renewal (RFC Planned, implementation ahead of spec; opt-in feature) | RFC-AITP-0013, RFC-AITP-0004 §8.1 |
 | [`sdk-python.md`](sdk-python.md) · [`sdk-node.md`](sdk-node.md) | Per-language SDK feature guides | per-feature, cited inline |
 | [`transport-hardening.md`](transport-hardening.md) | `aitp-transport-http` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
 | [`deployment.md`](deployment.md) | Where state lives; multi-node/clustering (shared `ReplayGuard` vs sticky routing); production hardening checklist | RFC-AITP-0001 §5.5, RFC-AITP-0008/0009 |
@@ -58,7 +58,8 @@ that governs it.
 For the protocol itself — and for non-normative *protocol-level* guides
 this repo intentionally does not duplicate:
 
-- [AITP RFC index](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md) — the normative RFCs, in dependency order
+- [AITP RFC index](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md) — the normative RFCs, in dependency order, with each RFC's status
+- [Ecosystem map](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/ecosystem.md) — the sibling repositories and what each one owns
 - [Implementer Quickstart](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/implementer-quickstart.md) — reading order for building a peer
 - [Integration Guide](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/integration-guide.md) — consuming a peer-issued TCT
 - [Architecture (non-normative)](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/architecture.md) · [Threat Model](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/threat-model.md) · [Operational Guidance](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md) · [Glossary](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/GLOSSARY.md)

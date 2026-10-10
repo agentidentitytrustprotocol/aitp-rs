@@ -29,4 +29,7 @@ binaries, what each demonstrates, and where to look in the code.
 - **Fine-grained control** — drive `aitp::handshake::{Initiator,
   Responder}` directly, as `oidc-demo` does.
 - **Verify-only** (you already hold a TCT) — depend on `aitp-tct` +
-  `aitp-crypto` alone and call `aitp::tct::verify_tct`.
+  `aitp-core` alone and call `aitp_tct::verify_tct` with an
+  `aitp_tct::TctVerifyContext` (built with `TctVerifyContext::builder(&aud, &iss, now)…build()`), which takes `aitp_core::Aid` and
+  `aitp_core::Timestamp` values. (Through the facade the same function is
+  `aitp::tct::verify_tct`.)

@@ -189,3 +189,11 @@
   cross-verified at all. Fixed by adding two manifest vectors (no
   extensions, populated extensions — not the unreachable `Some(empty)`
   case) to `xcheck_mint.rs`/`xcheck-verify.py`.
+
+## docs refresh (post-0.13): decisions D1–D6
+- **Plan:** plans/docs-refresh.md
+- **Assumed:** docs-only PR; spec pin stays `ea22c71`; root CHANGELOG is hand-maintained (release-plz writes per-crate changelogs only).
+- **Chose:** D1 CHANGELOG additions only, rotation tracked in #201. D2 docs checker is a non-required CI job. D3 pin not bumped (docs describe the pin; bump is a separate code PR, branch `deps/spec-ab7f67cb80bb`). D4 one PR. D5 tracked `PROGRESS.md` overwritten, this file appended. D6 SDK doc samples become executable tests.
+- **Alternatives:** rotate CHANGELOG now; bump pin in the same PR; several PRs; required CI gate for the checker.
+- **Blast radius if wrong:** docs-only, reverted with the PR; D2 can be flipped to required in a one-line branch-protection change.
+- **Status:** UNCONFIRMED

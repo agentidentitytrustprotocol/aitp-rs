@@ -3,14 +3,24 @@
 Python bindings for the **Agent Identity & Trust Protocol (AITP)**, built on
 the pure-Rust `aitp-rs` protocol crates via [PyO3](https://pyo3.rs).
 
-A thin SDK: an `AitpAgent` plus initiator/responder session objects whose
-methods take and return JSON strings — the HTTP request/response bodies — so
-agent code never handles a Rust type across the FFI boundary.
+A thin SDK: an `AitpAgent` plus initiator/responder session objects. Their
+methods take and return strings: JSON for the HTTP request/response bodies,
+and compact-JWS strings for TCTs, grant vouchers and delegation tokens. Agent
+code never handles a Rust type across the FFI boundary.
 
-## Build
+The feature-by-feature guide, with an example for every capability, is
+[`docs/sdk-python.md`](../../docs/sdk-python.md).
+
+## Install
+
+```bash
+pip install aitp-sdk      # PyPI distribution name; the import name is `aitp`
+```
+
+## Build from source
 
 This crate is **not** part of the `aitp-rs` Cargo workspace. Build it with
-[maturin](https://github.com/PyO3/maturin):
+[maturin](https://github.com/PyO3/maturin) and a Rust toolchain:
 
 ```bash
 pip install maturin
@@ -20,26 +30,30 @@ maturin develop --no-default-features    # minimal wheel (core surface only)
 
 ### Cargo features
 
-The published wheel ships the **full** capability surface by default —
-handshake, TCT, delegation, manifest verify, revocation-list signing, OIDC
-identity, **plus** TCT renewal, session bundles, SPKI pinning, and multi-hop
-delegation. Each capability is a named feature (all on by default) so a
-minimal wheel can opt out with `--no-default-features`:
+By default the published wheel ships the **full** capability surface:
+
+- handshake, TCT, delegation, manifest verification and OIDC identity
+- revocation-list signing and verification
+- TCT renewal, session bundles, SPKI pinning and multi-hop delegation
+
+Each capability below is a named feature, all on by default. A minimal wheel
+can opt out with `--no-default-features`:
 
 | Feature               | Enables                                                            | RFC                  |
 |-----------------------|--------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0013    |
-| `session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010        |
+| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0013 (Planned) |
+| `session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010 (Draft) |
 | `spki-pinning`        | `compute_spki_hash`, `SpkiPinVerifier`                             | HPKP (RFC 7469)      |
-| `multihop-delegation` | `verify_delegation_multihop`                                       | RFC-AITP-0011        |
+| `multihop-delegation` | `verify_delegation_multihop`                                       | RFC-AITP-0011 (Draft) |
 
-Capabilities whose underlying RFC has not yet graduated do not promise wire
-stability across binding versions — pin a specific version if you depend on
-them.
+Capabilities whose RFC has not graduated make no wire-stability promise
+across binding versions. If you depend on them, pin a specific version.
 
 ## Usage
 
 ```python
+import json
+
 import aitp
 
 initiator = aitp.AitpAgent.generate()
@@ -63,82 +77,65 @@ rsess = responder.new_responder()
 hello                 = sess.build_hello(resp_manifest, ["demo.write"])
 hello_ack, session_id = rsess.process_hello(hello)
 commit                = sess.process_hello_ack(hello_ack, session_id)
-commit_ack, held_tct  = rsess.process_commit(commit)
-initiator_held_tct    = sess.complete(commit_ack)
+commit_ack, responder_held = rsess.process_commit(commit)  # JSON: TCT the initiator issued the responder
+held = json.loads(sess.complete(commit_ack))  # JSON string: {"tct": ..., "grant_voucher": ...}
 
 # Each peer now holds a TCT the other issued it.
-ident = initiator.verify_tct(initiator_held_tct, "demo.write")
+ident = initiator.verify_tct(held["tct"], "demo.write")
 print(ident.peer_aid, ident.grants)
 ```
 
-In a real deployment each message moves over HTTP: `build_hello` returns the
-`POST /aitp/handshake/hello` body, `process_hello` returns the response body
-plus the value for the `X-Aitp-Session-Id` header, and so on.
+In a real deployment each message moves over HTTP. `build_hello` returns the
+body for `POST /aitp/handshake/hello`. `process_hello` returns the response
+body plus the value for the `X-Aitp-Session-Id` header, and so on.
 
 ## API
 
-The full public surface is described in [`aitp.pyi`](aitp.pyi); below is a
-summary. All `*_json` parameters and return values are JSON strings (the
-on-wire HTTP request/response bodies).
+[`aitp.pyi`](aitp.pyi) describes the full public surface; the table below
+summarizes it. All `*_json` parameters and return values are JSON strings.
 
-| Type                  | Default? | Notes                                                                                   |
-|-----------------------|:--------:|-----------------------------------------------------------------------------------------|
-| `AitpAgent`           |    ✅    | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(...)`, `new_responder(...)`, `verify_tct(...)`, `build_delegation(...)`, `issue_tct_for_delegatee(...)`, `sign_revocation_list(...)` |
-| `InitiatorSession`    |    ✅    | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` |
-| `ResponderSession`    |    ✅    | `process_hello(hello, oidc_mint_jwt=None)`, `process_commit(...)`                       |
-| `TctIdentity`         |    ✅    | `peer_aid`, `grants`, `expires_at`, `jti`                                               |
-| `DelegationVerified`  |    ✅    | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf`                    |
-| `JwksProvider`        |    ✅    | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()`                    |
-| `TctStore` / `verify_tct_cached()` | ✅ | Hot-path verify cache: skips the signature check for a byte-identical, still-valid TCT (keyed by SHA-256 of the token bytes) |
-| `verify_delegation()` |    ✅    | RFC-AITP-0006 — strict single-hop; rejects any multi-hop `chain`                        |
-| `verify_manifest_json()` | ✅    | Control-plane manifest enrollment                                                       |
-| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 |
-| `SessionBundleBuilder`, `verify_session_bundle()`                 | `session-bundle`  | RFC-AITP-0010 |
-| `compute_spki_hash()`, `SpkiPinVerifier`                          | `spki-pinning` | HPKP-style outbound pinning |
-| `verify_delegation_multihop()`                       | `multihop-delegation` | RFC-AITP-0011 (draft) multi-hop opt-in |
+| Type / function       | Feature | Notes |
+|-----------------------|:-------:|-------|
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None)`, `new_responder(jwks=None, trust_anchors=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns JSON), `sign_revocation_list(...)` |
+| `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
+| `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
+| `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
+| `DelegationVerified`  | default | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf` |
+| `JwksProvider`        | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
+| `TctStore`            | default | Cache for `AitpAgent.verify_tct_cached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
+| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Takes `revoked_jtis` |
+| `verify_manifest_json()` / `ManifestVerificationError` | default | Raises `ManifestVerificationError` with `.code`; non-manifest input raises `ValueError` |
+| `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
+| `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
+| `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
+| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `process_renewal_request` returns JSON |
+| `SessionBundleBuilder`, `verify_session_bundle()` | `session-bundle` | RFC-AITP-0010 |
+| `compute_spki_hash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
+| `verify_delegation_multihop()` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
-### OIDC identity (RFC-AITP-0002)
+The Python and Node bindings differ in some return shapes and argument
+names; see
+[Python vs Node differences](../../docs/sdk-python.md#python-vs-node-differences).
 
-```python
-import aitp
+### OIDC identity and P-256
 
-jwks = aitp.JwksProvider({"https://idp.example/": [{"kty": "OKP", ...}]})
+See [OIDC identity](../../docs/sdk-python.md#oidc-identity-rfc-aitp-0002) and
+[P-256 signing suite](../../docs/sdk-python.md#p-256-signing-suite-rfc-aitp-0001-543).
 
-agent = aitp.AitpAgent.generate()
-agent.build_manifest(
-    display_name="alice",
-    handshake_endpoint="https://alice.example/aitp/handshake/",
-    offered_caps=["demo.echo"],
-    identity_type="oidc",
-    oidc_issuer="https://idp.example/",
-    oidc_subject="alice",
-)
-sess = agent.new_session(jwks=jwks)
-
-def mint(nonce: str) -> str:
-    return my_idp.mint_jwt(nonce=nonce, sub="alice", aud=peer_aid, ...)
-
-hello = sess.build_hello(peer_manifest, ["demo.echo"], oidc_mint_jwt=mint)
-```
-
-### P-256 signing (RFC-AITP-0001 §5.4.3)
-
-```python
-agent = aitp.AitpAgent.generate(suite="p256")  # aid:pubkey:p256:<44>
-# All other methods identical; signatures are emitted as `p256.<86b64u>`.
-```
-
-> **Note.** In v0.1 the `pinned_key` identity_hint embeds an Ed25519 raw
-> public key. P-256 agents must therefore use `identity_type="oidc"` until
-> the manifest's identity_hint shape is extended.
+`pinned_key` identities are Ed25519-only **in this SDK**. The v0.2 manifest
+schema itself accepts a P-256 `public_key`, but `build_manifest` cannot emit
+one. P-256 agents must therefore use `identity_type="oidc"`.
 
 ## Tests
 
 ```bash
+pip install maturin pytest httpx 'pyjwt[crypto]' cryptography
 maturin develop
-pip install pytest
-pytest
+pytest tests/
 ```
 
+`tests/test_docs_samples.py` runs every Python block in
+[`docs/sdk-python.md`](../../docs/sdk-python.md) and the Usage block above.
+
 The cross-language interop suite (Python ↔ Node) lives in
-[`../interop`](../interop) — run it with `make interop` from the repo root.
+[`../interop`](../interop). Run it with `make interop` from the repo root.
