@@ -42,3 +42,4 @@ Code truth:
 - `Makefile` (`ci`, `check-versions`, `schemas-check`), `scripts/`, `.github/workflows/ci.yml` (conformance expectations ~420, xcheck 430, e2e 509), `.gitignore:69` (`plans/` ignored)
 
 Siblings (link targets, read-only): `../agentidentitytrustprotocol/{rfcs,docs,registries,schemas/conformance}`, `../aitp-verifier-py`, `../aitp-playground/docs/aitp-integration.md` (inbound anchors), `../aitp-website/scripts/sync-content.sh` (republishes SDK pages), `../aitp-docs/kb`.
+- pushed docs/refresh-post-0.13 50a5d50
