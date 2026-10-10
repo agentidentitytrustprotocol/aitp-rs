@@ -43,3 +43,4 @@ Code truth:
 
 Siblings (link targets, read-only): `../agentidentitytrustprotocol/{rfcs,docs,registries,schemas/conformance}`, `../aitp-verifier-py`, `../aitp-playground/docs/aitp-integration.md` (inbound anchors), `../aitp-website/scripts/sync-content.sh` (republishes SDK pages), `../aitp-docs/kb`.
 - pushed docs/refresh-post-0.13 50a5d50
+- PR #203 opened: https://github.com/agentidentitytrustprotocol/aitp-rs/pull/203
