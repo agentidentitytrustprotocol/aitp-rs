@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.14.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-manifest-v0.13.2...aitp-manifest-v0.14.0) - 2026-10-17
+
+### Added
+
+- [**breaking**] 0.14.0 — P-256 single hash, pluggable signers, pinned-key trust store and admission (spec #72) ([#207](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/207))
+
 ## [0.13.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-manifest-v0.13.0...aitp-manifest-v0.13.1) - 2026-09-25
 
 ### Fixed
