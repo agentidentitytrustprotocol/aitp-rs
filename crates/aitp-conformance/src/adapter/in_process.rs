@@ -194,7 +194,6 @@ mod tests {
             } => panic!("generate_keypair failed: {error_code} {message}"),
         };
         let issuer_handle = kp["handle"].as_str().unwrap().to_string();
-        let issuer_aid = kp["aid"].as_str().unwrap().to_string();
         let issuer_pubkey = kp["public_key"].as_str().unwrap().to_string();
 
         // 2. Issue a Manifest using that keypair.
@@ -225,15 +224,33 @@ mod tests {
         };
         assert!(manifest["manifest_envelope"]["manifest"].is_object());
 
-        // 3. Issue a TCT under the same keypair, audience == issuer.
+        // 3. Issue a TCT under that keypair for a second agent. A
+        // self-issued (iss == sub) TCT is an attestation and is refused in
+        // a grant context (RFC-AITP-0005 §5.3, proposal #72 Item 5).
+        let subject = match a
+            .execute(
+                "generate_keypair",
+                json!({"seed": "AQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQEBAQE"}),
+            )
+            .unwrap()
+        {
+            OpResult::Ok { result, .. } => result,
+            OpResult::Err {
+                error_code,
+                message,
+                ..
+            } => panic!("generate_keypair failed: {error_code} {message}"),
+        };
+        let subject_aid = subject["aid"].as_str().unwrap().to_string();
+        let subject_pubkey = subject["public_key"].as_str().unwrap().to_string();
         let tct = match a
             .execute(
                 "issue_tct",
                 json!({
                     "issuer_keypair": issuer_handle,
-                    "subject": issuer_aid,
-                    "audience": issuer_aid,
-                    "subject_public_key": issuer_pubkey,
+                    "subject": subject_aid,
+                    "audience": subject_aid,
+                    "subject_public_key": subject_pubkey,
                     "grants": ["demo.echo"],
                     "ttl_secs": 600,
                 }),
@@ -259,7 +276,7 @@ mod tests {
                 "verify_tct",
                 json!({
                     "tct_token": tct["tct_token"].clone(),
-                    "expected_audience": issuer_aid,
+                    "expected_audience": subject_aid,
                 }),
             )
             .unwrap()

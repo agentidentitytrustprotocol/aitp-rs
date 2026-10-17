@@ -22,6 +22,7 @@ pub mod base64url;
 pub mod envelope;
 pub mod error;
 pub mod extensions;
+pub mod ids;
 pub mod jcs;
 pub mod raw_url;
 pub mod time;

@@ -45,7 +45,11 @@ pub struct AitpEnvelope {
     pub message_type: MessageType,
 
     /// UUID v4 (hyphenated lowercase). Used for replay-prevention
-    /// deduplication.
+    /// deduplication. Deserialization enforces the strict v4 wire form
+    /// (proposal #72 Item 6b); anything else is a malformed envelope
+    /// (`INVALID_ENVELOPE`). It MAY be derived per
+    /// [`crate::ids::derived_v4`].
+    #[serde(with = "crate::ids::serde_v4")]
     pub message_id: Uuid,
 
     /// Unix timestamp in seconds.
@@ -482,6 +486,28 @@ mod tests {
         let payload2 = json!({"n": 1, "foo": "bar"});
         let d3 = envelope_signing_digest(&mid, Timestamp(1), &aid, &payload2).unwrap();
         assert_eq!(d1, d3);
+    }
+
+    #[test]
+    fn non_v4_message_id_is_malformed() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        assert!(parse_envelope_wire(&good).is_ok());
+        for bad in [
+            "01890a5d-ac96-774b-bcce-b302099a8057",
+            "770e8400-e29b-41d4-c716-446655440702",
+            "770E8400-E29B-41D4-A716-446655440702",
+            "770e8400e29b41d4a716446655440702",
+        ] {
+            let mut v = good.clone();
+            v["message_id"] = serde_json::json!(bad);
+            assert!(
+                matches!(
+                    parse_envelope_wire(&v),
+                    Err(EnvelopeParseError::Malformed(_))
+                ),
+                "{bad}"
+            );
+        }
     }
 
     #[test]

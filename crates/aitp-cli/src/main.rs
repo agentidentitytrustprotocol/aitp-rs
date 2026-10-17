@@ -191,7 +191,11 @@ fn tct_verify(
     // Offline verify: signature + claim structure. No revocation source
     // or issuer Manifest is available to a CLI, so those checks are
     // explicitly skipped (permissive) — the signature is the gate.
-    let ctx = TctVerifyContext::permissive_at(&audience, &issuer, now);
+    let ctx = TctVerifyContext::builder(&audience, &issuer, now)
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .expect("both decisions are made");
     let verified = verify_tct(token, &ctx)?;
     println!("OK: TCT verifies under issuer {issuer}");
     println!("{}", serde_json::to_string_pretty(&verified.claims)?);

@@ -32,6 +32,10 @@ use uuid::Uuid;
 /// `envelope.timestamp`). Caller MUST pass the same `(mid, ts)` it used
 /// to build the identity proof inside `payload`.
 ///
+/// `message_id` MUST be in the UUID v4 layout (random, or derived per
+/// [`aitp_core::ids::derived_v4`]); anything else is refused before the
+/// backend is called.
+///
 /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
 /// failure is returned as `Err("signing backend failed: ...")`.
 pub fn sign_envelope_with(
@@ -86,6 +90,9 @@ fn envelope_digest(
     message_id: &Uuid,
     timestamp: Timestamp,
 ) -> Result<Digest32, String> {
+    // Proposal #72 Item 6b: every verifier rejects a non-v4 message_id,
+    // so refuse to sign one.
+    aitp_core::ids::check_v4(message_id).map_err(|e| format!("message_id: {e}"))?;
     envelope_signing_digest(message_id, timestamp, sender, payload)
         .map(Digest32::from)
         .map_err(|e| e.to_string())

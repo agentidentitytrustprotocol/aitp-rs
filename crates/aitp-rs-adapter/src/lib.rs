@@ -1472,6 +1472,13 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         // a bad signature.
         IssuerMismatch => "TCT_SIGNATURE_INVALID",
         AudienceMismatch => "AUDIENCE_MISMATCH",
+        // Proposal #72 Item 6b: a non-v4 `jti` uses the artifact's
+        // structural-rejection code.
+        JtiNotV4(_) => "TCT_SIGNATURE_INVALID",
+        // Proposal #72 Item 5: a self-issued TCT, or the attestation
+        // marker, in a grant context (owner decision 2026-10-16).
+        SelfIssued | AttestationMarker => "TCT_SIGNATURE_INVALID",
+        NotAttestation | AttestationStatementMissing(_) => "TCT_SIGNATURE_INVALID",
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
         Revoked => "TCT_REVOKED",
@@ -3308,7 +3315,7 @@ mod p256_readiness_tests {
             key.aid().as_str().starts_with("aid:pubkey:p256:"),
             "expected a P-256 AID"
         );
-        let message_id = Uuid::from_u128(0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10);
+        let message_id = Uuid::from_u128(0x0102_0304_0506_4708_890a_0b0c_0d0e_0f10);
         let timestamp = Timestamp(1_700_000_000);
         let payload = json!({"hello": "p256"});
         let digest =
@@ -3955,6 +3962,20 @@ mod revocation_unknown_field_tests {
     /// `tct_error_code` has an explicit `UnknownField` arm reporting
     /// `UNKNOWN_FIELD`, asserted directly rather than only via the
     /// `verify_revocation_snapshot` fixture-shaped test above.
+    #[test]
+    fn tct_error_code_maps_item_5_and_6b_rejections_to_signature_family() {
+        use aitp_tct::TctError as E;
+        for e in [
+            E::JtiNotV4(aitp_core::ids::V4Error::Version),
+            E::SelfIssued,
+            E::AttestationMarker,
+            E::NotAttestation,
+            E::AttestationStatementMissing("k".into()),
+        ] {
+            assert_eq!(tct_error_code(&e), "TCT_SIGNATURE_INVALID", "{e:?}");
+        }
+    }
+
     #[test]
     fn tct_error_code_maps_unknown_field_directly() {
         assert_eq!(

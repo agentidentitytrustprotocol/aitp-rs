@@ -122,7 +122,11 @@ pub fn process_renewal_request(
     // Renewal re-verifies the current TCT before minting a fresh one;
     // revocation and the Manifest cap are handled by the issuing peer's
     // renewal policy, not this holder-side re-verification.
-    let ctx = TctVerifyContext::permissive_at(&peek_claims.aud, issuer_aid, now);
+    let ctx = TctVerifyContext::builder(&peek_claims.aud, issuer_aid, now)
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .expect("both decisions are made");
     let verified = verify_tct(&request.current_tct, &ctx)?;
     let claims = verified.claims;
 

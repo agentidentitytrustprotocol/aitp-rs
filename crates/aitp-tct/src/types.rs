@@ -36,6 +36,9 @@ pub struct TctClaims {
     /// Protocol version private claim. MUST be `"aitp/0.2"`.
     pub ver: String,
     /// UUID v4 unique token ID; the revocation handle (RFC-AITP-0008).
+    /// Deserialization enforces the strict v4 wire form (proposal #72
+    /// Item 6b).
+    #[serde(with = "aitp_core::ids::serde_v4")]
     pub jti: Uuid,
     /// Issuing peer's AID.
     pub iss: Aid,
@@ -102,6 +105,7 @@ pub struct GrantVoucherClaims {
     pub exp: Timestamp,
     /// The companion TCT's `jti`. Revocation rides on this: revoking
     /// the TCT kills every voucher and delegation derived from it.
+    #[serde(with = "aitp_core::ids::serde_v4")]
     pub src_jti: Uuid,
     /// OPTIONAL extensions slot, same semantics as the TCT `ext` claim.
     #[serde(skip_serializing_if = "Option::is_none")]

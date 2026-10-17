@@ -72,7 +72,11 @@ fn minted_tct_verifies() {
     // Holder receipt: subject == audience == kat-keypair-002.
     let expected_audience = kat_002_aid();
     let issuer = kat_001_aid();
-    let ctx = TctVerifyContext::permissive_at(&expected_audience, &issuer, fixed_now());
+    let ctx = TctVerifyContext::builder(&expected_audience, &issuer, fixed_now())
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
     let verified = verify_tct(token, &ctx).expect("minted TCT verifies");
     assert_eq!(
         serde_json::to_value(&verified.claims).unwrap(),

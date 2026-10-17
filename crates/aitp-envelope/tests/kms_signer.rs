@@ -121,3 +121,20 @@ async fn async_envelope_future_is_send() {
     assert_eq!(&env.sender.agent_id, signer.aid());
     verify_envelope_signature(&env, &vk).expect("verifies");
 }
+
+/// Proposal #72 Item 6b: verifiers reject a non-v4 `message_id`, so the
+/// signer refuses one before calling the backend.
+#[test]
+fn non_v4_message_id_is_refused_before_signing() {
+    let key = aitp_crypto::AitpSigningKey::from_seed(&[7; 32]);
+    let v7 = uuid::Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099a8057").unwrap();
+    let err = aitp_envelope::sign_envelope_with(
+        &key,
+        aitp_core::MessageType::Tct,
+        serde_json::json!({}),
+        v7,
+        aitp_core::Timestamp(1_700_000_000),
+    )
+    .unwrap_err();
+    assert!(err.starts_with("message_id:"), "{err}");
+}

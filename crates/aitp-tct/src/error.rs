@@ -80,6 +80,37 @@ pub enum TctError {
     /// PoP response references a different jti than the challenge.
     #[error("PoP response jti mismatch")]
     PopJtiMismatch,
+    /// `jti` (TCT) or `src_jti` (grant voucher) is not in the strict
+    /// lowercase hyphenated UUID v4 layout (RFC-AITP-0005 §2, proposal
+    /// #72 Item 6b). Wire code: `TCT_SIGNATURE_INVALID` for a TCT,
+    /// `DELEGATION_INVALID_VOUCHER` for a voucher. Raised before
+    /// signature verification.
+    #[error("jti is not a UUID v4: {0}")]
+    JtiNotV4(aitp_core::ids::V4Error),
+    /// [`crate::TctBuilder::derived_jti`] was given a domain tag outside
+    /// printable ASCII `0x21..=0x7E`.
+    #[error("jti derivation tag must be non-empty printable ASCII")]
+    InvalidJtiTag,
+    /// A TCT with `iss == sub` presented (or minted) in a grant context.
+    /// Self-issued TCTs are attestations and confer no capability
+    /// (RFC-AITP-0005 §5.3, proposal #72 Item 5). Wire code
+    /// `TCT_SIGNATURE_INVALID`.
+    #[error("self-issued TCT (iss == sub) confers no grants")]
+    SelfIssued,
+    /// The reserved [`crate::ATTESTATION_GRANT`] marker appeared in a
+    /// grant context, with `iss != sub`, or next to other grants. Wire
+    /// code `TCT_SIGNATURE_INVALID`.
+    #[error("`aitp:attestation` marker grant misused")]
+    AttestationMarker,
+    /// [`crate::verify_attestation`] was given a TCT that is not a
+    /// self-attestation (`iss == sub == aud`, `grants ==
+    /// ["aitp:attestation"]`).
+    #[error("TCT is not a self-attestation")]
+    NotAttestation,
+    /// The attestation's `ext` lacks the statement key the relying party
+    /// consumes (RFC-AITP-0005 §5.3: MUST reject). Carries the key.
+    #[error("attestation ext lacks statement key `{0}`")]
+    AttestationStatementMissing(String),
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] aitp_crypto::CryptoError),

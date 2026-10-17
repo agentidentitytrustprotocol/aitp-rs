@@ -2,9 +2,15 @@
 
 use crate::types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims};
 use crate::TctError;
-use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp_core::{ids, Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
+use serde_json::{Map, Value};
 use uuid::Uuid;
+
+/// The reserved marker grant of a self-attestation TCT (RFC-AITP-0005
+/// §5.3, proposal #72 Item 5). It confers no capability: a verifier in a
+/// grant context rejects any TCT carrying it.
+pub const ATTESTATION_GRANT: &str = "aitp:attestation";
 
 /// Fluent builder for issuing a TCT and its companion grant voucher.
 ///
@@ -18,6 +24,20 @@ use uuid::Uuid;
 ///     .build()?;
 /// // issued.token   — the TCT compact JWS
 /// // issued.voucher — the grant voucher compact JWS (Some by default)
+/// ```
+///
+/// A self-attestation (a signed statement by the issuer about itself,
+/// RFC-AITP-0005 §5.3) uses [`TctBuilder::self_attestation`] with the
+/// statement in [`TctBuilder::ext`], and optionally a deterministic
+/// [`TctBuilder::derived_jti`] so re-minting yields the same token:
+///
+/// ```ignore
+/// let issued = TctBuilder::new(&issuer_key)
+///     .self_attestation()
+///     .ext(statement)                         // {"com.example": {...}}
+///     .derived_jti("com.example.decision-commit", record_id.as_bytes())
+///     .ttl_secs(100 * 365 * 86_400)
+///     .build()?;
 /// ```
 ///
 /// With an async (KMS, HSM) signer, start from [`TctBuilder::new_async`]
@@ -34,8 +54,16 @@ pub struct TctBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     mint_voucher: bool,
     /// Override `issued_at` for tests / fixed-clock scenarios.
     now_override: Option<Timestamp>,
-    /// Override `jti` for tests / fixtures.
-    jti_override: Option<Uuid>,
+    jti: JtiSource,
+    ext: Option<Map<String, Value>>,
+    attestation: bool,
+}
+
+/// Where the `jti` comes from.
+enum JtiSource {
+    Random,
+    Fixed(Uuid),
+    Derived { tag: String, input: Vec<u8> },
 }
 
 impl<'a> TctBuilder<'a, dyn AitpSigner + 'a> {
@@ -133,7 +161,9 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             subject_pubkey: None,
             mint_voucher: true,
             now_override: None,
-            jti_override: None,
+            jti: JtiSource::Random,
+            ext: None,
+            attestation: false,
         }
     }
 
@@ -185,15 +215,64 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
         self
     }
 
-    /// Override the generated `jti`. Tests/fixtures only.
+    /// Use `jti` instead of a random one. It MUST be in the UUID v4
+    /// layout (RFC-AITP-0005 §2); [`Self::build`] refuses anything else
+    /// with [`TctError::JtiNotV4`]. The issuer is responsible for never
+    /// reusing a `jti`.
     pub fn jti(mut self, jti: Uuid) -> Self {
-        self.jti_override = Some(jti);
+        self.jti = JtiSource::Fixed(jti);
+        self
+    }
+
+    /// Derive `jti` deterministically from `(tag, input)` per proposal
+    /// #72 Item 6b ([`aitp_core::ids::derived_v4`]), so re-issuing the
+    /// same token (after a restart, or for an archival attestation)
+    /// yields the same `jti`. `tag` is printable ASCII naming the use;
+    /// the issuer MUST guarantee distinct tokens never share an `input`
+    /// under one tag. A bad tag fails the build with
+    /// [`TctError::InvalidJtiTag`].
+    pub fn derived_jti(mut self, tag: impl Into<String>, input: impl AsRef<[u8]>) -> Self {
+        self.jti = JtiSource::Derived {
+            tag: tag.into(),
+            input: input.as_ref().to_vec(),
+        };
+        self
+    }
+
+    /// Set the signed `ext` claim (RFC-AITP-0012): a map of namespaced
+    /// keys (`com.example.thing`). Not copied into the grant voucher.
+    pub fn ext(mut self, ext: Map<String, Value>) -> Self {
+        self.ext = Some(ext);
+        self
+    }
+
+    /// Mint a self-attestation (RFC-AITP-0005 §5.3): `iss == sub == aud`
+    /// (the issuer), `grants == ["aitp:attestation"]`, `cnf` bound to the
+    /// issuer key, no grant voucher. Supply the statement with
+    /// [`Self::ext`] (required). Overrides any subject, audience, grants
+    /// or subject key set before or after.
+    pub fn self_attestation(mut self) -> Self {
+        self.attestation = true;
         self
     }
 
     /// Validate and assemble the claims; signing is the caller's.
-    fn draft(self) -> Result<(Draft, &'a S), TctError> {
+    fn draft(mut self) -> Result<(Draft, &'a S), TctError> {
         let issuer = self.issuer_key.issuer_aid().clone();
+        if self.attestation {
+            if self.ext.is_none() {
+                return Err(TctError::MissingField("ext"));
+            }
+            self.subject_pubkey = Some(AitpVerifyingKey::from_aid(&issuer)?);
+            self.subject = Some(issuer.clone());
+            self.audience = Some(issuer.clone());
+            self.grants = vec![ATTESTATION_GRANT.into()];
+            self.mint_voucher = false;
+        } else if self.grants.iter().any(|g| g == ATTESTATION_GRANT) {
+            // RFC-AITP-0005 §5.3: the marker only ever appears alone, in
+            // a self-attestation.
+            return Err(TctError::AttestationMarker);
+        }
         let subject = self.subject.ok_or(TctError::MissingField("subject"))?;
         let audience = self.audience.ok_or(TctError::MissingField("audience"))?;
         let subject_pk = self
@@ -212,6 +291,10 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             // v0.2 invariant: audience must equal subject.
             return Err(TctError::AudienceMismatch);
         }
+        if subject == issuer && !self.attestation {
+            // A self-issued grant TCT is rejected by every verifier.
+            return Err(TctError::SelfIssued);
+        }
         // §3: cnf.jkt MUST be the thumbprint of the key the subject AID
         // encodes — refuse to mint a TCT that binds a different key.
         if subject_pk.to_compressed() != subject.pubkey_compressed_bytes() {
@@ -219,7 +302,16 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
         }
 
         let jkt = subject_pk.to_jwk_thumbprint().map_err(TctError::Crypto)?;
-        let jti = self.jti_override.unwrap_or_else(Uuid::new_v4);
+        let jti = match self.jti {
+            JtiSource::Random => ids::random_v4(),
+            JtiSource::Fixed(jti) => {
+                ids::check_v4(&jti).map_err(TctError::JtiNotV4)?;
+                jti
+            }
+            JtiSource::Derived { tag, input } => {
+                ids::derived_v4(&tag, &input).map_err(|_| TctError::InvalidJtiTag)?
+            }
+        };
         let issued_at = self.now_override.unwrap_or_else(Timestamp::now);
         let expires_at = issued_at.plus_secs(self.ttl_secs);
 
@@ -233,7 +325,7 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             exp: expires_at,
             grants: self.grants.clone(),
             cnf: Cnf { jkt },
-            ext: None,
+            ext: self.ext,
         };
         // §8.2: voucher claims mirror the companion TCT exactly.
         let voucher = self.mint_voucher.then(|| GrantVoucherClaims {
