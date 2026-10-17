@@ -100,8 +100,10 @@ name = "aitp-crypto"
 version = "0.13.2"
 dependencies = [
  "aitp-core",
+ "aitp-crypto",
  "base64ct",
  "criterion",
+ "ecdsa",
  "ed25519-dalek",
  "hex",
  "jsonwebtoken",
@@ -111,6 +113,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
 ]
 
 [[package]]
@@ -126,6 +129,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 
@@ -137,6 +141,7 @@ dependencies = [
  "aitp-crypto",
  "proptest",
  "serde_json",
+ "tokio",
  "uuid",
 ]
 
@@ -194,6 +199,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
  "url",
 ]
 
@@ -229,6 +235,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 
@@ -245,6 +252,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "thiserror",
+ "tokio",
  "uuid",
 ]
 

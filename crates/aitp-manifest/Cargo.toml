@@ -21,6 +21,9 @@ sha2 = { workspace = true }
 rand = { workspace = true }
 
 [dev-dependencies]
+# `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
+aitp-crypto = { path = "../aitp-crypto", features = ["test-util"] }
 boon = { workspace = true }
 hex = { workspace = true }
 proptest = { workspace = true }
+tokio = { workspace = true }

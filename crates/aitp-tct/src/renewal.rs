@@ -27,22 +27,27 @@
 use crate::types::{IssuedTct, TctRenewalPayload, TCT_CLAIMS_MEMBERS};
 use crate::{verify_tct, TctBuilder, TctError, TctVerifyContext};
 use aitp_core::{base64url, check_members, from_serde_error, reject_duplicate_keys, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use uuid::Uuid;
 
 /// Build a [`TctRenewalPayload`] on the holder side.
 ///
 /// The holder signs over `sha256(base64url_decode(pop_nonce))` with
 /// its long-term key — same construction as the handshake's PoP.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn build_renewal_request(
-    holder_key: &AitpSigningKey,
+    holder_key: &dyn AitpSigner,
     current_tct: String,
     pop_nonce: String,
 ) -> Result<TctRenewalPayload, TctError> {
     let nonce_bytes = base64url::decode_strict(&pop_nonce)
         .map_err(|e| TctError::ClaimsMalformed(format!("pop_nonce: {e}")))?;
     let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
-    let pop_signature = holder_key.sign_jcs(&digest).into_string();
+    let pop_signature = aitp_crypto::sign_jcs(holder_key, &digest)
+        .map_err(CryptoError::Signer)?
+        .into_string();
     Ok(TctRenewalPayload {
         current_tct,
         pop_nonce,
@@ -66,9 +71,12 @@ pub fn build_renewal_request(
 /// Returns a fresh [`IssuedTct`] with the same grants, same subject /
 /// audience / binding, new `jti`, and `exp` bounded by the supplied
 /// `manifest_expires_at`.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn process_renewal_request(
     request: &TctRenewalPayload,
-    issuer_key: &AitpSigningKey,
+    issuer_key: &dyn AitpSigner,
     manifest_expires_at: Timestamp,
     now: Timestamp,
     ttl_secs: i64,
@@ -151,6 +159,7 @@ pub fn process_renewal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     fn issue(
         issuer: &AitpSigningKey,

@@ -73,7 +73,11 @@ pub mod facade;
 /// Convenience re-exports of the most common types.
 pub mod prelude {
     pub use crate::core::{Aid, AitpEnvelope, Timestamp};
-    pub use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
+    pub use crate::crypto::{
+        check_public_key, check_public_key_async, sign_jcs, sign_jcs_async, sign_raw,
+        sign_raw_async, AitpSigner, AitpSigningKey, AitpVerifyingKey, AsyncAitpSigner,
+        BackendSignature, BlockingSigner, DynAsyncAitpSigner, SignRequest, SignerError,
+    };
     pub use crate::manifest::Manifest;
     pub use crate::tct::{IssuedTct, TctBuilder, TctClaims, VerifiedTct};
 }

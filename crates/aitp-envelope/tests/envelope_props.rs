@@ -60,7 +60,7 @@ proptest! {
             &key,
             MessageType::MutualHello,
             payload,
-            Uuid::from_u128(0x1234_5678_9abc_def0),
+            Uuid::from_u128(0x1234_5678_9abc_4ef0_8000_0000_0000_0000),
             Timestamp(ts),
         ).expect("sign");
 

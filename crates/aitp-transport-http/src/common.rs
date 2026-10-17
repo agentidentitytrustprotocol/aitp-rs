@@ -7,7 +7,7 @@
 //! API surface stable for existing callers.
 
 use aitp_core::{AitpEnvelope, MessageType, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp_crypto::{AitpSigner, DynAsyncAitpSigner};
 use uuid::Uuid;
 
 /// Sign and wrap a payload as an [`AitpEnvelope`] with caller-provided
@@ -18,8 +18,11 @@ use uuid::Uuid;
 /// reconstructs the same string from `envelope.message_id` /
 /// `envelope.timestamp`). Caller MUST pass the same `(mid, ts)` it used
 /// to build the identity proof inside `payload`.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure is returned as `Err("signing backend failed: ...")`.
 pub fn sign_envelope_with(
-    signing_key: &AitpSigningKey,
+    signing_key: &dyn AitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
     message_id: Uuid,
@@ -31,12 +34,47 @@ pub fn sign_envelope_with(
 /// Convenience: sign with a freshly generated `message_id` and
 /// `timestamp`. **Do not use** for envelopes whose payload carries a
 /// pinned-key identity proof — see [`sign_envelope_with`].
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure is returned as `Err("signing backend failed: ...")`.
 pub fn sign_envelope(
-    signing_key: &AitpSigningKey,
+    signing_key: &dyn AitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
 ) -> Result<AitpEnvelope, String> {
     aitp_envelope::sign_envelope(signing_key, message_type, payload)
+}
+
+/// As [`sign_envelope_with`], signed by an async backend (KMS, HSM).
+/// Delegates to [`aitp_envelope::sign_envelope_with_async`]; the future
+/// is `Send`.
+pub async fn sign_envelope_with_async(
+    signing_key: &dyn DynAsyncAitpSigner,
+    message_type: MessageType,
+    payload: serde_json::Value,
+    message_id: Uuid,
+    timestamp: Timestamp,
+) -> Result<AitpEnvelope, String> {
+    aitp_envelope::sign_envelope_with_async(
+        signing_key,
+        message_type,
+        payload,
+        message_id,
+        timestamp,
+    )
+    .await
+}
+
+/// As [`sign_envelope`], signed by an async backend (KMS, HSM).
+/// Delegates to [`aitp_envelope::sign_envelope_async`]; the future is
+/// `Send`. **Do not use** for envelopes whose payload carries a
+/// pinned-key identity proof — see [`sign_envelope_with_async`].
+pub async fn sign_envelope_async(
+    signing_key: &dyn DynAsyncAitpSigner,
+    message_type: MessageType,
+    payload: serde_json::Value,
+) -> Result<AitpEnvelope, String> {
+    aitp_envelope::sign_envelope_async(signing_key, message_type, payload).await
 }
 
 /// Verify an envelope's outer signature given the sender's verifying key.

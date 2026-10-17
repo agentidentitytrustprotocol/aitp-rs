@@ -546,6 +546,46 @@ fn p256_sign_prehash(inner: &P256SigningKey, d: &Digest32) -> [u8; 64] {
     sig.normalize_s().to_bytes().into()
 }
 
+/// Bring a P-256 signature returned by an external backend into the
+/// one form AITP emits: JOSE `R || S`, low-S (RFC-AITP-0001 §5.4.7).
+///
+/// KMS and HSM backends return ASN.1 DER (`ECDSA-Sig-Value`) and do not
+/// promise low-S, so both are handled here, not by every backend. DER
+/// decoding is strict (`der` rejects non-minimal integers and trailing
+/// bytes). Zero and `>= n` scalars are refused by either decoder. Whether
+/// the signature is *valid* is the caller's verify-before-emit step.
+pub(crate) fn p256_backend_to_low_s(
+    sig: &crate::signer::BackendSignature,
+) -> Result<[u8; 64], crate::SignerError> {
+    use crate::signer::BackendSignature;
+    let parsed = match sig {
+        BackendSignature::Raw(raw) => P256Signature::from_slice(raw).map_err(|_| {
+            crate::SignerError::MalformedSignature("P-256 R || S out of range".into())
+        })?,
+        BackendSignature::Der(der) => P256Signature::from_der(der).map_err(|_| {
+            crate::SignerError::MalformedSignature("P-256 DER ECDSA-Sig-Value is invalid".into())
+        })?,
+    };
+    Ok(parsed.normalize_s().to_bytes().into())
+}
+
+/// ECDSA-sign `d` with a fresh random nonce instead of RFC 6979. Backends
+/// such as AWS KMS do this, so the mock KMS uses it to show that the
+/// library accepts non-deterministic P-256 output. Not used for minting.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn p256_sign_prehash_randomized(key: &AitpSigningKey, d: &Digest32) -> Option<[u8; 64]> {
+    use p256::ecdsa::signature::hazmat::RandomizedPrehashSigner;
+    match &key.0 {
+        SigningKeyInner::P256 { inner, .. } => {
+            let sig: P256Signature = inner
+                .sign_prehash_with_rng(&mut os_csprng(), d.as_bytes())
+                .expect("32-byte prehash is valid for P-256");
+            Some(sig.to_bytes().into())
+        }
+        SigningKeyInner::Ed25519 { .. } => None,
+    }
+}
+
 /// PureEdDSA strict verification (RFC-AITP-0001 §5.4.7): rejects
 /// non-canonical `S`, and small-order `R` or public key.
 fn verify_ed25519(vk: &DalekVerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
@@ -611,6 +651,17 @@ pub enum SignatureAlgorithm {
 }
 
 impl Signature {
+    /// Wire form of a raw 64-byte signature: untagged for Ed25519 (v0.1
+    /// compatibility, as [`AitpSigningKey::sign_jcs`] emits) and
+    /// `p256.`-tagged for P-256.
+    pub(crate) fn from_raw(algorithm: AidAlgorithm, raw: &[u8; 64]) -> Self {
+        let b64 = Base64UrlUnpadded::encode_string(raw);
+        match algorithm {
+            AidAlgorithm::P256 => Signature(format!("p256.{b64}")),
+            _ => Signature(b64),
+        }
+    }
+
     /// Parse a signature string. Accepts both the legacy v0.1
     /// untagged form and the v0.2 algorithm-tagged forms.
     pub fn parse(s: &str) -> Result<Self, CryptoError> {

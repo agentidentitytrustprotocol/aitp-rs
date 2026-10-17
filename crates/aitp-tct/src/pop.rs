@@ -48,14 +48,18 @@ pub struct PopResponse {
 /// string form. This brings TCT PoP into alignment with RFC-AITP-0002
 /// §3.1's `pop_nonce_decoded_bytes` rule for the handshake pinned-key
 /// proof.
+///
+/// Accepts any [`aitp_crypto::AitpSigner`] (in-process key, KMS, HSM); a
+/// backend failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn sign_pop_response(
     challenge: &PopChallenge,
-    holder_key: &aitp_crypto::AitpSigningKey,
+    holder_key: &dyn aitp_crypto::AitpSigner,
 ) -> Result<PopResponse, TctError> {
     let nonce_bytes =
         base64url::decode_strict(&challenge.nonce).map_err(|_| TctError::PopFailed)?;
     let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
-    let sig = holder_key.sign_jcs(&digest);
+    let sig =
+        aitp_crypto::sign_jcs(holder_key, &digest).map_err(aitp_crypto::CryptoError::Signer)?;
     Ok(PopResponse {
         tct_jti: challenge.tct_jti,
         nonce_echo: challenge.nonce.clone(),

@@ -9,7 +9,7 @@
 //! revocations.
 
 use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -129,13 +129,16 @@ pub fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctErr
 /// Returns the on-wire [`RevocationListEnvelope`] with `signature`
 /// populated. The signing input is `sha256(JCS(revocation_list))` — the
 /// inner body; see [`revocation_signing_bytes`].
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn sign_revocation_list(
     body: RevocationList,
-    issuer_key: &AitpSigningKey,
+    issuer_key: &dyn AitpSigner,
 ) -> Result<RevocationListEnvelope, TctError> {
     let canonical = revocation_signing_bytes(&body)?;
     let digest = aitp_crypto::Digest32::sha256(&canonical);
-    let sig = issuer_key.sign_jcs(&digest);
+    let sig = aitp_crypto::sign_jcs(issuer_key, &digest).map_err(CryptoError::Signer)?;
     Ok(RevocationListEnvelope {
         revocation_list: body,
         signature: sig.into_string(),
@@ -252,6 +255,7 @@ impl<'a> VerifyRevocationListContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     fn issuer_key() -> AitpSigningKey {
         AitpSigningKey::from_seed(&[0xA0; 32])

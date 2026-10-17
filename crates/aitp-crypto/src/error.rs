@@ -43,4 +43,10 @@ pub enum CryptoError {
     /// padding, or a malformed protected header.
     #[error("compact JWS malformed: {0}")]
     JwsMalformed(String),
+
+    /// A signing backend failed or produced an unusable signature
+    /// ([`crate::signer`]). [`SignerError::is_transient`] tells the
+    /// caller whether to retry.
+    #[error(transparent)]
+    Signer(#[from] crate::SignerError),
 }

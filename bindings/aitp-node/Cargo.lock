@@ -24,6 +24,7 @@ version = "0.13.2"
 dependencies = [
  "aitp-core",
  "base64ct",
+ "ecdsa",
  "ed25519-dalek",
  "p256",
  "rand",

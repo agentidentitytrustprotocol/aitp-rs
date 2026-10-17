@@ -341,8 +341,11 @@ pub fn verify_pinned_key(
 /// from the surrounding envelope (sender AID, receiver AID, message_id,
 /// timestamp, pop_nonce). A captured signature is bound to that exact
 /// tuple and cannot be replayed.
+///
+/// Accepts any [`aitp_crypto::AitpSigner`] (in-process key, KMS, HSM); a
+/// backend failure returns `HandshakeError::Crypto(CryptoError::Signer(_))`.
 pub fn sign_pinned_key_proof(
-    signing_key: &aitp_crypto::AitpSigningKey,
+    signing_key: &dyn aitp_crypto::AitpSigner,
     sender_aid: &Aid,
     receiver_aid: &Aid,
     message_id: &Uuid,
@@ -351,7 +354,9 @@ pub fn sign_pinned_key_proof(
 ) -> Result<String, HandshakeError> {
     let input = pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)?;
     let digest = aitp_crypto::Digest32::sha256(&input);
-    Ok(signing_key.sign_jcs(&digest).into_string())
+    Ok(aitp_crypto::sign_jcs(signing_key, &digest)
+        .map_err(aitp_crypto::CryptoError::Signer)?
+        .into_string())
 }
 
 #[cfg(test)]

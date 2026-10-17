@@ -107,7 +107,10 @@ pub use server_limits::{
 pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
 
 #[cfg(any(feature = "client", feature = "server"))]
-pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+pub use common::{
+    sign_envelope, sign_envelope_async, sign_envelope_with, sign_envelope_with_async,
+    verify_envelope_signature,
+};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use replay_store::{InMemoryReplayGuard, ReplayGuard};

@@ -424,6 +424,8 @@ fn crypto_error_code(e: &CryptoError, sig_invalid_code: &'static str) -> String 
         CryptoError::KeyParseFailed(_) | CryptoError::AidNotEd25519(_) => {
             "KEY_RESOLUTION_FAILED".to_string()
         }
+        // Our own signing backend failed: a local fault, never the peer's.
+        CryptoError::Signer(_) => "INTERNAL_ERROR".to_string(),
         _ => "INVALID_SIGNATURE".to_string(),
     }
 }
@@ -1287,6 +1289,8 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         AidMismatch => "MANIFEST_SIGNATURE_INVALID",
         MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
+        // Our own signing backend failed: a local fault, never the peer's.
+        Crypto(CryptoError::Signer(_)) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         Rng(_) => "INTERNAL_ERROR",
         // RFC-AITP-0001 §7 / issue #140: a top-level or nested member
@@ -3275,6 +3279,8 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         MissingField(_) => "INVALID_REQUEST",
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
+        // Our own signing backend failed: a local fault, never the peer's.
+        Crypto(CryptoError::Signer(_)) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         WireFormInvalid(_) => "SESSION_BUNDLE_INVALID",
         UnknownField(_) => "UNKNOWN_FIELD",
@@ -3373,8 +3379,8 @@ mod error_code_mapping_tests {
     //! non-obvious mappings (and the nested handshake→tct/manifest
     //! dispatch) are pinned here.
     use super::{
-        delegation_error_code, handshake_error_code, manifest_error_code, revocation_error_code,
-        tct_error_code, voucher_error_code,
+        bundle_error_code, delegation_error_code, handshake_error_code, manifest_error_code,
+        revocation_error_code, tct_error_code, voucher_error_code,
     };
     use aitp_delegation::DelegationError;
     use aitp_handshake::HandshakeError;
@@ -3514,6 +3520,26 @@ mod error_code_mapping_tests {
         assert_eq!(
             delegation_error_code(&DelegationError::UnknownField("rogue".into())),
             "UNKNOWN_FIELD"
+        );
+    }
+
+    #[test]
+    fn local_signer_failure_maps_to_internal_error() {
+        // A failure of our own signing backend (KMS/HSM) is a local
+        // fault: INTERNAL_ERROR, never a peer-blamed signature code.
+        let signer =
+            || aitp_crypto::CryptoError::Signer(aitp_crypto::SignerError::VerificationFailed);
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(signer())),
+            "INTERNAL_ERROR"
+        );
+        assert_eq!(
+            manifest_error_code(&aitp_manifest::ManifestError::Crypto(signer())),
+            "INTERNAL_ERROR"
+        );
+        assert_eq!(
+            bundle_error_code(&aitp_session_bundle::SessionBundleError::Crypto(signer())),
+            "INTERNAL_ERROR"
         );
     }
 

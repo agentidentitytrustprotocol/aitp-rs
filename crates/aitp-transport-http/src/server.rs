@@ -5,7 +5,7 @@ use aitp_core::{
     check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey};
 use aitp_handshake::{
     HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, NoPinnedKeys,
     PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
@@ -188,7 +188,7 @@ impl Default for DpopPolicy {
 }
 
 struct HandshakeState<R: JwksResolver + Send + Sync> {
-    signing_key: AitpSigningKey,
+    signing_key: Arc<dyn AitpSigner>,
     manifest: Manifest,
     trust_anchors: Vec<aitp_core::RawUrl>,
     jwks_resolver: R,
@@ -289,8 +289,13 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ///
     /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`].
     /// Use [`Self::with_session_ttl`] to override.
-    pub fn new(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM).
+    /// A backend failure while answering a request is a local fault: it
+    /// is answered with HTTP 500 / `INVALID_ENVELOPE`, never a
+    /// peer-blamed signature code.
+    pub fn new<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -309,8 +314,11 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// Same as [`Self::new`] with an explicit session TTL. Tests use
     /// short TTLs to exercise the expiry path; production callers
     /// should prefer [`Self::new`].
-    pub fn with_session_ttl(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
+    /// see [`Self::new`].
+    pub fn with_session_ttl<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -330,8 +338,11 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// Same as [`Self::with_session_ttl`] with an explicit replay-deny-list
     /// window. Tests use short windows to exercise eviction.
-    pub fn with_session_ttl_and_replay_window(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
+    /// see [`Self::new`].
+    pub fn with_session_ttl_and_replay_window<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -341,7 +352,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ) -> Self {
         Self {
             state: Arc::new(HandshakeState {
-                signing_key,
+                signing_key: Arc::new(signing_key),
                 manifest,
                 trust_anchors,
                 jwks_resolver,
@@ -594,12 +605,18 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     let now = Timestamp::now();
     let renewed = process_renewal_request(
         &payload,
-        &state.signing_key,
+        &*state.signing_key,
         state.manifest.expires_at,
         now,
         aitp_tct::DEFAULT_TCT_TTL_SECS,
     )
-    .map_err(|e| ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string()))?;
+    .map_err(|e| {
+        if tct_signer_failure(&e) {
+            ResponseError::local_signer_failure(&e)
+        } else {
+            ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string())
+        }
+    })?;
     #[derive(serde::Serialize)]
     struct RenewalResponse {
         tct: String,
@@ -690,7 +707,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
     let cfg = PeerConfig {
-        signing_key: &state.signing_key,
+        signing_key: &*state.signing_key,
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
@@ -721,7 +738,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         &cfg,
         state.requested_grants.clone(),
     )
-    .map_err(|e| ResponseError::aitp(handshake_error_code(&e), e.to_string()))?;
+    .map_err(|e| handshake_response_error(&e))?;
 
     let session_id = Uuid::new_v4();
     {
@@ -751,7 +768,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     let ack_payload_value =
         serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope_with(
-        &state.signing_key,
+        &*state.signing_key,
         MessageType::MutualHelloAck,
         ack_payload_value,
         ack_mid,
@@ -853,7 +870,7 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
     let cfg = PeerConfig {
-        signing_key: &state.signing_key,
+        signing_key: &*state.signing_key,
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
@@ -865,11 +882,11 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)
-        .map_err(|e| ResponseError::aitp(handshake_error_code(&e), e.to_string()))?;
+        .map_err(|e| handshake_response_error(&e))?;
     let ack_payload_value =
         serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope(
-        &state.signing_key,
+        &*state.signing_key,
         MessageType::MutualCommitAck,
         ack_payload_value,
     )
@@ -921,6 +938,19 @@ impl ResponseError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: ErrorCode::InvalidEnvelope,
             message: "internal error signing reply envelope".into(),
+            emit_envelope: true,
+        }
+    }
+
+    /// HTTP 500 for a failure of our own signing backend (KMS throttled,
+    /// HSM unreachable, key mismatch). Local, not the peer's fault, so
+    /// it never carries a peer-blamed signature code: the closest
+    /// registered code is `INVALID_ENVELOPE`, as for [`Self::server_error`].
+    fn local_signer_failure(err: &dyn std::fmt::Display) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: ErrorCode::InvalidEnvelope,
+            message: format!("internal error: local signing backend failed: {err}"),
             emit_envelope: true,
         }
     }
@@ -1234,6 +1264,38 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     Ok(())
 }
 
+/// Whether `err` is our own signing backend failing (a local fault).
+fn tct_signer_failure(err: &aitp_tct::TctError) -> bool {
+    matches!(
+        err,
+        aitp_tct::TctError::Crypto(aitp_crypto::CryptoError::Signer(_))
+    )
+}
+
+/// Whether `err` is our own signing backend failing while building a
+/// proof, PoP, TCT or Manifest (a local fault, not the peer's).
+fn handshake_signer_failure(err: &aitp_handshake::HandshakeError) -> bool {
+    use aitp_crypto::CryptoError;
+    use aitp_handshake::HandshakeError as HE;
+    match err {
+        HE::Crypto(CryptoError::Signer(_)) => true,
+        HE::Tct(t) => tct_signer_failure(t),
+        HE::Manifest(aitp_manifest::ManifestError::Crypto(CryptoError::Signer(_))) => true,
+        _ => false,
+    }
+}
+
+/// Map a `HandshakeError` to the response: a local signer failure is
+/// HTTP 500 ([`ResponseError::local_signer_failure`]); everything else is
+/// a 400 with [`handshake_error_code`].
+fn handshake_response_error(err: &aitp_handshake::HandshakeError) -> ResponseError {
+    if handshake_signer_failure(err) {
+        ResponseError::local_signer_failure(err)
+    } else {
+        ResponseError::aitp(handshake_error_code(err), err.to_string())
+    }
+}
+
 /// Map a `HandshakeError` into the closest registered AITP error code.
 fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
     use aitp_handshake::HandshakeError as HE;
@@ -1295,6 +1357,10 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
         HE::InvalidEnvelope(_) | HE::State(_) | HE::Rng(_) | HE::Canonicalization(_) => {
             ErrorCode::InvalidEnvelope
         }
+        // Our own signing backend failed: a local fault, never blamed on
+        // the peer as a bad signature. `handshake_response_error` also
+        // turns it into HTTP 500.
+        HE::Crypto(aitp_crypto::CryptoError::Signer(_)) => ErrorCode::InvalidEnvelope,
         HE::Crypto(_) => ErrorCode::InvalidSignature,
         // RFC-AITP-0001 §7 / issue #140 Phase 7b: a dedicated core code,
         // never left to the `_ => INVALID_ENVELOPE` catch-all below —
@@ -1376,6 +1442,32 @@ mod tests {
     use super::*;
     use aitp_handshake::HandshakeError;
     use aitp_tct::TctError;
+
+    /// A failure of our own signing backend is a local fault: HTTP 500
+    /// with `INVALID_ENVELOPE`, never a peer-blamed signature code —
+    /// whether it surfaces directly or wrapped in a TCT/Manifest error.
+    #[test]
+    fn local_signer_failure_is_never_blamed_on_the_peer() {
+        use aitp_crypto::{CryptoError, SignerError};
+        let signer = || CryptoError::Signer(SignerError::VerificationFailed);
+        for err in [
+            HandshakeError::Crypto(signer()),
+            HandshakeError::Tct(TctError::Crypto(signer())),
+            HandshakeError::Manifest(aitp_manifest::ManifestError::Crypto(signer())),
+        ] {
+            let resp = handshake_response_error(&err);
+            assert_eq!(resp.status, StatusCode::INTERNAL_SERVER_ERROR, "{err:?}");
+            assert_eq!(resp.code, ErrorCode::InvalidEnvelope, "{err:?}");
+        }
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Crypto(signer())),
+            ErrorCode::InvalidEnvelope
+        );
+        // A real bad signature from the peer is still a 400.
+        let peer = handshake_response_error(&HandshakeError::Crypto(CryptoError::SignatureInvalid));
+        assert_eq!(peer.status, StatusCode::BAD_REQUEST);
+        assert_eq!(peer.code, ErrorCode::InvalidSignature);
+    }
 
     /// GAP-2: `handshake_error_code` previously collapsed every
     /// `HandshakeError::Tct(_)` to `TCT_SIGNATURE_INVALID`, so a peer

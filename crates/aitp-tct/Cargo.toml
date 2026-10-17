@@ -30,8 +30,11 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 
 [dev-dependencies]
+# `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
+aitp-crypto = { path = "../aitp-crypto", features = ["test-util"] }
 boon = { workspace = true }
 hex = { workspace = true }
+tokio = { workspace = true }
 criterion = { workspace = true }
 
 [[bench]]

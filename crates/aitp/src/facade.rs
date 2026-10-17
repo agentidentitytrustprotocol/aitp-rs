@@ -9,7 +9,7 @@ use crate::core::{
     check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
     EnvelopeParseError, MessageType, Timestamp,
 };
-use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
+use crate::crypto::{AitpSigner, AitpVerifyingKey};
 use crate::handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
@@ -672,8 +672,12 @@ pub async fn run_initiator_handshake(
 /// knobs can be added without breaking callers.
 #[non_exhaustive]
 pub struct InitiatorConfig<'a> {
-    /// Our long-term signing key.
-    pub signing_key: &'a AitpSigningKey,
+    /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
+    /// key, KMS, HSM); a backend failure surfaces as
+    /// `FacadeError::Handshake(HandshakeError::Crypto(CryptoError::Signer(_)))`,
+    /// or `FacadeError::Http("signing backend failed: ...")` when signing
+    /// an outbound envelope.
+    pub signing_key: &'a dyn AitpSigner,
     /// Our published Manifest.
     pub own_manifest: &'a Manifest,
     /// Peer's origin URL — `peer_origin/.well-known/aitp-manifest` will
@@ -735,8 +739,11 @@ impl<'a> InitiatorConfig<'a> {
     /// # let _ = config;
     /// # }
     /// ```
+    ///
+    /// `signing_key` accepts any [`AitpSigner`] (in-process key, KMS,
+    /// HSM); see [`InitiatorConfig::signing_key`] for the error.
     pub fn new(
-        signing_key: &'a AitpSigningKey,
+        signing_key: &'a dyn AitpSigner,
         own_manifest: &'a Manifest,
         peer_origin: url::Url,
         trust_mode: TrustMode<'a>,
@@ -788,9 +795,12 @@ pub struct RenewedTct {
 /// `current` is the currently-held TCT compact JWS. Returns the
 /// freshly-issued [`RenewedTct`]. The caller SHOULD verify the new
 /// token with [`aitp_tct::verify_tct`] before storing it.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `FacadeError::Renewal(TctError::Crypto(CryptoError::Signer(_)))`.
 #[cfg(feature = "experimental-renewal")]
 pub async fn renew_tct(
-    holder_key: &AitpSigningKey,
+    holder_key: &dyn AitpSigner,
     current: String,
     peer_handshake_endpoint: &url::Url,
 ) -> Result<RenewedTct, FacadeError> {
@@ -1110,6 +1120,7 @@ mod initiator_config_knobs {
     //! R6.1: `InitiatorConfig` transport knobs — HTTP timeout + SSRF
     //! guard — default sensibly and are overridable.
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
         let key = AitpSigningKey::from_seed(&[0x33; 32]);

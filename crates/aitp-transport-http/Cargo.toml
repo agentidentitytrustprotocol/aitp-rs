@@ -64,6 +64,8 @@ rustls-pki-types = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
+# `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
+aitp-crypto = { path = "../aitp-crypto", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 axum = { workspace = true }
 reqwest = { workspace = true }

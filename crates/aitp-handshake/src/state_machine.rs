@@ -13,7 +13,7 @@ use crate::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
 use aitp_core::{base64url, Aid, AitpEnvelope, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
 use rand::TryRng;
@@ -27,8 +27,11 @@ pub type SessionId = Uuid;
 
 /// Configuration shared by Initiator and Responder.
 pub struct PeerConfig<'a> {
-    /// Our long-term signing key.
-    pub signing_key: &'a AitpSigningKey,
+    /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
+    /// key, KMS, HSM); a backend failure surfaces as
+    /// `HandshakeError::Crypto(CryptoError::Signer(_))` (or wrapped in
+    /// `HandshakeError::Tct` when minting the peer's TCT).
+    pub signing_key: &'a dyn AitpSigner,
     /// Our published Manifest (must equal `payload.manifest` we send).
     pub manifest: &'a Manifest,
     /// Accepted OIDC issuers (when peers present OIDC identities).
@@ -305,7 +308,7 @@ impl PresentedIdentity {
     fn build_descriptor(
         &self,
         ctx: &IdentityPresentationContext<'_>,
-        signing_key: &AitpSigningKey,
+        signing_key: &dyn AitpSigner,
     ) -> Result<IdentityDescriptor, HandshakeError> {
         match self {
             Self::PinnedKey { subject } => {
@@ -313,7 +316,7 @@ impl PresentedIdentity {
                 // is the AID-identifier form for the key's algorithm, 32
                 // raw bytes (Ed25519) or a 33-byte SEC1 compressed point
                 // (P-256). A P-256 proof is `p256.`-tagged by `sign_jcs`.
-                let pk_bytes = signing_key.verifying_key().to_compressed();
+                let pk_bytes = AitpVerifyingKey::from_aid(signing_key.aid())?.to_compressed();
                 let proof = sign_pinned_key_proof(
                     signing_key,
                     ctx.sender_aid,
@@ -476,11 +479,13 @@ pub fn bootstrap_verify_peer(
 /// string** — not the ASCII bytes of the base64url encoding. This brings
 /// the handshake PoP into alignment with the TCT downstream PoP in
 /// `aitp-tct::pop`.
-fn sign_pop(my_key: &AitpSigningKey, peer_nonce: &str) -> Result<String, HandshakeError> {
+fn sign_pop(my_key: &dyn AitpSigner, peer_nonce: &str) -> Result<String, HandshakeError> {
     let nonce_bytes = base64url::decode_strict(peer_nonce)
         .map_err(|_| HandshakeError::InvalidEnvelope("pop nonce is not valid base64url".into()))?;
     let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
-    Ok(my_key.sign_jcs(&digest).into_string())
+    Ok(aitp_crypto::sign_jcs(my_key, &digest)
+        .map_err(CryptoError::Signer)?
+        .into_string())
 }
 
 /// Round-2 PoP verify.
@@ -1106,6 +1111,7 @@ impl Responder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     /// Build a compact JWT (`header.payload.sig`) with the given claims
     /// JSON. Header and signature are placeholders — `oidc_checked`

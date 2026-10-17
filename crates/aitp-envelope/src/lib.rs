@@ -2,9 +2,14 @@
 //!
 //! These helpers wrap a payload in a signed [`AitpEnvelope`] and verify
 //! an envelope's outer signature. They depend only on `aitp-core` (wire
-//! types, canonicalization) and `aitp-crypto` (Ed25519) — no HTTP, no
-//! async, no I/O — so they can be reused by language bindings and other
+//! types, canonicalization) and `aitp-crypto` (signing) — no HTTP, no
+//! runtime, no I/O — so they can be reused by language bindings and other
 //! sync consumers without inheriting a transport stack.
+//!
+//! [`sign_envelope_async`] and [`sign_envelope_with_async`] take an async
+//! signing backend ([`DynAsyncAitpSigner`], e.g. a cloud KMS client). They
+//! validate, frame and assemble exactly as the sync functions do; only the
+//! backend call is awaited.
 //!
 //! `aitp-transport-http::common` keeps thin wrappers over these
 //! functions, so existing callers that imported `sign_envelope*` /
@@ -14,8 +19,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use aitp_core::{envelope_signing_digest, AitpEnvelope, MessageType, Sender, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp_core::{envelope_signing_digest, Aid, AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp_crypto::{AitpSigner, Digest32, DynAsyncAitpSigner};
 use uuid::Uuid;
 
 /// Sign and wrap a payload as an [`AitpEnvelope`] with caller-provided
@@ -26,37 +31,101 @@ use uuid::Uuid;
 /// reconstructs the same string from `envelope.message_id` /
 /// `envelope.timestamp`). Caller MUST pass the same `(mid, ts)` it used
 /// to build the identity proof inside `payload`.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure is returned as `Err("signing backend failed: ...")`.
 pub fn sign_envelope_with(
-    signing_key: &AitpSigningKey,
+    signing_key: &dyn AitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> Result<AitpEnvelope, String> {
-    let digest = envelope_signing_digest(&message_id, timestamp, signing_key.aid(), &payload)
-        .map_err(|e| e.to_string())?;
-    let signature = signing_key
-        .sign_jcs(&aitp_crypto::Digest32::from(digest))
-        .into_string();
-    Ok(AitpEnvelope {
+    let digest = envelope_digest(signing_key.aid(), &payload, &message_id, timestamp)?;
+    let signature = aitp_crypto::sign_jcs(signing_key, &digest).map_err(backend_failed)?;
+    Ok(assemble(
+        signing_key.aid(),
+        message_type,
+        payload,
+        message_id,
+        timestamp,
+        signature,
+    ))
+}
+
+/// As [`sign_envelope_with`], signed by an async backend (KMS, HSM,
+/// remote signer). Validation, digest and output are identical to the
+/// sync function; the returned future is `Send`.
+///
+/// A backend failure is returned as `Err("signing backend failed: ...")`.
+pub async fn sign_envelope_with_async(
+    signing_key: &dyn DynAsyncAitpSigner,
+    message_type: MessageType,
+    payload: serde_json::Value,
+    message_id: Uuid,
+    timestamp: Timestamp,
+) -> Result<AitpEnvelope, String> {
+    let digest = envelope_digest(signing_key.aid(), &payload, &message_id, timestamp)?;
+    let signature = aitp_crypto::sign_jcs_async(signing_key, &digest)
+        .await
+        .map_err(backend_failed)?;
+    Ok(assemble(
+        signing_key.aid(),
+        message_type,
+        payload,
+        message_id,
+        timestamp,
+        signature,
+    ))
+}
+
+/// The digest the envelope signature covers (RFC-AITP-0001 §5.4).
+fn envelope_digest(
+    sender: &Aid,
+    payload: &serde_json::Value,
+    message_id: &Uuid,
+    timestamp: Timestamp,
+) -> Result<Digest32, String> {
+    envelope_signing_digest(message_id, timestamp, sender, payload)
+        .map(Digest32::from)
+        .map_err(|e| e.to_string())
+}
+
+fn backend_failed(e: aitp_crypto::SignerError) -> String {
+    format!("signing backend failed: {e}")
+}
+
+/// Assemble the signed envelope; shared by the sync and async paths.
+fn assemble(
+    sender: &Aid,
+    message_type: MessageType,
+    payload: serde_json::Value,
+    message_id: Uuid,
+    timestamp: Timestamp,
+    signature: aitp_crypto::Signature,
+) -> AitpEnvelope {
+    AitpEnvelope {
         version: "aitp/0.2".into(),
         message_type,
         message_id,
         timestamp,
         sender: Sender {
-            agent_id: signing_key.aid().clone(),
+            agent_id: sender.clone(),
         },
         payload,
         extensions: None,
-        signature,
-    })
+        signature: signature.into_string(),
+    }
 }
 
 /// Convenience: sign with a freshly generated `message_id` and
 /// `timestamp`. **Do not use** for envelopes whose payload carries a
 /// pinned-key identity proof — see [`sign_envelope_with`].
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure is returned as `Err("signing backend failed: ...")`.
 pub fn sign_envelope(
-    signing_key: &AitpSigningKey,
+    signing_key: &dyn AitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
 ) -> Result<AitpEnvelope, String> {
@@ -67,6 +136,27 @@ pub fn sign_envelope(
         Uuid::new_v4(),
         Timestamp::now(),
     )
+}
+
+/// As [`sign_envelope`], signed by an async backend: a fresh
+/// `message_id` and `timestamp`, then [`sign_envelope_with_async`].
+/// **Do not use** for envelopes whose payload carries a pinned-key
+/// identity proof. The returned future is `Send`.
+///
+/// A backend failure is returned as `Err("signing backend failed: ...")`.
+pub async fn sign_envelope_async(
+    signing_key: &dyn DynAsyncAitpSigner,
+    message_type: MessageType,
+    payload: serde_json::Value,
+) -> Result<AitpEnvelope, String> {
+    sign_envelope_with_async(
+        signing_key,
+        message_type,
+        payload,
+        Uuid::new_v4(),
+        Timestamp::now(),
+    )
+    .await
 }
 
 /// Verify an envelope's outer signature given the sender's verifying key.
