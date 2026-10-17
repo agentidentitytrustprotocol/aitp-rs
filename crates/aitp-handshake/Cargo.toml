@@ -29,6 +29,7 @@ sha2 = { workspace = true }
 # (rather than relying on the transitive pull) so this crate's use of
 # it is explicit and pinned by the workspace.
 ring = { workspace = true }
+metrics = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -37,6 +38,10 @@ default = []
 # single-use nonce store, per-source rate limiting. No extra dependencies.
 # Off by default: it is an OPTIONAL profile of RFC-AITP-0002.
 pinned-admission = []
+# Admission counters and the outstanding-nonce gauge via the `metrics`
+# facade (zero-cost with no recorder installed). Only emits anything
+# with `pinned-admission` on. `aitp-transport-http/metrics` enables it.
+metrics = ["dep:metrics"]
 
 [dev-dependencies]
 # `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
@@ -47,6 +52,7 @@ p256 = { workspace = true }
 base64ct = { workspace = true }
 hex = { workspace = true }
 tokio = { workspace = true }
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 
 [package.metadata.docs.rs]
 features = ["pinned-admission"]

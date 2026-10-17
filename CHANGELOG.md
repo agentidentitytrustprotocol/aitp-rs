@@ -31,7 +31,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   only (RFC-AITP-0001 §5.4.7 scope). `HandshakeServer` rate limiting is on by
   default, keyed on the transport source, and believes forwarding
   headers only from `RateLimitConfig::trusted_proxies` (RFC-AITP-0009
-  §3.1, spec #73). See
+  §3.1, spec #73). For Seam (#205 A-1 to A-4), `NonceStoreError::AtCapacity`
+  gains `retry_after`, and in-memory nonce expiry is amortised. Also new:
+  the public `resolve_source_ip` and `TokenBucketLimiter::check_key_at`,
+  and admission metrics behind `aitp-handshake/metrics`. See
   [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
   how to migrate.
 

@@ -137,7 +137,9 @@ Independent of clustering, production servers/clients should set:
   `aitp-transport-http` emits low-cardinality counters via the
   [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
   `aitp_replay_rejected_total`, `aitp_sessions_evicted_total`,
-  `aitp_revocation_cache_total`, `aitp_jwks_cache_total`); see
+  `aitp_revocation_cache_total`, `aitp_jwks_cache_total`), and with
+  `pinned-admission` also `aitp_admission_challenge_total`,
+  `aitp_admission_admit_total` and `aitp_admission_nonces_outstanding`; see
   [`examples/observability/`](../examples/observability/README.md) for
   tracing/dashboard wiring.
 - **Key handling** — see [`key-management.md`](key-management.md) for seed

@@ -23,6 +23,7 @@
 //!
 //! [`admit`]: PinnedAdmission::admit
 
+pub mod metrics_names;
 mod nonce_store;
 mod rate_limit;
 
@@ -278,6 +279,16 @@ impl PinnedAdmission {
         source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<AdmissionChallenge, AdmissionError> {
+        let r = self.issue_challenge(source, now).await;
+        metrics_names::record_challenge(&r);
+        r
+    }
+
+    async fn issue_challenge(
+        &self,
+        source: &ChallengeSource,
+        now: Timestamp,
+    ) -> Result<AdmissionChallenge, AdmissionError> {
         self.limiter
             .check(source)
             .map_err(|retry_after| AdmissionError::ChallengeRefused {
@@ -308,9 +319,9 @@ impl PinnedAdmission {
                     })
                 }
                 Err(NonceStoreError::Duplicate) => continue,
-                Err(NonceStoreError::AtCapacity { .. }) => {
+                Err(NonceStoreError::AtCapacity { retry_after, .. }) => {
                     return Err(AdmissionError::ChallengeRefused {
-                        retry_after: None,
+                        retry_after,
                         cause: RefusalCause::AtCapacity,
                     })
                 }
@@ -356,6 +367,16 @@ impl PinnedAdmission {
     /// is consumed only by a presentation that verified, so a party that
     /// merely observed a nonce cannot burn it.
     pub async fn admit_at(
+        &self,
+        env: &AitpEnvelope,
+        now: Timestamp,
+    ) -> Result<Admitted, AdmissionError> {
+        let r = self.admit_inner(env, now).await;
+        metrics_names::record_admit(&r);
+        r
+    }
+
+    async fn admit_inner(
         &self,
         env: &AitpEnvelope,
         now: Timestamp,

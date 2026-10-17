@@ -173,6 +173,8 @@ dependencies = [
  "boon",
  "ed25519-dalek",
  "hex",
+ "metrics",
+ "metrics-util",
  "p256",
  "rand 0.10.2",
  "ring",

@@ -30,7 +30,7 @@ experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
 # scrape metrics don't take the dependency. The facade is zero-cost when
 # no recorder is installed; install one (e.g. metrics-exporter-prometheus)
 # in your binary to collect. See `obs` module + examples/observability.
-metrics = ["dep:metrics"]
+metrics = ["dep:metrics", "aitp-handshake/metrics"]
 
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "=0.13.2" }

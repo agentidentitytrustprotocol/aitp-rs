@@ -1236,16 +1236,10 @@ async fn parse_envelope_request(
     Ok(envelope)
 }
 
-/// The transport source for rate limiting (RFC-AITP-0009 §3.1).
-///
-/// The source is the socket peer, present when the router is served
-/// with `into_make_service_with_connect_info::<SocketAddr>()`. Only
-/// when that peer is a trusted proxy are forwarding headers read: the
-/// client is the rightmost `X-Forwarded-For` hop that is not itself a
-/// trusted proxy, else `X-Real-IP`. Anything a client prepends to
-/// `X-Forwarded-For` is therefore ignored. A hop that does not parse
-/// stops the walk and the last trusted hop is used, which throttles
-/// harder rather than softer.
+/// The rate-limit source for a request: [`resolve_source_ip`] on the
+/// socket peer, present when the router is served with
+/// `into_make_service_with_connect_info::<SocketAddr>()`. `None`
+/// without connect info.
 fn extract_source_ip(
     request: &Request,
     trusted_proxies: &[TrustedProxy],
@@ -1254,11 +1248,29 @@ fn extract_source_ip(
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
         .map(|ci| ci.0.ip())?;
+    Some(resolve_source_ip(peer, request.headers(), trusted_proxies))
+}
+
+/// The client address behind `peer` per RFC-AITP-0009 §3.1, for keying
+/// rate limits. Usable from any HTTP stack that has the socket peer and
+/// an [`http::HeaderMap`](axum::http::HeaderMap).
+///
+/// Forwarding headers are read only when `peer` is inside
+/// `trusted_proxies`. The client is then the rightmost
+/// `X-Forwarded-For` hop (all header lines, in order) that is not
+/// itself a trusted proxy, else `X-Real-IP`, else `peer`. Anything a
+/// client prepends to `X-Forwarded-For` is therefore ignored. A hop
+/// that does not parse stops the walk and the last trusted hop is used,
+/// which throttles harder rather than softer.
+pub fn resolve_source_ip(
+    peer: std::net::IpAddr,
+    headers: &axum::http::HeaderMap,
+    trusted_proxies: &[TrustedProxy],
+) -> std::net::IpAddr {
     let trusted = |ip: std::net::IpAddr| trusted_proxies.iter().any(|p| p.contains(ip));
     if !trusted(peer) {
-        return Some(peer);
+        return peer;
     }
-    let headers = request.headers();
     let xff: Vec<&str> = headers
         .get_all("x-forwarded-for")
         .iter()
@@ -1280,13 +1292,13 @@ fn extract_source_ip(
                 Err(_) => break,
             }
         }
-        return Some(source);
+        return source;
     }
     headers
         .get("x-real-ip")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.trim().parse().ok())
-        .or(Some(peer))
+        .unwrap_or(peer)
 }
 
 /// [`extract_source_ip`] against the configured trusted proxies.

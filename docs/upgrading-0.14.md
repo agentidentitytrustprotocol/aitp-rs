@@ -190,12 +190,27 @@ let admitted = admission.admit(&env).await?;
 - `NonceStore` is the persistence trait. `InMemoryNonceStore` is the
   bounded single-replica reference. It refuses at capacity and never
   evicts live nonces. Back the trait with Redis or DynamoDB for more
-  than one replica.
+  than one replica. Expiry is amortised O(log n) per nonce, through a
+  per-shard expiry heap, and a full sweep at capacity runs at most once
+  per second. `NonceStoreError::AtCapacity` carries
+  `retry_after: Option<Duration>` (the earliest outstanding expiry), and
+  `ChallengeRefused::retry_after` passes it through. A third-party store
+  sets it, or `None`.
 - Rate limiting is always on. `ChallengeSource` must carry a transport
   identity (`ip` or `tls_client_cert`). An optional `with_label(aid)`
   adds a second limit and never replaces the transport key. The default
   `RecommendedLimiter` allows 30 per minute per source and 10 per minute
   per label (RFC-AITP-0009 §3.1). Replace it with `rate_limiter(..)`.
+  `TokenBucketLimiter::check_key_at(key, Instant)` and
+  `RecommendedLimiter::check_at(source, Instant)` take an injected
+  clock.
+- Feature `metrics` on `aitp-handshake` (enabled by
+  `aitp-transport-http/metrics`) emits
+  `aitp_admission_challenge_total{result}` (`issued`, `rate_limited`,
+  `at_capacity`, `error`), `aitp_admission_admit_total{result}`
+  (`admitted`, a lowercased wire code, or `local_error`) and the gauge
+  `aitp_admission_nonces_outstanding`. The names are constants in
+  `admission::metrics_names`.
 - Either limit refuses with `CHALLENGE_REFUSED` (retryable; see
   `ErrorCode::is_retryable`) and never says which one fired.
   `RefusalCause` is for local metrics only.
@@ -228,6 +243,10 @@ forwarding headers count only from a configured trusted proxy.
   rightmost untrusted `X-Forwarded-For` hop. **If you run behind a load
   balancer, add it to `trusted_proxies`.** Otherwise every client shares
   the balancer's bucket.
+- The same rule is public as
+  `aitp_transport_http::resolve_source_ip(peer, &headers, &trusted_proxies)`,
+  for keying limits in another HTTP stack, such as
+  `PinnedAdmission::challenge(&ChallengeSource::ip(..))`.
 - Serve the router with
   `into_make_service_with_connect_info::<SocketAddr>()`. Without connect
   info there is no transport identifier, and all requests share one

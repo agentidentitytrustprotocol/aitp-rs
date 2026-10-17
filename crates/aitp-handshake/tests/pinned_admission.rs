@@ -484,3 +484,26 @@ fn ipv6_sources_share_a_slash_64() {
     let mapped = ChallengeSource::ip(IpAddr::V6(Ipv4Addr::new(192, 0, 2, 1).to_ipv6_mapped()));
     assert_eq!(v4.transport_key(), mapped.transport_key());
 }
+
+/// aitp-rs#205 A-1: an at-capacity refusal says when the earliest
+/// outstanding nonce expires, so a transport can always send
+/// `Retry-After`. `expires_at` is inclusive: the slot frees one second
+/// after it.
+#[tokio::test]
+async fn at_capacity_refusal_carries_retry_after() {
+    let a = admission_with(Arc::new(InMemoryNonceStore::new(1)));
+    let ch = a.challenge_at(&src("a"), NOW).await.unwrap();
+    assert_eq!(ch.expires_at, Timestamp(NOW.0 + 300));
+    let later = Timestamp(NOW.0 + 10);
+    match a.challenge_at(&src("b"), later).await.unwrap_err() {
+        AdmissionError::ChallengeRefused {
+            retry_after,
+            cause: RefusalCause::AtCapacity,
+        } => assert_eq!(retry_after, Some(Duration::from_secs(291))),
+        other => panic!("expected AtCapacity, got {other:?}"),
+    }
+    // At the advertised time the slot is free.
+    a.challenge_at(&src("b"), Timestamp(later.0 + 291))
+        .await
+        .unwrap();
+}

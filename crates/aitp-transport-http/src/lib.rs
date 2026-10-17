@@ -93,8 +93,9 @@ pub use key_resolution::{
 
 #[cfg(feature = "server")]
 pub use server::{
-    DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome,
-    RevocationListProducer, TrustedProxy, TrustedProxyParseError, DEFAULT_SESSION_TTL,
+    resolve_source_ip, DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig,
+    RateLimitOutcome, RevocationListProducer, TrustedProxy, TrustedProxyParseError,
+    DEFAULT_SESSION_TTL,
 };
 
 #[cfg(feature = "server")]

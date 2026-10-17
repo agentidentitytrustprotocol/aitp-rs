@@ -137,8 +137,19 @@ pub struct TokenBucketLimiter {
     burst: f64,
     per_second: f64,
     max_sources: usize,
-    buckets: Mutex<HashMap<String, Bucket>>,
+    buckets: Mutex<Buckets>,
 }
+
+#[derive(Default)]
+struct Buckets {
+    map: HashMap<String, Bucket>,
+    /// Last full-table prune; at most one per [`PRUNE_INTERVAL`].
+    last_prune: Option<Instant>,
+}
+
+/// A full table is pruned at most this often, so a flood of new sources
+/// costs O(1) each rather than a scan each.
+const PRUNE_INTERVAL: Duration = Duration::from_secs(1);
 
 impl TokenBucketLimiter {
     /// Default bound on tracked sources.
@@ -150,7 +161,7 @@ impl TokenBucketLimiter {
             burst: f64::from(burst.max(1)),
             per_second: per_second.max(f64::MIN_POSITIVE),
             max_sources: Self::DEFAULT_MAX_SOURCES,
-            buckets: Mutex::new(HashMap::new()),
+            buckets: Mutex::default(),
         }
     }
 
@@ -163,19 +174,33 @@ impl TokenBucketLimiter {
     /// Charge one challenge to an arbitrary `key`. For composing custom
     /// limiters.
     pub fn check_key(&self, key: &str) -> Result<(), Duration> {
-        self.check_at(key, Instant::now())
+        self.check_key_at(key, Instant::now())
     }
 
-    fn check_at(&self, source: &str, now: Instant) -> Result<(), Duration> {
-        let mut map = lock(&self.buckets);
-        if !map.contains_key(source) && map.len() >= self.max_sources {
-            let (burst, rate) = (self.burst, self.per_second);
-            map.retain(|_, b| refill(b, now, burst, rate) < burst);
-            if map.len() >= self.max_sources {
-                return Err(Duration::from_secs_f64(1.0 / rate));
+    /// As [`Self::check_key`] on an explicit monotonic clock, for
+    /// deterministic tests and for callers that already read the clock.
+    /// Calls with an earlier `now` than the key last saw refill nothing.
+    ///
+    /// At `max_sources`, an unknown key triggers a prune of refilled
+    /// buckets at most once per second of `now`; between prunes it is
+    /// refused.
+    pub fn check_key_at(&self, key: &str, now: Instant) -> Result<(), Duration> {
+        let mut guard = lock(&self.buckets);
+        let st = &mut *guard;
+        if !st.map.contains_key(key) && st.map.len() >= self.max_sources {
+            let due = st
+                .last_prune
+                .is_none_or(|t| now.saturating_duration_since(t) >= PRUNE_INTERVAL);
+            if due {
+                st.last_prune = Some(now);
+                let (burst, rate) = (self.burst, self.per_second);
+                st.map.retain(|_, b| refill(b, now, burst, rate) < burst);
+            }
+            if st.map.len() >= self.max_sources {
+                return Err(Duration::from_secs_f64(1.0 / self.per_second).max(PRUNE_INTERVAL));
             }
         }
-        let b = map.entry(source.to_owned()).or_insert(Bucket {
+        let b = st.map.entry(key.to_owned()).or_insert(Bucket {
             tokens: self.burst,
             last: now,
         });
@@ -241,9 +266,17 @@ impl Default for RecommendedLimiter {
 
 impl ChallengeRateLimiter for RecommendedLimiter {
     fn check(&self, source: &ChallengeSource) -> Result<(), Duration> {
-        self.transport.check_key(source.transport_key())?;
+        self.check_at(source, Instant::now())
+    }
+}
+
+impl RecommendedLimiter {
+    /// As [`ChallengeRateLimiter::check`] on an explicit monotonic clock
+    /// (see [`TokenBucketLimiter::check_key_at`]).
+    pub fn check_at(&self, source: &ChallengeSource, now: Instant) -> Result<(), Duration> {
+        self.transport.check_key_at(source.transport_key(), now)?;
         match (&self.label, source.label()) {
-            (Some(l), Some(label)) => l.check_key(label),
+            (Some(l), Some(label)) => l.check_key_at(label, now),
             _ => Ok(()),
         }
     }
@@ -257,26 +290,59 @@ mod tests {
     fn burst_then_refuse_then_refill() {
         let l = TokenBucketLimiter::new(2, 1.0);
         let t0 = Instant::now();
-        assert!(l.check_at("a", t0).is_ok());
-        assert!(l.check_at("a", t0).is_ok());
-        let wait = l.check_at("a", t0).unwrap_err();
+        assert!(l.check_key_at("a", t0).is_ok());
+        assert!(l.check_key_at("a", t0).is_ok());
+        let wait = l.check_key_at("a", t0).unwrap_err();
         assert!(wait <= Duration::from_secs(1) && wait > Duration::ZERO);
         // Other sources are unaffected.
-        assert!(l.check_at("b", t0).is_ok());
-        assert!(l.check_at("a", t0 + Duration::from_secs(1)).is_ok());
+        assert!(l.check_key_at("b", t0).is_ok());
+        assert!(l.check_key_at("a", t0 + Duration::from_secs(1)).is_ok());
     }
 
     #[test]
     fn source_bound_refuses_new_sources_instead_of_resetting() {
         let l = TokenBucketLimiter::new(1, 0.001).max_sources(2);
         let t0 = Instant::now();
-        l.check_at("a", t0).unwrap();
-        l.check_at("b", t0).unwrap();
-        assert!(l.check_at("c", t0).is_err(), "full table refuses newcomers");
+        l.check_key_at("a", t0).unwrap();
+        l.check_key_at("b", t0).unwrap();
+        assert!(
+            l.check_key_at("c", t0).is_err(),
+            "full table refuses newcomers"
+        );
         // `a` is still throttled: it was not evicted and re-created.
-        assert!(l.check_at("a", t0).is_err());
+        assert!(l.check_key_at("a", t0).is_err());
         // Once a bucket has refilled it is forgettable.
         let later = t0 + Duration::from_secs(2000);
-        assert!(l.check_at("c", later).is_ok());
+        assert!(l.check_key_at("c", later).is_ok());
+    }
+
+    /// A flood of new sources at a full table prunes once per second,
+    /// not once per request.
+    #[test]
+    fn full_table_prune_is_throttled() {
+        let l = TokenBucketLimiter::new(1, 2.0).max_sources(2);
+        let t0 = Instant::now();
+        l.check_key_at("a", t0).unwrap();
+        l.check_key_at("b", t0).unwrap();
+        // Prunes (nothing refilled yet) and refuses.
+        let wait = l.check_key_at("c", t0).unwrap_err();
+        assert!(wait >= PRUNE_INTERVAL);
+        // a and b have refilled, but the last prune was <1s ago.
+        let t1 = t0 + Duration::from_millis(600);
+        assert!(l.check_key_at("c", t1).is_err());
+        assert!(l.check_key_at("c", t0 + Duration::from_secs(1)).is_ok());
+    }
+
+    #[test]
+    fn recommended_limiter_on_injected_clock() {
+        use std::net::{IpAddr, Ipv4Addr};
+        let l = RecommendedLimiter::default();
+        let src = ChallengeSource::ip(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)));
+        let t0 = Instant::now();
+        for _ in 0..RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+            l.check_at(&src, t0).unwrap();
+        }
+        assert!(l.check_at(&src, t0).is_err());
+        assert!(l.check_at(&src, t0 + Duration::from_secs(2)).is_ok());
     }
 }
