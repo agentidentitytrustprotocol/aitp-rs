@@ -25,7 +25,12 @@ message hash, which is what other implementations do.
   together.
 - Verification is strict (§5.4.7). It rejects `r` or `s` equal to 0 or
   ≥ n, and high-S (`s > n/2`). Signing always emits low-S. The same rule
-  applies to ES256 JWS, OIDC issuer JWTs included.
+  applies to AITP-minted ES256 JWS (TCTs, vouchers, delegations).
+  Third-party JOSE, meaning an IdP's OIDC ID token or a DPoP proof, is
+  verified per RFC 7515/7518 and accepts high-S
+  (`AitpVerifyingKey::verify_raw_jose`). Its bytes are therefore
+  malleable, so key any replay cache on the nonce or `jti`, never on
+  the raw token.
 
 `AitpSigningKey::sign(&[u8])` and `AitpVerifyingKey::verify(&[u8], …)`
 are gone. Each had a hash step that depended on the algorithm. Use:

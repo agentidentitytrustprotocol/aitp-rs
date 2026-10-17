@@ -401,6 +401,32 @@ impl AitpVerifyingKey {
         }
     }
 
+    /// Verify a raw 64-byte JOSE signature from a **third party**: an
+    /// IdP's OIDC ID token, or a DPoP proof (RFC 7515/7518). It is
+    /// [`Self::verify_raw`] without the high-S rejection. RFC-AITP-0001
+    /// §5.4.7 low-S is scoped to AITP signing inputs, and a verifier
+    /// MUST NOT reject an IdP token for high-S alone. `R`/`S` of zero or
+    /// `>= n` still fail, as in any ECDSA verifier.
+    ///
+    /// Accepting both `(r, s)` and `(r, n - s)` makes the token bytes
+    /// malleable. Never key a replay or dedup cache on them; key on the
+    /// bound nonce or `jti`. Ed25519 stays `verify_strict`. The same
+    /// `alg`-pinning duty as [`Self::verify_raw`] applies.
+    pub fn verify_raw_jose(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => verify_ed25519(vk, message, sig),
+            VerifyingKeyInner::P256(vk) => {
+                if sig.len() != 64 {
+                    return Err(CryptoError::SignatureInvalid);
+                }
+                let p256_sig =
+                    P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
+                vk.verify_prehash(Digest32::sha256(message).as_bytes(), &p256_sig)
+                    .map_err(|_| CryptoError::SignatureInvalid)
+            }
+        }
+    }
+
     /// Compute the RFC 7638 JWK thumbprint per RFC-AITP-0002 §2.2.1.
     ///
     /// Ed25519 (`OKP`) keys hash `{"crv":"Ed25519","kty":"OKP","x":...}`;

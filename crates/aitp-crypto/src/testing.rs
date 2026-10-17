@@ -252,7 +252,12 @@ const ED25519_L: [u8; 32] = [
     0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x10,
 ];
 
-/// `(r, n - s)`: the high-S twin of a low-S signature.
+/// `(r, n - s)`: the high-S twin of a raw `R || S` P-256 signature.
+/// Equally valid under plain ECDSA, rejected by RFC-AITP-0001 §5.4.7.
+pub fn p256_high_s_twin(raw: [u8; 64]) -> [u8; 64] {
+    high_s(raw)
+}
+
 fn high_s(mut raw: [u8; 64]) -> [u8; 64] {
     let mut borrow = 0i16;
     for i in (0..32).rev() {
