@@ -221,6 +221,27 @@ pub struct PinnedKeyVerifyContext<'a> {
     /// surrounding HELLO/HELLO_ACK payload). MUST decode to exactly 16
     /// bytes.
     pub pop_nonce: &'a str,
+    /// What the descriptor's `subject` must be. Default
+    /// [`SubjectBinding::Unchecked`].
+    pub subject: SubjectBinding,
+}
+
+/// How [`verify_pinned_key`] treats the descriptor's `subject`.
+///
+/// `subject` is not covered by `proof` (proposal
+/// agentidentitytrustprotocol#72 Item 6a). RFC-AITP-0002 lets it be a
+/// free-form label (`"internal-worker-1"`), so the default leaves it
+/// unchecked. Deployments that put the agent's AID in `subject` opt into
+/// [`SubjectBinding::SenderAid`] so a mismatched label cannot reach logs
+/// or policy as if it named the sender.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum SubjectBinding {
+    /// Accept any `subject`. Callers MUST NOT treat it as authenticated.
+    #[default]
+    Unchecked,
+    /// `subject` MUST byte-equal the sender AID string.
+    SenderAid,
 }
 
 /// The outcome of a successful [`verify_pinned_key`]: the sender's key,
@@ -242,7 +263,9 @@ pub struct VerifiedPinnedKey {
 /// proposal agentidentitytrustprotocol#72 Item 2).
 ///
 /// 1. `descriptor.type` MUST be `pinned_key`. No other type is run
-///    through this path, whatever fields it carries.
+///    through this path, whatever fields it carries. `issuer` MUST be
+///    absent. `subject` is checked per `ctx.subject`
+///    ([`SubjectBinding`]); by default it is an unauthenticated label.
 /// 2. `descriptor.public_key` MUST decode to the AID-identifier form for
 ///    the sender AID's algorithm: 32 raw bytes for Ed25519, or a 33-byte
 ///    SEC1 compressed point for P-256 (uncompressed points, SPKI and
@@ -266,6 +289,20 @@ pub fn verify_pinned_key(
     if descriptor.kind != IdentityKind::PinnedKey {
         return Err(HandshakeError::Identity(
             "pinned-key verification requires identity.type = pinned_key".into(),
+        ));
+    }
+
+    // Step 1b: descriptor shape. `issuer` has no meaning for a pinned
+    // key and nothing authenticates it in a standalone presentation, so
+    // a descriptor carrying one is rejected rather than half-trusted.
+    if descriptor.issuer.is_some() {
+        return Err(HandshakeError::Identity(
+            "pinned_key descriptor must not carry issuer".into(),
+        ));
+    }
+    if ctx.subject == SubjectBinding::SenderAid && descriptor.subject != ctx.sender_aid.as_str() {
+        return Err(HandshakeError::Identity(
+            "pinned_key subject does not equal the sender AID".into(),
         ));
     }
 
@@ -410,6 +447,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: nonce,
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -432,6 +470,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -456,6 +495,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -479,6 +519,7 @@ mod tests {
                 message_id: &mid_b,
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -502,6 +543,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts_b,
                 pop_nonce: fixed_nonce(),
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -526,6 +568,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: nonce_b,
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -575,6 +618,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
+                subject: Default::default(),
             },
             &store_of(&[&key]),
         )
@@ -604,6 +648,7 @@ mod tests {
             message_id: mid,
             timestamp: Timestamp(1_711_900_000),
             pop_nonce: fixed_nonce(),
+            subject: Default::default(),
         }
     }
 
@@ -612,6 +657,62 @@ mod tests {
             HandshakeError::Identity(s) => s,
             other => panic!("expected IDENTITY_FAILED, got {other:?}"),
         }
+    }
+
+    #[test]
+    fn issuer_on_pinned_key_is_rejected_before_signature_work() {
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        desc.issuer = Some(aitp_core::RawUrl::new("https://idp.example"));
+        let store = CountingStore {
+            inner: store_of(&[&key]),
+            calls: AtomicUsize::new(0),
+        };
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store).unwrap_err());
+        assert!(msg.contains("issuer"), "{msg}");
+        assert_eq!(
+            store.calls.load(Ordering::SeqCst),
+            0,
+            "rejected before the store"
+        );
+    }
+
+    #[test]
+    fn subject_binding_sender_aid_requires_subject_to_equal_the_sender_aid() {
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
+        let mut c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        let store = store_of(&[&key]);
+
+        // Default: `subject` is an unauthenticated label (RFC-AITP-0002 §1).
+        assert_eq!(c.subject, SubjectBinding::Unchecked);
+        verify_pinned_key(&desc, &c, &store).expect("free-form subject accepted by default");
+
+        c.subject = SubjectBinding::SenderAid;
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store).unwrap_err());
+        assert!(msg.contains("subject"), "{msg}");
+
+        desc.subject = key.aid().as_str().to_owned();
+        verify_pinned_key(&desc, &c, &store).expect("subject equals the sender AID");
     }
 
     #[test]
@@ -797,6 +898,7 @@ mod tests {
             );
             let c = PinnedKeyVerifyContext {
                 pop_nonce: &nonce,
+                subject: Default::default(),
                 ..ctx(key.aid(), receiver.aid(), &mid)
             };
             let msg = identity_msg(verify_pinned_key(&desc, &c, &store_of(&[&key])).unwrap_err());
@@ -826,6 +928,7 @@ mod tests {
             message_id: &mid,
             timestamp: Timestamp(v["timestamp"].as_i64().unwrap()),
             pop_nonce: v["pop_nonce"].as_str().unwrap(),
+            subject: Default::default(),
         };
         let mut desc = IdentityDescriptor {
             kind: IdentityKind::PinnedKey,

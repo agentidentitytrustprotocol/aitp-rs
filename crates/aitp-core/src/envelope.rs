@@ -175,6 +175,10 @@ pub enum MessageType {
     PopResponse,
     /// Error envelope.
     Error,
+    /// One-way pinned-key admission presentation (RFC-AITP-0002 §3.4,
+    /// proposal agentidentitytrustprotocol#72 Item 5): payload
+    /// `{identity, pop_nonce}`.
+    IdentityPresentation,
 }
 
 impl MessageType {
@@ -189,6 +193,7 @@ impl MessageType {
             Self::PopChallenge => "pop_challenge",
             Self::PopResponse => "pop_response",
             Self::Error => "error",
+            Self::IdentityPresentation => "identity_presentation",
         }
     }
 }
@@ -273,6 +278,7 @@ mod tests {
             MessageType::PopChallenge,
             MessageType::PopResponse,
             MessageType::Error,
+            MessageType::IdentityPresentation,
         ] {
             let env = sample_envelope(mt);
             let s = serde_json::to_string(&env).unwrap();
@@ -521,6 +527,7 @@ mod tests {
             (MessageType::PopChallenge, "pop_challenge"),
             (MessageType::PopResponse, "pop_response"),
             (MessageType::Error, "error"),
+            (MessageType::IdentityPresentation, "identity_presentation"),
         ];
         for (mt, wire) in cases {
             assert_eq!(mt.as_wire_str(), wire);

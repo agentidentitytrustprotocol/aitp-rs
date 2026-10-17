@@ -7,6 +7,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "pinned-admission")]
+pub mod admission;
 pub mod error;
 pub mod identity;
 pub mod identity_oidc;
@@ -20,7 +22,7 @@ pub use identity::{IdentityDescriptor, IdentityKind};
 pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyStore,
-    PinnedKeyVerifyContext, StaticPinnedKeyStore, VerifiedPinnedKey, POP_NONCE_LEN,
+    PinnedKeyVerifyContext, StaticPinnedKeyStore, SubjectBinding, VerifiedPinnedKey, POP_NONCE_LEN,
 };
 pub use jwk::{
     verify_jws_signature, JwkKeyMaterial, JwkParseError, JwkPublicKey, JwsAlgorithm, JwsVerifyError,

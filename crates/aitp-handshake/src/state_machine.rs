@@ -463,6 +463,7 @@ pub fn bootstrap_verify_peer(
                     message_id: &envelope.message_id,
                     timestamp: envelope.timestamp,
                     pop_nonce: payload_pop_nonce,
+                    subject: Default::default(),
                 },
                 cfg.pinned_key_store,
             )?;
@@ -1206,6 +1207,7 @@ mod tests {
                 message_id: &mid,
                 timestamp: ts,
                 pop_nonce: &nonce,
+                subject: Default::default(),
             },
             &store,
         )

@@ -105,6 +105,7 @@ fn p1_legacy_two_field_proof_rejected() {
         message_id: &mid,
         timestamp: ts,
         pop_nonce,
+        subject: Default::default(),
     };
     let err = verify_pinned_key(
         &descriptor,
@@ -158,6 +159,7 @@ fn p1_wrong_receiver_in_proof_rejected() {
         message_id: &mid,
         timestamp: ts,
         pop_nonce,
+        subject: Default::default(),
     };
     let err = verify_pinned_key(
         &descriptor,
@@ -198,6 +200,7 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
         message_id: &mid,
         timestamp: ts,
         pop_nonce: &other_nonce,
+        subject: Default::default(),
     };
     let err = verify_pinned_key(
         &descriptor,
