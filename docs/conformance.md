@@ -197,7 +197,7 @@ Sessions are referenced by adapter-assigned IDs.
 | `inject_revocation` | Force a JTI into the deny list. |
 | `set_features` | Toggle opt-in draft features for the run. |
 | `dump_session` | Dump session state for debugging. |
-| `begin_fixture` | Drop per-fixture adapter state. The runner sends it before each fixture and ignores an error, so adapters without the op still run. |
+| `begin_fixture` | Drop per-fixture adapter state. The runner sends it before each fixture and ignores an error, so adapters without the op still run. This is how the runner meets the spec's rule that each fixture runs against fresh verifier state (fixture README, "Multi-step sequence form"). |
 
 Adapters that don't support clock override just refuse the op; fixtures
 that need it are skipped.
@@ -383,7 +383,7 @@ them.
 
 ### Summary
 
-These counts are **at pin `a2a24da`**, the spec commit in
+These counts are **at pin `35eb687`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.

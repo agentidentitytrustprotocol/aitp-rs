@@ -1,6 +1,6 @@
 {
   "_kat_input": {
-    "$comment": "Real P-256-signed self-attestation TCT (RFC-AITP-0005 §5.3): iss == sub == aud, the sole grant is the marker aitp.attestation, and the statement sits in ext under org.aitp.kat. Protected header is exactly {\"alg\":\"ES256\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object, fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). The signature is raw R||S, RFC 6979 deterministic k, low-S (RFC-AITP-0001 §5.4.7). jti is the derived UUID of RFC-AITP-0005 §2.2: SHA-256(\"aitp-kat-attestation-v1\" || 0x00 || vector_id), first 16 bytes, version and variant bits set. exp is far future only so the vector never expires; it is not evidence of trust (RFC-AITP-0005 §5.3). cnf.jkt is kat-jwk-thumb-005-p256. This token MUST be rejected with TCT_SIGNATURE_INVALID in every grant context.",
+    "$comment": "Real P-256-signed self-attestation TCT (RFC-AITP-0005 §5.3): iss == sub == aud, the sole grant is the marker aitp.attestation, and the statement sits in ext under io.agentidentitytrustprotocol.kat. Protected header is exactly {\"alg\":\"ES256\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object, fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). The signature is raw R||S, RFC 6979 deterministic k, low-S (RFC-AITP-0001 §5.4.7). jti is the derived UUID of RFC-AITP-0005 §2.2: SHA-256(\"aitp-kat-attestation-v1\" || 0x00 || vector_id), first 16 bytes, version and variant bits set. exp is far future only so the vector never expires; it is not evidence of trust (RFC-AITP-0005 §5.3). cnf.jkt is kat-jwk-thumb-005-p256. This token MUST be rejected with TCT_SIGNATURE_INVALID in every grant context.",
     "vector_id": "kat-tct-003-p256-self-attestation",
     "issuer_seed_id": "kat-keypair-005-p256",
     "subject_seed_id": "kat-keypair-005-p256",
@@ -17,12 +17,12 @@
       "aitp.attestation"
     ],
     "ext": {
-      "org.aitp.kat": {
+      "io.agentidentitytrustprotocol.kat": {
         "statement": "kat-tct-003-p256-self-attestation archival attestation"
       }
     }
   },
-  "tct_token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OnAyNTY6QXdlQkRxbDB6cVYzUG1PNGxfTi1PLW1nbm5wZjZibHhwRTBRWmF3cU9wTVIiLCJjbmYiOnsiamt0IjoiNnV1RWFYXzg3dU1oNFZLRXRTRGtFTmdqQzBnN0V2dDZ2bGlTbkQ3WFNERSJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJvcmcuYWl0cC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDMtcDI1Ni1zZWxmLWF0dGVzdGF0aW9uIGFyY2hpdmFsIGF0dGVzdGF0aW9uIn19LCJncmFudHMiOlsiYWl0cC5hdHRlc3RhdGlvbiJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsImp0aSI6IjQ0ZmM2ODQzLTMzZGItNDFhMS05ZDc5LTMzMWEwZjZkYjY5MiIsInN1YiI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsInZlciI6ImFpdHAvMC4yIn0.2UYvnEJo4xt3xidH7hM1FqBtsEWJ0GoeG5UIbglbGPoX5kVPHMHkQwtSvga0R0s86ME1jWjuNXjfLLEurYqkMQ",
+  "tct_token": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OnAyNTY6QXdlQkRxbDB6cVYzUG1PNGxfTi1PLW1nbm5wZjZibHhwRTBRWmF3cU9wTVIiLCJjbmYiOnsiamt0IjoiNnV1RWFYXzg3dU1oNFZLRXRTRGtFTmdqQzBnN0V2dDZ2bGlTbkQ3WFNERSJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJpby5hZ2VudGlkZW50aXR5dHJ1c3Rwcm90b2NvbC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDMtcDI1Ni1zZWxmLWF0dGVzdGF0aW9uIGFyY2hpdmFsIGF0dGVzdGF0aW9uIn19LCJncmFudHMiOlsiYWl0cC5hdHRlc3RhdGlvbiJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsImp0aSI6IjQ0ZmM2ODQzLTMzZGItNDFhMS05ZDc5LTMzMWEwZjZkYjY5MiIsInN1YiI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsInZlciI6ImFpdHAvMC4yIn0.HlqcmBHTvuTgfm9oiQVmphGhjThe4wLzznGf9Jj9dGoBIfhXxxsBfexENsKgvg37lPnUyu6MEpUsRqmgURRQ1g",
   "decoded_claims": {
     "ver": "aitp/0.2",
     "jti": "44fc6843-33db-41a1-9d79-331a0f6db692",
@@ -38,13 +38,13 @@
       "jkt": "6uuEaX_87uMh4VKEtSDkENgjC0g7Evt6vliSnD7XSDE"
     },
     "ext": {
-      "org.aitp.kat": {
+      "io.agentidentitytrustprotocol.kat": {
         "statement": "kat-tct-003-p256-self-attestation archival attestation"
       }
     }
   },
   "_must_not_verify": {
     "$comment": "The same header and payload with the signature computed over sha256(sha256(header.payload)): ES256 hashes once, so this MUST NOT verify.",
-    "double_hash_jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OnAyNTY6QXdlQkRxbDB6cVYzUG1PNGxfTi1PLW1nbm5wZjZibHhwRTBRWmF3cU9wTVIiLCJjbmYiOnsiamt0IjoiNnV1RWFYXzg3dU1oNFZLRXRTRGtFTmdqQzBnN0V2dDZ2bGlTbkQ3WFNERSJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJvcmcuYWl0cC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDMtcDI1Ni1zZWxmLWF0dGVzdGF0aW9uIGFyY2hpdmFsIGF0dGVzdGF0aW9uIn19LCJncmFudHMiOlsiYWl0cC5hdHRlc3RhdGlvbiJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsImp0aSI6IjQ0ZmM2ODQzLTMzZGItNDFhMS05ZDc5LTMzMWEwZjZkYjY5MiIsInN1YiI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsInZlciI6ImFpdHAvMC4yIn0.t8VkfQ6TZrQYaG4mjcFgOflnmjPxd6j1A_UvzQePQdBIRXnkEmwdn-9wiOBwp3TVNbJq81NbkUeEkjcVtNR3PQ"
+    "double_hash_jws": "eyJhbGciOiJFUzI1NiIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5OnAyNTY6QXdlQkRxbDB6cVYzUG1PNGxfTi1PLW1nbm5wZjZibHhwRTBRWmF3cU9wTVIiLCJjbmYiOnsiamt0IjoiNnV1RWFYXzg3dU1oNFZLRXRTRGtFTmdqQzBnN0V2dDZ2bGlTbkQ3WFNERSJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJpby5hZ2VudGlkZW50aXR5dHJ1c3Rwcm90b2NvbC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDMtcDI1Ni1zZWxmLWF0dGVzdGF0aW9uIGFyY2hpdmFsIGF0dGVzdGF0aW9uIn19LCJncmFudHMiOlsiYWl0cC5hdHRlc3RhdGlvbiJdLCJpYXQiOjE3MTE5MDAwMDAsImlzcyI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsImp0aSI6IjQ0ZmM2ODQzLTMzZGItNDFhMS05ZDc5LTMzMWEwZjZkYjY5MiIsInN1YiI6ImFpZDpwdWJrZXk6cDI1NjpBd2VCRHFsMHpxVjNQbU80bF9OLU8tbWdubnBmNmJseHBFMFFaYXdxT3BNUiIsInZlciI6ImFpdHAvMC4yIn0.ejdm5TOKhTh3tSByt4O6BB9rsXl-xFkNsfvTg7_0w0hmoNotZqmfds7k1mB40fvEpmpexdQGb56iFm37joroww"
   }
 }

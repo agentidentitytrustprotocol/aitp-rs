@@ -13,6 +13,8 @@ use serde_json::{json, Map, Value};
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_711_900_000);
+/// The spec's KAT statement key (agentidentitytrustprotocol#80).
+const KAT_EXT_KEY: &str = "io.agentidentitytrustprotocol.kat";
 const HUNDRED_YEARS: i64 = 3_155_760_000;
 const V7: &str = "01890a5d-ac96-774b-bcce-b302099a8057";
 /// Version nibble 4, variant bits `11` (Microsoft).
@@ -35,7 +37,7 @@ fn ctx<'a>(aud: &'a Aid, iss: &'a Aid) -> TctVerifyContext<'a> {
 }
 
 fn statement(kat: &str) -> Map<String, Value> {
-    json!({"org.aitp.kat": {"statement": format!("{kat} archival attestation")}})
+    json!({KAT_EXT_KEY: {"statement": format!("{kat} archival attestation")}})
         .as_object()
         .unwrap()
         .clone()
@@ -232,7 +234,7 @@ fn self_attestation_round_trip() {
         assert_eq!(issued.claims.sub, *iss.aid());
 
         let v =
-            verify_attestation(&issued.token, &attestation_ctx(iss.aid(), "org.aitp.kat")).unwrap();
+            verify_attestation(&issued.token, &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap();
         assert_eq!(v.statement, json!({"statement": "rt archival attestation"}));
 
         let err = verify_attestation(&issued.token, &attestation_ctx(iss.aid(), "org.other"))
@@ -260,7 +262,7 @@ fn attestation_verifier_rejects_grant_tcts() {
     let (iss, sub) = (ed(1), ed(2));
     let grant = base(&iss, &sub).ext(statement("g")).build().unwrap();
     let err =
-        verify_attestation(&grant.token, &attestation_ctx(iss.aid(), "org.aitp.kat")).unwrap_err();
+        verify_attestation(&grant.token, &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap_err();
     assert!(matches!(err, TctError::NotAttestation), "{err:?}");
 }
 
@@ -286,7 +288,7 @@ fn attestation_manifest_cap_is_an_explicit_decision() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    let capped = AttestationVerifyContext::builder(iss.aid(), "org.aitp.kat", NOW)
+    let capped = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
         .issuer_manifest_expires_at(NOW.plus_secs(86_400))
         .accept_unchecked_revocation_dangerous()
         .build()
@@ -307,7 +309,7 @@ fn attestation_revocation_is_consulted() {
         .build()
         .unwrap();
     let revoked = |_: &Uuid| true;
-    let c = AttestationVerifyContext::builder(iss.aid(), "org.aitp.kat", NOW)
+    let c = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation_check(&revoked)
         .build()
@@ -319,6 +321,13 @@ fn attestation_revocation_is_consulted() {
 }
 
 // --- KATs -----------------------------------------------------------------
+
+/// A vector's statement key: the single key of its `_kat_input.ext`.
+fn ext_key(input: &Value) -> String {
+    let ext = input["ext"].as_object().expect("_kat_input.ext");
+    assert_eq!(ext.len(), 1, "one statement per vector");
+    ext.keys().next().unwrap().clone()
+}
 
 /// A vendored spec signed example under `known-answer/signed-examples/tct/`.
 fn kat(file: &str) -> Value {
@@ -366,7 +375,7 @@ fn self_attestation_kats_reproduce() {
         );
         assert_eq!(issued.token, v["tct_token"].as_str().unwrap(), "{id}");
 
-        let ok = verify_attestation(&issued.token, &attestation_ctx(key.aid(), "org.aitp.kat"));
+        let ok = verify_attestation(&issued.token, &attestation_ctx(key.aid(), &ext_key(input)));
         assert!(ok.is_ok(), "{id}: {ok:?}");
         let err = verify_tct(&issued.token, &ctx(key.aid(), key.aid())).unwrap_err();
         assert!(matches!(err, TctError::SelfIssued), "{id}: {err:?}");
@@ -380,7 +389,11 @@ fn self_attestation_kat_003_double_hash_does_not_verify() {
     let v = kat("kat-keypair-005-self-attestation");
     let token = v["_must_not_verify"]["double_hash_jws"].as_str().unwrap();
     let key = p256(5);
-    let err = verify_attestation(token, &attestation_ctx(key.aid(), "org.aitp.kat")).unwrap_err();
+    let err = verify_attestation(
+        token,
+        &attestation_ctx(key.aid(), &ext_key(&v["_kat_input"])),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, TctError::SignatureInvalid | TctError::Crypto(_)),
         "{err:?}"

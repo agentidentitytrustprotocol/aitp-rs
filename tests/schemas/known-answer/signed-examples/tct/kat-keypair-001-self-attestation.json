@@ -1,6 +1,6 @@
 {
   "_kat_input": {
-    "$comment": "Real Ed25519-signed self-attestation TCT (RFC-AITP-0005 §5.3): iss == sub == aud, the sole grant is the marker aitp.attestation, and the statement sits in ext under org.aitp.kat. Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object, fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). jti is the derived UUID of RFC-AITP-0005 §2.2: SHA-256(\"aitp-kat-attestation-v1\" || 0x00 || vector_id), first 16 bytes, version and variant bits set. exp is far future only so the vector never expires; it is not evidence of trust (RFC-AITP-0005 §5.3). cnf.jkt is kat-jwk-thumb-001. This token MUST be rejected with TCT_SIGNATURE_INVALID in every grant context.",
+    "$comment": "Real Ed25519-signed self-attestation TCT (RFC-AITP-0005 §5.3): iss == sub == aud, the sole grant is the marker aitp.attestation, and the statement sits in ext under io.agentidentitytrustprotocol.kat. Protected header is exactly {\"alg\":\"EdDSA\",\"typ\":\"<typ>\"} in that member order; payload bytes are the RFC 8785 (JCS) canonical form of the claims object, fixed here only so re-mints are byte-stable; verifiers operate on the transmitted bytes and never re-serialize (RFC-AITP-0001 §5.4.5). jti is the derived UUID of RFC-AITP-0005 §2.2: SHA-256(\"aitp-kat-attestation-v1\" || 0x00 || vector_id), first 16 bytes, version and variant bits set. exp is far future only so the vector never expires; it is not evidence of trust (RFC-AITP-0005 §5.3). cnf.jkt is kat-jwk-thumb-001. This token MUST be rejected with TCT_SIGNATURE_INVALID in every grant context.",
     "vector_id": "kat-tct-002-self-attestation",
     "issuer_seed_id": "kat-keypair-001",
     "subject_seed_id": "kat-keypair-001",
@@ -17,12 +17,12 @@
       "aitp.attestation"
     ],
     "ext": {
-      "org.aitp.kat": {
+      "io.agentidentitytrustprotocol.kat": {
         "statement": "kat-tct-002-self-attestation archival attestation"
       }
     }
   },
-  "tct_token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJjbmYiOnsiamt0IjoiOVpQMDNOdThHclhQQVVrYktOeEhPS0J6eFBYODNTU2hnRmtSTkstZjJsdyJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJvcmcuYWl0cC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDItc2VsZi1hdHRlc3RhdGlvbiBhcmNoaXZhbCBhdHRlc3RhdGlvbiJ9fSwiZ3JhbnRzIjpbImFpdHAuYXR0ZXN0YXRpb24iXSwiaWF0IjoxNzExOTAwMDAwLCJpc3MiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJqdGkiOiIzMjdiMzdhYi05ODE3LTRlODctOGNiZS1kZWM1MTA5NDk3ZjUiLCJzdWIiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJ2ZXIiOiJhaXRwLzAuMiJ9.qcCZXBu4CcoqW2-1wjIRIVT8w_7mOdPZ9Xc-kZM6W1RNDQyTLL7KvSLcfH9zUJLOYQKDu8f94l81nLv-T6DiBg",
+  "tct_token": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJhdWQiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJjbmYiOnsiamt0IjoiOVpQMDNOdThHclhQQVVrYktOeEhPS0J6eFBYODNTU2hnRmtSTkstZjJsdyJ9LCJleHAiOjQ4Njc2NjAwMDAsImV4dCI6eyJpby5hZ2VudGlkZW50aXR5dHJ1c3Rwcm90b2NvbC5rYXQiOnsic3RhdGVtZW50Ijoia2F0LXRjdC0wMDItc2VsZi1hdHRlc3RhdGlvbiBhcmNoaXZhbCBhdHRlc3RhdGlvbiJ9fSwiZ3JhbnRzIjpbImFpdHAuYXR0ZXN0YXRpb24iXSwiaWF0IjoxNzExOTAwMDAwLCJpc3MiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJqdGkiOiIzMjdiMzdhYi05ODE3LTRlODctOGNiZS1kZWM1MTA5NDk3ZjUiLCJzdWIiOiJhaWQ6cHVia2V5Ok8yb252TTYycEMxaW82alFLbThOYzJVeUZYY2Q0a09tT3NCSW9ZdFoyaWsiLCJ2ZXIiOiJhaXRwLzAuMiJ9.YzU-zyPNAwlbABwJoSCMpDA75Hq6l4kqa_cMK9fHKWJu-PWV-xuJAMNyIXFl3Td782cylxVSi8lwGjpyK93fCg",
   "decoded_claims": {
     "ver": "aitp/0.2",
     "jti": "327b37ab-9817-4e87-8cbe-dec5109497f5",
@@ -38,7 +38,7 @@
       "jkt": "9ZP03Nu8GrXPAUkbKNxHOKBzxPX83SShgFkRNK-f2lw"
     },
     "ext": {
-      "org.aitp.kat": {
+      "io.agentidentitytrustprotocol.kat": {
         "statement": "kat-tct-002-self-attestation archival attestation"
       }
     }
