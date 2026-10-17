@@ -106,7 +106,12 @@ fn p1_legacy_two_field_proof_rejected() {
         timestamp: ts,
         pop_nonce,
     };
-    let err = verify_pinned_key(&descriptor, &ctx).unwrap_err();
+    let err = verify_pinned_key(
+        &descriptor,
+        &ctx,
+        &StaticPinnedKeyStore::new([sender.verifying_key()]),
+    )
+    .unwrap_err();
     assert!(
         matches!(err, HandshakeError::Identity(_)),
         "got {err:?} — legacy 2-field proof must fail"
@@ -154,7 +159,12 @@ fn p1_wrong_receiver_in_proof_rejected() {
         timestamp: ts,
         pop_nonce,
     };
-    let err = verify_pinned_key(&descriptor, &ctx).unwrap_err();
+    let err = verify_pinned_key(
+        &descriptor,
+        &ctx,
+        &StaticPinnedKeyStore::new([sender.verifying_key()]),
+    )
+    .unwrap_err();
     assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
 }
 
@@ -189,7 +199,12 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
         timestamp: ts,
         pop_nonce: &other_nonce,
     };
-    let err = verify_pinned_key(&descriptor, &ctx).unwrap_err();
+    let err = verify_pinned_key(
+        &descriptor,
+        &ctx,
+        &StaticPinnedKeyStore::new([sender.verifying_key()]),
+    )
+    .unwrap_err();
     assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
 }
 
@@ -253,10 +268,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
     let sender_manifest = manifest_for(&untrusted_sender, "sender");
 
     // Trust store contains only the receiver's own key, not the sender's.
-    let store = StaticPinnedKeyStore::new(vec![receiver
-        .verifying_key()
-        .try_to_ed25519_bytes()
-        .expect("key was constructed as Ed25519, never P-256")]);
+    let store = StaticPinnedKeyStore::new([receiver.verifying_key()]);
 
     let resolver = NoOpResolver;
     let cfg = PeerConfig {
@@ -264,7 +276,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
         manifest: &receiver_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: Some(&store),
+        pinned_key_store: &store,
         grant_policy: None,
         revocation_check: None,
         now: ts,
@@ -365,7 +377,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         manifest: &receiver_manifest,
         trust_anchors: &["https://idp.example.com".parse().unwrap()],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: ts,
@@ -416,7 +428,7 @@ fn p7_grant_policy_filters_intersection() {
         manifest: &issuer_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([peer.verifying_key()]),
         grant_policy: Some(policy_ref),
         revocation_check: None,
         now: Timestamp::now(),

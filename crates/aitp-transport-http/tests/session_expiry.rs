@@ -67,7 +67,10 @@ async fn commit_after_session_ttl_is_rejected() {
         NoOpResolver,
         vec!["demo.echo".into()],
         Duration::from_millis(50),
-    );
+    )
+    .with_pinned_key_store(std::sync::Arc::new(
+        aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
+    ));
     let app = server.router();
 
     let server_task = tokio::spawn(async move {
@@ -82,7 +85,7 @@ async fn commit_after_session_ttl_is_rejected() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: Timestamp::now(),
@@ -189,7 +192,10 @@ async fn fresh_session_within_ttl_is_accepted() {
         NoOpResolver,
         vec!["demo.echo".into()],
         Duration::from_secs(60),
-    );
+    )
+    .with_pinned_key_store(std::sync::Arc::new(
+        aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
+    ));
     let app = server.router();
 
     let server_task = tokio::spawn(async move {
@@ -203,7 +209,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: Timestamp::now(),

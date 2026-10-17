@@ -11,7 +11,6 @@
 //! key out of band (config, KMS) rather than trusting the first Manifest
 //! it sees.
 
-use aitp::core::base64url;
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, TrustMode};
 use aitp::handshake::StaticPinnedKeyStore;
@@ -50,13 +49,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let bob_manifest = wait_for_peer(&fetcher, &peer_origin).await?;
     println!("agent-a: fetched B's manifest, AID = {}", bob_manifest.aid);
 
-    let bob_pinned_key: [u8; 32] = bob_manifest
-        .identity_hint
-        .public_key
-        .as_deref()
-        .ok_or("peer manifest has no pinned public_key")
-        .and_then(|s| base64url::decode_strict_exact::<32>(s).map_err(|_| "bad pinned key"))?;
-    let store = StaticPinnedKeyStore::new(vec![bob_pinned_key]);
+    // TOFU, adequate for a local demo: production pins the peer AID out
+    // of band. The AID carries the algorithm, so this works for an
+    // Ed25519 or a P-256 peer.
+    let store = StaticPinnedKeyStore::from_aids([&bob_manifest.aid])?;
 
     // One call drives the whole handshake and returns the TCT B issued us.
     let session = run_initiator_handshake(InitiatorConfig::new(

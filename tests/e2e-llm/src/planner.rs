@@ -10,7 +10,6 @@
 
 use std::time::Duration;
 
-use aitp::core::base64url;
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, TrustMode};
@@ -57,16 +56,8 @@ pub async fn handshake(
     // The verified Manifest's pinned public key becomes our trust anchor
     // — TOFU, adequate for a local test, not for production.
     let worker_manifest = wait_for_worker(worker_origin).await?;
-    let worker_pinned_key: [u8; 32] = worker_manifest
-        .identity_hint
-        .public_key
-        .as_deref()
-        .ok_or_else(|| anyhow!("worker manifest has no pinned public_key"))
-        .and_then(|s| {
-            base64url::decode_strict_exact::<32>(s)
-                .map_err(|_| anyhow!("worker manifest pinned key is not 32 base64url bytes"))
-        })?;
-    let store = StaticPinnedKeyStore::new(vec![worker_pinned_key]);
+    let store = StaticPinnedKeyStore::from_aids([&worker_manifest.aid])
+        .map_err(|e| anyhow!("worker manifest AID is not a pinnable key: {e}"))?;
 
     let session = run_initiator_handshake(InitiatorConfig::new(
         &key,

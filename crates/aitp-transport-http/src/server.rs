@@ -7,8 +7,8 @@ use aitp_core::{
 };
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp_handshake::{
-    HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig,
-    PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, NoPinnedKeys,
+    PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp_manifest::{Manifest, ManifestEnvelope};
@@ -238,15 +238,16 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// configured limit; entries older than 60s are swept on every
     /// check.
     rate_limit_events: Mutex<HashMap<String, Vec<Instant>>>,
-    /// Optional local pinned-key trust store (RFC-AITP-0002 §3.2
-    /// step 1). When `Some`, an initiator presenting a pinned-key
-    /// identity whose Ed25519 public key is not in the store is
-    /// rejected with `IDENTITY_FAILED`; when `None`, the pinned-key
-    /// check proves key possession only. Installed via
-    /// [`HandshakeServer::with_pinned_key_store`]. Stored under
-    /// interior mutability so the builder can configure a server whose
-    /// `Arc<HandshakeState>` is already shared.
-    pinned_key_store: Mutex<Option<Arc<dyn PinnedKeyStore>>>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2 step 3), keyed
+    /// by `(algorithm, key)`. An initiator presenting a pinned-key
+    /// identity whose key is not in the store is rejected with
+    /// `IDENTITY_FAILED`. Defaults to [`NoPinnedKeys`] (fail closed: no
+    /// pinned-key initiator is admitted until a store is installed via
+    /// [`HandshakeServer::with_pinned_key_store`]). There is no
+    /// possession-only mode. Stored under interior mutability so the
+    /// builder can configure a server whose `Arc<HandshakeState>` is
+    /// already shared.
+    pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
 }
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
@@ -354,7 +355,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
                 rate_limit_config: Mutex::new(None),
                 rate_limit_events: Mutex::new(HashMap::new()),
-                pinned_key_store: Mutex::new(None),
+                pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
             }),
             revocation_producer: None,
         }
@@ -440,16 +441,15 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Attach a local pinned-key trust store (RFC-AITP-0002 §3.2
-    /// step 1). Without this, the responder's pinned-key verification
-    /// proves only that the initiator possesses the key matching its
-    /// AID — not that the responder has any reason to *trust* that key.
-    /// Production servers accepting pinned-key initiators MUST configure
-    /// a store; an initiator whose key is absent is rejected with
-    /// `IDENTITY_FAILED`. OIDC trust is configured separately via the
-    /// `trust_anchors` + `jwks_resolver` arguments to [`Self::new`].
+    /// Install the local pinned-key trust store (RFC-AITP-0002 §3.2
+    /// step 3), keyed by `(algorithm, key)`, Ed25519 or P-256. Until one
+    /// is installed the server admits no pinned-key initiator (the
+    /// default is [`NoPinnedKeys`]). An initiator whose key is absent is
+    /// rejected with `IDENTITY_FAILED` before its proof is checked. OIDC
+    /// trust is configured separately via the `trust_anchors` +
+    /// `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
-        *self.state.pinned_key_store.lock() = Some(store);
+        *self.state.pinned_key_store.lock() = store;
         self
     }
 
@@ -685,7 +685,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
-    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 1);
+    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
@@ -694,7 +694,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: pinned_store.as_deref(),
+        pinned_key_store: &*pinned_store,
         grant_policy: None,
         revocation_check: None,
         now: aitp_core::Timestamp::now(),
@@ -849,7 +849,7 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
-    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 1);
+    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
     let cfg = PeerConfig {
@@ -857,7 +857,7 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: pinned_store.as_deref(),
+        pinned_key_store: &*pinned_store,
         grant_policy: None,
         revocation_check: None,
         now: aitp_core::Timestamp::now(),

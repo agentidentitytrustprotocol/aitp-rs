@@ -23,7 +23,11 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
 
     // 1. Spawn the LLM-backed worker.
     let worker_seed = expand_seed("worker-seed-tier3-llm-handshake-demo");
-    let worker = worker::spawn("aitp-worker", &worker_seed, provider)
+    let planner_seed = expand_seed("planner-seed-tier3-llm-handshake-demo");
+    let planner_aid = aitp::crypto::AitpSigningKey::from_seed(&planner_seed)
+        .aid()
+        .clone();
+    let worker = worker::spawn("aitp-worker", &worker_seed, provider, &[planner_aid])
         .await
         .expect("worker spawns");
     eprintln!("worker: AID  = {}", worker.aid);
@@ -33,7 +37,6 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
     //    `planner_port_for_manifest` is informational only — the
     //    planner never serves; the port goes into its manifest's
     //    `handshake_endpoint` URL so the worker can pin the identity.
-    let planner_seed = expand_seed("planner-seed-tier3-llm-handshake-demo");
     let outcome = planner::handshake("aitp-planner", &planner_seed, 0, &worker.origin)
         .await
         .expect("handshake completes");

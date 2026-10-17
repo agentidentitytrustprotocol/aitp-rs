@@ -116,11 +116,16 @@ enum HandshakeSession {
         /// verifier in `aitp-handshake` uses it as the expected
         /// audience for incoming TCTs (RFC-AITP-0005 §9 step 2).
         my_manifest: Manifest,
+        /// Pinned-key trust for the HELLO_ACK (RFC-AITP-0002 §3.2 step 3).
+        trusted: StaticPinnedKeyStore,
     },
     PendingResponder {
         keypair_handle: String,
         my_manifest: Manifest,
         my_requested_grants: Vec<String>,
+        /// Pinned-key trust for the HELLO. `None` = the harness default,
+        /// see [`harness_pinned_trust`].
+        trusted: Option<StaticPinnedKeyStore>,
     },
     ActiveResponder {
         state: aitp_handshake::Responder,
@@ -828,25 +833,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // bootstrap_verify_peer (steps 3–5); HELLO-family envelope
     // signatures are verified after it succeeds (step 6).
     let resolver = OidcTestIssuerResolver;
-    // RFC-AITP-0002 §3.2 step 1: fixtures that want to exercise the
-    // local pinned-key trust store (e.g. id-007) supply `trust_store`
-    // as a list of AID strings. When present, build a real
-    // `StaticPinnedKeyStore` from it so the gate in `bootstrap_verify_peer`
-    // actually runs instead of silently no-op'ing on `None`. Fixtures
-    // that omit `trust_store` keep today's behavior (no local store
-    // configured — the proof only needs to prove key possession).
-    let trust_store = params.get("trust_store").and_then(|v| v.as_array()).map(
-        |entries| -> StaticPinnedKeyStore {
-            let keys = entries
-                .iter()
-                .filter_map(|v| v.as_str())
-                .filter_map(|aid| Aid::parse(aid).ok())
-                .filter_map(|aid| AitpVerifyingKey::from_aid(&aid).ok())
-                .filter_map(|vk| vk.try_to_ed25519_bytes())
-                .collect();
-            StaticPinnedKeyStore::new(keys)
-        },
-    );
+    // RFC-AITP-0002 §3.2 step 3: the pinned-key trust store is
+    // required. Fixtures that exercise it (e.g. id-007) supply
+    // `trust_store` as a list of AID strings (Ed25519 or P-256).
+    let trust_store = harness_pinned_trust(&params, &envelope.sender.agent_id);
     let cfg = PeerConfig {
         signing_key: &self_key,
         manifest: &self_manifest,
@@ -856,9 +846,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             "https://idp.example.com".parse().unwrap(),
         ],
         jwks_resolver: &resolver,
-        pinned_key_store: trust_store
-            .as_ref()
-            .map(|s| s as &dyn aitp_handshake::PinnedKeyStore),
+        pinned_key_store: &trust_store,
         grant_policy: None,
         revocation_check: None,
         now: envelope.timestamp,
@@ -2242,7 +2230,16 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                     );
                 }
             };
-            start_initiator(state, id, handle, manifest, peer_aid, requested_grants)
+            let trusted = harness_pinned_trust(&params, &peer_aid);
+            start_initiator(
+                state,
+                id,
+                handle,
+                manifest,
+                peer_aid,
+                requested_grants,
+                trusted,
+            )
         }
         "responder" => {
             let session_id = state.fresh_session_id();
@@ -2252,6 +2249,7 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                     keypair_handle: handle,
                     my_manifest: manifest,
                     my_requested_grants: requested_grants,
+                    trusted: trust_store_param(&params),
                 },
             );
             json!({
@@ -2271,6 +2269,37 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     }
 }
 
+/// The fixture's explicit pinned-key trust store: `params.trust_store`,
+/// a list of AID strings (Ed25519 or P-256). Entries that do not parse
+/// are skipped, so a fixture can list a deliberately malformed AID.
+fn trust_store_param(params: &Value) -> Option<StaticPinnedKeyStore> {
+    let entries = params.get("trust_store")?.as_array()?;
+    Some(
+        entries
+            .iter()
+            .filter_map(|v| v.as_str())
+            .filter_map(|aid| Aid::parse(aid).ok())
+            .filter_map(|aid| AitpVerifyingKey::from_aid(&aid).ok())
+            .collect(),
+    )
+}
+
+/// Conformance-harness trust policy. The library has no possession-only
+/// mode (RFC-AITP-0002 §3.2 step 3), so every handshake the adapter
+/// drives has a store. A fixture that supplies `trust_store` gets exactly
+/// that. A fixture that does not is taken to declare its peer
+/// (`declared_peer`: the peer manifest for an initiator, the HELLO
+/// sender for a responder or a bootstrap vector) as pinned. This is
+/// harness configuration standing in for an operator's `pinned_keys`,
+/// not library behaviour.
+fn harness_pinned_trust(params: &Value, declared_peer: &Aid) -> StaticPinnedKeyStore {
+    trust_store_param(params).unwrap_or_else(|| {
+        AitpVerifyingKey::from_aid(declared_peer)
+            .map(|k| StaticPinnedKeyStore::new([k]))
+            .unwrap_or_default()
+    })
+}
+
 fn start_initiator(
     state: &mut AdapterState,
     id: &str,
@@ -2278,6 +2307,7 @@ fn start_initiator(
     manifest: Manifest,
     peer_aid: Aid,
     requested_grants: Vec<String>,
+    trusted: StaticPinnedKeyStore,
 ) -> Value {
     let key = state.key_for(&handle).expect("keypair existence checked");
     let identity = PresentedIdentity::PinnedKey {
@@ -2294,7 +2324,7 @@ fn start_initiator(
         manifest: &manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: ts,
@@ -2312,6 +2342,7 @@ fn start_initiator(
             state: init_state,
             keypair_handle: handle,
             my_manifest: manifest,
+            trusted,
         },
     );
     json!({
@@ -2361,6 +2392,7 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             state: initiator,
             keypair_handle,
             my_manifest,
+            trusted,
         } => initiator_step(
             state,
             id,
@@ -2369,11 +2401,13 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             initiator,
             keypair_handle,
             my_manifest,
+            trusted,
         ),
         HandshakeSession::PendingResponder {
             keypair_handle,
             my_manifest,
             my_requested_grants,
+            trusted,
         } => responder_first_hello(
             state,
             id,
@@ -2382,6 +2416,7 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             keypair_handle,
             my_manifest,
             my_requested_grants,
+            trusted,
         ),
         HandshakeSession::ActiveResponder {
             state: responder,
@@ -2391,6 +2426,8 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
     }
 }
 
+// One parameter per field of the `HandshakeSession` variant it consumes.
+#[allow(clippy::too_many_arguments)]
 fn initiator_step(
     state: &mut AdapterState,
     id: &str,
@@ -2399,6 +2436,7 @@ fn initiator_step(
     mut initiator: Initiator,
     keypair_handle: String,
     my_manifest: Manifest,
+    trusted: StaticPinnedKeyStore,
 ) -> Value {
     let key = match state.key_for(&keypair_handle) {
         Some(k) => k,
@@ -2416,7 +2454,7 @@ fn initiator_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),
@@ -2442,6 +2480,7 @@ fn initiator_step(
                     state: initiator,
                     keypair_handle,
                     my_manifest,
+                    trusted,
                 },
             );
             json!({
@@ -2480,6 +2519,8 @@ fn initiator_step(
     }
 }
 
+// One parameter per field of the `HandshakeSession` variant it consumes.
+#[allow(clippy::too_many_arguments)]
 fn responder_first_hello(
     state: &mut AdapterState,
     id: &str,
@@ -2488,6 +2529,7 @@ fn responder_first_hello(
     keypair_handle: String,
     my_manifest: Manifest,
     my_requested_grants: Vec<String>,
+    trusted: Option<StaticPinnedKeyStore>,
 ) -> Value {
     if envelope.message_type != MessageType::MutualHello {
         return err(
@@ -2514,13 +2556,15 @@ fn responder_first_hello(
         hello_payload.manifest.clone(),
     );
 
+    let trusted =
+        trusted.unwrap_or_else(|| harness_pinned_trust(&Value::Null, &hello_payload.manifest.aid));
     let resolver = NoOpJwks;
     let cfg = PeerConfig {
         signing_key: &key,
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),
@@ -2603,7 +2647,7 @@ fn responder_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),

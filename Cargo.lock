@@ -168,6 +168,7 @@ dependencies = [
  "boon",
  "ed25519-dalek",
  "hex",
+ "p256",
  "rand 0.10.2",
  "ring",
  "serde",

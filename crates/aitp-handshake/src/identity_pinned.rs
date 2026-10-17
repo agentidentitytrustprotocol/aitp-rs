@@ -10,7 +10,7 @@
 //!     || message_id_bytes       || b"\0"
 //!     || timestamp_ascii_bytes  || b"\0"
 //!     || pop_nonce_decoded_bytes
-//! proof = base64url(sign(agent_priv, sha256(proof_input)))
+//! proof = sign_jcs(agent_priv, d = sha256(proof_input))   // RFC-AITP-0001 §5.4.6
 //! ```
 //!
 //! Where:
@@ -35,8 +35,8 @@
 //! handshake nonce.
 
 use crate::error::HandshakeError;
-use crate::identity::IdentityDescriptor;
-use aitp_core::{base64url, Aid, Timestamp};
+use crate::identity::{IdentityDescriptor, IdentityKind};
+use aitp_core::{base64url, Aid, AidAlgorithm, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use uuid::Uuid;
 
@@ -44,6 +44,11 @@ use uuid::Uuid;
 /// a signature minted under one AITP version from being replayed
 /// against a future version with a different proof-input layout.
 pub const PINNED_KEY_PROOF_DOMAIN: &[u8] = b"aitp-pinned-key-v1\0";
+
+/// Decoded length of a `pop_nonce` (RFC-AITP-0002 §3.4, proposal #72
+/// Item 5): exactly 16 bytes. Any other length is `IDENTITY_FAILED`,
+/// rejected before signature verification.
+pub const POP_NONCE_LEN: usize = 16;
 
 /// Build the canonical pinned-key proof input bytes.
 ///
@@ -59,6 +64,12 @@ pub fn pinned_key_proof_input(
 ) -> Result<Vec<u8>, HandshakeError> {
     let pop_nonce_bytes = base64url::decode_strict(pop_nonce)
         .map_err(|_| HandshakeError::Identity("pop_nonce is not valid base64url".into()))?;
+    if pop_nonce_bytes.len() != POP_NONCE_LEN {
+        return Err(HandshakeError::Identity(format!(
+            "pop_nonce must decode to exactly {POP_NONCE_LEN} bytes, got {}",
+            pop_nonce_bytes.len()
+        )));
+    }
     let ts_ascii = timestamp.0.to_string();
     let mut input = Vec::with_capacity(
         PINNED_KEY_PROOF_DOMAIN.len()
@@ -85,6 +96,115 @@ pub fn pinned_key_proof_input(
     Ok(input)
 }
 
+/// Local trust store for pinned keys (RFC-AITP-0002 §3.2 step 3).
+///
+/// Entries are keyed by `(algorithm, key bytes)`, never by raw bytes
+/// alone: [`AitpVerifyingKey`] carries both, and its `Eq`/`Hash` compare
+/// the pair. An Ed25519 key and a P-256 key can therefore never alias,
+/// whatever their encodings.
+///
+/// A store is REQUIRED for every pinned-key verification. There is no
+/// possession-only mode (proposal agentidentitytrustprotocol#72,
+/// resolved 2026-10-16). Tests use an in-memory
+/// [`StaticPinnedKeyStore`]. A deployment that accepts no pinned-key
+/// peers at all (OIDC-only) passes [`NoPinnedKeys`].
+///
+/// `is_trusted` runs on the handshake's hot path and is synchronous.
+/// A store backed by a database or a control plane should serve it from
+/// a local snapshot that it refreshes out of band.
+pub trait PinnedKeyStore: Send + Sync {
+    /// Whether `key` (algorithm and bytes) is locally trusted to make
+    /// pinned-key claims.
+    fn is_trusted(&self, key: &AitpVerifyingKey) -> bool;
+}
+
+impl<T: PinnedKeyStore + ?Sized> PinnedKeyStore for &T {
+    fn is_trusted(&self, key: &AitpVerifyingKey) -> bool {
+        (**self).is_trusted(key)
+    }
+}
+
+impl<T: PinnedKeyStore + ?Sized> PinnedKeyStore for std::sync::Arc<T> {
+    fn is_trusted(&self, key: &AitpVerifyingKey) -> bool {
+        (**self).is_trusted(key)
+    }
+}
+
+impl<T: PinnedKeyStore + ?Sized> PinnedKeyStore for Box<T> {
+    fn is_trusted(&self, key: &AitpVerifyingKey) -> bool {
+        (**self).is_trusted(key)
+    }
+}
+
+/// A [`PinnedKeyStore`] that trusts nothing: every pinned-key identity
+/// is rejected with `IDENTITY_FAILED`. Use it for OIDC-only deployments.
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NoPinnedKeys;
+
+impl PinnedKeyStore for NoPinnedKeys {
+    fn is_trusted(&self, _key: &AitpVerifyingKey) -> bool {
+        false
+    }
+}
+
+/// In-memory [`PinnedKeyStore`] over a fixed set of Ed25519 and P-256
+/// keys.
+#[derive(Debug, Clone, Default)]
+pub struct StaticPinnedKeyStore {
+    trusted: std::collections::HashSet<AitpVerifyingKey>,
+}
+
+impl StaticPinnedKeyStore {
+    /// A store holding exactly `keys`.
+    pub fn new(keys: impl IntoIterator<Item = AitpVerifyingKey>) -> Self {
+        Self {
+            trusted: keys.into_iter().collect(),
+        }
+    }
+
+    /// A store holding the keys of `aids`. Fails on the first AID whose
+    /// key does not decode (for example an invalid P-256 point).
+    pub fn from_aids<'a>(aids: impl IntoIterator<Item = &'a Aid>) -> Result<Self, HandshakeError> {
+        let trusted = aids
+            .into_iter()
+            .map(AitpVerifyingKey::from_aid)
+            .collect::<Result<_, _>>()?;
+        Ok(Self { trusted })
+    }
+
+    /// Add `key`. Returns `false` if it was already present.
+    pub fn insert(&mut self, key: AitpVerifyingKey) -> bool {
+        self.trusted.insert(key)
+    }
+
+    /// Remove `key`. Returns `false` if it was absent.
+    pub fn remove(&mut self, key: &AitpVerifyingKey) -> bool {
+        self.trusted.remove(key)
+    }
+
+    /// Number of trusted keys.
+    pub fn len(&self) -> usize {
+        self.trusted.len()
+    }
+
+    /// Whether the store trusts no key.
+    pub fn is_empty(&self) -> bool {
+        self.trusted.is_empty()
+    }
+}
+
+impl FromIterator<AitpVerifyingKey> for StaticPinnedKeyStore {
+    fn from_iter<I: IntoIterator<Item = AitpVerifyingKey>>(iter: I) -> Self {
+        Self::new(iter)
+    }
+}
+
+impl PinnedKeyStore for StaticPinnedKeyStore {
+    fn is_trusted(&self, key: &AitpVerifyingKey) -> bool {
+        self.trusted.contains(key)
+    }
+}
+
 /// Inputs for verifying a pinned-key identity proof.
 pub struct PinnedKeyVerifyContext<'a> {
     /// The sender's AID (per `envelope.sender.agent_id`).
@@ -98,52 +218,102 @@ pub struct PinnedKeyVerifyContext<'a> {
     /// The envelope's `timestamp`.
     pub timestamp: Timestamp,
     /// The handshake's `pop_nonce` (the base64url string from the
-    /// surrounding HELLO/HELLO_ACK payload).
+    /// surrounding HELLO/HELLO_ACK payload). MUST decode to exactly 16
+    /// bytes.
     pub pop_nonce: &'a str,
 }
 
-/// Verify a pinned-key identity proof.
+/// The outcome of a successful [`verify_pinned_key`]: the sender's key,
+/// established from the sender AID and the trust store, never from
+/// descriptor fields alone. Callers bind the peer to this value and do
+/// not re-derive it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VerifiedPinnedKey {
+    /// The key's algorithm.
+    pub algorithm: AidAlgorithm,
+    /// The trusted key the proof verified under.
+    pub key: AitpVerifyingKey,
+    /// The sender AID the key was bound to.
+    pub aid: Aid,
+}
+
+/// Verify a pinned-key identity proof (RFC-AITP-0002 §3.2, as revised by
+/// proposal agentidentitytrustprotocol#72 Item 2).
 ///
-/// Steps (RFC-AITP-0002 §3.2):
-///
-/// 1. Decode `descriptor.public_key` (43-char base64url) → 32 bytes.
-/// 2. Confirm those 32 bytes equal the public key encoded in
+/// 1. `descriptor.type` MUST be `pinned_key`. No other type is run
+///    through this path, whatever fields it carries.
+/// 2. `descriptor.public_key` MUST decode to the AID-identifier form for
+///    the sender AID's algorithm: 32 raw bytes for Ed25519, or a 33-byte
+///    SEC1 compressed point for P-256 (uncompressed points, SPKI and
+///    the identity are rejected), byte-equal to the key in
 ///    `ctx.sender_aid`.
-/// 3. Reconstruct `proof_input` per [`pinned_key_proof_input`].
-/// 4. Verify `descriptor.proof` over `sha256(proof_input)`.
+/// 3. `(algorithm, key)` MUST be in `store`.
+/// 4. `proof_input` is rebuilt per [`pinned_key_proof_input`]; the
+///    `pop_nonce` MUST decode to exactly 16 bytes.
+/// 5. `descriptor.proof` is verified over `d = sha256(proof_input)` per
+///    RFC-AITP-0001 §5.4.3/§5.4.6/§5.4.7. Its algorithm tag MUST match
+///    the key: an untagged proof is Ed25519, so a P-256 sender MUST tag.
+///
+/// Steps 1–4 complete before any signature verification. Every failure
+/// is [`HandshakeError::Identity`] (`IDENTITY_FAILED`).
 pub fn verify_pinned_key(
     descriptor: &IdentityDescriptor,
     ctx: &PinnedKeyVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
-    // The `pinned_key` mechanism is Ed25519-only in v0.1. The sender AID
-    // is attacker-controlled (from the peer's Manifest), and since the
-    // v0.2 P-256 work it may legitimately be a P-256 AID — guard the
-    // algorithm before the Ed25519-only decode below, which would
-    // otherwise panic on a non-Ed25519 AID.
-    let sender_ed25519 = ctx.sender_aid.try_to_ed25519_bytes().ok_or_else(|| {
-        HandshakeError::Identity("pinned_key requires an Ed25519 sender AID".into())
-    })?;
+    store: &dyn PinnedKeyStore,
+) -> Result<VerifiedPinnedKey, HandshakeError> {
+    // Step 1: type dispatch.
+    if descriptor.kind != IdentityKind::PinnedKey {
+        return Err(HandshakeError::Identity(
+            "pinned-key verification requires identity.type = pinned_key".into(),
+        ));
+    }
+
+    // Step 2: public_key byte-equals the sender AID key, same algorithm.
+    let algorithm = ctx.sender_aid.algorithm();
     let public_key = descriptor
         .public_key
         .as_ref()
         .ok_or_else(|| HandshakeError::Identity("pinned_key missing public_key".into()))?;
     let pk_bytes = base64url::decode_strict(public_key)
         .map_err(|_| HandshakeError::Identity("public_key malformed base64url".into()))?;
-    if pk_bytes.len() != 32 {
+    let expected_len = match algorithm {
+        AidAlgorithm::Ed25519 => 32,
+        AidAlgorithm::P256 => 33,
+        other => {
+            return Err(HandshakeError::Identity(format!(
+                "pinned_key does not support sender algorithm {}",
+                other.as_str()
+            )))
+        }
+    };
+    if pk_bytes.len() != expected_len {
+        return Err(HandshakeError::Identity(format!(
+            "public_key must decode to {expected_len} bytes for a {} sender",
+            algorithm.as_str()
+        )));
+    }
+    if algorithm == AidAlgorithm::P256 && !matches!(pk_bytes[0], 0x02 | 0x03) {
         return Err(HandshakeError::Identity(
-            "public_key must decode to 32 bytes".into(),
+            "public_key must be a SEC1 compressed P-256 point".into(),
         ));
     }
-    let mut buf = [0u8; 32];
-    buf.copy_from_slice(&pk_bytes);
-    if buf != sender_ed25519 {
+    if pk_bytes != ctx.sender_aid.pubkey_compressed_bytes() {
         return Err(HandshakeError::Identity(
             "public_key does not match sender AID".into(),
         ));
     }
+    let key = AitpVerifyingKey::from_compressed(&pk_bytes)
+        .map_err(|_| HandshakeError::Identity("public_key is not a valid point".into()))?;
 
-    let pk = AitpVerifyingKey::from_bytes(&buf)
-        .map_err(|_| HandshakeError::Identity("public_key not Ed25519".into()))?;
+    // Step 3: trust store, keyed by (algorithm, key).
+    if !store.is_trusted(&key) {
+        return Err(HandshakeError::Identity(
+            "pinned_key not in local trust store".into(),
+        ));
+    }
+
+    // Step 4: proof input (enforces the 16-byte nonce).
     let input = pinned_key_proof_input(
         ctx.sender_aid,
         ctx.receiver_aid,
@@ -151,12 +321,18 @@ pub fn verify_pinned_key(
         ctx.timestamp,
         ctx.pop_nonce,
     )?;
-    let digest = aitp_crypto::Digest32::sha256(&input);
+
+    // Step 5: strict verify; `verify_jcs` refuses a tag that does not
+    // match the key's algorithm.
     let sig = Signature::parse(&descriptor.proof)
         .map_err(|_| HandshakeError::Identity("proof malformed".into()))?;
-    pk.verify_jcs(&digest, &sig)
+    key.verify_jcs(&aitp_crypto::Digest32::sha256(&input), &sig)
         .map_err(|_| HandshakeError::Identity("pinned_key signature invalid".into()))?;
-    Ok(())
+    Ok(VerifiedPinnedKey {
+        algorithm,
+        key,
+        aid: ctx.sender_aid.clone(),
+    })
 }
 
 /// Sign a pinned-key identity proof — helper for the issuing side.
@@ -181,8 +357,13 @@ pub fn sign_pinned_key_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::IdentityKind;
     use aitp_crypto::AitpSigningKey;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    /// Trusts exactly the keys of the given signers.
+    fn store_of(keys: &[&AitpSigningKey]) -> StaticPinnedKeyStore {
+        keys.iter().map(|k| k.verifying_key()).collect()
+    }
 
     fn fixed_nonce() -> &'static str {
         // 16 bytes → 22 char base64url (matches the on-wire format).
@@ -203,12 +384,7 @@ mod tests {
             issuer: None,
             subject: "agent-x".into(),
             proof,
-            public_key: Some(base64url::encode(
-                &signer
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
+            public_key: Some(base64url::encode(&signer.verifying_key().to_compressed())),
             extensions: None,
         }
     }
@@ -230,45 +406,9 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: nonce,
             },
+            &store_of(&[&key]),
         )
         .expect("proof verifies under the same five-tuple");
-    }
-
-    #[test]
-    fn p256_sender_aid_rejected_without_panic() {
-        // Regression: a P-256 sender AID must be rejected with a clean
-        // error, not panic. `Aid::to_ed25519_bytes()` asserts on a
-        // non-Ed25519 AID; `verify_pinned_key` guards the algorithm
-        // first. Attacker-reachable from MUTUAL_HELLO / HELLO_ACK.
-        let p256 = AitpSigningKey::generate_p256();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
-        let mid = Uuid::nil();
-        let ts = Timestamp(1);
-        let desc = IdentityDescriptor {
-            kind: IdentityKind::PinnedKey,
-            issuer: None,
-            subject: "agent-x".into(),
-            // Any 32-byte value — the algorithm guard fires before this
-            // is even compared.
-            proof: base64url::encode(&[0u8; 64]),
-            public_key: Some(base64url::encode(&[0u8; 32])),
-            extensions: None,
-        };
-        let err = verify_pinned_key(
-            &desc,
-            &PinnedKeyVerifyContext {
-                sender_aid: p256.aid(),
-                receiver_aid: receiver.aid(),
-                message_id: &mid,
-                timestamp: ts,
-                pop_nonce: fixed_nonce(),
-            },
-        )
-        .unwrap_err();
-        assert!(
-            matches!(err, HandshakeError::Identity(ref s) if s.contains("Ed25519")),
-            "got {err:?}"
-        );
     }
 
     #[test]
@@ -288,6 +428,7 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
@@ -311,6 +452,7 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
@@ -333,6 +475,7 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
@@ -355,6 +498,7 @@ mod tests {
                 timestamp: ts_b,
                 pop_nonce: fixed_nonce(),
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
@@ -378,6 +522,7 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: nonce_b,
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
@@ -414,11 +559,7 @@ mod tests {
             issuer: None,
             subject: "agent-x".into(),
             proof: legacy_proof,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
+            public_key: Some(base64url::encode(&key.verifying_key().to_compressed())),
             extensions: None,
         };
         let err = verify_pinned_key(
@@ -430,8 +571,272 @@ mod tests {
                 timestamp: ts,
                 pop_nonce: fixed_nonce(),
             },
+            &store_of(&[&key]),
         )
         .unwrap_err();
         assert!(matches!(err, HandshakeError::Identity(_)));
+    }
+
+    /// A store that records how often it is consulted and a verifying
+    /// key wrapper is impossible to intercept, so ordering is shown by
+    /// pairing it with a proof that would fail: a store refusal must win.
+    struct CountingStore {
+        inner: StaticPinnedKeyStore,
+        calls: AtomicUsize,
+    }
+
+    impl PinnedKeyStore for CountingStore {
+        fn is_trusted(&self, key: &AitpVerifyingKey) -> bool {
+            self.calls.fetch_add(1, Ordering::SeqCst);
+            self.inner.is_trusted(key)
+        }
+    }
+
+    fn ctx<'a>(sender: &'a Aid, receiver: &'a Aid, mid: &'a Uuid) -> PinnedKeyVerifyContext<'a> {
+        PinnedKeyVerifyContext {
+            sender_aid: sender,
+            receiver_aid: receiver,
+            message_id: mid,
+            timestamp: Timestamp(1_711_900_000),
+            pop_nonce: fixed_nonce(),
+        }
+    }
+
+    fn identity_msg(err: HandshakeError) -> String {
+        match err {
+            HandshakeError::Identity(s) => s,
+            other => panic!("expected IDENTITY_FAILED, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn p256_pinned_key_round_trip_returns_verified_key() {
+        let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        assert!(
+            desc.proof.starts_with("p256."),
+            "P-256 proof MUST be tagged"
+        );
+        assert_eq!(desc.public_key.as_ref().unwrap().len(), 44);
+        let v = verify_pinned_key(&desc, &c, &store_of(&[&key])).expect("P-256 pinned key");
+        assert_eq!(v.algorithm, AidAlgorithm::P256);
+        assert_eq!(v.key, key.verifying_key());
+        assert_eq!(&v.aid, key.aid());
+    }
+
+    #[test]
+    fn p256_untagged_proof_rejected_as_algorithm_mismatch() {
+        // id-011: an untagged proof reads as Ed25519; a P-256 key refuses it.
+        let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        desc.proof = desc.proof["p256.".len()..].to_string();
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store_of(&[&key])).unwrap_err());
+        assert!(msg.contains("signature invalid"), "{msg}");
+    }
+
+    #[test]
+    fn p256_uncompressed_public_key_rejected() {
+        // id-012: the 65-byte SEC1 uncompressed form is not permitted.
+        use p256::elliptic_curve::sec1::ToSec1Point as _;
+        let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        let sk = p256::ecdsa::SigningKey::from_slice(&[0x05; 32]).unwrap();
+        let uncompressed = sk.verifying_key().as_affine().to_sec1_point(false);
+        assert_eq!(uncompressed.as_bytes().len(), 65);
+        desc.public_key = Some(base64url::encode(uncompressed.as_bytes()));
+        identity_msg(verify_pinned_key(&desc, &c, &store_of(&[&key])).unwrap_err());
+    }
+
+    #[test]
+    fn p256_public_key_must_be_compressed_prefix() {
+        let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        let mut pk = key.verifying_key().to_compressed();
+        pk[0] = 0x04;
+        desc.public_key = Some(base64url::encode(&pk));
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store_of(&[&key])).unwrap_err());
+        assert!(msg.contains("compressed"), "{msg}");
+    }
+
+    #[test]
+    fn ed25519_key_and_p256_key_never_alias_in_the_store() {
+        let ed = AitpSigningKey::from_seed(&[3u8; 32]);
+        let p = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+        let store = store_of(&[&ed]);
+        assert!(store.is_trusted(&ed.verifying_key()));
+        assert!(!store.is_trusted(&p.verifying_key()));
+        assert!(!NoPinnedKeys.is_trusted(&ed.verifying_key()));
+    }
+
+    #[test]
+    fn store_is_consulted_before_the_proof() {
+        // An untrusted key with a garbage proof must fail at the store,
+        // so the error names the store, not the signature.
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        desc.proof = "!not-a-signature!".into();
+        let store = CountingStore {
+            inner: StaticPinnedKeyStore::default(),
+            calls: AtomicUsize::new(0),
+        };
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store).unwrap_err());
+        assert!(msg.contains("trust store"), "{msg}");
+        assert_eq!(store.calls.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn non_pinned_type_rejected_without_consulting_store() {
+        // id-011b: an `oidc`-typed descriptor carrying a valid pinned
+        // proof and public_key is not run through the pinned path.
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let c = ctx(key.aid(), receiver.aid(), &mid);
+        let mut desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            c.timestamp,
+            c.pop_nonce,
+        );
+        verify_pinned_key(&desc, &c, &store_of(&[&key])).expect("valid as pinned_key");
+        desc.kind = IdentityKind::Oidc;
+        let store = CountingStore {
+            inner: store_of(&[&key]),
+            calls: AtomicUsize::new(0),
+        };
+        let msg = identity_msg(verify_pinned_key(&desc, &c, &store).unwrap_err());
+        assert!(msg.contains("pinned_key"), "{msg}");
+        assert_eq!(store.calls.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn pop_nonce_must_be_exactly_16_bytes() {
+        // id-014: 15 and 17 bytes are rejected on both sides.
+        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let mid = Uuid::nil();
+        let good = ctx(key.aid(), receiver.aid(), &mid);
+        let desc = descriptor_for(
+            &key,
+            key.aid(),
+            receiver.aid(),
+            &mid,
+            good.timestamp,
+            good.pop_nonce,
+        );
+        for len in [0usize, 15, 17, 32] {
+            let nonce = base64url::encode(&vec![7u8; len]);
+            assert!(
+                sign_pinned_key_proof(
+                    &key,
+                    key.aid(),
+                    receiver.aid(),
+                    &mid,
+                    good.timestamp,
+                    &nonce
+                )
+                .is_err(),
+                "signing with a {len}-byte nonce must fail"
+            );
+            let c = PinnedKeyVerifyContext {
+                pop_nonce: &nonce,
+                ..ctx(key.aid(), receiver.aid(), &mid)
+            };
+            let msg = identity_msg(verify_pinned_key(&desc, &c, &store_of(&[&key])).unwrap_err());
+            assert!(msg.contains("16 bytes"), "{len}: {msg}");
+        }
+    }
+
+    #[test]
+    fn kat_pinned_key_proof_002_p256_verifies() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../tests/proposal-kats/p256-pinned-key-2026-10.json"
+        );
+        let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        let v = doc["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"] == "kat-pinned-key-proof-002-p256")
+            .unwrap();
+        let sender = Aid::parse(v["sender_aid"].as_str().unwrap()).unwrap();
+        let receiver = Aid::parse(v["receiver_aid"].as_str().unwrap()).unwrap();
+        let mid = Uuid::parse_str(v["message_id"].as_str().unwrap()).unwrap();
+        let c = PinnedKeyVerifyContext {
+            sender_aid: &sender,
+            receiver_aid: &receiver,
+            message_id: &mid,
+            timestamp: Timestamp(v["timestamp"].as_i64().unwrap()),
+            pop_nonce: v["pop_nonce"].as_str().unwrap(),
+        };
+        let mut desc = IdentityDescriptor {
+            kind: IdentityKind::PinnedKey,
+            issuer: None,
+            subject: "kat".into(),
+            proof: v["proof"].as_str().unwrap().into(),
+            public_key: Some(sender.identifier().to_string()),
+            extensions: None,
+        };
+        let store = StaticPinnedKeyStore::from_aids([&sender]).unwrap();
+        let got = verify_pinned_key(&desc, &c, &store).expect("KAT proof verifies");
+        assert_eq!(got.algorithm, AidAlgorithm::P256);
+        desc.proof = v["double_hash_proof_MUST_NOT_verify"]
+            .as_str()
+            .unwrap()
+            .into();
+        identity_msg(verify_pinned_key(&desc, &c, &store).unwrap_err());
     }
 }

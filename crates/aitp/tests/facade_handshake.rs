@@ -69,7 +69,12 @@ async fn spawn_bob(seed: u8, reject_initiator: bool) -> (AitpSigningKey, url::Ur
     );
     if reject_initiator {
         // Empty pinned store ⇒ no pinned-key peer is trusted ⇒ reject.
-        handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new(vec![])));
+        handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::default()));
+    } else {
+        // Bob trusts Alice's pinned key (seed 0x70).
+        handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([
+            AitpSigningKey::from_seed(&[0x70; 32]).verifying_key(),
+        ])));
     }
     let app = ManifestServer::new(manifest)
         .router()
@@ -92,11 +97,12 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
     let alice = AitpSigningKey::from_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
+    let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
     let session = run_initiator_handshake(InitiatorConfig::new(
         &alice,
         &alice_manifest,
         bob_origin,
-        TrustMode::UnsafeNoTrustEnforcement,
+        TrustMode::PinnedKeys(&trusted),
         IdentityMode::PinnedKey {
             subject: "alice".into(),
         },
@@ -133,11 +139,12 @@ async fn facade_surfaces_peer_protocol_rejection() {
     let alice = AitpSigningKey::from_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
+    let trusted = aitp::handshake::NoPinnedKeys;
     let err = run_initiator_handshake(InitiatorConfig::new(
         &alice,
         &alice_manifest,
         bob_origin,
-        TrustMode::UnsafeNoTrustEnforcement,
+        TrustMode::PinnedKeys(&trusted),
         IdentityMode::PinnedKey {
             subject: "alice".into(),
         },

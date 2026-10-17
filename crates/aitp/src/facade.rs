@@ -12,7 +12,7 @@ use crate::core::{
 use crate::crypto::{AitpSigningKey, AitpVerifyingKey};
 use crate::handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
-    OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
+    NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
 use crate::manifest::Manifest;
@@ -27,19 +27,19 @@ use uuid::Uuid;
 
 /// Explicit trust posture for the high-level [`run_initiator_handshake`].
 ///
-/// Pre-v0.1.0-rc.2 the facade silently accepted any pinned-key peer that
-/// proved possession of the key matching its AID — no "is this key one
-/// I trust?" gate. RFC-AITP-0002 §3.2 step 1 requires that gate. This
-/// enum forces callers to choose explicitly:
+/// RFC-AITP-0002 §3.2 step 3 requires every pinned-key peer to be in a
+/// local trust store. This enum makes the caller choose explicitly:
 ///
-/// - [`TrustMode::PinnedKeys`] — production pinned-key deployments;
-///   peers MUST appear in the supplied [`PinnedKeyStore`].
-/// - [`TrustMode::Oidc`] — production OIDC deployments; peers are
-///   authenticated by an issuer in `trust_anchors` whose JWKS is
-///   resolved by `jwks_resolver`.
-/// - [`TrustMode::UnsafeNoTrustEnforcement`] — development/testing only.
-///   The name is intentionally long and alarming so it shows up in code
-///   review.
+/// - [`TrustMode::PinnedKeys`]: pinned-key peers MUST appear in the
+///   supplied [`PinnedKeyStore`], keyed by `(algorithm, key)`.
+/// - [`TrustMode::Oidc`]: peers are authenticated by an issuer in
+///   `trust_anchors` whose JWKS is resolved by `jwks_resolver`. A
+///   pinned-key peer is rejected.
+///
+/// 0.14.0 removed the possession-only `UnsafeNoTrustEnforcement`
+/// variant (proposal agentidentitytrustprotocol#72, resolved
+/// 2026-10-16). Tests use [`TrustMode::PinnedKeys`] with a
+/// [`crate::handshake::StaticPinnedKeyStore`].
 pub enum TrustMode<'a> {
     /// Require all pinned-key peers to appear in this store.
     PinnedKeys(&'a dyn PinnedKeyStore),
@@ -52,10 +52,6 @@ pub enum TrustMode<'a> {
         /// [`aitp_transport_http::key_resolution::KeyResolutionPolicy`]).
         jwks_resolver: &'a dyn JwksResolver,
     },
-    /// Skip pinned-key trust enforcement. **INSECURE** — development
-    /// and testing only. A peer using any Ed25519 key whose hash
-    /// matches its AID will be accepted.
-    UnsafeNoTrustEnforcement,
 }
 
 /// Identity this initiator *presents* to the peer during the handshake.
@@ -174,7 +170,7 @@ impl JwksResolver for NoOpJwksResolver {
         _issuer: &url::Url,
     ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError> {
         Err(crate::handshake::ResolveError::NetworkError(
-            "no JWKS resolver configured (TrustMode::PinnedKeys / UnsafeNoTrustEnforcement)".into(),
+            "no JWKS resolver configured (TrustMode::PinnedKeys)".into(),
         ))
     }
 }
@@ -509,14 +505,13 @@ pub async fn run_initiator_handshake(
     let (trust_anchors, jwks_resolver, pinned_key_store): (
         &[aitp_core::RawUrl],
         &dyn JwksResolver,
-        Option<&dyn PinnedKeyStore>,
+        &dyn PinnedKeyStore,
     ) = match &config.trust_mode {
-        TrustMode::PinnedKeys(store) => (empty_anchors, &no_op_resolver, Some(*store)),
+        TrustMode::PinnedKeys(store) => (empty_anchors, &no_op_resolver, *store),
         TrustMode::Oidc {
             trust_anchors,
             jwks_resolver,
-        } => (*trust_anchors, *jwks_resolver, None),
-        TrustMode::UnsafeNoTrustEnforcement => (empty_anchors, &no_op_resolver, None),
+        } => (*trust_anchors, *jwks_resolver, &NoPinnedKeys),
     };
     // Rebuilt before each state-machine step so `now` tracks the wall
     // clock across the (multi-round-trip) handshake. A single snapshot
@@ -685,9 +680,8 @@ pub struct InitiatorConfig<'a> {
     /// be fetched.
     pub peer_origin: url::Url,
     /// Trust posture for the peer (RFC-AITP-0002 §3.2 step 1 +
-    /// RFC-AITP-0007). Choose [`TrustMode::PinnedKeys`] for production
-    /// pinned-key, [`TrustMode::Oidc`] for OIDC, or
-    /// [`TrustMode::UnsafeNoTrustEnforcement`] only for tests.
+    /// RFC-AITP-0007). Choose [`TrustMode::PinnedKeys`] for pinned-key
+    /// peers or [`TrustMode::Oidc`] for OIDC peers.
     pub trust_mode: TrustMode<'a>,
     /// Identity this initiator presents to the peer
     /// ([`IdentityMode::PinnedKey`], [`IdentityMode::Oidc`], or the
@@ -717,13 +711,20 @@ impl<'a> InitiatorConfig<'a> {
     /// ```no_run
     /// use std::time::Duration;
     /// use aitp::facade::{InitiatorConfig, TrustMode, IdentityMode};
+    /// use aitp::handshake::StaticPinnedKeyStore;
     /// use aitp::transport::HostGuard;
-    /// # fn demo(key: &aitp::crypto::AitpSigningKey, manifest: &aitp::manifest::Manifest) {
+    /// # fn demo(
+    /// #     key: &aitp::crypto::AitpSigningKey,
+    /// #     manifest: &aitp::manifest::Manifest,
+    /// #     peer_aid: &aitp::core::Aid,
+    /// # ) {
+    /// // Trust exactly the peer's pinned key (Ed25519 or P-256).
+    /// let trusted = StaticPinnedKeyStore::from_aids([peer_aid]).unwrap();
     /// let config = InitiatorConfig::new(
     ///     key,
     ///     manifest,
     ///     "https://peer.example".parse().unwrap(),
-    ///     TrustMode::UnsafeNoTrustEnforcement, // dev only; use PinnedKeys/Oidc in prod
+    ///     TrustMode::PinnedKeys(&trusted),
     ///     IdentityMode::PinnedKey { subject: "alice".into() },
     ///     vec!["demo.echo".into()],
     /// )
@@ -1135,7 +1136,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::UnsafeNoTrustEnforcement,
+            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },
@@ -1155,7 +1156,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::UnsafeNoTrustEnforcement,
+            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },

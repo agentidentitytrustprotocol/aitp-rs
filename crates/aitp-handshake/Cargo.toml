@@ -33,5 +33,6 @@ ring = { workspace = true }
 [dev-dependencies]
 boon = { workspace = true }
 ed25519-dalek = { workspace = true }
+p256 = { workspace = true }
 base64ct = { workspace = true }
 hex = { workspace = true }

@@ -1,6 +1,8 @@
 //! Spawn agent-b on a random port, run agent-a against it, assert the
 //! demo prints a successful echo line.
 
+use aitp::crypto::AitpSigningKey;
+use aitp_example_two_agents::expand_seed;
 use std::io::Read;
 use std::process::{Command, Stdio};
 use std::time::{Duration, Instant};
@@ -46,6 +48,13 @@ fn demo_runs_end_to_end() {
         .arg(port_b.to_string())
         .arg("--seed")
         .arg("integration-test-bob-seed")
+        // agent-b fails closed: pin agent-a's AID (RFC-AITP-0002 §3.2).
+        .arg("--trust")
+        .arg(
+            AitpSigningKey::from_seed(&expand_seed("integration-test-alice-seed"))
+                .aid()
+                .as_str(),
+        )
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -18,7 +18,10 @@ pub mod state_machine;
 pub use error::HandshakeError;
 pub use identity::{IdentityDescriptor, IdentityKind};
 pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
-pub use identity_pinned::{sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext};
+pub use identity_pinned::{
+    pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyStore,
+    PinnedKeyVerifyContext, StaticPinnedKeyStore, VerifiedPinnedKey, POP_NONCE_LEN,
+};
 pub use jwk::{
     verify_jws_signature, JwkKeyMaterial, JwkParseError, JwkPublicKey, JwsAlgorithm, JwsVerifyError,
 };
@@ -29,6 +32,5 @@ pub use payloads::{
 };
 pub use state_machine::{
     bootstrap_verify_peer, CompletedHandshake, HandshakeRevocationDecision, Initiator,
-    OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, RevocationCheckFn,
-    SessionId, StaticPinnedKeyStore,
+    OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, SessionId,
 };

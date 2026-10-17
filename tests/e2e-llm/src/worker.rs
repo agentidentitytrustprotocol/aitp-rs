@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{Manifest, ManifestEnvelope};
 use aitp::tct::{
     sign_revocation_list, verify_tct, RevocationEntry, RevocationList, RevocationListEnvelope,
@@ -156,10 +156,14 @@ struct AppState {
 /// Spawn an LLM-backed AITP responder. Binds to `127.0.0.1:0` so each
 /// test gets a free port and never collides with anything else on the
 /// host.
+///
+/// `trusted` is the worker's pinned-key trust store (RFC-AITP-0002
+/// §3.2): the planner AIDs it accepts a handshake from.
 pub async fn spawn(
     display_name: &str,
     seed: &[u8; 32],
     provider: Provider,
+    trusted: &[Aid],
 ) -> anyhow::Result<Worker> {
     let key = AitpSigningKey::from_seed(seed);
     // Bind first so we know the port the manifest needs to advertise.
@@ -195,7 +199,11 @@ pub async fn spawn(
         NoOpResolver,
         vec![WORK_CAPABILITY.into()],
     )
-    .with_revocation_producer(Arc::clone(&revocations) as Arc<dyn RevocationListProducer>);
+    .with_revocation_producer(Arc::clone(&revocations) as Arc<dyn RevocationListProducer>)
+    .with_pinned_key_store(Arc::new(
+        StaticPinnedKeyStore::from_aids(trusted)
+            .map_err(|e| anyhow::anyhow!("trusted AID is not a pinnable key: {e}"))?,
+    ));
 
     let app = server.router().merge(
         Router::new()
