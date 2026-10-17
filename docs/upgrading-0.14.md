@@ -246,7 +246,15 @@ forwarding headers count only from a configured trusted proxy.
 - The same rule is public as
   `aitp_transport_http::resolve_source_ip(peer, &headers, &trusted_proxies)`,
   for keying limits in another HTTP stack, such as
-  `PinnedAdmission::challenge(&ChallengeSource::ip(..))`.
+  `PinnedAdmission::challenge(&ChallengeSource::ip(..))`. It takes an
+  `http` 1.x `HeaderMap`, and with `TrustedProxy` it sits behind
+  feature `source-ip`, which depends only on `http`. `server` enables it,
+  but you don't need `server` (or axum 0.8) to use it.
+- A forwarding hop may carry a port (`1.2.3.4:5678`, as Azure
+  Application Gateway writes) or brackets (`[2001:db8::1]:443`); the
+  address is used. Any other unparsable hop, such as an RFC 7239
+  obfuscated identifier, stops the walk at the last trusted hop, which
+  throttles harder.
 - Serve the router with
   `into_make_service_with_connect_info::<SocketAddr>()`. Without connect
   info there is no transport identifier, and all requests share one

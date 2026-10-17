@@ -83,6 +83,14 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      # aitp-rs#205 A-2: `source-ip` must build alone and stay free of
+      # axum/tokio so services on another HTTP stack can use it.
+      - name: clippy + dependency check — aitp-transport-http `source-ip` alone
+        run: |
+          cargo clippy -p aitp-transport-http --all-targets --no-default-features --features source-ip -- -D warnings
+          if cargo tree -p aitp-transport-http --no-default-features --features source-ip -e normal --prefix none | grep -E '^(axum|tokio|hyper) '; then
+            echo "::error::feature source-ip pulled in a server dependency"; exit 1
+          fi
 
   bindings-lint:
     name: bindings fmt + clippy

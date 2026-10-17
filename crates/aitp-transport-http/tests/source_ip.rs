@@ -1,9 +1,10 @@
 //! aitp-rs#205 A-2: the RFC-AITP-0009 §3.1 trusted-proxy source rule,
-//! callable without the axum server.
-#![cfg(feature = "server")]
+//! callable without the axum server: feature `source-ip` needs only
+//! `http` 1.x.
+#![cfg(feature = "source-ip")]
 
 use aitp_transport_http::{resolve_source_ip, TrustedProxy};
-use axum::http::{HeaderMap, HeaderValue};
+use http::{HeaderMap, HeaderValue};
 use std::net::IpAddr;
 
 fn ip(s: &str) -> IpAddr {
@@ -86,4 +87,45 @@ fn ipv4_mapped_peer_matches_v4_range() {
         resolve_source_ip(ip("::ffff:10.0.0.2"), &h, &proxies()),
         ip("198.51.100.4")
     );
+}
+
+#[test]
+fn hop_with_port_or_brackets_reads_the_address() {
+    // Azure Application Gateway writes `ip:port`; others bracket IPv6.
+    let h = headers(&[(
+        "x-forwarded-for",
+        "6.6.6.6, 198.51.100.4:51234, [fd00::9]:443, 10.1.1.1:80",
+    )]);
+    assert_eq!(
+        resolve_source_ip(ip("10.0.0.2"), &h, &proxies()),
+        ip("198.51.100.4")
+    );
+    let h = headers(&[("x-forwarded-for", "[2001:db8::7]")]);
+    assert_eq!(
+        resolve_source_ip(ip("10.0.0.2"), &h, &proxies()),
+        ip("2001:db8::7")
+    );
+    let h = headers(&[("x-real-ip", "198.51.100.7:9000")]);
+    assert_eq!(
+        resolve_source_ip(ip("10.0.0.2"), &h, &proxies()),
+        ip("198.51.100.7")
+    );
+}
+
+#[test]
+fn malformed_bracket_or_port_still_stops_the_walk() {
+    for bad in [
+        "[fd00::9",
+        "198.51.100.4:",
+        "198.51.100.4:99999",
+        "fd00::9]:1",
+        "1.2.3.4:5:6",
+    ] {
+        let h = headers(&[("x-forwarded-for", &format!("198.51.100.4, {bad}, 10.1.1.1"))]);
+        assert_eq!(
+            resolve_source_ip(ip("10.0.0.2"), &h, &proxies()),
+            ip("10.1.1.1"),
+            "{bad}"
+        );
+    }
 }
