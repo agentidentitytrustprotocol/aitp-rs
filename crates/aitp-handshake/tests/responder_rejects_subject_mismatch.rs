@@ -58,7 +58,9 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
         },
         payload,
         extensions: None,
-        signature: sender.sign(&digest).into_string(),
+        signature: sender
+            .sign_jcs(&aitp_crypto::Digest32::from(digest))
+            .into_string(),
     }
 }
 

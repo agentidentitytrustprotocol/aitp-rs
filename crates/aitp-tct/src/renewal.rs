@@ -28,7 +28,6 @@ use crate::types::{IssuedTct, TctRenewalPayload, TCT_CLAIMS_MEMBERS};
 use crate::{verify_tct, TctBuilder, TctError, TctVerifyContext};
 use aitp_core::{base64url, check_members, from_serde_error, reject_duplicate_keys, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Build a [`TctRenewalPayload`] on the holder side.
@@ -42,8 +41,8 @@ pub fn build_renewal_request(
 ) -> Result<TctRenewalPayload, TctError> {
     let nonce_bytes = base64url::decode_strict(&pop_nonce)
         .map_err(|e| TctError::ClaimsMalformed(format!("pop_nonce: {e}")))?;
-    let digest = Sha256::digest(&nonce_bytes);
-    let pop_signature = holder_key.sign(&digest).into_string();
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
+    let pop_signature = holder_key.sign_jcs(&digest).into_string();
     Ok(TctRenewalPayload {
         current_tct,
         pop_nonce,
@@ -124,10 +123,10 @@ pub fn process_renewal_request(
     let holder_pk = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
     let nonce_bytes = base64url::decode_strict(&request.pop_nonce)
         .map_err(|e| TctError::ClaimsMalformed(format!("pop_nonce: {e}")))?;
-    let digest = Sha256::digest(&nonce_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
     let sig = Signature::parse(&request.pop_signature).map_err(|_| TctError::SignatureInvalid)?;
     holder_pk
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
 
     if manifest_expires_at.0 <= now.0 {

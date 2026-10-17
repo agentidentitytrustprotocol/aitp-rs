@@ -11,7 +11,6 @@ use aitp_core::{
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// `version` constant for v0.2 bundles.
@@ -149,8 +148,8 @@ impl<'a> SessionBundleBuilder<'a> {
             participants: &self.participants,
             extensions: self.extensions.as_ref(),
         })?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.coordinator_key.sign(&digest);
+        let digest = aitp_crypto::Digest32::sha256(&canonical);
+        let signature = self.coordinator_key.sign_jcs(&digest);
 
         Ok(SessionTrustBundle {
             version: DEFAULT_BUNDLE_VERSION.to_string(),

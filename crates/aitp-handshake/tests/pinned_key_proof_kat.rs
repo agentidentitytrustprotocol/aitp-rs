@@ -21,7 +21,6 @@ use aitp_core::{base64url, Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use aitp_handshake::identity_pinned::pinned_key_proof_input;
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 #[derive(Deserialize)]
@@ -107,17 +106,17 @@ fn pinned_key_proof_input_matches_spec_kat() {
         );
     }
 
-    let digest = Sha256::digest(&input);
+    let digest = aitp_crypto::Digest32::sha256(&input);
     let expected_digest =
         hex::decode(kat.sha256_hex.as_ref().unwrap()).expect("kat sha256_hex parses");
     assert_eq!(
-        digest.as_slice(),
+        digest.as_bytes().as_slice(),
         expected_digest.as_slice(),
         "sha256 of proof_input must equal the spec's pinned digest"
     );
     if let Some(expected_b64url) = kat.sha256_b64url.as_ref() {
         assert_eq!(
-            &base64url::encode(digest.as_slice()),
+            &base64url::encode(digest.as_bytes()),
             expected_b64url,
             "sha256_b64url must match the spec's pinned digest"
         );
@@ -128,7 +127,7 @@ fn pinned_key_proof_input_matches_spec_kat() {
     let sig =
         Signature::parse(kat.signature_b64url.as_ref().unwrap()).expect("kat signature parses");
     pubkey
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .expect("kat signature verifies over sha256(ASCII-decimal proof_input)");
 }
 
@@ -175,7 +174,7 @@ fn old_big_endian_timestamp_encoding_does_not_verify() {
         "the old big-endian variant must differ from the pinned ASCII-decimal proof_input"
     );
 
-    let bad_digest = Sha256::digest(&bad_input);
+    let bad_digest = aitp_crypto::Digest32::sha256(&bad_input);
 
     let signer_aid = Aid::parse(kat.signer_aid.as_ref().unwrap()).expect("signer_aid parses");
     let pubkey = AitpVerifyingKey::from_aid(&signer_aid).expect("signer_aid resolves to pubkey");
@@ -183,7 +182,7 @@ fn old_big_endian_timestamp_encoding_does_not_verify() {
         Signature::parse(kat.signature_b64url.as_ref().unwrap()).expect("kat signature parses");
 
     assert!(
-        pubkey.verify(&bad_digest, &sig).is_err(),
+        pubkey.verify_jcs(&bad_digest, &sig).is_err(),
         "pinned signature must NOT verify over the old big-endian-timestamp encoding"
     );
 }

@@ -245,7 +245,7 @@ fn build_envelope(
 ) -> aitp_core::AitpEnvelope {
     let digest =
         aitp_core::envelope_signing_digest(&message_id, timestamp, sender.aid(), &payload).unwrap();
-    let sig = sender.sign(&digest);
+    let sig = sender.sign_jcs(&aitp_crypto::Digest32::from(digest));
     aitp_core::AitpEnvelope {
         version: "aitp/0.1".into(),
         message_type: mt,

@@ -38,7 +38,6 @@ use crate::error::HandshakeError;
 use crate::identity::IdentityDescriptor;
 use aitp_core::{base64url, Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Domain-separation prefix for the pinned-key proof input. Prevents
@@ -152,10 +151,10 @@ pub fn verify_pinned_key(
         ctx.timestamp,
         ctx.pop_nonce,
     )?;
-    let digest = Sha256::digest(&input);
+    let digest = aitp_crypto::Digest32::sha256(&input);
     let sig = Signature::parse(&descriptor.proof)
         .map_err(|_| HandshakeError::Identity("proof malformed".into()))?;
-    pk.verify(&digest, &sig)
+    pk.verify_jcs(&digest, &sig)
         .map_err(|_| HandshakeError::Identity("pinned_key signature invalid".into()))?;
     Ok(())
 }
@@ -175,8 +174,8 @@ pub fn sign_pinned_key_proof(
     pop_nonce: &str,
 ) -> Result<String, HandshakeError> {
     let input = pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)?;
-    let digest = Sha256::digest(&input);
-    Ok(signing_key.sign(&digest).into_string())
+    let digest = aitp_crypto::Digest32::sha256(&input);
+    Ok(signing_key.sign_jcs(&digest).into_string())
 }
 
 #[cfg(test)]
@@ -408,8 +407,8 @@ mod tests {
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1_700_000_000);
         let legacy_input = format!("{}|{}", mid, ts.0);
-        let legacy_digest = Sha256::digest(legacy_input.as_bytes());
-        let legacy_proof = key.sign(&legacy_digest).into_string();
+        let legacy_digest = aitp_crypto::Digest32::sha256(legacy_input.as_bytes());
+        let legacy_proof = key.sign_jcs(&legacy_digest).into_string();
         let desc = IdentityDescriptor {
             kind: IdentityKind::PinnedKey,
             issuer: None,

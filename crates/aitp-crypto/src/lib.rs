@@ -5,11 +5,13 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+pub mod digest;
 pub mod error;
 pub mod jws;
 pub mod keys;
 pub mod thumbprint;
 
+pub use digest::Digest32;
 pub use error::CryptoError;
 pub use keys::{AitpSigningKey, AitpVerifyingKey, Signature, SignatureAlgorithm};
 pub use thumbprint::{compute_jwk_thumbprint, compute_jwk_thumbprint_p256};

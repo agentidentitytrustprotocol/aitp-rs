@@ -556,7 +556,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         Ok(s) => s,
         Err(_) => return err(id, "INVALID_SIGNATURE", "signature parse"),
     };
-    match pk.verify(&digest, &sig) {
+    match pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig) {
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(_) => err(id, "INVALID_SIGNATURE", "envelope signature invalid"),
     }
@@ -812,7 +812,8 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         )
         .map_err(|e| format!("digest: {e}"))?;
         let sig = Signature::parse(&envelope.signature).map_err(|e| format!("sig: {e}"))?;
-        pk.verify(&digest, &sig).map_err(|_| "verify".to_string())
+        pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
+            .map_err(|_| "verify".to_string())
     };
     if matches!(
         envelope.message_type,
@@ -1156,8 +1157,7 @@ fn verify_commit_ack_stateless(
         }
         let nonce_bytes = aitp_core::base64url::decode_strict(expected_nonce)
             .map_err(|_| HandshakeError::Identity("pop_nonce not base64url".into()))?;
-        use sha2::Digest;
-        let pop_input = sha2::Sha256::digest(&nonce_bytes);
+        let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
         let sig = aitp_crypto::Signature::parse(&payload.pop_signature)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
         // The round-2 PoP is signed by the **sender** of the commit
@@ -1169,7 +1169,7 @@ fn verify_commit_ack_stateless(
         let sender_pubkey =
             AitpVerifyingKey::from_aid(sender_aid).map_err(HandshakeError::Crypto)?;
         sender_pubkey
-            .verify(&pop_input, &sig)
+            .verify_jcs(&pop_input, &sig)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
     } else if payload.pop_nonce_echo.is_empty() {
         return Err(HandshakeError::NonceMismatch);
@@ -2167,7 +2167,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
             Ok(d) => d,
             Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
         };
-    let sig = key.sign(&digest);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
     let env = AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
@@ -2653,7 +2653,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
     let payload_value = serde_json::to_value(payload).unwrap();
     let digest =
         aitp_core::envelope_signing_digest(&mid, ts, key.aid(), &payload_value).expect("digest");
-    let sig = key.sign(&digest);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
     AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
@@ -2835,13 +2835,12 @@ fn produce_pop_response_op(state: &mut AdapterState, id: &str, params: Value) ->
                 Ok(b) => b,
                 Err(e) => return err(id, "INVALID_ENVELOPE", &e.to_string()),
             };
-            use sha2::Digest;
-            let pop_input = sha2::Sha256::digest(&nonce_bytes);
+            let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
             let parsed_sig = match aitp_crypto::Signature::parse(sig) {
                 Ok(s) => s,
                 Err(_) => return err(id, "POP_RESPONSE_INVALID", "pop_signature parse"),
             };
-            if holder_pubkey.verify(&pop_input, &parsed_sig).is_err() {
+            if holder_pubkey.verify_jcs(&pop_input, &parsed_sig).is_err() {
                 return err(id, "POP_RESPONSE_INVALID", "pop_signature verify");
             }
             // Stash the synthetic PopResponse so verify_pop_response can
@@ -3275,7 +3274,9 @@ mod p256_readiness_tests {
             },
             payload,
             extensions: None,
-            signature: key.sign(&digest).into_string(),
+            signature: key
+                .sign_jcs(&aitp_crypto::Digest32::from(digest))
+                .into_string(),
         };
         serde_json::to_value(&envelope).unwrap()
     }
@@ -3604,7 +3605,6 @@ mod manifest_unknown_field_tests {
     //! regression in the adapter's own wiring (not just the library) would
     //! be caught here too.
     use super::*;
-    use sha2::Digest;
 
     fn signed_manifest_value() -> (Value, aitp_crypto::AitpSigningKey) {
         let key = aitp_crypto::AitpSigningKey::from_seed(&[9u8; 32]);
@@ -3705,7 +3705,9 @@ mod manifest_unknown_field_tests {
         );
         obj.remove("signature");
         let canonical = aitp_core::jcs::canonicalize(&manifest).unwrap();
-        let signature = key.sign(&sha2::Sha256::digest(&canonical)).into_string();
+        let signature = key
+            .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+            .into_string();
         manifest
             .as_object_mut()
             .unwrap()
@@ -4090,7 +4092,9 @@ mod handshake_unknown_field_tests {
             },
             payload,
             extensions: None,
-            signature: key.sign(&digest).into_string(),
+            signature: key
+                .sign_jcs(&aitp_crypto::Digest32::from(digest))
+                .into_string(),
         };
         serde_json::to_value(&envelope).unwrap()
     }
@@ -4238,8 +4242,8 @@ mod oidc_test_issuer_tests {
         let header_b64 = base64url::encode(header.as_bytes());
         let payload_b64 = base64url::encode(claims.to_string().as_bytes());
         let signing_input = format!("{header_b64}.{payload_b64}");
-        let sig = key.sign(signing_input.as_bytes());
-        format!("{signing_input}.{}", sig.into_string())
+        let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+        format!("{signing_input}.{sig}")
     }
 
     #[test]

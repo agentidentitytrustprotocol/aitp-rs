@@ -15,7 +15,6 @@ use aitp_tct::{
     RevocationListEnvelope, VerifyRevocationListContext,
 };
 use aitp_transport_http::{HandshakeServer, RevocationListProducer};
-use sha2::{Digest, Sha256};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -183,18 +182,19 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
     let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(issuer.aid()).unwrap();
 
     // Positive: sha256(JCS(inner body)) is the signing input.
-    let inner_digest = Sha256::digest(aitp_core::jcs::canonicalize(body).unwrap());
+    let inner_digest = aitp_crypto::Digest32::sha256(&aitp_core::jcs::canonicalize(body).unwrap());
     pubkey
-        .verify(&inner_digest, &sig)
+        .verify_jcs(&inner_digest, &sig)
         .expect("served signature must verify over sha256(JCS(inner body)) — RFC-AITP-0001 §5.4.1");
 
     // Negative: the wrapped form is NOT the signing input. Without this
     // half the test would still pass if the wrapper were reintroduced
     // and `body` happened to be re-read from it.
     let wrapped = serde_json::json!({ "revocation_list": body });
-    let wrapped_digest = Sha256::digest(aitp_core::jcs::canonicalize(&wrapped).unwrap());
+    let wrapped_digest =
+        aitp_crypto::Digest32::sha256(&aitp_core::jcs::canonicalize(&wrapped).unwrap());
     assert!(
-        pubkey.verify(&wrapped_digest, &sig).is_err(),
+        pubkey.verify_jcs(&wrapped_digest, &sig).is_err(),
         "served signature must NOT verify over the wrapped \
          {{\"revocation_list\": …}} form — the transport wrapper is not signed"
     );

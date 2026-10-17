@@ -60,7 +60,7 @@ fn signature_is_over_caller_supplied_message_id_and_timestamp() {
     let digest = envelope_signing_digest(&mid, ts, k.aid(), &env.payload).expect("digest");
     let sig = Signature::parse(&env.signature).expect("parse sig");
     k.verifying_key()
-        .verify(&digest, &sig)
+        .verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
         .expect("signature is over the caller-supplied mid/ts");
 }
 

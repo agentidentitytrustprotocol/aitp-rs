@@ -308,15 +308,9 @@ mod tests {
             Base64UrlUnpadded::encode_string(header.as_bytes()),
             Base64UrlUnpadded::encode_string(payload.as_bytes()),
         );
-        // `AitpSigningKey::sign` emits the wire (base64url, possibly
-        // algorithm-tagged) form; for an Ed25519 key that's the
-        // untagged 64-byte raw signature the JWS raw-signature profile
-        // also uses, so decode it back to raw bytes for
-        // `verify_jws_signature`, which takes the raw form directly.
-        let sig = key.sign(signing_input.as_bytes());
-        let raw = Base64UrlUnpadded::decode_vec(sig.payload()).expect("valid base64url payload");
-        let mut arr = [0u8; 64];
-        arr.copy_from_slice(&raw);
+        // JWS signs the signing input itself (EdDSA / ES256), not the
+        // AITP `Digest32`.
+        let arr = key.sign_raw(signing_input.as_bytes());
         (signing_input.into_bytes(), arr)
     }
 

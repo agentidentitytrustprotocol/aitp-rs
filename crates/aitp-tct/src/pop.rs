@@ -15,7 +15,6 @@ use crate::TctError;
 use aitp_core::{base64url, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// PoP challenge sent by a consuming peer.
@@ -55,8 +54,8 @@ pub fn sign_pop_response(
 ) -> Result<PopResponse, TctError> {
     let nonce_bytes =
         base64url::decode_strict(&challenge.nonce).map_err(|_| TctError::PopFailed)?;
-    let digest = Sha256::digest(&nonce_bytes);
-    let sig = holder_key.sign(&digest);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
+    let sig = holder_key.sign_jcs(&digest);
     Ok(PopResponse {
         tct_jti: challenge.tct_jti,
         nonce_echo: challenge.nonce.clone(),
@@ -103,10 +102,10 @@ pub fn verify_pop_response(
     }
     let nonce_bytes =
         base64url::decode_strict(&challenge.nonce).map_err(|_| TctError::PopFailed)?;
-    let digest = Sha256::digest(&nonce_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
     let sig = Signature::parse(&response.pop_signature).map_err(|_| TctError::PopFailed)?;
     holder_pk
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .map_err(|_| TctError::PopFailed)?;
     Ok(())
 }

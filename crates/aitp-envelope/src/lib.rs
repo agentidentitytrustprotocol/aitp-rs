@@ -35,7 +35,9 @@ pub fn sign_envelope_with(
 ) -> Result<AitpEnvelope, String> {
     let digest = envelope_signing_digest(&message_id, timestamp, signing_key.aid(), &payload)
         .map_err(|e| e.to_string())?;
-    let signature = signing_key.sign(&digest).into_string();
+    let signature = signing_key
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
     Ok(AitpEnvelope {
         version: "aitp/0.2".into(),
         message_type,
@@ -80,5 +82,5 @@ pub fn verify_envelope_signature(
     )
     .map_err(|e| aitp_crypto::CryptoError::SignatureMalformed(e.to_string()))?;
     let sig = aitp_crypto::Signature::parse(&envelope.signature)?;
-    sender_pubkey.verify(&digest, &sig)
+    sender_pubkey.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
 }

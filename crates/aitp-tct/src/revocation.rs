@@ -11,7 +11,6 @@
 use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::TctError;
@@ -135,8 +134,8 @@ pub fn sign_revocation_list(
     issuer_key: &AitpSigningKey,
 ) -> Result<RevocationListEnvelope, TctError> {
     let canonical = revocation_signing_bytes(&body)?;
-    let digest = Sha256::digest(&canonical);
-    let sig = issuer_key.sign(&digest);
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let sig = issuer_key.sign_jcs(&digest);
     Ok(RevocationListEnvelope {
         revocation_list: body,
         signature: sig.into_string(),
@@ -220,7 +219,7 @@ pub fn verify_revocation_list(
 
     let canonical = revocation_signing_bytes(&envelope.revocation_list)?;
     pubkey
-        .verify(&Sha256::digest(&canonical), &sig)
+        .verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
     Ok(())
 }
@@ -426,7 +425,7 @@ mod tests {
              is canonicalizing a different JSON shape than the spec signs"
         );
         assert_eq!(
-            hex::encode(Sha256::digest(&canonical)),
+            hex::encode(aitp_crypto::Digest32::sha256(&canonical)),
             v["sha256_hex"].as_str().unwrap(),
             "digest diverges from spec kat-revocation-001"
         );
@@ -486,7 +485,9 @@ mod tests {
         let sig = Signature::parse(&env.signature).unwrap();
 
         assert!(
-            pubkey.verify(&Sha256::digest(&canonical), &sig).is_err(),
+            pubkey
+                .verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
+                .is_err(),
             "signature verified over the WRAPPED form — the transport wrapper \
              is being signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0008 §1.5)"
         );
@@ -506,7 +507,9 @@ mod tests {
         // Sign the legacy wrapped form deliberately.
         let wrapped = serde_json::json!({ "revocation_list": &body });
         let canonical = jcs::canonicalize(&wrapped).unwrap();
-        let legacy_sig = key.sign(&Sha256::digest(&canonical)).into_string();
+        let legacy_sig = key
+            .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+            .into_string();
 
         let env = RevocationListEnvelope {
             revocation_list: body,

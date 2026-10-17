@@ -83,7 +83,7 @@ fn p1_legacy_two_field_proof_rejected() {
 
     // Legacy 2-field input deliberately reproduces what alpha.4 signed.
     let legacy_input = format!("{mid}|{}", ts.0);
-    let legacy_sig = sender.sign(legacy_input.as_bytes()).into_string();
+    let legacy_sig = aitp_core::base64url::encode(&sender.sign_raw(legacy_input.as_bytes()));
 
     let descriptor = IdentityDescriptor {
         kind: IdentityKind::PinnedKey,

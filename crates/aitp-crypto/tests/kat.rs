@@ -102,7 +102,7 @@ fn p256_keypair_kat_scalar_pubkey_aid_and_signature() {
     // The P-256 signing path produces an algorithm-tagged signature
     // (`p256.<b64u>`) that the matching verifier accepts.
     let msg = b"aitp p256 known-answer test message";
-    let sig = key.sign(msg);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(msg));
     assert!(
         matches!(sig.algorithm(), SignatureAlgorithm::P256),
         "P-256 key must produce a P-256-tagged signature"
@@ -113,7 +113,7 @@ fn p256_keypair_kat_scalar_pubkey_aid_and_signature() {
         sig.as_str()
     );
     key.verifying_key()
-        .verify(msg, &sig)
+        .verify_jcs(&aitp_crypto::Digest32::sha256(msg), &sig)
         .expect("P-256 signature must self-verify");
 }
 

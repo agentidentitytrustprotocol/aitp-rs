@@ -255,7 +255,6 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         verify_session_bundle, SessionBundleBuilder, VerifySessionBundleContext,
     };
     use aitp_tct::TctBuilder;
-    use sha2::{Digest, Sha256};
 
     const NOW: Timestamp = Timestamp(1_700_000_000);
 
@@ -341,16 +340,17 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
     let sig = aitp_crypto::Signature::parse(sig_str.as_str().unwrap()).unwrap();
     let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(coordinator.aid()).unwrap();
 
-    let inner_digest = Sha256::digest(aitp_core::jcs::canonicalize(&body).unwrap());
+    let inner_digest = aitp_crypto::Digest32::sha256(&aitp_core::jcs::canonicalize(&body).unwrap());
     pubkey
-        .verify(&inner_digest, &sig)
+        .verify_jcs(&inner_digest, &sig)
         .expect("signature must verify over sha256(JCS(body without `signature`))");
 
     // 3. And NOT over the wrapped form.
     let wrapped = serde_json::json!({ "session_bundle": body });
-    let wrapped_digest = Sha256::digest(aitp_core::jcs::canonicalize(&wrapped).unwrap());
+    let wrapped_digest =
+        aitp_crypto::Digest32::sha256(&aitp_core::jcs::canonicalize(&wrapped).unwrap());
     assert!(
-        pubkey.verify(&wrapped_digest, &sig).is_err(),
+        pubkey.verify_jcs(&wrapped_digest, &sig).is_err(),
         "signature must NOT verify over the wrapped \
          {{\"session_bundle\": …}} form — the transport wrapper is not signed"
     );

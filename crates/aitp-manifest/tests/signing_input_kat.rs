@@ -23,7 +23,6 @@ use aitp_manifest::{
     ManifestError, VerifyManifestContext,
 };
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 fn vendored(rel: &str) -> PathBuf {
@@ -145,14 +144,14 @@ fn committed_manifest_example_signs_the_inner_body_only() {
     let canonical = jcs::canonicalize(&body).expect("canonicalize");
     let key = AitpVerifyingKey::from_aid(&Aid::parse(&aid).expect("aid parses")).unwrap();
     let sig = Signature::parse(&signature).expect("signature parses");
-    key.verify(&Sha256::digest(&canonical), &sig)
+    key.verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
         .expect("committed manifest example must verify over the inner body");
 
     // Negative: the wrapped form must not verify.
     let wrapped = json!({ "manifest": body });
     let wrapped_canonical = jcs::canonicalize(&wrapped).expect("canonicalize wrapped");
     assert!(
-        key.verify(&Sha256::digest(&wrapped_canonical), &sig)
+        key.verify_jcs(&aitp_crypto::Digest32::sha256(&wrapped_canonical), &sig)
             .is_err(),
         "manifest signature verified over the WRAPPED form — the transport \
          wrapper is being signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0003 §6.1)"
@@ -209,7 +208,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
         .remove("signature");
     let wrapped = json!({ "manifest": body });
     let wrapped_canonical = jcs::canonicalize(&wrapped).expect("canonicalize wrapped");
-    let wrong_signature = key.sign(&Sha256::digest(&wrapped_canonical));
+    let wrong_signature = key.sign_jcs(&aitp_crypto::Digest32::sha256(&wrapped_canonical));
     manifest.signature = wrong_signature.into_string();
 
     let ctx = VerifyManifestContext {

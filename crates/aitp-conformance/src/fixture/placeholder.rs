@@ -310,8 +310,8 @@ impl RunnerContext {
                     base64url::encode(header.as_bytes()),
                     base64url::encode(&payload)
                 );
-                let sig = key.sign(signing_input.as_bytes());
-                Some(format!("{signing_input}.{}", sig.as_str()))
+                let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+                Some(format!("{signing_input}.{sig}"))
             }
             _ => None,
         }
@@ -449,7 +449,7 @@ impl RunnerContext {
                                 aid.as_deref().and_then(kat_key_for_aid),
                             ) {
                                 if let Ok(bytes) = base64url::decode_strict(challenge) {
-                                    let sig = key.sign(&Sha256::digest(&bytes));
+                                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
                                     pop.insert("signature".into(), Value::from(sig.into_string()));
                                 }
                             }
@@ -482,7 +482,7 @@ impl RunnerContext {
                             .map(String::from);
                         if let Some(echo) = echo {
                             if let Ok(nonce_bytes) = base64url::decode_strict(&echo) {
-                                let pop_input = Sha256::digest(&nonce_bytes);
+                                let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
                                 let key = map
                                     .get("tct_claims")
                                     .and_then(|c| c.get("iss"))
@@ -491,7 +491,7 @@ impl RunnerContext {
                                     .unwrap_or_else(|| {
                                         AitpSigningKey::from_seed(&self.kp_002_seed)
                                     });
-                                let sig = key.sign(&pop_input);
+                                let sig = key.sign_jcs(&pop_input);
                                 map.insert("pop_signature".into(), Value::from(sig.into_string()));
                             }
                         }
@@ -800,8 +800,8 @@ fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>)
         _ => body,
     };
     let canonical = jcs::canonicalize(&body).ok()?;
-    let digest = Sha256::digest(&canonical);
-    Some(key.sign(&digest).into_string())
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    Some(key.sign_jcs(&digest).into_string())
 }
 
 fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<String> {
@@ -829,7 +829,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
                 sender_key.as_ref(),
             ) {
                 if let Ok(bytes) = base64url::decode_strict(&echo) {
-                    let sig = key.sign(&Sha256::digest(&bytes));
+                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
                     payload_obj.insert("pop_signature".into(), Value::from(sig.into_string()));
                 }
             }
@@ -861,7 +861,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     // `sha256(signing_input)` (aitp_core::envelope_signing_digest),
     // not the raw input bytes.
     Some(
-        key.sign(&Sha256::digest(signing_input.as_bytes()))
+        key.sign_jcs(&aitp_crypto::Digest32::sha256(signing_input.as_bytes()))
             .into_string(),
     )
 }
@@ -954,8 +954,8 @@ fn mint_oidc_jwt(
     let header_b64 = base64url::encode(header.as_bytes());
     let payload_b64 = base64url::encode(claims.to_string().as_bytes());
     let signing_input = format!("{header_b64}.{payload_b64}");
-    let sig = key.sign(signing_input.as_bytes());
-    format!("{signing_input}.{}", sig.into_string())
+    let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+    format!("{signing_input}.{sig}")
 }
 
 #[cfg(test)]
@@ -1078,7 +1078,6 @@ mod tests {
         // the placeholder with a real Ed25519 signature.
         use aitp_core::base64url;
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-        use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.2",
@@ -1091,11 +1090,13 @@ mod tests {
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = Sha256::digest(&canon);
+        let digest = aitp_crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         let sig = aitp_crypto::Signature::parse(&sig_b64).unwrap();
-        pubkey.verify(&digest, &sig).expect("signature verifies");
+        pubkey
+            .verify_jcs(&digest, &sig)
+            .expect("signature verifies");
         let _ = base64url::encode(b"");
     }
 
@@ -1109,7 +1110,6 @@ mod tests {
         // to reach the crypto layer instead of bouncing at the
         // base64url parser.
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-        use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.2",
@@ -1127,11 +1127,11 @@ mod tests {
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = Sha256::digest(&canon);
+        let digest = aitp_crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         assert!(
-            pubkey.verify(&digest, &sig).is_err(),
+            pubkey.verify_jcs(&digest, &sig).is_err(),
             "tampered signature must fail verify_strict"
         );
     }
@@ -1249,7 +1249,10 @@ mod tests {
         let issuer_key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
         issuer_key
             .verifying_key()
-            .verify(signing_input.as_bytes(), &sig)
+            .verify_raw(
+                signing_input.as_bytes(),
+                &base64url::decode_strict(sig.as_str()).unwrap(),
+            )
             .expect("minted JWT signature must verify under the OIDC test issuer key");
     }
 
@@ -1369,7 +1372,7 @@ mod tests {
         let sig_b64 = envelope["signature"].as_str().unwrap();
         let sig = aitp_crypto::Signature::parse(sig_b64).unwrap();
         let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();
-        pubkey.verify(&digest, &sig).expect(
+        pubkey.verify_jcs(&digest.into(), &sig).expect(
             "envelope signature must verify over the post-JWT-minting payload bytes \
              (proves the minting pass ran before the signature pass, not after)",
         );

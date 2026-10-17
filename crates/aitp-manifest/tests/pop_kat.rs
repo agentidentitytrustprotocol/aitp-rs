@@ -15,7 +15,6 @@ use aitp_manifest::{
     VerifyManifestContext,
 };
 use serde::Deserialize;
-use sha2::{Digest, Sha256};
 
 #[derive(Deserialize)]
 struct KatFile {
@@ -69,11 +68,11 @@ fn pop_signing_input_matches_spec_kat() {
         "decoded challenge must equal the spec's pinned bytes"
     );
 
-    let digest = Sha256::digest(&challenge_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&challenge_bytes);
     let expected_digest =
         hex::decode(kat.sha256_hex.as_ref().unwrap()).expect("kat sha256_hex parses");
     assert_eq!(
-        digest.as_slice(),
+        digest.as_bytes().as_slice(),
         expected_digest.as_slice(),
         "sha256 of decoded bytes must equal the spec's pinned digest"
     );
@@ -82,7 +81,7 @@ fn pop_signing_input_matches_spec_kat() {
     let pubkey = AitpVerifyingKey::from_aid(&aid).expect("kat aid resolves to pubkey");
     let sig = Signature::parse(kat.signature_b64url.as_ref().unwrap()).expect("kat sig parses");
     pubkey
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .expect("kat signature verifies under unified signing-input convention");
 }
 
@@ -114,11 +113,11 @@ fn builder_pop_uses_decoded_challenge() {
 
     let challenge_bytes = base64url::decode_strict(&manifest.proof_of_possession.challenge)
         .expect("builder-emitted challenge decodes");
-    let expected_input = Sha256::digest(&challenge_bytes);
+    let expected_input = aitp_crypto::Digest32::sha256(&challenge_bytes);
     let pubkey = AitpVerifyingKey::from_aid(&manifest.aid).unwrap();
     let sig = Signature::parse(&manifest.proof_of_possession.signature).unwrap();
     pubkey
-        .verify(&expected_input, &sig)
+        .verify_jcs(&expected_input, &sig)
         .expect("builder PoP signature must verify against sha256(decoded(challenge))");
 }
 
@@ -151,8 +150,9 @@ fn legacy_ascii_bytes_pop_is_rejected() {
         .build()
         .unwrap();
 
-    let legacy_input = Sha256::digest(manifest.proof_of_possession.challenge.as_bytes());
-    let legacy_sig = key.sign(&legacy_input).into_string();
+    let legacy_input =
+        aitp_crypto::Digest32::sha256(manifest.proof_of_possession.challenge.as_bytes());
+    let legacy_sig = key.sign_jcs(&legacy_input).into_string();
     manifest.proof_of_possession = ManifestPop {
         challenge: manifest.proof_of_possession.challenge.clone(),
         signature: legacy_sig,

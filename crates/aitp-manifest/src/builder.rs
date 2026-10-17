@@ -10,7 +10,6 @@ use aitp_core::{base64url, jcs, ExtensionsMap, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use rand::TryRng;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 /// Default Manifest TTL (24 hours).
 pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
@@ -206,8 +205,8 @@ impl<'a> ManifestBuilder<'a> {
         //    §3 — the hash input is the 16 raw decoded bytes, NOT the ASCII
         //    bytes of the base64url-encoded string. Pinned by KAT
         //    `kat-manifest-pop-001` in `jcs-sha256.json`.
-        let pop_input = Sha256::digest(challenge_bytes);
-        let pop_signature = self.signing_key.sign(&pop_input);
+        let pop_input = aitp_crypto::Digest32::sha256(&challenge_bytes);
+        let pop_signature = self.signing_key.sign_jcs(&pop_input);
 
         // 4. Compose published_at / expires_at.
         let published_at = self.now_override.unwrap_or_else(Timestamp::now);
@@ -263,8 +262,8 @@ impl<'a> ManifestBuilder<'a> {
 
         let view = ManifestSigningView::from(&manifest);
         let canonical = manifest_signing_bytes(&view)?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.signing_key.sign(&digest);
+        let digest = aitp_crypto::Digest32::sha256(&canonical);
+        let signature = self.signing_key.sign_jcs(&digest);
         manifest.signature = signature.into_string();
 
         Ok(manifest)
@@ -559,7 +558,7 @@ mod tests {
              canonicalizing a different JSON shape than the spec signs"
         );
         assert_eq!(
-            hex::encode(Sha256::digest(&canonical)),
+            hex::encode(aitp_crypto::Digest32::sha256(&canonical)),
             v["sha256_hex"].as_str().unwrap(),
             "digest diverges from spec kat-manifest-001"
         );

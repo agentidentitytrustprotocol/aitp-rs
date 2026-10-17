@@ -17,7 +17,6 @@ use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
 use rand::TryRng;
-use sha2::{Digest, Sha256};
 use tracing::debug;
 use uuid::Uuid;
 
@@ -530,8 +529,8 @@ pub fn bootstrap_verify_peer(
 fn sign_pop(my_key: &AitpSigningKey, peer_nonce: &str) -> Result<String, HandshakeError> {
     let nonce_bytes = base64url::decode_strict(peer_nonce)
         .map_err(|_| HandshakeError::InvalidEnvelope("pop nonce is not valid base64url".into()))?;
-    let digest = Sha256::digest(&nonce_bytes);
-    Ok(my_key.sign(&digest).into_string())
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
+    Ok(my_key.sign_jcs(&digest).into_string())
 }
 
 /// Round-2 PoP verify.
@@ -542,10 +541,10 @@ fn verify_pop(
 ) -> Result<(), HandshakeError> {
     let nonce_bytes =
         base64url::decode_strict(my_nonce).map_err(|_| HandshakeError::PopVerificationFailed)?;
-    let digest = Sha256::digest(&nonce_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
     let sig = Signature::parse(pop_signature).map_err(|_| HandshakeError::PopVerificationFailed)?;
     peer_pubkey
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .map_err(|_| HandshakeError::PopVerificationFailed)
 }
 

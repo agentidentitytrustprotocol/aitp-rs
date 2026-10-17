@@ -241,7 +241,9 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: key.sign(&digest).into_string(),
+        signature: key
+            .sign_jcs(&aitp::crypto::Digest32::from(digest))
+            .into_string(),
     }
 }
 
