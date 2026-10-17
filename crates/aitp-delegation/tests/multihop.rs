@@ -424,3 +424,94 @@ fn builder_reproduces_spec_outer_delegation() {
         "builder-minted outer token diverges from the spec KAT"
     );
 }
+
+/// Outer claims for C → D over `h1`, carrying `jti` verbatim.
+fn outer_claims_with_jti(h1: &str, jti: &str) -> serde_json::Value {
+    serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": c().aid(),
+        "sub": d().aid(),
+        "aud": a().aid(),
+        "scope": ["read_data"],
+        "exp": NOW.0 + 600,
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "jti": jti,
+        "chain": [h1],
+        "chain_hash": compute_chain_hash(&[h1.to_string()]).unwrap(),
+    })
+}
+
+/// Spec PR C (RFC-AITP-0011 §1.1, RFC-AITP-0005 §2 v4 rule): a hop
+/// `jti` outside the strict lowercase UUID v4 layout is rejected
+/// before signature verification, with wire code
+/// `DELEGATION_INVALID_SIGNATURE`.
+#[test]
+fn non_v4_outer_hop_jti_rejected_before_signature() {
+    let h1 = hop1();
+    let a_key = a();
+    for bad in [
+        "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e", // v7
+        "550e8400-e29b-41d4-c716-446655440012", // v4, variant bits 110
+        "550E8400-E29B-41D4-A716-446655440012", // uppercase
+    ] {
+        let claims = outer_claims_with_jti(&h1, bad);
+        let token = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
+        assert!(
+            matches!(
+                verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+                DelegationError::JtiNotV4(_)
+            ),
+            "{bad}"
+        );
+        // Signed by the wrong key: the layout check still fires first.
+        let forged = jws::sign_compact(&d(), jws::TYP_DELEGATION, &claims).unwrap();
+        assert!(
+            matches!(
+                verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
+                DelegationError::JtiNotV4(_)
+            ),
+            "{bad} (forged)"
+        );
+    }
+}
+
+#[test]
+fn non_v4_chain_hop_jti_rejected() {
+    let v = serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": b().aid(),
+        "sub": c().aid(),
+        "aud": a().aid(),
+        "scope": ["read_data"],
+        "exp": NOW.0 + 3000,
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "voucher": voucher_for_b(),
+        "jti": "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
+    });
+    let h1 = jws::sign_compact(&b(), jws::TYP_DELEGATION, &v).unwrap();
+    let token = jws::sign_compact(
+        &c(),
+        jws::TYP_DELEGATION,
+        &outer_claims_with_jti(&h1, "550e8400-e29b-41d4-a716-446655440012"),
+    )
+    .unwrap();
+    let a_key = a();
+    assert!(matches!(
+        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        DelegationError::JtiNotV4(_)
+    ));
+}
+
+#[test]
+fn builder_rejects_non_v4_jti() {
+    let err = DelegationBuilder::new(&b(), &voucher_for_b())
+        .unwrap()
+        .delegatee(c().aid().clone())
+        .scope(["read_data"])
+        .ttl_secs(600)
+        .now(NOW)
+        .jti(Uuid::parse_str("0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e").unwrap())
+        .build()
+        .unwrap_err();
+    assert!(matches!(err, DelegationError::JtiNotV4(_)), "{err:?}");
+}

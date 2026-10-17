@@ -24,7 +24,7 @@ pub mod revocation;
 pub mod types;
 pub mod verifier;
 
-pub use builder::TctBuilder;
+pub use builder::{TctBuilder, ATTESTATION_GRANT};
 pub use error::TctError;
 pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse};
 #[cfg(feature = "experimental-renewal")]
@@ -41,7 +41,9 @@ pub use types::{
     TCT_CLAIMS_MEMBERS,
 };
 pub use verifier::{
-    verify_tct, verify_voucher, TctVerifyContext, TctVerifyContextBuilder, TctVerifyContextError,
+    verify_attestation, verify_tct, verify_voucher, AttestationVerifyContext,
+    AttestationVerifyContextBuilder, TctVerifyContext, TctVerifyContextBuilder,
+    TctVerifyContextError, VerifiedAttestation,
 };
 
 /// Recommended TCT TTL (1 hour).

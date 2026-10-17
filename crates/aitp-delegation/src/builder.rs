@@ -11,6 +11,10 @@
 //!   hops verbatim in `chain` with a digest-array `chain_hash` and a
 //!   fresh per-hop `jti`. No voucher on the outer token — authority
 //!   bottoms out in `chain[0]`'s voucher.
+//!
+//! With an async (KMS, HSM) signer, use [`DelegationBuilder::new_async`]
+//! or [`DelegationBuilder::extending_async`] and finish with
+//! [`DelegationBuilder::build_async`]. Validation and output are the same.
 
 use crate::types::{DelegationClaims, DELEGATION_CLAIMS_MEMBERS};
 use crate::DelegationError;
@@ -18,7 +22,7 @@ use aitp_core::{
     base64url, check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, Timestamp,
     PROTOCOL_VERSION,
 };
-use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey};
+use aitp_crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
 use aitp_tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -54,8 +58,15 @@ enum Authority {
 }
 
 /// Fluent builder for issuing a delegation token (compact JWS).
-pub struct DelegationBuilder<'a> {
-    issuer_key: &'a AitpSigningKey,
+///
+/// The signer kind is a type parameter: [`DelegationBuilder::new`] /
+/// [`DelegationBuilder::extending`] take an [`AitpSigner`] and finish with
+/// [`DelegationBuilder::build`]; [`DelegationBuilder::new_async`] /
+/// [`DelegationBuilder::extending_async`] take a [`DynAsyncAitpSigner`]
+/// and finish with [`DelegationBuilder::build_async`]. The setters are
+/// shared.
+pub struct DelegationBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
+    issuer_key: &'a S,
     authority: Authority,
     delegatee: Option<Aid>,
     scope: Vec<String>,
@@ -64,11 +75,88 @@ pub struct DelegationBuilder<'a> {
     jti_override: Option<Uuid>,
 }
 
-impl<'a> DelegationBuilder<'a> {
+impl<'a> DelegationBuilder<'a, dyn AitpSigner + 'a> {
     /// Begin a single-hop delegation, signed by `issuer_key` (B's key),
     /// rooted in `voucher` — the grant voucher A delivered alongside
     /// B's TCT in the handshake commit payload.
-    pub fn new(issuer_key: &'a AitpSigningKey, voucher: &str) -> Result<Self, DelegationError> {
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure surfaces from [`Self::build`] as
+    /// `DelegationError::Crypto(CryptoError::Signer(_))`.
+    pub fn new(issuer_key: &'a dyn AitpSigner, voucher: &str) -> Result<Self, DelegationError> {
+        Self::rooted_in_voucher(issuer_key, voucher)
+    }
+
+    /// Begin a multi-hop extension (RFC-AITP-0011), signed by
+    /// `issuer_key` (the holder of `prior` — its `sub`). The new outer
+    /// token carries `prior`'s chain plus `prior` itself, verbatim.
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure surfaces from [`Self::build`] as
+    /// `DelegationError::Crypto(CryptoError::Signer(_))`.
+    pub fn extending(issuer_key: &'a dyn AitpSigner, prior: &str) -> Result<Self, DelegationError> {
+        Self::extending_prior(issuer_key, prior)
+    }
+
+    /// Construct, sign, and return the delegation compact JWS.
+    pub fn build(self) -> Result<String, DelegationError> {
+        let (claims, signer) = self.draft()?;
+        jws::sign_compact(signer, jws::TYP_DELEGATION, &claims).map_err(DelegationError::Crypto)
+    }
+}
+
+impl<'a> DelegationBuilder<'a, dyn DynAsyncAitpSigner + 'a> {
+    /// As [`DelegationBuilder::new`], signed by an async backend, for
+    /// example `DelegationBuilder::new_async(&*arc_kms_signer, voucher)`.
+    /// The voucher is checked here, exactly as in the sync constructor.
+    /// Finish with [`Self::build_async`].
+    pub fn new_async(
+        issuer_key: &'a dyn DynAsyncAitpSigner,
+        voucher: &str,
+    ) -> Result<Self, DelegationError> {
+        Self::rooted_in_voucher(issuer_key, voucher)
+    }
+
+    /// As [`DelegationBuilder::extending`], signed by an async backend.
+    /// The prior hop is checked here, exactly as in the sync constructor.
+    /// Finish with [`Self::build_async`].
+    pub fn extending_async(
+        issuer_key: &'a dyn DynAsyncAitpSigner,
+        prior: &str,
+    ) -> Result<Self, DelegationError> {
+        Self::extending_prior(issuer_key, prior)
+    }
+
+    /// As [`DelegationBuilder::build`], awaiting the backend. Validation
+    /// and output are identical; the future is `Send`. A backend failure
+    /// surfaces as `DelegationError::Crypto(CryptoError::Signer(_))`.
+    pub async fn build_async(self) -> Result<String, DelegationError> {
+        let (claims, signer) = self.draft()?;
+        jws::sign_compact_async(signer, jws::TYP_DELEGATION, &claims)
+            .await
+            .map_err(DelegationError::Crypto)
+    }
+}
+
+/// The issuer's AID, whichever signer kind holds it.
+trait IssuerAid {
+    fn issuer_aid(&self) -> &Aid;
+}
+impl IssuerAid for dyn AitpSigner + '_ {
+    fn issuer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+impl IssuerAid for dyn DynAsyncAitpSigner + '_ {
+    fn issuer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+
+#[allow(private_bounds)]
+impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
+    /// Single-hop constructor body, shared by `new` and `new_async`.
+    fn rooted_in_voucher(issuer_key: &'a S, voucher: &str) -> Result<Self, DelegationError> {
         let payload = jws::decode_payload_unverified(voucher).map_err(DelegationError::Crypto)?;
         // Claim-set check (RFC-AITP-0001 §7) on the unverified peek,
         // ahead of anything else: an unknown claim on the embedded
@@ -94,7 +182,7 @@ impl<'a> DelegationBuilder<'a> {
             }
         })?;
         // The voucher must actually entitle this signer to delegate.
-        if &claims.sub != issuer_key.aid() {
+        if &claims.sub != issuer_key.issuer_aid() {
             return Err(DelegationError::InvalidVoucher);
         }
         Ok(Self {
@@ -111,10 +199,9 @@ impl<'a> DelegationBuilder<'a> {
         })
     }
 
-    /// Begin a multi-hop extension (RFC-AITP-0011), signed by
-    /// `issuer_key` (the holder of `prior` — its `sub`). The new outer
-    /// token carries `prior`'s chain plus `prior` itself, verbatim.
-    pub fn extending(issuer_key: &'a AitpSigningKey, prior: &str) -> Result<Self, DelegationError> {
+    /// Multi-hop constructor body, shared by `extending` and
+    /// `extending_async`.
+    fn extending_prior(issuer_key: &'a S, prior: &str) -> Result<Self, DelegationError> {
         let payload = jws::decode_payload_unverified(prior).map_err(DelegationError::Crypto)?;
         // Claim-set check (RFC-AITP-0001 §7) on the unverified peek of
         // the prior hop, same rationale as the voucher peek above.
@@ -132,7 +219,7 @@ impl<'a> DelegationBuilder<'a> {
                 DelegationError::ClaimsMalformed(format!("prior hop: {e}"))
             }
         })?;
-        if &claims.sub != issuer_key.aid() {
+        if &claims.sub != issuer_key.issuer_aid() {
             return Err(DelegationError::InvalidVoucher);
         }
         if claims.jti.is_none() {
@@ -164,10 +251,10 @@ impl<'a> DelegationBuilder<'a> {
     }
 
     /// Set the scope of capabilities being delegated.
-    pub fn scope<I, S>(mut self, scope: I) -> Self
+    pub fn scope<I, C>(mut self, scope: I) -> Self
     where
-        I: IntoIterator<Item = S>,
-        S: Into<String>,
+        I: IntoIterator<Item = C>,
+        C: Into<String>,
     {
         self.scope = scope.into_iter().map(Into::into).collect();
         self
@@ -188,21 +275,23 @@ impl<'a> DelegationBuilder<'a> {
 
     /// Mint a per-hop `jti`, making a single-hop token extensible into
     /// a chain (RFC-AITP-0011 §1.1). Multi-hop tokens always carry one.
-    /// Pass a fixed value for tests/fixtures.
+    /// Pass a fixed value for tests/fixtures. It MUST be UUID v4
+    /// (`aitp_core::ids::random_v4` or `derived_v4`); otherwise `build`
+    /// fails with [`DelegationError::JtiNotV4`].
     pub fn jti(mut self, jti: Uuid) -> Self {
         self.jti_override = Some(jti);
         self
     }
 
-    /// Construct, sign, and return the delegation compact JWS.
-    pub fn build(self) -> Result<String, DelegationError> {
+    /// Validate and assemble the claims; signing is the caller's.
+    fn draft(self) -> Result<(DelegationClaims, &'a S), DelegationError> {
         let delegatee = self
             .delegatee
             .ok_or(DelegationError::MissingField("delegatee"))?;
         if self.scope.is_empty() {
             return Err(DelegationError::EmptyScope);
         }
-        let issued_by = self.issuer_key.aid().clone();
+        let issued_by = self.issuer_key.issuer_aid().clone();
         if issued_by == delegatee {
             return Err(DelegationError::SelfDelegation);
         }
@@ -225,6 +314,10 @@ impl<'a> DelegationBuilder<'a> {
         } else {
             max_expiry
         };
+
+        if let Some(jti) = &self.jti_override {
+            aitp_core::ids::check_v4(jti).map_err(DelegationError::JtiNotV4)?;
+        }
 
         let cnf_key = AitpVerifyingKey::from_aid(&delegatee).map_err(DelegationError::Crypto)?;
         let jkt = cnf_key
@@ -262,7 +355,6 @@ impl<'a> DelegationBuilder<'a> {
             chain_hash,
             ext: None,
         };
-        jws::sign_compact(self.issuer_key, jws::TYP_DELEGATION, &claims)
-            .map_err(DelegationError::Crypto)
+        Ok((claims, self.issuer_key))
     }
 }

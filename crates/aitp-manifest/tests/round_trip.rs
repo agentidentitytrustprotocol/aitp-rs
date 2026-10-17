@@ -6,7 +6,6 @@ use aitp_manifest::{
     parse_manifest_wire, verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder,
     ManifestError, VerifyManifestContext,
 };
-use sha2::{Digest, Sha256};
 
 fn alice_key() -> AitpSigningKey {
     AitpSigningKey::from_seed(&[1u8; 32])
@@ -231,7 +230,9 @@ fn pop_corruption_surfaces_as_signature_invalid_not_pop_failed() {
     // signature (a self-sign over unrelated bytes) so it parses but does
     // not match — isolating verification (not a parse) failure.
     let other = AitpSigningKey::from_seed(&[2u8; 32]);
-    m.proof_of_possession.signature = other.sign(b"unrelated").into_string();
+    m.proof_of_possession.signature = other
+        .sign_jcs(&aitp_crypto::Digest32::sha256(b"unrelated"))
+        .into_string();
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
     assert!(
         matches!(err, ManifestError::SignatureInvalid),
@@ -267,7 +268,9 @@ fn extensions_present_but_empty_now_verifies_end_to_end() {
         obj.remove("signature");
     }
     let canonical = jcs::canonicalize(&value).expect("canonicalize body with extensions:{}");
-    let signature = key.sign(&Sha256::digest(&canonical)).into_string();
+    let signature = key
+        .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+        .into_string();
     value
         .as_object_mut()
         .unwrap()

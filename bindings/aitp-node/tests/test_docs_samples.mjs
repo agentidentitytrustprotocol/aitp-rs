@@ -119,8 +119,10 @@ function mutualHandshake() {
     handshakeEndpoint: 'https://alice.example/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
+  // Each side lists the peer AIDs it trusts as pinned keys (RFC-AITP-0002 §3.2).
+  const s = alice.newSession(null, { pinnedKeys: [bob.aid] });
+  const r = bob.newResponder(null, { pinnedKeys: [alice.aid] });
   // 4 messages — each call's output is the next peer's input.
-  const s = alice.newSession(), r = bob.newResponder();
   const hello = s.buildHello(bobManifest, ['demo.echo']);
   const { ackJson, sessionId } = r.processHello(hello);
   const commit = s.processHelloAck(ackJson, sessionId);
@@ -231,7 +233,7 @@ function oidcIdentity(ns) {
   const mint = (popNonce) =>
     myIdp.mintJwtSync({ sub: 'dave', aud: bob.aid, nonce: popNonce, cnfJkt: computeAidJkt(dave.aid) });
 
-  const sess = dave.newSession(jwks);
+  const sess = dave.newSession(jwks, { pinnedKeys: [bob.aid] });   // bob answers with a pinned key
   const oidcHello = sess.buildHello(bobManifest, ['demo.echo'], mint);
 
   // bob's manifest accepts no OIDC issuer by default, so his responder must
@@ -243,19 +245,22 @@ function oidcIdentity(ns) {
 
 function p256Suite(ns) {
   // docs/sdk-node.md § P-256 signing suite (RFC-AITP-0001 §5.4.3)
+  const { bob } = ns;
   const erin = AitpAgent.generate({ suite: 'p256' });   // aid:pubkey:p256:…
   const erinAgain = AitpAgent.fromSeed(Buffer.alloc(32, 7), { suite: 'p256' });   // deterministic
 
-  try {
-    erin.buildManifest({
-      displayName: 'erin',
-      handshakeEndpoint: 'https://erin.example/aitp/handshake/',
-      offeredCaps: ['demo.echo'],
-    });   // pinned_key is the default identityType
-  } catch (err) {
-    console.log(err.message);   // pinned_key identity_hint with a P-256 agent key is not supported; …
-  }
-  return { ...ns, erin, erinAgain };
+  const erinManifest = erin.buildManifest({
+    displayName: 'erin',
+    handshakeEndpoint: 'https://erin.example/aitp/handshake/',
+    offeredCaps: ['demo.echo'],
+  });   // pinned_key is the default; public_key is the 33-byte compressed point
+  verifyManifestJson(erinManifest);
+
+  // A P-256 peer is pinned by its AID, exactly like an Ed25519 one.
+  const pSess = bob.newSession(null, { pinnedKeys: [erin.aid] });
+  const pResp = erin.newResponder(null, { pinnedKeys: [bob.aid] });
+  const pAck = pResp.processHello(pSess.buildHello(erinManifest, ['demo.echo']));
+  return { ...ns, erin, erinAgain, erinManifest, pSess, pResp, pAck };
 }
 
 function tctRenewal(ns) {
@@ -317,9 +322,12 @@ function readmeUsage() {
     offeredCaps: ['demo.write'],
   });
 
+  // Each side trusts the other's pinned key by AID. Without `pinnedKeys`
+  // every pinned_key peer is rejected (fail closed).
+  const sess  = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
+
   // Four-message mutual handshake — each call's output is the next peer's input.
-  const sess  = initiator.newSession();
-  const rsess = responder.newResponder();
 
   const hello                   = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
@@ -400,10 +408,17 @@ test('docs: OIDC identity', () => {
 });
 
 test('docs: P-256 signing suite', () => {
-  const [ns, logs] = captureLogs(() => p256Suite(mutualHandshake()));
+  const ns = p256Suite(mutualHandshake());
   assert.ok(ns.erin.aid.startsWith('aid:pubkey:p256:'));
   assert.equal(ns.erinAgain.aid, AitpAgent.fromSeed(Buffer.alloc(32, 7), { suite: 'p256' }).aid);
-  assert.match(logs[0], /not supported/);
+  // The P-256 pinned_key manifest carries the 33-byte compressed point,
+  // and the handshake started in the doc block completes.
+  const hint = JSON.parse(ns.erinManifest).manifest.identity_hint;
+  assert.equal(hint.type, 'pinned_key');
+  assert.equal(hint.public_key.length, 44);
+  const commit = ns.pSess.processHelloAck(ns.pAck.ackJson, ns.pAck.sessionId);
+  const { ackJson } = ns.pResp.processCommit(commit);
+  assert.equal(ns.pSess.complete(ackJson).tct.split('.').length, 3);
 });
 
 test('docs: TCT renewal', { skip: !HAS_RENEWAL }, () => {

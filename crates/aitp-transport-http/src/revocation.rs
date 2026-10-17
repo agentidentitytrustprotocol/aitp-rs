@@ -7,13 +7,14 @@
 //! handshake / TCT verifiers.
 
 use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp_crypto::AitpSigner;
 use aitp_tct::{
     sign_revocation_list, verify_revocation_list, RevocationList, RevocationListEnvelope, TctError,
     VerifyRevocationListContext,
 };
 use parking_lot::RwLock;
 use std::collections::HashMap;
+use std::sync::Arc;
 use std::time::Duration;
 use tracing::debug;
 use uuid::Uuid;
@@ -64,16 +65,19 @@ pub trait RevocationProvider: Send + Sync {
 /// This is NOT a "skip revocation" switch — for that, configure
 /// [`RevocationPolicy`] with no provider plus [`RevocationFailMode::FailOpen`].
 pub struct EmptyRevocationProvider {
-    issuer_key: AitpSigningKey,
+    issuer_key: Arc<dyn AitpSigner>,
     ttl_secs: i64,
 }
 
 impl EmptyRevocationProvider {
     /// New provider that signs empty lists as `issuer_key`'s AID, each valid
     /// for one hour from issuance.
-    pub fn new(issuer_key: AitpSigningKey) -> Self {
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure makes `fetch` return [`RevocationError::Signer`].
+    pub fn new<S: AitpSigner + 'static>(issuer_key: S) -> Self {
         Self {
-            issuer_key,
+            issuer_key: Arc::new(issuer_key),
             ttl_secs: 3600,
         }
     }
@@ -97,9 +101,12 @@ impl RevocationProvider for EmptyRevocationProvider {
                 entries: vec![],
                 extensions: None,
             },
-            &self.issuer_key,
+            &*self.issuer_key,
         )
-        .map_err(RevocationError::SignatureInvalid)
+        .map_err(|e| match e {
+            TctError::Crypto(aitp_crypto::CryptoError::Signer(s)) => RevocationError::Signer(s),
+            other => RevocationError::SignatureInvalid(other),
+        })
     }
 }
 
@@ -154,6 +161,12 @@ pub enum RevocationError {
     /// sibling of `ManifestError::Malformed` (RFC-AITP-0008 §1.5).
     #[error("revocation snapshot is malformed: {0}")]
     Malformed(String),
+    /// Our own signing backend (in-process key, KMS, HSM) failed while
+    /// [`EmptyRevocationProvider`] signed a snapshot. A local fault, not
+    /// a bad snapshot: [`aitp_crypto::SignerError::is_transient`] tells
+    /// whether a retry may help.
+    #[error("signing backend failed: {0}")]
+    Signer(#[from] aitp_crypto::SignerError),
 }
 
 /// What to do when revocation cannot be checked freshly (network down,
@@ -463,10 +476,11 @@ pub const DEFAULT_REVOCATION_CACHE_TTL: Duration = Duration::from_secs(60);
 
 #[cfg(test)]
 mod tests {
-    // `super::*` already brings `AitpSigningKey`, `sign_revocation_list`,
-    // and `RevocationList` (top-level imports); only `RevocationEntry` is
-    // additionally needed here.
+    // `super::*` already brings `sign_revocation_list` and
+    // `RevocationList` (top-level imports); `AitpSigningKey` and
+    // `RevocationEntry` are additionally needed here.
     use super::*;
+    use aitp_crypto::AitpSigningKey;
     use aitp_tct::RevocationEntry;
 
     fn make_envelope(
@@ -522,6 +536,40 @@ mod tests {
             .is_revoked(&Uuid::new_v4(), &issuer, Timestamp::now())
             .unwrap();
         assert!(!revoked, "empty signed snapshot ⇒ nothing is revoked");
+    }
+
+    #[test]
+    fn empty_provider_accepts_a_kms_backend() {
+        use aitp_crypto::testing::{MockKmsSigner, MockOutput};
+        let kms = MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[9u8; 32]).unwrap())
+            .output(MockOutput::DerHighS);
+        let issuer = kms.aid().clone();
+        let cache = RevocationCache::new(
+            EmptyRevocationProvider::new(kms),
+            RevocationPolicy::default(),
+        );
+        let revoked = cache
+            .is_revoked(&Uuid::new_v4(), &issuer, Timestamp::now())
+            .unwrap();
+        assert!(!revoked, "KMS-signed empty snapshot verifies");
+    }
+
+    #[test]
+    fn empty_provider_surfaces_backend_failure_as_signer_error() {
+        use aitp_crypto::testing::MockKmsSigner;
+        let kms = MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[9u8; 32]).unwrap())
+            .sign_with(AitpSigningKey::from_p256_seed(&[8u8; 32]).unwrap());
+        let issuer = kms.aid().clone();
+        let err = EmptyRevocationProvider::new(kms)
+            .fetch(&issuer)
+            .expect_err("wrong-key backend must fail");
+        assert!(
+            matches!(
+                err,
+                RevocationError::Signer(aitp_crypto::SignerError::VerificationFailed)
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]

@@ -23,7 +23,6 @@ use aitp_manifest::{
     ManifestError, VerifyManifestContext,
 };
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 fn vendored(rel: &str) -> PathBuf {
@@ -78,10 +77,16 @@ fn committed_manifest_example_verifies_via_verify_manifest() {
     // member set to be exactly `["manifest"]`, so this must be stripped
     // before parsing (mirrors `crates/aitp-tct/src/revocation.rs`'s
     // committed-fixture tests, which strip the same sibling first).
-    value
+    let obj = value
         .as_object_mut()
-        .expect("committed example is a JSON object")
-        .remove("_kat_input");
+        .expect("committed example is a JSON object");
+    obj.remove("_kat_input");
+    // The fixture self-declares what it signs (spec #45): the Manifest
+    // signs its body, not the `{"manifest": …}` wrapper. Also a sibling
+    // companion, so it is checked and stripped too.
+    if let Some(si) = obj.remove("signing_input") {
+        assert_eq!(si, "body", "Manifest examples sign the body");
+    }
 
     let manifest = parse_manifest_wire(&value)
         .expect("committed example parses via the real wire-parsing entry point");
@@ -145,14 +150,14 @@ fn committed_manifest_example_signs_the_inner_body_only() {
     let canonical = jcs::canonicalize(&body).expect("canonicalize");
     let key = AitpVerifyingKey::from_aid(&Aid::parse(&aid).expect("aid parses")).unwrap();
     let sig = Signature::parse(&signature).expect("signature parses");
-    key.verify(&Sha256::digest(&canonical), &sig)
+    key.verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
         .expect("committed manifest example must verify over the inner body");
 
     // Negative: the wrapped form must not verify.
     let wrapped = json!({ "manifest": body });
     let wrapped_canonical = jcs::canonicalize(&wrapped).expect("canonicalize wrapped");
     assert!(
-        key.verify(&Sha256::digest(&wrapped_canonical), &sig)
+        key.verify_jcs(&aitp_crypto::Digest32::sha256(&wrapped_canonical), &sig)
             .is_err(),
         "manifest signature verified over the WRAPPED form — the transport \
          wrapper is being signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0003 §6.1)"
@@ -209,7 +214,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
         .remove("signature");
     let wrapped = json!({ "manifest": body });
     let wrapped_canonical = jcs::canonicalize(&wrapped).expect("canonicalize wrapped");
-    let wrong_signature = key.sign(&Sha256::digest(&wrapped_canonical));
+    let wrong_signature = key.sign_jcs(&aitp_crypto::Digest32::sha256(&wrapped_canonical));
     manifest.signature = wrong_signature.into_string();
 
     let ctx = VerifyManifestContext {
@@ -221,4 +226,38 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
         "a manifest signed over the wrapped form must be rejected with \
          SignatureInvalid, got {result:?}"
     );
+}
+
+/// Spec PR A: the P-256 Manifest (kat-keypair-005-p256) verifies as
+/// committed, and its double-hash body and PoP signatures do not
+/// (RFC-AITP-0001 §5.4.6).
+#[test]
+fn committed_p256_manifest_example_verifies_and_double_hash_does_not() {
+    let raw = std::fs::read(vendored(
+        "known-answer/signed-examples/manifest/kat-keypair-005-manifest.json",
+    ))
+    .expect("read committed P-256 manifest example");
+    let mut value: Value = serde_json::from_slice(&raw).unwrap();
+    let obj = value.as_object_mut().unwrap();
+    obj.remove("_kat_input");
+    let must_not = obj.remove("_must_not_verify").expect("negative companions");
+    assert_eq!(obj.remove("signing_input").unwrap(), "body");
+
+    let ctx = VerifyManifestContext {
+        now: Timestamp(1_711_900_500),
+    };
+    let manifest = parse_manifest_wire(&value).expect("parses");
+    assert_eq!(manifest.aid, kat_keypair_aid("kat-keypair-005-p256"));
+    verify_manifest(&manifest, &ctx).expect("committed P-256 manifest verifies as committed");
+
+    let mut body_dh = manifest.clone();
+    body_dh.signature = must_not["double_hash_signature"].as_str().unwrap().into();
+    assert!(verify_manifest(&body_dh, &ctx).is_err());
+
+    let mut pop_dh = manifest.clone();
+    pop_dh.proof_of_possession.signature = must_not["double_hash_pop_signature"]
+        .as_str()
+        .unwrap()
+        .into();
+    assert!(verify_manifest(&pop_dh, &ctx).is_err());
 }

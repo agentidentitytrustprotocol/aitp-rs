@@ -150,7 +150,6 @@ fn tampered_signature_rejected() {
 #[test]
 fn wrapped_signed_bundle_is_rejected() {
     use aitp_core::jcs;
-    use sha2::{Digest, Sha256};
 
     let coord = key(0xC0);
     let alice = key(0xA0);
@@ -166,7 +165,9 @@ fn wrapped_signed_bundle_is_rejected() {
     body.as_object_mut().unwrap().remove("signature");
     let wrapped = serde_json::json!({ "session_bundle": body });
     let canonical = jcs::canonicalize(&wrapped).unwrap();
-    bundle.signature = coord.sign(&Sha256::digest(&canonical)).into_string();
+    bundle.signature = coord
+        .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+        .into_string();
 
     let ctx = VerifySessionBundleContext {
         verifier_aid: alice.aid(),

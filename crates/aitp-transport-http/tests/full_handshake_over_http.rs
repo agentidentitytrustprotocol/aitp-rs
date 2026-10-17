@@ -36,10 +36,10 @@ fn manifest_for(
             kind: IdentityHintKind::PinnedKey,
             subject: name.into(),
             issuer: None,
+            // 32 bytes for Ed25519, 33-byte SEC1 compressed for P-256:
+            // the AID identifier bytes (RFC-AITP-0002 §3.2 step 2).
             public_key: Some(aitp_core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
+                &key.verifying_key().to_compressed(),
             )),
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -51,8 +51,35 @@ fn manifest_for(
 
 #[tokio::test]
 async fn full_pinned_key_handshake_over_http() {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    run_pinned_handshake(AitpSigningKey::from_seed(&[0x71; 32]), || {
+        AitpSigningKey::from_seed(&[0x72; 32])
+    })
+    .await;
+}
+
+/// Item 1 of the 2026-10 proposal: a P-256 pinned key is a first-class
+/// identity. Both peers P-256, over real HTTP, each pinning the other.
+#[tokio::test]
+async fn full_p256_pinned_key_handshake_over_http() {
+    run_pinned_handshake(AitpSigningKey::from_p256_seed(&[0x73; 32]).unwrap(), || {
+        AitpSigningKey::from_p256_seed(&[0x74; 32]).unwrap()
+    })
+    .await;
+}
+
+/// Mixed suites: a P-256 initiator against an Ed25519 responder.
+#[tokio::test]
+async fn mixed_p256_initiator_ed25519_responder_over_http() {
+    run_pinned_handshake(AitpSigningKey::from_p256_seed(&[0x75; 32]).unwrap(), || {
+        AitpSigningKey::from_seed(&[0x76; 32])
+    })
+    .await;
+}
+
+/// `make_bob` is called twice: `AitpSigningKey` is deliberately not
+/// `Clone`, and both the local verifier and Bob's server need his key.
+async fn run_pinned_handshake(alice: AitpSigningKey, make_bob: impl Fn() -> AitpSigningKey) {
+    let bob = make_bob();
 
     // Bind Bob first so we know his port.
     let bob_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -68,12 +95,13 @@ async fn full_pinned_key_handshake_over_http() {
 
     let manifest_router = ManifestServer::new(bob_manifest.clone()).router();
     let handshake_router = HandshakeServer::new(
-        bob.clone_for_test(),
+        make_bob(),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
     )
+    .with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([alice.verifying_key()])))
     .router();
     let app = manifest_router.merge(handshake_router);
 
@@ -90,12 +118,13 @@ async fn full_pinned_key_handshake_over_http() {
     // hello-ack) lands strictly after a stale startup `now` and Alice's
     // verifier rejects it as `Tct(Expired)`.
     let resolver = NoOpResolver;
+    let alice_trusts = StaticPinnedKeyStore::new([bob.verifying_key()]);
     let make_cfg = || PeerConfig {
         signing_key: &alice,
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &alice_trusts,
         grant_policy: None,
         revocation_check: None,
         now: Timestamp::now(),
@@ -209,10 +238,7 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
 
     // Bob's pinned-key store trusts a stranger — NOT Alice.
     let stranger = AitpSigningKey::from_seed(&[0x99; 32]);
-    let store = StaticPinnedKeyStore::new(vec![stranger
-        .aid()
-        .try_to_ed25519_bytes()
-        .expect("stranger AID is Ed25519")]);
+    let store = StaticPinnedKeyStore::new([stranger.verifying_key()]);
     let handshake_router = HandshakeServer::new(
         AitpSigningKey::from_seed(&[0x82; 32]),
         bob_manifest.clone(),
@@ -235,7 +261,7 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: Timestamp::now(),
@@ -282,19 +308,4 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
 
     server.abort();
     let _ = server.await;
-}
-
-// `AitpSigningKey` is not `Clone`, by design. The test needs to give the
-// key to both the local Initiator and to Bob's server. We use this helper
-// to construct two keys from the same seed — equivalent to a key
-// "owner" + "delegate" pattern at the test boundary only.
-trait CloneForTest {
-    fn clone_for_test(&self) -> Self;
-}
-
-impl CloneForTest for AitpSigningKey {
-    fn clone_for_test(&self) -> Self {
-        // Reseed deterministically. The test seeds Bob from `[0x72; 32]`.
-        AitpSigningKey::from_seed(&[0x72; 32])
-    }
 }

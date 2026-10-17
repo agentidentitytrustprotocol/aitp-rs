@@ -8,10 +8,9 @@ use crate::types::{ParticipantEntry, SessionTrustBundle};
 use aitp_core::{
     check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, ExtensionsMap, Timestamp,
 };
-use aitp_crypto::AitpSigningKey;
+use aitp_crypto::{AitpSigner, CryptoError, Digest32, DynAsyncAitpSigner, Signature};
 use aitp_tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// `version` constant for v0.2 bundles.
@@ -56,17 +55,105 @@ pub(crate) fn peek_tct_claims(token: &str) -> Result<TctClaims, SessionBundleErr
 
 /// Fluent builder for issuing a [`SessionTrustBundle`] as the
 /// coordinator.
-pub struct SessionBundleBuilder<'a> {
-    coordinator_key: &'a AitpSigningKey,
+///
+/// With an async (KMS, HSM) coordinator signer, start from
+/// [`SessionBundleBuilder::new_async`] and finish with
+/// [`SessionBundleBuilder::build_async`]; the setters are shared. The
+/// signer kind is a type parameter, so a sync builder has no
+/// `build_async` and an async one has no `build`.
+pub struct SessionBundleBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
+    coordinator_key: &'a S,
     session_id: Option<Uuid>,
     participants: Vec<ParticipantEntry>,
     issued_at: Option<Timestamp>,
     extensions: Option<ExtensionsMap>,
 }
 
-impl<'a> SessionBundleBuilder<'a> {
+impl<'a> SessionBundleBuilder<'a, dyn AitpSigner + 'a> {
     /// Begin a new bundle, signed by `coordinator_key`.
-    pub fn new(coordinator_key: &'a AitpSigningKey) -> Self {
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure surfaces from [`Self::build`] as
+    /// `SessionBundleError::Crypto(CryptoError::Signer(_))`.
+    pub fn new(coordinator_key: &'a dyn AitpSigner) -> Self {
+        Self::with_coordinator(coordinator_key)
+    }
+
+    /// Construct, sign, and return the bundle.
+    pub fn build(self) -> Result<SessionTrustBundle, SessionBundleError> {
+        let (draft, signer) = self.draft()?;
+        let signature =
+            aitp_crypto::sign_jcs(signer, &draft.digest).map_err(CryptoError::Signer)?;
+        Ok(draft.finish(signature))
+    }
+}
+
+impl<'a> SessionBundleBuilder<'a, dyn DynAsyncAitpSigner + 'a> {
+    /// Begin a new bundle signed by an async backend, for example
+    /// `SessionBundleBuilder::new_async(&*arc_kms_signer)`. Finish with
+    /// [`Self::build_async`].
+    ///
+    /// A backend failure surfaces from [`Self::build_async`] as
+    /// `SessionBundleError::Crypto(CryptoError::Signer(_))`.
+    pub fn new_async(coordinator_key: &'a dyn DynAsyncAitpSigner) -> Self {
+        Self::with_coordinator(coordinator_key)
+    }
+
+    /// As [`SessionBundleBuilder::build`], awaiting the backend.
+    /// Validation and output are identical; the future is `Send`.
+    pub async fn build_async(self) -> Result<SessionTrustBundle, SessionBundleError> {
+        let (draft, signer) = self.draft()?;
+        let signature = aitp_crypto::sign_jcs_async(signer, &draft.digest)
+            .await
+            .map_err(CryptoError::Signer)?;
+        Ok(draft.finish(signature))
+    }
+}
+
+/// The coordinator's AID, whichever signer kind holds it.
+trait CoordinatorAid {
+    fn coordinator_aid(&self) -> &Aid;
+}
+impl CoordinatorAid for dyn AitpSigner + '_ {
+    fn coordinator_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+impl CoordinatorAid for dyn DynAsyncAitpSigner + '_ {
+    fn coordinator_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+
+/// A validated bundle body and the digest its signature covers.
+struct Draft {
+    digest: Digest32,
+    session_id: Uuid,
+    coordinator: Aid,
+    issued_at: Timestamp,
+    expires_at: Timestamp,
+    participants: Vec<ParticipantEntry>,
+    extensions: Option<ExtensionsMap>,
+}
+
+impl Draft {
+    fn finish(self, signature: Signature) -> SessionTrustBundle {
+        SessionTrustBundle {
+            version: DEFAULT_BUNDLE_VERSION.to_string(),
+            session_id: self.session_id,
+            coordinator: self.coordinator,
+            issued_at: self.issued_at,
+            expires_at: self.expires_at,
+            participants: self.participants,
+            extensions: self.extensions,
+            signature: signature.into_string(),
+        }
+    }
+}
+
+#[allow(private_bounds)]
+impl<'a, S: ?Sized + CoordinatorAid> SessionBundleBuilder<'a, S> {
+    fn with_coordinator(coordinator_key: &'a S) -> Self {
         Self {
             coordinator_key,
             session_id: None,
@@ -108,13 +195,13 @@ impl<'a> SessionBundleBuilder<'a> {
         self
     }
 
-    /// Construct, sign, and return the bundle.
-    pub fn build(self) -> Result<SessionTrustBundle, SessionBundleError> {
+    /// Validate and canonicalize the body; signing is the caller's.
+    fn draft(self) -> Result<(Draft, &'a S), SessionBundleError> {
         if self.participants.is_empty() {
             return Err(SessionBundleError::EmptyParticipants);
         }
 
-        let coordinator = self.coordinator_key.aid().clone();
+        let coordinator = self.coordinator_key.coordinator_aid().clone();
         let session_id = self.session_id.unwrap_or_else(Uuid::new_v4);
         let issued_at = self.issued_at.unwrap_or_else(Timestamp::now);
 
@@ -149,19 +236,19 @@ impl<'a> SessionBundleBuilder<'a> {
             participants: &self.participants,
             extensions: self.extensions.as_ref(),
         })?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.coordinator_key.sign(&digest);
-
-        Ok(SessionTrustBundle {
-            version: DEFAULT_BUNDLE_VERSION.to_string(),
-            session_id,
-            coordinator,
-            issued_at,
-            expires_at,
-            participants: self.participants,
-            extensions: self.extensions,
-            signature: signature.into_string(),
-        })
+        let digest = Digest32::sha256(&canonical);
+        Ok((
+            Draft {
+                digest,
+                session_id,
+                coordinator,
+                issued_at,
+                expires_at,
+                participants: self.participants,
+                extensions: self.extensions,
+            },
+            self.coordinator_key,
+        ))
     }
 }
 

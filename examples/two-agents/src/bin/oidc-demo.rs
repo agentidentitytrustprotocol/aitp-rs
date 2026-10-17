@@ -63,7 +63,7 @@ fn main() {
         manifest: &alice_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp::handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -73,7 +73,7 @@ fn main() {
         manifest: &bob_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp::handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -241,7 +241,9 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: key.sign(&digest).into_string(),
+        signature: key
+            .sign_jcs(&aitp::crypto::Digest32::from(digest))
+            .into_string(),
     }
 }
 

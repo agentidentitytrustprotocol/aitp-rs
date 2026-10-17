@@ -17,4 +17,7 @@ serde_json = { workspace = true }
 uuid = { workspace = true }
 
 [dev-dependencies]
+# `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
+aitp-crypto = { path = "../aitp-crypto", features = ["test-util"] }
 proptest = { workspace = true }
+tokio = { workspace = true }

@@ -53,10 +53,20 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
             actual_pubkey, expected_pubkey,
             "{id}: pubkey mismatch (seed → pubkey derivation)"
         );
+        // `kat-keypair-001-tagged` (spec PR A) writes the same key in the
+        // algorithm-tagged form. Derivation yields the untagged form; the
+        // tagged string must still name the same key (RFC-AITP-0001 §5.3).
+        let derived = v["untagged_aid"].as_str().unwrap_or(expected_aid);
         assert_eq!(
             key.aid().as_str(),
-            expected_aid,
+            derived,
             "{id}: AID mismatch (pubkey → AID derivation)"
+        );
+        let named = aitp_core::Aid::parse(expected_aid).expect("pinned AID parses");
+        assert_eq!(
+            aitp_crypto::AitpVerifyingKey::from_aid(&named).unwrap(),
+            key.verifying_key(),
+            "{id}: pinned AID names a different key"
         );
     }
 }
@@ -102,7 +112,7 @@ fn p256_keypair_kat_scalar_pubkey_aid_and_signature() {
     // The P-256 signing path produces an algorithm-tagged signature
     // (`p256.<b64u>`) that the matching verifier accepts.
     let msg = b"aitp p256 known-answer test message";
-    let sig = key.sign(msg);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(msg));
     assert!(
         matches!(sig.algorithm(), SignatureAlgorithm::P256),
         "P-256 key must produce a P-256-tagged signature"
@@ -113,7 +123,7 @@ fn p256_keypair_kat_scalar_pubkey_aid_and_signature() {
         sig.as_str()
     );
     key.verifying_key()
-        .verify(msg, &sig)
+        .verify_jcs(&aitp_crypto::Digest32::sha256(msg), &sig)
         .expect("P-256 signature must self-verify");
 }
 

@@ -82,9 +82,12 @@ const respManifest = responder.buildManifest({
   offeredCaps: ['demo.write'],
 });
 
+// Each side trusts the other's pinned key by AID. Without `pinnedKeys`
+// every pinned_key peer is rejected (fail closed).
+const sess  = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
+
 // Four-message mutual handshake — each call's output is the next peer's input.
-const sess  = initiator.newSession();
-const rsess = responder.newResponder();
 
 const hello                   = sess.buildHello(respManifest, ['demo.write']);
 const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
@@ -115,7 +118,7 @@ compact-JWS token strings** (`header.payload.signature`).
 
 | Export                    | Feature | Notes |
 |---------------------------|:-------:|-------|
-| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` (bare compact JWS), `signRevocationList(entries, expiresInSecs?)` |
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` (bare compact JWS), `signRevocationList(entries, expiresInSecs?)` |
 | `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
@@ -172,10 +175,20 @@ The `oidcMintJwt` callback is synchronous.
 > `AitpAgent.generate({ suite: 'p256' })` or
 > `AitpAgent.fromSeed(seed, { suite: 'p256' })`.
 
-> **Note.** `pinned_key` identities are Ed25519-only **in this SDK**. The
-> v0.2 manifest schema itself accepts a P-256 `public_key`, but
-> `buildManifest` cannot emit one. P-256 agents must therefore use
-> `identityType: 'oidc'`.
+`pinned_key` identities work with Ed25519 and P-256 keys. For P-256 the
+manifest's `public_key` is the 33-byte SEC1 compressed point.
+
+### Pinned keys (`opts.pinnedKeys`)
+
+A session accepts a `pinned_key` peer only if the peer's AID is in the
+`pinnedKeys` array passed to `newSession` / `newResponder`
+(RFC-AITP-0002 §3.2: the key must be in the verifier's local trust store,
+checked before the proof). Omitted or `[]` trusts no pinned key, so every
+`pinned_key` peer is rejected. An entry that is not a valid AID throws.
+
+> **Upgrading to 0.14:** possession-only pinned-key verification is gone.
+> Pass the peer's AID, e.g. `agent.newSession(null, { pinnedKeys: [peer.aid] })`,
+> or the handshake fails with `IDENTITY_FAILED`.
 
 ## Tests
 

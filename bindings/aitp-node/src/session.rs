@@ -1,8 +1,8 @@
 //! Initiator- and responder-side handshake sessions.
 //!
 //! Each method consumes/produces JSON strings that are HTTP request /
-//! response bodies. Sessions cache the JWKS provider + trust anchors
-//! supplied at construction; OIDC-mode agents pass an `oidcMintJwt`
+//! response bodies. Sessions cache the JWKS provider, trust anchors and
+//! pinned-key trust store supplied at construction; OIDC-mode agents pass an `oidcMintJwt`
 //! callback at each `buildHello` / `processHello` call.
 
 use std::sync::Arc;
@@ -12,7 +12,7 @@ use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder,
+    MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
 use aitp_tct::VerifiedTct;
@@ -31,6 +31,11 @@ pub struct SessionContext {
     pub identity_kind: IdentityHintKind,
     pub identity_subject: String,
     pub identity_issuer: Option<RawUrl>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2), built from
+    /// `SessionOpts.pinnedKeys`. A `pinned_key` peer whose key is not in
+    /// it is rejected with `IDENTITY_FAILED`; empty ⇒ every pinned-key
+    /// peer is rejected.
+    pub pinned_keys: StaticPinnedKeyStore,
 }
 
 impl SessionContext {
@@ -216,6 +221,7 @@ impl JsInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
 
@@ -255,6 +261,7 @@ impl JsInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let commit = self
             .inner
@@ -286,6 +293,7 @@ impl JsInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let completed = self
             .inner
@@ -353,6 +361,7 @@ impl JsResponderSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
         let requested = hello.manifest.offered_capabilities.clone();
@@ -402,6 +411,7 @@ impl JsResponderSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let (ack, completed) = self
             .inner

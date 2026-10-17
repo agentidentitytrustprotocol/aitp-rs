@@ -154,3 +154,46 @@ fn stock_jose_library_corroborates_alg_none_rejection() {
     validation.required_spec_claims.clear();
     assert!(jsonwebtoken::decode::<Value>(&evil, &key, &validation).is_err());
 }
+
+/// Tokens minted through a KMS-shaped backend (DER, high-S, randomized
+/// nonces) verify with the stock JOSE library: the library-side
+/// DER -> `R || S` and low-S conversion yields standard ES256 (RFC 7518
+/// §3.4), and EdDSA through a backend is unchanged.
+#[test]
+fn stock_jose_library_verifies_kms_minted_tokens() {
+    use aitp_crypto::testing::{MockKmsSigner, MockOutput};
+    use jsonwebtoken::{Algorithm, DecodingKey, Validation};
+
+    let claims = serde_json::json!({"iss": "kms", "jti": "1"});
+    let p256 = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+    let uncompressed =
+        p256::ecdsa::VerifyingKey::from_sec1_bytes(&p256.verifying_key().to_compressed())
+            .unwrap()
+            .to_sec1_point(false);
+    let es256_key = DecodingKey::from_ec_der(uncompressed.as_bytes());
+    for out in [
+        MockOutput::Der,
+        MockOutput::DerHighS,
+        MockOutput::RawHighS,
+        MockOutput::RandomizedDer,
+    ] {
+        let kms =
+            MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap()).output(out);
+        let token = jws::sign_compact(&kms, jws::TYP_TCT, &claims).unwrap();
+        let mut validation = Validation::new(Algorithm::ES256);
+        validation.validate_exp = false;
+        validation.required_spec_claims.clear();
+        let decoded = jsonwebtoken::decode::<Value>(&token, &es256_key, &validation)
+            .unwrap_or_else(|e| panic!("{out:?}: stock ES256 verify failed: {e}"));
+        assert_eq!(decoded.claims, claims);
+    }
+
+    let ed = seed(3);
+    let kms = MockKmsSigner::new(seed(3));
+    let token = jws::sign_compact(&kms, jws::TYP_TCT, &claims).unwrap();
+    let key = DecodingKey::from_ed_der(&ed.verifying_key().try_to_ed25519_bytes().unwrap());
+    let mut validation = Validation::new(Algorithm::EdDSA);
+    validation.validate_exp = false;
+    validation.required_spec_claims.clear();
+    jsonwebtoken::decode::<Value>(&token, &key, &validation).expect("stock EdDSA verify");
+}

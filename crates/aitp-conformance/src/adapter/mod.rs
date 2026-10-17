@@ -41,11 +41,17 @@ pub struct AdapterInfo {
 pub enum OpResult {
     /// Operation succeeded with a JSON result body.
     Ok { ok: bool, result: serde_json::Value },
-    /// Operation failed with an AITP error code.
+    /// Operation failed: with an AITP error code, or refused below the
+    /// protocol layer with only an `http_status` (a rate-limited
+    /// presentation, RFC-AITP-0009 §3.1), in which case `error_code` is
+    /// empty.
     Err {
         ok: bool,
+        #[serde(default)]
         error_code: String,
         message: String,
+        #[serde(default)]
+        http_status: Option<u16>,
     },
 }
 

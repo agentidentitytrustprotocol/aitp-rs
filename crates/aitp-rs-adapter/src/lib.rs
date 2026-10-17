@@ -18,13 +18,16 @@ use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature}
 use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
     Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, MutualCommitAckPayload,
-    MutualHelloAckPayload, PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
+    MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity, ResolveError,
+    StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{TctBuilder, TctClaims};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
+
+mod admission;
 
 #[derive(Default)]
 pub struct AdapterState {
@@ -67,6 +70,10 @@ pub struct AdapterState {
     /// it was not. `expect_pop_challenge_issued` and
     /// `withhold_pop_response` read it.
     pop_enforcement: Option<bool>,
+    /// The pinned-admission verifier of the current fixture
+    /// ([`admission`]). Built by its first admission step, dropped by
+    /// `begin_fixture`.
+    admission: Option<admission::AdmissionHarness>,
 }
 
 impl AdapterState {
@@ -116,11 +123,16 @@ enum HandshakeSession {
         /// verifier in `aitp-handshake` uses it as the expected
         /// audience for incoming TCTs (RFC-AITP-0005 §9 step 2).
         my_manifest: Manifest,
+        /// Pinned-key trust for the HELLO_ACK (RFC-AITP-0002 §3.2 step 3).
+        trusted: StaticPinnedKeyStore,
     },
     PendingResponder {
         keypair_handle: String,
         my_manifest: Manifest,
         my_requested_grants: Vec<String>,
+        /// Pinned-key trust for the HELLO. `None` = the harness default,
+        /// see [`harness_pinned_trust`].
+        trusted: Option<StaticPinnedKeyStore>,
     },
     ActiveResponder {
         state: aitp_handshake::Responder,
@@ -167,9 +179,20 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "expect_pop_challenge_issued" => expect_pop_challenge_issued_op(state, id, params),
         "withhold_pop_response" => withhold_pop_response_op(state, id, params),
 
+        // Pinned-key admission (RFC-AITP-0002 §3.4) and self-attestation
+        // (RFC-AITP-0005 §5.3)
+        "verify_identity_presentation" => {
+            admission::verify_identity_presentation_op(state, id, params)
+        }
+        "issue_presentation_challenge" => {
+            admission::issue_presentation_challenge_op(state, id, params)
+        }
+        "verify_attestation" => admission::verify_attestation_op(state, id, params),
+
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
         "set_features" => set_features_op(state, id, params),
+        "begin_fixture" => begin_fixture_op(state, id),
         "inject_revocation" => revoke_tct_op(state, id, params),
         "dump_session" => dump_session_op(state, id, params),
 
@@ -213,9 +236,13 @@ fn init(id: &str) -> Value {
         "authorize_capability_invocation",
         "expect_pop_challenge_issued",
         "withhold_pop_response",
+        "verify_identity_presentation",
+        "issue_presentation_challenge",
+        "verify_attestation",
         // Tier D
         "set_clock",
         "set_features",
+        "begin_fixture",
         "inject_revocation",
         "dump_session",
     ];
@@ -419,6 +446,8 @@ fn crypto_error_code(e: &CryptoError, sig_invalid_code: &'static str) -> String 
         CryptoError::KeyParseFailed(_) | CryptoError::AidNotEd25519(_) => {
             "KEY_RESOLUTION_FAILED".to_string()
         }
+        // Our own signing backend failed: a local fault, never the peer's.
+        CryptoError::Signer(_) => "INTERNAL_ERROR".to_string(),
         _ => "INVALID_SIGNATURE".to_string(),
     }
 }
@@ -556,7 +585,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         Ok(s) => s,
         Err(_) => return err(id, "INVALID_SIGNATURE", "signature parse"),
     };
-    match pk.verify(&digest, &sig) {
+    match pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig) {
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(_) => err(id, "INVALID_SIGNATURE", "envelope signature invalid"),
     }
@@ -812,7 +841,8 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         )
         .map_err(|e| format!("digest: {e}"))?;
         let sig = Signature::parse(&envelope.signature).map_err(|e| format!("sig: {e}"))?;
-        pk.verify(&digest, &sig).map_err(|_| "verify".to_string())
+        pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
+            .map_err(|_| "verify".to_string())
     };
     if matches!(
         envelope.message_type,
@@ -827,25 +857,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // bootstrap_verify_peer (steps 3–5); HELLO-family envelope
     // signatures are verified after it succeeds (step 6).
     let resolver = OidcTestIssuerResolver;
-    // RFC-AITP-0002 §3.2 step 1: fixtures that want to exercise the
-    // local pinned-key trust store (e.g. id-007) supply `trust_store`
-    // as a list of AID strings. When present, build a real
-    // `StaticPinnedKeyStore` from it so the gate in `bootstrap_verify_peer`
-    // actually runs instead of silently no-op'ing on `None`. Fixtures
-    // that omit `trust_store` keep today's behavior (no local store
-    // configured — the proof only needs to prove key possession).
-    let trust_store = params.get("trust_store").and_then(|v| v.as_array()).map(
-        |entries| -> StaticPinnedKeyStore {
-            let keys = entries
-                .iter()
-                .filter_map(|v| v.as_str())
-                .filter_map(|aid| Aid::parse(aid).ok())
-                .filter_map(|aid| AitpVerifyingKey::from_aid(&aid).ok())
-                .filter_map(|vk| vk.try_to_ed25519_bytes())
-                .collect();
-            StaticPinnedKeyStore::new(keys)
-        },
-    );
+    // RFC-AITP-0002 §3.2 step 3: the pinned-key trust store is
+    // required. Fixtures that exercise it (e.g. id-007) supply
+    // `trust_store` as a list of AID strings (Ed25519 or P-256).
+    let trust_store = harness_pinned_trust(&params, &envelope.sender.agent_id);
     let cfg = PeerConfig {
         signing_key: &self_key,
         manifest: &self_manifest,
@@ -855,9 +870,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             "https://idp.example.com".parse().unwrap(),
         ],
         jwks_resolver: &resolver,
-        pinned_key_store: trust_store
-            .as_ref()
-            .map(|s| s as &dyn aitp_handshake::PinnedKeyStore),
+        pinned_key_store: &trust_store,
         grant_policy: None,
         revocation_check: None,
         now: envelope.timestamp,
@@ -1156,8 +1169,7 @@ fn verify_commit_ack_stateless(
         }
         let nonce_bytes = aitp_core::base64url::decode_strict(expected_nonce)
             .map_err(|_| HandshakeError::Identity("pop_nonce not base64url".into()))?;
-        use sha2::Digest;
-        let pop_input = sha2::Sha256::digest(&nonce_bytes);
+        let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
         let sig = aitp_crypto::Signature::parse(&payload.pop_signature)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
         // The round-2 PoP is signed by the **sender** of the commit
@@ -1169,7 +1181,7 @@ fn verify_commit_ack_stateless(
         let sender_pubkey =
             AitpVerifyingKey::from_aid(sender_aid).map_err(HandshakeError::Crypto)?;
         sender_pubkey
-            .verify(&pop_input, &sig)
+            .verify_jcs(&pop_input, &sig)
             .map_err(|_| HandshakeError::PopVerificationFailed)?;
     } else if payload.pop_nonce_echo.is_empty() {
         return Err(HandshakeError::NonceMismatch);
@@ -1299,6 +1311,8 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         AidMismatch => "MANIFEST_SIGNATURE_INVALID",
         MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
+        // Our own signing backend failed: a local fault, never the peer's.
+        Crypto(CryptoError::Signer(_)) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         Rng(_) => "INTERNAL_ERROR",
         // RFC-AITP-0001 §7 / issue #140: a top-level or nested member
@@ -1480,6 +1494,13 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         // a bad signature.
         IssuerMismatch => "TCT_SIGNATURE_INVALID",
         AudienceMismatch => "AUDIENCE_MISMATCH",
+        // Proposal #72 Item 6b: a non-v4 `jti` uses the artifact's
+        // structural-rejection code.
+        JtiNotV4(_) => "TCT_SIGNATURE_INVALID",
+        // Proposal #72 Item 5: a self-issued TCT, or the attestation
+        // marker, in a grant context (owner decision 2026-10-16).
+        SelfIssued | AttestationMarker => "TCT_SIGNATURE_INVALID",
+        NotAttestation | AttestationStatementMissing(_) => "TCT_SIGNATURE_INVALID",
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
         Revoked => "TCT_REVOKED",
@@ -1516,7 +1537,8 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
 fn revocation_error_code(e: &aitp_tct::TctError) -> String {
     use aitp_tct::TctError::*;
     match e {
-        ClaimsMalformed(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
+        // A non-v4 `entries[].jti` is a malformed snapshot, not a TCT.
+        ClaimsMalformed(_) | JtiNotV4(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
         SignatureInvalid => "REVOCATION_SNAPSHOT_SIGNATURE_INVALID".to_string(),
         other => tct_error_code(other),
     }
@@ -1782,6 +1804,8 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // RFC-AITP-0006 §4 step 10: self-delegation maps to
         // DELEGATION_INVALID_SIGNATURE (same code as a bad outer sig).
         SelfDelegation => "DELEGATION_INVALID_SIGNATURE",
+        // Spec PR C: a non-v4 hop `jti` is a signature-class reject.
+        JtiNotV4(_) => "DELEGATION_INVALID_SIGNATURE",
         EmptyScope | CnfMalformed | MissingField(_) | ClaimsMalformed(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
         // Crypto errors surface from JWS-layer verification. A plain
@@ -2167,7 +2191,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
             Ok(d) => d,
             Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
         };
-    let sig = key.sign(&digest);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
     let env = AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
@@ -2242,7 +2266,16 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                     );
                 }
             };
-            start_initiator(state, id, handle, manifest, peer_aid, requested_grants)
+            let trusted = harness_pinned_trust(&params, &peer_aid);
+            start_initiator(
+                state,
+                id,
+                handle,
+                manifest,
+                peer_aid,
+                requested_grants,
+                trusted,
+            )
         }
         "responder" => {
             let session_id = state.fresh_session_id();
@@ -2252,6 +2285,7 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                     keypair_handle: handle,
                     my_manifest: manifest,
                     my_requested_grants: requested_grants,
+                    trusted: trust_store_param(&params),
                 },
             );
             json!({
@@ -2271,6 +2305,45 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     }
 }
 
+/// The fixture's explicit pinned-key trust store: `params.trust_store`,
+/// a list whose entries are AID strings (Ed25519 or P-256) or
+/// trust-anchors `pinned_keys` objects (`{subject, public_key,
+/// algorithm?}`). Entries that do not parse are skipped, so a fixture can
+/// list a deliberately malformed key.
+fn trust_store_param(params: &Value) -> Option<StaticPinnedKeyStore> {
+    let entries = params.get("trust_store")?.as_array()?;
+    Some(
+        entries
+            .iter()
+            .filter_map(|v| match v {
+                Value::String(aid) => Aid::parse(aid)
+                    .ok()
+                    .and_then(|aid| AitpVerifyingKey::from_aid(&aid).ok()),
+                Value::Object(_) => serde_json::from_value::<PinnedKeyEntry>(v.clone())
+                    .ok()
+                    .and_then(|e| e.verifying_key().ok()),
+                _ => None,
+            })
+            .collect(),
+    )
+}
+
+/// Conformance-harness trust policy. The library has no possession-only
+/// mode (RFC-AITP-0002 §3.2 step 3), so every handshake the adapter
+/// drives has a store. A fixture that supplies `trust_store` gets exactly
+/// that. A fixture that does not is taken to declare its peer
+/// (`declared_peer`: the peer manifest for an initiator, the HELLO
+/// sender for a responder or a bootstrap vector) as pinned. This is
+/// harness configuration standing in for an operator's `pinned_keys`,
+/// not library behaviour.
+fn harness_pinned_trust(params: &Value, declared_peer: &Aid) -> StaticPinnedKeyStore {
+    trust_store_param(params).unwrap_or_else(|| {
+        AitpVerifyingKey::from_aid(declared_peer)
+            .map(|k| StaticPinnedKeyStore::new([k]))
+            .unwrap_or_default()
+    })
+}
+
 fn start_initiator(
     state: &mut AdapterState,
     id: &str,
@@ -2278,6 +2351,7 @@ fn start_initiator(
     manifest: Manifest,
     peer_aid: Aid,
     requested_grants: Vec<String>,
+    trusted: StaticPinnedKeyStore,
 ) -> Value {
     let key = state.key_for(&handle).expect("keypair existence checked");
     let identity = PresentedIdentity::PinnedKey {
@@ -2294,7 +2368,7 @@ fn start_initiator(
         manifest: &manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: ts,
@@ -2312,6 +2386,7 @@ fn start_initiator(
             state: init_state,
             keypair_handle: handle,
             my_manifest: manifest,
+            trusted,
         },
     );
     json!({
@@ -2361,6 +2436,7 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             state: initiator,
             keypair_handle,
             my_manifest,
+            trusted,
         } => initiator_step(
             state,
             id,
@@ -2369,11 +2445,13 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             initiator,
             keypair_handle,
             my_manifest,
+            trusted,
         ),
         HandshakeSession::PendingResponder {
             keypair_handle,
             my_manifest,
             my_requested_grants,
+            trusted,
         } => responder_first_hello(
             state,
             id,
@@ -2382,6 +2460,7 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
             keypair_handle,
             my_manifest,
             my_requested_grants,
+            trusted,
         ),
         HandshakeSession::ActiveResponder {
             state: responder,
@@ -2391,6 +2470,8 @@ fn process_handshake_message_op(state: &mut AdapterState, id: &str, params: Valu
     }
 }
 
+// One parameter per field of the `HandshakeSession` variant it consumes.
+#[allow(clippy::too_many_arguments)]
 fn initiator_step(
     state: &mut AdapterState,
     id: &str,
@@ -2399,6 +2480,7 @@ fn initiator_step(
     mut initiator: Initiator,
     keypair_handle: String,
     my_manifest: Manifest,
+    trusted: StaticPinnedKeyStore,
 ) -> Value {
     let key = match state.key_for(&keypair_handle) {
         Some(k) => k,
@@ -2416,7 +2498,7 @@ fn initiator_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),
@@ -2442,6 +2524,7 @@ fn initiator_step(
                     state: initiator,
                     keypair_handle,
                     my_manifest,
+                    trusted,
                 },
             );
             json!({
@@ -2480,6 +2563,8 @@ fn initiator_step(
     }
 }
 
+// One parameter per field of the `HandshakeSession` variant it consumes.
+#[allow(clippy::too_many_arguments)]
 fn responder_first_hello(
     state: &mut AdapterState,
     id: &str,
@@ -2488,6 +2573,7 @@ fn responder_first_hello(
     keypair_handle: String,
     my_manifest: Manifest,
     my_requested_grants: Vec<String>,
+    trusted: Option<StaticPinnedKeyStore>,
 ) -> Value {
     if envelope.message_type != MessageType::MutualHello {
         return err(
@@ -2514,13 +2600,15 @@ fn responder_first_hello(
         hello_payload.manifest.clone(),
     );
 
+    let trusted =
+        trusted.unwrap_or_else(|| harness_pinned_trust(&Value::Null, &hello_payload.manifest.aid));
     let resolver = NoOpJwks;
     let cfg = PeerConfig {
         signing_key: &key,
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &trusted,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),
@@ -2603,7 +2691,7 @@ fn responder_step(
         manifest: &my_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: state.now(),
@@ -2653,7 +2741,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
     let payload_value = serde_json::to_value(payload).unwrap();
     let digest =
         aitp_core::envelope_signing_digest(&mid, ts, key.aid(), &payload_value).expect("digest");
-    let sig = key.sign(&digest);
+    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
     AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
@@ -2835,13 +2923,12 @@ fn produce_pop_response_op(state: &mut AdapterState, id: &str, params: Value) ->
                 Ok(b) => b,
                 Err(e) => return err(id, "INVALID_ENVELOPE", &e.to_string()),
             };
-            use sha2::Digest;
-            let pop_input = sha2::Sha256::digest(&nonce_bytes);
+            let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
             let parsed_sig = match aitp_crypto::Signature::parse(sig) {
                 Ok(s) => s,
                 Err(_) => return err(id, "POP_RESPONSE_INVALID", "pop_signature parse"),
             };
-            if holder_pubkey.verify(&pop_input, &parsed_sig).is_err() {
+            if holder_pubkey.verify_jcs(&pop_input, &parsed_sig).is_err() {
                 return err(id, "POP_RESPONSE_INVALID", "pop_signature verify");
             }
             // Stash the synthetic PopResponse so verify_pop_response can
@@ -2985,6 +3072,15 @@ fn set_clock_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     };
     state.now_override = Some(now);
     json!({"id": id, "ok": true, "result": {"now_unix_secs": now}})
+}
+
+/// `begin_fixture`: the runner starts a new fixture. Drops state that a
+/// fixture's sequence carries across its steps (the pinned-admission
+/// verifier), so one fixture's consumed nonces and recorded
+/// `message_id`s never leak into the next.
+fn begin_fixture_op(state: &mut AdapterState, id: &str) -> Value {
+    state.admission = None;
+    json!({"id": id, "ok": true, "result": {}})
 }
 
 /// `set_features`: the runner declares which optional features
@@ -3232,6 +3328,8 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         MissingField(_) => "INVALID_REQUEST",
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
+        // Our own signing backend failed: a local fault, never the peer's.
+        Crypto(CryptoError::Signer(_)) => "INTERNAL_ERROR",
         Crypto(_) => "INVALID_SIGNATURE",
         WireFormInvalid(_) => "SESSION_BUNDLE_INVALID",
         UnknownField(_) => "UNKNOWN_FIELD",
@@ -3259,7 +3357,7 @@ mod p256_readiness_tests {
             key.aid().as_str().starts_with("aid:pubkey:p256:"),
             "expected a P-256 AID"
         );
-        let message_id = Uuid::from_u128(0x0102_0304_0506_0708_090a_0b0c_0d0e_0f10);
+        let message_id = Uuid::from_u128(0x0102_0304_0506_4708_890a_0b0c_0d0e_0f10);
         let timestamp = Timestamp(1_700_000_000);
         let payload = json!({"hello": "p256"});
         let digest =
@@ -3275,7 +3373,9 @@ mod p256_readiness_tests {
             },
             payload,
             extensions: None,
-            signature: key.sign(&digest).into_string(),
+            signature: key
+                .sign_jcs(&aitp_crypto::Digest32::from(digest))
+                .into_string(),
         };
         serde_json::to_value(&envelope).unwrap()
     }
@@ -3328,8 +3428,8 @@ mod error_code_mapping_tests {
     //! non-obvious mappings (and the nested handshake→tct/manifest
     //! dispatch) are pinned here.
     use super::{
-        delegation_error_code, handshake_error_code, manifest_error_code, revocation_error_code,
-        tct_error_code, voucher_error_code,
+        bundle_error_code, delegation_error_code, handshake_error_code, manifest_error_code,
+        revocation_error_code, tct_error_code, voucher_error_code,
     };
     use aitp_delegation::DelegationError;
     use aitp_handshake::HandshakeError;
@@ -3473,6 +3573,26 @@ mod error_code_mapping_tests {
     }
 
     #[test]
+    fn local_signer_failure_maps_to_internal_error() {
+        // A failure of our own signing backend (KMS/HSM) is a local
+        // fault: INTERNAL_ERROR, never a peer-blamed signature code.
+        let signer =
+            || aitp_crypto::CryptoError::Signer(aitp_crypto::SignerError::VerificationFailed);
+        assert_eq!(
+            tct_error_code(&TctError::Crypto(signer())),
+            "INTERNAL_ERROR"
+        );
+        assert_eq!(
+            manifest_error_code(&aitp_manifest::ManifestError::Crypto(signer())),
+            "INTERNAL_ERROR"
+        );
+        assert_eq!(
+            bundle_error_code(&aitp_session_bundle::SessionBundleError::Crypto(signer())),
+            "INTERNAL_ERROR"
+        );
+    }
+
+    #[test]
     fn jws_header_codes() {
         // The compact-JWS header failures keep token-generic codes
         // across every artifact kind (RFC-AITP-0001 §5.4.5).
@@ -3604,7 +3724,6 @@ mod manifest_unknown_field_tests {
     //! regression in the adapter's own wiring (not just the library) would
     //! be caught here too.
     use super::*;
-    use sha2::Digest;
 
     fn signed_manifest_value() -> (Value, aitp_crypto::AitpSigningKey) {
         let key = aitp_crypto::AitpSigningKey::from_seed(&[9u8; 32]);
@@ -3705,7 +3824,9 @@ mod manifest_unknown_field_tests {
         );
         obj.remove("signature");
         let canonical = aitp_core::jcs::canonicalize(&manifest).unwrap();
-        let signature = key.sign(&sha2::Sha256::digest(&canonical)).into_string();
+        let signature = key
+            .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+            .into_string();
         manifest
             .as_object_mut()
             .unwrap()
@@ -3883,6 +4004,20 @@ mod revocation_unknown_field_tests {
     /// `tct_error_code` has an explicit `UnknownField` arm reporting
     /// `UNKNOWN_FIELD`, asserted directly rather than only via the
     /// `verify_revocation_snapshot` fixture-shaped test above.
+    #[test]
+    fn tct_error_code_maps_item_5_and_6b_rejections_to_signature_family() {
+        use aitp_tct::TctError as E;
+        for e in [
+            E::JtiNotV4(aitp_core::ids::V4Error::Version),
+            E::SelfIssued,
+            E::AttestationMarker,
+            E::NotAttestation,
+            E::AttestationStatementMissing("k".into()),
+        ] {
+            assert_eq!(tct_error_code(&e), "TCT_SIGNATURE_INVALID", "{e:?}");
+        }
+    }
+
     #[test]
     fn tct_error_code_maps_unknown_field_directly() {
         assert_eq!(
@@ -4090,7 +4225,9 @@ mod handshake_unknown_field_tests {
             },
             payload,
             extensions: None,
-            signature: key.sign(&digest).into_string(),
+            signature: key
+                .sign_jcs(&aitp_crypto::Digest32::from(digest))
+                .into_string(),
         };
         serde_json::to_value(&envelope).unwrap()
     }
@@ -4238,8 +4375,8 @@ mod oidc_test_issuer_tests {
         let header_b64 = base64url::encode(header.as_bytes());
         let payload_b64 = base64url::encode(claims.to_string().as_bytes());
         let signing_input = format!("{header_b64}.{payload_b64}");
-        let sig = key.sign(signing_input.as_bytes());
-        format!("{signing_input}.{}", sig.into_string())
+        let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+        format!("{signing_input}.{sig}")
     }
 
     #[test]

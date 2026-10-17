@@ -85,6 +85,12 @@ pub enum ErrorCode {
     // ── Identity / Manifest ─────────────────────────────────────────────
     /// Identity binding could not be verified.
     IdentityFailed,
+    /// A pinned-key admission challenge was not issued: per-source rate
+    /// limit or outstanding-nonce bound, deliberately without saying
+    /// which (proposal agentidentitytrustprotocol#72 Item 5). Retryable.
+    /// Carried in the out-of-band challenge response; outstanding
+    /// nonces stay valid.
+    ChallengeRefused,
     /// Manifest expires_at is in the past.
     ManifestExpired,
     /// Manifest signature did not verify.
@@ -228,6 +234,18 @@ pub enum ErrorCode {
     RevocationSnapshotSignatureInvalid,
 }
 
+impl ErrorCode {
+    /// The registry's `Retryable` column: whether the same request may
+    /// succeed later without the caller changing it. Codes whose
+    /// registry table has no such column are not retryable.
+    pub fn is_retryable(self) -> bool {
+        matches!(
+            self,
+            Self::TimestampExpired | Self::KeyResolutionFailed | Self::ChallengeRefused
+        )
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -256,6 +274,7 @@ mod tests {
             (ErrorCode::TokenTypMismatch, "TOKEN_TYP_MISMATCH"),
             (ErrorCode::UnknownField, "UNKNOWN_FIELD"),
             (ErrorCode::IdentityFailed, "IDENTITY_FAILED"),
+            (ErrorCode::ChallengeRefused, "CHALLENGE_REFUSED"),
             (ErrorCode::PolicyViolation, "POLICY_VIOLATION"),
             (ErrorCode::GrantOverflow, "GRANT_OVERFLOW"),
             (ErrorCode::InsufficientGrants, "INSUFFICIENT_GRANTS"),
@@ -379,6 +398,7 @@ mod tests {
                 | ErrorCode::TokenTypMismatch
                 | ErrorCode::UnknownField
                 | ErrorCode::IdentityFailed
+                | ErrorCode::ChallengeRefused
                 | ErrorCode::ManifestExpired
                 | ErrorCode::ManifestSignatureInvalid
                 | ErrorCode::ManifestPopFailed
@@ -440,9 +460,18 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            53,
+            54,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
+    }
+
+    #[test]
+    fn retryable_matches_registry() {
+        assert!(ErrorCode::ChallengeRefused.is_retryable());
+        assert!(ErrorCode::TimestampExpired.is_retryable());
+        assert!(ErrorCode::KeyResolutionFailed.is_retryable());
+        assert!(!ErrorCode::IdentityFailed.is_retryable());
+        assert!(!ErrorCode::ReplayDetected.is_retryable());
     }
 
     #[test]

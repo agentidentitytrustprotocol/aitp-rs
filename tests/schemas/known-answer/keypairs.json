@@ -41,6 +41,17 @@
       "seed_hex": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
       "pubkey_b64url": "5zTqbCtiV95yNV5HKqBaTEh-a0Y8Ap7TBt8vAbVja1g",
       "aid": "aid:pubkey:5zTqbCtiV95yNV5HKqBaTEh-a0Y8Ap7TBt8vAbVja1g"
+    },
+    {
+      "id": "kat-keypair-001-tagged",
+      "$comment": "The same keypair as kat-keypair-001 (seed = 32 zero bytes), written in the v0.2 algorithm-tagged AID form `aid:pubkey:ed25519:<43-char-base64url>` (RFC-AITP-0001 §5.3). Every other Ed25519 entry in this file uses the untagged form, which `untagged_aid` repeats here. The two strings name the same key, but they are different byte strings wherever an AID enters a signing input (for example the RFC-AITP-0002 §3.1 proof_input), so an implementation MUST carry the AID string it was given rather than re-deriving one form from the key.",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.3"
+      ],
+      "seed_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "pubkey_b64url": "O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "aid": "aid:pubkey:ed25519:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "untagged_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik"
     }
   ]
 }

@@ -71,7 +71,11 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
     }
     // Holder receipt: subject == audience == caller. Demo verifier —
     // no revocation source or issuer Manifest is resolved here.
-    let ctx = TctVerifyContext::permissive_at(&peeked.sub, server_aid, Timestamp::now());
+    let ctx = TctVerifyContext::builder(&peeked.sub, server_aid, Timestamp::now())
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .expect("both decisions are made");
     let verified = verify_tct(token, &ctx).map_err(|e| e.to_string())?;
     if !verified.claims.grants.iter().any(|g| g == "demo.echo") {
         return Err("demo.echo not granted".into());

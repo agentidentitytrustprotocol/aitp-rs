@@ -51,6 +51,9 @@ pub mod revocation;
 #[cfg(feature = "server")]
 pub mod server;
 
+#[cfg(feature = "source-ip")]
+pub mod source_ip;
+
 #[cfg(feature = "server")]
 pub mod server_limits;
 
@@ -97,6 +100,9 @@ pub use server::{
     RevocationListProducer, DEFAULT_SESSION_TTL,
 };
 
+#[cfg(feature = "source-ip")]
+pub use source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
+
 #[cfg(feature = "server")]
 pub use server_limits::{
     with_request_body_limit, with_request_body_limit_default, DEFAULT_REQUEST_BODY_LIMIT,
@@ -107,7 +113,10 @@ pub use server_limits::{
 pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
 
 #[cfg(any(feature = "client", feature = "server"))]
-pub use common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+pub use common::{
+    sign_envelope, sign_envelope_async, sign_envelope_with, sign_envelope_with_async,
+    verify_envelope_signature,
+};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use replay_store::{InMemoryReplayGuard, ReplayGuard};

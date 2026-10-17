@@ -174,6 +174,11 @@ pub struct FixtureExpected {
     /// Expected error code on failure.
     #[serde(default)]
     pub error_code: Option<String>,
+    /// Expected HTTP status of a step refused below the protocol layer
+    /// (PLACEHOLDERS.md: a rate-limited presentation expects `429` and no
+    /// `error_code`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub http_status: Option<u16>,
     /// Optional side-effect assertions (conformance README,
     /// "Side-effect assertions"). Each key the adapter reports in its
     /// result's `side_effects` object is asserted equal; keys the

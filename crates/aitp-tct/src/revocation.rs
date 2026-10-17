@@ -9,9 +9,8 @@
 //! revocations.
 
 use aitp_core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use serde::{Deserialize, Serialize};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 use crate::TctError;
@@ -130,13 +129,16 @@ pub fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctErr
 /// Returns the on-wire [`RevocationListEnvelope`] with `signature`
 /// populated. The signing input is `sha256(JCS(revocation_list))` — the
 /// inner body; see [`revocation_signing_bytes`].
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn sign_revocation_list(
     body: RevocationList,
-    issuer_key: &AitpSigningKey,
+    issuer_key: &dyn AitpSigner,
 ) -> Result<RevocationListEnvelope, TctError> {
     let canonical = revocation_signing_bytes(&body)?;
-    let digest = Sha256::digest(&canonical);
-    let sig = issuer_key.sign(&digest);
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let sig = aitp_crypto::sign_jcs(issuer_key, &digest).map_err(CryptoError::Signer)?;
     Ok(RevocationListEnvelope {
         revocation_list: body,
         signature: sig.into_string(),
@@ -163,6 +165,8 @@ pub fn sign_revocation_list(
 ///    of `entries[]`) — is recovered via [`from_serde_error`] so it, too,
 ///    reports [`TctError::UnknownField`] rather than a generic parse
 ///    failure.
+/// 4. Every `entries[].jti` is strict lowercase UUID v4, else
+///    [`TctError::JtiNotV4`].
 pub fn parse_revocation_snapshot_wire(
     value: &serde_json::Value,
 ) -> Result<RevocationListEnvelope, TctError> {
@@ -174,13 +178,25 @@ pub fn parse_revocation_snapshot_wire(
             .map_err(|e| TctError::UnknownField(e.field))?;
     }
 
-    serde_json::from_value(value.clone()).map_err(|e| {
+    let envelope = serde_json::from_value(value.clone()).map_err(|e| {
         if let Some(field) = from_serde_error(&e) {
             TctError::UnknownField(field)
         } else {
             TctError::ClaimsMalformed(e.to_string())
         }
-    })
+    })?;
+
+    // `entries[].jti` layout (aitp-revocation-list.schema.json, spec
+    // 35aeb84), on the raw strings, which have all parsed as UUIDs above.
+    let entries = value["revocation_list"]["entries"].as_array();
+    for jti in entries
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e["jti"].as_str())
+    {
+        aitp_core::ids::parse_v4(jti).map_err(TctError::JtiNotV4)?;
+    }
+    Ok(envelope)
 }
 
 /// Verify a [`RevocationListEnvelope`].
@@ -220,7 +236,7 @@ pub fn verify_revocation_list(
 
     let canonical = revocation_signing_bytes(&envelope.revocation_list)?;
     pubkey
-        .verify(&Sha256::digest(&canonical), &sig)
+        .verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
     Ok(())
 }
@@ -253,6 +269,7 @@ impl<'a> VerifyRevocationListContext<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     fn issuer_key() -> AitpSigningKey {
         AitpSigningKey::from_seed(&[0xA0; 32])
@@ -426,10 +443,22 @@ mod tests {
              is canonicalizing a different JSON shape than the spec signs"
         );
         assert_eq!(
-            hex::encode(Sha256::digest(&canonical)),
+            hex::encode(aitp_crypto::Digest32::sha256(&canonical)),
             v["sha256_hex"].as_str().unwrap(),
             "digest diverges from spec kat-revocation-001"
         );
+    }
+
+    /// Remove the signed example's sibling companions, which are never
+    /// part of the wire object: `_kat_input` (minting input) and
+    /// `signing_input` (spec #45: what the signature covers; the snapshot
+    /// signs its body).
+    fn strip_fixture_companions(value: &mut serde_json::Value) {
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("_kat_input");
+        if let Some(si) = obj.remove("signing_input") {
+            assert_eq!(si, "body", "revocation snapshots sign the body");
+        }
     }
 
     /// The committed, Python-reference-minted signed example must verify
@@ -447,8 +476,7 @@ mod tests {
         ))
         .expect("read committed signed example");
         let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        // `_kat_input` is a minting companion, never part of the wire object.
-        value.as_object_mut().unwrap().remove("_kat_input");
+        strip_fixture_companions(&mut value);
 
         let env: RevocationListEnvelope =
             serde_json::from_value(value).expect("signed example deserializes");
@@ -464,6 +492,30 @@ mod tests {
             .expect("committed spec signed example must verify as committed");
     }
 
+    /// Spec PR A: the P-256 snapshot verifies as committed; its
+    /// double-hash signature (RFC-AITP-0001 §5.4.6) does not.
+    #[test]
+    fn spec_p256_signed_example_snapshot_verifies() {
+        let raw = std::fs::read(vendored(
+            "known-answer/signed-examples/revocation/kat-keypair-005-snapshot.json",
+        ))
+        .expect("read committed signed example");
+        let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        strip_fixture_companions(&mut value);
+        let must_not = value
+            .as_object_mut()
+            .unwrap()
+            .remove("_must_not_verify")
+            .expect("negative companion");
+        let mut env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
+        let issuer = kat_keypair_aid("kat-keypair-005-p256");
+        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp(1_711_900_100));
+        verify_revocation_list(&env, &ctx)
+            .expect("committed P-256 snapshot must verify as committed");
+        env.signature = must_not["double_hash_signature"].as_str().unwrap().into();
+        assert!(verify_revocation_list(&env, &ctx).is_err());
+    }
+
     /// The committed signature must NOT verify over the wrapped form.
     ///
     /// The positive test alone pins nothing: a signature valid over both
@@ -477,7 +529,7 @@ mod tests {
         ))
         .expect("read committed signed example");
         let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        value.as_object_mut().unwrap().remove("_kat_input");
+        strip_fixture_companions(&mut value);
         let env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
 
         let wrapped = serde_json::json!({ "revocation_list": &env.revocation_list });
@@ -486,7 +538,9 @@ mod tests {
         let sig = Signature::parse(&env.signature).unwrap();
 
         assert!(
-            pubkey.verify(&Sha256::digest(&canonical), &sig).is_err(),
+            pubkey
+                .verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
+                .is_err(),
             "signature verified over the WRAPPED form — the transport wrapper \
              is being signed (RFC-AITP-0001 §5.4.1, RFC-AITP-0008 §1.5)"
         );
@@ -506,7 +560,9 @@ mod tests {
         // Sign the legacy wrapped form deliberately.
         let wrapped = serde_json::json!({ "revocation_list": &body });
         let canonical = jcs::canonicalize(&wrapped).unwrap();
-        let legacy_sig = key.sign(&Sha256::digest(&canonical)).into_string();
+        let legacy_sig = key
+            .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+            .into_string();
 
         let env = RevocationListEnvelope {
             revocation_list: body,
@@ -578,6 +634,27 @@ mod tests {
             !as_str.contains("extensions"),
             "signing bytes for extensions:None must contain no `extensions` member: {as_str}"
         );
+    }
+
+    /// Spec 35aeb84 (PR C): `entries[].jti` carries the strict lowercase
+    /// UUID v4 pattern. `Uuid`'s deserializer alone would accept a v7,
+    /// a wrong-variant v4 or uppercase input.
+    #[test]
+    fn non_v4_entry_jti_is_rejected() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        for bad in [
+            "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
+            "550e8400-e29b-41d4-c716-446655440000",
+            "550E8400-E29B-41D4-A716-446655440000",
+        ] {
+            let mut value = serde_json::to_value(&env).unwrap();
+            value["revocation_list"]["entries"][0]["jti"] = serde_json::json!(bad);
+            match parse_revocation_snapshot_wire(&value) {
+                Err(TctError::JtiNotV4(_)) => {}
+                other => panic!("{bad}: expected JtiNotV4, got {other:?}"),
+            }
+        }
     }
 
     /// rev-005 equivalent: an unknown member in the wrapper is rejected as

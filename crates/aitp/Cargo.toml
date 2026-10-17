@@ -28,6 +28,9 @@ experimental-session-bundle = [
     "dep:aitp-session-bundle",
     "aitp-transport-http/experimental-session-bundle",
 ]
+# One-way pinned-key admission (RFC-AITP-0002 §3.4, OPTIONAL profile).
+# Enables `aitp::handshake::admission`.
+pinned-admission = ["aitp-handshake/pinned-admission"]
 all = ["http-client", "http-server"]
 
 [dependencies]

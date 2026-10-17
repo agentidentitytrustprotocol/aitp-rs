@@ -58,7 +58,9 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
         },
         payload,
         extensions: None,
-        signature: sender.sign(&digest).into_string(),
+        signature: sender
+            .sign_jcs(&aitp_crypto::Digest32::from(digest))
+            .into_string(),
     }
 }
 
@@ -78,7 +80,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -88,7 +90,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,

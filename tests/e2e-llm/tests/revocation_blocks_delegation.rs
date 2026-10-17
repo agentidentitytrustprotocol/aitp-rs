@@ -44,11 +44,14 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     // concurrently without sharing an AID (and so a failure names which
     // scenario produced it).
     let worker_seed = expand_seed("worker-seed-tier3-revocation-scenario");
-    let worker = worker::spawn("aitp-worker-rev", &worker_seed, provider)
+    let planner_seed = expand_seed("planner-seed-tier3-revocation-scenario");
+    let planner_aid = aitp::crypto::AitpSigningKey::from_seed(&planner_seed)
+        .aid()
+        .clone();
+    let worker = worker::spawn("aitp-worker-rev", &worker_seed, provider, &[planner_aid])
         .await
         .expect("worker spawns");
 
-    let planner_seed = expand_seed("planner-seed-tier3-revocation-scenario");
     let outcome = planner::handshake("aitp-planner-rev", &planner_seed, 0, &worker.origin)
         .await
         .expect("handshake completes");
@@ -129,7 +132,7 @@ async fn work_endpoint_refuses_a_tct_from_an_unknown_issuer() {
 
     let provider = Provider::from_env().expect("provider configured (skip gate already checked)");
     let worker_seed = expand_seed("worker-seed-tier3-foreign-issuer");
-    let worker = worker::spawn("aitp-worker-foreign", &worker_seed, provider)
+    let worker = worker::spawn("aitp-worker-foreign", &worker_seed, provider, &[])
         .await
         .expect("worker spawns");
 

@@ -13,7 +13,10 @@ homepage.workspace = true
 [features]
 default = []
 client = ["dep:reqwest", "dep:tokio"]
-server = ["dep:axum", "dep:tokio"]
+server = ["dep:axum", "dep:tokio", "source-ip"]
+# `resolve_source_ip` and `TrustedProxy` (RFC-AITP-0009 §3.1) on their
+# own, depending only on `http` 1.x, for services on another HTTP stack.
+source-ip = ["dep:http"]
 # Enable SHA-256 SPKI cert pinning on the outbound HTTP client. Off by
 # default so workspaces that don't need air-gapped pinning don't pull in
 # rustls/x509-parser. Requires `client`.
@@ -30,7 +33,7 @@ experimental-session-bundle = ["server", "dep:aitp-session-bundle"]
 # scrape metrics don't take the dependency. The facade is zero-cost when
 # no recorder is installed; install one (e.g. metrics-exporter-prometheus)
 # in your binary to collect. See `obs` module + examples/observability.
-metrics = ["dep:metrics"]
+metrics = ["dep:metrics", "aitp-handshake/metrics"]
 
 [dependencies]
 aitp-core = { path = "../aitp-core", version = "=0.13.2" }
@@ -47,6 +50,7 @@ url = { workspace = true }
 uuid = { workspace = true }
 reqwest = { workspace = true, optional = true }
 axum = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
 # `net` is needed by `net_guard` (tokio::net::lookup_host) for
 # SSRF-guarded DNS resolution of peer-derived fetch URLs.
 tokio = { workspace = true, optional = true, features = ["net"] }
@@ -64,6 +68,8 @@ rustls-pki-types = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
 
 [dev-dependencies]
+# `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
+aitp-crypto = { path = "../aitp-crypto", features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 axum = { workspace = true }
 reqwest = { workspace = true }

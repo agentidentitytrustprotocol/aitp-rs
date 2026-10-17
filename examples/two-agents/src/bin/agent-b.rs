@@ -12,7 +12,7 @@
 
 use aitp::core::Aid;
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{Manifest, ManifestEnvelope};
 use aitp::transport::{with_request_body_limit_default, HandshakeServer};
 use aitp_example_two_agents::{build_demo_manifest, expand_seed, verify_echo_tct};
@@ -39,6 +39,11 @@ struct Cli {
     host: String,
     #[arg(long, default_value = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb")]
     seed: String,
+    /// Pinned-key peer AID to trust (RFC-AITP-0002 §3.2). Repeatable.
+    /// Defaults to the AID agent-a derives from its default seed, so the
+    /// out-of-the-box demo works; a peer not listed here is rejected.
+    #[arg(long = "trust")]
+    trust: Vec<String>,
 }
 
 /// JWKS resolver for the pinned-key-only demo: OIDC resolution is never
@@ -73,13 +78,30 @@ async fn main() {
     // serves /aitp/handshake/{hello,commit}. We request `demo.echo` of
     // the initiator so the symmetric handshake's grant intersection is
     // non-empty on our side too.
+    let trusted: Vec<Aid> = if cli.trust.is_empty() {
+        vec![
+            AitpSigningKey::from_seed(&expand_seed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+                .aid()
+                .clone(),
+        ]
+    } else {
+        cli.trust
+            .iter()
+            .map(|s| Aid::parse(s).expect("--trust takes an AID"))
+            .collect()
+    };
+    for aid in &trusted {
+        println!("agent-b: trusting pinned key {aid}");
+    }
+    let pinned = StaticPinnedKeyStore::from_aids(&trusted).expect("--trust AIDs are pinnable keys");
     let server = HandshakeServer::new(
         key,
         manifest,
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-    );
+    )
+    .with_pinned_key_store(Arc::new(pinned));
 
     let app = server.router().merge(
         Router::new()

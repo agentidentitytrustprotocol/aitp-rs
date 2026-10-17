@@ -30,8 +30,8 @@ def _agents():
 def test_full_handshake_yields_mutual_tcts():
     initiator, responder, _init_manifest, resp_manifest = _agents()
 
-    sess = initiator.new_session()
-    rsess = responder.new_responder()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
 
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
@@ -60,8 +60,8 @@ def test_full_handshake_yields_mutual_tcts():
 
 def test_verify_tct_rejects_missing_grant():
     initiator, responder, _init_manifest, resp_manifest = _agents()
-    sess = initiator.new_session()
-    rsess = responder.new_responder()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
 
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
@@ -98,15 +98,16 @@ def test_initiator_rejects_peer_substitution():
         offered_caps=["demo.write"],
     )
 
-    # Session S1 targets `real`.
-    s1 = initiator.new_session()
+    # Session S1 targets `real`. It trusts both pinned keys, so the
+    # rejection below is the peer-AID binding, not the trust store.
+    s1 = initiator.new_session(pinned_keys=[real.aid, mallory.aid])
     s1.build_hello(real_manifest, ["demo.write"])
 
     # Mallory legitimately answers a DIFFERENT session that targeted her,
     # producing a fully-valid HELLO_ACK signed under her own AID.
-    s2 = initiator.new_session()
+    s2 = initiator.new_session(pinned_keys=[mallory.aid])
     hello_for_mallory = s2.build_hello(mallory_manifest, ["demo.write"])
-    mallory_resp = mallory.new_responder()
+    mallory_resp = mallory.new_responder(pinned_keys=[initiator.aid])
     mallory_ack, mallory_session = mallory_resp.process_hello(hello_for_mallory)
 
     # Feeding Mallory's HELLO_ACK into S1 (which targeted `real`) must be
@@ -129,8 +130,8 @@ def test_verify_tct_honors_revoked_jtis():
     valid (signed, unexpired, in-scope) TCT whose jti is in the set — and
     still accept it when the set omits that jti."""
     initiator, responder, _init_manifest, resp_manifest = _agents()
-    sess = initiator.new_session()
-    rsess = responder.new_responder()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
 
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
@@ -152,8 +153,8 @@ def test_verify_tct_cached_honors_revoked_jtis_on_hits():
     """F-1: revocation is re-checked on every call, including cache hits, so a
     freshly-revoked TCT stops verifying even after its signature was cached."""
     initiator, responder, _init_manifest, resp_manifest = _agents()
-    sess = initiator.new_session()
-    rsess = responder.new_responder()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
 
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
@@ -186,3 +187,56 @@ def test_session_before_manifest_raises():
     agent = aitp.AitpAgent.generate()
     with pytest.raises(Exception):
         agent.new_session()
+
+
+# ── Pinned-key trust store (RFC-AITP-0002 §3.2) ─────────────────────────
+
+
+def test_responder_without_pinned_keys_rejects_pinned_initiator():
+    """0.14: no possession-only mode. A responder whose trust store is
+    empty (no `pinned_keys`) rejects every pinned_key initiator, even one
+    whose proof is valid."""
+    initiator, responder, _init_manifest, resp_manifest = _agents()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    hello = sess.build_hello(resp_manifest, ["demo.write"])
+
+    for rsess in (responder.new_responder(), responder.new_responder(pinned_keys=[])):
+        with pytest.raises(RuntimeError, match="trust store"):
+            rsess.process_hello(hello)
+
+
+def test_responder_rejects_pinned_initiator_not_in_store():
+    initiator, responder, _init_manifest, resp_manifest = _agents()
+    stranger = aitp.AitpAgent.generate()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    hello = sess.build_hello(resp_manifest, ["demo.write"])
+    rsess = responder.new_responder(pinned_keys=[stranger.aid])
+    with pytest.raises(RuntimeError, match="trust store"):
+        rsess.process_hello(hello)
+
+
+def test_initiator_without_pinned_keys_rejects_pinned_responder():
+    initiator, responder, _init_manifest, resp_manifest = _agents()
+    sess = initiator.new_session()
+    hello = sess.build_hello(resp_manifest, ["demo.write"])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
+    hello_ack, sid = rsess.process_hello(hello)
+    with pytest.raises(RuntimeError, match="trust store"):
+        sess.process_hello_ack(hello_ack, sid)
+
+
+@pytest.mark.parametrize(
+    "bad", ["not-an-aid", "aid:pubkey:ed25519:AAAA", "aid:pubkey:p256:" + "A" * 44]
+)
+def test_invalid_pinned_keys_entry_raises_value_error(bad):
+    agent = aitp.AitpAgent.generate()
+    agent.build_manifest(
+        display_name="a",
+        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        offered_caps=["demo.echo"],
+    )
+    good = aitp.AitpAgent.generate().aid
+    with pytest.raises(ValueError, match="pinned_keys"):
+        agent.new_session(pinned_keys=[good, bad])
+    with pytest.raises(ValueError, match="pinned_keys"):
+        agent.new_responder(pinned_keys=[bad])

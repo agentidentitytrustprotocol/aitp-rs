@@ -123,10 +123,23 @@ const methods = {
     }),
   }),
 
-  new_session: (p) => ({ handle: store(registry.get(p.agent).newSession()) }),
+  // 0.14: a pinned_key peer is accepted only when its AID is in the
+  // session's trust store (RFC-AITP-0002 §3.2). Callers pass the peer AIDs
+  // to trust as `pinned_keys`; omitting it yields an empty store.
+  new_session: (p) => ({
+    handle: store(
+      registry
+        .get(p.agent)
+        .newSession(null, { pinnedKeys: p.pinned_keys ?? undefined }),
+    ),
+  }),
 
   new_responder: (p) => ({
-    handle: store(registry.get(p.agent).newResponder()),
+    handle: store(
+      registry
+        .get(p.agent)
+        .newResponder(null, { pinnedKeys: p.pinned_keys ?? undefined }),
+    ),
   }),
 
   build_hello: (p) => ({

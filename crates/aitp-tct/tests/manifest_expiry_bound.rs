@@ -66,6 +66,10 @@ fn manifest_expiry_check_is_optional() {
     let issuer = AitpSigningKey::from_seed(&[0xC5; 32]);
     let subject = AitpSigningKey::from_seed(&[0xC6; 32]);
     let token = issue(&issuer, &subject, 86_400); // 24 hours, no bound
-    let ctx = TctVerifyContext::permissive_at(subject.aid(), issuer.aid(), NOW);
+    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
     verify_tct(&token, &ctx).expect("no manifest-bound check when caller passes None");
 }

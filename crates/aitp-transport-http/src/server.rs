@@ -1,14 +1,15 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
 use crate::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+pub use crate::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
 use aitp_core::{
     check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey};
 use aitp_handshake::{
-    HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, PeerConfig,
-    PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, NoPinnedKeys,
+    PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp_manifest::{Manifest, ManifestEnvelope};
@@ -123,27 +124,66 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
 }
 
-/// Sliding-window rate-limit policy (RFC-AITP-0009 §3.1). Off by
-/// default. When configured, [`HandshakeServer::enforce_rate_limit`]
-/// counts events keyed by IP and (optionally) AID over the most
-/// recent 60-second window and rejects with HTTP 429 once a key
-/// crosses its limit.
+/// Sliding-window rate-limit policy for the handshake endpoint
+/// (RFC-AITP-0009 §3.1, which makes rate limiting a MUST).
+///
+/// On by default with [`RateLimitConfig::default`], the §3.1
+/// recommended values. [`HandshakeServer::enforce_rate_limit`] counts
+/// events over the most recent 60-second window and rejects with HTTP
+/// 429 once a key crosses its limit.
+///
+/// The transport limit always applies. Its key is the peer IP (IPv6
+/// folded to its /64, IPv4-mapped folded to IPv4), taken from
+/// `X-Forwarded-For` / `X-Real-IP` only when the immediate hop is in
+/// [`Self::trusted_proxies`]. The per-AID limit is extra: the envelope
+/// `sender` is unauthenticated at that point, so §3.1 forbids it from
+/// being the only key.
 #[derive(Clone, Debug)]
 pub struct RateLimitConfig {
-    /// Max requests per source IP in any rolling 60s window. `None`
-    /// disables the per-IP gate.
-    pub requests_per_ip_per_60s: Option<u32>,
-    /// Max requests per peer AID (extracted from envelope sender)
-    /// in any rolling 60s window. `None` disables the per-AID gate.
+    /// Max requests per transport source in any rolling 60 s window.
+    pub requests_per_source_per_60s: u32,
+    /// Max requests per peer AID (the envelope `sender`, unverified)
+    /// in any rolling 60 s window, on top of the transport limit.
+    /// `None` disables this extra gate.
     pub requests_per_aid_per_60s: Option<u32>,
+    /// Immediate hops whose forwarding headers are believed. Empty
+    /// (the default) means forwarding headers are ignored and the
+    /// socket peer is the source.
+    pub trusted_proxies: Vec<TrustedProxy>,
+}
+
+impl RateLimitConfig {
+    /// RFC-AITP-0009 §3.1 recommended handshake requests per source IP
+    /// per 60 s.
+    pub const RECOMMENDED_PER_SOURCE: u32 = 30;
+    /// RFC-AITP-0009 §3.1 recommended handshake requests per initiator
+    /// AID per 60 s.
+    pub const RECOMMENDED_PER_AID: u32 = 10;
 }
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            requests_per_ip_per_60s: Some(120),
-            requests_per_aid_per_60s: Some(60),
+            requests_per_source_per_60s: Self::RECOMMENDED_PER_SOURCE,
+            requests_per_aid_per_60s: Some(Self::RECOMMENDED_PER_AID),
+            trusted_proxies: Vec::new(),
         }
+    }
+}
+
+/// The bucket key for a transport source: IPv4 (IPv4-mapped IPv6
+/// folded), or the /64 of an IPv6 address, since a single host is
+/// routinely handed a whole /64. `None` (no connect info) shares one
+/// bucket rather than letting the self-asserted AID become the only key.
+fn transport_key(source: Option<std::net::IpAddr>) -> String {
+    use std::net::IpAddr;
+    match source.map(|ip| ip.to_canonical()) {
+        Some(IpAddr::V4(v4)) => format!("ip:{v4}"),
+        Some(IpAddr::V6(v6)) => {
+            let s = v6.segments();
+            format!("ip6:{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        None => "ip:unknown".to_string(),
     }
 }
 
@@ -188,7 +228,7 @@ impl Default for DpopPolicy {
 }
 
 struct HandshakeState<R: JwksResolver + Send + Sync> {
-    signing_key: AitpSigningKey,
+    signing_key: Arc<dyn AitpSigner>,
     manifest: Manifest,
     trust_anchors: Vec<aitp_core::RawUrl>,
     jwks_resolver: R,
@@ -230,7 +270,7 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// the cache.
     dpop_replay_cache: Arc<crate::dpop::DpopReplayCache>,
     /// Optional rate-limit configuration. Off by default; operators
-    /// install via [`HandshakeServer::with_rate_limit`]. Enforcement
+    /// replace via [`HandshakeServer::with_rate_limit`]. Enforcement
     /// is per-key sliding 60s windows backed by `rate_limit_events`.
     rate_limit_config: Mutex<Option<RateLimitConfig>>,
     /// Per-key event timestamps for the rolling rate-limit window.
@@ -238,15 +278,16 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// configured limit; entries older than 60s are swept on every
     /// check.
     rate_limit_events: Mutex<HashMap<String, Vec<Instant>>>,
-    /// Optional local pinned-key trust store (RFC-AITP-0002 §3.2
-    /// step 1). When `Some`, an initiator presenting a pinned-key
-    /// identity whose Ed25519 public key is not in the store is
-    /// rejected with `IDENTITY_FAILED`; when `None`, the pinned-key
-    /// check proves key possession only. Installed via
-    /// [`HandshakeServer::with_pinned_key_store`]. Stored under
-    /// interior mutability so the builder can configure a server whose
-    /// `Arc<HandshakeState>` is already shared.
-    pinned_key_store: Mutex<Option<Arc<dyn PinnedKeyStore>>>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2 step 3), keyed
+    /// by `(algorithm, key)`. An initiator presenting a pinned-key
+    /// identity whose key is not in the store is rejected with
+    /// `IDENTITY_FAILED`. Defaults to [`NoPinnedKeys`] (fail closed: no
+    /// pinned-key initiator is admitted until a store is installed via
+    /// [`HandshakeServer::with_pinned_key_store`]). There is no
+    /// possession-only mode. Stored under interior mutability so the
+    /// builder can configure a server whose `Arc<HandshakeState>` is
+    /// already shared.
+    pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
 }
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
@@ -288,8 +329,13 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ///
     /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`].
     /// Use [`Self::with_session_ttl`] to override.
-    pub fn new(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM).
+    /// A backend failure while answering a request is a local fault: it
+    /// is answered with HTTP 500 / `INVALID_ENVELOPE`, never a
+    /// peer-blamed signature code.
+    pub fn new<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -308,8 +354,11 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// Same as [`Self::new`] with an explicit session TTL. Tests use
     /// short TTLs to exercise the expiry path; production callers
     /// should prefer [`Self::new`].
-    pub fn with_session_ttl(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
+    /// see [`Self::new`].
+    pub fn with_session_ttl<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -329,8 +378,11 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// Same as [`Self::with_session_ttl`] with an explicit replay-deny-list
     /// window. Tests use short windows to exercise eviction.
-    pub fn with_session_ttl_and_replay_window(
-        signing_key: AitpSigningKey,
+    ///
+    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
+    /// see [`Self::new`].
+    pub fn with_session_ttl_and_replay_window<S: AitpSigner + 'static>(
+        signing_key: S,
         manifest: Manifest,
         trust_anchors: Vec<aitp_core::RawUrl>,
         jwks_resolver: R,
@@ -340,7 +392,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ) -> Self {
         Self {
             state: Arc::new(HandshakeState {
-                signing_key,
+                signing_key: Arc::new(signing_key),
                 manifest,
                 trust_anchors,
                 jwks_resolver,
@@ -352,9 +404,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 replay_window,
                 dpop_policy: Mutex::new(None),
                 dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
-                rate_limit_config: Mutex::new(None),
+                rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
-                pinned_key_store: Mutex::new(None),
+                pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
             }),
             revocation_producer: None,
         }
@@ -431,25 +483,35 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Attach a rate-limit configuration (RFC-AITP-0009 §3.1). The
-    /// per-key sliding window is 60 seconds; entries older than that
-    /// are evicted on every check, so the in-memory bound is roughly
-    /// (active sources × limit).
+    /// Replace the rate-limit configuration (RFC-AITP-0009 §3.1). The
+    /// default is [`RateLimitConfig::default`]. The per-key sliding
+    /// window is 60 seconds; entries older than that are evicted on
+    /// every check, so the in-memory bound is roughly
+    /// (active sources × limit). Counters are per process.
     pub fn with_rate_limit(self, config: RateLimitConfig) -> Self {
         *self.state.rate_limit_config.lock() = Some(config);
         self
     }
 
-    /// Attach a local pinned-key trust store (RFC-AITP-0002 §3.2
-    /// step 1). Without this, the responder's pinned-key verification
-    /// proves only that the initiator possesses the key matching its
-    /// AID — not that the responder has any reason to *trust* that key.
-    /// Production servers accepting pinned-key initiators MUST configure
-    /// a store; an initiator whose key is absent is rejected with
-    /// `IDENTITY_FAILED`. OIDC trust is configured separately via the
-    /// `trust_anchors` + `jwks_resolver` arguments to [`Self::new`].
+    /// Turn the built-in rate limiter off. RFC-AITP-0009 §3.1 still
+    /// requires per-source limiting at the handshake endpoint, so use
+    /// this only when a layer in front of the server (an API gateway, a
+    /// shared limiter in middleware) enforces it, keyed on the
+    /// transport source.
+    pub fn without_rate_limit(self) -> Self {
+        *self.state.rate_limit_config.lock() = None;
+        self
+    }
+
+    /// Install the local pinned-key trust store (RFC-AITP-0002 §3.2
+    /// step 3), keyed by `(algorithm, key)`, Ed25519 or P-256. Until one
+    /// is installed the server admits no pinned-key initiator (the
+    /// default is [`NoPinnedKeys`]). An initiator whose key is absent is
+    /// rejected with `IDENTITY_FAILED` before its proof is checked. OIDC
+    /// trust is configured separately via the `trust_anchors` +
+    /// `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
-        *self.state.pinned_key_store.lock() = Some(store);
+        *self.state.pinned_key_store.lock() = store;
         self
     }
 
@@ -467,14 +529,16 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Test whether a single event from `client_ip` (optionally tied
-    /// to `peer_aid`) would exceed the configured per-key 60s window.
+    /// Test whether a single event from transport source `client_ip`
+    /// (optionally tied to `peer_aid`) would exceed the configured
+    /// per-key 60s window. `None` is a source with no transport
+    /// identifier; all such events share one bucket.
     /// On `Allow`, the event is recorded; on `DenyTooManyRequests`,
     /// no event is recorded (so a denied caller doesn't accelerate
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` when no policy is configured.
+    /// Returns `Allow` after [`Self::without_rate_limit`].
     ///
     /// The handshake handlers ([`Self::router`]'s `hello` / `commit`
     /// routes) call this internally per RFC-AITP-0009 §3.1 — after the
@@ -483,7 +547,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// most operators only need [`Self::with_rate_limit`].
     pub fn enforce_rate_limit(
         &self,
-        client_ip: Option<&str>,
+        client_ip: Option<std::net::IpAddr>,
         peer_aid: Option<&aitp_core::Aid>,
     ) -> RateLimitOutcome {
         rate_limit_check(&self.state, client_ip, peer_aid)
@@ -594,12 +658,18 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     let now = Timestamp::now();
     let renewed = process_renewal_request(
         &payload,
-        &state.signing_key,
+        &*state.signing_key,
         state.manifest.expires_at,
         now,
         aitp_tct::DEFAULT_TCT_TTL_SECS,
     )
-    .map_err(|e| ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string()))?;
+    .map_err(|e| {
+        if tct_signer_failure(&e) {
+            ResponseError::local_signer_failure(&e)
+        } else {
+            ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string())
+        }
+    })?;
     #[derive(serde::Serialize)]
     struct RenewalResponse {
         tct: String,
@@ -640,9 +710,9 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
-    let source_ip = extract_source_ip(&request);
+    let source_ip = request_source(&state, &request);
     let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip.as_deref())?;
+    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
     // RFC-AITP-0001 §7: an unknown sibling member of the payload is a
     // reject, same as an unknown envelope member — checked before typed
     // deserialization so it is never masked by `deny_unknown_fields`'
@@ -685,16 +755,16 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
-    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 1);
+    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
     let cfg = PeerConfig {
-        signing_key: &state.signing_key,
+        signing_key: &*state.signing_key,
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: pinned_store.as_deref(),
+        pinned_key_store: &*pinned_store,
         grant_policy: None,
         revocation_check: None,
         now: aitp_core::Timestamp::now(),
@@ -721,7 +791,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         &cfg,
         state.requested_grants.clone(),
     )
-    .map_err(|e| ResponseError::aitp(handshake_error_code(&e), e.to_string()))?;
+    .map_err(|e| handshake_response_error(&e))?;
 
     let session_id = Uuid::new_v4();
     {
@@ -751,7 +821,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     let ack_payload_value =
         serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope_with(
-        &state.signing_key,
+        &*state.signing_key,
         MessageType::MutualHelloAck,
         ack_payload_value,
         ack_mid,
@@ -783,9 +853,9 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     request: Request,
 ) -> Result<Response, ResponseError> {
     let headers = request.headers().clone();
-    let source_ip = extract_source_ip(&request);
+    let source_ip = request_source(&state, &request);
     let envelope = parse_envelope_request(request, MessageType::MutualCommit).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip.as_deref())?;
+    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
     let session_id = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -849,15 +919,15 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
-    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 1);
+    // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
     let cfg = PeerConfig {
-        signing_key: &state.signing_key,
+        signing_key: &*state.signing_key,
         manifest: &state.manifest,
         trust_anchors: &state.trust_anchors,
         jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: pinned_store.as_deref(),
+        pinned_key_store: &*pinned_store,
         grant_policy: None,
         revocation_check: None,
         now: aitp_core::Timestamp::now(),
@@ -865,11 +935,11 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)
-        .map_err(|e| ResponseError::aitp(handshake_error_code(&e), e.to_string()))?;
+        .map_err(|e| handshake_response_error(&e))?;
     let ack_payload_value =
         serde_json::to_value(&ack_payload).map_err(|_| ResponseError::server_error())?;
     let ack_envelope = sign_envelope(
-        &state.signing_key,
+        &*state.signing_key,
         MessageType::MutualCommitAck,
         ack_payload_value,
     )
@@ -921,6 +991,19 @@ impl ResponseError {
             status: StatusCode::INTERNAL_SERVER_ERROR,
             code: ErrorCode::InvalidEnvelope,
             message: "internal error signing reply envelope".into(),
+            emit_envelope: true,
+        }
+    }
+
+    /// HTTP 500 for a failure of our own signing backend (KMS throttled,
+    /// HSM unreachable, key mismatch). Local, not the peer's fault, so
+    /// it never carries a peer-blamed signature code: the closest
+    /// registered code is `INVALID_ENVELOPE`, as for [`Self::server_error`].
+    fn local_signer_failure(err: &dyn std::fmt::Display) -> Self {
+        Self {
+            status: StatusCode::INTERNAL_SERVER_ERROR,
+            code: ErrorCode::InvalidEnvelope,
+            message: format!("internal error: local signing backend failed: {err}"),
             emit_envelope: true,
         }
     }
@@ -1087,37 +1170,32 @@ async fn parse_envelope_request(
     Ok(envelope)
 }
 
-/// Best-effort source-IP extraction for per-IP rate limiting
-/// (RFC-AITP-0009 §3.1). Prefers `X-Forwarded-For` (first / client
-/// hop), then `X-Real-IP`, then the peer socket address — the last is
-/// only present when the router is served with
-/// `into_make_service_with_connect_info::<SocketAddr>()`.
-///
-/// `X-Forwarded-For` and `X-Real-IP` are client-spoofable unless the
-/// server sits behind a trusted proxy that overwrites them; operators
-/// relying on the per-IP gate SHOULD deploy behind such a proxy. The
-/// per-AID gate, keyed off the authenticated envelope `sender`, is not
-/// spoofable this way and is the stronger of the two limits.
-fn extract_source_ip(request: &Request) -> Option<String> {
-    let headers = request.headers();
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = xff.split(',').next() {
-            let trimmed = first.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    if let Some(xri) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
-        let trimmed = xri.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    request
+/// The rate-limit source for a request: [`resolve_source_ip`] on the
+/// socket peer, present when the router is served with
+/// `into_make_service_with_connect_info::<SocketAddr>()`. `None`
+/// without connect info.
+fn extract_source_ip(
+    request: &Request,
+    trusted_proxies: &[TrustedProxy],
+) -> Option<std::net::IpAddr> {
+    let peer = request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip().to_string())
+        .map(|ci| ci.0.ip())?;
+    Some(resolve_source_ip(peer, request.headers(), trusted_proxies))
+}
+
+/// [`extract_source_ip`] against the configured trusted proxies.
+fn request_source<R: JwksResolver + Send + Sync>(
+    state: &HandshakeState<R>,
+    request: &Request,
+) -> Option<std::net::IpAddr> {
+    let config = state.rate_limit_config.lock();
+    let proxies = config
+        .as_ref()
+        .map(|c| c.trusted_proxies.as_slice())
+        .unwrap_or(&[]);
+    extract_source_ip(request, proxies)
 }
 
 /// Sliding-window rate-limit evaluation shared by
@@ -1127,7 +1205,7 @@ fn extract_source_ip(request: &Request) -> Option<String> {
 /// Returns `Allow` when no policy is configured.
 fn rate_limit_check<R: JwksResolver + Send + Sync>(
     state: &HandshakeState<R>,
-    client_ip: Option<&str>,
+    client_ip: Option<std::net::IpAddr>,
     peer_aid: Option<&aitp_core::Aid>,
 ) -> RateLimitOutcome {
     let config = match state.rate_limit_config.lock().clone() {
@@ -1140,17 +1218,15 @@ fn rate_limit_check<R: JwksResolver + Send + Sync>(
     // Tentative event additions, committed only if both gates pass.
     // Avoids partial-state under contention.
     let mut additions: Vec<String> = Vec::new();
-    if let (Some(limit), Some(ip)) = (config.requests_per_ip_per_60s, client_ip) {
-        let key = format!("ip:{ip}");
-        let entry = events.entry(key.clone()).or_default();
-        entry.retain(|t| now.duration_since(*t) < window);
-        if entry.len() as u32 >= limit {
-            return RateLimitOutcome::DenyTooManyRequests {
-                reason: format!("rate limit exceeded for IP {ip}"),
-            };
-        }
-        additions.push(key);
+    let key = transport_key(client_ip);
+    let entry = events.entry(key.clone()).or_default();
+    entry.retain(|t| now.duration_since(*t) < window);
+    if entry.len() as u32 >= config.requests_per_source_per_60s {
+        return RateLimitOutcome::DenyTooManyRequests {
+            reason: format!("rate limit exceeded for source {key}"),
+        };
     }
+    additions.push(key);
     if let (Some(limit), Some(aid)) = (config.requests_per_aid_per_60s, peer_aid) {
         let key = format!("aid:{}", aid.as_str());
         let entry = events.entry(key.clone()).or_default();
@@ -1181,7 +1257,7 @@ fn rate_limit_check<R: JwksResolver + Send + Sync>(
 fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     state: &Arc<HandshakeState<R>>,
     envelope: &AitpEnvelope,
-    source_ip: Option<&str>,
+    source_ip: Option<std::net::IpAddr>,
 ) -> Result<(), ResponseError> {
     // RFC-AITP-0001 §5.6: "Verifiers receiving an unknown `version` MUST
     // respond with `UNKNOWN_VERSION`." A structural protocol-identity
@@ -1232,6 +1308,38 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
         ));
     }
     Ok(())
+}
+
+/// Whether `err` is our own signing backend failing (a local fault).
+fn tct_signer_failure(err: &aitp_tct::TctError) -> bool {
+    matches!(
+        err,
+        aitp_tct::TctError::Crypto(aitp_crypto::CryptoError::Signer(_))
+    )
+}
+
+/// Whether `err` is our own signing backend failing while building a
+/// proof, PoP, TCT or Manifest (a local fault, not the peer's).
+fn handshake_signer_failure(err: &aitp_handshake::HandshakeError) -> bool {
+    use aitp_crypto::CryptoError;
+    use aitp_handshake::HandshakeError as HE;
+    match err {
+        HE::Crypto(CryptoError::Signer(_)) => true,
+        HE::Tct(t) => tct_signer_failure(t),
+        HE::Manifest(aitp_manifest::ManifestError::Crypto(CryptoError::Signer(_))) => true,
+        _ => false,
+    }
+}
+
+/// Map a `HandshakeError` to the response: a local signer failure is
+/// HTTP 500 ([`ResponseError::local_signer_failure`]); everything else is
+/// a 400 with [`handshake_error_code`].
+fn handshake_response_error(err: &aitp_handshake::HandshakeError) -> ResponseError {
+    if handshake_signer_failure(err) {
+        ResponseError::local_signer_failure(err)
+    } else {
+        ResponseError::aitp(handshake_error_code(err), err.to_string())
+    }
 }
 
 /// Map a `HandshakeError` into the closest registered AITP error code.
@@ -1295,6 +1403,10 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
         HE::InvalidEnvelope(_) | HE::State(_) | HE::Rng(_) | HE::Canonicalization(_) => {
             ErrorCode::InvalidEnvelope
         }
+        // Our own signing backend failed: a local fault, never blamed on
+        // the peer as a bad signature. `handshake_response_error` also
+        // turns it into HTTP 500.
+        HE::Crypto(aitp_crypto::CryptoError::Signer(_)) => ErrorCode::InvalidEnvelope,
         HE::Crypto(_) => ErrorCode::InvalidSignature,
         // RFC-AITP-0001 §7 / issue #140 Phase 7b: a dedicated core code,
         // never left to the `_ => INVALID_ENVELOPE` catch-all below —
@@ -1376,6 +1488,32 @@ mod tests {
     use super::*;
     use aitp_handshake::HandshakeError;
     use aitp_tct::TctError;
+
+    /// A failure of our own signing backend is a local fault: HTTP 500
+    /// with `INVALID_ENVELOPE`, never a peer-blamed signature code —
+    /// whether it surfaces directly or wrapped in a TCT/Manifest error.
+    #[test]
+    fn local_signer_failure_is_never_blamed_on_the_peer() {
+        use aitp_crypto::{CryptoError, SignerError};
+        let signer = || CryptoError::Signer(SignerError::VerificationFailed);
+        for err in [
+            HandshakeError::Crypto(signer()),
+            HandshakeError::Tct(TctError::Crypto(signer())),
+            HandshakeError::Manifest(aitp_manifest::ManifestError::Crypto(signer())),
+        ] {
+            let resp = handshake_response_error(&err);
+            assert_eq!(resp.status, StatusCode::INTERNAL_SERVER_ERROR, "{err:?}");
+            assert_eq!(resp.code, ErrorCode::InvalidEnvelope, "{err:?}");
+        }
+        assert_eq!(
+            handshake_error_code(&HandshakeError::Crypto(signer())),
+            ErrorCode::InvalidEnvelope
+        );
+        // A real bad signature from the peer is still a 400.
+        let peer = handshake_response_error(&HandshakeError::Crypto(CryptoError::SignatureInvalid));
+        assert_eq!(peer.status, StatusCode::BAD_REQUEST);
+        assert_eq!(peer.code, ErrorCode::InvalidSignature);
+    }
 
     /// GAP-2: `handshake_error_code` previously collapsed every
     /// `HandshakeError::Tct(_)` to `TCT_SIGNATURE_INVALID`, so a peer

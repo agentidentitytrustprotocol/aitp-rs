@@ -47,10 +47,19 @@
             "type": "string",
             "minLength": 1
           },
+          "algorithm": {
+            "type": "string",
+            "enum": [
+              "ed25519",
+              "p256"
+            ],
+            "description": "OPTIONAL key algorithm. Entries are keyed by (algorithm, public_key) (RFC-AITP-0002 §3.2 step 3). When absent it is inferred from the key length; when present it MUST match it: 43 chars for ed25519, 44 chars (SEC1 compressed point) for p256."
+          },
           "public_key": {
             "type": "string",
             "minLength": 43,
-            "pattern": "^[A-Za-z0-9_-]{43,44}$"
+            "pattern": "^[A-Za-z0-9_-]{43,44}$",
+            "description": "base64url public key in the RFC-AITP-0001 §5.3 AID-identifier form: 43 chars for Ed25519, 44 chars for P-256."
           },
           "allowed_capabilities": {
             "type": "array",
@@ -59,6 +68,48 @@
             }
           }
         },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "algorithm"
+              ],
+              "properties": {
+                "algorithm": {
+                  "const": "ed25519"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "public_key": {
+                  "minLength": 43,
+                  "maxLength": 43
+                }
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "algorithm"
+              ],
+              "properties": {
+                "algorithm": {
+                  "const": "p256"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "public_key": {
+                  "minLength": 44,
+                  "maxLength": 44
+                }
+              }
+            }
+          }
+        ],
         "additionalProperties": false
       }
     },

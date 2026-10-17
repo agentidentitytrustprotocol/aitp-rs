@@ -59,7 +59,9 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: key.sign(&digest).into_string(),
+        signature: key
+            .sign_jcs(&aitp_crypto::Digest32::from(digest))
+            .into_string(),
     }
 }
 
@@ -104,7 +106,7 @@ fn full_oidc_handshake_in_process() {
         manifest: &alice_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -114,7 +116,7 @@ fn full_oidc_handshake_in_process() {
         manifest: &bob_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -264,7 +266,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         manifest: &alice_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -274,7 +276,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         manifest: &bob_manifest,
         trust_anchors: &trust_anchors,
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::NoPinnedKeys,
         grant_policy: None,
         revocation_check: None,
         now: NOW,

@@ -49,7 +49,11 @@ async fn main() {
     // store is keyed by the issuer's AID.
     let initial_verified = verify_tct(
         &initial.token,
-        &TctVerifyContext::now(holder.aid(), issuer.aid()),
+        &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
+            .accept_unchecked_revocation_dangerous()
+            .skip_manifest_expiry_cap_dangerous()
+            .build()
+            .expect("both decisions are made"),
     )
     .expect("initial TCT verifies");
 
@@ -107,7 +111,11 @@ async fn main() {
     // stash it (and its fresh voucher) back into the store.
     let renewed_verified = verify_tct(
         &renewed.tct,
-        &TctVerifyContext::now(holder.aid(), issuer.aid()),
+        &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
+            .accept_unchecked_revocation_dangerous()
+            .skip_manifest_expiry_cap_dangerous()
+            .build()
+            .expect("both decisions are made"),
     )
     .expect("renewed TCT verifies");
     store.insert(renewed_verified.clone(), renewed.grant_voucher.clone());

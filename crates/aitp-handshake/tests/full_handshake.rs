@@ -60,7 +60,7 @@ fn envelope_with(
 ) -> AitpEnvelope {
     let digest =
         aitp_core::envelope_signing_digest(&message_id, timestamp, sender.aid(), &payload).unwrap();
-    let sig = sender.sign(&digest);
+    let sig = sender.sign_jcs(&aitp_crypto::Digest32::from(digest));
     AitpEnvelope {
         version: "aitp/0.1".into(),
         message_type: mt,
@@ -88,7 +88,7 @@ fn full_pinned_key_handshake() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -98,7 +98,7 @@ fn full_pinned_key_handshake() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -217,7 +217,7 @@ fn peer_substitution_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -227,7 +227,7 @@ fn peer_substitution_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -338,7 +338,7 @@ fn grant_overflow_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -348,7 +348,7 @@ fn grant_overflow_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -451,7 +451,7 @@ fn nonce_mismatch_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -461,7 +461,7 @@ fn nonce_mismatch_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -527,7 +527,7 @@ fn insufficient_grants_aborts() {
         manifest: &alice_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -537,7 +537,7 @@ fn insufficient_grants_aborts() {
         manifest: &bob_manifest,
         trust_anchors: &[],
         jwks_resolver: &resolver,
-        pinned_key_store: None,
+        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
         grant_policy: None,
         revocation_check: None,
         now: NOW,
@@ -652,7 +652,10 @@ fn envelope_signing_input_round_trips() {
     let payload = json!({"hello": "world"});
     let digest =
         aitp_core::envelope_signing_digest(&mid, Timestamp(1), alice.aid(), &payload).unwrap();
-    let sig = alice.sign(&digest);
+    let sig = alice.sign_jcs(&aitp_crypto::Digest32::from(digest));
     // Verify with the verifying key.
-    alice.verifying_key().verify(&digest, &sig).unwrap();
+    alice
+        .verifying_key()
+        .verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
+        .unwrap();
 }

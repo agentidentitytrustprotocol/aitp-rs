@@ -17,6 +17,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **0.14.0: P-256 signing input, required pinned-key trust store,
+  pluggable signers, strict UUID v4 ids, self-attestations and
+  pinned-key admission** (spec proposal
+  [agentidentitytrustprotocol#72](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/pull/72),
+  [#205](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/205)).
+  P-256 JCS signatures made by 0.13 do not verify under 0.14, and the
+  reverse. Every builder takes `&dyn AitpSigner`, `verify_pinned_key`
+  takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti`,
+  `message_id`, delegation hop `jti` and revocation `entries[].jti` must
+  be lowercase UUID v4 (spec PR C, 35aeb84). The P-256 single-hash and strict-verification
+  vectors and fixture tct-017 are vendored from spec PR A (b022013). The
+  pinned-key P-256 and tagged-Ed25519 vectors and fixtures id-010 to id-018
+  are vendored from spec PR B (652cdb9); the conformance runner now mints
+  every negative placeholder as a real artifact and FAILs any fixture
+  that uses a placeholder it cannot mint (spec #77). Third-party JOSE (IdP ID
+  tokens, DPoP proofs) accepts high-S ES256; AITP artifacts stay low-S
+  only (RFC-AITP-0001 §5.4.7 scope). `HandshakeServer` rate limiting is on by
+  default, keyed on the transport source, and believes forwarding
+  headers only from `RateLimitConfig::trusted_proxies` (RFC-AITP-0009
+  §3.1, spec #73). For Seam (#205 A-1 to A-4), `NonceStoreError::AtCapacity`
+  gains `retry_after`, and in-memory nonce expiry is amortised. Also new:
+  the public `resolve_source_ip` and `TrustedProxy` (feature `source-ip`,
+  which needs only `http` 1.x, not axum) and `TokenBucketLimiter::check_key_at`,
+  and admission metrics behind `aitp-handshake/metrics`. Spec PR D
+  (a2a24da) and PR E (35eb687, the KAT statement key
+  `io.agentidentitytrustprotocol.kat`) are vendored, at pin db7d860 (spec #81, which closes #77 and is doc-only). Pinned-key admission follows the RFC-AITP-0002
+  §3.4 check order: a `message_id` deny list (`MessageIdDenyList`,
+  `REPLAY_DETECTED`) is checked first, then a per-source presentation
+  rate limit that answers HTTP 429 with no AITP code. The presentation
+  payload is exactly `{identity, pop_nonce}`. `admit` and the new
+  `admit_wire` take the `&ChallengeSource`. The conformance adapter runs
+  the `aitp-pinned-admission` and `aitp-self-attestation` fixtures (94
+  fixtures: 92 pass and 2 skip with every feature; 74 pass and 20 skip
+  strict), and `tests/proposal-kats` is gone: every vector comes from the
+  vendored spec. See
+  [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
+  how to migrate.
+
 - **`RevocationError` gains a `Malformed` variant and is now
   `#[non_exhaustive]`** (`aitp-transport-http`, released in 0.13.0,
   [#168](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/168)).

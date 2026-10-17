@@ -1,0 +1,40 @@
+{
+  "$comment": "AITP v0.2 signature-strictness known-answer vectors (RFC-AITP-0001 §5.4.7). Each vector is a raw (public key, message, signature) tuple that a lax verifier accepts and a §5.4.7 verifier MUST reject. They live here rather than as conformance fixtures because their inputs are not schema artifacts, and because a fixture's placeholder machinery would mint a valid signature in place of the malformed one, which defeats the test. scripts/verify-known-answer.mjs asserts both halves for every vector: the lax check accepts, the strict check rejects. The rejection comes from the script's own BigInt range, encoding and small-order checks, never from the result of crypto.verify alone. For Ed25519 vectors the message is the 32-byte value Ed25519 signs; in the JCS profile that is d = sha256(signing input) (§5.4.6).",
+  "vectors": [
+    {
+      "id": "sig-001-ed25519-small-order-key-rejected",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.7"
+      ],
+      "$comment": "The public key is the Ed25519 identity point (y = 1), which has order 1. With R = identity and S = 0 the verification equation [S]B = R + [k]A holds for every message, so the signature commits to nothing. A §5.4.7 verifier MUST reject the public key as small-order before evaluating the equation.",
+      "public_key_b64url": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "message_hex": "0000000000000000000000000000000000000000000000000000000000000000",
+      "signature_b64url": "AQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+      "expected": "reject"
+    },
+    {
+      "id": "sig-002-ed25519-noncanonical-s-rejected",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.7"
+      ],
+      "$comment": "`valid_signature_b64url` is kat-keypair-001's Ed25519 signature over `message_hex`. `signature_b64url` is the same signature with S replaced by S + L, where L is the order of the base point. A verifier that reduces S mod L accepts both; a §5.4.7 verifier MUST reject S >= L.",
+      "signer_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "message_hex": "c9ac255af8b3900dcc5e7236861c6da1100fc2ca7bb5378c668cbf7cfc7c85b7",
+      "valid_signature_b64url": "DlghT0vdWzg5-qcMSp_qNiFv4ZA57I39rNAxCXRk0vxa7Od6LOJEP1n7Z11MGePGOldQ0rjp1xRvot1AaRr0BQ",
+      "signature_b64url": "DlghT0vdWzg5-qcMSp_qNiFv4ZA57I39rNAxCXRk0vxHwN3XRkVXly-YXwArE8LbOldQ0rjp1xRvot1AaRr0FQ",
+      "expected": "reject"
+    },
+    {
+      "id": "sig-003-p256-high-s-rejected",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.7"
+      ],
+      "$comment": "`low_s_signature` is the kat-p256-jcs-sign-001 signature (jcs-sha256.json) over the digest `sha256_hex`, with e = d per §5.4.6. `signature` is the same signature with S replaced by n - S, where n is the P-256 group order. Stock ECDSA and JOSE ES256 verifiers accept both; a §5.4.7 verifier MUST reject S > n/2.",
+      "signer_aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+      "sha256_hex": "cee8d8fb57092a1c92fab2902312a64eadbf9d8c7912d2a43540e557f188b17c",
+      "low_s_signature": "p256.SJXh3QaG-wP6oCgblP0ax0wHcWyfYd2hZyIfR3I2QWtJJDnqJ9fdUuOyeha6VjKBaItIQEAw0uELXJTmdBk80g",
+      "signature": "p256.SJXh3QaG-wP6oCgblP0ax0wHcWyfYd2hZyIfR3I2QWu228YU2CgirhxNhelFqc1-VFuybWbmy6PoXTXciEnofw",
+      "expected": "reject"
+    }
+  ]
+}

@@ -49,11 +49,53 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
         expected: Some(FixtureExpected {
             outcome: "success".into(),
             error_code: None,
+            http_status: None,
             side_effects: None,
         }),
     };
     let r = runner.run(&f);
     assert!(matches!(r, FixtureResult::Pass { .. }), "got: {:?}", r);
+}
+
+/// spec #77: a fixture whose placeholder the runner cannot mint FAILs,
+/// even when the adapter's rejection matches the expected outcome, since
+/// the adapter rejected the sentinel, not the defect the fixture names.
+#[test]
+fn unminted_placeholder_fails_the_fixture() {
+    let adapter =
+        SubprocessAdapter::spawn(adapter_path().to_str().unwrap(), &[]).expect("spawn adapter");
+    let mut runner = Runner::new(adapter);
+    let f = Fixture {
+        id: "unminted-001".into(),
+        rfc: None,
+        status: aitp_conformance::fixture::FixtureStatus::Core,
+        required_for_v0_1: false,
+        feature: None,
+        description: "an expected rejection reached only through an unminted placeholder".into(),
+        tags: vec![],
+        preconditions: serde_json::Value::Null,
+        input: FixtureInput {
+            operation: None,
+            variant: FixtureInputVariant::Single(json!({
+                "operation": "verify_tct",
+                "tct_token": "__NOT_A_REAL_PLACEHOLDER__",
+                "issuer_aid": "aid:pubkey:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+                "expected_audience": "aid:pubkey:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+            })),
+        },
+        expected: Some(FixtureExpected {
+            outcome: "failure".into(),
+            error_code: Some("INVALID_ENVELOPE".into()),
+            http_status: None,
+            side_effects: None,
+        }),
+    };
+    match runner.run(&f) {
+        FixtureResult::Fail { reason, .. } => {
+            assert!(reason.contains("__NOT_A_REAL_PLACEHOLDER__"), "{reason}")
+        }
+        other => panic!("got: {other:?}"),
+    }
 }
 
 #[test]
@@ -88,6 +130,7 @@ fn unsupported_op_yields_skip() {
         expected: Some(FixtureExpected {
             outcome: "success".into(),
             error_code: None,
+            http_status: None,
             side_effects: None,
         }),
     };
@@ -147,6 +190,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         expected: Some(FixtureExpected {
             outcome: "failure".into(),
             error_code: Some("TCT_SIGNATURE_INVALID".into()),
+            http_status: None,
             side_effects: None,
         }),
     };

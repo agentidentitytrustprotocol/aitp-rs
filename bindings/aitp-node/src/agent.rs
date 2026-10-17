@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use aitp_core::{RawUrl, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp_core::{Aid, RawUrl, Timestamp};
+use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp_handshake::StaticPinnedKeyStore;
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use napi::bindgen_prelude::*;
@@ -56,7 +57,8 @@ pub struct ManifestOpts {
     pub accepted_trust_anchors: Option<Vec<String>>,
 }
 
-/// Trust-anchor override for `newSession` / `newResponder`.
+/// Options for `newSession` / `newResponder`: trust-anchor override and
+/// the pinned-key trust store.
 ///
 /// JWKS provider is passed as a separate argument (napi-rs can't put a
 /// class reference inside an `#[napi(object)]` struct).
@@ -65,6 +67,13 @@ pub struct SessionOpts {
     /// Override the agent manifest's accepted_trust_anchors. `null`
     /// reuses the manifest's list.
     pub trust_anchors: Option<Vec<String>>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2): peer AID
+    /// strings (`aid:pubkey:ed25519:...` or `aid:pubkey:p256:...`). A
+    /// peer presenting a `pinned_key` identity is accepted only if its
+    /// AID is listed; the check runs before the proof is verified.
+    /// Omitted or `[]` trusts no pinned key, so every `pinned_key` peer
+    /// is rejected (fail closed). An invalid AID entry throws.
+    pub pinned_keys: Option<Vec<String>>,
 }
 
 /// Options for `AitpAgent.generate` and `AitpAgent.fromSeed`.
@@ -174,16 +183,10 @@ impl AitpAgent {
         let identity_type = opts.identity_type.as_deref().unwrap_or("pinned_key");
         let (hint, accepted_type, default_anchors) = match identity_type {
             "pinned_key" => {
-                let pk = self.key.verifying_key();
-                // try_to_ed25519_bytes returns None for P-256 keys —
-                // surface that as a clean structured error rather than
-                // panicking inside the now-safe accessor.
-                let pk_bytes = pk.try_to_ed25519_bytes().ok_or_else(|| {
-                    Error::from_reason(
-                        "pinned_key identity_hint with a P-256 agent key is not supported; \
-                         the manifest's identity_hint.public_key is Ed25519-only in v0.1",
-                    )
-                })?;
+                // The pinned-key `public_key` is the AID-identifier form
+                // of the key (RFC-AITP-0002 §3.3): 32 raw bytes for
+                // Ed25519, the 33-byte SEC1 compressed point for P-256.
+                let pk_bytes = self.key.verifying_key().to_compressed();
                 (
                     IdentityHint {
                         kind: IdentityHintKind::PinnedKey,
@@ -265,6 +268,8 @@ impl AitpAgent {
     /// `jwks` is an optional `JwksProvider` used when the peer's
     /// manifest advertises an OIDC identity. `opts.trustAnchors`
     /// overrides the manifest's `accepted_trust_anchors`.
+    /// `opts.pinnedKeys` lists the peer AIDs trusted for `pinned_key`
+    /// identities; omitted ⇒ every `pinned_key` peer is rejected.
     #[napi]
     pub fn new_session(
         &self,
@@ -277,7 +282,8 @@ impl AitpAgent {
     }
 
     /// Create a new inbound (responder) handshake session. Mirror of
-    /// `newSession`.
+    /// `newSession`, including `opts.pinnedKeys`: omitted ⇒ every
+    /// `pinned_key` initiator is rejected.
     #[napi]
     pub fn new_responder(
         &self,
@@ -483,7 +489,11 @@ fn build_session_context(
     jwks: Option<&JwksProvider>,
     opts: Option<SessionOpts>,
 ) -> Result<SessionContext> {
-    let trust_anchors = opts.and_then(|o| o.trust_anchors);
+    let (trust_anchors, pinned_keys) = match opts {
+        Some(o) => (o.trust_anchors, o.pinned_keys),
+        None => (None, None),
+    };
+    let pinned_keys = parse_pinned_keys(pinned_keys.unwrap_or_default())?;
     let anchors: Vec<RawUrl> = match trust_anchors {
         Some(list) => list
             .into_iter()
@@ -501,5 +511,20 @@ fn build_session_context(
         identity_kind: manifest.identity_hint.kind,
         identity_subject: manifest.identity_hint.subject.clone(),
         identity_issuer: manifest.identity_hint.issuer.clone(),
+        pinned_keys,
     })
+}
+
+/// Parse `pinnedKeys` AID strings into a [`StaticPinnedKeyStore`]. Any
+/// entry that is not a valid AID (or whose key does not decode) is an
+/// error, never silently skipped.
+fn parse_pinned_keys(aids: Vec<String>) -> Result<StaticPinnedKeyStore> {
+    aids.iter()
+        .map(|s| {
+            let aid = Aid::parse(s)
+                .map_err(|e| Error::from_reason(format!("invalid pinnedKeys AID {s:?}: {e}")))?;
+            AitpVerifyingKey::from_aid(&aid)
+                .map_err(|e| Error::from_reason(format!("invalid pinnedKeys AID {s:?}: {e}")))
+        })
+        .collect()
 }

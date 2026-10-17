@@ -27,23 +27,27 @@
 use crate::types::{IssuedTct, TctRenewalPayload, TCT_CLAIMS_MEMBERS};
 use crate::{verify_tct, TctBuilder, TctError, TctVerifyContext};
 use aitp_core::{base64url, check_members, from_serde_error, reject_duplicate_keys, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
-use sha2::{Digest, Sha256};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use uuid::Uuid;
 
 /// Build a [`TctRenewalPayload`] on the holder side.
 ///
 /// The holder signs over `sha256(base64url_decode(pop_nonce))` with
 /// its long-term key — same construction as the handshake's PoP.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn build_renewal_request(
-    holder_key: &AitpSigningKey,
+    holder_key: &dyn AitpSigner,
     current_tct: String,
     pop_nonce: String,
 ) -> Result<TctRenewalPayload, TctError> {
     let nonce_bytes = base64url::decode_strict(&pop_nonce)
         .map_err(|e| TctError::ClaimsMalformed(format!("pop_nonce: {e}")))?;
-    let digest = Sha256::digest(&nonce_bytes);
-    let pop_signature = holder_key.sign(&digest).into_string();
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
+    let pop_signature = aitp_crypto::sign_jcs(holder_key, &digest)
+        .map_err(CryptoError::Signer)?
+        .into_string();
     Ok(TctRenewalPayload {
         current_tct,
         pop_nonce,
@@ -67,9 +71,12 @@ pub fn build_renewal_request(
 /// Returns a fresh [`IssuedTct`] with the same grants, same subject /
 /// audience / binding, new `jti`, and `exp` bounded by the supplied
 /// `manifest_expires_at`.
+///
+/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+/// failure returns `TctError::Crypto(CryptoError::Signer(_))`.
 pub fn process_renewal_request(
     request: &TctRenewalPayload,
-    issuer_key: &AitpSigningKey,
+    issuer_key: &dyn AitpSigner,
     manifest_expires_at: Timestamp,
     now: Timestamp,
     ttl_secs: i64,
@@ -115,7 +122,11 @@ pub fn process_renewal_request(
     // Renewal re-verifies the current TCT before minting a fresh one;
     // revocation and the Manifest cap are handled by the issuing peer's
     // renewal policy, not this holder-side re-verification.
-    let ctx = TctVerifyContext::permissive_at(&peek_claims.aud, issuer_aid, now);
+    let ctx = TctVerifyContext::builder(&peek_claims.aud, issuer_aid, now)
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .expect("both decisions are made");
     let verified = verify_tct(&request.current_tct, &ctx)?;
     let claims = verified.claims;
 
@@ -124,10 +135,10 @@ pub fn process_renewal_request(
     let holder_pk = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
     let nonce_bytes = base64url::decode_strict(&request.pop_nonce)
         .map_err(|e| TctError::ClaimsMalformed(format!("pop_nonce: {e}")))?;
-    let digest = Sha256::digest(&nonce_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
     let sig = Signature::parse(&request.pop_signature).map_err(|_| TctError::SignatureInvalid)?;
     holder_pk
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .map_err(|_| TctError::SignatureInvalid)?;
 
     if manifest_expires_at.0 <= now.0 {
@@ -152,6 +163,7 @@ pub fn process_renewal_request(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     fn issue(
         issuer: &AitpSigningKey,

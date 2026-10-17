@@ -91,3 +91,60 @@ fn builder_reproduces_voucher_signed_example() {
         "builder-minted voucher diverges from the spec signed-example"
     );
 }
+
+/// Spec PR A: the ES256 TCT (kat-keypair-005-p256 issues to
+/// kat-keypair-002) verifies as committed, the builder reproduces it
+/// byte for byte (RFC 6979, low-S), and the double-hash token does not
+/// verify.
+#[test]
+fn p256_tct_signed_example_verifies_and_reproduces() {
+    use aitp_tct::{verify_tct, TctError, TctVerifyContext};
+    let v = vector("tct/kat-keypair-005-issues-002.json");
+    let input = &v["_kat_input"];
+    let issuer = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
+    let subject = AitpSigningKey::from_seed(&core::array::from_fn(|i| i as u8));
+    let token = v["tct_token"].as_str().unwrap();
+
+    let ctx = TctVerifyContext::builder(
+        subject.aid(),
+        issuer.aid(),
+        Timestamp(input["iat"].as_i64().unwrap() + 100),
+    )
+    .skip_manifest_expiry_cap_dangerous()
+    .accept_unchecked_revocation_dangerous()
+    .build()
+    .unwrap();
+    let verified = verify_tct(token, &ctx).expect("committed ES256 TCT verifies");
+    assert_eq!(
+        serde_json::to_value(&verified.claims).unwrap(),
+        v["decoded_claims"]
+    );
+    let dh = v["_must_not_verify"]["double_hash_jws"].as_str().unwrap();
+    let r = verify_tct(dh, &ctx);
+    assert!(
+        matches!(
+            r,
+            Err(TctError::SignatureInvalid
+                | TctError::Crypto(aitp_crypto::CryptoError::SignatureInvalid))
+        ),
+        "{r:?}"
+    );
+
+    let issued = TctBuilder::new(&issuer)
+        .subject(subject.aid().clone())
+        .audience(subject.aid().clone())
+        .grants(
+            input["grants"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .map(|g| g.as_str().unwrap().to_string()),
+        )
+        .ttl_secs(input["ttl_secs"].as_i64().unwrap())
+        .subject_pubkey(subject.verifying_key())
+        .issued_at(Timestamp(input["iat"].as_i64().unwrap()))
+        .jti(Uuid::parse_str(input["jti"].as_str().unwrap()).unwrap())
+        .build()
+        .expect("builder ok");
+    assert_eq!(issued.token, token);
+}

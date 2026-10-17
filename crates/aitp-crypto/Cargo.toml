@@ -14,6 +14,7 @@ homepage.workspace = true
 aitp-core = { path = "../aitp-core", version = "=0.13.2" }
 ed25519-dalek = { workspace = true }
 p256 = { workspace = true }
+ecdsa = { workspace = true }
 sha2 = { workspace = true }
 base64ct = { workspace = true }
 rand = { workspace = true }
@@ -21,7 +22,17 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 
+[features]
+# Exposes `aitp_crypto::testing::MockKmsSigner`, a deterministic stand-in
+# for a cloud KMS backend (DER output, high-S, randomized nonces, key
+# mismatch, transient failures). For tests in this and downstream crates.
+test-util = []
+
 [dev-dependencies]
+# Self dev-dependency: integration tests get `aitp_crypto::testing`.
+aitp-crypto = { path = ".", features = ["test-util"] }
+aitp-core = { path = "../aitp-core" }
+tokio = { workspace = true }
 hex = { workspace = true }
 # Differential oracle for the compact-JWS profile: every token we mint
 # must verify with an off-the-shelf JOSE library, and its rejection of

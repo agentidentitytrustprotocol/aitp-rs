@@ -1,0 +1,48 @@
+{
+  "_kat_input": {
+    "issuer_seed_id": "kat-keypair-005-p256",
+    "published_at": 1711900000,
+    "ttl_secs": 86400,
+    "identity_type": "pinned_key",
+    "offered_capabilities": [
+      "macp.mode.task.v1"
+    ],
+    "accepted_trust_anchors": [
+      "https://idp.example.com"
+    ],
+    "pop_challenge_source": "first 16 bytes of sha256(\"kat-keypair-005-manifest proof_of_possession.challenge\")"
+  },
+  "signing_input": "body",
+  "manifest": {
+    "version": "aitp/0.2",
+    "aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+    "display_name": "kat-keypair-005-p256",
+    "identity_hint": {
+      "type": "pinned_key",
+      "subject": "kat-keypair-005-p256",
+      "public_key": "AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR"
+    },
+    "handshake_endpoint": "https://example.com/aitp/handshake",
+    "accepted_trust_anchors": [
+      "https://idp.example.com/"
+    ],
+    "accepted_identity_types": [
+      "pinned_key"
+    ],
+    "offered_capabilities": [
+      "macp.mode.task.v1"
+    ],
+    "proof_of_possession": {
+      "challenge": "vouFsXpPtCX2aCBBVv6sVA",
+      "signature": "p256.H-06PBJ4SQwKttGuTAz1tDqmH69aV0Hm0zLeT1v30zVATj8fXFvHyXIkUva5VA7Xt2Di3k_RoaAi4xZrs4_ZLg"
+    },
+    "published_at": 1711900000,
+    "expires_at": 1711986400,
+    "signature": "p256.-udvH6qwriW7E_9k9rfm4FETZ-2aBtLd9eMIG1CjVp0Zi03X_pDVXD4iTzBddPtH-MuM6pdRZUq7RVowjgPZOg"
+  },
+  "_must_not_verify": {
+    "$comment": "ECDSA over sha256(d) instead of d (RFC-AITP-0001 §5.4.6). `double_hash_signature` MUST NOT verify over the inner Manifest body; `double_hash_pop_signature` MUST NOT verify over the decoded challenge.",
+    "double_hash_signature": "p256.VZ1rGRElpiZpZXoi17yeUrOMHEl6C1ldHluR-mthwGp9flNnRLQJ7OD6jw_rMoyPuJebta8PNtgfRwWdAPUvhw",
+    "double_hash_pop_signature": "p256.AQHw7S2naDqP4xuQ5WGyVmidrqG_pDXrYsPTN9Gv9z5krpVfMYwya1rXrDmr80px0Kkl69cgpHt9CcOizvYIjg"
+  }
+}

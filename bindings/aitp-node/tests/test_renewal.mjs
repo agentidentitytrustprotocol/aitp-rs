@@ -27,8 +27,8 @@ function issuedPair() {
     offeredCaps: ['demo.echo'],
   });
   // B initiates against A → at the end B holds A-issued TCT.
-  const sess = b.newSession();
-  const rsess = a.newResponder();
+  const sess = b.newSession(null, { pinnedKeys: [a.aid] });
+  const rsess = a.newResponder(null, { pinnedKeys: [b.aid] });
   const hello = sess.buildHello(aManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);

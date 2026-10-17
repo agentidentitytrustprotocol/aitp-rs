@@ -71,7 +71,7 @@
     "exp": {
       "type": "integer",
       "minimum": 1,
-      "description": "Unix timestamp (seconds) of expiry. Consumers MUST enforce this, and exp MUST NOT exceed the issuer Manifest's expires_at (RFC-AITP-0005 §10.4)."
+      "description": "Unix timestamp (seconds) of expiry. Consumers MUST enforce this, and exp MUST NOT exceed the issuer Manifest's expires_at (RFC-AITP-0005 §10.4). A self-attestation whose issuer publishes no Manifest has no such bound; the relying party waives it explicitly (RFC-AITP-0005 §5.3)."
     },
     "grants": {
       "type": "array",
@@ -83,7 +83,7 @@
       },
       "minItems": 1,
       "uniqueItems": true,
-      "description": "Capability strings granted to the subject. Empty-grants TCTs are forbidden (RFC-AITP-0004 §4.1). Private claim."
+      "description": "Capability strings granted to the subject. Empty-grants TCTs are forbidden (RFC-AITP-0004 §4.1). A self-attestation (iss == sub == aud) carries exactly the marker grant aitp.attestation, which a verifier in a grant context rejects (RFC-AITP-0005 §5.3). Private claim."
     },
     "cnf": {
       "$ref": "#/$defs/Cnf"

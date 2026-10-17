@@ -245,9 +245,15 @@ pub enum JwsVerifyError {
 /// algorithm is never inferred from an attacker-controlled header.
 ///
 /// Dispatch by key type:
-/// - EdDSA — `aitp_crypto::AitpVerifyingKey::from_bytes` + `verify_raw`
-///   (dalek `verify_strict`, rejecting non-canonical signatures).
-/// - ES256 — `AitpVerifyingKey::from_p256_affine` + `verify_raw`.
+/// - EdDSA — `aitp_crypto::AitpVerifyingKey::from_bytes` +
+///   `verify_raw_jose` (dalek `verify_strict`, rejecting non-canonical
+///   signatures).
+/// - ES256 — `AitpVerifyingKey::from_p256_affine` + `verify_raw_jose`.
+///   High-S is accepted. This verifies third-party JOSE (IdP ID tokens,
+///   DPoP proofs) per RFC 7515/7518; RFC-AITP-0001 §5.4.7 low-S covers
+///   AITP signing inputs only. The token bytes are therefore
+///   malleable, so replay caches key on the bound nonce or `jti`, never
+///   on the raw token.
 /// - RS256 — `ring::signature::RsaPublicKeyComponents::verify` with
 ///   `RSA_PKCS1_2048_8192_SHA256`, the same verification path
 ///   `jsonwebtoken` 9's RS256 support used internally. Verification is
@@ -268,14 +274,16 @@ pub fn verify_jws_signature(
         });
     }
     match &key.key {
+        // Third-party JOSE (IdP ID tokens, DPoP proofs): RFC 7515/7518,
+        // not RFC-AITP-0001 §5.4.7, so high-S is accepted.
         JwkKeyMaterial::Ed25519 { x } => {
             let vk = AitpVerifyingKey::from_bytes(x)?;
-            vk.verify_raw(signing_input, sig)
+            vk.verify_raw_jose(signing_input, sig)
                 .map_err(|_| JwsVerifyError::SignatureInvalid)
         }
         JwkKeyMaterial::P256 { x, y } => {
             let vk = AitpVerifyingKey::from_p256_affine(x, y)?;
-            vk.verify_raw(signing_input, sig)
+            vk.verify_raw_jose(signing_input, sig)
                 .map_err(|_| JwsVerifyError::SignatureInvalid)
         }
         JwkKeyMaterial::Rsa { n, e } => {
@@ -308,15 +316,9 @@ mod tests {
             Base64UrlUnpadded::encode_string(header.as_bytes()),
             Base64UrlUnpadded::encode_string(payload.as_bytes()),
         );
-        // `AitpSigningKey::sign` emits the wire (base64url, possibly
-        // algorithm-tagged) form; for an Ed25519 key that's the
-        // untagged 64-byte raw signature the JWS raw-signature profile
-        // also uses, so decode it back to raw bytes for
-        // `verify_jws_signature`, which takes the raw form directly.
-        let sig = key.sign(signing_input.as_bytes());
-        let raw = Base64UrlUnpadded::decode_vec(sig.payload()).expect("valid base64url payload");
-        let mut arr = [0u8; 64];
-        arr.copy_from_slice(&raw);
+        // JWS signs the signing input itself (EdDSA / ES256), not the
+        // AITP `Digest32`.
+        let arr = key.sign_raw(signing_input.as_bytes());
         (signing_input.into_bytes(), arr)
     }
 
@@ -399,6 +401,46 @@ mod tests {
         let mut bad_sig = sig;
         bad_sig[0] ^= 0xff;
         assert!(verify_jws_signature(&jwk, "EdDSA", &signing_input, &bad_sig).is_err());
+    }
+
+    /// A third-party JOSE token (an IdP ID token, a DPoP proof) is
+    /// verified per RFC 7515/7518. §5.4.7 low-S is scoped to AITP
+    /// signing inputs, so a high-S ES256 signature from an IdP verifies
+    /// here, while the AITP JWS path (`verify_raw`) still rejects it.
+    #[test]
+    fn verify_jws_signature_accepts_high_s_es256() {
+        let key = AitpSigningKey::from_p256_seed(&[5; 32]).unwrap();
+        let point =
+            p256::ecdsa::VerifyingKey::from_sec1_bytes(&key.verifying_key().to_compressed())
+                .unwrap()
+                .to_sec1_point(false);
+        let jwk = JwkPublicKey {
+            kid: None,
+            alg: JwsAlgorithm::ES256,
+            key: JwkKeyMaterial::P256 {
+                x: point.as_bytes()[1..33].try_into().unwrap(),
+                y: point.as_bytes()[33..65].try_into().unwrap(),
+            },
+        };
+        let (signing_input, sig) = signing_input_and_sig(&key, "ES256");
+        let twin = aitp_crypto::testing::p256_high_s_twin(sig);
+        assert_ne!(twin, sig);
+        verify_jws_signature(&jwk, "ES256", &signing_input, &sig).expect("low-S");
+        verify_jws_signature(&jwk, "ES256", &signing_input, &twin)
+            .expect("an IdP's high-S ES256 signature is valid JOSE");
+        assert!(
+            key.verifying_key()
+                .verify_raw(&signing_input, &twin)
+                .is_err(),
+            "AITP-minted JWS stays strict (§5.4.7)"
+        );
+        // Lenient on S only: a wrong signature still fails.
+        let mut bad = twin;
+        bad[0] ^= 1;
+        assert!(verify_jws_signature(&jwk, "ES256", &signing_input, &bad).is_err());
+        let mut zero_s = sig;
+        zero_s[32..].fill(0);
+        assert!(verify_jws_signature(&jwk, "ES256", &signing_input, &zero_s).is_err());
     }
 
     #[test]

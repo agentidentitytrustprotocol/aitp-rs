@@ -36,6 +36,11 @@ const SIG_PENDING_SENTINEL: &str = "__RUNNER_SIG_PENDING__";
 /// path rather than a base64url decode error.
 const SIG_TAMPER_PENDING_SENTINEL: &str = "__RUNNER_SIG_TAMPER_PENDING__";
 
+/// Stand-in for `__INVALID_POP_SIG__` / `__INVALID_POP_SIG_OVER_WRONG_NONCE__`
+/// until the signature pass: a real PoP signature by the right key over
+/// the bitwise complement of the challenge or nonce.
+const POP_WRONG_INPUT_PENDING_SENTINEL: &str = "__RUNNER_POP_WRONG_INPUT_PENDING__";
+
 /// Per-run substitution context. Holds known-answer keypair seeds
 /// (so signatures are reproducible) and a rolling cache of generated
 /// nonces so that `__VALID_NONCE_ECHO__` can recall the most recent
@@ -60,6 +65,12 @@ pub struct RunnerContext {
     /// produce distinct values. Reset between fixtures via
     /// [`Self::reset_per_fixture`].
     nonce_counter: u32,
+    /// Placeholders this fixture used that the runner cannot mint,
+    /// in first-seen order. Each resolved to a
+    /// `RUNNER_UNKNOWN_PLACEHOLDER_*` sentinel, so a failure fixture
+    /// that uses one can pass without exercising its check. Reset by
+    /// [`Self::reset_per_fixture`].
+    unminted: Vec<String>,
 }
 
 impl Default for RunnerContext {
@@ -94,6 +105,7 @@ impl RunnerContext {
             now: REFERENCE_NOW,
             last_nonce: None,
             nonce_counter: 0,
+            unminted: Vec::new(),
         }
     }
 
@@ -105,6 +117,13 @@ impl RunnerContext {
     pub fn reset_per_fixture(&mut self) {
         self.last_nonce = None;
         self.nonce_counter = 0;
+        self.unminted.clear();
+    }
+
+    /// Placeholders seen since [`Self::reset_per_fixture`] that the
+    /// runner could not mint.
+    pub fn unminted(&self) -> &[String] {
+        &self.unminted
     }
 
     /// Walk a fixture-input JSON value, replacing every
@@ -140,7 +159,28 @@ impl RunnerContext {
         // before JCS signatures (the minted JWT lives inside a signed
         // envelope/manifest body).
         self.substitute_valid_jwt(value);
+        // RFC-AITP-0002 §3.1 pinned-key proof negatives: after scalars
+        // (the envelope `timestamp` may be `__NOW__`) and before JCS
+        // signatures (the proof sits inside the signed envelope).
+        self.substitute_pinned_proofs(value);
         self.substitute_signatures(value);
+    }
+
+    /// Mint the pinned-key proofs (PLACEHOLDERS.md): the valid
+    /// `__VALID_PINNED_PROOF__`, and the negatives
+    /// `__PINNED_PROOF_OVER_WRONG_NONCE__`, `__CAPTURED_PROOF_FROM_ORIGINAL_HANDSHAKE__`
+    /// and `__LEGACY_PINNED_PROOF__`. Each is a real signature by the
+    /// sender's KAT key over an input that differs from the one the
+    /// verifier reconstructs, so the fixture fails at §3.2 step 5 rather
+    /// than at decoding. The receiver is the fixture root's `self_aid`.
+    fn substitute_pinned_proofs(&self, value: &mut Value) {
+        let self_aid = value
+            .get("self_aid")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        if let Some(self_aid) = self_aid {
+            substitute_pinned_proofs_at(value, &self_aid);
+        }
     }
 
     /// Resolve the v0.2 compact-JWS whole-token placeholders using the
@@ -310,8 +350,8 @@ impl RunnerContext {
                     base64url::encode(header.as_bytes()),
                     base64url::encode(&payload)
                 );
-                let sig = key.sign(signing_input.as_bytes());
-                Some(format!("{signing_input}.{}", sig.as_str()))
+                let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+                Some(format!("{signing_input}.{sig}"))
             }
             _ => None,
         }
@@ -367,15 +407,14 @@ impl RunnerContext {
         map: &mut serde_json::Map<String, Value>,
         self_aid: Option<&str>,
     ) {
-        let is_valid_jwt = matches!(
-            map.get("identity")
-                .and_then(|i| i.get("proof"))
-                .and_then(|p| p.as_str()),
-            Some("__VALID_JWT__")
-        );
-        if !is_valid_jwt {
+        let Some(variant) = map
+            .get("identity")
+            .and_then(|i| i.get("proof"))
+            .and_then(|p| p.as_str())
+            .and_then(JwtVariant::from_placeholder)
+        else {
             return;
-        }
+        };
         let Some(minted) = (|| {
             let identity = map.get("identity")?;
             let issuer = identity.get("issuer")?.as_str()?;
@@ -389,7 +428,7 @@ impl RunnerContext {
                 .ok()?;
             let audience = self_aid.unwrap_or(OIDC_TEST_ADAPTER_FALLBACK_AUD);
             Some(mint_oidc_jwt(
-                issuer, subject, audience, nonce, &cnf_jkt, self.now,
+                issuer, subject, audience, nonce, &cnf_jkt, self.now, variant,
             ))
         })() else {
             return;
@@ -439,17 +478,25 @@ impl RunnerContext {
                         .get_mut("proof_of_possession")
                         .and_then(|v| v.as_object_mut())
                     {
-                        let pending = matches!(
+                        let wrong_input = matches!(
                             pop.get("signature").and_then(|v| v.as_str()),
-                            Some(SIG_PENDING_SENTINEL)
+                            Some(POP_WRONG_INPUT_PENDING_SENTINEL)
                         );
+                        let pending = wrong_input
+                            || matches!(
+                                pop.get("signature").and_then(|v| v.as_str()),
+                                Some(SIG_PENDING_SENTINEL)
+                            );
                         if pending {
                             if let (Some(challenge), Some(key)) = (
                                 pop.get("challenge").and_then(|v| v.as_str()),
                                 aid.as_deref().and_then(kat_key_for_aid),
                             ) {
-                                if let Ok(bytes) = base64url::decode_strict(challenge) {
-                                    let sig = key.sign(&Sha256::digest(&bytes));
+                                if let Ok(mut bytes) = base64url::decode_strict(challenge) {
+                                    if wrong_input {
+                                        complement(&mut bytes);
+                                    }
+                                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
                                     pop.insert("signature".into(), Value::from(sig.into_string()));
                                 }
                             }
@@ -474,15 +521,20 @@ impl RunnerContext {
                 // kat-keypair-002 (the holder in tct-006's downstream
                 // PoP exchange).
                 if let Some(pop_sig_value) = map.get("pop_signature").cloned() {
-                    if pop_sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
+                    let wrong_input =
+                        pop_sig_value.as_str() == Some(POP_WRONG_INPUT_PENDING_SENTINEL);
+                    if wrong_input || pop_sig_value.as_str() == Some(SIG_PENDING_SENTINEL) {
                         let echo = map
                             .get("nonce_echo")
                             .or_else(|| map.get("pop_nonce_echo"))
                             .and_then(|v| v.as_str())
                             .map(String::from);
                         if let Some(echo) = echo {
-                            if let Ok(nonce_bytes) = base64url::decode_strict(&echo) {
-                                let pop_input = Sha256::digest(&nonce_bytes);
+                            if let Ok(mut nonce_bytes) = base64url::decode_strict(&echo) {
+                                if wrong_input {
+                                    complement(&mut nonce_bytes);
+                                }
+                                let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
                                 let key = map
                                     .get("tct_claims")
                                     .and_then(|c| c.get("iss"))
@@ -491,7 +543,7 @@ impl RunnerContext {
                                     .unwrap_or_else(|| {
                                         AitpSigningKey::from_seed(&self.kp_002_seed)
                                     });
-                                let sig = key.sign(&pop_input);
+                                let sig = key.sign_jcs(&pop_input);
                                 map.insert("pop_signature".into(), Value::from(sig.into_string()));
                             }
                         }
@@ -586,7 +638,8 @@ impl RunnerContext {
         if is_jws_placeholder(s)
             || s == "__COMPUTED_CHAIN_HASH__"
             || s == "__ANY_CHAIN_HASH__"
-            || s == "__VALID_JWT__"
+            || JwtVariant::from_placeholder(s).is_some()
+            || is_pinned_proof_placeholder(s)
         {
             return None;
         }
@@ -649,6 +702,17 @@ impl RunnerContext {
             return Some(Value::from(SIG_PENDING_SENTINEL));
         }
 
+        // Ignored-value placeholders (PLACEHOLDERS.md): never verified,
+        // but MUST be syntactically valid. Mint the RECOMMENDED real
+        // signature over the enclosing body.
+        if s == "__ANY_CHAIN_STEP_SIG__" || s == "__ANY_DELEGATION_SIG__" {
+            return Some(Value::from(SIG_PENDING_SENTINEL));
+        }
+
+        if s == "__INVALID_POP_SIG__" || s == "__INVALID_POP_SIG_OVER_WRONG_NONCE__" {
+            return Some(Value::from(POP_WRONG_INPUT_PENDING_SENTINEL));
+        }
+
         // Tampered signature placeholders (PLACEHOLDERS.md §129–130).
         // The second pass signs properly then flips the LSB of the
         // last raw signature byte to produce a syntactically valid
@@ -661,10 +725,141 @@ impl RunnerContext {
 
         // Unknown placeholder — surface it as a sentinel so the
         // adapter fails loudly rather than treating the literal
-        // token as a real value.
+        // token as a real value, and record it so the runner can say
+        // a pass did not exercise the check.
+        if !self.unminted.iter().any(|u| u == s) {
+            self.unminted.push(s.to_string());
+        }
         Some(Value::from(format!("RUNNER_UNKNOWN_PLACEHOLDER_{s}")))
     }
 }
+
+const VALID_PINNED_PROOF: &str = "__VALID_PINNED_PROOF__";
+const PINNED_PROOF_OVER_WRONG_NONCE: &str = "__PINNED_PROOF_OVER_WRONG_NONCE__";
+const CAPTURED_PINNED_PROOF: &str = "__CAPTURED_PROOF_FROM_ORIGINAL_HANDSHAKE__";
+const LEGACY_PINNED_PROOF: &str = "__LEGACY_PINNED_PROOF__";
+
+fn is_pinned_proof_placeholder(s: &str) -> bool {
+    matches!(
+        s,
+        VALID_PINNED_PROOF
+            | PINNED_PROOF_OVER_WRONG_NONCE
+            | CAPTURED_PINNED_PROOF
+            | LEGACY_PINNED_PROOF
+    )
+}
+
+/// The RFC-AITP-0002 §3.1 proof input:
+/// `"aitp-pinned-key-v1" 0x00 sender 0x00 receiver 0x00 message_id 0x00
+/// timestamp 0x00 base64url_decode(pop_nonce)`. Built here, not borrowed
+/// from `aitp-handshake`, so the runner does not share the code under
+/// test; `pinned_proof_input_reproduces_kat_001` pins it to the spec
+/// bytes.
+fn pinned_proof_input(
+    sender: &str,
+    receiver: &str,
+    message_id: &str,
+    timestamp: i64,
+    pop_nonce: &str,
+) -> Option<Vec<u8>> {
+    let nonce = base64url::decode_strict(pop_nonce).ok()?;
+    let mut out = b"aitp-pinned-key-v1\0".to_vec();
+    for field in [sender, receiver, message_id, &timestamp.to_string()] {
+        out.extend_from_slice(field.as_bytes());
+        out.push(0);
+    }
+    out.extend_from_slice(&nonce);
+    Some(out)
+}
+
+/// A §3.1-style signature by `key`: `sign_jcs` over `SHA-256(input)`.
+fn sign_pinned_input(key: &AitpSigningKey, input: &[u8]) -> String {
+    let digest = aitp_crypto::Digest32::sha256(input);
+    key.sign_jcs(&digest).into_string()
+}
+
+/// Walk `value`, minting the pinned-key proofs at each envelope.
+fn substitute_pinned_proofs_at(value: &mut Value, self_aid: &str) {
+    match value {
+        Value::Array(items) => {
+            for item in items {
+                substitute_pinned_proofs_at(item, self_aid);
+            }
+        }
+        Value::Object(map) => {
+            for v in map.values_mut() {
+                substitute_pinned_proofs_at(v, self_aid);
+            }
+            if let Some(minted) = mint_pinned_proof(map, self_aid) {
+                map["payload"]["identity"]["proof"] = Value::from(minted);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Flip every bit: a different input of the same length.
+fn complement(bytes: &mut [u8]) {
+    for b in bytes {
+        *b = !*b;
+    }
+}
+
+/// A 16-byte nonce that is not `nonce`: its [`complement`].
+fn other_pop_nonce(nonce: &str) -> Option<String> {
+    let mut bytes = base64url::decode_strict(nonce).ok()?;
+    complement(&mut bytes);
+    Some(base64url::encode(&bytes))
+}
+
+/// If `map` is an envelope whose `payload.identity.proof` is a
+/// pinned-proof placeholder, mint it. `None` when it is not, or when the
+/// sender has no KAT key.
+fn mint_pinned_proof(map: &serde_json::Map<String, Value>, self_aid: &str) -> Option<String> {
+    let payload = map.get("payload")?;
+    let placeholder = payload.get("identity")?.get("proof")?.as_str()?;
+    if !is_pinned_proof_placeholder(placeholder) {
+        return None;
+    }
+    let sender = map.get("sender")?.get("agent_id")?.as_str()?;
+    let message_id = map.get("message_id")?.as_str()?;
+    let timestamp = map.get("timestamp")?.as_i64()?;
+    let pop_nonce = payload.get("pop_nonce")?.as_str()?;
+    let key = kat_key_for_aid(sender)?;
+    let input = match placeholder {
+        // The real proof over the envelope as it stands after
+        // substitution, so it covers a run-time `__ISSUED_NONCE_<n>__`.
+        VALID_PINNED_PROOF => {
+            pinned_proof_input(sender, self_aid, message_id, timestamp, pop_nonce)?
+        }
+        PINNED_PROOF_OVER_WRONG_NONCE => pinned_proof_input(
+            sender,
+            self_aid,
+            message_id,
+            timestamp,
+            &other_pop_nonce(pop_nonce)?,
+        )?,
+        // A proof from an earlier handshake with another peer: every
+        // field but the sender differs.
+        CAPTURED_PINNED_PROOF => pinned_proof_input(
+            sender,
+            CAPTURED_PROOF_ORIGINAL_RECEIVER,
+            CAPTURED_PROOF_ORIGINAL_MESSAGE_ID,
+            timestamp - 3600,
+            &other_pop_nonce(pop_nonce)?,
+        )?,
+        // Pre-v0.1: `message_id|timestamp`, no domain, receiver or nonce.
+        LEGACY_PINNED_PROOF => format!("{message_id}|{timestamp}").into_bytes(),
+        _ => return None,
+    };
+    Some(sign_pinned_input(&key, &input))
+}
+
+/// The "original" peer a `__CAPTURED_PROOF_FROM_ORIGINAL_HANDSHAKE__`
+/// proof was addressed to: kat-keypair-002.
+const CAPTURED_PROOF_ORIGINAL_RECEIVER: &str =
+    "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg";
+const CAPTURED_PROOF_ORIGINAL_MESSAGE_ID: &str = "770e8400-e29b-41d4-a716-4466554400ff";
 
 fn is_jws_placeholder(s: &str) -> bool {
     matches!(
@@ -800,8 +995,8 @@ fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>)
         _ => body,
     };
     let canonical = jcs::canonicalize(&body).ok()?;
-    let digest = Sha256::digest(&canonical);
-    Some(key.sign(&digest).into_string())
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    Some(key.sign_jcs(&digest).into_string())
 }
 
 fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<String> {
@@ -829,7 +1024,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
                 sender_key.as_ref(),
             ) {
                 if let Ok(bytes) = base64url::decode_strict(&echo) {
-                    let sig = key.sign(&Sha256::digest(&bytes));
+                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
                     payload_obj.insert("pop_signature".into(), Value::from(sig.into_string()));
                 }
             }
@@ -861,7 +1056,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     // `sha256(signing_input)` (aitp_core::envelope_signing_digest),
     // not the raw input bytes.
     Some(
-        key.sign(&Sha256::digest(signing_input.as_bytes()))
+        key.sign_jcs(&aitp_crypto::Digest32::sha256(signing_input.as_bytes()))
             .into_string(),
     )
 }
@@ -932,6 +1127,46 @@ const OIDC_TEST_ADAPTER_FALLBACK_AUD: &str =
 /// header (the adapter's matching resolver returns exactly one
 /// candidate key, so `verify_oidc`'s no-`kid` single-key fallback
 /// applies).
+/// Which OIDC identity JWT a placeholder asks for (PLACEHOLDERS.md).
+/// Every variant is signed and well formed; each negative differs from
+/// `__VALID_JWT__` in exactly one property.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum JwtVariant {
+    /// `__VALID_JWT__`.
+    Valid,
+    /// `__JWT_MISSING_AUD_CLAIM__`: no `aud`.
+    MissingAud,
+    /// `__JWT_AUD_TARGETS_DIFFERENT_PEER__`: `aud` is another peer's AID.
+    AudOtherPeer,
+    /// `__JWT_MISSING_CNF_JKT_CLAIM__`: no `cnf`.
+    MissingCnfJkt,
+    /// `__VALID_JWT_FROM_UNKNOWN_ISSUER__`: valid, but signed by a key
+    /// the adapter's test-issuer resolver does not hold.
+    UnknownIssuer,
+}
+
+impl JwtVariant {
+    fn from_placeholder(s: &str) -> Option<Self> {
+        Some(match s {
+            "__VALID_JWT__" => Self::Valid,
+            "__JWT_MISSING_AUD_CLAIM__" => Self::MissingAud,
+            "__JWT_AUD_TARGETS_DIFFERENT_PEER__" => Self::AudOtherPeer,
+            "__JWT_MISSING_CNF_JKT_CLAIM__" => Self::MissingCnfJkt,
+            "__VALID_JWT_FROM_UNKNOWN_ISSUER__" => Self::UnknownIssuer,
+            _ => return None,
+        })
+    }
+}
+
+/// The peer a `__JWT_AUD_TARGETS_DIFFERENT_PEER__` token names:
+/// kat-keypair-004, which is no fixture's `self_aid`.
+const JWT_OTHER_PEER_AUD: &str = "aid:pubkey:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w";
+
+/// Signing seed for `__VALID_JWT_FROM_UNKNOWN_ISSUER__`; deliberately
+/// not [`OIDC_TEST_ISSUER_SEED`].
+const OIDC_UNKNOWN_ISSUER_SEED: [u8; 32] = [0x55u8; 32];
+
+#[allow(clippy::too_many_arguments)]
 fn mint_oidc_jwt(
     issuer: &str,
     subject: &str,
@@ -939,10 +1174,15 @@ fn mint_oidc_jwt(
     nonce: &str,
     cnf_jkt: &str,
     now: i64,
+    variant: JwtVariant,
 ) -> String {
-    let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+    let seed = match variant {
+        JwtVariant::UnknownIssuer => OIDC_UNKNOWN_ISSUER_SEED,
+        _ => OIDC_TEST_ISSUER_SEED,
+    };
+    let key = AitpSigningKey::from_seed(&seed);
     let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
-    let claims = serde_json::json!({
+    let mut claims = serde_json::json!({
         "iss": issuer,
         "sub": subject,
         "aud": audience,
@@ -951,17 +1191,315 @@ fn mint_oidc_jwt(
         "nonce": nonce,
         "cnf": { "jkt": cnf_jkt },
     });
+    let obj = claims.as_object_mut().expect("claims object");
+    match variant {
+        JwtVariant::MissingAud => {
+            obj.remove("aud");
+        }
+        JwtVariant::AudOtherPeer => {
+            obj.insert("aud".into(), Value::from(JWT_OTHER_PEER_AUD));
+        }
+        JwtVariant::MissingCnfJkt => {
+            obj.remove("cnf");
+        }
+        JwtVariant::Valid | JwtVariant::UnknownIssuer => {}
+    }
     let header_b64 = base64url::encode(header.as_bytes());
     let payload_b64 = base64url::encode(claims.to_string().as_bytes());
     let signing_input = format!("{header_b64}.{payload_b64}");
-    let sig = key.sign(signing_input.as_bytes());
-    format!("{signing_input}.{}", sig.into_string())
+    let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+    format!("{signing_input}.{sig}")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use serde_json::json;
+
+    const WORKER_A: &str = "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU";
+    const SELF_AID: &str = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+
+    fn kat_vector(id: &str) -> Value {
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/schemas/known-answer/jcs-sha256.json");
+        let doc: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+        doc["vectors"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"] == id)
+            .unwrap()
+            .clone()
+    }
+
+    #[test]
+    fn pinned_proof_input_reproduces_kat_001() {
+        let v = kat_vector("kat-pinned-key-proof-001");
+        let input = pinned_proof_input(
+            v["sender_aid"].as_str().unwrap(),
+            v["receiver_aid"].as_str().unwrap(),
+            v["message_id"].as_str().unwrap(),
+            v["timestamp"].as_i64().unwrap(),
+            v["pop_nonce"].as_str().unwrap(),
+        )
+        .unwrap();
+        assert_eq!(hex::encode(&input), v["proof_input_hex"].as_str().unwrap());
+        let key = kat_key_for_aid(v["sender_aid"].as_str().unwrap()).unwrap();
+        assert_eq!(
+            sign_pinned_input(&key, &input),
+            v["signature_b64url"].as_str().unwrap()
+        );
+    }
+
+    fn pinned_envelope(proof: &str) -> Value {
+        json!({
+            "self_aid": SELF_AID,
+            "envelope": {
+                "message_id": "770e8400-e29b-41d4-a716-446655440601",
+                "timestamp": "__NOW__",
+                "sender": { "agent_id": WORKER_A },
+                "payload": {
+                    "identity": { "type": "pinned_key", "proof": proof },
+                    "pop_nonce": "AAAAAAAAAAAAAAAAAAAAAA"
+                },
+                "signature": "__VALID_ENVELOPE_SIG__"
+            }
+        })
+    }
+
+    /// `__VALID_PINNED_PROOF__` over id-019's envelope reproduces the
+    /// committed proof byte for byte (Ed25519 is deterministic).
+    #[test]
+    fn valid_pinned_proof_reproduces_id_019() {
+        let mut v = json!({
+            "self_aid": SELF_AID,
+            "envelope": {
+                "message_id": "770e8400-e29b-41d4-a716-446655440901",
+                "timestamp": 1711900000,
+                "sender": { "agent_id": WORKER_A },
+                "payload": {
+                    "identity": { "type": "pinned_key", "proof": VALID_PINNED_PROOF },
+                    "pop_nonce": "AQIDBAUGBwgJCgsMDQ4PEA"
+                },
+                "signature": "__VALID_ENVELOPE_SIG__"
+            }
+        });
+        let mut ctx = RunnerContext::new();
+        ctx.substitute(&mut v);
+        assert!(ctx.unminted().is_empty(), "{:?}", ctx.unminted());
+        assert_eq!(
+            v["envelope"]["payload"]["identity"]["proof"],
+            "C7z8HKjjcw0uK9rZaIhxf7V8dW1UJvzal0pJCxrv0y1R7xri3I2kZ7LyxgJY3R96qd0h3FysO_YOOtKLcuPkCw"
+        );
+    }
+
+    /// Each negative is a real signature by the sender's key that does
+    /// not verify over the input the verifier reconstructs, while a
+    /// proof over that input does: the fixture fails only at step 5.
+    #[test]
+    fn pinned_proof_negatives_are_real_and_fail_reconstruction() {
+        let key = kat_key_for_aid(WORKER_A).unwrap();
+        let vk = key.verifying_key();
+        let true_input = pinned_proof_input(
+            WORKER_A,
+            SELF_AID,
+            "770e8400-e29b-41d4-a716-446655440601",
+            REFERENCE_NOW,
+            "AAAAAAAAAAAAAAAAAAAAAA",
+        )
+        .unwrap();
+        let true_digest = aitp_crypto::Digest32::sha256(&true_input);
+        let good = aitp_crypto::Signature::parse(&sign_pinned_input(&key, &true_input)).unwrap();
+        vk.verify_jcs(&true_digest, &good).unwrap();
+
+        for placeholder in [
+            PINNED_PROOF_OVER_WRONG_NONCE,
+            CAPTURED_PINNED_PROOF,
+            LEGACY_PINNED_PROOF,
+        ] {
+            let mut ctx = RunnerContext::new();
+            let mut v = pinned_envelope(placeholder);
+            ctx.substitute(&mut v);
+            assert!(
+                ctx.unminted().is_empty(),
+                "{placeholder}: {:?}",
+                ctx.unminted()
+            );
+            let proof = v["envelope"]["payload"]["identity"]["proof"]
+                .as_str()
+                .unwrap();
+            let sig = aitp_crypto::Signature::parse(proof)
+                .unwrap_or_else(|e| panic!("{placeholder} minted {proof}: {e}"));
+            assert!(
+                vk.verify_jcs(&true_digest, &sig).is_err(),
+                "{placeholder} verifies over the envelope's own input"
+            );
+            // The envelope is still signed over the minted proof.
+            assert_ne!(v["envelope"]["signature"], json!(SIG_PENDING_SENTINEL));
+        }
+
+        // Wrong nonce really is the only differing field.
+        let mut v = pinned_envelope(PINNED_PROOF_OVER_WRONG_NONCE);
+        RunnerContext::new().substitute(&mut v);
+        let wrong = pinned_proof_input(
+            WORKER_A,
+            SELF_AID,
+            "770e8400-e29b-41d4-a716-446655440601",
+            REFERENCE_NOW,
+            &other_pop_nonce("AAAAAAAAAAAAAAAAAAAAAA").unwrap(),
+        )
+        .unwrap();
+        let sig = aitp_crypto::Signature::parse(
+            v["envelope"]["payload"]["identity"]["proof"]
+                .as_str()
+                .unwrap(),
+        )
+        .unwrap();
+        vk.verify_jcs(&aitp_crypto::Digest32::sha256(&wrong), &sig)
+            .expect("signed over the envelope tuple with the other nonce");
+    }
+
+    fn jwt_claims(token: &str) -> Value {
+        let payload = token.split('.').nth(1).unwrap();
+        serde_json::from_slice(&base64url::decode_strict(payload).unwrap()).unwrap()
+    }
+
+    fn jwt_verifies_under(token: &str, seed: [u8; 32]) -> bool {
+        let (input, sig) = token.rsplit_once('.').unwrap();
+        let sig: [u8; 64] = base64url::decode_strict(sig).unwrap().try_into().unwrap();
+        AitpSigningKey::from_seed(&seed)
+            .verifying_key()
+            .verify_raw_jose(input.as_bytes(), &sig)
+            .is_ok()
+    }
+
+    /// Each JWT negative is signed and well formed and differs from
+    /// `__VALID_JWT__` only in the property its name gives.
+    #[test]
+    fn jwt_negatives_differ_in_one_property() {
+        let mint = |placeholder: &str| {
+            let mut ctx = RunnerContext::new();
+            let mut v = json!({
+                "self_aid": SELF_AID,
+                "envelope": { "payload": {
+                    "identity": {
+                        "type": "oidc",
+                        "issuer": "https://auth.openai.com",
+                        "subject": "agent-A",
+                        "proof": placeholder
+                    },
+                    "manifest": { "aid": SELF_AID },
+                    "pop_nonce": "DLdiOypCLaEk3O1-E8a5TA"
+                }}
+            });
+            ctx.substitute(&mut v);
+            assert!(ctx.unminted().is_empty(), "{placeholder}");
+            v["envelope"]["payload"]["identity"]["proof"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        let valid = mint("__VALID_JWT__");
+        let base = jwt_claims(&valid);
+        assert!(jwt_verifies_under(&valid, OIDC_TEST_ISSUER_SEED));
+
+        let t = mint("__JWT_MISSING_AUD_CLAIM__");
+        let mut want = base.clone();
+        want.as_object_mut().unwrap().remove("aud");
+        assert_eq!(jwt_claims(&t), want);
+        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+
+        let t = mint("__JWT_AUD_TARGETS_DIFFERENT_PEER__");
+        let mut want = base.clone();
+        want["aud"] = json!(JWT_OTHER_PEER_AUD);
+        assert_ne!(JWT_OTHER_PEER_AUD, SELF_AID);
+        assert_eq!(jwt_claims(&t), want);
+        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+
+        let t = mint("__JWT_MISSING_CNF_JKT_CLAIM__");
+        let mut want = base.clone();
+        want.as_object_mut().unwrap().remove("cnf");
+        assert_eq!(jwt_claims(&t), want);
+        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+
+        let t = mint("__VALID_JWT_FROM_UNKNOWN_ISSUER__");
+        assert_eq!(jwt_claims(&t), base);
+        assert!(jwt_verifies_under(&t, OIDC_UNKNOWN_ISSUER_SEED));
+        assert!(!jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+    }
+
+    /// The PoP negatives are real signatures by the right key over the
+    /// complement of the input the verifier checks.
+    #[test]
+    fn pop_negatives_sign_the_wrong_input() {
+        let vk = kat_key_for_aid(SELF_AID).unwrap().verifying_key();
+        let check = |b64: &str, sig: &str| {
+            let mut bytes = base64url::decode_strict(b64).unwrap();
+            let sig = aitp_crypto::Signature::parse(sig).unwrap();
+            let right = vk
+                .verify_jcs(&aitp_crypto::Digest32::sha256(&bytes), &sig)
+                .is_ok();
+            complement(&mut bytes);
+            let wrong = vk
+                .verify_jcs(&aitp_crypto::Digest32::sha256(&bytes), &sig)
+                .is_ok();
+            (right, wrong)
+        };
+
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({ "manifest": {
+            "aid": SELF_AID,
+            "proof_of_possession": {
+                "challenge": "E1P1xitRfiKsGDoeyKCI0w",
+                "signature": "__INVALID_POP_SIG__"
+            },
+            "signature": "__VALID_MANIFEST_SIG__"
+        }});
+        ctx.substitute(&mut v);
+        assert!(ctx.unminted().is_empty());
+        let sig = v["manifest"]["proof_of_possession"]["signature"]
+            .as_str()
+            .unwrap();
+        assert_eq!(check("E1P1xitRfiKsGDoeyKCI0w", sig), (false, true));
+
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({ "envelope": { "payload": {
+            "tct_claims": { "iss": SELF_AID },
+            "pop_signature": "__INVALID_POP_SIG_OVER_WRONG_NONCE__",
+            "pop_nonce_echo": "awVp2Fly6Is8p899W-ALmw"
+        }}});
+        ctx.substitute(&mut v);
+        assert!(ctx.unminted().is_empty());
+        let sig = v["envelope"]["payload"]["pop_signature"].as_str().unwrap();
+        assert_eq!(check("awVp2Fly6Is8p899W-ALmw", sig), (false, true));
+    }
+
+    #[test]
+    fn ignored_value_signatures_are_syntactically_valid() {
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({ "delegation": {
+            "chain": [{ "hop": 1, "signature": "__ANY_CHAIN_STEP_SIG__" }],
+            "signature": "__ANY_DELEGATION_SIG__"
+        }});
+        ctx.substitute(&mut v);
+        assert!(ctx.unminted().is_empty());
+        for sig in [
+            &v["delegation"]["chain"][0]["signature"],
+            &v["delegation"]["signature"],
+        ] {
+            aitp_crypto::Signature::parse(sig.as_str().unwrap()).unwrap();
+        }
+    }
+
+    #[test]
+    fn unknown_placeholder_is_recorded_and_reset() {
+        let mut ctx = RunnerContext::new();
+        let mut v = json!({"a": "__NOT_A_REAL_PLACEHOLDER__", "b": "__NOT_A_REAL_PLACEHOLDER__"});
+        ctx.substitute(&mut v);
+        assert_eq!(ctx.unminted(), ["__NOT_A_REAL_PLACEHOLDER__"]);
+        ctx.reset_per_fixture();
+        assert!(ctx.unminted().is_empty());
+    }
 
     #[test]
     fn now_substitution() {
@@ -1078,7 +1616,6 @@ mod tests {
         // the placeholder with a real Ed25519 signature.
         use aitp_core::base64url;
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-        use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.2",
@@ -1091,11 +1628,13 @@ mod tests {
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = Sha256::digest(&canon);
+        let digest = aitp_crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         let sig = aitp_crypto::Signature::parse(&sig_b64).unwrap();
-        pubkey.verify(&digest, &sig).expect("signature verifies");
+        pubkey
+            .verify_jcs(&digest, &sig)
+            .expect("signature verifies");
         let _ = base64url::encode(b"");
     }
 
@@ -1109,7 +1648,6 @@ mod tests {
         // to reach the crypto layer instead of bouncing at the
         // base64url parser.
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-        use sha2::{Digest, Sha256};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.2",
@@ -1127,11 +1665,11 @@ mod tests {
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = Sha256::digest(&canon);
+        let digest = aitp_crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         assert!(
-            pubkey.verify(&digest, &sig).is_err(),
+            pubkey.verify_jcs(&digest, &sig).is_err(),
             "tampered signature must fail verify_strict"
         );
     }
@@ -1249,7 +1787,10 @@ mod tests {
         let issuer_key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
         issuer_key
             .verifying_key()
-            .verify(signing_input.as_bytes(), &sig)
+            .verify_raw(
+                signing_input.as_bytes(),
+                &base64url::decode_strict(sig.as_str()).unwrap(),
+            )
             .expect("minted JWT signature must verify under the OIDC test issuer key");
     }
 
@@ -1369,7 +1910,7 @@ mod tests {
         let sig_b64 = envelope["signature"].as_str().unwrap();
         let sig = aitp_crypto::Signature::parse(sig_b64).unwrap();
         let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();
-        pubkey.verify(&digest, &sig).expect(
+        pubkey.verify_jcs(&digest.into(), &sig).expect(
             "envelope signature must verify over the post-JWT-minting payload bytes \
              (proves the minting pass ran before the signature pass, not after)",
         );

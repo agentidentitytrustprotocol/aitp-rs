@@ -27,8 +27,8 @@ def _jws_jti(tct_token):
 def _handshake_to_coordinator(participant, coordinator, coord_manifest_json):
     """Run a four-message handshake with `coordinator` as the responder.
     Returns the coordinator-issued TCT (compact JWS) for the participant."""
-    sess = participant.new_session()
-    rsess = coordinator.new_responder()
+    sess = participant.new_session(pinned_keys=[coordinator.aid])
+    rsess = coordinator.new_responder(pinned_keys=[participant.aid])
     hello = sess.build_hello(coord_manifest_json, ["session.member"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)

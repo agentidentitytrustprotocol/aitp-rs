@@ -11,6 +11,7 @@
       "https://idp.example.com"
     ]
   },
+  "signing_input": "body",
   "manifest": {
     "version": "aitp/0.2",
     "aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",

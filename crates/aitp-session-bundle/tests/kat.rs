@@ -11,7 +11,6 @@
 use aitp_core::{jcs, Aid};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use serde_json::{json, Value};
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 
 const VECTOR_ID: &str = "kat-session-bundle-001";
@@ -68,7 +67,7 @@ fn pinned_coordinator_signature_verifies_over_inner_body() {
     let sig = Signature::parse(v["coordinator_signature_b64url"].as_str().unwrap())
         .expect("pinned signature parses");
 
-    key.verify(&Sha256::digest(&canonical), &sig)
+    key.verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
         .expect("pinned coordinator signature must verify over the inner body");
 }
 
@@ -87,7 +86,8 @@ fn pinned_coordinator_signature_rejects_the_wrapped_form() {
     let sig = Signature::parse(v["coordinator_signature_b64url"].as_str().unwrap()).unwrap();
 
     assert!(
-        key.verify(&Sha256::digest(&canonical), &sig).is_err(),
+        key.verify_jcs(&aitp_crypto::Digest32::sha256(&canonical), &sig)
+            .is_err(),
         "{VECTOR_ID}: signature verified over the WRAPPED form — the transport \
          wrapper is being signed (RFC-AITP-0001 §5.4.1)"
     );

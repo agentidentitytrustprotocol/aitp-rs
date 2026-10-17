@@ -47,6 +47,7 @@ defaults, so they are the same on every run unless you pass `--seed`:
 
 ```text
 agent-b: AID = aid:pubkey:LfBBJfABWvtHzoU674dyCU_5SYwUyxueEpc8KSfaD6Y
+agent-b: trusting pinned key aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne-B1R_KJODNB0
 agent-b: listening on http://localhost:8002
 agent-a: AID = aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVHsbmZiqne-B1R_KJODNB0
 agent-a: fetched B's manifest, AID = aid:pubkey:LfBBJfABWvtHzoU674dyCU_5SYwUyxueEpc8KSfaD6Y
@@ -60,7 +61,8 @@ agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVH
 |---|---|
 | Generating a key from a seed | `agent-a.rs::main` (`AitpSigningKey::from_seed`) |
 | Building + serving a Manifest | `lib.rs::build_demo_manifest`, `agent-b.rs::serve_manifest` |
-| Pinning a peer key (TOFU) | `agent-a.rs::main` (`ManifestFetcher` → `StaticPinnedKeyStore`) |
+| Pinning a peer key (TOFU) | `agent-a.rs::main` (`ManifestFetcher` → `StaticPinnedKeyStore::from_aids`) |
+| Pinning the initiator on the server | `agent-b.rs::main` (`--trust` → `HandshakeServer::with_pinned_key_store`) |
 | Driving the whole handshake in one call | `agent-a.rs::main` (`run_initiator_handshake`) |
 | Serving the handshake routes | `agent-b.rs::main` (`HandshakeServer::router`) |
 | Verifying a TCT at request time | `lib.rs::verify_echo_tct`, called from `agent-b.rs::handle_echo` |
@@ -68,8 +70,12 @@ agent-a: /echo => 200 OK echo from agent-b to aid:pubkey:rwaj4ykXFOTzVsGcmxXNGVH
 ### Tweaking the demo
 
 ```sh
-# Different ports / seeds
-./target/release/agent-b --port 9002 --seed customseed
+# Different ports / seeds. agent-b trusts only the AIDs passed with
+# --trust (default: agent-a's default-seed AID), so a new agent-a seed
+# needs its AID pinned on agent-b. agent-a prints its AID on its first
+# output line.
+./target/release/agent-b --port 9002 --seed customseed \
+    --trust aid:pubkey:<agent-a AID for differentseed>
 ./target/release/agent-a --port 9001 --peer http://localhost:9002 \
     --seed differentseed --message "hello earth"
 
@@ -81,7 +87,9 @@ To watch a handshake *fail*, change what each peer offers so the grant
 intersection is empty. The offer list is the last argument of the
 `build_demo_manifest` call in `src/bin/agent-a.rs` and `src/bin/agent-b.rs`.
 The initiator then surfaces a `FacadeError::Protocol` carrying the peer's
-`POLICY_VIOLATION` code.
+`POLICY_VIOLATION` code. To watch the trust store reject a peer, start
+`agent-b --trust <some other AID>`: agent-b refuses the HELLO with
+`IDENTITY_FAILED` before it checks agent-a's proof (RFC-AITP-0002 §3.2).
 
 ### Why HTTP, not HTTPS?
 

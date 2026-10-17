@@ -41,8 +41,8 @@
             "properties": {
               "jti": {
                 "type": "string",
-                "format": "uuid",
-                "description": "JTI of the revoked TCT."
+                "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$",
+                "description": "JTI of the revoked TCT: lowercase UUID v4 in the RFC-AITP-0005 §2.2 layout."
               },
               "revoked_at": {
                 "type": "integer",

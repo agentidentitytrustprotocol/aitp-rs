@@ -3,9 +3,9 @@
 use crate::types::{
     GrantVoucherClaims, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
-use crate::TctError;
+use crate::{TctError, ATTESTATION_GRANT};
 use aitp_core::{
-    check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
+    check_members, from_serde_error, ids, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
 };
 use aitp_crypto::{jws, AitpVerifyingKey};
 use uuid::Uuid;
@@ -80,6 +80,11 @@ impl<'a> TctVerifyContext<'a> {
     /// use [`Self::builder`] so the two silent-accept surfaces
     /// (revocation, Manifest cap) are explicit decisions rather than
     /// accidental omissions. See RFC-AITP-0005 §10.4 and RFC-AITP-0008.
+    #[deprecated(
+        since = "0.14.0",
+        note = "permissive: skips revocation and the Manifest cap. Use \
+                `TctVerifyContext::builder` and make both decisions explicitly"
+    )]
     pub fn now(expected_audience: &'a Aid, issuer: &'a Aid) -> Self {
         Self {
             expected_audience,
@@ -96,6 +101,11 @@ impl<'a> TctVerifyContext<'a> {
     /// for tests and offline/dev use where the clock is pinned. Production
     /// verifiers SHOULD use [`Self::builder`] so those two silent-accept
     /// surfaces are explicit decisions.
+    #[deprecated(
+        since = "0.14.0",
+        note = "permissive: skips revocation and the Manifest cap. Use \
+                `TctVerifyContext::builder` and make both decisions explicitly"
+    )]
     pub fn permissive_at(expected_audience: &'a Aid, issuer: &'a Aid, now: Timestamp) -> Self {
         Self {
             expected_audience,
@@ -107,7 +117,8 @@ impl<'a> TctVerifyContext<'a> {
         }
     }
 
-    /// Start a strict-by-construction builder. Unlike [`Self::now`], the
+    /// Start a strict-by-construction builder. Unlike the deprecated
+    /// [`Self::now`], the
     /// resulting [`TctVerifyContextBuilder::build`] refuses to produce a
     /// context until both the revocation source and the issuer-Manifest
     /// expiry cap have been either supplied or explicitly waived with a
@@ -286,11 +297,17 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 ///    unknown and duplicate claims (`ext` excepted) —
 ///    [`TctError::ClaimsMalformed`], or [`TctError::UnknownField`] if the
 ///    residual serde error is a nested closed object's (`cnf`) unknown
-///    member, recovered via [`from_serde_error`].
+///    member, recovered via [`from_serde_error`]. Before the signature
+///    check, a string `jti` not in the strict v4 layout is rejected
+///    with [`TctError::JtiNotV4`] (proposal #72 Item 6b).
 /// 5. `ver == "aitp/0.2"` — else [`TctError::VersionUnknown`].
 /// 6. `iss == ctx.issuer` — else [`TctError::IssuerMismatch`].
 /// 7. `aud == ctx.expected_audience` and `aud == sub` — else
 ///    [`TctError::AudienceMismatch`].
+///    Then the grant-context rules of RFC-AITP-0005 §5.3 (proposal #72
+///    Item 5): `iss != sub` — else [`TctError::SelfIssued`]; no
+///    `aitp.attestation` grant — else [`TctError::AttestationMarker`].
+///    Use [`verify_attestation`] for self-attestations.
 /// 8. `exp` in the future, `iat` not in the future — else
 ///    [`TctError::Expired`]; if `ctx.issuer_manifest_expires_at` is
 ///    `Some`, `exp` MUST NOT exceed it — else
@@ -305,82 +322,308 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 /// On success returns the [`VerifiedTct`] (verbatim token + trusted
 /// claims).
 pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct, TctError> {
-    // Steps 1-2: claim-set check on the unverified peek, gated on the
-    // peeked typ matching — structurally ahead of alg/signature, but
-    // never ahead of the typ check itself (tct-010; RFC-AITP-0005 §7.2).
-    // A payload that fails to parse as JSON here is not this check's
-    // problem; `verify_compact` below still rejects it, just under its
-    // own crypto/parse error.
-    if peek_header_typ(token).as_deref() == Some(jws::TYP_TCT) {
-        let peek = jws::decode_payload_unverified(token).map_err(TctError::Crypto)?;
-        // RFC-AITP-0001 §5.4.5 / issue #140: this peek's own `Value` step
-        // is last-write-wins on a duplicate key, so the raw-bytes check
-        // must run first, against `peek` itself.
-        reject_duplicate_keys(&peek).map_err(TctError::ClaimsMalformed)?;
-        if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&peek) {
-            check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
-                .map_err(|e| TctError::UnknownField(e.field))?;
+    let core = CoreChecks {
+        issuer: ctx.issuer,
+        now: ctx.now,
+        clock_skew_secs: ctx.clock_skew_secs,
+        issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
+    };
+    let claims = core.verify(token, |claims| {
+        if &claims.aud != ctx.expected_audience {
+            return Err(TctError::AudienceMismatch);
         }
-    }
-
-    let payload = jws::verify_compact(ctx.issuer, jws::TYP_TCT, token).map_err(TctError::Crypto)?;
-    let claims: TctClaims = serde_json::from_slice(&payload).map_err(|e| {
-        if let Some(field) = from_serde_error(&e) {
-            TctError::UnknownField(field)
-        } else {
-            TctError::ClaimsMalformed(e.to_string())
+        if claims.aud != claims.sub {
+            return Err(TctError::AudienceMismatch);
         }
+        // RFC-AITP-0005 §5.3 (proposal #72 Item 5): a self-issued TCT is
+        // an attestation and confers nothing; the marker grant is never
+        // honoured as a capability.
+        if claims.iss == claims.sub {
+            return Err(TctError::SelfIssued);
+        }
+        if claims.grants.iter().any(|g| g == ATTESTATION_GRANT) {
+            return Err(TctError::AttestationMarker);
+        }
+        Ok(())
     })?;
-
-    if claims.ver != PROTOCOL_VERSION {
-        return Err(TctError::VersionUnknown);
-    }
-    if &claims.iss != ctx.issuer {
-        return Err(TctError::IssuerMismatch);
-    }
-    if &claims.aud != ctx.expected_audience {
-        return Err(TctError::AudienceMismatch);
-    }
-    if claims.aud != claims.sub {
-        return Err(TctError::AudienceMismatch);
-    }
-    // Freshness checks with symmetric skew tolerance (default 0). A TCT
-    // is "expired" only once `now` is past `exp + skew`, and "not yet
-    // valid" only once `iat` is beyond `now + skew`.
-    let skew = ctx.clock_skew_secs;
-    if claims.exp.0 < ctx.now.0.saturating_sub(skew) {
-        return Err(TctError::Expired);
-    }
-    if claims.iat.0 > ctx.now.0.saturating_add(skew) {
-        return Err(TctError::Expired);
-    }
-    if let Some(manifest_expires_at) = ctx.issuer_manifest_expires_at {
-        if claims.exp.0 > manifest_expires_at.0 {
-            return Err(TctError::ExpiresAfterManifest);
-        }
-    }
-    if claims.grants.is_empty() {
-        return Err(TctError::EmptyGrants);
-    }
-
-    // §3: the sub AID is authoritative for the bound key; cnf.jkt is
-    // its (deliberately redundant) thumbprint. A mismatch means the
-    // issuer bound a different key — reject.
-    let subject_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
-    let expected_jkt = subject_key.to_jwk_thumbprint().map_err(TctError::Crypto)?;
-    if claims.cnf.jkt != expected_jkt {
-        return Err(TctError::CnfMalformed);
-    }
-
-    if let Some(check) = ctx.revocation_check {
-        if check(&claims.jti) {
-            return Err(TctError::Revoked);
-        }
-    }
-
+    check_revocation(ctx.revocation_check, &claims)?;
     Ok(VerifiedTct {
         token: token.to_string(),
         claims,
+    })
+}
+
+/// The context-independent part of TCT verification, shared by
+/// [`verify_tct`] (grant context) and [`verify_attestation`].
+struct CoreChecks<'a> {
+    issuer: &'a Aid,
+    now: Timestamp,
+    clock_skew_secs: i64,
+    issuer_manifest_expires_at: Option<Timestamp>,
+}
+
+impl CoreChecks<'_> {
+    /// Steps 1-10 of [`verify_tct`], with `context` run where the
+    /// audience checks (step 7) sit. Revocation is the caller's, last.
+    fn verify(
+        &self,
+        token: &str,
+        context: impl FnOnce(&TctClaims) -> Result<(), TctError>,
+    ) -> Result<TctClaims, TctError> {
+        // Steps 1-2: claim-set check on the unverified peek, gated on the
+        // peeked typ matching — structurally ahead of alg/signature, but
+        // never ahead of the typ check itself (tct-010; RFC-AITP-0005 §7.2).
+        // A payload that fails to parse as JSON here is not this check's
+        // problem; `verify_compact` below still rejects it, just under its
+        // own crypto/parse error.
+        if peek_header_typ(token).as_deref() == Some(jws::TYP_TCT) {
+            let peek = jws::decode_payload_unverified(token).map_err(TctError::Crypto)?;
+            // RFC-AITP-0001 §5.4.5 / issue #140: this peek's own `Value` step
+            // is last-write-wins on a duplicate key, so the raw-bytes check
+            // must run first, against `peek` itself.
+            reject_duplicate_keys(&peek).map_err(TctError::ClaimsMalformed)?;
+            if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&peek) {
+                check_members("TctClaims", &peek_value, TCT_CLAIMS_MEMBERS)
+                    .map_err(|e| TctError::UnknownField(e.field))?;
+                // Proposal #72 Item 6b: reject a non-v4 `jti` before
+                // signature verification.
+                check_v4_member(&peek_value, "jti")?;
+            }
+        }
+
+        let payload =
+            jws::verify_compact(self.issuer, jws::TYP_TCT, token).map_err(TctError::Crypto)?;
+        let claims: TctClaims = serde_json::from_slice(&payload).map_err(|e| {
+            if let Some(field) = from_serde_error(&e) {
+                TctError::UnknownField(field)
+            } else {
+                TctError::ClaimsMalformed(e.to_string())
+            }
+        })?;
+
+        if claims.ver != PROTOCOL_VERSION {
+            return Err(TctError::VersionUnknown);
+        }
+        if &claims.iss != self.issuer {
+            return Err(TctError::IssuerMismatch);
+        }
+        context(&claims)?;
+        // Freshness checks with symmetric skew tolerance (default 0). A TCT
+        // is "expired" only once `now` is past `exp + skew`, and "not yet
+        // valid" only once `iat` is beyond `now + skew`.
+        let skew = self.clock_skew_secs;
+        if claims.exp.0 < self.now.0.saturating_sub(skew) {
+            return Err(TctError::Expired);
+        }
+        if claims.iat.0 > self.now.0.saturating_add(skew) {
+            return Err(TctError::Expired);
+        }
+        if let Some(manifest_expires_at) = self.issuer_manifest_expires_at {
+            if claims.exp.0 > manifest_expires_at.0 {
+                return Err(TctError::ExpiresAfterManifest);
+            }
+        }
+        if claims.grants.is_empty() {
+            return Err(TctError::EmptyGrants);
+        }
+
+        // §3: the sub AID is authoritative for the bound key; cnf.jkt is
+        // its (deliberately redundant) thumbprint. A mismatch means the
+        // issuer bound a different key — reject.
+        let subject_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
+        let expected_jkt = subject_key.to_jwk_thumbprint().map_err(TctError::Crypto)?;
+        if claims.cnf.jkt != expected_jkt {
+            return Err(TctError::CnfMalformed);
+        }
+        Ok(claims)
+    }
+}
+
+fn check_revocation(
+    check: Option<&dyn Fn(&Uuid) -> bool>,
+    claims: &TctClaims,
+) -> Result<(), TctError> {
+    match check {
+        Some(check) if check(&claims.jti) => Err(TctError::Revoked),
+        _ => Ok(()),
+    }
+}
+
+/// Item 6b on a peeked payload: a string member must be strict v4. A
+/// missing or non-string member is left to the typed parse.
+fn check_v4_member(peek: &serde_json::Value, member: &str) -> Result<(), TctError> {
+    match peek.get(member).and_then(serde_json::Value::as_str) {
+        Some(s) => ids::parse_v4(s).map(drop).map_err(TctError::JtiNotV4),
+        None => Ok(()),
+    }
+}
+
+/// Inputs for [`verify_attestation`]. Build with
+/// [`AttestationVerifyContext::builder`].
+#[non_exhaustive]
+pub struct AttestationVerifyContext<'a> {
+    /// The attesting issuer, trusted at `iat` per the relying party's
+    /// own records (RFC-AITP-0005 §5.3). Pins the key and the `alg`.
+    pub issuer: &'a Aid,
+    /// The `ext` key holding the statement this relying party consumes.
+    pub statement_key: &'a str,
+    /// Current time.
+    pub now: Timestamp,
+    /// The issuer Manifest's `expires_at`, when the issuer publishes one.
+    pub issuer_manifest_expires_at: Option<Timestamp>,
+    /// Revocation lookup; `true` means revoked.
+    pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
+    /// Symmetric clock-skew tolerance, seconds.
+    pub clock_skew_secs: i64,
+}
+
+impl<'a> AttestationVerifyContext<'a> {
+    /// Start a builder. As with [`TctVerifyContext::builder`], both the
+    /// Manifest cap and revocation are mandatory decisions.
+    pub fn builder(
+        issuer: &'a Aid,
+        statement_key: &'a str,
+        now: Timestamp,
+    ) -> AttestationVerifyContextBuilder<'a> {
+        AttestationVerifyContextBuilder {
+            ctx: AttestationVerifyContext {
+                issuer,
+                statement_key,
+                now,
+                issuer_manifest_expires_at: None,
+                revocation_check: None,
+                clock_skew_secs: 0,
+            },
+            manifest_cap_decided: false,
+            revocation_decided: false,
+        }
+    }
+}
+
+impl std::fmt::Debug for AttestationVerifyContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AttestationVerifyContext")
+            .field("issuer", self.issuer)
+            .field("statement_key", &self.statement_key)
+            .field("now", &self.now)
+            .field(
+                "issuer_manifest_expires_at",
+                &self.issuer_manifest_expires_at,
+            )
+            .field("revocation_check", &self.revocation_check.is_some())
+            .field("clock_skew_secs", &self.clock_skew_secs)
+            .finish()
+    }
+}
+
+/// Builder for [`AttestationVerifyContext`].
+pub struct AttestationVerifyContextBuilder<'a> {
+    ctx: AttestationVerifyContext<'a>,
+    manifest_cap_decided: bool,
+    revocation_decided: bool,
+}
+
+impl<'a> AttestationVerifyContextBuilder<'a> {
+    /// The issuer publishes a Manifest: the attestation's `exp` must not
+    /// exceed its `expires_at` (RFC-AITP-0005 §10.4).
+    pub fn issuer_manifest_expires_at(mut self, expires_at: Timestamp) -> Self {
+        self.ctx.issuer_manifest_expires_at = Some(expires_at);
+        self.manifest_cap_decided = true;
+        self
+    }
+
+    /// The issuer publishes no Manifest, so the §10.4 cap does not apply
+    /// (RFC-AITP-0005 §5.3). By calling this the relying party asserts it
+    /// has established from its own records (an enrollment or key-history
+    /// record) that the issuer key was trusted at the attestation's
+    /// `iat`. A far-future `exp` is never evidence of validity.
+    pub fn waive_manifest_cap_issuer_has_no_manifest(mut self) -> Self {
+        self.ctx.issuer_manifest_expires_at = None;
+        self.manifest_cap_decided = true;
+        self
+    }
+
+    /// Supply a revocation lookup (`true` means revoked).
+    pub fn revocation_check(mut self, check: &'a dyn Fn(&Uuid) -> bool) -> Self {
+        self.ctx.revocation_check = Some(check);
+        self.revocation_decided = true;
+        self
+    }
+
+    /// Accept without a revocation source. Dev/offline only.
+    pub fn accept_unchecked_revocation_dangerous(mut self) -> Self {
+        self.ctx.revocation_check = None;
+        self.revocation_decided = true;
+        self
+    }
+
+    /// Symmetric clock-skew tolerance in seconds (negative clamps to 0).
+    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
+        self.ctx.clock_skew_secs = secs.max(0);
+        self
+    }
+
+    /// Finish, or report the missing decision.
+    pub fn build(self) -> Result<AttestationVerifyContext<'a>, TctVerifyContextError> {
+        if !self.revocation_decided {
+            return Err(TctVerifyContextError::RevocationDecisionRequired);
+        }
+        if !self.manifest_cap_decided {
+            return Err(TctVerifyContextError::ManifestCapDecisionRequired);
+        }
+        Ok(self.ctx)
+    }
+}
+
+/// A verified self-attestation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VerifiedAttestation {
+    /// The compact JWS as received.
+    pub token: String,
+    /// Its verified claims.
+    pub claims: TctClaims,
+    /// `ext[statement_key]`: the attested statement.
+    pub statement: serde_json::Value,
+}
+
+/// Verify a self-attestation TCT (RFC-AITP-0005 §5.3, proposal #72
+/// Item 5): every [`verify_tct`] check except the grant-context ones,
+/// then `iss == sub == aud`, `grants == ["aitp.attestation"]` (else
+/// [`TctError::NotAttestation`]), and `ext[ctx.statement_key]` present
+/// (else [`TctError::AttestationStatementMissing`]). Revocation last.
+///
+/// An attestation confers no capability. Never feed one to an
+/// authorization decision; [`verify_tct`] rejects it.
+pub fn verify_attestation(
+    token: &str,
+    ctx: &AttestationVerifyContext<'_>,
+) -> Result<VerifiedAttestation, TctError> {
+    let core = CoreChecks {
+        issuer: ctx.issuer,
+        now: ctx.now,
+        clock_skew_secs: ctx.clock_skew_secs,
+        issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
+    };
+    let claims = core.verify(token, |c| {
+        let shape = c.sub == c.iss && c.aud == c.iss && c.grants == [ATTESTATION_GRANT];
+        if shape {
+            Ok(())
+        } else {
+            Err(TctError::NotAttestation)
+        }
+    })?;
+    let statement = claims
+        .ext
+        .as_ref()
+        .and_then(|ext| ext.get(ctx.statement_key))
+        .cloned()
+        .ok_or_else(|| TctError::AttestationStatementMissing(ctx.statement_key.to_owned()))?;
+    check_revocation(ctx.revocation_check, &claims)?;
+    Ok(VerifiedAttestation {
+        token: token.to_string(),
+        claims,
+        statement,
     })
 }
 
@@ -414,6 +657,9 @@ pub fn verify_voucher(token: &str, issuer: &Aid) -> Result<GrantVoucherClaims, T
                 GRANT_VOUCHER_CLAIMS_MEMBERS,
             )
             .map_err(|e| TctError::UnknownField(e.field))?;
+            // Item 6b: `src_jti` equals a TCT `jti`, so it inherits the
+            // v4 rule.
+            check_v4_member(&peek_value, "src_jti")?;
         }
     }
 
@@ -503,6 +749,7 @@ mod builder_tests {
     #[test]
     fn clock_skew_defaults_to_zero_and_clamps_negatives() {
         let (aud, iss) = aids();
+        #[allow(deprecated)]
         let strict = TctVerifyContext::permissive_at(&aud, &iss, Timestamp(1));
         assert_eq!(strict.clock_skew_secs, 0);
 
@@ -574,6 +821,7 @@ mod claim_set_tests {
         issuer: &'a aitp_core::Aid,
         subject: &'a aitp_core::Aid,
     ) -> TctVerifyContext<'a> {
+        #[allow(deprecated)]
         TctVerifyContext::permissive_at(subject, issuer, Timestamp(1_700_000_100))
     }
 

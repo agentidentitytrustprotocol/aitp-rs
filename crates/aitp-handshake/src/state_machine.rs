@@ -13,51 +13,25 @@ use crate::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
 use aitp_core::{base64url, Aid, AitpEnvelope, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp_crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
 use rand::TryRng;
-use sha2::{Digest, Sha256};
 use tracing::debug;
 use uuid::Uuid;
 
-/// Local trust store for pinned Ed25519 public keys.
-///
-/// Per RFC-AITP-0002 §3.2 step 1, a verifying peer MUST locate the
-/// claimed public key in its local pinned-keys configuration before
-/// honoring a pinned-key identity proof. Implementations supply their
-/// own store; [`StaticPinnedKeyStore`] is a simple in-memory default.
-pub trait PinnedKeyStore: Send + Sync {
-    /// Returns true if the given 32-byte raw Ed25519 public key is
-    /// locally trusted to make pinned-key claims.
-    fn is_trusted(&self, public_key_bytes: &[u8; 32]) -> bool;
-}
-
-/// Simple in-memory `PinnedKeyStore` backed by a fixed list of keys.
-pub struct StaticPinnedKeyStore {
-    trusted: Vec<[u8; 32]>,
-}
-
-impl StaticPinnedKeyStore {
-    /// Construct a store from a list of 32-byte raw public keys.
-    pub fn new(trusted: Vec<[u8; 32]>) -> Self {
-        Self { trusted }
-    }
-}
-
-impl PinnedKeyStore for StaticPinnedKeyStore {
-    fn is_trusted(&self, public_key_bytes: &[u8; 32]) -> bool {
-        self.trusted.iter().any(|k| k == public_key_bytes)
-    }
-}
+pub use crate::identity_pinned::{NoPinnedKeys, PinnedKeyStore, StaticPinnedKeyStore};
 
 /// Opaque session identifier — handle for an in-progress handshake.
 pub type SessionId = Uuid;
 
 /// Configuration shared by Initiator and Responder.
 pub struct PeerConfig<'a> {
-    /// Our long-term signing key.
-    pub signing_key: &'a AitpSigningKey,
+    /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
+    /// key, KMS, HSM); a backend failure surfaces as
+    /// `HandshakeError::Crypto(CryptoError::Signer(_))` (or wrapped in
+    /// `HandshakeError::Tct` when minting the peer's TCT).
+    pub signing_key: &'a dyn AitpSigner,
     /// Our published Manifest (must equal `payload.manifest` we send).
     pub manifest: &'a Manifest,
     /// Accepted OIDC issuers (when peers present OIDC identities).
@@ -66,12 +40,13 @@ pub struct PeerConfig<'a> {
     pub trust_anchors: &'a [aitp_core::RawUrl],
     /// JWKS resolver. May be a no-op for pinned-key-only deployments.
     pub jwks_resolver: &'a dyn JwksResolver,
-    /// Optional local pinned-key trust store (RFC-AITP-0002 §3.2 step 1).
-    /// When `Some`, pinned-key identities whose public key is not in the
-    /// store are rejected with `IDENTITY_FAILED`. When `None`, the
-    /// pinned-key check is key-possession-only — acceptable for local
-    /// development; production deployments SHOULD configure a store.
-    pub pinned_key_store: Option<&'a dyn PinnedKeyStore>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2 step 3), keyed
+    /// by `(algorithm, key)`. REQUIRED: a pinned-key peer whose key is
+    /// not in the store is rejected with `IDENTITY_FAILED` before its
+    /// proof is checked. There is no possession-only mode. OIDC-only
+    /// deployments pass [`NoPinnedKeys`]; tests use a
+    /// [`StaticPinnedKeyStore`].
+    pub pinned_key_store: &'a dyn PinnedKeyStore,
     /// Optional grant-policy hook (RFC-AITP-0004 §4.1). Applied to the
     /// `peer_requested ∩ self.offered` intersection before issuing a
     /// TCT — typically used to derive identity-based capability
@@ -333,25 +308,15 @@ impl PresentedIdentity {
     fn build_descriptor(
         &self,
         ctx: &IdentityPresentationContext<'_>,
-        signing_key: &AitpSigningKey,
+        signing_key: &dyn AitpSigner,
     ) -> Result<IdentityDescriptor, HandshakeError> {
         match self {
             Self::PinnedKey { subject } => {
-                // Pinned-key identity (RFC-AITP-0002 §3.2) wire-encodes
-                // the raw 32-byte Ed25519 public key. P-256 keys do not
-                // fit that wire shape; fail fast with a structured
-                // error rather than panicking deep inside the codec.
-                let pk_bytes = signing_key
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .ok_or_else(|| {
-                        HandshakeError::Identity(
-                            "pinned_key identity requires an Ed25519 signing key (v0.1 wire \
-                             format encodes a 32-byte raw public key); use OIDC identity for \
-                             P-256 agents"
-                                .into(),
-                        )
-                    })?;
+                // RFC-AITP-0002 §3.3 (proposal #72 Item 2): `public_key`
+                // is the AID-identifier form for the key's algorithm, 32
+                // raw bytes (Ed25519) or a 33-byte SEC1 compressed point
+                // (P-256). A P-256 proof is `p256.`-tagged by `sign_jcs`.
+                let pk_bytes = AitpVerifyingKey::from_aid(signing_key.aid())?.to_compressed();
                 let proof = sign_pinned_key_proof(
                     signing_key,
                     ctx.sender_aid,
@@ -488,7 +453,9 @@ pub fn bootstrap_verify_peer(
             verify_oidc(payload_identity, &ctx)?;
         }
         IdentityKind::PinnedKey => {
-            verify_pinned_key(
+            // RFC-AITP-0002 §3.2: type, key binding and the trust store
+            // are all checked inside, before the proof.
+            let verified = verify_pinned_key(
                 payload_identity,
                 &PinnedKeyVerifyContext {
                     sender_aid: &payload_manifest.aid,
@@ -496,25 +463,11 @@ pub fn bootstrap_verify_peer(
                     message_id: &envelope.message_id,
                     timestamp: envelope.timestamp,
                     pop_nonce: payload_pop_nonce,
+                    subject: Default::default(),
                 },
+                cfg.pinned_key_store,
             )?;
-            // RFC-AITP-0002 §3.2 step 1: confirm the public key is
-            // locally trusted (when a store is configured). Without
-            // this gate, the proof only proves key possession — it
-            // doesn't prove we should *honor* keys we've never seen.
-            if let Some(store) = cfg.pinned_key_store {
-                // `verify_pinned_key` above already rejects a non-Ed25519
-                // sender AID, but use the non-panicking accessor here too
-                // so this lookup never depends on that ordering.
-                let pk_bytes = payload_manifest.aid.try_to_ed25519_bytes().ok_or_else(|| {
-                    HandshakeError::Identity("pinned_key requires an Ed25519 sender AID".into())
-                })?;
-                if !store.is_trusted(&pk_bytes) {
-                    return Err(HandshakeError::Identity(
-                        "pinned_key not in local trust store".into(),
-                    ));
-                }
-            }
+            return Ok(verified.key);
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)
@@ -527,11 +480,13 @@ pub fn bootstrap_verify_peer(
 /// string** — not the ASCII bytes of the base64url encoding. This brings
 /// the handshake PoP into alignment with the TCT downstream PoP in
 /// `aitp-tct::pop`.
-fn sign_pop(my_key: &AitpSigningKey, peer_nonce: &str) -> Result<String, HandshakeError> {
+fn sign_pop(my_key: &dyn AitpSigner, peer_nonce: &str) -> Result<String, HandshakeError> {
     let nonce_bytes = base64url::decode_strict(peer_nonce)
         .map_err(|_| HandshakeError::InvalidEnvelope("pop nonce is not valid base64url".into()))?;
-    let digest = Sha256::digest(&nonce_bytes);
-    Ok(my_key.sign(&digest).into_string())
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
+    Ok(aitp_crypto::sign_jcs(my_key, &digest)
+        .map_err(CryptoError::Signer)?
+        .into_string())
 }
 
 /// Round-2 PoP verify.
@@ -542,10 +497,10 @@ fn verify_pop(
 ) -> Result<(), HandshakeError> {
     let nonce_bytes =
         base64url::decode_strict(my_nonce).map_err(|_| HandshakeError::PopVerificationFailed)?;
-    let digest = Sha256::digest(&nonce_bytes);
+    let digest = aitp_crypto::Digest32::sha256(&nonce_bytes);
     let sig = Signature::parse(pop_signature).map_err(|_| HandshakeError::PopVerificationFailed)?;
     peer_pubkey
-        .verify(&digest, &sig)
+        .verify_jcs(&digest, &sig)
         .map_err(|_| HandshakeError::PopVerificationFailed)
 }
 
@@ -1157,6 +1112,7 @@ impl Responder {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use aitp_crypto::AitpSigningKey;
 
     /// Build a compact JWT (`header.payload.sig`) with the given claims
     /// JSON. Header and signature are placeholders — `oidc_checked`
@@ -1220,16 +1176,15 @@ mod tests {
     }
 
     #[test]
-    fn pinned_key_descriptor_rejects_p256_signing_key() {
-        // Regression: previously, building a PinnedKey identity
-        // descriptor with a P-256 signing key panicked deep inside
-        // `AitpVerifyingKey::to_bytes()`. The descriptor builder
-        // must surface a clean HandshakeError::Identity instead.
+    fn pinned_key_descriptor_supports_p256_signing_key() {
+        // 0.13.x refused P-256 here. Proposal #72 Item 2 makes P-256 a
+        // pinned-key algorithm: 44-char compressed `public_key`, tagged
+        // proof, and it verifies against a store holding the key.
         let p256 = AitpSigningKey::generate_p256();
         let other = AitpSigningKey::from_seed(&[1u8; 32]);
         let mid = Uuid::new_v4();
         let ts = Timestamp(1_700_000_000);
-        let nonce = base64url::encode(&[42u8; 32]);
+        let nonce = base64url::encode(&[42u8; 16]);
         let ctx = IdentityPresentationContext {
             sender_aid: p256.aid(),
             receiver_aid: other.aid(),
@@ -1240,12 +1195,23 @@ mod tests {
         let id = PresentedIdentity::PinnedKey {
             subject: "p256-agent".into(),
         };
-        let err = id
-            .build_descriptor(&ctx, &p256)
-            .expect_err("pinned-key identity must reject P-256 signing keys");
-        assert!(
-            matches!(err, HandshakeError::Identity(_)),
-            "expected Identity error variant, got {err:?}"
-        );
+        let desc = id.build_descriptor(&ctx, &p256).expect("P-256 descriptor");
+        assert_eq!(desc.public_key.as_deref(), Some(p256.aid().identifier()));
+        assert!(desc.proof.starts_with("p256."));
+        let store = StaticPinnedKeyStore::new([p256.verifying_key()]);
+        let verified = verify_pinned_key(
+            &desc,
+            &PinnedKeyVerifyContext {
+                sender_aid: p256.aid(),
+                receiver_aid: other.aid(),
+                message_id: &mid,
+                timestamp: ts,
+                pop_nonce: &nonce,
+                subject: Default::default(),
+            },
+            &store,
+        )
+        .expect("P-256 pinned key verifies");
+        assert_eq!(verified.key, p256.verifying_key());
     }
 }

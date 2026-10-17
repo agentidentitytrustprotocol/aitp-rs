@@ -4,14 +4,24 @@
 //! Ed25519 keys come from the legacy untagged AID form and the
 //! `aid:pubkey:ed25519:<43>` form; P-256 keys come from
 //! `aid:pubkey:p256:<44>`. Verifier dispatch is driven by the algorithm tag
-//! on the [`Signature`] passed to [`AitpVerifyingKey::verify`]; signer
+//! on the [`Signature`] passed to [`AitpVerifyingKey::verify_jcs`]; signer
 //! dispatch is driven by the variant of [`AitpSigningKey`] in hand.
+//!
+//! Two signing entry points, by framing:
+//!
+//! - [`AitpSigningKey::sign_jcs`] signs the AITP digest
+//!   `d = SHA-256(signing_input)` ([`crate::Digest32`], RFC-AITP-0001
+//!   §5.4.6). P-256 uses `d` as the ECDSA hash and never hashes it again.
+//! - [`AitpSigningKey::sign_raw`] signs raw message bytes (EdDSA / ES256),
+//!   for the compact-JWS profile (§5.4.5) and non-AITP framings.
+//!
+//! Every verifier is strict per §5.4.7.
 //!
 //! Untagged Ed25519 signatures are produced by Ed25519 signing keys for
 //! wire compatibility with v0.1 verifiers; P-256 signing keys always emit
 //! `p256.<86-char-b64url>` tagged signatures (RFC-AITP-0001 §5.4.3).
 
-use crate::CryptoError;
+use crate::{CryptoError, Digest32};
 use aitp_core::{Aid, AidAlgorithm, ED25519_SIGNATURE_BASE64URL_LEN};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{
@@ -19,7 +29,7 @@ use ed25519_dalek::{
     VerifyingKey as DalekVerifyingKey,
 };
 use p256::ecdsa::{
-    signature::{Signer as P256Signer, Verifier as P256Verifier},
+    signature::hazmat::{PrehashSigner, PrehashVerifier},
     Signature as P256Signature, SigningKey as P256SigningKey, VerifyingKey as P256VerifyingKey,
 };
 
@@ -164,50 +174,51 @@ impl AitpSigningKey {
         }
     }
 
-    /// Sign a message (typically the JCS canonicalization of an AITP
-    /// object).
+    /// Sign the AITP signing digest `d` (RFC-AITP-0001 §5.4.6) and
+    /// return the wire-form signature.
     ///
-    /// Ed25519 signing emits the **untagged** legacy v0.1 form (86
-    /// base64url characters with no algorithm prefix) for wire
-    /// compatibility with v0.1 verifiers. P-256 signing always emits the
-    /// tagged `p256.<86-char-b64url>` form per RFC-AITP-0001 §5.4.3 — a
-    /// v0.1 verifier rejects it on the tag, an algorithm-agile verifier
-    /// dispatches on it.
-    pub fn sign(&self, message: &[u8]) -> Signature {
+    /// `d` is `SHA-256(signing_input)`, built with [`Digest32::sha256`].
+    /// Ed25519 signs the 32 bytes of `d` as its PureEdDSA message and
+    /// emits the **untagged** legacy form (86 base64url characters) for
+    /// wire compatibility with v0.1 verifiers. P-256 uses `d` as the
+    /// ECDSA message hash directly (`e = d`; `d` is **not** hashed again),
+    /// normalises to low-S (§5.4.7) and emits the tagged
+    /// `p256.<86-char-b64url>` form (§5.4.3).
+    ///
+    /// 0.13.x exposed `sign(&[u8])`, which on P-256 hashed `d` a second
+    /// time. It was removed rather than fixed in place, so every caller
+    /// has to state whether it holds `d` (this method) or a JWS signing
+    /// input ([`Self::sign_raw`]).
+    pub fn sign_jcs(&self, d: &Digest32) -> Signature {
         match &self.0 {
             SigningKeyInner::Ed25519 { inner, .. } => {
-                let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
+                let sig = inner.sign(d.as_bytes());
                 Signature(Base64UrlUnpadded::encode_string(&sig.to_bytes()))
             }
             SigningKeyInner::P256 { inner, .. } => {
-                // RFC6979 deterministic-k fixes the nonce; low-S
-                // normalization fixes the signature's canonical form.
-                // Together they make the wire output fully reproducible
-                // for a given (key, message) AND non-malleable — the
-                // verifier rejects the high-S sibling (see
-                // `verify_p256_raw`).
-                let sig = p256_sign_low_s(inner, message);
-                let encoded = Base64UrlUnpadded::encode_string(&sig.to_bytes());
-                Signature(format!("p256.{encoded}"))
+                let rs = p256_sign_prehash(inner, d);
+                Signature(format!("p256.{}", Base64UrlUnpadded::encode_string(&rs)))
             }
         }
     }
 
-    /// Sign `message` and return the raw 64-byte signature with no
-    /// base64url encoding and no algorithm tag. Used by the compact-JWS
-    /// profile (RFC-AITP-0001 §5.4.5), where the algorithm rides in the
-    /// protected header `alg` parameter and the signature is the third
-    /// JWS segment. Ed25519 signs the message directly (RFC 8032);
-    /// ES256 hashes with SHA-256 internally and emits the JOSE raw
-    /// `R || S` fixed-length encoding (RFC 7518 §3.4).
-    pub(crate) fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
+    /// Sign arbitrary `message` bytes and return the raw 64-byte
+    /// signature, with no base64url encoding and no algorithm tag.
+    ///
+    /// This is the entry point for framings that are not the AITP
+    /// `Digest32` construction: the compact-JWS profile (RFC-AITP-0001
+    /// §5.4.5), DPoP proofs, and application-defined records such as
+    /// admission tickets. Ed25519 is PureEdDSA over `message` (RFC 8032).
+    /// P-256 is JOSE ES256: ECDSA over `SHA-256(message)` (one hash),
+    /// RFC 6979 nonce, low-S, `R || S` (RFC 7518 §3.4).
+    ///
+    /// The caller owns domain separation: a message signed here must not
+    /// also be parseable as another AITP signing input.
+    pub fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
         match &self.0 {
-            SigningKeyInner::Ed25519 { inner, .. } => {
-                let sig = <DalekSigningKey as Ed25519Signer<DalekSignature>>::sign(inner, message);
-                sig.to_bytes()
-            }
+            SigningKeyInner::Ed25519 { inner, .. } => inner.sign(message).to_bytes(),
             SigningKeyInner::P256 { inner, .. } => {
-                p256_sign_low_s(inner, message).to_bytes().into()
+                p256_sign_prehash(inner, &Digest32::sha256(message))
             }
         }
     }
@@ -341,32 +352,24 @@ impl AitpVerifyingKey {
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
     }
 
-    /// Verify a signature over `message`.
+    /// Verify a wire-form signature over the AITP signing digest `d`
+    /// (RFC-AITP-0001 §5.4.6).
     ///
-    /// Ed25519 path uses `verify_strict` to reject non-canonical
-    /// signatures and weak public keys (low-order points, identity).
-    /// P-256 path verifies an `R || S` (64-byte) raw signature against
-    /// `SHA-256(message)`. The algorithm tag on the [`Signature`] MUST
-    /// match the verifier's algorithm — mismatched algorithm/key
-    /// combinations are rejected (algorithm confusion defense).
-    pub fn verify(&self, message: &[u8], sig: &Signature) -> Result<(), CryptoError> {
+    /// Strict per §5.4.7. Ed25519 uses `verify_strict`, which rejects
+    /// non-canonical `S` and small-order keys or `R`. P-256 treats `d` as
+    /// the ECDSA message hash (never hashing it again) and rejects `R` or
+    /// `S` equal to zero or `>= n`, and high-S (`S > n/2`). The algorithm
+    /// tag on `sig` MUST match this key's algorithm. A mismatch is rejected
+    /// (algorithm-confusion defence).
+    pub fn verify_jcs(&self, d: &Digest32, sig: &Signature) -> Result<(), CryptoError> {
+        let raw = Base64UrlUnpadded::decode_vec(sig.payload())
+            .map_err(|_| CryptoError::SignatureInvalid)?;
         match (&self.0, sig.algorithm()) {
             (VerifyingKeyInner::Ed25519(vk), SignatureAlgorithm::Ed25519) => {
-                let raw = Base64UrlUnpadded::decode_vec(sig.payload())
-                    .map_err(|_| CryptoError::SignatureInvalid)?;
-                if raw.len() != 64 {
-                    return Err(CryptoError::SignatureInvalid);
-                }
-                let mut buf = [0u8; 64];
-                buf.copy_from_slice(&raw);
-                let dalek_sig = DalekSignature::from_bytes(&buf);
-                vk.verify_strict(message, &dalek_sig)
-                    .map_err(|_| CryptoError::SignatureInvalid)
+                verify_ed25519(vk, d.as_bytes(), &raw)
             }
             (VerifyingKeyInner::P256(vk), SignatureAlgorithm::P256) => {
-                let raw = Base64UrlUnpadded::decode_vec(sig.payload())
-                    .map_err(|_| CryptoError::SignatureInvalid)?;
-                verify_p256_raw(vk, message, &raw)
+                verify_p256_prehash(vk, d, &raw)
             }
             // Algorithm-confusion guard: refuse to verify a P-256
             // signature with an Ed25519 key, and vice versa.
@@ -378,8 +381,10 @@ impl AitpVerifyingKey {
     /// algorithm fixed by this key's variant. Used by the compact-JWS
     /// profile (RFC-AITP-0001 §5.4.5), where the `alg` header has
     /// already been pinned against the signer AID before this call.
-    /// Ed25519 uses `verify_strict`; ES256 expects the JOSE raw
-    /// `R || S` fixed-length encoding (RFC 7518 §3.4).
+    /// Counterpart of [`AitpSigningKey::sign_raw`]: Ed25519 uses
+    /// `verify_strict`; ES256 verifies the JOSE raw `R || S` encoding
+    /// (RFC 7518 §3.4) over `SHA-256(message)`, under the same §5.4.7
+    /// strictness as [`Self::verify_jcs`].
     ///
     /// **Caller MUST pin the JOSE `alg` header against this key's own
     /// algorithm before calling this** (e.g. via [`Self::algorithm`]
@@ -388,20 +393,37 @@ impl AitpVerifyingKey {
     /// this key variant implements — it does not itself check that the
     /// caller picked the right variant for an untrusted `alg` header,
     /// so skipping that check reopens the algorithm-confusion class of
-    /// attack this type otherwise defends against (see [`Self::verify`]).
+    /// attack this type otherwise defends against (see [`Self::verify_jcs`]).
     pub fn verify_raw(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
-        if sig.len() != 64 {
-            return Err(CryptoError::SignatureInvalid);
-        }
         match &self.0 {
-            VerifyingKeyInner::Ed25519(vk) => {
-                let mut buf = [0u8; 64];
-                buf.copy_from_slice(sig);
-                let dalek_sig = DalekSignature::from_bytes(&buf);
-                vk.verify_strict(message, &dalek_sig)
+            VerifyingKeyInner::Ed25519(vk) => verify_ed25519(vk, message, sig),
+            VerifyingKeyInner::P256(vk) => verify_p256_prehash(vk, &Digest32::sha256(message), sig),
+        }
+    }
+
+    /// Verify a raw 64-byte JOSE signature from a **third party**: an
+    /// IdP's OIDC ID token, or a DPoP proof (RFC 7515/7518). It is
+    /// [`Self::verify_raw`] without the high-S rejection. RFC-AITP-0001
+    /// §5.4.7 low-S is scoped to AITP signing inputs, and a verifier
+    /// MUST NOT reject an IdP token for high-S alone. `R`/`S` of zero or
+    /// `>= n` still fail, as in any ECDSA verifier.
+    ///
+    /// Accepting both `(r, s)` and `(r, n - s)` makes the token bytes
+    /// malleable. Never key a replay or dedup cache on them; key on the
+    /// bound nonce or `jti`. Ed25519 stays `verify_strict`. The same
+    /// `alg`-pinning duty as [`Self::verify_raw`] applies.
+    pub fn verify_raw_jose(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => verify_ed25519(vk, message, sig),
+            VerifyingKeyInner::P256(vk) => {
+                if sig.len() != 64 {
+                    return Err(CryptoError::SignatureInvalid);
+                }
+                let p256_sig =
+                    P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
+                vk.verify_prehash(Digest32::sha256(message).as_bytes(), &p256_sig)
                     .map_err(|_| CryptoError::SignatureInvalid)
             }
-            VerifyingKeyInner::P256(vk) => verify_p256_raw(vk, message, sig),
         }
     }
 
@@ -492,52 +514,135 @@ impl AitpVerifyingKey {
             VerifyingKeyInner::P256(_) => AidAlgorithm::P256,
         }
     }
+
+    /// The AID for this key in its canonical form: untagged
+    /// `aid:pubkey:<43>` for Ed25519 and `aid:pubkey:p256:<44>` for P-256.
+    ///
+    /// An Ed25519 AID may also be written tagged
+    /// (`aid:pubkey:ed25519:<43>`). Both forms name the same key, so
+    /// compare keys ([`PartialEq`]), not AID strings, to decide whether two
+    /// AIDs are the same principal.
+    pub fn to_aid(&self) -> Aid {
+        match &self.0 {
+            VerifyingKeyInner::Ed25519(vk) => Aid::from_ed25519(&vk.to_bytes()),
+            VerifyingKeyInner::P256(vk) => {
+                let mut arr = [0u8; 33];
+                arr.copy_from_slice(vk.to_sec1_point(true).as_bytes());
+                Aid::from_p256(&arr)
+            }
+        }
+    }
 }
 
-/// Sign `message` with P-256/ES256 and return a signature normalized to
-/// the **low-S** canonical form. The `p256` signer produces RFC 6979
-/// deterministic-k signatures but does NOT guarantee low-S; roughly half
-/// come out high-S. Normalizing here makes our mints canonical and keeps
-/// them acceptable to the strict [`verify_p256_raw`] path.
-fn p256_sign_low_s(inner: &P256SigningKey, message: &[u8]) -> P256Signature {
-    let sig: P256Signature = <P256SigningKey as P256Signer<P256Signature>>::sign(inner, message);
-    // p256 0.14 / ecdsa 0.17: `normalize_s()` unconditionally returns the
-    // low-S form (it used to return `Option<Self>`, `Some` only when the
-    // input was high-S). Since it's now always the low-S signature, this
-    // is already what we want.
-    sig.normalize_s()
+/// Keys are equal when they have the same algorithm and the same public
+/// key bytes: the `(algorithm, key)` identity RFC-AITP-0002 §3.2 uses for
+/// pinned-key trust lookups.
+impl PartialEq for AitpVerifyingKey {
+    fn eq(&self, other: &Self) -> bool {
+        self.algorithm() == other.algorithm() && self.to_compressed() == other.to_compressed()
+    }
 }
 
-/// Verify a raw `R || S` (64-byte) ES256 signature, enforcing the
-/// **low-S** canonical form (RFC-AITP-0001 §5.4.3 wire determinism; the
-/// hardening posture from RFC-AITP-0009 §4).
+impl Eq for AitpVerifyingKey {}
+
+impl std::hash::Hash for AitpVerifyingKey {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        // `AidAlgorithm` is `#[non_exhaustive]` and not `Hash`; its AID
+        // prefix tag is a stable stand-in.
+        self.algorithm().as_str().hash(state);
+        self.to_compressed().hash(state);
+    }
+}
+
+/// ECDSA-sign the 32-byte message hash `d` (`e = d`, never re-hashed)
+/// and return the low-S `R || S` encoding.
 ///
-/// ECDSA signatures are malleable: for any valid `(r, s)`, the pair
-/// `(r, n − s)` is an equally valid signature over the same message.
-/// The `p256` crate's verifier accepts both, so without this check a
-/// captured token's signature could be mutated into a second valid
-/// encoding of identical claims. Our own mints are always low-S
-/// (RFC 6979 deterministic-k produces the low-S form), so rejecting
-/// high-S costs nothing on the honest path and removes the malleability
-/// on the wire.
+/// RFC 6979 makes the nonce, and therefore the signature, deterministic
+/// for a given `(key, d)`. The `p256` signer does not guarantee low-S, so
+/// the result is normalised here (RFC-AITP-0001 §5.4.7). Our signatures
+/// are therefore canonical and pass the strict verifier.
+fn p256_sign_prehash(inner: &P256SigningKey, d: &Digest32) -> [u8; 64] {
+    // A 32-byte prehash is always accepted for P-256 (it only fails on
+    // input shorter than half the field size).
+    let sig: P256Signature = inner
+        .sign_prehash(d.as_bytes())
+        .expect("32-byte prehash is valid for P-256");
+    // p256 0.14 / ecdsa 0.17: `normalize_s()` always returns the low-S
+    // form (it used to return `Option<Self>`).
+    sig.normalize_s().to_bytes().into()
+}
+
+/// Bring a P-256 signature returned by an external backend into the
+/// one form AITP emits: JOSE `R || S`, low-S (RFC-AITP-0001 §5.4.7).
+///
+/// KMS and HSM backends return ASN.1 DER (`ECDSA-Sig-Value`) and do not
+/// promise low-S, so both are handled here, not by every backend. DER
+/// decoding is strict (`der` rejects non-minimal integers and trailing
+/// bytes). Zero and `>= n` scalars are refused by either decoder. Whether
+/// the signature is *valid* is the caller's verify-before-emit step.
+pub(crate) fn p256_backend_to_low_s(
+    sig: &crate::signer::BackendSignature,
+) -> Result<[u8; 64], crate::SignerError> {
+    use crate::signer::BackendSignature;
+    let parsed = match sig {
+        BackendSignature::Raw(raw) => P256Signature::from_slice(raw).map_err(|_| {
+            crate::SignerError::MalformedSignature("P-256 R || S out of range".into())
+        })?,
+        BackendSignature::Der(der) => P256Signature::from_der(der).map_err(|_| {
+            crate::SignerError::MalformedSignature("P-256 DER ECDSA-Sig-Value is invalid".into())
+        })?,
+    };
+    Ok(parsed.normalize_s().to_bytes().into())
+}
+
+/// ECDSA-sign `d` with a fresh random nonce instead of RFC 6979. Backends
+/// such as AWS KMS do this, so the mock KMS uses it to show that the
+/// library accepts non-deterministic P-256 output. Not used for minting.
+#[cfg(any(test, feature = "test-util"))]
+pub(crate) fn p256_sign_prehash_randomized(key: &AitpSigningKey, d: &Digest32) -> Option<[u8; 64]> {
+    use p256::ecdsa::signature::hazmat::RandomizedPrehashSigner;
+    match &key.0 {
+        SigningKeyInner::P256 { inner, .. } => {
+            let sig: P256Signature = inner
+                .sign_prehash_with_rng(&mut os_csprng(), d.as_bytes())
+                .expect("32-byte prehash is valid for P-256");
+            Some(sig.to_bytes().into())
+        }
+        SigningKeyInner::Ed25519 { .. } => None,
+    }
+}
+
+/// PureEdDSA strict verification (RFC-AITP-0001 §5.4.7): rejects
+/// non-canonical `S`, and small-order `R` or public key.
+fn verify_ed25519(vk: &DalekVerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+    let buf: [u8; 64] = sig.try_into().map_err(|_| CryptoError::SignatureInvalid)?;
+    vk.verify_strict(message, &DalekSignature::from_bytes(&buf))
+        .map_err(|_| CryptoError::SignatureInvalid)
+}
+
+/// Verify a raw `R || S` (64-byte) P-256 signature against the message
+/// hash `d` with the strictness of RFC-AITP-0001 §5.4.7:
+///
+/// - `R` or `S` equal to zero, or `>= n`, is rejected.
+///   `Signature::from_slice` decodes each half as a canonical scalar and
+///   refuses zero.
+/// - High-S (`S > n/2`) is rejected. ECDSA is malleable: `(r, n − s)` is
+///   an equally valid signature, and the `p256` verifier accepts both.
+///   Without this check a captured signature could be re-encoded into a
+///   second valid form. Our own signatures are always low-S, so the
+///   honest path never hits it.
 ///
 /// p256 0.14 / ecdsa 0.17 changed `normalize_s()` from `-> Option<Self>`
-/// (`Some` iff the input was high-S) to `-> Self` (unconditionally the
-/// low-S form). The old `is_some()` check no longer compiles, and a naive
-/// find-and-replace to "always accept" would silently delete this
-/// malleability guard. The equivalent check under the new API is a direct
-/// comparison: a signature is high-S iff normalizing it changes it.
-fn verify_p256_raw(vk: &P256VerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+/// to `-> Self`. A signature is high-S iff normalising it changes it.
+fn verify_p256_prehash(vk: &P256VerifyingKey, d: &Digest32, sig: &[u8]) -> Result<(), CryptoError> {
     if sig.len() != 64 {
         return Err(CryptoError::SignatureInvalid);
     }
-    // p256::ecdsa::Signature accepts R||S as 64 bytes.
     let p256_sig = P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
     if p256_sig.normalize_s() != p256_sig {
-        // High-S (non-canonical / malleated) — reject.
         return Err(CryptoError::SignatureInvalid);
     }
-    vk.verify(message, &p256_sig)
+    vk.verify_prehash(d.as_bytes(), &p256_sig)
         .map_err(|_| CryptoError::SignatureInvalid)
 }
 
@@ -572,6 +677,17 @@ pub enum SignatureAlgorithm {
 }
 
 impl Signature {
+    /// Wire form of a raw 64-byte signature: untagged for Ed25519 (v0.1
+    /// compatibility, as [`AitpSigningKey::sign_jcs`] emits) and
+    /// `p256.`-tagged for P-256.
+    pub(crate) fn from_raw(algorithm: AidAlgorithm, raw: &[u8; 64]) -> Self {
+        let b64 = Base64UrlUnpadded::encode_string(raw);
+        match algorithm {
+            AidAlgorithm::P256 => Signature(format!("p256.{b64}")),
+            _ => Signature(b64),
+        }
+    }
+
     /// Parse a signature string. Accepts both the legacy v0.1
     /// untagged form and the v0.2 algorithm-tagged forms.
     pub fn parse(s: &str) -> Result<Self, CryptoError> {
@@ -668,11 +784,12 @@ mod tests {
     fn signs_and_verifies_round_trip() {
         let key = AitpSigningKey::from_seed(&[1u8; 32]);
         let msg = b"hello aitp";
-        let sig = key.sign(msg);
+        let sig = key.sign_jcs(&Digest32::sha256(msg));
         assert_eq!(sig.as_str().len(), ED25519_SIGNATURE_BASE64URL_LEN);
         let vk = key.verifying_key();
-        vk.verify(msg, &sig).expect("signature should verify");
-        assert!(vk.verify(b"tampered", &sig).is_err());
+        vk.verify_jcs(&Digest32::sha256(msg), &sig)
+            .expect("signature should verify");
+        assert!(vk.verify_jcs(&Digest32::sha256(b"tampered"), &sig).is_err());
     }
 
     #[test]
@@ -764,7 +881,10 @@ mod tests {
         let key = AitpSigningKey::from_seed(&[3u8; 32]);
         let s = format!("p256.{}", "A".repeat(86));
         let sig = Signature::parse(&s).unwrap();
-        assert!(key.verifying_key().verify(b"msg", &sig).is_err());
+        assert!(key
+            .verifying_key()
+            .verify_jcs(&Digest32::sha256(b"msg"), &sig)
+            .is_err());
     }
 
     #[test]
@@ -797,9 +917,11 @@ mod tests {
         assert_eq!(parsed.algorithm(), SignatureAlgorithm::P256);
 
         verifier
-            .verify(msg, &parsed)
+            .verify_jcs(&Digest32::sha256(msg), &parsed)
             .expect("P-256 signature verifies");
-        assert!(verifier.verify(b"tampered", &parsed).is_err());
+        assert!(verifier
+            .verify_jcs(&Digest32::sha256(b"tampered"), &parsed)
+            .is_err());
     }
 
     #[test]
@@ -849,11 +971,17 @@ mod tests {
         );
 
         verifier
-            .verify(msg, &Signature::parse(&low_wire).unwrap())
+            .verify_jcs(
+                &Digest32::sha256(msg),
+                &Signature::parse(&low_wire).unwrap(),
+            )
             .expect("low-S signature verifies");
         assert!(
             verifier
-                .verify(msg, &Signature::parse(&high_wire).unwrap())
+                .verify_jcs(
+                    &Digest32::sha256(msg),
+                    &Signature::parse(&high_wire).unwrap()
+                )
                 .is_err(),
             "high-S (malleated) signature must be rejected"
         );
@@ -870,13 +998,14 @@ mod tests {
         assert!(matches!(key.aid().algorithm(), AidAlgorithm::P256));
 
         let msg = b"aitp p256 signing key round-trip";
-        let sig = key.sign(msg);
+        let sig = key.sign_jcs(&Digest32::sha256(msg));
         assert_eq!(sig.algorithm(), SignatureAlgorithm::P256);
         assert!(sig.as_str().starts_with("p256."));
 
         let vk = key.verifying_key();
-        vk.verify(msg, &sig).expect("p256 round-trip verifies");
-        assert!(vk.verify(b"tampered", &sig).is_err());
+        vk.verify_jcs(&Digest32::sha256(msg), &sig)
+            .expect("p256 round-trip verifies");
+        assert!(vk.verify_jcs(&Digest32::sha256(b"tampered"), &sig).is_err());
 
         // The cached AID matches one freshly derived from from_aid.
         let derived = AitpVerifyingKey::from_aid(key.aid()).unwrap();
@@ -890,7 +1019,10 @@ mod tests {
         assert_eq!(a.aid(), b.aid());
         let msg = b"deterministic";
         // RFC6979 makes the signatures deterministic too.
-        assert_eq!(a.sign(msg).as_str(), b.sign(msg).as_str());
+        assert_eq!(
+            a.sign_jcs(&Digest32::sha256(msg)).as_str(),
+            b.sign_jcs(&Digest32::sha256(msg)).as_str()
+        );
     }
 
     #[test]
@@ -912,7 +1044,7 @@ mod tests {
         // Wire compatibility: Ed25519 signing must still emit the legacy
         // untagged 86-char form so v0.1 verifiers accept it.
         let key = AitpSigningKey::generate();
-        let sig = key.sign(b"compat");
+        let sig = key.sign_jcs(&Digest32::sha256(b"compat"));
         assert!(!sig.as_str().starts_with("ed25519."));
         assert!(!sig.as_str().starts_with("p256."));
         assert_eq!(sig.as_str().len(), ED25519_SIGNATURE_BASE64URL_LEN);
@@ -982,8 +1114,10 @@ mod tests {
         let verifier = AitpVerifyingKey::from_aid(&aid).unwrap();
         // Try to verify an Ed25519 signature against the P-256 key.
         let ed_key = AitpSigningKey::from_seed(&[1u8; 32]);
-        let ed_sig = ed_key.sign(b"msg");
-        assert!(verifier.verify(b"msg", &ed_sig).is_err());
+        let ed_sig = ed_key.sign_jcs(&Digest32::sha256(b"msg"));
+        assert!(verifier
+            .verify_jcs(&Digest32::sha256(b"msg"), &ed_sig)
+            .is_err());
     }
 
     #[test]
@@ -1009,9 +1143,9 @@ mod tests {
         assert_eq!(from_affine.to_compressed(), vk.to_compressed());
 
         let msg = b"from_p256_affine round-trip";
-        let sig = key.sign(msg);
+        let sig = key.sign_jcs(&Digest32::sha256(msg));
         from_affine
-            .verify(msg, &sig)
+            .verify_jcs(&Digest32::sha256(msg), &sig)
             .expect("affine-constructed verifier accepts the original signature");
     }
 

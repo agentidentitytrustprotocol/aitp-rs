@@ -57,6 +57,11 @@ ed25519-dalek = { version = "3.0", features = ["rand_core"] }
 # the P-256 suite). `arithmetic` is required to derive the public
 # point from a freshly-generated scalar.
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
+# `der` decodes the ASN.1 ECDSA-Sig-Value that cloud KMS backends
+# (AWS KMS, GCP Cloud KMS, Azure Key Vault in DER mode, PKCS#11 shims)
+# return for P-256, so `aitp_crypto::signer` can convert it to the JOSE
+# `R || S` form. Feature unification turns it on for p256's own ecdsa.
+ecdsa = { version = "0.17", default-features = false, features = ["der"] }
 base64ct = { version = "1.6", features = ["std"] }
 uuid = { version = "1.7", features = ["v4", "serde"] }
 sha2 = "0.11"
@@ -67,6 +72,7 @@ rand = "0.10"
 # HTTP transport (feature-gated, only used by aitp-transport-http)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
+http = "1"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", default-features = false }
 

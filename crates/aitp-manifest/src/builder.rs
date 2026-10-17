@@ -5,12 +5,12 @@
 
 use crate::types::{IdentityHint, IdentityHintKind, Manifest, ManifestPop};
 use crate::ManifestError;
+use aitp_core::Aid;
 use aitp_core::RawUrl;
 use aitp_core::{base64url, jcs, ExtensionsMap, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp_crypto::{AitpSigner, CryptoError, Digest32, DynAsyncAitpSigner, Signature};
 use rand::TryRng;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 
 /// Default Manifest TTL (24 hours).
 pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
@@ -32,8 +32,14 @@ pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
 ///     .ttl_secs(3600)
 ///     .build()?;
 /// ```
-pub struct ManifestBuilder<'a> {
-    signing_key: &'a AitpSigningKey,
+///
+/// With an async (KMS, HSM) signer, start from
+/// [`ManifestBuilder::new_async`] and finish with
+/// [`ManifestBuilder::build_async`]; the setters are shared. The signer
+/// kind is a type parameter, so a sync builder has no `build_async` and
+/// an async one has no `build`.
+pub struct ManifestBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
+    signing_key: &'a S,
     handshake_endpoint: Option<RawUrl>,
     accepted_trust_anchors: Vec<RawUrl>,
     /// `None` until the caller explicitly opts in via
@@ -54,9 +60,98 @@ pub struct ManifestBuilder<'a> {
     now_override: Option<Timestamp>,
 }
 
-impl<'a> ManifestBuilder<'a> {
+impl<'a> ManifestBuilder<'a, dyn AitpSigner + 'a> {
     /// Begin a new Manifest, signed by `signing_key`.
-    pub fn new(signing_key: &'a AitpSigningKey) -> Self {
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure surfaces from [`Self::build`] as
+    /// `ManifestError::Crypto(CryptoError::Signer(_))`.
+    pub fn new(signing_key: &'a dyn AitpSigner) -> Self {
+        Self::with_signer(signing_key)
+    }
+
+    /// Construct, sign, and return the Manifest.
+    ///
+    /// Two backend calls, in order: the proof-of-possession signature,
+    /// then the outer signature over the body (which covers the PoP).
+    pub fn build(self) -> Result<Manifest, ManifestError> {
+        let (draft, signer) = self.draft()?;
+        let pop = aitp_crypto::sign_jcs(signer, &draft.pop_input).map_err(CryptoError::Signer)?;
+        let (mut manifest, digest) = draft.with_pop(pop)?;
+        let signature = aitp_crypto::sign_jcs(signer, &digest).map_err(CryptoError::Signer)?;
+        manifest.signature = signature.into_string();
+        Ok(manifest)
+    }
+}
+
+impl<'a> ManifestBuilder<'a, dyn DynAsyncAitpSigner + 'a> {
+    /// Begin a new Manifest signed by an async backend, for example
+    /// `ManifestBuilder::new_async(&*arc_kms_signer)`. Finish with
+    /// [`Self::build_async`].
+    ///
+    /// A backend failure surfaces from [`Self::build_async`] as
+    /// `ManifestError::Crypto(CryptoError::Signer(_))`.
+    pub fn new_async(signing_key: &'a dyn DynAsyncAitpSigner) -> Self {
+        Self::with_signer(signing_key)
+    }
+
+    /// As [`ManifestBuilder::build`], awaiting the backend. Validation
+    /// and output are identical. The PoP and the outer signature are two
+    /// sequential backend calls, in that order; the future is `Send`.
+    pub async fn build_async(self) -> Result<Manifest, ManifestError> {
+        let (draft, signer) = self.draft()?;
+        let pop = aitp_crypto::sign_jcs_async(signer, &draft.pop_input)
+            .await
+            .map_err(CryptoError::Signer)?;
+        let (mut manifest, digest) = draft.with_pop(pop)?;
+        let signature = aitp_crypto::sign_jcs_async(signer, &digest)
+            .await
+            .map_err(CryptoError::Signer)?;
+        manifest.signature = signature.into_string();
+        Ok(manifest)
+    }
+}
+
+/// The signer's AID, whichever signer kind holds it.
+trait SignerAid {
+    fn signer_aid(&self) -> &Aid;
+}
+impl SignerAid for dyn AitpSigner + '_ {
+    fn signer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+impl SignerAid for dyn DynAsyncAitpSigner + '_ {
+    fn signer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+
+/// A validated Manifest awaiting its two signatures: the PoP first, then
+/// the outer signature over the body that embeds the PoP.
+struct Draft {
+    /// `sha256(base64url_decode(challenge))`, the PoP signing input.
+    pop_input: Digest32,
+    /// Every field final except `proof_of_possession.signature` and
+    /// `signature`.
+    manifest: Manifest,
+}
+
+impl Draft {
+    /// Install the PoP signature and compute the outer signing digest.
+    fn with_pop(self, pop: Signature) -> Result<(Manifest, Digest32), ManifestError> {
+        let mut manifest = self.manifest;
+        manifest.proof_of_possession.signature = pop.into_string();
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view)?;
+        let digest = Digest32::sha256(&canonical);
+        Ok((manifest, digest))
+    }
+}
+
+#[allow(private_bounds)]
+impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
+    fn with_signer(signing_key: &'a S) -> Self {
         Self {
             signing_key,
             handshake_endpoint: None,
@@ -178,8 +273,8 @@ impl<'a> ManifestBuilder<'a> {
         self
     }
 
-    /// Construct, sign, and return the Manifest.
-    pub fn build(self) -> Result<Manifest, ManifestError> {
+    /// Validate and assemble the Manifest; signing is the caller's.
+    fn draft(self) -> Result<(Draft, &'a S), ManifestError> {
         // 1. Required-field validation.
         let handshake_endpoint = self
             .handshake_endpoint
@@ -206,8 +301,8 @@ impl<'a> ManifestBuilder<'a> {
         //    §3 — the hash input is the 16 raw decoded bytes, NOT the ASCII
         //    bytes of the base64url-encoded string. Pinned by KAT
         //    `kat-manifest-pop-001` in `jcs-sha256.json`.
-        let pop_input = Sha256::digest(challenge_bytes);
-        let pop_signature = self.signing_key.sign(&pop_input);
+        //    Signed by the caller, before the body (step 6).
+        let pop_input = Digest32::sha256(&challenge_bytes);
 
         // 4. Compose published_at / expires_at.
         let published_at = self.now_override.unwrap_or_else(Timestamp::now);
@@ -220,10 +315,11 @@ impl<'a> ManifestBuilder<'a> {
         //    `verify_manifest` uses, instead of hand-constructing a second,
         //    independent view here. See `ManifestSigningView::from`'s doc
         //    comment for why a single shared derivation matters.
-        let aid = self.signing_key.aid().clone();
+        let aid = self.signing_key.signer_aid().clone();
         let pop = ManifestPop {
             challenge,
-            signature: pop_signature.into_string(),
+            // Filled in by `Draft::with_pop` once the PoP is signed.
+            signature: String::new(),
         };
 
         // OQ1: the builder has no public API for requesting a literal
@@ -241,7 +337,7 @@ impl<'a> ManifestBuilder<'a> {
             Some(self.extensions)
         };
 
-        let mut manifest = Manifest {
+        let manifest = Manifest {
             version: "aitp/0.2".into(),
             aid,
             display_name: self.display_name,
@@ -261,13 +357,15 @@ impl<'a> ManifestBuilder<'a> {
             signature: String::new(),
         };
 
-        let view = ManifestSigningView::from(&manifest);
-        let canonical = manifest_signing_bytes(&view)?;
-        let digest = Sha256::digest(&canonical);
-        let signature = self.signing_key.sign(&digest);
-        manifest.signature = signature.into_string();
-
-        Ok(manifest)
+        // 6. The outer signature covers the body, PoP signature included:
+        //    `Draft::with_pop` computes its digest after step 3.
+        Ok((
+            Draft {
+                pop_input,
+                manifest,
+            },
+            self.signing_key,
+        ))
     }
 }
 
@@ -559,7 +657,7 @@ mod tests {
              canonicalizing a different JSON shape than the spec signs"
         );
         assert_eq!(
-            hex::encode(Sha256::digest(&canonical)),
+            hex::encode(aitp_crypto::Digest32::sha256(&canonical)),
             v["sha256_hex"].as_str().unwrap(),
             "digest diverges from spec kat-manifest-001"
         );

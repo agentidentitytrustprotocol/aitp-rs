@@ -27,7 +27,7 @@
 //! convention only: verification operates on transmitted bytes and
 //! succeeds for any JOSE-conformant producer.
 
-use crate::{AitpSigningKey, AitpVerifyingKey, CryptoError};
+use crate::{AitpSigner, AitpVerifyingKey, CryptoError, DynAsyncAitpSigner};
 use aitp_core::{base64url, jcs, Aid, AidAlgorithm};
 use serde::Deserialize;
 
@@ -62,14 +62,39 @@ struct JwsHeader {
     typ: String,
 }
 
-/// Sign `claims` as a compact JWS with the given `typ`.
+/// Sign `claims` as a compact JWS with the given `typ`, with any
+/// [`AitpSigner`] backend (an [`crate::AitpSigningKey`], a KMS, an HSM).
 ///
 /// The protected header is exactly `{"alg":"<alg>","typ":"<typ>"}` in
 /// that member order, and the payload is the JCS canonicalization of
 /// `claims` — the spec's byte-stable minting convention, so fixed
-/// inputs reproduce the pinned known-answer vectors exactly.
+/// inputs reproduce the pinned known-answer vectors exactly. Backend
+/// output is normalised and verified before the token is returned
+/// ([`crate::signer`]).
 pub fn sign_compact<T: serde::Serialize>(
-    key: &AitpSigningKey,
+    signer: &dyn AitpSigner,
+    typ: &str,
+    claims: &T,
+) -> Result<String, CryptoError> {
+    let signing_input = compact_signing_input(signer.aid(), typ, claims)?;
+    let sig = crate::signer::sign_raw(signer, signing_input.as_bytes())?;
+    Ok(format!("{signing_input}.{}", base64url::encode(&sig)))
+}
+
+/// Async [`sign_compact`], for backends whose SDK is async.
+pub async fn sign_compact_async<T: serde::Serialize>(
+    signer: &dyn DynAsyncAitpSigner,
+    typ: &str,
+    claims: &T,
+) -> Result<String, CryptoError> {
+    let signing_input = compact_signing_input(signer.aid(), typ, claims)?;
+    let sig = crate::signer::sign_raw_async(signer, signing_input.as_bytes()).await?;
+    Ok(format!("{signing_input}.{}", base64url::encode(&sig)))
+}
+
+/// `ASCII(b64(header) || '.' || b64(JCS(claims)))` for a signer AID.
+fn compact_signing_input<T: serde::Serialize>(
+    aid: &Aid,
     typ: &str,
     claims: &T,
 ) -> Result<String, CryptoError> {
@@ -78,17 +103,15 @@ pub fn sign_compact<T: serde::Serialize>(
             "typ must not require JSON escaping".into(),
         ));
     }
-    let alg = jose_alg(key.algorithm())?;
+    let alg = jose_alg(aid.algorithm())?;
     let header = format!("{{\"alg\":\"{alg}\",\"typ\":\"{typ}\"}}");
     let payload = jcs::canonicalize_serializable(claims)
         .map_err(|e| CryptoError::JwsMalformed(format!("claims canonicalization: {e}")))?;
-    let signing_input = format!(
+    Ok(format!(
         "{}.{}",
         base64url::encode(header.as_bytes()),
         base64url::encode(&payload)
-    );
-    let sig = key.sign_raw(signing_input.as_bytes());
-    Ok(format!("{signing_input}.{}", base64url::encode(&sig)))
+    ))
 }
 
 /// Verify a compact JWS against the key encoded in `signer` and return
@@ -204,6 +227,7 @@ fn split_strict(token: &str) -> Result<(&str, &str, &str), CryptoError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::AitpSigningKey;
     use serde_json::json;
 
     fn claims() -> serde_json::Value {

@@ -5,7 +5,8 @@
 //! layer.
 //!
 //! Sessions are constructed with a [`SessionContext`] carrying the JWKS
-//! provider (for OIDC verification), accepted trust anchors, and the
+//! provider (for OIDC verification), accepted trust anchors, the
+//! pinned-key trust store (the peer AIDs this session trusts), and the
 //! agent's own identity-hint kind (which determines whether HELLO /
 //! HELLO_ACK should present a pinned-key or OIDC proof). When the agent
 //! is in OIDC mode, `build_hello` / `process_hello` require an
@@ -19,7 +20,7 @@ use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
@@ -44,6 +45,11 @@ pub struct SessionContext {
     /// Our own manifest identity_hint.issuer — for OIDC, the URL the
     /// IdP will sign tokens for. None for pinned-key.
     pub identity_issuer: Option<RawUrl>,
+    /// Local pinned-key trust store (RFC-AITP-0002 §3.2), built from the
+    /// `pinned_keys` AIDs passed to `new_session` / `new_responder`. A
+    /// `pinned_key` peer whose key is not in it is rejected with
+    /// `IDENTITY_FAILED`; empty ⇒ every pinned-key peer is rejected.
+    pub pinned_keys: StaticPinnedKeyStore,
 }
 
 impl SessionContext {
@@ -174,6 +180,7 @@ impl PyInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
 
@@ -208,6 +215,7 @@ impl PyInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let commit = self
             .inner
@@ -241,6 +249,7 @@ impl PyInitiatorSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let completed = self
             .inner
@@ -316,6 +325,7 @@ impl PyResponderSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
         // Mutual handshake: the responder must also receive a TCT, so it
@@ -364,6 +374,7 @@ impl PyResponderSession {
             &self.manifest,
             jwks.as_ref(),
             &self.ctx.trust_anchors,
+            &self.ctx.pinned_keys,
         );
         let (ack, completed) = self
             .inner

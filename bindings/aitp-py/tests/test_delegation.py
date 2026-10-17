@@ -57,8 +57,8 @@ def _build_delegation_token():
     )
 
     # B handshakes against A → B holds A's TCT + grant voucher for PING_CAP.
-    bsess = b.new_session()
-    arsess = a.new_responder()
+    bsess = b.new_session(pinned_keys=[a.aid])
+    arsess = a.new_responder(pinned_keys=[b.aid])
     hello = bsess.build_hello(a_manifest, [PING_CAP])
     hello_ack, sid = arsess.process_hello(hello)
     commit = bsess.process_hello_ack(hello_ack, sid)

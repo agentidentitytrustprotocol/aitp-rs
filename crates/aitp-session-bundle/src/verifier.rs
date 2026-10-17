@@ -6,7 +6,6 @@ use crate::types::SessionTrustBundle;
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 use aitp_tct::{verify_tct, TctError, TctVerifyContext};
-use sha2::{Digest, Sha256};
 use uuid::Uuid;
 
 /// Inputs for [`verify_session_bundle`].
@@ -115,11 +114,11 @@ pub fn verify_session_bundle(
         participants: &bundle.participants,
         extensions: bundle.extensions.as_ref(),
     })?;
-    let digest = Sha256::digest(&canonical);
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
     let outer_sig =
         Signature::parse(&bundle.signature).map_err(|_| SessionBundleError::InvalidSignature)?;
     coord_key
-        .verify(&digest, &outer_sig)
+        .verify_jcs(&digest, &outer_sig)
         .map_err(|_| SessionBundleError::InvalidSignature)?;
 
     // 6. Per-participant TCT verification. The coordinator's pubkey

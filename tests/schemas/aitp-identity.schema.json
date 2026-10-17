@@ -21,7 +21,7 @@
     "issuer": {
       "type": "string",
       "format": "uri",
-      "description": "Issuer URI. Required for type=oidc."
+      "description": "Issuer URI. Required for type=oidc; MUST be absent for type=pinned_key (RFC-AITP-0002 §1)."
     },
     "subject": {
       "type": "string",
@@ -31,11 +31,11 @@
     "proof": {
       "type": "string",
       "minLength": 1,
-      "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: an unpadded base64url Ed25519 signature whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor."
+      "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: a JCS-profile signature per RFC-AITP-0001 §5.4.3, Ed25519 or P-256 (a p256 sender MUST use the `p256.` tag; an untagged value is Ed25519), whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor."
     },
     "public_key": {
       "type": "string",
-      "description": "base64url public key. Required for pinned_key.",
+      "description": "base64url public key in the RFC-AITP-0001 §5.3 AID-identifier form: 43 chars for Ed25519, 44 chars (SEC1 compressed point) for P-256. Required for pinned_key; forbidden for oidc.",
       "pattern": "^[A-Za-z0-9_-]{43,44}$",
       "minLength": 43
     },
@@ -64,7 +64,18 @@
   "else": {
     "required": [
       "public_key"
-    ]
+    ],
+    "properties": {
+      "proof": {
+        "type": "string",
+        "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
+      }
+    },
+    "not": {
+      "required": [
+        "issuer"
+      ]
+    }
   },
   "additionalProperties": false,
   "examples": [
@@ -77,8 +88,14 @@
     {
       "type": "pinned_key",
       "subject": "internal-worker-1",
-      "proof": "base64url_signature",
-      "public_key": "worker_pubkey_AID_v01_placeholder_wwwwwwwww"
+      "proof": "vdLCEPGuUvVryXxnPdo_ZNYqaZmGuByZ5kRMU0ikKeVbn3SUjj2DD7y8e5pNBtp7jSHZ-Z0wzNdOl0NS1mSpCQ",
+      "public_key": "dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU"
+    },
+    {
+      "type": "pinned_key",
+      "subject": "internal-worker-p256",
+      "proof": "p256.X9FVRk-1kawJ_rKSXlW3ySlC2A0WfSCArxzswSPWtSRQol3VSaNYx9u-Q3kdL0SKbd51HSYlJZ_IzjU0E-wr1Q",
+      "public_key": "AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR"
     }
   ]
 }

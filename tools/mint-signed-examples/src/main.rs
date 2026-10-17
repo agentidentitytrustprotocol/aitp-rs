@@ -24,7 +24,6 @@ use aitp_tct::{
     TctBuilder,
 };
 use serde_json::json;
-use sha2::{Digest, Sha256};
 use std::path::PathBuf;
 use uuid::Uuid;
 
@@ -118,12 +117,16 @@ fn mint_manifest() {
         .expect("pinned challenge decodes to 16 bytes");
     manifest.proof_of_possession = aitp_manifest::ManifestPop {
         challenge: FIXED_MANIFEST_POP_CHALLENGE.into(),
-        signature: key.sign(&Sha256::digest(challenge_bytes)).into_string(),
+        signature: key
+            .sign_jcs(&aitp_crypto::Digest32::sha256(&challenge_bytes))
+            .into_string(),
     };
     let mut unsigned = serde_json::to_value(&manifest).expect("manifest to value");
     unsigned.as_object_mut().unwrap().remove("signature");
     let canonical = aitp_core::jcs::canonicalize(&unsigned).expect("canonicalize manifest");
-    manifest.signature = key.sign(&Sha256::digest(&canonical)).into_string();
+    manifest.signature = key
+        .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+        .into_string();
 
     let env = ManifestEnvelope { manifest };
     write_pretty(

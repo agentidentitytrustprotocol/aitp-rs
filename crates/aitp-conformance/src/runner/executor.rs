@@ -228,6 +228,13 @@ impl<A: Adapter> Runner<A> {
             serde_json::json!({ "now_unix_secs": self.ctx.now }),
         );
 
+        // Tell the adapter a new fixture starts, so state a sequence
+        // carries across its steps (a pinned-admission verifier's
+        // consumed nonces and recorded `message_id`s) does not leak
+        // between fixtures. Tier-D and optional: an adapter without it
+        // keeps its state, as before.
+        let _ = self.adapter.execute("begin_fixture", serde_json::json!({}));
+
         // Reset per-fixture substitution state (nonce counter +
         // last_nonce) before walking the input.
         self.ctx.reset_per_fixture();
@@ -239,7 +246,6 @@ impl<A: Adapter> Runner<A> {
                 self.run_single(&params, fixture.expected.as_ref())
             }
             FixtureInputVariant::Sequence { sequence, context } => {
-                let mut substituted = sequence.clone();
                 let mut context = context.clone();
                 // Substitute placeholders in the sibling context
                 // BEFORE merging into each step — otherwise step
@@ -251,22 +257,30 @@ impl<A: Adapter> Runner<A> {
                     serde_json::Value::Object(m) => m,
                     _ => serde_json::Map::new(),
                 };
-                for step in &mut substituted {
-                    // Merge context fields under the step's params,
-                    // with step values taking precedence on any
-                    // collision.
-                    if let Some(step_map) = step.params.as_object_mut() {
-                        for (k, v) in context.iter() {
-                            step_map.entry(k.clone()).or_insert_with(|| v.clone());
-                        }
-                    }
-                    self.ctx.substitute(&mut step.params);
-                }
-                self.run_sequence(&substituted, fixture.input.operation.as_deref())
+                self.run_sequence(sequence, &context, fixture.input.operation.as_deref())
             }
         };
 
         let duration_ms = started.elapsed().as_millis() as u64;
+        // spec #77: a placeholder the runner could not mint reached the
+        // adapter as a sentinel, so an outcome that matched was not
+        // evidence of the check the fixture names. FAIL, never PASS.
+        let unminted = self.ctx.unminted();
+        let outcome = match outcome {
+            Err(StepError::Skip(_)) => outcome,
+            _ if !unminted.is_empty() => {
+                let mut reason = format!(
+                    "unminted placeholders: {} (the runner cannot mint them, so the fixture's check was not exercised)",
+                    unminted.join(", ")
+                );
+                if let Err(StepError::Fail(r)) = outcome {
+                    reason.push_str("; also: ");
+                    reason.push_str(&r);
+                }
+                Err(StepError::Fail(reason))
+            }
+            _ => outcome,
+        };
         match outcome {
             Ok(()) => FixtureResult::Pass {
                 id: fixture.id.clone(),
@@ -330,12 +344,30 @@ impl<A: Adapter> Runner<A> {
         Ok(())
     }
 
+    /// Run each step, substituting it just before it executes: a step
+    /// may carry a value an earlier step produced at run time
+    /// (`__ISSUED_NONCE_<n>__`, the `pop_nonce` of the n-th successful
+    /// `issue_presentation_challenge`), and anything minted over it
+    /// (`__VALID_PINNED_PROOF__`, the envelope signature) must cover
+    /// that value. Substitution is otherwise in step order, as before.
     fn run_sequence(
         &mut self,
         sequence: &[crate::fixture::SequenceStep],
+        context: &serde_json::Map<String, serde_json::Value>,
         parent_op: Option<&str>,
     ) -> Result<(), StepError> {
+        let mut issued_nonces: Vec<String> = Vec::new();
         for step in sequence {
+            let mut step = step.clone();
+            // Merge context fields under the step's params, with step
+            // values taking precedence on any collision.
+            if let Some(step_map) = step.params.as_object_mut() {
+                for (k, v) in context.iter() {
+                    step_map.entry(k.clone()).or_insert_with(|| v.clone());
+                }
+            }
+            substitute_issued_nonces(&mut step.params, &issued_nonces);
+            self.ctx.substitute(&mut step.params);
             // RFC-AITP fixture protocol: a step's `operation` field
             // takes precedence; if absent, it inherits from the
             // input-level `operation` field (e.g. `env-004`'s replay
@@ -353,29 +385,106 @@ impl<A: Adapter> Runner<A> {
             if let Some(map) = params.as_object_mut() {
                 map.remove("operation");
             }
-            let result = self
-                .adapter
-                .execute(op, params)
-                .map_err(|e| StepError::Fail(format!("step {}: {e}", step.step)))?;
-            assert_outcome(&result, &step.expected)?;
+            let result = self.adapter.execute(op, params).map_err(|e| match e {
+                crate::adapter::AdapterError::OpNotSupported(_) => {
+                    StepError::Skip(format!("adapter does not support op {op}"))
+                }
+                other => StepError::Fail(format!("step {}: {other}", step.step)),
+            })?;
+            if op == "issue_presentation_challenge" {
+                if let OpResult::Ok { ok: true, result } = &result {
+                    let nonce = result.get("pop_nonce").and_then(|v| v.as_str());
+                    let Some(nonce) = nonce else {
+                        return Err(StepError::Fail(format!(
+                            "step {}: issue_presentation_challenge succeeded without result.pop_nonce",
+                            step.step
+                        )));
+                    };
+                    issued_nonces.push(nonce.to_string());
+                }
+            }
+            assert_outcome(&result, &step.expected).map_err(|e| e.in_step(step.step))?;
         }
         Ok(())
+    }
+}
+
+/// Replace each `__ISSUED_NONCE_<n>__` string (1-based) whose nonce
+/// has been captured. One not yet captured is left for the placeholder
+/// pass, which records it as unminted.
+fn substitute_issued_nonces(value: &mut serde_json::Value, issued: &[String]) {
+    match value {
+        serde_json::Value::String(s) => {
+            let n = s
+                .strip_prefix("__ISSUED_NONCE_")
+                .and_then(|r| r.strip_suffix("__"))
+                .and_then(|n| n.parse::<usize>().ok());
+            if let Some(nonce) = n.and_then(|n| n.checked_sub(1)).and_then(|i| issued.get(i)) {
+                *s = nonce.clone();
+            }
+        }
+        serde_json::Value::Array(items) => {
+            items
+                .iter_mut()
+                .for_each(|v| substitute_issued_nonces(v, issued));
+        }
+        serde_json::Value::Object(map) => {
+            map.values_mut()
+                .for_each(|v| substitute_issued_nonces(v, issued));
+        }
+        _ => {}
+    }
+}
+
+/// How a failure was reported, for messages: the error code, else the
+/// HTTP status.
+fn describe_failure(error_code: &str, http_status: Option<u16>) -> String {
+    match (error_code.is_empty(), http_status) {
+        (false, _) => format!("error {error_code}"),
+        (true, Some(status)) => format!("HTTP {status} with no error code"),
+        (true, None) => "an error with no code".into(),
     }
 }
 
 fn assert_outcome(actual: &OpResult, expected: &FixtureExpected) -> Result<(), StepError> {
     match (expected.outcome.as_str(), actual) {
         ("success", OpResult::Ok { ok, .. }) if *ok => {}
-        ("success", OpResult::Err { error_code, .. }) => {
+        (
+            "success",
+            OpResult::Err {
+                error_code,
+                http_status,
+                ..
+            },
+        ) => {
             return Err(StepError::Fail(format!(
-                "expected success, got error {error_code}"
+                "expected success, got {}",
+                describe_failure(error_code, *http_status)
             )))
         }
-        ("failure", OpResult::Err { error_code, .. }) => {
+        (
+            "failure",
+            OpResult::Err {
+                error_code,
+                http_status,
+                ..
+            },
+        ) => {
+            let got = describe_failure(error_code, *http_status);
             if let Some(want) = &expected.error_code {
                 if want != error_code {
+                    return Err(StepError::Fail(format!("expected error {want}, got {got}")));
+                }
+            }
+            if let Some(want) = expected.http_status {
+                if *http_status != Some(want) {
+                    return Err(StepError::Fail(format!("expected HTTP {want}, got {got}")));
+                }
+                // A request refused below the protocol layer gets no
+                // AITP error envelope (RFC-AITP-0009 §3.1).
+                if expected.error_code.is_none() && !error_code.is_empty() {
                     return Err(StepError::Fail(format!(
-                        "expected error {want}, got {error_code}"
+                        "expected HTTP {want} with no error code, got {got}"
                     )));
                 }
             }
@@ -429,6 +538,15 @@ enum StepError {
     Skip(String),
 }
 
+impl StepError {
+    fn in_step(self, step: impl std::fmt::Display) -> Self {
+        match self {
+            Self::Fail(m) => Self::Fail(format!("step {step}: {m}")),
+            other => other,
+        }
+    }
+}
+
 /// Maps a v0.1-strict rejection error code to the experimental
 /// feature whose opt-in invalidates the assertion. See
 /// [`Runner::should_skip_for_v0_1`].
@@ -438,5 +556,52 @@ fn negated_by_feature(error_code: &str) -> Option<&'static str> {
         "BUNDLE_NOT_SUPPORTED" => Some("experimental-session-bundle"),
         "TCT_RENEWAL_NOT_SUPPORTED" => Some("experimental-renewal"),
         _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    fn expected(v: serde_json::Value) -> FixtureExpected {
+        serde_json::from_value(v).unwrap()
+    }
+
+    fn err(code: &str, http_status: Option<u16>) -> OpResult {
+        OpResult::Err {
+            ok: false,
+            error_code: code.into(),
+            message: String::new(),
+            http_status,
+        }
+    }
+
+    #[test]
+    fn issued_nonces_substitute_by_one_based_index() {
+        let issued = vec!["n1".to_string(), "n2".to_string()];
+        let mut v = json!({"a": "__ISSUED_NONCE_2__", "b": ["__ISSUED_NONCE_1__"],
+                           "c": "__ISSUED_NONCE_3__", "d": "__ISSUED_NONCE_0__"});
+        substitute_issued_nonces(&mut v, &issued);
+        assert_eq!(
+            v,
+            json!({"a": "n2", "b": ["n1"], "c": "__ISSUED_NONCE_3__", "d": "__ISSUED_NONCE_0__"})
+        );
+    }
+
+    #[test]
+    fn http_status_expectation() {
+        let want = expected(json!({"outcome": "failure", "http_status": 429}));
+        assert!(assert_outcome(&err("", Some(429)), &want).is_ok());
+        // A code means the request reached the protocol layer.
+        assert!(assert_outcome(&err("IDENTITY_FAILED", Some(429)), &want).is_err());
+        assert!(assert_outcome(&err("IDENTITY_FAILED", None), &want).is_err());
+        assert!(assert_outcome(&err("", Some(503)), &want).is_err());
+        // An error-code expectation is not met by a bare status.
+        let code = expected(json!({"outcome": "failure", "error_code": "REPLAY_DETECTED"}));
+        match assert_outcome(&err("", Some(429)), &code) {
+            Err(StepError::Fail(m)) => assert!(m.contains("HTTP 429 with no error code"), "{m}"),
+            other => panic!("{other:?}"),
+        }
     }
 }

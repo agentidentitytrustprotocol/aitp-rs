@@ -8,7 +8,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Buffer } from 'node:buffer';
 
-import { AitpAgent } from '../index.js';
+import { AitpAgent, verifyManifestJson } from '../index.js';
 
 test('generate({suite:"p256"}) yields a p256-prefixed AID', () => {
   const a = AitpAgent.generate({ suite: 'p256' });
@@ -45,4 +45,54 @@ test('fromSeed({suite:"p256"}) rejects a 31-byte seed', () => {
 
 test('fromSeed (default Ed25519) rejects a 31-byte seed', () => {
   assert.throws(() => AitpAgent.fromSeed(Buffer.alloc(31, 0)));
+});
+
+// ── P-256 pinned_key identity (0.14) ────────────────────────────────────
+
+function build(suite, name, port, offers) {
+  const agent = AitpAgent.generate({ suite });
+  const manifest = agent.buildManifest({
+    displayName: name,
+    handshakeEndpoint: `http://localhost:${port}/aitp/handshake/`,
+    offeredCaps: offers,
+  });
+  return { agent, manifest };
+}
+
+test('P-256 pinned_key manifest carries the 33-byte compressed point', () => {
+  const { agent, manifest } = build('p256', 'erin', 8300, ['demo.echo']);
+  const hint = JSON.parse(manifest).manifest.identity_hint;
+  assert.equal(hint.type, 'pinned_key');
+  assert.equal(hint.public_key.length, 44);
+  assert.equal(agent.aid, `aid:pubkey:p256:${hint.public_key}`);
+  verifyManifestJson(manifest);
+});
+
+for (const [initSuite, respSuite] of [
+  ['p256', 'p256'],
+  ['ed25519', 'p256'],
+  ['p256', 'ed25519'],
+]) {
+  test(`pinned_key handshake ${initSuite} -> ${respSuite} succeeds`, () => {
+    const { agent: initiator } = build(initSuite, 'initiator', 8100, ['demo.echo']);
+    const { agent: responder, manifest: respManifest } = build(respSuite, 'responder', 8200, ['demo.write']);
+    const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+    const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
+    const hello = sess.buildHello(respManifest, ['demo.write']);
+    const { ackJson, sessionId } = rsess.processHello(hello);
+    const commit = sess.processHelloAck(ackJson, sessionId);
+    const { ackJson: commitAck, completed: respDone } = rsess.processCommit(commit);
+    const initDone = sess.complete(commitAck);
+    assert.equal(initiator.verifyTct(initDone.tct, 'demo.write').peerAid, responder.aid);
+    assert.equal(responder.verifyTct(respDone.tct, 'demo.echo').peerAid, initiator.aid);
+  });
+}
+
+test('P-256 pinned_key initiator is rejected without pinnedKeys', () => {
+  const { agent: initiator } = build('p256', 'initiator', 8100, ['demo.echo']);
+  const { agent: responder, manifest: respManifest } = build('p256', 'responder', 8200, ['demo.write']);
+  const hello = initiator
+    .newSession(null, { pinnedKeys: [responder.aid] })
+    .buildHello(respManifest, ['demo.write']);
+  assert.throws(() => responder.newResponder().processHello(hello), /trust store/);
 });

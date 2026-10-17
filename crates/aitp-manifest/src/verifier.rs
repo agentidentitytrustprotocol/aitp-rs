@@ -5,7 +5,6 @@ use crate::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
 use crate::ManifestError;
 use aitp_core::{base64url, check_members, from_serde_error, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
-use sha2::{Digest, Sha256};
 
 /// Inputs for verifying a Manifest.
 pub struct VerifyManifestContext {
@@ -75,11 +74,11 @@ pub fn verify_manifest(
     //    isn't trustworthy, so PoP details are moot.
     let view = ManifestSigningView::from(manifest);
     let canonical = manifest_signing_bytes(&view)?;
-    let digest = Sha256::digest(&canonical);
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
     let outer_sig =
         Signature::parse(&manifest.signature).map_err(|_| ManifestError::SignatureInvalid)?;
     issuer_pubkey
-        .verify(&digest, &outer_sig)
+        .verify_jcs(&digest, &outer_sig)
         .map_err(|_| ManifestError::SignatureInvalid)?;
 
     // 4. PoP signature check. RFC-AITP-0001 §5.4.2: the signing input
@@ -87,11 +86,11 @@ pub fn verify_manifest(
     //    decode the challenge to its raw bytes before hashing.
     let challenge_bytes = base64url::decode_strict(&manifest.proof_of_possession.challenge)
         .map_err(|_| ManifestError::PopFailed)?;
-    let pop_input = Sha256::digest(&challenge_bytes);
+    let pop_input = aitp_crypto::Digest32::sha256(&challenge_bytes);
     let pop_sig = Signature::parse(&manifest.proof_of_possession.signature)
         .map_err(|_| ManifestError::PopFailed)?;
     issuer_pubkey
-        .verify(&pop_input, &pop_sig)
+        .verify_jcs(&pop_input, &pop_sig)
         .map_err(|_| ManifestError::PopFailed)?;
 
     // 5. Identity-hint shape check.
