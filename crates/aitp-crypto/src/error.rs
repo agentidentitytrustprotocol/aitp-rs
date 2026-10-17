@@ -45,7 +45,7 @@ pub enum CryptoError {
     JwsMalformed(String),
 
     /// A signing backend failed or produced an unusable signature
-    /// ([`crate::signer`]). [`SignerError::is_transient`] tells the
+    /// ([`crate::signer`]). [`crate::SignerError::is_transient`] tells the
     /// caller whether to retry.
     #[error(transparent)]
     Signer(#[from] crate::SignerError),

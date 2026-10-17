@@ -393,7 +393,7 @@ impl AitpVerifyingKey {
     /// this key variant implements — it does not itself check that the
     /// caller picked the right variant for an untrusted `alg` header,
     /// so skipping that check reopens the algorithm-confusion class of
-    /// attack this type otherwise defends against (see [`Self::verify`]).
+    /// attack this type otherwise defends against (see [`Self::verify_jcs`]).
     pub fn verify_raw(&self, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => verify_ed25519(vk, message, sig),

@@ -17,6 +17,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **0.14.0: P-256 signing input, required pinned-key trust store,
+  pluggable signers, strict UUID v4 ids, self-attestations and
+  pinned-key admission** (spec proposal
+  [agentidentitytrustprotocol#72](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/pull/72),
+  [#205](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/205)).
+  P-256 JCS signatures made by 0.13 do not verify under 0.14, and the
+  reverse. Every builder takes `&dyn AitpSigner`, `verify_pinned_key`
+  takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti` and
+  `message_id` must be UUID v4. See
+  [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
+  how to migrate.
+
 - **`RevocationError` gains a `Malformed` variant and is now
   `#[non_exhaustive]`** (`aitp-transport-http`, released in 0.13.0,
   [#168](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/168)).
