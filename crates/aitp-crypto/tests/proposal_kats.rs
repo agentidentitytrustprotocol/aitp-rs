@@ -1,7 +1,7 @@
 //! RFC-AITP-0001 §5.4.6 (single hash) and §5.4.7 (strict verify)
-//! known-answer vectors. Spec PR A (b022013) vendored most of them under
-//! `tests/schemas/known-answer/`; the rest (pinned-key proofs 002/003,
-//! self-attestation TCTs) are still candidates of spec proposal
+//! known-answer vectors. Spec PRs A (b022013) and B (652cdb9) vendored
+//! most of them under `tests/schemas/known-answer/`; the rest
+//! (self-attestation TCTs) are still candidates of spec proposal
 //! `p256-pinned-key-and-signing-input-2026-10`, pinned in
 //! `tests/proposal-kats/`. A vector is read from the vendored files when
 //! it is there. The values were computed with pyca/cryptography;
@@ -61,14 +61,27 @@ fn proposal_copies_agree_with_vendored_vectors() {
             if k == "$comment" || k == "rfc_refs" {
                 continue;
             }
+            let vk = vendored_name(p["id"].as_str().unwrap(), k);
             assert_eq!(
-                &v[k], pv,
+                &v[vk], pv,
                 "{}: `{k}` differs from the vendored vector",
                 p["id"]
             );
         }
     }
-    assert!(overlap >= 7, "spec PR A vectors went missing ({overlap})");
+    assert!(overlap >= 9, "spec PR A/B vectors went missing ({overlap})");
+}
+
+/// Spec PR B renamed the pinned-key proof members to the file's
+/// `signature` convention; -003's untagged Ed25519 proof is
+/// `signature_b64url`.
+fn vendored_name<'a>(id: &str, k: &'a str) -> &'a str {
+    match (id, k) {
+        ("kat-pinned-key-proof-003-tagged-ed25519", "proof") => "signature_b64url",
+        (_, "proof") => "signature",
+        (_, "double_hash_proof_MUST_NOT_verify") => "double_hash_signature_MUST_NOT_verify",
+        _ => k,
+    }
 }
 
 fn p256_key() -> AitpSigningKey {
@@ -144,10 +157,18 @@ fn p256_pinned_key_proof_002_reproduces_proposal_value() {
     let d = Digest32::sha256(&input);
     assert_eq!(d, digest_of(&v));
     let proof = p256_key().sign_jcs(&d);
-    assert_eq!(proof.as_str(), v["proof"].as_str().unwrap());
+    assert_eq!(proof.as_str(), v["signature"].as_str().unwrap());
+    assert_eq!(
+        &proof.as_str()[5..],
+        v["signature_b64url"].as_str().unwrap()
+    );
+    p256_key()
+        .verifying_key()
+        .verify_jcs(&d, &sig(&v, "signature"))
+        .expect("committed proof verifies");
     assert!(p256_key()
         .verifying_key()
-        .verify_jcs(&d, &sig(&v, "double_hash_proof_MUST_NOT_verify"))
+        .verify_jcs(&d, &sig(&v, "double_hash_signature_MUST_NOT_verify"))
         .is_err());
 }
 
@@ -158,7 +179,24 @@ fn ed25519_tagged_pinned_key_proof_003() {
     let d = Digest32::sha256(&input);
     assert_eq!(d, digest_of(&v));
     let key = AitpSigningKey::from_ed25519_seed(&[0xff; 32]);
-    assert_eq!(key.sign_jcs(&d).as_str(), v["proof"].as_str().unwrap());
+    let untagged = v["signature_b64url"].as_str().unwrap();
+    assert_eq!(key.sign_jcs(&d).as_str(), untagged);
+    // RFC-AITP-0002 §3.1: an ed25519 sender MAY emit `ed25519.<sig>`;
+    // both forms MUST verify.
+    let vk = key.verifying_key();
+    for form in [untagged.to_string(), format!("ed25519.{untagged}")] {
+        vk.verify_jcs(&d, &Signature::parse(&form).unwrap())
+            .unwrap_or_else(|e| panic!("{form}: {e}"));
+    }
+    // The AID bytes enter proof_input: -001's untagged-AID proof does
+    // not verify over -003's input.
+    let p001 = vector("kat-pinned-key-proof-001");
+    assert!(vk
+        .verify_jcs(
+            &d,
+            &Signature::parse(p001["signature_b64url"].as_str().unwrap()).unwrap()
+        )
+        .is_err());
 }
 
 #[test]

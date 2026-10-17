@@ -278,6 +278,19 @@ We considered using gRPC instead of NDJSON. Reasons we picked NDJSON:
 
 We may revisit this in a future revision if performance ever becomes a concern.
 
+### Unminted placeholders
+
+A placeholder the harness does not know is replaced with a
+`RUNNER_UNKNOWN_PLACEHOLDER_*` sentinel. A negative fixture can then pass
+for the wrong reason: the adapter rejects garbage, not the defect the
+fixture names. Before 652cdb9 was vendored, `id-006` passed this way on
+`__PINNED_PROOF_OVER_WRONG_NONCE__`. The runner now records every
+unminted placeholder and reports it per fixture (`unminted placeholders:`
+in text output, `unminted_placeholders` in `--format json`) and in the
+summary. At the pin, no fixture passes with an unminted placeholder. Each
+negative is a real, correctly formed artifact that differs from its valid
+form in exactly one property. Unit tests in `placeholder.rs` check this.
+
 ## What the fixture corpus cannot detect
 
 The fixtures are not signed artifacts. Signature fields carry placeholders
@@ -344,18 +357,18 @@ them.
 
 ### Summary
 
-These counts are **at pin `b022013`**, the spec commit in
+These counts are **at pin `652cdb9`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With both draft features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` | 64 | 64 PASS | 63 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` | 70 | 70 PASS | 69 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
-| **Total** | **75** | **65 pass / 0 fail / 10 skip** | **73 pass / 0 fail / 2 skip** |
+| **Total** | **81** | **71 pass / 0 fail / 10 skip** | **79 pass / 0 fail / 2 skip** |
 
 Why the skips look the way they do:
 
@@ -377,11 +390,11 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 65 pass / 0 fail / 10 skip at the pin.
+# Strict: 71 pass / 0 fail / 10 skip at the pin.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (Draft RFCs): 73 pass / 0 fail / 2 skip at the pin.
+# Opt-in (Draft RFCs): 79 pass / 0 fail / 2 skip at the pin.
 # This is what the `conformance` CI job runs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \

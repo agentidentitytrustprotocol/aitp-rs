@@ -27,7 +27,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti`,
   `message_id`, delegation hop `jti` and revocation `entries[].jti` must
   be lowercase UUID v4 (spec PR C, 35aeb84). The P-256 single-hash and strict-verification
-  vectors and fixture tct-017 are vendored from spec PR A (b022013). Third-party JOSE (IdP ID
+  vectors and fixture tct-017 are vendored from spec PR A (b022013). The
+  pinned-key P-256 and tagged-Ed25519 vectors and fixtures id-010 to id-018
+  are vendored from spec PR B (652cdb9); the conformance runner now mints
+  every negative placeholder as a real artifact and reports any passes
+  that relied on an unminted placeholder. Third-party JOSE (IdP ID
   tokens, DPoP proofs) accepts high-S ES256; AITP artifacts stay low-S
   only (RFC-AITP-0001 §5.4.7 scope). `HandshakeServer` rate limiting is on by
   default, keyed on the transport source, and believes forwarding

@@ -273,3 +273,7 @@ forwarding headers count only from a configured trusted proxy.
   behaviour.
 - The conformance adapter accepts P-256 pinned keys and `pinned_keys`
   entry objects in a fixture `trust_store`.
+- The conformance runner mints every negative placeholder (JWT, PoP,
+  pinned-key proof) as a real artifact. It reports passes that used an
+  unminted placeholder: in text output, and as `unminted_placeholders` in
+  JSON. `FixtureResult::Pass` gains an `unminted` field.

@@ -66,6 +66,10 @@ const NON_CANONICAL_VECTORS: &[&str] = &[
     "kat-multihop-truncation-001",
     "kat-p256-jcs-sign-001",
     "kat-pinned-key-proof-001",
+    // Pinned-key proof-input vectors (spec PR B); checked in
+    // `aitp-crypto/tests/proposal_kats.rs`.
+    "kat-pinned-key-proof-002-p256",
+    "kat-pinned-key-proof-003-tagged-ed25519",
 ];
 
 /// Members every canonical-form vector must carry. Absence is a failure,

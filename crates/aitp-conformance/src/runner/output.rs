@@ -28,7 +28,19 @@ impl OutputFormat {
 /// Render the per-fixture result for [`OutputFormat::Text`].
 pub fn render_text(result: &FixtureResult) -> String {
     match result {
-        FixtureResult::Pass { id, duration_ms } => format!("  PASS {} [{}ms]", id, duration_ms),
+        FixtureResult::Pass {
+            id,
+            duration_ms,
+            unminted,
+        } if !unminted.is_empty() => format!(
+            "  PASS {} [{}ms] (unminted placeholders: {})",
+            id,
+            duration_ms,
+            unminted.join(", ")
+        ),
+        FixtureResult::Pass {
+            id, duration_ms, ..
+        } => format!("  PASS {} [{}ms]", id, duration_ms),
         FixtureResult::Fail {
             id,
             reason,
@@ -46,20 +58,28 @@ pub fn render_summary(results: &[FixtureResult]) -> String {
     let mut p = 0;
     let mut f = 0;
     let mut s = 0;
+    let mut unminted = 0;
     for r in results {
         match r {
-            FixtureResult::Pass { .. } => p += 1,
+            FixtureResult::Pass { unminted: u, .. } => {
+                p += 1;
+                unminted += usize::from(!u.is_empty());
+            }
             FixtureResult::Fail { .. } => f += 1,
             FixtureResult::Skip { .. } => s += 1,
         }
     }
-    format!(
+    let mut line = format!(
         "Summary: {} passed, {} failed, {} skipped of {} fixtures",
         p,
         f,
         s,
         results.len()
-    )
+    );
+    if unminted > 0 {
+        line.push_str(&format!(" ({unminted} passed with unminted placeholders)"));
+    }
+    line
 }
 
 /// Render TAP 13 output for the entire result set.
@@ -89,10 +109,15 @@ pub fn render_json(results: &[FixtureResult]) -> String {
     let arr: Vec<serde_json::Value> = results
         .iter()
         .map(|r| match r {
-            FixtureResult::Pass { id, duration_ms } => serde_json::json!({
+            FixtureResult::Pass {
+                id,
+                duration_ms,
+                unminted,
+            } => serde_json::json!({
                 "id": id,
                 "outcome": "pass",
                 "duration_ms": duration_ms,
+                "unminted_placeholders": unminted,
             }),
             FixtureResult::Fail {
                 id,
