@@ -26,7 +26,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   reverse. Every builder takes `&dyn AitpSigner`, `verify_pinned_key`
   takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti`,
   `message_id`, delegation hop `jti` and revocation `entries[].jti` must
-  be lowercase UUID v4 (spec PR C, 35aeb84). Third-party JOSE (IdP ID
+  be lowercase UUID v4 (spec PR C, 35aeb84). The P-256 single-hash and strict-verification
+  vectors and fixture tct-017 are vendored from spec PR A (b022013). Third-party JOSE (IdP ID
   tokens, DPoP proofs) accepts high-S ES256; AITP artifacts stay low-S
   only (RFC-AITP-0001 §5.4.7 scope). `HandshakeServer` rate limiting is on by
   default, keyed on the transport source, and believes forwarding

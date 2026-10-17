@@ -1,0 +1,28 @@
+{
+  "_kat_input": {
+    "$comment": "Real P-256-signed envelope (RFC-AITP-0001 §5.4). The envelope is exactly env-005's input envelope with its __VALID_ENVELOPE_SIG__ placeholder replaced by a committed signature; scripts/verify-known-answer.mjs asserts the two agree member for member apart from `signature`. sig_input is message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload))); d = sha256(sig_input); the p256 signature is ECDSA with e = d (§5.4.6), RFC 6979 deterministic k, low-S (§5.4.7).",
+    "kat_id": "kat-envelope-001-p256",
+    "signer_seed_id": "kat-keypair-005-p256",
+    "source_fixture": "env-005-p256-envelope-success.json"
+  },
+  "signing_input": "sig_input",
+  "sig_input": "770e8400-e29b-41d4-a716-446655441005|1711900000|aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR|22aa94d130a4e9012e5f7cc0efff255681a24b35665fbf7e0d0dcbd433c492f0",
+  "sig_input_sha256_hex": "899070806444e28a20a08e8621aa7d1b56346876b90e2110ca22db512e138bf6",
+  "envelope": {
+    "version": "aitp/0.2",
+    "message_type": "mutual_hello",
+    "message_id": "770e8400-e29b-41d4-a716-446655441005",
+    "timestamp": 1711900000,
+    "sender": {
+      "agent_id": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR"
+    },
+    "payload": {
+      "hello": true
+    },
+    "signature": "p256.x8byAWOkPakdN1zUauZZWaBm0hacdCOcWJ236euSREtnL_wz-SQFm-p-c4WSoWv_aPRH6QAYP2QMSkNcoYvCiQ"
+  },
+  "_must_not_verify": {
+    "$comment": "ECDSA over sha256(d) instead of d: what a signer that hashes the digest again emits. It MUST NOT verify over sig_input.",
+    "double_hash_signature": "p256.2q_zGfNz6HV1qtA1BDMsEb85Ixl7YrR1SG0Vq07fnktQ-D3G7j96yi33yokBEDiWUIi3At4QzVvGSmHBBTN04A"
+  }
+}

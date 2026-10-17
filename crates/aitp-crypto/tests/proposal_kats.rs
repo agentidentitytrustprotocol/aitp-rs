@@ -1,9 +1,12 @@
-//! RFC-AITP-0001 §5.4.6 (single hash) and §5.4.7 (strict verify) against
-//! the candidate vectors of spec proposal
+//! RFC-AITP-0001 §5.4.6 (single hash) and §5.4.7 (strict verify)
+//! known-answer vectors. Spec PR A (b022013) vendored most of them under
+//! `tests/schemas/known-answer/`; the rest (pinned-key proofs 002/003,
+//! self-attestation TCTs) are still candidates of spec proposal
 //! `p256-pinned-key-and-signing-input-2026-10`, pinned in
-//! `tests/proposal-kats/` (see the README there). The vectors were
-//! computed with pyca/cryptography; reproducing them here with RustCrypto
-//! is the two-implementation cross-check.
+//! `tests/proposal-kats/`. A vector is read from the vendored files when
+//! it is there. The values were computed with pyca/cryptography;
+//! reproducing them with RustCrypto is the two-implementation
+//! cross-check.
 
 use aitp_core::Aid;
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, Signature};
@@ -11,18 +14,61 @@ use base64ct::{Base64UrlUnpadded, Encoding};
 use serde_json::Value;
 use std::path::PathBuf;
 
-fn vectors() -> Vec<Value> {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../../tests/proposal-kats/p256-pinned-key-2026-10.json");
-    let doc: Value = serde_json::from_slice(&std::fs::read(path).expect("read")).expect("parse");
+const VENDORED: &[&str] = &[
+    "jcs-sha256.json",
+    "keypairs.json",
+    "signature-strictness.json",
+];
+
+fn load(path: PathBuf) -> Vec<Value> {
+    let doc: Value = serde_json::from_slice(&std::fs::read(&path).expect("read")).expect("parse");
     doc["vectors"].as_array().unwrap().clone()
 }
 
+fn vendored_vectors() -> Vec<Value> {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/schemas/known-answer");
+    VENDORED.iter().flat_map(|f| load(dir.join(f))).collect()
+}
+
+fn proposal_vectors() -> Vec<Value> {
+    load(
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/proposal-kats/p256-pinned-key-2026-10.json"),
+    )
+}
+
 fn vector(id: &str) -> Value {
-    vectors()
+    vendored_vectors()
         .into_iter()
+        .chain(proposal_vectors())
         .find(|v| v["id"] == id)
         .unwrap_or_else(|| panic!("vector {id} missing"))
+}
+
+/// The interim copy of a vector that has since landed in the spec must
+/// agree with it on every member it carries. The vendored copy may add
+/// members.
+#[test]
+fn proposal_copies_agree_with_vendored_vectors() {
+    let vendored = vendored_vectors();
+    let mut overlap = 0;
+    for p in proposal_vectors() {
+        let Some(v) = vendored.iter().find(|v| v["id"] == p["id"]) else {
+            continue;
+        };
+        overlap += 1;
+        for (k, pv) in p.as_object().unwrap() {
+            if k == "$comment" || k == "rfc_refs" {
+                continue;
+            }
+            assert_eq!(
+                &v[k], pv,
+                "{}: `{k}` differs from the vendored vector",
+                p["id"]
+            );
+        }
+    }
+    assert!(overlap >= 7, "spec PR A vectors went missing ({overlap})");
 }
 
 fn p256_key() -> AitpSigningKey {
@@ -45,6 +91,11 @@ fn sig(v: &Value, field: &str) -> Signature {
 fn p256_jcs_sign_is_single_hash() {
     let v = vector("kat-p256-jcs-sign-001");
     let preimage = hex::decode(v["preimage_hex"].as_str().unwrap()).unwrap();
+    assert_eq!(
+        aitp_core::jcs::canonicalize(&v["preimage_json"]).unwrap(),
+        preimage,
+        "preimage_hex is JCS(preimage_json)"
+    );
     let d = Digest32::sha256(&preimage);
     assert_eq!(d, digest_of(&v));
 
@@ -232,4 +283,42 @@ fn p256_out_of_range_scalars_rejected() {
             Signature::parse(&format!("p256.{}", Base64UrlUnpadded::encode_string(&c))).unwrap();
         assert!(vk.verify_jcs(&d, &wire).is_err());
     }
+}
+
+/// Spec PR A's signed examples for kat-keypair-005-p256, verified as
+/// committed (the TCT, Manifest and snapshot are checked through the
+/// real verifiers in their own crates).
+#[test]
+fn committed_p256_envelope_verifies_and_double_hash_does_not() {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../../tests/schemas/known-answer/signed-examples/envelope/kat-keypair-005-envelope.json",
+    );
+    let v: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
+    assert_eq!(v["signing_input"], "sig_input");
+    let env: aitp_core::AitpEnvelope = serde_json::from_value(v["envelope"].clone()).unwrap();
+    let digest = aitp_core::envelope::envelope_signing_digest(
+        &env.message_id,
+        env.timestamp,
+        &env.sender.agent_id,
+        &env.payload,
+    )
+    .unwrap();
+    assert_eq!(
+        hex::encode(digest),
+        v["sig_input_sha256_hex"].as_str().unwrap()
+    );
+    assert_eq!(
+        Digest32::sha256(v["sig_input"].as_str().unwrap().as_bytes()).as_bytes(),
+        &digest
+    );
+    let d = Digest32::from_bytes(digest);
+    let vk = AitpVerifyingKey::from_aid(&env.sender.agent_id).unwrap();
+    assert_eq!(vk, p256_key().verifying_key());
+    vk.verify_jcs(&d, &Signature::parse(&env.signature).unwrap())
+        .expect("committed P-256 envelope verifies");
+    assert_eq!(p256_key().sign_jcs(&d).as_str(), env.signature);
+    let dh = v["_must_not_verify"]["double_hash_signature"]
+        .as_str()
+        .unwrap();
+    assert!(vk.verify_jcs(&d, &Signature::parse(dh).unwrap()).is_err());
 }

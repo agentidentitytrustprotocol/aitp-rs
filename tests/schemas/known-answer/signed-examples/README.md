@@ -10,7 +10,7 @@ any placeholder substitution.
 The portable trust artifacts (TCT, grant voucher, delegation token)
 are compact JWS strings (RFC-AITP-0001 §5.4.5); their files pin the
 exact compact string. The JCS-profile artifacts (Manifest, revocation
-snapshot, session bundle) pin the signed JSON object. The off-the-shelf
+snapshot, session bundle, envelope) pin the signed JSON object. The off-the-shelf
 JOSE smoke test over the TCT artifact is documented in
 [`../README.md`](../README.md).
 
@@ -58,16 +58,21 @@ schema-validating artifact rather than a replacement for that vector.
 ```
 signed-examples/
 ├── README.md                               (this file)
+├── envelope/
+│   └── kat-keypair-005-envelope.json       env-005's envelope, P-256-signed by kat-keypair-005-p256
 ├── manifest/
-│   └── kat-keypair-001-manifest.json       Manifest signed by kat-keypair-001 (JCS profile)
+│   ├── kat-keypair-001-manifest.json       Manifest signed by kat-keypair-001 (JCS profile)
+│   └── kat-keypair-005-manifest.json       Manifest signed by kat-keypair-005-p256 (JCS profile, P-256)
 ├── tct/
-│   └── kat-keypair-001-issues-002.json     Peer-issued TCT compact JWS, kat-keypair-001 → 002
+│   ├── kat-keypair-001-issues-002.json     Peer-issued TCT compact JWS, kat-keypair-001 → 002
+│   └── kat-keypair-005-issues-002.json     Peer-issued ES256 TCT compact JWS, kat-keypair-005-p256 → 002
 ├── grant-voucher/
 │   └── kat-voucher-001.json                Grant voucher compact JWS (companion of a two-grant TCT)
 ├── delegation/
 │   └── single-hop-001-002-003.json         Single-hop delegation compact JWS (embeds kat-voucher-001)
 ├── revocation/
-│   └── kat-keypair-001-snapshot.json       Signed revocation snapshot (JCS profile)
+│   ├── kat-keypair-001-snapshot.json       Signed revocation snapshot (JCS profile)
+│   └── kat-keypair-005-snapshot.json       Signed revocation snapshot (JCS profile, P-256)
 └── session-bundle/
     └── kat-keypair-001-bundle.json         Signed session trust bundle (JCS profile)
 ```
@@ -102,6 +107,22 @@ the signed artifact — they sit beside it at the top level of the file.
 The artifact is the `tct_token` / `voucher_token` / `delegation_token`
 string (JWS) or the signed object (JCS).
 
+**P-256 files.** Every file signed by `kat-keypair-005-p256` also
+carries a `_must_not_verify` companion holding the signature a signer
+that hashes the digest again (`e = SHA-256(d)`) would emit, which
+RFC-AITP-0001 §5.4.6 forbids. `make kat-verify` requires each such value
+to fail over the real signing input and to be a valid signature under
+the double-hash reading, so it is a real negative. The envelope file
+declares `"signing_input": "sig_input"`: an envelope signs the
+`message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))` string
+of RFC-AITP-0001 §5.4, which the file restates as `sig_input` and
+`sig_input_sha256_hex`, and the signed object is its `envelope`
+member. That envelope is exactly conformance fixture env-005's input
+envelope with the `__VALID_ENVELOPE_SIG__` placeholder replaced, and
+`make kat-verify` asserts the two agree member for member. All
+companions whose names begin with `_`, and `signing_input`, are
+stripped before schema validation.
+
 **JWS minting conventions for byte-stability** (minting conventions
 only — verifiers never re-serialize, per RFC-AITP-0001 §5.4.5):
 
@@ -111,6 +132,13 @@ only — verifiers never re-serialize, per RFC-AITP-0001 §5.4.5):
   object;
 - `EdDSA` signs the ASCII signing input directly (RFC 8037 — no
   pre-hashing); `ES256` uses the JOSE raw `R || S` encoding.
+
+**P-256 minting conventions.** Every `p256.` and `ES256` signature here
+uses RFC 6979 deterministic `k` and is low-S normalized
+(RFC-AITP-0001 §5.4.7). JCS-profile `p256.` signatures use `e = d`, the
+single SHA-256 digest of the signing input (§5.4.6). The P-256 files
+are minted outside `scripts/regen-known-answer.py` and recomputed by
+`scripts/recompute-known-answer-independent.py`.
 
 ## Stability
 

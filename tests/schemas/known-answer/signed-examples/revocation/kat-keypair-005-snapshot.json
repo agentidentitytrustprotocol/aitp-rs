@@ -1,0 +1,33 @@
+{
+  "_kat_input": {
+    "issuer_seed_id": "kat-keypair-005-p256",
+    "published_at": 1711900000,
+    "ttl_secs": 3600,
+    "entries": [
+      {
+        "jti": "550e8400-e29b-41d4-a716-446655440099",
+        "revoked_at": 1711900060,
+        "reason": "key_compromised"
+      }
+    ]
+  },
+  "signing_input": "body",
+  "revocation_list": {
+    "version": "aitp/0.2",
+    "issuer": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+    "published_at": 1711900000,
+    "expires_at": 1711903600,
+    "entries": [
+      {
+        "jti": "550e8400-e29b-41d4-a716-446655440099",
+        "revoked_at": 1711900060,
+        "reason": "key_compromised"
+      }
+    ]
+  },
+  "signature": "p256.RKOXAVAzSvLJQKB9cuBNz-XSZG6CsckieAcdpQDfobAQvXDq3_n43neCtAEbV0VafKKWUVWN9xro-LPufdMi0w",
+  "_must_not_verify": {
+    "$comment": "ECDSA over sha256(d) instead of d (RFC-AITP-0001 §5.4.6). It MUST NOT verify over the inner revocation_list body.",
+    "double_hash_signature": "p256.2Kp4eIL7V4w00Bw3Tnb-uOnSEdi4L7op6RFDIhicDUta_DmCnAI1QPyihwszAuQoMd9oHS3DMerFffKw-Ebkqw"
+  }
+}

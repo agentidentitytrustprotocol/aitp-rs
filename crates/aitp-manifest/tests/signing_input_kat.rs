@@ -227,3 +227,37 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
          SignatureInvalid, got {result:?}"
     );
 }
+
+/// Spec PR A: the P-256 Manifest (kat-keypair-005-p256) verifies as
+/// committed, and its double-hash body and PoP signatures do not
+/// (RFC-AITP-0001 §5.4.6).
+#[test]
+fn committed_p256_manifest_example_verifies_and_double_hash_does_not() {
+    let raw = std::fs::read(vendored(
+        "known-answer/signed-examples/manifest/kat-keypair-005-manifest.json",
+    ))
+    .expect("read committed P-256 manifest example");
+    let mut value: Value = serde_json::from_slice(&raw).unwrap();
+    let obj = value.as_object_mut().unwrap();
+    obj.remove("_kat_input");
+    let must_not = obj.remove("_must_not_verify").expect("negative companions");
+    assert_eq!(obj.remove("signing_input").unwrap(), "body");
+
+    let ctx = VerifyManifestContext {
+        now: Timestamp(1_711_900_500),
+    };
+    let manifest = parse_manifest_wire(&value).expect("parses");
+    assert_eq!(manifest.aid, kat_keypair_aid("kat-keypair-005-p256"));
+    verify_manifest(&manifest, &ctx).expect("committed P-256 manifest verifies as committed");
+
+    let mut body_dh = manifest.clone();
+    body_dh.signature = must_not["double_hash_signature"].as_str().unwrap().into();
+    assert!(verify_manifest(&body_dh, &ctx).is_err());
+
+    let mut pop_dh = manifest.clone();
+    pop_dh.proof_of_possession.signature = must_not["double_hash_pop_signature"]
+        .as_str()
+        .unwrap()
+        .into();
+    assert!(verify_manifest(&pop_dh, &ctx).is_err());
+}

@@ -3,17 +3,20 @@
 Pinned reference values that every conformant AITP v0.2 implementation
 MUST reproduce byte-for-byte. These vectors close interop ambiguities
 that schema validation alone cannot catch — JCS canonical-byte ordering,
-JWK thumbprint serialization, Ed25519 seed-to-AID derivation, and the
-exact compact-JWS bytes of the portable trust artifacts.
+JWK thumbprint serialization, Ed25519 seed-to-AID derivation, the
+exact compact-JWS bytes of the portable trust artifacts, what a P-256
+signature signs (RFC-AITP-0001 §5.4.6), and which signatures a strict
+verifier rejects (§5.4.7).
 
 ## Files
 
 | File | Purpose | Spec reference |
 |---|---|---|
-| [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×5, P-256 ×1) | RFC-AITP-0001 §5.3 |
+| [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×5, P-256 ×1), plus `kat-keypair-001-tagged`, which pins the algorithm-tagged `aid:pubkey:ed25519:` spelling of kat-keypair-001 beside its untagged one | RFC-AITP-0001 §5.3 |
 | [`jwk-thumbprints.json`](jwk-thumbprints.json) | RFC 7638 thumbprints of the canonical JWK forms. **Load-bearing in v0.2:** these are the `cnf.jkt` values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4), as well as the OIDC identity binding's `cnf.jkt` | RFC-AITP-0001 §5.4.4, RFC-AITP-0002 §2.2.1 |
-| [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, the Draft multihop vectors, and the derived-identifier vector `kat-derived-uuid-001` (RFC-AITP-0005 §2.2). Each vector names its own signing input; see below | RFC-AITP-0001 §5.4.1–§5.4.2, RFC-AITP-0005 §2.2 |
-| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle | RFC-AITP-0005 §7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3 |
+| [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, the Draft multihop vectors, and the derived-identifier vector `kat-derived-uuid-001` (RFC-AITP-0005 §2.2). Each vector names its own signing input; see below. Also the single-hash P-256 vectors `kat-p256-jcs-sign-001` and `kat-manifest-pop-002-p256`, each with the double-hash value that MUST NOT verify | RFC-AITP-0001 §5.4.1–§5.4.2, RFC-AITP-0005 §2.2, RFC-AITP-0001 §5.4.6 |
+| [`signature-strictness.json`](signature-strictness.json) | Raw (public key, message, signature) tuples that a lax verifier accepts and a strict one MUST reject: Ed25519 small-order key (`sig-001`), Ed25519 `S ≥ L` (`sig-002`), P-256 high-S (`sig-003`) | RFC-AITP-0001 §5.4.7 |
+| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle; and P-256 (`kat-keypair-005-p256`) siblings: an envelope, Manifest, revocation snapshot and `ES256` TCT | RFC-AITP-0005 §7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3, RFC-AITP-0001 §5.4 |
 
 The v0.1 `kat-tct-001` and `kat-delegation-001` JCS vectors are
 **retired**: the v0.2 TCT and delegation token are compact JWS
@@ -75,6 +78,23 @@ JCS + JOSE implementation independent of both `aitp-rs` and
 `aitp-verifier-py`, so the pinned bytes are produced by one implementation
 and checked by another.
 
+The §5.4.7 rules are checked by the script's own BigInt arithmetic
+(Ed25519 range, encoding and small-order checks, the cofactorless
+equation, P-256 range and low-S checks), never by trusting the result of
+`crypto.verify` alone, which differs across Node and OpenSSL versions.
+Where both apply, the script requires its BigInt result and
+`crypto.verify` to agree. Each strictness vector must be accepted by a
+lax check and rejected by the strict one; a vector a lax verifier also
+rejects would test nothing.
+
+The P-256 vectors are not produced by `scripts/regen-known-answer.py`,
+whose Python reference implementation signs Ed25519 only. They were
+minted with python-ecdsa (RFC 6979 deterministic `k`, low-S) and are
+recomputed from the committed inputs by
+[`scripts/recompute-known-answer-independent.py`](../../../scripts/recompute-known-answer-independent.py),
+a maintainer tool outside CI built on python-ecdsa and a pure-Python
+RFC 8032 Ed25519. It shares no code with the Node checker.
+
 ## Off-the-shelf JOSE smoke test (v0.2)
 
 The point of the JWS migration is that **non-AITP code can verify the
@@ -114,10 +134,12 @@ header member order, payload serialization).
 RFC 7515 does not require any particular payload serialization — a
 verifier never re-serializes. To make re-mints byte-stable, the minting
 recipe for these vectors fixes (a) the protected header as exactly
-`{"alg":"EdDSA","typ":"<typ>"}` in that member order, and (b) the
+`{"alg":"<alg>","typ":"<typ>"}` in that member order, and (b) the
 payload bytes as the RFC 8785 (JCS) canonical form of the claims
 object. This is a **minting convention only**, not a protocol
-requirement (RFC-AITP-0001 §5.4.5).
+requirement (RFC-AITP-0001 §5.4.5). `ES256` signatures additionally
+use RFC 6979 deterministic `k` and low-S normalization (§5.4.7), so
+a re-mint reproduces them byte for byte.
 
 ## Stability
 

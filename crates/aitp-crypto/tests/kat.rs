@@ -53,10 +53,20 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
             actual_pubkey, expected_pubkey,
             "{id}: pubkey mismatch (seed → pubkey derivation)"
         );
+        // `kat-keypair-001-tagged` (spec PR A) writes the same key in the
+        // algorithm-tagged form. Derivation yields the untagged form; the
+        // tagged string must still name the same key (RFC-AITP-0001 §5.3).
+        let derived = v["untagged_aid"].as_str().unwrap_or(expected_aid);
         assert_eq!(
             key.aid().as_str(),
-            expected_aid,
+            derived,
             "{id}: AID mismatch (pubkey → AID derivation)"
+        );
+        let named = aitp_core::Aid::parse(expected_aid).expect("pinned AID parses");
+        assert_eq!(
+            aitp_crypto::AitpVerifyingKey::from_aid(&named).unwrap(),
+            key.verifying_key(),
+            "{id}: pinned AID names a different key"
         );
     }
 }

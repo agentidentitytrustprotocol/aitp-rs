@@ -492,6 +492,30 @@ mod tests {
             .expect("committed spec signed example must verify as committed");
     }
 
+    /// Spec PR A: the P-256 snapshot verifies as committed; its
+    /// double-hash signature (RFC-AITP-0001 §5.4.6) does not.
+    #[test]
+    fn spec_p256_signed_example_snapshot_verifies() {
+        let raw = std::fs::read(vendored(
+            "known-answer/signed-examples/revocation/kat-keypair-005-snapshot.json",
+        ))
+        .expect("read committed signed example");
+        let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        strip_fixture_companions(&mut value);
+        let must_not = value
+            .as_object_mut()
+            .unwrap()
+            .remove("_must_not_verify")
+            .expect("negative companion");
+        let mut env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
+        let issuer = kat_keypair_aid("kat-keypair-005-p256");
+        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp(1_711_900_100));
+        verify_revocation_list(&env, &ctx)
+            .expect("committed P-256 snapshot must verify as committed");
+        env.signature = must_not["double_hash_signature"].as_str().unwrap().into();
+        assert!(verify_revocation_list(&env, &ctx).is_err());
+    }
+
     /// The committed signature must NOT verify over the wrapped form.
     ///
     /// The positive test alone pins nothing: a signature valid over both

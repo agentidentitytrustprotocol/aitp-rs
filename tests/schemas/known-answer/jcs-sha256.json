@@ -73,6 +73,46 @@
       "signature_b64url": "vdLCEPGuUvVryXxnPdo_ZNYqaZmGuByZ5kRMU0ikKeVbn3SUjj2DD7y8e5pNBtp7jSHZ-Z0wzNdOl0NS1mSpCQ"
     },
     {
+      "id": "kat-p256-jcs-sign-001",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.6",
+        "RFC-AITP-0001 §5.4.7"
+      ],
+      "$comment": "Generic RFC-AITP-0001 §5.4.6 single-hash vector for P-256. The preimage is the JCS canonical form of `preimage_json`; d = sha256(preimage); the p256 signature is ECDSA on P-256 with e = d, never e = sha256(d). Equivalently it is a standard ES256 (ECDSA-P256-SHA256) signature over the preimage bytes. Signed with kat-keypair-005-p256 using RFC 6979 deterministic k and normalized to low-S (§5.4.7). `signature_b64url` is the untagged 64-byte R||S; `signature` is the same bytes in the algorithm-tagged wire form (§5.4.3). `double_hash_signature_MUST_NOT_verify` is what an implementation that hashes d again emits: it verifies only as ECDSA over sha256(d), and MUST NOT verify over the preimage. `high_s_sibling_MUST_NOT_verify` is the same signature with S replaced by n - S: a lax ECDSA verifier accepts it, and a §5.4.7 verifier MUST reject it (it is sig-003 in signature-strictness.json). Values produced with pyca/cryptography (OpenSSL) and reproduced by python-ecdsa; see scripts/recompute-known-answer-independent.py.",
+      "preimage_json": {
+        "kat": "kat-p256-jcs-sign-001",
+        "rule": "RFC-AITP-0001 §5.4.6",
+        "single_hash": true
+      },
+      "preimage_hex": "7b226b6174223a226b61742d703235362d6a63732d7369676e2d303031222c2272756c65223a225246432d414954502d3030303120c2a7352e342e36222c2273696e676c655f68617368223a747275657d",
+      "preimage_len_bytes": 81,
+      "sha256_hex": "cee8d8fb57092a1c92fab2902312a64eadbf9d8c7912d2a43540e557f188b17c",
+      "sha256_b64url": "zujY-1cJKhyS-rKQIxKmTq2_nYx5EtKkNUDlV_GIsXw",
+      "signing_keypair_id": "kat-keypair-005-p256",
+      "signer_aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+      "signature_b64url": "SJXh3QaG-wP6oCgblP0ax0wHcWyfYd2hZyIfR3I2QWtJJDnqJ9fdUuOyeha6VjKBaItIQEAw0uELXJTmdBk80g",
+      "signature": "p256.SJXh3QaG-wP6oCgblP0ax0wHcWyfYd2hZyIfR3I2QWtJJDnqJ9fdUuOyeha6VjKBaItIQEAw0uELXJTmdBk80g",
+      "double_hash_signature_MUST_NOT_verify": "p256.xer8zWNe4unDnb0p_eW9qTsmHd2Muv7iJTcGx1hDEB5w2ez6Hr1aXMkd9dyfLArbSScIA9rHtVrSxlSyVz2UNg",
+      "high_s_sibling_MUST_NOT_verify": "p256.SJXh3QaG-wP6oCgblP0ax0wHcWyfYd2hZyIfR3I2QWu228YU2CgirhxNhelFqc1-VFuybWbmy6PoXTXciEnofw"
+    },
+    {
+      "id": "kat-manifest-pop-002-p256",
+      "rfc_refs": [
+        "RFC-AITP-0001 §5.4.2",
+        "RFC-AITP-0001 §5.4.6"
+      ],
+      "$comment": "P-256 sibling of kat-manifest-pop-001: the same challenge, decoded bytes and digest, signed with kat-keypair-005-p256 under the §5.4.6 single-hash rule (e = sha256(base64url_decode(challenge)), RFC 6979 deterministic k, low-S). The signature MUST NOT verify over the ASCII challenge, and `double_hash_signature_MUST_NOT_verify` (ECDSA over sha256 of the digest) MUST NOT verify over the decoded bytes.",
+      "challenge": "AAECAwQFBgcICQoLDA0ODw",
+      "decoded_hex": "000102030405060708090a0b0c0d0e0f",
+      "sha256_hex": "be45cb2605bf36bebde684841a28f0fd43c69850a3dce5fedba69928ee3a8991",
+      "sha256_b64url": "vkXLJgW_Nr695oSEGijw_UPGmFCj3OX-26aZKO46iZE",
+      "signing_keypair_id": "kat-keypair-005-p256",
+      "signer_aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+      "signature_b64url": "d7VfbcUnevlI9hkJgeK-wQPj3YWpTbDeDpL5fBcHa6BUjoE-4zzaL5rzruurgjEcC-258D9UBgH38iRkjJlWpA",
+      "signature": "p256.d7VfbcUnevlI9hkJgeK-wQPj3YWpTbDeDpL5fBcHa6BUjoE-4zzaL5rzruurgjEcC-258D9UBgH38iRkjJlWpA",
+      "double_hash_signature_MUST_NOT_verify": "p256.bKWXKsSJEQLu3_vKQ4OWGXHeDuQ2iUNtKxvwxF6fCeMjOvH2ytf2k0t9b5ljl-gh9E4U6mRUS1QR21XvILPl6A"
+    },
+    {
       "id": "kat-revocation-001",
       "signing_input": "body",
       "rfc_refs": [
