@@ -77,10 +77,16 @@ fn committed_manifest_example_verifies_via_verify_manifest() {
     // member set to be exactly `["manifest"]`, so this must be stripped
     // before parsing (mirrors `crates/aitp-tct/src/revocation.rs`'s
     // committed-fixture tests, which strip the same sibling first).
-    value
+    let obj = value
         .as_object_mut()
-        .expect("committed example is a JSON object")
-        .remove("_kat_input");
+        .expect("committed example is a JSON object");
+    obj.remove("_kat_input");
+    // The fixture self-declares what it signs (spec #45): the Manifest
+    // signs its body, not the `{"manifest": …}` wrapper. Also a sibling
+    // companion, so it is checked and stripped too.
+    if let Some(si) = obj.remove("signing_input") {
+        assert_eq!(si, "body", "Manifest examples sign the body");
+    }
 
     let manifest = parse_manifest_wire(&value)
         .expect("committed example parses via the real wire-parsing entry point");

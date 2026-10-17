@@ -435,6 +435,18 @@ mod tests {
         );
     }
 
+    /// Remove the signed example's sibling companions, which are never
+    /// part of the wire object: `_kat_input` (minting input) and
+    /// `signing_input` (spec #45: what the signature covers; the snapshot
+    /// signs its body).
+    fn strip_fixture_companions(value: &mut serde_json::Value) {
+        let obj = value.as_object_mut().unwrap();
+        obj.remove("_kat_input");
+        if let Some(si) = obj.remove("signing_input") {
+            assert_eq!(si, "body", "revocation snapshots sign the body");
+        }
+    }
+
     /// The committed, Python-reference-minted signed example must verify
     /// **as committed**.
     ///
@@ -450,8 +462,7 @@ mod tests {
         ))
         .expect("read committed signed example");
         let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        // `_kat_input` is a minting companion, never part of the wire object.
-        value.as_object_mut().unwrap().remove("_kat_input");
+        strip_fixture_companions(&mut value);
 
         let env: RevocationListEnvelope =
             serde_json::from_value(value).expect("signed example deserializes");
@@ -480,7 +491,7 @@ mod tests {
         ))
         .expect("read committed signed example");
         let mut value: serde_json::Value = serde_json::from_slice(&raw).unwrap();
-        value.as_object_mut().unwrap().remove("_kat_input");
+        strip_fixture_companions(&mut value);
         let env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
 
         let wrapped = serde_json::json!({ "revocation_list": &env.revocation_list });

@@ -10,10 +10,10 @@ exact compact-JWS bytes of the portable trust artifacts.
 
 | File | Purpose | Spec reference |
 |---|---|---|
-| [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×4, P-256 ×1) | RFC-AITP-0001 §5.3 |
+| [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×5, P-256 ×1) | RFC-AITP-0001 §5.3 |
 | [`jwk-thumbprints.json`](jwk-thumbprints.json) | RFC 7638 thumbprints of the canonical JWK forms. **Load-bearing in v0.2:** these are the `cnf.jkt` values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4), as well as the OIDC identity binding's `cnf.jkt` | RFC-AITP-0001 §5.4.4, RFC-AITP-0002 §2.2.1 |
 | [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, and the Draft multihop vectors. Each vector names its own signing input; see below | RFC-AITP-0001 §5.4.1–§5.4.2 |
-| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest and revocation snapshot | RFC-AITP-0005 §7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5 |
+| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle | RFC-AITP-0005 §7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3 |
 
 The v0.1 `kat-tct-001` and `kat-delegation-001` JCS vectors are
 **retired**: the v0.2 TCT and delegation token are compact JWS

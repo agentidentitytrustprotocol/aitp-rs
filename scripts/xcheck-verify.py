@@ -530,6 +530,11 @@ def main() -> int:
     print("\nByte-identity against the committed reference example:")
     committed = json.loads(args.committed.read_text())
     committed.pop("_kat_input", None)
+    # `signing_input` (spec #45) declares what the signature covers; like
+    # `_kat_input` it is a fixture companion, not a wire member.
+    if committed.pop("signing_input", "body") != "body":
+        print("  FAIL  committed snapshot declares a signing_input other than body")
+        ok = False
     if committed == minted["snapshot"]:
         print("  ok    aitp-rs reproduces the reference-minted snapshot byte-for-byte")
     else:

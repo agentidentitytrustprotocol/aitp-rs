@@ -89,11 +89,17 @@ The minting input for each artifact (chosen `jti`, `iat`, `exp`,
 grants, etc.) MUST be documented inside the file itself via a
 `_kat_input` companion object so a re-minter can recover the exact
 byte sequence without out-of-band knowledge. JWS artifact files also
-carry a `decoded_claims` companion for human review.
+carry a `decoded_claims` companion for human review. The three
+JCS-profile files (`manifest/`, `revocation/`, `session-bundle/`) also
+carry a `signing_input` companion — always `"body"` here, the same
+declaration and vocabulary as the corresponding vector in
+[`../jcs-sha256.json`](../jcs-sha256.json) — so the convention this
+directory's whole layout exists to demonstrate is stated in the file,
+not left to a reader of `scripts/verify-known-answer.mjs`.
 
-`_kat_input` and `decoded_claims` are **not** part of the signed
-artifact — they sit beside it at the top level of the file. The
-artifact is the `tct_token` / `voucher_token` / `delegation_token`
+`_kat_input`, `decoded_claims` and `signing_input` are **not** part of
+the signed artifact — they sit beside it at the top level of the file.
+The artifact is the `tct_token` / `voucher_token` / `delegation_token`
 string (JWS) or the signed object (JCS).
 
 **JWS minting conventions for byte-stability** (minting conventions
