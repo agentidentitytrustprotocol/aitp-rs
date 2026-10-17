@@ -282,7 +282,7 @@ def attestation(kat_id, aid, jkt, alg, sign):
     _, _, jti = derived_v4("aitp-kat-attestation-v1", kat_id.encode())
     claims = {
         "ver": "aitp/0.2", "jti": jti, "iss": aid, "sub": aid, "aud": aid,
-        "iat": IAT, "exp": IAT + HUNDRED_YEARS, "grants": ["aitp:attestation"],
+        "iat": IAT, "exp": IAT + HUNDRED_YEARS, "grants": ["aitp.attestation"],
         "cnf": {"jkt": jkt},
         "ext": {"org.aitp.kat": {"statement": kat_id + " archival attestation"}},
     }

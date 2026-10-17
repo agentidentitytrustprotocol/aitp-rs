@@ -100,11 +100,11 @@ pub enum TctError {
     /// The reserved [`crate::ATTESTATION_GRANT`] marker appeared in a
     /// grant context, with `iss != sub`, or next to other grants. Wire
     /// code `TCT_SIGNATURE_INVALID`.
-    #[error("`aitp:attestation` marker grant misused")]
+    #[error("`aitp.attestation` marker grant misused")]
     AttestationMarker,
     /// [`crate::verify_attestation`] was given a TCT that is not a
     /// self-attestation (`iss == sub == aud`, `grants ==
-    /// ["aitp:attestation"]`).
+    /// ["aitp.attestation"]`).
     #[error("TCT is not a self-attestation")]
     NotAttestation,
     /// The attestation's `ext` lacks the statement key the relying party

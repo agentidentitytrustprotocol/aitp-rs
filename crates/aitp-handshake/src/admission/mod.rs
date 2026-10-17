@@ -17,7 +17,9 @@
 //! and only then consumes the nonce atomically. A malformed nonce is
 //! rejected `IDENTITY_FAILED` before any signature work. Outstanding
 //! nonces are bounded: at the bound new challenges are refused, never
-//! evicted.
+//! evicted. Challenge issuance is always rate limited per transport
+//! source ([`RecommendedLimiter`] unless replaced). Either refusal is
+//! `CHALLENGE_REFUSED`, retryable, and does not say which limit fired.
 //!
 //! [`admit`]: PinnedAdmission::admit
 
@@ -27,7 +29,9 @@ mod rate_limit;
 pub use nonce_store::{
     ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
 };
-pub use rate_limit::{ChallengeRateLimiter, TokenBucketLimiter};
+pub use rate_limit::{
+    ChallengeRateLimiter, ChallengeSource, RecommendedLimiter, TokenBucketLimiter, TransportId,
+};
 
 use crate::identity_pinned::{
     pinned_key_proof_input, PinnedKeyStore, PinnedKeyVerifyContext, SubjectBinding,
@@ -117,14 +121,16 @@ pub enum AdmissionError {
     /// The envelope signature does not verify under the admitted key.
     #[error("envelope signature invalid")]
     InvalidSignature,
-    /// No challenge issued: rate limit or outstanding-nonce bound. The
-    /// caller may retry after `retry_after`.
-    #[error("challenge refused: {reason}")]
+    /// No challenge issued. Wire code `CHALLENGE_REFUSED`, retryable;
+    /// send it in the out-of-band challenge response (HTTP 429 alongside
+    /// is fine). The message never names the cause.
+    #[error("challenge refused")]
     ChallengeRefused {
-        /// Why.
-        reason: &'static str,
-        /// When a retry may succeed, if known.
+        /// When a retry may succeed, if known (a `Retry-After` value).
         retry_after: Option<Duration>,
+        /// Which limit fired. For local logs and metrics only: telling
+        /// the peer would leak the store's state.
+        cause: RefusalCause,
     },
     /// The nonce store backend failed. Not the subject's fault.
     #[error("nonce store: {0}")]
@@ -148,11 +154,21 @@ impl AdmissionError {
             Self::TimestampExpired => "TIMESTAMP_EXPIRED",
             Self::Identity(_) => "IDENTITY_FAILED",
             Self::InvalidSignature => "INVALID_SIGNATURE",
-            Self::ChallengeRefused { .. } | Self::Store(_) | Self::Signer(_) | Self::Rng(_) => {
-                return None
-            }
+            Self::ChallengeRefused { .. } => "CHALLENGE_REFUSED",
+            Self::Store(_) | Self::Signer(_) | Self::Rng(_) => return None,
         })
     }
+}
+
+/// Why a challenge was refused. Local only; see
+/// [`AdmissionError::ChallengeRefused`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum RefusalCause {
+    /// The source's rate limit.
+    RateLimited,
+    /// The outstanding-nonce bound.
+    AtCapacity,
 }
 
 /// Builder for [`PinnedAdmission`].
@@ -160,7 +176,7 @@ pub struct PinnedAdmissionBuilder {
     verifier_aid: Aid,
     nonces: Arc<dyn NonceStore>,
     pinned_keys: Arc<dyn PinnedKeyStore>,
-    limiter: Option<Arc<dyn ChallengeRateLimiter>>,
+    limiter: Arc<dyn ChallengeRateLimiter>,
     ttl: Duration,
     tolerance_secs: i64,
     subject: SubjectBinding,
@@ -174,10 +190,12 @@ impl PinnedAdmissionBuilder {
         self
     }
 
-    /// Per-source challenge rate limiter. Default: none (the nonce
-    /// store's bound still applies).
+    /// Replace the per-source challenge rate limiter. Default
+    /// [`RecommendedLimiter::default`]. Rate limiting cannot be turned
+    /// off (RFC-AITP-0004 §11.4); a deployment that needs more headroom
+    /// passes a limiter with higher rates.
     pub fn rate_limiter(mut self, limiter: Arc<dyn ChallengeRateLimiter>) -> Self {
-        self.limiter = Some(limiter);
+        self.limiter = limiter;
         self
     }
 
@@ -216,7 +234,7 @@ pub struct PinnedAdmission {
     verifier_aid: Aid,
     nonces: Arc<dyn NonceStore>,
     pinned_keys: Arc<dyn PinnedKeyStore>,
-    limiter: Option<Arc<dyn ChallengeRateLimiter>>,
+    limiter: Arc<dyn ChallengeRateLimiter>,
     ttl: Duration,
     tolerance_secs: i64,
     subject: SubjectBinding,
@@ -234,7 +252,7 @@ impl PinnedAdmission {
             verifier_aid,
             nonces,
             pinned_keys,
-            limiter: None,
+            limiter: Arc::new(RecommendedLimiter::default()),
             ttl: MAX_NONCE_TTL,
             tolerance_secs: DEFAULT_TIMESTAMP_TOLERANCE_SECS,
             subject: SubjectBinding::Unchecked,
@@ -246,25 +264,26 @@ impl PinnedAdmission {
         &self.verifier_aid
     }
 
-    /// Issue a challenge to `source` (opaque: a client address, tenant
-    /// id…) at wall-clock time.
-    pub async fn challenge(&self, source: &str) -> Result<AdmissionChallenge, AdmissionError> {
+    /// Issue a challenge to `source` at wall-clock time.
+    pub async fn challenge(
+        &self,
+        source: &ChallengeSource,
+    ) -> Result<AdmissionChallenge, AdmissionError> {
         self.challenge_at(source, Timestamp::now()).await
     }
 
     /// As [`Self::challenge`] at an explicit `now`.
     pub async fn challenge_at(
         &self,
-        source: &str,
+        source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<AdmissionChallenge, AdmissionError> {
-        if let Some(l) = &self.limiter {
-            l.check(source)
-                .map_err(|retry_after| AdmissionError::ChallengeRefused {
-                    reason: "rate limited",
-                    retry_after: Some(retry_after),
-                })?;
-        }
+        self.limiter
+            .check(source)
+            .map_err(|retry_after| AdmissionError::ChallengeRefused {
+                retry_after: Some(retry_after),
+                cause: RefusalCause::RateLimited,
+            })?;
         let expires_at = now.plus_secs(self.ttl.as_secs() as i64);
         // A duplicate means the CSPRNG repeated 128 bits; one retry is
         // already paranoid.
@@ -273,7 +292,13 @@ impl PinnedAdmission {
             rand::rngs::SysRng
                 .try_fill_bytes(&mut nonce)
                 .map_err(|e| AdmissionError::Rng(e.to_string()))?;
-            let rec = IssuedNonce::new(nonce, self.verifier_aid.clone(), source, now, expires_at);
+            let rec = IssuedNonce::new(
+                nonce,
+                self.verifier_aid.clone(),
+                source.to_string(),
+                now,
+                expires_at,
+            );
             match self.nonces.issue(&rec).await {
                 Ok(()) => {
                     return Ok(AdmissionChallenge {
@@ -285,8 +310,8 @@ impl PinnedAdmission {
                 Err(NonceStoreError::Duplicate) => continue,
                 Err(NonceStoreError::AtCapacity { .. }) => {
                     return Err(AdmissionError::ChallengeRefused {
-                        reason: "too many outstanding challenges",
                         retry_after: None,
+                        cause: RefusalCause::AtCapacity,
                     })
                 }
                 Err(e) => return Err(AdmissionError::Store(e)),

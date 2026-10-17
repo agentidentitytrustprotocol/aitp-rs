@@ -205,6 +205,138 @@ impl PinnedKeyStore for StaticPinnedKeyStore {
     }
 }
 
+/// One `pinned_keys` entry of a trust-anchors document
+/// (`aitp-trust-anchors.schema.json`).
+///
+/// `algorithm` is optional. When present it MUST match the key length:
+/// 43 base64url characters for Ed25519, 44 for P-256 (proposal
+/// agentidentitytrustprotocol#72, resolved 2026-10-16). When absent the
+/// length decides. Either way the key is then decoded and, for P-256,
+/// checked to be a point on the curve, so a store never holds a key that
+/// cannot verify.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(deny_unknown_fields)]
+#[non_exhaustive]
+pub struct PinnedKeyEntry {
+    /// Operator label for the agent. Not authenticated by the proof.
+    pub subject: String,
+    /// base64url-unpadded public key: 32 raw bytes (Ed25519) or the
+    /// 33-byte SEC1-compressed point (P-256).
+    pub public_key: String,
+    /// `"ed25519"` or `"p256"`.
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        with = "pinned_algorithm"
+    )]
+    pub algorithm: Option<AidAlgorithm>,
+    /// Capabilities this key may be granted, if the operator restricts
+    /// them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub allowed_capabilities: Option<Vec<String>>,
+}
+
+/// Why a [`PinnedKeyEntry`] does not yield a key.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum PinnedKeyEntryError {
+    /// `public_key` is neither 43 nor 44 characters.
+    #[error("pinned public_key has length {0}; expected 43 (ed25519) or 44 (p256)")]
+    Length(usize),
+    /// `algorithm` disagrees with the key length.
+    #[error("pinned public_key has length {len}, which does not match algorithm `{algorithm}`")]
+    AlgorithmMismatch {
+        /// The declared algorithm.
+        algorithm: &'static str,
+        /// The key's length in characters.
+        len: usize,
+    },
+    /// `public_key` is not base64url-unpadded.
+    #[error("pinned public_key is not base64url: {0}")]
+    Encoding(String),
+    /// The bytes are not a valid key (for P-256, not a curve point).
+    #[error(transparent)]
+    Key(#[from] aitp_crypto::CryptoError),
+}
+
+impl PinnedKeyEntry {
+    /// An entry for `key`, with `algorithm` set.
+    pub fn new(subject: impl Into<String>, key: &AitpVerifyingKey) -> Self {
+        Self {
+            subject: subject.into(),
+            public_key: base64url::encode(&key.to_compressed()),
+            algorithm: Some(key.algorithm()),
+            allowed_capabilities: None,
+        }
+    }
+
+    /// The algorithm, declared or inferred from the key length.
+    pub fn resolved_algorithm(&self) -> Result<AidAlgorithm, PinnedKeyEntryError> {
+        let len = self.public_key.len();
+        let by_len = match len {
+            43 => AidAlgorithm::Ed25519,
+            44 => AidAlgorithm::P256,
+            _ => return Err(PinnedKeyEntryError::Length(len)),
+        };
+        match self.algorithm {
+            Some(a) if a != by_len => Err(PinnedKeyEntryError::AlgorithmMismatch {
+                algorithm: a.as_str(),
+                len,
+            }),
+            _ => Ok(by_len),
+        }
+    }
+
+    /// Decode the key.
+    pub fn verifying_key(&self) -> Result<AitpVerifyingKey, PinnedKeyEntryError> {
+        let algorithm = self.resolved_algorithm()?;
+        let bytes = base64url::decode_strict(&self.public_key)
+            .map_err(|e| PinnedKeyEntryError::Encoding(e.to_string()))?;
+        let key = AitpVerifyingKey::from_compressed(&bytes)?;
+        debug_assert_eq!(key.algorithm(), algorithm);
+        Ok(key)
+    }
+}
+
+mod pinned_algorithm {
+    use aitp_core::AidAlgorithm;
+    use serde::{Deserialize, Deserializer, Serializer};
+
+    pub fn serialize<S: Serializer>(a: &Option<AidAlgorithm>, s: S) -> Result<S::Ok, S::Error> {
+        match a {
+            Some(a) => s.serialize_str(a.as_str()),
+            None => s.serialize_none(),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(d: D) -> Result<Option<AidAlgorithm>, D::Error> {
+        match String::deserialize(d)?.as_str() {
+            "ed25519" => Ok(Some(AidAlgorithm::Ed25519)),
+            "p256" => Ok(Some(AidAlgorithm::P256)),
+            other => Err(serde::de::Error::unknown_variant(
+                other,
+                &["ed25519", "p256"],
+            )),
+        }
+    }
+}
+
+impl StaticPinnedKeyStore {
+    /// A store holding the keys of a trust-anchors `pinned_keys` array.
+    /// Fails on the first entry that does not decode, so a typo in
+    /// operator config is an error at load time, not a silent
+    /// `IDENTITY_FAILED` later.
+    pub fn from_entries<'a>(
+        entries: impl IntoIterator<Item = &'a PinnedKeyEntry>,
+    ) -> Result<Self, PinnedKeyEntryError> {
+        entries
+            .into_iter()
+            .map(PinnedKeyEntry::verifying_key)
+            .collect::<Result<_, _>>()
+            .map(|trusted| Self { trusted })
+    }
+}
+
 /// Inputs for verifying a pinned-key identity proof.
 pub struct PinnedKeyVerifyContext<'a> {
     /// The sender's AID (per `envelope.sender.agent_id`).
@@ -399,6 +531,66 @@ pub fn sign_pinned_key_proof(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pinned_key_entry_algorithm_must_match_length() {
+        let ed = AitpSigningKey::from_ed25519_seed(&[1; 32]).verifying_key();
+        let p = AitpSigningKey::from_p256_seed(&[2; 32])
+            .unwrap()
+            .verifying_key();
+        for k in [&ed, &p] {
+            let e = PinnedKeyEntry::new("a", k);
+            assert_eq!(&e.verifying_key().unwrap(), k);
+            // Absent algorithm: inferred from the length.
+            let bare = PinnedKeyEntry {
+                algorithm: None,
+                ..e.clone()
+            };
+            assert_eq!(&bare.verifying_key().unwrap(), k);
+        }
+        // Declared algorithm disagreeing with the length.
+        let mut wrong = PinnedKeyEntry::new("a", &ed);
+        wrong.algorithm = Some(AidAlgorithm::P256);
+        assert!(matches!(
+            wrong.verifying_key(),
+            Err(PinnedKeyEntryError::AlgorithmMismatch { len: 43, .. })
+        ));
+        let mut wrong = PinnedKeyEntry::new("a", &p);
+        wrong.algorithm = Some(AidAlgorithm::Ed25519);
+        assert!(wrong.verifying_key().is_err());
+    }
+
+    #[test]
+    fn pinned_key_entry_wire_form() {
+        let p = AitpSigningKey::from_p256_seed(&[2; 32])
+            .unwrap()
+            .verifying_key();
+        let e = PinnedKeyEntry::new("svc", &p);
+        let v = serde_json::to_value(&e).unwrap();
+        assert_eq!(v["algorithm"], "p256");
+        let back: PinnedKeyEntry = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(back, e);
+        let store = StaticPinnedKeyStore::from_entries([&back]).unwrap();
+        assert!(store.is_trusted(&p));
+        // Unknown algorithm and unknown members are rejected.
+        let mut bad = v.clone();
+        bad["algorithm"] = "rsa".into();
+        assert!(serde_json::from_value::<PinnedKeyEntry>(bad).is_err());
+        let mut bad = v;
+        bad["note"] = "x".into();
+        assert!(serde_json::from_value::<PinnedKeyEntry>(bad).is_err());
+        // A 44-char key that is not a point (x >= p) fails at load time.
+        let mut not_a_point = [0xff; 33];
+        not_a_point[0] = 0x02;
+        let off_curve = PinnedKeyEntry {
+            subject: "x".into(),
+            public_key: base64url::encode(&not_a_point),
+            algorithm: None,
+            allowed_capabilities: None,
+        };
+        assert!(StaticPinnedKeyStore::from_entries([&off_curve]).is_err());
+    }
+
     use aitp_crypto::AitpSigningKey;
     use std::sync::atomic::{AtomicUsize, Ordering};
 

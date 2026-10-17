@@ -18,7 +18,8 @@ use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature}
 use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
     Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, MutualCommitAckPayload,
-    MutualHelloAckPayload, PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
+    MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity, ResolveError,
+    StaticPinnedKeyStore,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp_tct::{TctBuilder, TctClaims};
@@ -2281,16 +2282,24 @@ fn start_handshake_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
 }
 
 /// The fixture's explicit pinned-key trust store: `params.trust_store`,
-/// a list of AID strings (Ed25519 or P-256). Entries that do not parse
-/// are skipped, so a fixture can list a deliberately malformed AID.
+/// a list whose entries are AID strings (Ed25519 or P-256) or
+/// trust-anchors `pinned_keys` objects (`{subject, public_key,
+/// algorithm?}`). Entries that do not parse are skipped, so a fixture can
+/// list a deliberately malformed key.
 fn trust_store_param(params: &Value) -> Option<StaticPinnedKeyStore> {
     let entries = params.get("trust_store")?.as_array()?;
     Some(
         entries
             .iter()
-            .filter_map(|v| v.as_str())
-            .filter_map(|aid| Aid::parse(aid).ok())
-            .filter_map(|aid| AitpVerifyingKey::from_aid(&aid).ok())
+            .filter_map(|v| match v {
+                Value::String(aid) => Aid::parse(aid)
+                    .ok()
+                    .and_then(|aid| AitpVerifyingKey::from_aid(&aid).ok()),
+                Value::Object(_) => serde_json::from_value::<PinnedKeyEntry>(v.clone())
+                    .ok()
+                    .and_then(|e| e.verifying_key().ok()),
+                _ => None,
+            })
             .collect(),
     )
 }

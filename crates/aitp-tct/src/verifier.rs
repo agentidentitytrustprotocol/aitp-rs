@@ -306,7 +306,7 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 ///    [`TctError::AudienceMismatch`].
 ///    Then the grant-context rules of RFC-AITP-0005 §5.3 (proposal #72
 ///    Item 5): `iss != sub` — else [`TctError::SelfIssued`]; no
-///    `aitp:attestation` grant — else [`TctError::AttestationMarker`].
+///    `aitp.attestation` grant — else [`TctError::AttestationMarker`].
 ///    Use [`verify_attestation`] for self-attestations.
 /// 8. `exp` in the future, `iat` not in the future — else
 ///    [`TctError::Expired`]; if `ctx.issuer_manifest_expires_at` is
@@ -589,7 +589,7 @@ pub struct VerifiedAttestation {
 
 /// Verify a self-attestation TCT (RFC-AITP-0005 §5.3, proposal #72
 /// Item 5): every [`verify_tct`] check except the grant-context ones,
-/// then `iss == sub == aud`, `grants == ["aitp:attestation"]` (else
+/// then `iss == sub == aud`, `grants == ["aitp.attestation"]` (else
 /// [`TctError::NotAttestation`]), and `ext[ctx.statement_key]` present
 /// (else [`TctError::AttestationStatementMissing`]). Revocation last.
 ///

@@ -1,6 +1,6 @@
 //! Proposal agentidentitytrustprotocol#72 Items 5 and 6b: the strict v4
 //! `jti` / `src_jti` layout, the `ext` and `jti` builder setters, and the
-//! self-attestation profile (marker grant `aitp:attestation`).
+//! self-attestation profile (marker grant `aitp.attestation`).
 
 use aitp_core::ids::{derived_v4, V4Error};
 use aitp_core::{Aid, Timestamp};

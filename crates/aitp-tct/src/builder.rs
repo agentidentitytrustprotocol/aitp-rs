@@ -10,7 +10,7 @@ use uuid::Uuid;
 /// The reserved marker grant of a self-attestation TCT (RFC-AITP-0005
 /// §5.3, proposal #72 Item 5). It confers no capability: a verifier in a
 /// grant context rejects any TCT carrying it.
-pub const ATTESTATION_GRANT: &str = "aitp:attestation";
+pub const ATTESTATION_GRANT: &str = "aitp.attestation";
 
 /// Fluent builder for issuing a TCT and its companion grant voucher.
 ///
@@ -247,7 +247,7 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
     }
 
     /// Mint a self-attestation (RFC-AITP-0005 §5.3): `iss == sub == aud`
-    /// (the issuer), `grants == ["aitp:attestation"]`, `cnf` bound to the
+    /// (the issuer), `grants == ["aitp.attestation"]`, `cnf` bound to the
     /// issuer key, no grant voucher. Supply the statement with
     /// [`Self::ext`] (required). Overrides any subject, audience, grants
     /// or subject key set before or after.

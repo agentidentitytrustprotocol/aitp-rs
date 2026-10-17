@@ -20,8 +20,9 @@ pub struct IssuedNonce {
     /// The verifier the nonce is bound to. A presentation addressed to
     /// any other verifier does not consume it.
     pub verifier: Aid,
-    /// Opaque caller-chosen source (a client IP, a tenant id). Stores MAY
-    /// use it for per-source quotas; the library never interprets it.
+    /// The requester, as [`ChallengeSource`](super::ChallengeSource)'s
+    /// `Display` renders it (transport key, then any label). Stores MAY
+    /// use it for audit or quotas; the library never reads it back.
     pub source: String,
     /// When the challenge was issued. Stores sweep expired records
     /// relative to this, so tests can run on a fixed clock.

@@ -235,7 +235,7 @@ def check_p256(minted: dict, now: int) -> bool:
         # verify_tct, then the Item 5 shape on the verified claims.
         out = verify_tct(tct_input(p["attestation"], p["aid"]), now=now + 100)
         claims = parse_compact(p["attestation"]).claims
-        if out["grants"] != ["aitp:attestation"]:
+        if out["grants"] != ["aitp.attestation"]:
             raise AssertionError(f"unexpected grants {out['grants']!r}")
         if not (claims["iss"] == claims["sub"] == claims["aud"] == p["aid"]):
             raise AssertionError("attestation is not iss == sub == aud")
