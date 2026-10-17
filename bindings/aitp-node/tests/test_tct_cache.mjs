@@ -24,8 +24,8 @@ function heldTct() {
     handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
     offeredCaps: [GRANT],
   });
-  const sess = initiator.newSession();
-  const rsess = responder.newResponder();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
   const hello = sess.buildHello(respManifest, [GRANT]);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);

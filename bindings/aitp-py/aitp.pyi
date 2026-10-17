@@ -109,12 +109,27 @@ class AitpAgent:
         self,
         jwks: Optional[JwksProvider] = ...,
         trust_anchors: Optional[list[str]] = ...,
-    ) -> InitiatorSession: ...
+        pinned_keys: Optional[list[str]] = None,
+    ) -> InitiatorSession:
+        """Create an outbound handshake session.
+
+        `pinned_keys` is the local pinned-key trust store (RFC-AITP-0002
+        §3.2): peer AID strings (Ed25519 or P-256). A peer presenting a
+        `pinned_key` identity is accepted only if its AID is listed; the
+        check runs before the proof. `None` or `[]` trusts no pinned key,
+        so EVERY `pinned_key` peer is rejected (fail closed). An invalid
+        AID entry raises `ValueError`. Since 0.14 there is no
+        possession-only mode: pass the peer's AID (e.g. `[peer.aid]`)."""
+        ...
     def new_responder(
         self,
         jwks: Optional[JwksProvider] = ...,
         trust_anchors: Optional[list[str]] = ...,
-    ) -> ResponderSession: ...
+        pinned_keys: Optional[list[str]] = None,
+    ) -> ResponderSession:
+        """Create an inbound handshake session. `pinned_keys` as in
+        `new_session`: `None` ⇒ every `pinned_key` initiator is rejected."""
+        ...
     def verify_tct(
         self,
         tct_token: str,

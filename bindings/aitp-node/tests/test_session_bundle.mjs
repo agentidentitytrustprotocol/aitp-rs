@@ -13,8 +13,8 @@ import { decodeJwsPayload } from './_jws.mjs';
 const HAS_BUNDLE = typeof SessionBundleBuilder === 'function';
 
 function handshakeToCoordinator(participant, coordinator, coordManifest) {
-  const sess = participant.newSession();
-  const rsess = coordinator.newResponder();
+  const sess = participant.newSession(null, { pinnedKeys: [coordinator.aid] });
+  const rsess = coordinator.newResponder(null, { pinnedKeys: [participant.aid] });
   const hello = sess.buildHello(coordManifest, ['session.member']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);

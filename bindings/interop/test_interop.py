@@ -112,8 +112,8 @@ class PyEndpoint:
     name = "python"
     label = "aitp-py 0.1.0"
 
-    def new_agent(self):
-        agent = aitp.AitpAgent.generate()
+    def new_agent(self, suite="ed25519"):
+        agent = aitp.AitpAgent.generate(suite=suite)
         return agent, agent.aid
 
     def build_manifest(self, agent, display_name, endpoint, caps):
@@ -123,11 +123,11 @@ class PyEndpoint:
             offered_caps=caps,
         )
 
-    def new_session(self, agent):
-        return agent.new_session()
+    def new_session(self, agent, pinned_keys=None):
+        return agent.new_session(pinned_keys=pinned_keys)
 
-    def new_responder(self, agent):
-        return agent.new_responder()
+    def new_responder(self, agent, pinned_keys=None):
+        return agent.new_responder(pinned_keys=pinned_keys)
 
     def build_hello(self, session, peer_manifest, grants):
         return session.build_hello(peer_manifest, grants)
@@ -170,8 +170,8 @@ class NodeEndpoint:
     def __init__(self, worker: NodeWorker) -> None:
         self._w = worker
 
-    def new_agent(self):
-        result = self._w.call("new_agent")
+    def new_agent(self, suite="ed25519"):
+        result = self._w.call("new_agent", suite=suite)
         return result["handle"], result["aid"]
 
     def build_manifest(self, agent, display_name, endpoint, caps):
@@ -183,11 +183,15 @@ class NodeEndpoint:
             offered_caps=caps,
         )["manifest"]
 
-    def new_session(self, agent):
-        return self._w.call("new_session", agent=agent)["handle"]
+    def new_session(self, agent, pinned_keys=None):
+        return self._w.call(
+            "new_session", agent=agent, pinned_keys=pinned_keys
+        )["handle"]
 
-    def new_responder(self, agent):
-        return self._w.call("new_responder", agent=agent)["handle"]
+    def new_responder(self, agent, pinned_keys=None):
+        return self._w.call(
+            "new_responder", agent=agent, pinned_keys=pinned_keys
+        )["handle"]
 
     def build_hello(self, session, peer_manifest, grants):
         return self._w.call(
@@ -233,14 +237,14 @@ class NodeEndpoint:
         )
 
 
-def _handshake(initiator, responder):
+def _handshake(initiator, responder, init_suite="ed25519", resp_suite="ed25519"):
     """Drive one full four-message handshake across two endpoints.
 
     Returns the two agents, their AIDs, and the TCT each end holds once
     the exchange completes.
     """
-    init_agent, init_aid = initiator.new_agent()
-    resp_agent, resp_aid = responder.new_agent()
+    init_agent, init_aid = initiator.new_agent(init_suite)
+    resp_agent, resp_aid = responder.new_agent(resp_suite)
 
     # Both ends must publish a manifest before opening a session.
     initiator.build_manifest(
@@ -256,8 +260,9 @@ def _handshake(initiator, responder):
         [PING_CAP],
     )
 
-    isession = initiator.new_session(init_agent)
-    rsession = responder.new_responder(resp_agent)
+    # 0.14: each end trusts the other's pinned key explicitly.
+    isession = initiator.new_session(init_agent, pinned_keys=[resp_aid])
+    rsession = responder.new_responder(resp_agent, pinned_keys=[init_aid])
 
     # Four messages — each one crosses the language boundary as wire JSON.
     # v0.2: each completion is a `{"tct", "grant_voucher"}` dict; the held TCT
@@ -337,6 +342,53 @@ def test_python_rejects_node_issued_tct_for_missing_grant(node):
     )
 
 
+# ── Pinned-key trust store across runtimes (RFC-AITP-0002 §3.2) ─────────
+
+
+@pytest.mark.parametrize("direction", ["py->node", "node->py"])
+def test_responder_without_pinned_keys_rejects_pinned_initiator(node, direction):
+    """0.14 removed possession-only mode: a responder whose trust store is
+    empty rejects a pinned_key initiator from the other runtime."""
+    py, nd = PyEndpoint(), NodeEndpoint(node)
+    initiator, responder = (py, nd) if direction == "py->node" else (nd, py)
+    init_agent, _ = initiator.new_agent()
+    resp_agent, resp_aid = responder.new_agent()
+    initiator.build_manifest(
+        init_agent, "init", "http://localhost:8100/aitp/handshake/", [PING_CAP]
+    )
+    resp_manifest = responder.build_manifest(
+        resp_agent, "resp", "http://localhost:8200/aitp/handshake/", [PING_CAP]
+    )
+    isession = initiator.new_session(init_agent, pinned_keys=[resp_aid])
+    rsession = responder.new_responder(resp_agent)  # no pinned_keys
+    hello = initiator.build_hello(isession, resp_manifest, [PING_CAP])
+    if responder is nd:
+        err = node.call_expect_error(
+            "process_hello", responder=rsession, hello=hello
+        )
+        assert "trust store" in err
+    else:
+        with pytest.raises(RuntimeError, match="trust store"):
+            py.process_hello(rsession, hello)
+
+
+@pytest.mark.parametrize(
+    "init_suite,resp_suite",
+    [("p256", "p256"), ("ed25519", "p256"), ("p256", "ed25519")],
+)
+@pytest.mark.parametrize("direction", ["py->node", "node->py"])
+def test_p256_pinned_key_handshake_cross_language(node, direction, init_suite, resp_suite):
+    """0.14 accepts P-256 pinned keys (33-byte compressed point) on both
+    bindings; a pinned handshake completes across the language boundary."""
+    py, nd = PyEndpoint(), NodeEndpoint(node)
+    initiator, responder = (py, nd) if direction == "py->node" else (nd, py)
+    hs = _handshake(initiator, responder, init_suite, resp_suite)
+    init_ident = initiator.verify_tct(hs["init_agent"], hs["initiator_held_tct"], PING_CAP)
+    resp_ident = responder.verify_tct(hs["resp_agent"], hs["responder_held_tct"], PING_CAP)
+    assert init_ident["peer_aid"] == hs["resp_aid"]
+    assert resp_ident["peer_aid"] == hs["init_aid"]
+
+
 # ── A2 — presented-TCT verify across runtimes ──────────────────────────
 
 
@@ -395,8 +447,8 @@ def test_delegation_python_issuer_node_chain(node):
     )
 
     # B handshakes against A → B holds A's TCT + grant voucher for PING_CAP.
-    bsess = py.new_session(b)
-    arsess = py.new_responder(a)
+    bsess = py.new_session(b, pinned_keys=[a.aid])
+    arsess = py.new_responder(a, pinned_keys=[b.aid])
     hello = py.build_hello(bsess, a_manifest, [PING_CAP])
     hello_ack, sid = py.process_hello(arsess, hello)
     commit = py.process_hello_ack(bsess, hello_ack, sid)
@@ -667,9 +719,9 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     )
 
     # Bilateral handshakes against coordinator.
-    def handshake_to(py_or_nd_endpoint, part_handle):
-        sess = py_or_nd_endpoint.new_session(part_handle)
-        rsess = py.new_responder(coord)
+    def handshake_to(py_or_nd_endpoint, part_handle, part_aid):
+        sess = py_or_nd_endpoint.new_session(part_handle, pinned_keys=[coord_aid])
+        rsess = py.new_responder(coord, pinned_keys=[part_aid])
         hello = py_or_nd_endpoint.build_hello(sess, coord_manifest, ["session.member"])
         hello_ack, sid = py.process_hello(rsess, hello)
         commit = py_or_nd_endpoint.process_hello_ack(sess, hello_ack, sid)
@@ -678,8 +730,8 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         # opaque TCT compact-JWS string.
         return py_or_nd_endpoint.complete(sess, commit_ack)["tct"]
 
-    py_part_tct = handshake_to(py, py_part)
-    nd_part_tct = handshake_to(nd, nd_part_handle)
+    py_part_tct = handshake_to(py, py_part, py_part_aid)
+    nd_part_tct = handshake_to(nd, nd_part_handle, nd_part_aid)
 
     # Coordinator (Python) builds the bundle.
     envelope = (
@@ -705,9 +757,9 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         ["session.member"],
     )
 
-    def handshake_to_nd_coord(py_or_nd_endpoint, part_handle):
-        sess = py_or_nd_endpoint.new_session(part_handle)
-        rsess = nd.new_responder(nd_coord_handle)
+    def handshake_to_nd_coord(py_or_nd_endpoint, part_handle, part_aid):
+        sess = py_or_nd_endpoint.new_session(part_handle, pinned_keys=[nd_coord_aid])
+        rsess = nd.new_responder(nd_coord_handle, pinned_keys=[part_aid])
         hello = py_or_nd_endpoint.build_hello(sess, nd_coord_manifest, ["session.member"])
         hello_ack, sid = nd.process_hello(rsess, hello)
         commit = py_or_nd_endpoint.process_hello_ack(sess, hello_ack, sid)
@@ -724,8 +776,8 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         nd_part2_handle, "nd-part2", "http://localhost:9013/aitp/handshake/", ["x"]
     )
 
-    py_part2_tct = handshake_to_nd_coord(py, py_part2)
-    nd_part2_tct = handshake_to_nd_coord(nd, nd_part2_handle)
+    py_part2_tct = handshake_to_nd_coord(py, py_part2, py_part2_aid)
+    nd_part2_tct = handshake_to_nd_coord(nd, nd_part2_handle, nd_part2_aid)
 
     nd_envelope = node.call(
         "build_session_bundle",

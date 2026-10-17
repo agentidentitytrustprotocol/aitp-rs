@@ -56,8 +56,10 @@ alice.build_manifest(
     handshake_endpoint="https://alice.example/aitp/handshake/",
     offered_caps=["demo.write"],
 )
+# Each side lists the peer AIDs it trusts as pinned keys (RFC-AITP-0002 §3.2).
+s = alice.new_session(pinned_keys=[bob.aid])
+r = bob.new_responder(pinned_keys=[alice.aid])
 # 4 messages — each call's output is the next peer's input.
-s, r = alice.new_session(), bob.new_responder()
 hello = s.build_hello(bob_manifest, ["demo.echo"])
 ack, sid = r.process_hello(hello)
 commit   = s.process_hello_ack(ack, sid)
@@ -82,10 +84,26 @@ and
 To read a claim, verify the token first; `verify_tct` returns the claims you
 need for authorization.
 
-`new_session` and `new_responder` both take optional `jwks=` and
-`trust_anchors=` arguments. `trust_anchors` overrides the agent manifest's
-`accepted_trust_anchors` for that one session. The
+`new_session` and `new_responder` both take optional `jwks=`,
+`trust_anchors=` and `pinned_keys=` arguments. `trust_anchors` overrides the
+agent manifest's `accepted_trust_anchors` for that one session. The
 [OIDC section](#oidc-identity-rfc-aitp-0002) shows when you need it.
+
+`pinned_keys` is the session's local pinned-key trust store
+([RFC-AITP-0002 §3.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md)):
+a list of peer AID strings, Ed25519 or P-256. A peer that presents a
+`pinned_key` identity is accepted only if its AID is in the list, and the
+check runs before the proof is verified. Omitting `pinned_keys` (or passing
+`[]`) trusts no pinned key, so **every `pinned_key` peer is rejected**: the
+handshake fails closed with `IDENTITY_FAILED` in the `RuntimeError` message.
+An entry that is not a valid AID raises `ValueError`. Possessing the private
+key is not enough; the verifier must already know the key.
+
+> **Upgrading to 0.14.** Before 0.14 a session accepted any `pinned_key` peer
+> that proved possession of its key. That mode is gone. Pass the peer's AID
+> (its `aid` property, or `manifest.aid` from the manifest you fetched and
+> chose to trust) in `pinned_keys` on both `new_session` and `new_responder`,
+> or every pinned-key handshake fails.
 
 <a id="tct-verification-rfc-aitp-0005-9"></a>
 
@@ -255,7 +273,7 @@ def mint(pop_nonce: str) -> str:
     return my_idp.mint_jwt(sub="dave", aud=bob.aid, nonce=pop_nonce,
                            cnf_jkt=aitp.compute_aid_jkt(dave.aid))
 
-sess = dave.new_session(jwks=jwks)
+sess = dave.new_session(jwks=jwks, pinned_keys=[bob.aid])   # bob answers with a pinned key
 oidc_hello = sess.build_hello(bob_manifest, ["demo.echo"], oidc_mint_jwt=mint)
 
 # bob's manifest accepts no OIDC issuer by default, so his responder must
@@ -277,12 +295,17 @@ P-256 AID.
 erin = aitp.AitpAgent.generate(suite="p256")                  # aid:pubkey:p256:…
 erin_again = aitp.AitpAgent.from_seed(bytes(range(32)), suite="p256")   # deterministic
 
-try:
-    erin.build_manifest(display_name="erin",
-                        handshake_endpoint="https://erin.example/aitp/handshake/",
-                        offered_caps=["demo.echo"])   # pinned_key is the default
-except RuntimeError as err:
-    print(err)   # pinned_key identity_hint with a P-256 agent key is not supported; …
+erin_manifest = erin.build_manifest(
+    display_name="erin",
+    handshake_endpoint="https://erin.example/aitp/handshake/",
+    offered_caps=["demo.echo"],
+)   # pinned_key is the default; public_key is the 33-byte compressed point
+aitp.verify_manifest_json(erin_manifest)
+
+# A P-256 peer is pinned by its AID, exactly like an Ed25519 one.
+p_sess = bob.new_session(pinned_keys=[erin.aid])
+p_resp = erin.new_responder(pinned_keys=[bob.aid])
+p_ack, p_sid = p_resp.process_hello(p_sess.build_hello(erin_manifest, ["demo.echo"]))
 ```
 
 Every other method works the same with a P-256 agent. Signature formats are
@@ -292,10 +315,10 @@ for the JCS profile and in
 [§5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts)
 for compact JWS.
 
-**SDK restriction:** this SDK's `build_manifest` can only emit a `pinned_key`
-identity hint for an Ed25519 key (`bindings/aitp-py/src/agent.rs`), so P-256
-agents must use `identity_type="oidc"`. The protocol itself does not impose
-this: the v0.2 manifest schema accepts a P-256 `public_key`.
+Since 0.14, `build_manifest` emits a `pinned_key` identity hint for a P-256
+key too. Its `public_key` is the 33-byte SEC1 compressed point (44 base64url
+characters), the same bytes as the AID's identifier. Earlier versions raised
+`RuntimeError` here.
 
 ## Additional capabilities (on by default)
 

@@ -51,8 +51,8 @@ def _issued_pair():
     ))
     # Run handshake B-initiates-against-A: B → A. B will end up holding
     # A's TCT (since A is the responder, A issues a TCT to B).
-    sess = b.new_session()
-    rsess = a.new_responder()
+    sess = b.new_session(pinned_keys=[a.aid])
+    rsess = a.new_responder(pinned_keys=[b.aid])
     hello = sess.build_hello(json.dumps(a_manifest), ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)

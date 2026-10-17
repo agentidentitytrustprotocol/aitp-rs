@@ -70,9 +70,12 @@ resp_manifest = responder.build_manifest(
     offered_caps=["demo.write"],
 )
 
+# Each side trusts the other's pinned key by AID. Without `pinned_keys`
+# every pinned_key peer is rejected (fail closed).
+sess  = initiator.new_session(pinned_keys=[responder.aid])
+rsess = responder.new_responder(pinned_keys=[initiator.aid])
+
 # Four-message mutual handshake — each call's output is the next peer's input.
-sess  = initiator.new_session()
-rsess = responder.new_responder()
 
 hello                 = sess.build_hello(resp_manifest, ["demo.write"])
 hello_ack, session_id = rsess.process_hello(hello)
@@ -96,7 +99,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 
 | Type / function       | Feature | Notes |
 |-----------------------|:-------:|-------|
-| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None)`, `new_responder(jwks=None, trust_anchors=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns JSON), `sign_revocation_list(...)` |
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns JSON), `sign_revocation_list(...)` |
 | `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
 | `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
 | `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
@@ -122,9 +125,21 @@ names; see
 See [OIDC identity](../../docs/sdk-python.md#oidc-identity-rfc-aitp-0002) and
 [P-256 signing suite](../../docs/sdk-python.md#p-256-signing-suite-rfc-aitp-0001-543).
 
-`pinned_key` identities are Ed25519-only **in this SDK**. The v0.2 manifest
-schema itself accepts a P-256 `public_key`, but `build_manifest` cannot emit
-one. P-256 agents must therefore use `identity_type="oidc"`.
+`pinned_key` identities work with Ed25519 and P-256 keys. For P-256 the
+manifest's `public_key` is the 33-byte SEC1 compressed point.
+
+### Pinned keys (`pinned_keys=`)
+
+A session accepts a `pinned_key` peer only if the peer's AID is in the
+`pinned_keys` list passed to `new_session` / `new_responder`
+(RFC-AITP-0002 §3.2: the key must be in the verifier's local trust store,
+checked before the proof). `None` or `[]` trusts no pinned key, so every
+`pinned_key` peer is rejected. An entry that is not a valid AID raises
+`ValueError`.
+
+**Upgrading to 0.14:** possession-only pinned-key verification is gone. Pass
+the peer's AID, e.g. `agent.new_session(pinned_keys=[peer.aid])`, or the
+handshake fails with `IDENTITY_FAILED`.
 
 ## Tests
 

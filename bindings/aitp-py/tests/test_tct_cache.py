@@ -31,8 +31,8 @@ def _held_tct():
         handshake_endpoint="http://localhost:8200/aitp/handshake/",
         offered_caps=[GRANT],
     )
-    sess = initiator.new_session()
-    rsess = responder.new_responder()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
     hello = sess.build_hello(responder_manifest, [GRANT])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)

@@ -2,8 +2,9 @@
 
 use std::sync::Arc;
 
-use aitp_core::RawUrl;
-use aitp_crypto::AitpSigningKey;
+use aitp_core::{Aid, RawUrl};
+use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp_handshake::StaticPinnedKeyStore;
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -134,17 +135,11 @@ impl PyAitpAgent {
         let (hint, accepted_type, default_anchors): (IdentityHint, &'static str, Vec<url::Url>) =
             match identity_type {
                 "pinned_key" => {
-                    let pk = self.key.verifying_key();
-                    // try_to_ed25519_bytes() is the non-panicking
-                    // accessor; None signals the agent uses a P-256
-                    // key, which the pinned-key wire shape cannot
-                    // encode in v0.1.
-                    let pk_bytes = pk.try_to_ed25519_bytes().ok_or_else(|| {
-                        PyRuntimeError::new_err(
-                            "pinned_key identity_hint with a P-256 agent key is not supported; \
-                         the manifest's identity_hint.public_key is Ed25519-only in v0.1",
-                        )
-                    })?;
+                    // The pinned-key `public_key` is the AID-identifier
+                    // form of the key (RFC-AITP-0002 §3.3): 32 raw bytes
+                    // for Ed25519, the 33-byte SEC1 compressed point for
+                    // P-256.
+                    let pk_bytes = self.key.verifying_key().to_compressed();
                     (
                         IdentityHint {
                             kind: IdentityHintKind::PinnedKey,
@@ -227,27 +222,38 @@ impl PyAitpAgent {
     /// manifest advertises an OIDC identity. `trust_anchors` overrides
     /// the agent manifest's accepted_trust_anchors for verification
     /// purposes; pass `None` to reuse the manifest's list (typical).
-    #[pyo3(signature = (jwks=None, trust_anchors=None))]
+    ///
+    /// `pinned_keys` is the local pinned-key trust store (RFC-AITP-0002
+    /// §3.2): a list of peer AID strings (`aid:pubkey:ed25519:...` or
+    /// `aid:pubkey:p256:...`). A peer presenting a `pinned_key` identity
+    /// is accepted only if its AID is in this list; the check runs before
+    /// the proof is verified. `None` or `[]` trusts no pinned key, so
+    /// every `pinned_key` peer is rejected (fail closed). An entry that
+    /// is not a valid AID raises `ValueError`.
+    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None))]
     fn new_session(
         &self,
         jwks: Option<&PyJwksProvider>,
         trust_anchors: Option<Vec<String>>,
+        pinned_keys: Option<Vec<String>>,
     ) -> PyResult<PyInitiatorSession> {
         let manifest = self.cached_manifest()?;
-        let ctx = build_session_context(&manifest, jwks, trust_anchors)?;
+        let ctx = build_session_context(&manifest, jwks, trust_anchors, pinned_keys)?;
         Ok(PyInitiatorSession::new(self.key.clone(), manifest, ctx))
     }
 
     /// Create a new inbound (responder) handshake session. Mirror of
-    /// [`Self::new_session`].
-    #[pyo3(signature = (jwks=None, trust_anchors=None))]
+    /// [`Self::new_session`], including `pinned_keys`: `None` ⇒ every
+    /// `pinned_key` initiator is rejected.
+    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None))]
     fn new_responder(
         &self,
         jwks: Option<&PyJwksProvider>,
         trust_anchors: Option<Vec<String>>,
+        pinned_keys: Option<Vec<String>>,
     ) -> PyResult<PyResponderSession> {
         let manifest = self.cached_manifest()?;
-        let ctx = build_session_context(&manifest, jwks, trust_anchors)?;
+        let ctx = build_session_context(&manifest, jwks, trust_anchors, pinned_keys)?;
         Ok(PyResponderSession::new(self.key.clone(), manifest, ctx))
     }
 
@@ -416,11 +422,17 @@ impl PyAitpAgent {
 ///   wired in (pinned-key-only sessions).
 /// - `trust_anchors`: overrides the manifest's accepted_trust_anchors for
 ///   verification; `None` reuses the manifest's list.
+/// - `pinned_keys`: peer AID strings forming the pinned-key trust store;
+///   `None` ⇒ empty store ⇒ every pinned-key peer is rejected. Any entry
+///   that is not a valid AID (or whose key does not decode) is a
+///   `ValueError`, never silently skipped.
 fn build_session_context(
     manifest: &Manifest,
     jwks: Option<&PyJwksProvider>,
     trust_anchors: Option<Vec<String>>,
+    pinned_keys: Option<Vec<String>>,
 ) -> PyResult<SessionContext> {
+    let pinned_keys = parse_pinned_keys(pinned_keys.unwrap_or_default())?;
     let anchors: Vec<RawUrl> = match trust_anchors {
         Some(list) => list
             .into_iter()
@@ -438,5 +450,19 @@ fn build_session_context(
         identity_kind: manifest.identity_hint.kind,
         identity_subject: manifest.identity_hint.subject.clone(),
         identity_issuer: manifest.identity_hint.issuer.clone(),
+        pinned_keys,
     })
+}
+
+/// Parse `pinned_keys` AID strings into a [`StaticPinnedKeyStore`].
+fn parse_pinned_keys(aids: Vec<String>) -> PyResult<StaticPinnedKeyStore> {
+    aids.iter()
+        .map(|s| {
+            let aid = Aid::parse(s).map_err(|e| {
+                PyValueError::new_err(format!("invalid pinned_keys AID {s:?}: {e}"))
+            })?;
+            AitpVerifyingKey::from_aid(&aid)
+                .map_err(|e| PyValueError::new_err(format!("invalid pinned_keys AID {s:?}: {e}")))
+        })
+        .collect()
 }

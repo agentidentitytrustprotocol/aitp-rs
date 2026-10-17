@@ -29,8 +29,8 @@ function agents() {
 test('full handshake yields mutual TCTs', () => {
   const { initiator, responder, respManifest } = agents();
 
-  const sess = initiator.newSession();
-  const rsess = responder.newResponder();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
 
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
@@ -56,8 +56,8 @@ test('full handshake yields mutual TCTs', () => {
 
 test('verifyTct rejects a missing grant', () => {
   const { initiator, responder, respManifest } = agents();
-  const sess = initiator.newSession();
-  const rsess = responder.newResponder();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
 
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
@@ -92,15 +92,16 @@ test('initiator rejects peer substitution', () => {
     offeredCaps: ['demo.write'],
   });
 
-  // Session s1 targets `real`.
-  const s1 = initiator.newSession();
+  // Session s1 targets `real`. It trusts both pinned keys, so the
+  // rejection below is the peer-AID binding, not the trust store.
+  const s1 = initiator.newSession(null, { pinnedKeys: [real.aid, mallory.aid] });
   s1.buildHello(realManifest, ['demo.write']);
 
   // Mallory legitimately answers a DIFFERENT session that targeted her,
   // producing a fully-valid HELLO_ACK signed under her own AID.
-  const s2 = initiator.newSession();
+  const s2 = initiator.newSession(null, { pinnedKeys: [mallory.aid] });
   const helloForMallory = s2.buildHello(malloryManifest, ['demo.write']);
-  const malloryResp = mallory.newResponder();
+  const malloryResp = mallory.newResponder(null, { pinnedKeys: [initiator.aid] });
   const { ackJson: malloryAck, sessionId: mallorySession } =
     malloryResp.processHello(helloForMallory);
 
@@ -124,8 +125,8 @@ test('newSession before buildManifest throws', () => {
 
 test('verifyTct presented-TCT mode honors expectedAudience', () => {
   const { initiator, responder, respManifest } = agents();
-  const sess = initiator.newSession();
-  const rsess = responder.newResponder();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
@@ -140,4 +141,49 @@ test('verifyTct presented-TCT mode honors expectedAudience', () => {
 
   // Wrong expectedAudience must reject.
   assert.throws(() => initiator.verifyTct(tct, 'demo.write', responder.aid));
+});
+
+// ── Pinned-key trust store (RFC-AITP-0002 §3.2) ─────────────────────────
+
+test('responder without pinnedKeys rejects a pinned_key initiator', () => {
+  // 0.14: no possession-only mode. An empty trust store rejects every
+  // pinned_key initiator, even one whose proof is valid.
+  const { initiator, responder, respManifest } = agents();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const hello = sess.buildHello(respManifest, ['demo.write']);
+  for (const rsess of [
+    responder.newResponder(),
+    responder.newResponder(null, {}),
+    responder.newResponder(null, { pinnedKeys: [] }),
+  ]) {
+    assert.throws(() => rsess.processHello(hello), /trust store/);
+  }
+});
+
+test('responder rejects a pinned_key initiator not in its store', () => {
+  const { initiator, responder, respManifest } = agents();
+  const stranger = AitpAgent.generate();
+  const hello = initiator
+    .newSession(null, { pinnedKeys: [responder.aid] })
+    .buildHello(respManifest, ['demo.write']);
+  const rsess = responder.newResponder(null, { pinnedKeys: [stranger.aid] });
+  assert.throws(() => rsess.processHello(hello), /trust store/);
+});
+
+test('initiator without pinnedKeys rejects a pinned_key responder', () => {
+  const { initiator, responder, respManifest } = agents();
+  const sess = initiator.newSession();
+  const hello = sess.buildHello(respManifest, ['demo.write']);
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
+  const { ackJson, sessionId } = rsess.processHello(hello);
+  assert.throws(() => sess.processHelloAck(ackJson, sessionId), /trust store/);
+});
+
+test('an invalid pinnedKeys entry throws', () => {
+  const { initiator } = agents();
+  const good = AitpAgent.generate().aid;
+  for (const bad of ['not-an-aid', 'aid:pubkey:ed25519:AAAA', 'aid:pubkey:p256:' + 'A'.repeat(44)]) {
+    assert.throws(() => initiator.newSession(null, { pinnedKeys: [good, bad] }), /pinnedKeys/);
+    assert.throws(() => initiator.newResponder(null, { pinnedKeys: [bad] }), /pinnedKeys/);
+  }
 });

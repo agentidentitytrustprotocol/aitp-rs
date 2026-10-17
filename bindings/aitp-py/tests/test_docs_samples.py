@@ -131,8 +131,10 @@ def _mutual_handshake():
         handshake_endpoint="https://alice.example/aitp/handshake/",
         offered_caps=["demo.write"],
     )
+    # Each side lists the peer AIDs it trusts as pinned keys (RFC-AITP-0002 §3.2).
+    s = alice.new_session(pinned_keys=[bob.aid])
+    r = bob.new_responder(pinned_keys=[alice.aid])
     # 4 messages — each call's output is the next peer's input.
-    s, r = alice.new_session(), bob.new_responder()
     hello = s.build_hello(bob_manifest, ["demo.echo"])
     ack, sid = r.process_hello(hello)
     commit   = s.process_hello_ack(ack, sid)
@@ -243,7 +245,7 @@ def _oidc_identity(ns):
         return my_idp.mint_jwt(sub="dave", aud=bob.aid, nonce=pop_nonce,
                                cnf_jkt=aitp.compute_aid_jkt(dave.aid))
 
-    sess = dave.new_session(jwks=jwks)
+    sess = dave.new_session(jwks=jwks, pinned_keys=[bob.aid])   # bob answers with a pinned key
     oidc_hello = sess.build_hello(bob_manifest, ["demo.echo"], oidc_mint_jwt=mint)
 
     # bob's manifest accepts no OIDC issuer by default, so his responder must
@@ -255,16 +257,21 @@ def _oidc_identity(ns):
 
 def _p256_suite(ns):
     # docs/sdk-python.md § P-256 signing suite (RFC-AITP-0001 §5.4.3)
+    bob = ns.bob
     erin = aitp.AitpAgent.generate(suite="p256")                  # aid:pubkey:p256:…
     erin_again = aitp.AitpAgent.from_seed(bytes(range(32)), suite="p256")   # deterministic
 
-    try:
-        erin.build_manifest(display_name="erin",
-                            handshake_endpoint="https://erin.example/aitp/handshake/",
-                            offered_caps=["demo.echo"])   # pinned_key is the default
-    except RuntimeError as err:
-        print(err)   # pinned_key identity_hint with a P-256 agent key is not supported; …
-        caught = err
+    erin_manifest = erin.build_manifest(
+        display_name="erin",
+        handshake_endpoint="https://erin.example/aitp/handshake/",
+        offered_caps=["demo.echo"],
+    )   # pinned_key is the default; public_key is the 33-byte compressed point
+    aitp.verify_manifest_json(erin_manifest)
+
+    # A P-256 peer is pinned by its AID, exactly like an Ed25519 one.
+    p_sess = bob.new_session(pinned_keys=[erin.aid])
+    p_resp = erin.new_responder(pinned_keys=[bob.aid])
+    p_ack, p_sid = p_resp.process_hello(p_sess.build_hello(erin_manifest, ["demo.echo"]))
     return _ns(ns, locals())
 
 
@@ -340,9 +347,12 @@ def _readme_usage():
         offered_caps=["demo.write"],
     )
 
+    # Each side trusts the other's pinned key by AID. Without `pinned_keys`
+    # every pinned_key peer is rejected (fail closed).
+    sess  = initiator.new_session(pinned_keys=[responder.aid])
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
+
     # Four-message mutual handshake — each call's output is the next peer's input.
-    sess  = initiator.new_session()
-    rsess = responder.new_responder()
 
     hello                 = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
@@ -418,12 +428,17 @@ def test_oidc_identity():
     assert json.loads(ns.sess.complete(commit_ack))["tct"].count(".") == 2
 
 
-def test_p256_suite(capsys):
+def test_p256_suite():
     ns = _p256_suite(_mutual_handshake())
     assert ns.erin.aid.startswith("aid:pubkey:p256:")
     assert ns.erin_again.aid == aitp.AitpAgent.from_seed(bytes(range(32)), suite="p256").aid
-    assert "not supported" in capsys.readouterr().out
-    assert isinstance(ns.caught, RuntimeError)
+    # The P-256 pinned_key manifest carries the 33-byte compressed point,
+    # and the handshake started in the doc block completes.
+    hint = json.loads(ns.erin_manifest)["manifest"]["identity_hint"]
+    assert hint["type"] == "pinned_key" and len(hint["public_key"]) == 44
+    commit = ns.p_sess.process_hello_ack(ns.p_ack, ns.p_sid)
+    commit_ack, _ = ns.p_resp.process_commit(commit)
+    assert json.loads(ns.p_sess.complete(commit_ack))["tct"].count(".") == 2
 
 
 @pytest.mark.skipif(not HAS_RENEWAL, reason="binding built without the renewal feature")

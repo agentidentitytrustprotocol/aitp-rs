@@ -59,8 +59,8 @@ function buildPeer(name, port, offers) {
 }
 
 function fullHandshake(initiator, responder, respManifest, requested) {
-  const sess = initiator.newSession();
-  const rsess = responder.newResponder();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
   const hello = sess.buildHello(respManifest, requested);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
