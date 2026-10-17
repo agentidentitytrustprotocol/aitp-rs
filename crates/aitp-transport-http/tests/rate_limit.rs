@@ -1,5 +1,6 @@
 //! RateLimitConfig sliding-window semantics on HandshakeServer
-//! (Phase 14 / RFC-AITP-0009 §3.1).
+//! (RFC-AITP-0009 §3.1: rate limiting is a MUST, and the pre-auth
+//! source key MUST include a transport identifier).
 
 #![cfg(all(feature = "client", feature = "server"))]
 
@@ -7,7 +8,10 @@ use aitp_core::{AitpEnvelope, MessageType, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp_transport_http::{sign_envelope_with, HandshakeServer, RateLimitConfig, RateLimitOutcome};
+use aitp_transport_http::{
+    sign_envelope_with, HandshakeServer, RateLimitConfig, RateLimitOutcome, TrustedProxy,
+};
+use std::net::{IpAddr, SocketAddr};
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -47,21 +51,26 @@ fn server() -> HandshakeServer<NoOpResolver> {
     )
 }
 
+fn ip(s: &str) -> IpAddr {
+    s.parse().unwrap()
+}
+
 #[test]
 fn allows_traffic_below_per_ip_limit() {
     let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: Some(5),
+        requests_per_source_per_60s: 5,
         requests_per_aid_per_60s: None,
+        ..RateLimitConfig::default()
     });
     for _ in 0..5 {
         assert!(matches!(
-            srv.enforce_rate_limit(Some("1.2.3.4"), None),
+            srv.enforce_rate_limit(Some(ip("1.2.3.4")), None),
             RateLimitOutcome::Allow
         ));
     }
     // 6th hit denies.
     assert!(matches!(
-        srv.enforce_rate_limit(Some("1.2.3.4"), None),
+        srv.enforce_rate_limit(Some(ip("1.2.3.4")), None),
         RateLimitOutcome::DenyTooManyRequests { .. }
     ));
 }
@@ -69,34 +78,61 @@ fn allows_traffic_below_per_ip_limit() {
 #[test]
 fn separate_ips_have_separate_buckets() {
     let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: Some(2),
+        requests_per_source_per_60s: 2,
         requests_per_aid_per_60s: None,
+        ..RateLimitConfig::default()
     });
     // Each IP gets its own window.
     for _ in 0..2 {
         assert!(matches!(
-            srv.enforce_rate_limit(Some("10.0.0.1"), None),
+            srv.enforce_rate_limit(Some(ip("10.0.0.1")), None),
             RateLimitOutcome::Allow
         ));
     }
     for _ in 0..2 {
         assert!(matches!(
-            srv.enforce_rate_limit(Some("10.0.0.2"), None),
+            srv.enforce_rate_limit(Some(ip("10.0.0.2")), None),
             RateLimitOutcome::Allow
         ));
     }
     assert!(matches!(
-        srv.enforce_rate_limit(Some("10.0.0.1"), None),
+        srv.enforce_rate_limit(Some(ip("10.0.0.1")), None),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+}
+
+/// RFC-AITP-0009 §3.1 MUST: a server built without any rate-limit call
+/// still limits, at the recommended 30 per source per 60 s.
+#[test]
+fn rate_limit_is_on_by_default() {
+    let srv = server();
+    for _ in 0..30 {
+        assert!(matches!(
+            srv.enforce_rate_limit(Some(ip("1.1.1.1")), None),
+            RateLimitOutcome::Allow
+        ));
+    }
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("1.1.1.1")), None),
         RateLimitOutcome::DenyTooManyRequests { .. }
     ));
 }
 
 #[test]
-fn no_policy_always_allows() {
-    let srv = server();
+fn recommended_defaults_match_rfc_0009() {
+    let c = RateLimitConfig::default();
+    assert_eq!(c.requests_per_source_per_60s, 30);
+    assert_eq!(c.requests_per_aid_per_60s, Some(10));
+    assert!(c.trusted_proxies.is_empty());
+}
+
+/// An explicit opt-out, for deployments that enforce §3.1 upstream.
+#[test]
+fn without_rate_limit_always_allows() {
+    let srv = server().without_rate_limit();
     for _ in 0..10_000 {
         assert!(matches!(
-            srv.enforce_rate_limit(Some("1.1.1.1"), None),
+            srv.enforce_rate_limit(Some(ip("1.1.1.1")), None),
             RateLimitOutcome::Allow
         ));
     }
@@ -105,17 +141,18 @@ fn no_policy_always_allows() {
 #[test]
 fn denied_request_does_not_consume_quota() {
     let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: Some(1),
+        requests_per_source_per_60s: 1,
         requests_per_aid_per_60s: None,
+        ..RateLimitConfig::default()
     });
     assert!(matches!(
-        srv.enforce_rate_limit(Some("9.9.9.9"), None),
+        srv.enforce_rate_limit(Some(ip("9.9.9.9")), None),
         RateLimitOutcome::Allow
     ));
     // Several denies in a row.
     for _ in 0..5 {
         assert!(matches!(
-            srv.enforce_rate_limit(Some("9.9.9.9"), None),
+            srv.enforce_rate_limit(Some(ip("9.9.9.9")), None),
             RateLimitOutcome::DenyTooManyRequests { .. }
         ));
     }
@@ -124,12 +161,101 @@ fn denied_request_does_not_consume_quota() {
     // none of the denied calls have polluted the window.
 }
 
+/// The per-AID key is self-asserted before signature verification, so
+/// rotating sender AIDs from one address must not escape the
+/// transport limit (RFC-AITP-0009 §3.1: never the only key).
+#[test]
+fn rotating_aids_does_not_bypass_transport_limit() {
+    let srv = server().with_rate_limit(RateLimitConfig {
+        requests_per_source_per_60s: 3,
+        requests_per_aid_per_60s: Some(100),
+        ..RateLimitConfig::default()
+    });
+    for seed in 0..3u8 {
+        let k = AitpSigningKey::from_seed(&[seed; 32]);
+        assert!(matches!(
+            srv.enforce_rate_limit(Some(ip("8.8.8.8")), Some(k.aid())),
+            RateLimitOutcome::Allow
+        ));
+    }
+    let fresh = AitpSigningKey::from_seed(&[0x99; 32]);
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("8.8.8.8")), Some(fresh.aid())),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+}
+
+/// IPv6 sources are keyed by /64 (one host owns the whole prefix) and
+/// an IPv4-mapped address shares the IPv4 bucket.
+#[test]
+fn ipv6_slash_64_and_v4_mapped_share_a_bucket() {
+    let srv = server().with_rate_limit(RateLimitConfig {
+        requests_per_source_per_60s: 2,
+        requests_per_aid_per_60s: None,
+        ..RateLimitConfig::default()
+    });
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("2001:db8:1:2::1")), None),
+        RateLimitOutcome::Allow
+    ));
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("2001:db8:1:2:ffff::9")), None),
+        RateLimitOutcome::Allow
+    ));
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("2001:db8:1:2:abcd::1")), None),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("2001:db8:1:3::1")), None),
+        RateLimitOutcome::Allow
+    ));
+
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("192.0.2.7")), None),
+        RateLimitOutcome::Allow
+    ));
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("::ffff:192.0.2.7")), None),
+        RateLimitOutcome::Allow
+    ));
+    assert!(matches!(
+        srv.enforce_rate_limit(Some(ip("192.0.2.7")), None),
+        RateLimitOutcome::DenyTooManyRequests { .. }
+    ));
+}
+
+#[test]
+fn trusted_proxy_parses_cidrs_and_hosts() {
+    let net: TrustedProxy = "10.0.0.0/8".parse().unwrap();
+    assert!(net.contains(ip("10.255.0.1")));
+    assert!(!net.contains(ip("11.0.0.1")));
+    let host: TrustedProxy = "127.0.0.1".parse().unwrap();
+    assert!(host.contains(ip("127.0.0.1")));
+    assert!(!host.contains(ip("127.0.0.2")));
+    let v6: TrustedProxy = "fd00::/8".parse().unwrap();
+    assert!(v6.contains(ip("fd12::1")));
+    assert!(!v6.contains(ip("fe80::1")));
+    // A v4 range matches the IPv4-mapped form of its members.
+    assert!(net.contains(ip("::ffff:10.1.2.3")));
+    for bad in ["10.0.0.0/33", "::/129", "nope", "10.0.0.0/", "/8"] {
+        assert!(bad.parse::<TrustedProxy>().is_err(), "{bad}");
+    }
+}
+
 // ── End-to-end: rate limiting wired into the HTTP handlers (GAP-1) ──
 
 /// Spawn a `HandshakeServer` with a per-IP rate limit and return its
 /// port. The per-AID gate is disabled so the test isolates per-IP
 /// behavior.
 async fn spawn_rate_limited_server(per_ip: u32) -> u16 {
+    spawn_server(per_ip, vec!["127.0.0.1".parse().unwrap()]).await
+}
+
+/// As [`spawn_rate_limited_server`], with an explicit trusted-proxy
+/// list. Served with connect info, as `HandshakeServer::router`
+/// documents, so the peer socket address is the transport key.
+async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
     let key = AitpSigningKey::from_seed(&[0xE1; 32]);
     let manifest = ManifestBuilder::new(&key)
         .display_name("responder")
@@ -156,13 +282,20 @@ async fn spawn_rate_limited_server(per_ip: u32) -> u16 {
         vec!["demo.echo".into()],
     )
     .with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: Some(per_ip),
+        requests_per_source_per_60s: per_ip,
         requests_per_aid_per_60s: None,
+        trusted_proxies,
     });
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(listener, srv.router()).await.ok();
+        axum::serve(
+            listener,
+            srv.router()
+                .into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .ok();
     });
     tokio::time::sleep(Duration::from_millis(30)).await;
     port
@@ -303,8 +436,9 @@ fn allows_traffic_below_per_aid_limit_then_denies() {
     // The per-AID gate (keyed on the envelope sender) is the stronger,
     // payload-derived limiter; only the per-IP gate was previously tested.
     let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: None,
+        requests_per_source_per_60s: 1_000,
         requests_per_aid_per_60s: Some(3),
+        ..RateLimitConfig::default()
     });
     let aid = AitpSigningKey::from_seed(&[0x33; 32]);
     for _ in 0..3 {
@@ -322,8 +456,9 @@ fn allows_traffic_below_per_aid_limit_then_denies() {
 #[test]
 fn per_aid_buckets_are_independent() {
     let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_ip_per_60s: None,
+        requests_per_source_per_60s: 1_000,
         requests_per_aid_per_60s: Some(2),
+        ..RateLimitConfig::default()
     });
     let alice = AitpSigningKey::from_seed(&[0x44; 32]);
     let bob = AitpSigningKey::from_seed(&[0x55; 32]);
@@ -343,4 +478,97 @@ fn per_aid_buckets_are_independent() {
         srv.enforce_rate_limit(None, Some(bob.aid())),
         RateLimitOutcome::Allow
     ));
+}
+
+/// RFC-AITP-0009 §3.1: a forwarding header counts only when the
+/// immediate hop is a configured trusted proxy. Without one, rotating
+/// `X-Forwarded-For` from a single peer gets no fresh budget.
+#[tokio::test]
+async fn forwarded_for_from_untrusted_peer_is_ignored() {
+    let port = spawn_server(2, vec![]).await;
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{port}/aitp/handshake/hello");
+    let mut statuses = Vec::new();
+    for spoof in ["1.0.0.1", "1.0.0.2", "1.0.0.3", "1.0.0.4"] {
+        let resp = client
+            .post(&url)
+            .header("x-forwarded-for", spoof)
+            .header("x-real-ip", spoof)
+            .json(&fresh_hello_envelope())
+            .send()
+            .await
+            .unwrap();
+        statuses.push(resp.status().as_u16());
+    }
+    assert_eq!(statuses, [400, 400, 429, 429]);
+}
+
+/// Behind a trusted proxy the client is the rightmost untrusted
+/// `X-Forwarded-For` hop: a value the client prepended to the header
+/// itself is not believed.
+#[tokio::test]
+async fn forwarded_for_uses_rightmost_untrusted_hop() {
+    let port = spawn_server(
+        1,
+        vec!["127.0.0.1".parse().unwrap(), "10.0.0.0/8".parse().unwrap()],
+    )
+    .await;
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{port}/aitp/handshake/hello");
+    let send = |xff: &'static str| {
+        let client = client.clone();
+        let url = url.clone();
+        async move {
+            client
+                .post(&url)
+                .header("x-forwarded-for", xff)
+                .json(&fresh_hello_envelope())
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16()
+        }
+    };
+    // Client 203.0.113.9 went through an inner proxy 10.1.1.1.
+    assert_eq!(send("203.0.113.9, 10.1.1.1").await, 400);
+    // Same client, forged leftmost entries: still 203.0.113.9.
+    assert_eq!(send("9.9.9.9, 203.0.113.9, 10.1.1.1").await, 429);
+    assert_eq!(send("8.8.8.8, 203.0.113.9").await, 429);
+    // A different real client has its own bucket.
+    assert_eq!(send("198.51.100.4").await, 400);
+}
+
+/// A router served without connect info has no transport identifier.
+/// The server does not fall back to the self-asserted AID alone: every
+/// such request shares one bucket.
+#[tokio::test]
+async fn missing_transport_identifier_shares_one_bucket() {
+    let srv = server().with_rate_limit(RateLimitConfig {
+        requests_per_source_per_60s: 2,
+        requests_per_aid_per_60s: None,
+        ..RateLimitConfig::default()
+    });
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, srv.router()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(30)).await;
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{port}/aitp/handshake/hello");
+    let mut statuses = Vec::new();
+    for _ in 0..3 {
+        statuses.push(
+            client
+                .post(&url)
+                .json(&fresh_hello_envelope())
+                .send()
+                .await
+                .unwrap()
+                .status()
+                .as_u16(),
+        );
+    }
+    assert_eq!(statuses, [400, 400, 429]);
 }

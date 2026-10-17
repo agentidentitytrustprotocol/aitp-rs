@@ -25,7 +25,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   P-256 JCS signatures made by 0.13 do not verify under 0.14, and the
   reverse. Every builder takes `&dyn AitpSigner`, `verify_pinned_key`
   takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti` and
-  `message_id` must be UUID v4. See
+  `message_id` must be UUID v4. `HandshakeServer` rate limiting is on by
+  default, keyed on the transport source, and believes forwarding
+  headers only from `RateLimitConfig::trusted_proxies` (RFC-AITP-0009
+  §3.1, spec #73). See
   [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
   how to migrate.
 

@@ -123,27 +123,133 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
 }
 
-/// Sliding-window rate-limit policy (RFC-AITP-0009 §3.1). Off by
-/// default. When configured, [`HandshakeServer::enforce_rate_limit`]
-/// counts events keyed by IP and (optionally) AID over the most
-/// recent 60-second window and rejects with HTTP 429 once a key
-/// crosses its limit.
+/// Sliding-window rate-limit policy for the handshake endpoint
+/// (RFC-AITP-0009 §3.1, which makes rate limiting a MUST).
+///
+/// On by default with [`RateLimitConfig::default`], the §3.1
+/// recommended values. [`HandshakeServer::enforce_rate_limit`] counts
+/// events over the most recent 60-second window and rejects with HTTP
+/// 429 once a key crosses its limit.
+///
+/// The transport limit always applies. Its key is the peer IP (IPv6
+/// folded to its /64, IPv4-mapped folded to IPv4), taken from
+/// `X-Forwarded-For` / `X-Real-IP` only when the immediate hop is in
+/// [`Self::trusted_proxies`]. The per-AID limit is extra: the envelope
+/// `sender` is unauthenticated at that point, so §3.1 forbids it from
+/// being the only key.
 #[derive(Clone, Debug)]
 pub struct RateLimitConfig {
-    /// Max requests per source IP in any rolling 60s window. `None`
-    /// disables the per-IP gate.
-    pub requests_per_ip_per_60s: Option<u32>,
-    /// Max requests per peer AID (extracted from envelope sender)
-    /// in any rolling 60s window. `None` disables the per-AID gate.
+    /// Max requests per transport source in any rolling 60 s window.
+    pub requests_per_source_per_60s: u32,
+    /// Max requests per peer AID (the envelope `sender`, unverified)
+    /// in any rolling 60 s window, on top of the transport limit.
+    /// `None` disables this extra gate.
     pub requests_per_aid_per_60s: Option<u32>,
+    /// Immediate hops whose forwarding headers are believed. Empty
+    /// (the default) means forwarding headers are ignored and the
+    /// socket peer is the source.
+    pub trusted_proxies: Vec<TrustedProxy>,
+}
+
+impl RateLimitConfig {
+    /// RFC-AITP-0009 §3.1 recommended handshake requests per source IP
+    /// per 60 s.
+    pub const RECOMMENDED_PER_SOURCE: u32 = 30;
+    /// RFC-AITP-0009 §3.1 recommended handshake requests per initiator
+    /// AID per 60 s.
+    pub const RECOMMENDED_PER_AID: u32 = 10;
 }
 
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            requests_per_ip_per_60s: Some(120),
-            requests_per_aid_per_60s: Some(60),
+            requests_per_source_per_60s: Self::RECOMMENDED_PER_SOURCE,
+            requests_per_aid_per_60s: Some(Self::RECOMMENDED_PER_AID),
+            trusted_proxies: Vec::new(),
         }
+    }
+}
+
+/// An address or CIDR range of a reverse proxy whose `X-Forwarded-For`
+/// and `X-Real-IP` headers [`HandshakeServer`] believes
+/// (RFC-AITP-0009 §3.1). Parse from `"10.0.0.0/8"`, `"fd00::/8"` or a
+/// bare address such as `"127.0.0.1"`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TrustedProxy {
+    network: std::net::IpAddr,
+    prefix: u8,
+}
+
+/// A [`TrustedProxy`] string that is not an address or CIDR range.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("invalid trusted proxy `{0}`: expected an IP address or CIDR range")]
+pub struct TrustedProxyParseError(String);
+
+impl TrustedProxy {
+    /// Whether `ip` is inside this range. An IPv4-mapped IPv6 address
+    /// is compared as IPv4.
+    pub fn contains(&self, ip: std::net::IpAddr) -> bool {
+        use std::net::IpAddr;
+        match (self.network, ip.to_canonical()) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                prefix_eq(&net.octets(), &ip.octets(), self.prefix)
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                prefix_eq(&net.octets(), &ip.octets(), self.prefix)
+            }
+            _ => false,
+        }
+    }
+}
+
+fn prefix_eq(a: &[u8], b: &[u8], prefix: u8) -> bool {
+    let full = usize::from(prefix / 8);
+    let rem = prefix % 8;
+    if a[..full] != b[..full] {
+        return false;
+    }
+    rem == 0 || {
+        let mask = 0xFFu8 << (8 - rem);
+        a[full] & mask == b[full] & mask
+    }
+}
+
+impl std::str::FromStr for TrustedProxy {
+    type Err = TrustedProxyParseError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let err = || TrustedProxyParseError(s.to_string());
+        let (addr, prefix) = match s.split_once('/') {
+            Some((a, p)) => (a, Some(p)),
+            None => (s, None),
+        };
+        let network: std::net::IpAddr = addr.parse().map_err(|_| err())?;
+        let network = network.to_canonical();
+        let max = if network.is_ipv4() { 32 } else { 128 };
+        let prefix = match prefix {
+            None => max,
+            Some(p) => match p.parse::<u8>() {
+                Ok(p) if p <= max => p,
+                _ => return Err(err()),
+            },
+        };
+        Ok(Self { network, prefix })
+    }
+}
+
+/// The bucket key for a transport source: IPv4 (IPv4-mapped IPv6
+/// folded), or the /64 of an IPv6 address, since a single host is
+/// routinely handed a whole /64. `None` (no connect info) shares one
+/// bucket rather than letting the self-asserted AID become the only key.
+fn transport_key(source: Option<std::net::IpAddr>) -> String {
+    use std::net::IpAddr;
+    match source.map(|ip| ip.to_canonical()) {
+        Some(IpAddr::V4(v4)) => format!("ip:{v4}"),
+        Some(IpAddr::V6(v6)) => {
+            let s = v6.segments();
+            format!("ip6:{:x}:{:x}:{:x}:{:x}::/64", s[0], s[1], s[2], s[3])
+        }
+        None => "ip:unknown".to_string(),
     }
 }
 
@@ -230,7 +336,7 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// the cache.
     dpop_replay_cache: Arc<crate::dpop::DpopReplayCache>,
     /// Optional rate-limit configuration. Off by default; operators
-    /// install via [`HandshakeServer::with_rate_limit`]. Enforcement
+    /// replace via [`HandshakeServer::with_rate_limit`]. Enforcement
     /// is per-key sliding 60s windows backed by `rate_limit_events`.
     rate_limit_config: Mutex<Option<RateLimitConfig>>,
     /// Per-key event timestamps for the rolling rate-limit window.
@@ -364,7 +470,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 replay_window,
                 dpop_policy: Mutex::new(None),
                 dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
-                rate_limit_config: Mutex::new(None),
+                rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
             }),
@@ -443,12 +549,23 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Attach a rate-limit configuration (RFC-AITP-0009 §3.1). The
-    /// per-key sliding window is 60 seconds; entries older than that
-    /// are evicted on every check, so the in-memory bound is roughly
-    /// (active sources × limit).
+    /// Replace the rate-limit configuration (RFC-AITP-0009 §3.1). The
+    /// default is [`RateLimitConfig::default`]. The per-key sliding
+    /// window is 60 seconds; entries older than that are evicted on
+    /// every check, so the in-memory bound is roughly
+    /// (active sources × limit). Counters are per process.
     pub fn with_rate_limit(self, config: RateLimitConfig) -> Self {
         *self.state.rate_limit_config.lock() = Some(config);
+        self
+    }
+
+    /// Turn the built-in rate limiter off. RFC-AITP-0009 §3.1 still
+    /// requires per-source limiting at the handshake endpoint, so use
+    /// this only when a layer in front of the server (an API gateway, a
+    /// shared limiter in middleware) enforces it, keyed on the
+    /// transport source.
+    pub fn without_rate_limit(self) -> Self {
+        *self.state.rate_limit_config.lock() = None;
         self
     }
 
@@ -478,14 +595,16 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Test whether a single event from `client_ip` (optionally tied
-    /// to `peer_aid`) would exceed the configured per-key 60s window.
+    /// Test whether a single event from transport source `client_ip`
+    /// (optionally tied to `peer_aid`) would exceed the configured
+    /// per-key 60s window. `None` is a source with no transport
+    /// identifier; all such events share one bucket.
     /// On `Allow`, the event is recorded; on `DenyTooManyRequests`,
     /// no event is recorded (so a denied caller doesn't accelerate
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` when no policy is configured.
+    /// Returns `Allow` after [`Self::without_rate_limit`].
     ///
     /// The handshake handlers ([`Self::router`]'s `hello` / `commit`
     /// routes) call this internally per RFC-AITP-0009 §3.1 — after the
@@ -494,7 +613,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// most operators only need [`Self::with_rate_limit`].
     pub fn enforce_rate_limit(
         &self,
-        client_ip: Option<&str>,
+        client_ip: Option<std::net::IpAddr>,
         peer_aid: Option<&aitp_core::Aid>,
     ) -> RateLimitOutcome {
         rate_limit_check(&self.state, client_ip, peer_aid)
@@ -657,9 +776,9 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
-    let source_ip = extract_source_ip(&request);
+    let source_ip = request_source(&state, &request);
     let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip.as_deref())?;
+    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
     // RFC-AITP-0001 §7: an unknown sibling member of the payload is a
     // reject, same as an unknown envelope member — checked before typed
     // deserialization so it is never masked by `deny_unknown_fields`'
@@ -800,9 +919,9 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     request: Request,
 ) -> Result<Response, ResponseError> {
     let headers = request.headers().clone();
-    let source_ip = extract_source_ip(&request);
+    let source_ip = request_source(&state, &request);
     let envelope = parse_envelope_request(request, MessageType::MutualCommit).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip.as_deref())?;
+    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
     let session_id = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -1117,37 +1236,70 @@ async fn parse_envelope_request(
     Ok(envelope)
 }
 
-/// Best-effort source-IP extraction for per-IP rate limiting
-/// (RFC-AITP-0009 §3.1). Prefers `X-Forwarded-For` (first / client
-/// hop), then `X-Real-IP`, then the peer socket address — the last is
-/// only present when the router is served with
-/// `into_make_service_with_connect_info::<SocketAddr>()`.
+/// The transport source for rate limiting (RFC-AITP-0009 §3.1).
 ///
-/// `X-Forwarded-For` and `X-Real-IP` are client-spoofable unless the
-/// server sits behind a trusted proxy that overwrites them; operators
-/// relying on the per-IP gate SHOULD deploy behind such a proxy. The
-/// per-AID gate, keyed off the authenticated envelope `sender`, is not
-/// spoofable this way and is the stronger of the two limits.
-fn extract_source_ip(request: &Request) -> Option<String> {
-    let headers = request.headers();
-    if let Some(xff) = headers.get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
-        if let Some(first) = xff.split(',').next() {
-            let trimmed = first.trim();
-            if !trimmed.is_empty() {
-                return Some(trimmed.to_string());
-            }
-        }
-    }
-    if let Some(xri) = headers.get("x-real-ip").and_then(|v| v.to_str().ok()) {
-        let trimmed = xri.trim();
-        if !trimmed.is_empty() {
-            return Some(trimmed.to_string());
-        }
-    }
-    request
+/// The source is the socket peer, present when the router is served
+/// with `into_make_service_with_connect_info::<SocketAddr>()`. Only
+/// when that peer is a trusted proxy are forwarding headers read: the
+/// client is the rightmost `X-Forwarded-For` hop that is not itself a
+/// trusted proxy, else `X-Real-IP`. Anything a client prepends to
+/// `X-Forwarded-For` is therefore ignored. A hop that does not parse
+/// stops the walk and the last trusted hop is used, which throttles
+/// harder rather than softer.
+fn extract_source_ip(
+    request: &Request,
+    trusted_proxies: &[TrustedProxy],
+) -> Option<std::net::IpAddr> {
+    let peer = request
         .extensions()
         .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
-        .map(|ci| ci.0.ip().to_string())
+        .map(|ci| ci.0.ip())?;
+    let trusted = |ip: std::net::IpAddr| trusted_proxies.iter().any(|p| p.contains(ip));
+    if !trusted(peer) {
+        return Some(peer);
+    }
+    let headers = request.headers();
+    let xff: Vec<&str> = headers
+        .get_all("x-forwarded-for")
+        .iter()
+        .filter_map(|v| v.to_str().ok())
+        .flat_map(|v| v.split(','))
+        .map(str::trim)
+        .filter(|h| !h.is_empty())
+        .collect();
+    if !xff.is_empty() {
+        let mut source = peer;
+        for hop in xff.iter().rev() {
+            match hop.parse::<std::net::IpAddr>() {
+                Ok(ip) => {
+                    source = ip;
+                    if !trusted(ip) {
+                        break;
+                    }
+                }
+                Err(_) => break,
+            }
+        }
+        return Some(source);
+    }
+    headers
+        .get("x-real-ip")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.trim().parse().ok())
+        .or(Some(peer))
+}
+
+/// [`extract_source_ip`] against the configured trusted proxies.
+fn request_source<R: JwksResolver + Send + Sync>(
+    state: &HandshakeState<R>,
+    request: &Request,
+) -> Option<std::net::IpAddr> {
+    let config = state.rate_limit_config.lock();
+    let proxies = config
+        .as_ref()
+        .map(|c| c.trusted_proxies.as_slice())
+        .unwrap_or(&[]);
+    extract_source_ip(request, proxies)
 }
 
 /// Sliding-window rate-limit evaluation shared by
@@ -1157,7 +1309,7 @@ fn extract_source_ip(request: &Request) -> Option<String> {
 /// Returns `Allow` when no policy is configured.
 fn rate_limit_check<R: JwksResolver + Send + Sync>(
     state: &HandshakeState<R>,
-    client_ip: Option<&str>,
+    client_ip: Option<std::net::IpAddr>,
     peer_aid: Option<&aitp_core::Aid>,
 ) -> RateLimitOutcome {
     let config = match state.rate_limit_config.lock().clone() {
@@ -1170,17 +1322,15 @@ fn rate_limit_check<R: JwksResolver + Send + Sync>(
     // Tentative event additions, committed only if both gates pass.
     // Avoids partial-state under contention.
     let mut additions: Vec<String> = Vec::new();
-    if let (Some(limit), Some(ip)) = (config.requests_per_ip_per_60s, client_ip) {
-        let key = format!("ip:{ip}");
-        let entry = events.entry(key.clone()).or_default();
-        entry.retain(|t| now.duration_since(*t) < window);
-        if entry.len() as u32 >= limit {
-            return RateLimitOutcome::DenyTooManyRequests {
-                reason: format!("rate limit exceeded for IP {ip}"),
-            };
-        }
-        additions.push(key);
+    let key = transport_key(client_ip);
+    let entry = events.entry(key.clone()).or_default();
+    entry.retain(|t| now.duration_since(*t) < window);
+    if entry.len() as u32 >= config.requests_per_source_per_60s {
+        return RateLimitOutcome::DenyTooManyRequests {
+            reason: format!("rate limit exceeded for source {key}"),
+        };
     }
+    additions.push(key);
     if let (Some(limit), Some(aid)) = (config.requests_per_aid_per_60s, peer_aid) {
         let key = format!("aid:{}", aid.as_str());
         let entry = events.entry(key.clone()).or_default();
@@ -1211,7 +1361,7 @@ fn rate_limit_check<R: JwksResolver + Send + Sync>(
 fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     state: &Arc<HandshakeState<R>>,
     envelope: &AitpEnvelope,
-    source_ip: Option<&str>,
+    source_ip: Option<std::net::IpAddr>,
 ) -> Result<(), ResponseError> {
     // RFC-AITP-0001 §5.6: "Verifiers receiving an unknown `version` MUST
     // respond with `UNKNOWN_VERSION`." A structural protocol-identity

@@ -190,7 +190,44 @@ let admitted = admission.admit(&env).await?;
   `RefusalCause` is for local metrics only.
 - New `MessageType::IdentityPresentation` (`"identity_presentation"`).
 
-## 7. Smaller changes
+## 7. `HandshakeServer` rate limiting is on and keyed on the transport
+
+RFC-AITP-0009 §3.1 (spec #73) makes handshake rate limiting a single
+MUST. The pre-auth source key must include a transport identifier, and
+forwarding headers count only from a configured trusted proxy.
+
+- Rate limiting is on by default at 30 per source and 10 per sender AID
+  per 60 s. 0.13 had it off, and its `RateLimitConfig::default()` was
+  120/60.
+- `RateLimitConfig` changes shape:
+
+  ```rust
+  // 0.13
+  RateLimitConfig { requests_per_ip_per_60s: Option<u32>, requests_per_aid_per_60s: Option<u32> }
+  // 0.14
+  RateLimitConfig {
+      requests_per_source_per_60s: u32,        // always applies
+      requests_per_aid_per_60s: Option<u32>,   // extra, never the only key
+      trusted_proxies: Vec<TrustedProxy>,      // "10.0.0.0/8", "127.0.0.1", …
+  }
+  ```
+
+- `X-Forwarded-For` and `X-Real-IP` are ignored unless the socket peer
+  is in `trusted_proxies`. Behind a trusted proxy, the client is the
+  rightmost untrusted `X-Forwarded-For` hop. **If you run behind a load
+  balancer, add it to `trusted_proxies`.** Otherwise every client shares
+  the balancer's bucket.
+- Serve the router with
+  `into_make_service_with_connect_info::<SocketAddr>()`. Without connect
+  info there is no transport identifier, and all requests share one
+  bucket.
+- IPv6 sources are keyed by /64, and IPv4-mapped addresses are keyed
+  as IPv4.
+- `enforce_rate_limit` takes `Option<IpAddr>` instead of `Option<&str>`.
+- `without_rate_limit()` turns the built-in limiter off. Use it only if
+  a layer in front of the server enforces §3.1 by transport source.
+
+## 8. Smaller changes
 
 - New `ErrorCode::ChallengeRefused` and `ErrorCode::is_retryable()`.
 - `AitpVerifyingKey::to_aid()` was added.

@@ -115,16 +115,21 @@ Independent of clustering, production servers/clients should set:
   expiry cap, rather than the permissive `::now()` / `::permissive_at()`
   shortcuts. The builder refuses to construct until both decisions are
   made (RFC-AITP-0005 §10.4, RFC-AITP-0008).
-- **Rate limiting** — off until you call
-  `.with_rate_limit(RateLimitConfig { requests_per_ip_per_60s: Some(30), requests_per_aid_per_60s: Some(10) })`
-  (the RFC-AITP-0009 §3.1 recommended values; see *Known limitations* for
-  why not to rely on `RateLimitConfig::default()`). The hello/commit
-  handlers apply the RFC-AITP-0009 §3.1 check order: replay deny list,
-  then rate limit, then timestamp. The per-AID key is the
-  still-unauthenticated envelope `sender`, so the per-IP limit is the firmer
-  one. Counters are per-node; for hard global limits, enforce at the
-  edge/LB. The spec's defaults and normative check order are in
-  [Rate limiting and the handshake endpoint](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#rate-limiting-and-the-handshake-endpoint).
+- **Rate limiting** — on by default since 0.14, at the RFC-AITP-0009 §3.1
+  recommended 30 requests per source and 10 per sender AID per 60 s
+  (`RateLimitConfig::default()`). The source is the socket peer, so serve
+  the router with `into_make_service_with_connect_info::<SocketAddr>()`;
+  without connect info every request shares one bucket. Behind a reverse
+  proxy, list it in `trusted_proxies` (addresses or CIDRs): only then are
+  `X-Forwarded-For` (rightmost untrusted hop) and `X-Real-IP` read.
+  IPv6 sources are keyed by /64. The per-AID key is the
+  still-unauthenticated envelope `sender`, so it is only ever an extra
+  limit on top of the transport key, as §3.1 requires. The hello/commit
+  handlers apply the §3.1 check order: replay deny list, then rate limit,
+  then timestamp. Counters are per node; for hard global limits, enforce
+  at the edge and call `.without_rate_limit()` only if that edge keys on
+  the transport source. The spec's defaults and check order are in
+  [RFC-AITP-0009 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md#31-rate-limiting).
 - **HTTPS everywhere** — the fetchers reject non-HTTPS URLs, except that
   `ManifestFetcher` accepts `http://localhost` / `http://127.0.0.1` by
   default. Call `.with_insecure_localhost(false)` in production.
@@ -144,14 +149,8 @@ Independent of clustering, production servers/clients should set:
 in [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)
 (file paths under `crates/aitp-transport-http/src/`):
 
-- **Rate limiting is off by default.** `rate_limit_config` starts as `None`
-  (`server.rs:355`) and only `with_rate_limit` sets it.
-  [RFC-AITP-0004 §11.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md#114-denial-of-service-on-handshake-endpoint)
-  says implementations MUST rate-limit the handshake endpoint per source
-  AID or IP (RECOMMENDED: 10 initiations per minute per AID).
-- **Defaults are looser than RFC-AITP-0009 §3.1 recommends.**
-  `RateLimitConfig::default()` is 120 per IP and 60 per AID per 60 s
-  (`server.rs:141-148`; RFC: 30 and 10). `DEFAULT_MAX_SESSIONS` is 10 000
+- **Session and body limits are looser than RFC-AITP-0009 §3.1
+  recommends.** `DEFAULT_MAX_SESSIONS` is 10 000
   (`server.rs:50`; RFC: 1 000). `DEFAULT_MAX_BODY_BYTES` is 256 KiB
   (`server.rs:266`; RFC: 64 KB for `MUTUAL_HELLO`). These are RECOMMENDED
   values, so this is a weaker default, not a violation.

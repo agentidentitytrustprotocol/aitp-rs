@@ -192,7 +192,7 @@ impl PinnedAdmissionBuilder {
 
     /// Replace the per-source challenge rate limiter. Default
     /// [`RecommendedLimiter::default`]. Rate limiting cannot be turned
-    /// off (RFC-AITP-0004 §11.4); a deployment that needs more headroom
+    /// off (RFC-AITP-0009 §3.1); a deployment that needs more headroom
     /// passes a limiter with higher rates.
     pub fn rate_limiter(mut self, limiter: Arc<dyn ChallengeRateLimiter>) -> Self {
         self.limiter = limiter;

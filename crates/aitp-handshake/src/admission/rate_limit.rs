@@ -1,5 +1,5 @@
 //! Per-source challenge rate limiting (proposal agentidentitytrustprotocol#72
-//! Item 5; RFC-AITP-0004 §11.4 MUST, defaults per RFC-AITP-0009 §3.1).
+//! Item 5; the MUST and its defaults are RFC-AITP-0009 §3.1).
 //!
 //! Challenges are issued before the requester is authenticated, so the
 //! source key MUST include a transport identifier (client IP or TLS
