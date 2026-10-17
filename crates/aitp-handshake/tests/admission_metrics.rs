@@ -37,8 +37,10 @@ fn admission_emits_bounded_counters_and_gauge() {
             a.challenge_at(&src, NOW).await.unwrap();
             a.challenge_at(&src, NOW).await.unwrap_err(); // at capacity
             let env = present_pinned(&subject, "s", &ch, NOW).unwrap();
-            a.admit_at(&env, NOW).await.unwrap();
-            a.admit_at(&env, NOW).await.unwrap_err(); // replay
+            a.admit_at(&env, &src, NOW).await.unwrap();
+            a.admit_at(&env, &src, NOW).await.unwrap_err(); // replay
+            let env2 = present_pinned(&subject, "s", &ch, NOW).unwrap();
+            a.admit_at(&env2, &src, NOW).await.unwrap_err(); // nonce used
         });
     });
 
@@ -63,6 +65,7 @@ fn admission_emits_bounded_counters_and_gauge() {
     assert_eq!(get(&format!("{c}{{result=issued}}")), Some(2.0), "{seen:?}");
     assert_eq!(get(&format!("{c}{{result=at_capacity}}")), Some(1.0));
     assert_eq!(get(&format!("{ad}{{result=admitted}}")), Some(1.0));
+    assert_eq!(get(&format!("{ad}{{result=replay_detected}}")), Some(1.0));
     assert_eq!(get(&format!("{ad}{{result=identity_failed}}")), Some(1.0));
     assert_eq!(
         get(&format!("{}{{}}", metrics_names::NONCES_OUTSTANDING)),

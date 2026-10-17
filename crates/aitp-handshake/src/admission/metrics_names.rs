@@ -16,8 +16,9 @@ pub const CHALLENGE_TOTAL: &str = "aitp_admission_challenge_total";
 
 /// Counter. One per [`admit`](super::PinnedAdmission::admit) call.
 /// Label `result`: `admitted`, the lowercased wire code
-/// (`identity_failed`, `invalid_signature`, …), or `local_error` for a
-/// failure that is not the peer's fault.
+/// (`replay_detected`, `identity_failed`, `invalid_signature`, …),
+/// `rate_limited` (HTTP 429), or `local_error` for a failure that is not
+/// the peer's fault.
 pub const ADMIT_TOTAL: &str = "aitp_admission_admit_total";
 
 /// Gauge. Records held by an
@@ -45,7 +46,9 @@ pub(super) fn challenge_result(r: &Result<AdmissionChallenge, AdmissionError>) -
 pub(super) fn admit_result(r: &Result<Admitted, AdmissionError>) -> &'static str {
     match r {
         Ok(_) => "admitted",
+        Err(AdmissionError::RateLimited { .. }) => "rate_limited",
         Err(e) => match e.code() {
+            Some("REPLAY_DETECTED") => "replay_detected",
             Some("INVALID_ENVELOPE") => "invalid_envelope",
             Some("UNKNOWN_FIELD") => "unknown_field",
             Some("UNKNOWN_VERSION") => "unknown_version",

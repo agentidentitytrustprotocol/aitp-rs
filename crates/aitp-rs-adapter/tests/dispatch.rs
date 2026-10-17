@@ -463,3 +463,40 @@ mod session_bundle_wire_shape {
         assert_err(&resp, "v", "UNKNOWN_FIELD");
     }
 }
+
+/// A rate-limited presentation is answered with `http_status` 429 and no
+/// `error_code`; `begin_fixture` drops the fixture's verifier, so its
+/// limiter state does not reach the next fixture.
+#[test]
+fn presentation_rate_limit_is_http_429_and_begin_fixture_resets() {
+    let mut state = AdapterState::default();
+    let params = json!({
+        "self_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+        "trust_store": [],
+        "presentation_rate_limit": {"per_source": 1, "window_seconds": 60},
+        "source": "198.51.100.7",
+        "envelope": {},
+    });
+    let first = handle(
+        &mut state,
+        "p1",
+        "verify_identity_presentation",
+        params.clone(),
+    );
+    assert_err(&first, "p1", "INVALID_ENVELOPE");
+    let second = handle(
+        &mut state,
+        "p2",
+        "verify_identity_presentation",
+        params.clone(),
+    );
+    assert_envelope(&second, "p2");
+    assert_eq!(second["ok"], json!(false));
+    assert_eq!(second["http_status"], json!(429));
+    assert!(second.get("error_code").is_none(), "{second}");
+
+    let begin = handle(&mut state, "b", "begin_fixture", json!({}));
+    assert_eq!(begin["ok"], json!(true));
+    let third = handle(&mut state, "p3", "verify_identity_presentation", params);
+    assert_err(&third, "p3", "INVALID_ENVELOPE");
+}

@@ -27,6 +27,8 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+mod admission;
+
 #[derive(Default)]
 pub struct AdapterState {
     /// Keypairs are stored as seeds because `AitpSigningKey` is intentionally
@@ -68,6 +70,10 @@ pub struct AdapterState {
     /// it was not. `expect_pop_challenge_issued` and
     /// `withhold_pop_response` read it.
     pop_enforcement: Option<bool>,
+    /// The pinned-admission verifier of the current fixture
+    /// ([`admission`]). Built by its first admission step, dropped by
+    /// `begin_fixture`.
+    admission: Option<admission::AdmissionHarness>,
 }
 
 impl AdapterState {
@@ -173,9 +179,20 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "expect_pop_challenge_issued" => expect_pop_challenge_issued_op(state, id, params),
         "withhold_pop_response" => withhold_pop_response_op(state, id, params),
 
+        // Pinned-key admission (RFC-AITP-0002 §3.4) and self-attestation
+        // (RFC-AITP-0005 §5.3)
+        "verify_identity_presentation" => {
+            admission::verify_identity_presentation_op(state, id, params)
+        }
+        "issue_presentation_challenge" => {
+            admission::issue_presentation_challenge_op(state, id, params)
+        }
+        "verify_attestation" => admission::verify_attestation_op(state, id, params),
+
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
         "set_features" => set_features_op(state, id, params),
+        "begin_fixture" => begin_fixture_op(state, id),
         "inject_revocation" => revoke_tct_op(state, id, params),
         "dump_session" => dump_session_op(state, id, params),
 
@@ -219,9 +236,13 @@ fn init(id: &str) -> Value {
         "authorize_capability_invocation",
         "expect_pop_challenge_issued",
         "withhold_pop_response",
+        "verify_identity_presentation",
+        "issue_presentation_challenge",
+        "verify_attestation",
         // Tier D
         "set_clock",
         "set_features",
+        "begin_fixture",
         "inject_revocation",
         "dump_session",
     ];
@@ -3051,6 +3072,15 @@ fn set_clock_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     };
     state.now_override = Some(now);
     json!({"id": id, "ok": true, "result": {"now_unix_secs": now}})
+}
+
+/// `begin_fixture`: the runner starts a new fixture. Drops state that a
+/// fixture's sequence carries across its steps (the pinned-admission
+/// verifier), so one fixture's consumed nonces and recorded
+/// `message_id`s never leak into the next.
+fn begin_fixture_op(state: &mut AdapterState, id: &str) -> Value {
+    state.admission = None;
+    json!({"id": id, "ok": true, "result": {}})
 }
 
 /// `set_features`: the runner declares which optional features

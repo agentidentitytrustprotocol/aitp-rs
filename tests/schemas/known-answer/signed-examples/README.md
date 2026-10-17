@@ -65,7 +65,9 @@ signed-examples/
 │   └── kat-keypair-005-manifest.json       Manifest signed by kat-keypair-005-p256 (JCS profile, P-256)
 ├── tct/
 │   ├── kat-keypair-001-issues-002.json     Peer-issued TCT compact JWS, kat-keypair-001 → 002
-│   └── kat-keypair-005-issues-002.json     Peer-issued ES256 TCT compact JWS, kat-keypair-005-p256 → 002
+│   ├── kat-keypair-005-issues-002.json     Peer-issued ES256 TCT compact JWS, kat-keypair-005-p256 → 002
+│   ├── kat-keypair-001-self-attestation.json  Self-attestation TCT (RFC-AITP-0005 §5.3), kat-tct-002, EdDSA
+│   └── kat-keypair-005-self-attestation.json  Self-attestation TCT, kat-tct-003, ES256 (kat-keypair-005-p256)
 ├── grant-voucher/
 │   └── kat-voucher-001.json                Grant voucher compact JWS (companion of a two-grant TCT)
 ├── delegation/

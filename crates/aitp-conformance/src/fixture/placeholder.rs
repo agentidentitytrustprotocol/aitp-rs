@@ -166,7 +166,8 @@ impl RunnerContext {
         self.substitute_signatures(value);
     }
 
-    /// Mint the pinned-key proof negatives (PLACEHOLDERS.md):
+    /// Mint the pinned-key proofs (PLACEHOLDERS.md): the valid
+    /// `__VALID_PINNED_PROOF__`, and the negatives
     /// `__PINNED_PROOF_OVER_WRONG_NONCE__`, `__CAPTURED_PROOF_FROM_ORIGINAL_HANDSHAKE__`
     /// and `__LEGACY_PINNED_PROOF__`. Each is a real signature by the
     /// sender's KAT key over an input that differs from the one the
@@ -733,6 +734,7 @@ impl RunnerContext {
     }
 }
 
+const VALID_PINNED_PROOF: &str = "__VALID_PINNED_PROOF__";
 const PINNED_PROOF_OVER_WRONG_NONCE: &str = "__PINNED_PROOF_OVER_WRONG_NONCE__";
 const CAPTURED_PINNED_PROOF: &str = "__CAPTURED_PROOF_FROM_ORIGINAL_HANDSHAKE__";
 const LEGACY_PINNED_PROOF: &str = "__LEGACY_PINNED_PROOF__";
@@ -740,7 +742,10 @@ const LEGACY_PINNED_PROOF: &str = "__LEGACY_PINNED_PROOF__";
 fn is_pinned_proof_placeholder(s: &str) -> bool {
     matches!(
         s,
-        PINNED_PROOF_OVER_WRONG_NONCE | CAPTURED_PINNED_PROOF | LEGACY_PINNED_PROOF
+        VALID_PINNED_PROOF
+            | PINNED_PROOF_OVER_WRONG_NONCE
+            | CAPTURED_PINNED_PROOF
+            | LEGACY_PINNED_PROOF
     )
 }
 
@@ -773,7 +778,7 @@ fn sign_pinned_input(key: &AitpSigningKey, input: &[u8]) -> String {
     key.sign_jcs(&digest).into_string()
 }
 
-/// Walk `value`, minting the pinned-proof negatives at each envelope.
+/// Walk `value`, minting the pinned-key proofs at each envelope.
 fn substitute_pinned_proofs_at(value: &mut Value, self_aid: &str) {
     match value {
         Value::Array(items) => {
@@ -785,7 +790,7 @@ fn substitute_pinned_proofs_at(value: &mut Value, self_aid: &str) {
             for v in map.values_mut() {
                 substitute_pinned_proofs_at(v, self_aid);
             }
-            if let Some(minted) = mint_pinned_proof_negative(map, self_aid) {
+            if let Some(minted) = mint_pinned_proof(map, self_aid) {
                 map["payload"]["identity"]["proof"] = Value::from(minted);
             }
         }
@@ -807,13 +812,10 @@ fn other_pop_nonce(nonce: &str) -> Option<String> {
     Some(base64url::encode(&bytes))
 }
 
-/// If `map` is an envelope whose `payload.identity.proof` is one of the
-/// pinned-proof negatives, mint it. `None` when it is not, or when the
+/// If `map` is an envelope whose `payload.identity.proof` is a
+/// pinned-proof placeholder, mint it. `None` when it is not, or when the
 /// sender has no KAT key.
-fn mint_pinned_proof_negative(
-    map: &serde_json::Map<String, Value>,
-    self_aid: &str,
-) -> Option<String> {
+fn mint_pinned_proof(map: &serde_json::Map<String, Value>, self_aid: &str) -> Option<String> {
     let payload = map.get("payload")?;
     let placeholder = payload.get("identity")?.get("proof")?.as_str()?;
     if !is_pinned_proof_placeholder(placeholder) {
@@ -825,6 +827,11 @@ fn mint_pinned_proof_negative(
     let pop_nonce = payload.get("pop_nonce")?.as_str()?;
     let key = kat_key_for_aid(sender)?;
     let input = match placeholder {
+        // The real proof over the envelope as it stands after
+        // substitution, so it covers a run-time `__ISSUED_NONCE_<n>__`.
+        VALID_PINNED_PROOF => {
+            pinned_proof_input(sender, self_aid, message_id, timestamp, pop_nonce)?
+        }
         PINNED_PROOF_OVER_WRONG_NONCE => pinned_proof_input(
             sender,
             self_aid,
@@ -1258,6 +1265,32 @@ mod tests {
                 "signature": "__VALID_ENVELOPE_SIG__"
             }
         })
+    }
+
+    /// `__VALID_PINNED_PROOF__` over id-019's envelope reproduces the
+    /// committed proof byte for byte (Ed25519 is deterministic).
+    #[test]
+    fn valid_pinned_proof_reproduces_id_019() {
+        let mut v = json!({
+            "self_aid": SELF_AID,
+            "envelope": {
+                "message_id": "770e8400-e29b-41d4-a716-446655440901",
+                "timestamp": 1711900000,
+                "sender": { "agent_id": WORKER_A },
+                "payload": {
+                    "identity": { "type": "pinned_key", "proof": VALID_PINNED_PROOF },
+                    "pop_nonce": "AQIDBAUGBwgJCgsMDQ4PEA"
+                },
+                "signature": "__VALID_ENVELOPE_SIG__"
+            }
+        });
+        let mut ctx = RunnerContext::new();
+        ctx.substitute(&mut v);
+        assert!(ctx.unminted().is_empty(), "{:?}", ctx.unminted());
+        assert_eq!(
+            v["envelope"]["payload"]["identity"]["proof"],
+            "C7z8HKjjcw0uK9rZaIhxf7V8dW1UJvzal0pJCxrv0y1R7xri3I2kZ7LyxgJY3R96qd0h3FysO_YOOtKLcuPkCw"
+        );
     }
 
     /// Each negative is a real signature by the sender's key that does

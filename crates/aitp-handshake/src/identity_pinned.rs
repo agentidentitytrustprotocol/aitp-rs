@@ -417,6 +417,20 @@ pub fn verify_pinned_key(
     ctx: &PinnedKeyVerifyContext<'_>,
     store: &dyn PinnedKeyStore,
 ) -> Result<VerifiedPinnedKey, HandshakeError> {
+    let key = resolve_pinned_key(descriptor, ctx, store)?;
+    check_pinned_key_proof(descriptor, ctx, &key)?;
+    Ok(key)
+}
+
+/// §3.2 steps 1–3: descriptor shape, key equality and the trust-store
+/// lookup. No signature work. Split from [`check_pinned_key_proof`] so
+/// pinned-key admission can verify the envelope signature in between
+/// (RFC-AITP-0002 §3.4 check order, steps 6–8).
+pub(crate) fn resolve_pinned_key(
+    descriptor: &IdentityDescriptor,
+    ctx: &PinnedKeyVerifyContext<'_>,
+    store: &dyn PinnedKeyStore,
+) -> Result<VerifiedPinnedKey, HandshakeError> {
     // Step 1: type dispatch.
     if descriptor.kind != IdentityKind::PinnedKey {
         return Err(HandshakeError::Identity(
@@ -482,6 +496,20 @@ pub fn verify_pinned_key(
         ));
     }
 
+    Ok(VerifiedPinnedKey {
+        algorithm,
+        key,
+        aid: ctx.sender_aid.clone(),
+    })
+}
+
+/// §3.2 steps 4–5: the proof over the tuple, under the key
+/// [`resolve_pinned_key`] returned.
+pub(crate) fn check_pinned_key_proof(
+    descriptor: &IdentityDescriptor,
+    ctx: &PinnedKeyVerifyContext<'_>,
+    key: &VerifiedPinnedKey,
+) -> Result<(), HandshakeError> {
     // Step 4: proof input (enforces the 16-byte nonce).
     let input = pinned_key_proof_input(
         ctx.sender_aid,
@@ -495,13 +523,9 @@ pub fn verify_pinned_key(
     // match the key's algorithm.
     let sig = Signature::parse(&descriptor.proof)
         .map_err(|_| HandshakeError::Identity("proof malformed".into()))?;
-    key.verify_jcs(&aitp_crypto::Digest32::sha256(&input), &sig)
-        .map_err(|_| HandshakeError::Identity("pinned_key signature invalid".into()))?;
-    Ok(VerifiedPinnedKey {
-        algorithm,
-        key,
-        aid: ctx.sender_aid.clone(),
-    })
+    key.key
+        .verify_jcs(&aitp_crypto::Digest32::sha256(&input), &sig)
+        .map_err(|_| HandshakeError::Identity("pinned_key signature invalid".into()))
 }
 
 /// Sign a pinned-key identity proof — helper for the issuing side.
@@ -1102,7 +1126,7 @@ mod tests {
     fn kat_pinned_key_proof_002_p256_verifies() {
         let path = concat!(
             env!("CARGO_MANIFEST_DIR"),
-            "/../../tests/proposal-kats/p256-pinned-key-2026-10.json"
+            "/../../tests/schemas/known-answer/jcs-sha256.json"
         );
         let doc: serde_json::Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
         let v = doc["vectors"]
@@ -1126,14 +1150,14 @@ mod tests {
             kind: IdentityKind::PinnedKey,
             issuer: None,
             subject: "kat".into(),
-            proof: v["proof"].as_str().unwrap().into(),
+            proof: v["signature"].as_str().unwrap().into(),
             public_key: Some(sender.identifier().to_string()),
             extensions: None,
         };
         let store = StaticPinnedKeyStore::from_aids([&sender]).unwrap();
         let got = verify_pinned_key(&desc, &c, &store).expect("KAT proof verifies");
         assert_eq!(got.algorithm, AidAlgorithm::P256);
-        desc.proof = v["double_hash_proof_MUST_NOT_verify"]
+        desc.proof = v["double_hash_signature_MUST_NOT_verify"]
             .as_str()
             .unwrap()
             .into();

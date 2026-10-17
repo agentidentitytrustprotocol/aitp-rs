@@ -83,6 +83,19 @@ NDJSON: one JSON object per line on stdin (request) and stdout (response).
 `error_code` matches the AITP error registry exactly. `message` is
 human-readable; the runner ignores it for pass/fail logic.
 
+A refusal made below the protocol layer carries no AITP code. It
+reports the HTTP status the transport would answer with instead of an
+`error_code`. The presentation rate limit of RFC-AITP-0002 §3.4 is one
+(RFC-AITP-0009 §3.1, `id-022`):
+
+```json
+{"id": "req-002", "ok": false, "http_status": 429, "message": "..."}
+```
+
+A fixture that expects this sets `expected.http_status`. It must then
+also expect no `error_code`, and the runner fails the step if the
+adapter returns one.
+
 ### Init handshake
 
 ```json
@@ -135,6 +148,7 @@ Stateless operations on fully-formed AITP objects.
 | `verify_jcs` | Compute JCS canonical form (return hex). |
 | `compute_jwk_thumbprint` | Compute thumbprint of a pubkey. |
 | `verify_session_bundle` | Verify a Session Trust Bundle (draft, `experimental-session-bundle`). |
+| `verify_attestation` | Verify a self-attestation outside a grant context (RFC-AITP-0005 §5.3, extension `aitp-self-attestation`). The issuer must be in the step's `trust_store`. |
 
 Tier A handles the majority of fixture types.
 
@@ -165,6 +179,13 @@ Keypairs are referenced by opaque adapter-assigned handles
 | `authorize_capability_invocation` | Authorize a capability call, enforcing PoP when the grant requires it (`tct-007`). |
 | `produce_pop_response` / `verify_pop_response` | Answer / check a downstream PoP challenge. |
 | `expect_pop_challenge_issued` / `withhold_pop_response` | Assertion helpers for the `tct-007` PoP-enforcement sequence. |
+| `issue_presentation_challenge` | Issue a one-way admission challenge to the step's `source` (RFC-AITP-0002 §3.4, extension `aitp-pinned-admission`). The runner captures `result.pop_nonce` as `__ISSUED_NONCE_<n>__`, numbered from 1 within the sequence. |
+| `verify_identity_presentation` | Admit one `identity_presentation` envelope in the §3.4 check order: `message_id` deny list, presentation rate limit, timestamp, structure, nonce, key, signature, proof, nonce consume. |
+
+The admission verifier lives for one fixture, so a nonce consumed in one
+sequence step stays consumed in the next. It is built from the first
+step's `self_aid`, `trust_store`, `max_outstanding_nonces`,
+`presentation_rate_limit` and `outstanding_challenges`.
 
 Sessions are referenced by adapter-assigned IDs.
 
@@ -176,6 +197,7 @@ Sessions are referenced by adapter-assigned IDs.
 | `inject_revocation` | Force a JTI into the deny list. |
 | `set_features` | Toggle opt-in draft features for the run. |
 | `dump_session` | Dump session state for debugging. |
+| `begin_fixture` | Drop per-fixture adapter state. The runner sends it before each fixture and ignores an error, so adapters without the op still run. |
 
 Adapters that don't support clock override just refuse the op; fixtures
 that need it are skipped.
@@ -357,26 +379,28 @@ them.
 
 ### Summary
 
-These counts are **at pin `652cdb9`**, the spec commit in
+These counts are **at pin `a2a24da`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
-| Tier | Fixtures | Strict run (no `--feature`) | With both draft features |
+| Tier | Fixtures | Strict run (no `--feature`) | With all four features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` | 70 | 70 PASS | 69 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` | 73 | 73 PASS | 72 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
-| **Total** | **81** | **71 pass / 0 fail / 10 skip** | **79 pass / 0 fail / 2 skip** |
+| `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
+| `extension`: self-attestation (`aitp-self-attestation`) | 2 | SKIP | PASS |
+| **Total** | **94** | **74 pass / 0 fail / 20 skip** | **92 pass / 0 fail / 2 skip** |
 
 Why the skips look the way they do:
 
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
-  multi-hop returns. The 10 skips are the 6 session-bundle fixtures and
-  the 4 multi-hop fixtures. A `draft` fixture is skipped unless its
-  `feature` has been enabled.
+  multi-hop returns. The 20 skips are the 6 session-bundle, 4 multi-hop,
+  8 pinned-admission and 2 self-attestation fixtures. A `draft` or
+  `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
   `del-007` both expect `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Turning the
   feature on makes that assertion meaningless, so the runner skips them.
@@ -390,17 +414,19 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 71 pass / 0 fail / 10 skip at the pin.
+# Strict: 74 pass / 0 fail / 20 skip at the pin.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (Draft RFCs): 79 pass / 0 fail / 2 skip at the pin.
+# Opt-in (draft RFCs and extensions): 92 pass / 0 fail / 2 skip at the pin.
 # This is what the `conformance` CI job runs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
   --feature experimental-multihop-delegation \
-  --feature experimental-session-bundle
+  --feature experimental-session-bundle \
+  --feature aitp-pinned-admission \
+  --feature aitp-self-attestation
 ```
 
 ### v0.2 conformance gate
@@ -439,13 +465,19 @@ is set, as explained above.
 | Area | Fixtures |
 |---|---|
 | Envelope and key resolution: RFC-AITP-0001, RFC-AITP-0007 | `env-001`–`env-007` |
-| Manifest: RFC-AITP-0003 | `man-001`–`man-006` |
+| Manifest: RFC-AITP-0003 | `man-001`–`man-007` |
 | Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` |
+| Pinned-key P-256, tagged AIDs and descriptor shape: RFC-AITP-0002 §1, §3.1–§3.3 | `id-010`, `id-011`, `id-011b`, `id-012`, `id-017`, `id-018` |
+| One-way pinned-key admission (extension `aitp-pinned-admission`): RFC-AITP-0002 §3.4 | `id-013`–`id-016`, `id-019`–`id-022` |
 | TCT: RFC-AITP-0005 | `tct-002`–`tct-007` |
+| TCT `jti` UUID v4 layout: RFC-AITP-0005 §2.2 | `tct-013`, `tct-014` |
+| Self-issued and attestation TCTs in a grant context: RFC-AITP-0005 §5.3 | `tct-015`, `tct-016`, `tct-018` |
+| ES256 low-S: RFC-AITP-0001 §5.4.7 | `tct-017` |
+| Self-attestation verification (extension `aitp-self-attestation`): RFC-AITP-0005 §5.3 | `tct-019`, `tct-020` |
 | JWS `alg`/`typ` pinning: RFC-AITP-0001 §5.4.5, RFC-AITP-0005 §7.2 steps 2–3 | `tct-008`, `tct-009`, `tct-010` |
 | TCT unknown claims: RFC-AITP-0005 §7.2 step 1 | `tct-011`, `tct-012` |
 | Grant voucher: RFC-AITP-0005 §8 | `vch-001`, `vch-002` |
-| Revocation: RFC-AITP-0008 | `rev-001`–`rev-003` |
+| Revocation: RFC-AITP-0008 | `rev-001`–`rev-003`, `rev-009` |
 | Revocation lookup ordering: RFC-AITP-0008 §3.3 | `rev-004` |
 | Revocation snapshot unknown members: RFC-AITP-0008 §1.5, RFC-AITP-0001 §7 | `rev-005`, `rev-006` |
 | Revocation snapshot structural validation: RFC-AITP-0008 §1.5 | `rev-007`, `rev-008` |

@@ -1,12 +1,8 @@
 //! RFC-AITP-0001 §5.4.6 (single hash) and §5.4.7 (strict verify)
-//! known-answer vectors. Spec PRs A (b022013) and B (652cdb9) vendored
-//! most of them under `tests/schemas/known-answer/`; the rest
-//! (self-attestation TCTs) are still candidates of spec proposal
-//! `p256-pinned-key-and-signing-input-2026-10`, pinned in
-//! `tests/proposal-kats/`. A vector is read from the vendored files when
-//! it is there. The values were computed with pyca/cryptography;
-//! reproducing them with RustCrypto is the two-implementation
-//! cross-check.
+//! known-answer vectors, read from the vendored spec files under
+//! `tests/schemas/known-answer/`. The spec computed the values with
+//! pyca/cryptography; reproducing them with RustCrypto is the
+//! two-implementation cross-check.
 
 use aitp_core::Aid;
 use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, Signature};
@@ -30,58 +26,11 @@ fn vendored_vectors() -> Vec<Value> {
     VENDORED.iter().flat_map(|f| load(dir.join(f))).collect()
 }
 
-fn proposal_vectors() -> Vec<Value> {
-    load(
-        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("../../tests/proposal-kats/p256-pinned-key-2026-10.json"),
-    )
-}
-
 fn vector(id: &str) -> Value {
     vendored_vectors()
         .into_iter()
-        .chain(proposal_vectors())
         .find(|v| v["id"] == id)
         .unwrap_or_else(|| panic!("vector {id} missing"))
-}
-
-/// The interim copy of a vector that has since landed in the spec must
-/// agree with it on every member it carries. The vendored copy may add
-/// members.
-#[test]
-fn proposal_copies_agree_with_vendored_vectors() {
-    let vendored = vendored_vectors();
-    let mut overlap = 0;
-    for p in proposal_vectors() {
-        let Some(v) = vendored.iter().find(|v| v["id"] == p["id"]) else {
-            continue;
-        };
-        overlap += 1;
-        for (k, pv) in p.as_object().unwrap() {
-            if k == "$comment" || k == "rfc_refs" {
-                continue;
-            }
-            let vk = vendored_name(p["id"].as_str().unwrap(), k);
-            assert_eq!(
-                &v[vk], pv,
-                "{}: `{k}` differs from the vendored vector",
-                p["id"]
-            );
-        }
-    }
-    assert!(overlap >= 9, "spec PR A/B vectors went missing ({overlap})");
-}
-
-/// Spec PR B renamed the pinned-key proof members to the file's
-/// `signature` convention; -003's untagged Ed25519 proof is
-/// `signature_b64url`.
-fn vendored_name<'a>(id: &str, k: &'a str) -> &'a str {
-    match (id, k) {
-        ("kat-pinned-key-proof-003-tagged-ed25519", "proof") => "signature_b64url",
-        (_, "proof") => "signature",
-        (_, "double_hash_proof_MUST_NOT_verify") => "double_hash_signature_MUST_NOT_verify",
-        _ => k,
-    }
 }
 
 fn p256_key() -> AitpSigningKey {

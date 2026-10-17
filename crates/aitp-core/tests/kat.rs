@@ -60,14 +60,14 @@ const NON_CANONICAL_VECTORS: &[&str] = &[
     "kat-derived-uuid-001",
     "kat-manifest-pop-001",
     // P-256 signing-input vectors (spec PR A); checked in
-    // `aitp-crypto/tests/proposal_kats.rs`.
+    // `aitp-crypto/tests/signing_input_kats.rs`.
     "kat-manifest-pop-002-p256",
     "kat-multihop-chain-001",
     "kat-multihop-truncation-001",
     "kat-p256-jcs-sign-001",
     "kat-pinned-key-proof-001",
     // Pinned-key proof-input vectors (spec PR B); checked in
-    // `aitp-crypto/tests/proposal_kats.rs`.
+    // `aitp-crypto/tests/signing_input_kats.rs`.
     "kat-pinned-key-proof-002-p256",
     "kat-pinned-key-proof-003-tagged-ed25519",
 ];

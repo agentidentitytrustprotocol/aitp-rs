@@ -40,7 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   gains `retry_after`, and in-memory nonce expiry is amortised. Also new:
   the public `resolve_source_ip` and `TrustedProxy` (feature `source-ip`,
   which needs only `http` 1.x, not axum) and `TokenBucketLimiter::check_key_at`,
-  and admission metrics behind `aitp-handshake/metrics`. See
+  and admission metrics behind `aitp-handshake/metrics`. Spec PR D
+  (a2a24da) is vendored. Pinned-key admission follows the RFC-AITP-0002
+  §3.4 check order: a `message_id` deny list (`MessageIdDenyList`,
+  `REPLAY_DETECTED`) is checked first, then a per-source presentation
+  rate limit that answers HTTP 429 with no AITP code. The presentation
+  payload is exactly `{identity, pop_nonce}`. `admit` and the new
+  `admit_wire` take the `&ChallengeSource`. The conformance adapter runs
+  the `aitp-pinned-admission` and `aitp-self-attestation` fixtures (94
+  fixtures: 92 pass and 2 skip with every feature; 74 pass and 20 skip
+  strict), and `tests/proposal-kats` is gone: every vector comes from the
+  vendored spec. See
   [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
   how to migrate.
 

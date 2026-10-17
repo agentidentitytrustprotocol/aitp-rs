@@ -81,10 +81,18 @@ impl Adapter for InProcessRustAdapter {
                 result: resp.get("result").cloned().unwrap_or_default(),
             })
         } else {
+            let http_status = resp
+                .get("http_status")
+                .and_then(|v| v.as_u64())
+                .and_then(|n| u16::try_from(n).ok());
             let error_code = resp
                 .get("error_code")
                 .and_then(|v| v.as_str())
-                .unwrap_or("INTERNAL_ERROR")
+                .unwrap_or(if http_status.is_some() {
+                    ""
+                } else {
+                    "INTERNAL_ERROR"
+                })
                 .to_string();
             // Translate OP_NOT_SUPPORTED to AdapterError so the
             // runner's skip path triggers, mirroring how the
@@ -100,6 +108,7 @@ impl Adapter for InProcessRustAdapter {
                     .and_then(|v| v.as_str())
                     .unwrap_or("")
                     .to_string(),
+                http_status,
             })
         }
     }

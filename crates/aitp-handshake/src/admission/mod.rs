@@ -11,22 +11,37 @@
 //! ```
 //!
 //! The challenge is a 16-byte CSPRNG nonce, single-use, valid for at most
-//! [`MAX_NONCE_TTL`] and bound to the verifier's AID. [`admit`] runs
-//! RFC-AITP-0002 §3.2 steps 1–5 with `receiver_aid` = the verifier AID,
-//! checks the envelope signature and timestamp (RFC-AITP-0001 §5.4/§5.5),
-//! and only then consumes the nonce atomically. A malformed nonce is
-//! rejected `IDENTITY_FAILED` before any signature work. Outstanding
-//! nonces are bounded: at the bound new challenges are refused, never
-//! evicted. Challenge issuance is always rate limited per transport
-//! source ([`RecommendedLimiter`] unless replaced). Either refusal is
+//! [`MAX_NONCE_TTL`] and bound to the verifier's AID. Outstanding nonces
+//! are bounded: at the bound new challenges are refused, never evicted.
+//! Challenge issuance is always rate limited per transport source
+//! ([`RecommendedLimiter`] unless replaced). Either refusal is
 //! `CHALLENGE_REFUSED`, retryable, and does not say which limit fired.
+//!
+//! [`admit`] runs the RFC-AITP-0002 §3.4 check order:
+//!
+//! 1. `message_id` deny list ⇒ `REPLAY_DETECTED` (costs no rate-limit slot);
+//! 2. per-source presentation rate limit ⇒ HTTP 429, no wire code;
+//! 3. timestamp window ⇒ `TIMESTAMP_EXPIRED`;
+//! 4. structure, payload exactly `{identity, pop_nonce}` ⇒
+//!    `INVALID_ENVELOPE` / `UNKNOWN_FIELD`;
+//! 5. nonce length ⇒ `IDENTITY_FAILED`;
+//! 6. §3.2 steps 1–3 (type, key equality, trust store) ⇒ `IDENTITY_FAILED`;
+//! 7. envelope signature ⇒ `INVALID_SIGNATURE`;
+//! 8. §3.2 steps 4–5 (the proof) ⇒ `IDENTITY_FAILED`;
+//! 9. atomic nonce lookup-and-consume ⇒ `IDENTITY_FAILED`;
+//!
+//! then records the `message_id`. The nonce is consumed only by a
+//! presentation that verified, so a party that merely observed a nonce
+//! cannot burn it.
 //!
 //! [`admit`]: PinnedAdmission::admit
 
+mod deny_list;
 pub mod metrics_names;
 mod nonce_store;
 mod rate_limit;
 
+pub use deny_list::{DenyListError, InMemoryMessageIdDenyList, MessageIdDenyList};
 pub use nonce_store::{
     ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
 };
@@ -35,13 +50,14 @@ pub use rate_limit::{
 };
 
 use crate::identity_pinned::{
-    pinned_key_proof_input, PinnedKeyStore, PinnedKeyVerifyContext, SubjectBinding,
+    check_pinned_key_proof, pinned_key_proof_input, resolve_pinned_key, PinnedKeyStore,
+    PinnedKeyVerifyContext, SubjectBinding,
 };
-use crate::{verify_pinned_key, IdentityDescriptor, IdentityKind, VerifiedPinnedKey};
+use crate::{IdentityDescriptor, IdentityKind, VerifiedPinnedKey};
 use aitp_core::envelope::{envelope_signing_digest, parse_envelope_wire, EnvelopeParseError};
 use aitp_core::{
-    base64url, check_members, from_serde_error, Aid, AitpEnvelope, ExtensionsMap, MessageType,
-    Sender, Timestamp, DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
+    base64url, check_members, from_serde_error, Aid, AitpEnvelope, MessageType, Sender, Timestamp,
+    DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
 };
 use aitp_crypto::{AitpSigner, Digest32, DynAsyncAitpSigner, Signature, SignerError};
 use rand::TryRng;
@@ -53,8 +69,9 @@ use uuid::Uuid;
 /// Upper bound on a challenge's lifetime (proposal Item 5).
 pub const MAX_NONCE_TTL: Duration = Duration::from_secs(300);
 
-/// Wire members of an `identity_presentation` payload.
-pub const IDENTITY_PRESENTATION_PAYLOAD_MEMBERS: &[&str] = &["identity", "pop_nonce", "extensions"];
+/// Wire members of an `identity_presentation` payload: exactly these two
+/// (RFC-AITP-0002 §3.4 check order, step 4).
+pub const IDENTITY_PRESENTATION_PAYLOAD_MEMBERS: &[&str] = &["identity", "pop_nonce"];
 
 /// A challenge handed to a subject. Transport-defined and unsigned: its
 /// integrity comes from the nonce being single-use and verifier-bound,
@@ -80,9 +97,6 @@ pub struct IdentityPresentationPayload {
     pub identity: IdentityDescriptor,
     /// The challenge nonce being answered.
     pub pop_nonce: String,
-    /// Extension namespace (RFC-AITP-0001 §7).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub extensions: Option<ExtensionsMap>,
 }
 
 /// A successful admission.
@@ -105,12 +119,24 @@ pub enum AdmissionError {
     /// `identity_presentation`.
     #[error("invalid envelope: {0}")]
     InvalidEnvelope(String),
-    /// A member outside the schema and outside `extensions`.
+    /// A member outside the schema.
     #[error("unknown field `{0}`")]
     UnknownField(String),
     /// `version` is not one this implementation speaks.
     #[error("unknown version `{0}`")]
     UnknownVersion(String),
+    /// The `message_id` is on the deny list: this presentation, or one
+    /// reusing its `message_id`, was already admitted.
+    #[error("message_id already admitted")]
+    Replay,
+    /// The source exceeded its presentation rate limit (RFC-AITP-0009
+    /// §3.1). No AITP error envelope: answer HTTP 429, with
+    /// `Retry-After` from `retry_after`. See [`Self::http_status`].
+    #[error("presentation rate limit exceeded")]
+    RateLimited {
+        /// When the source may present again.
+        retry_after: Duration,
+    },
     /// Envelope timestamp outside the tolerance window.
     #[error("timestamp outside tolerance")]
     TimestampExpired,
@@ -136,6 +162,10 @@ pub enum AdmissionError {
     /// The nonce store backend failed. Not the subject's fault.
     #[error("nonce store: {0}")]
     Store(#[source] NonceStoreError),
+    /// The `message_id` deny list failed or is full. Not the subject's
+    /// fault; the presentation was not admitted.
+    #[error("deny list: {0}")]
+    DenyList(#[source] DenyListError),
     /// The presenter's signer failed.
     #[error(transparent)]
     Signer(#[from] SignerError),
@@ -146,9 +176,12 @@ pub enum AdmissionError {
 
 impl AdmissionError {
     /// The wire error code (RFC-AITP-0001 §6) to report to the peer, or
-    /// `None` for a local failure that is not the peer's fault.
+    /// `None` when there is none: a rate-limited presentation (see
+    /// [`Self::http_status`]) or a local failure that is not the peer's
+    /// fault.
     pub fn code(&self) -> Option<&'static str> {
         Some(match self {
+            Self::Replay => "REPLAY_DETECTED",
             Self::InvalidEnvelope(_) => "INVALID_ENVELOPE",
             Self::UnknownField(_) => "UNKNOWN_FIELD",
             Self::UnknownVersion(_) => "UNKNOWN_VERSION",
@@ -156,8 +189,18 @@ impl AdmissionError {
             Self::Identity(_) => "IDENTITY_FAILED",
             Self::InvalidSignature => "INVALID_SIGNATURE",
             Self::ChallengeRefused { .. } => "CHALLENGE_REFUSED",
-            Self::Store(_) | Self::Signer(_) | Self::Rng(_) => return None,
+            Self::RateLimited { .. }
+            | Self::Store(_)
+            | Self::DenyList(_)
+            | Self::Signer(_)
+            | Self::Rng(_) => return None,
         })
+    }
+
+    /// The HTTP status a transport answers with when it must not send an
+    /// AITP error envelope: 429 for [`Self::RateLimited`], else `None`.
+    pub fn http_status(&self) -> Option<u16> {
+        matches!(self, Self::RateLimited { .. }).then_some(429)
     }
 }
 
@@ -178,6 +221,8 @@ pub struct PinnedAdmissionBuilder {
     nonces: Arc<dyn NonceStore>,
     pinned_keys: Arc<dyn PinnedKeyStore>,
     limiter: Arc<dyn ChallengeRateLimiter>,
+    presentation_limiter: Arc<dyn ChallengeRateLimiter>,
+    deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
     tolerance_secs: i64,
     subject: SubjectBinding,
@@ -197,6 +242,23 @@ impl PinnedAdmissionBuilder {
     /// passes a limiter with higher rates.
     pub fn rate_limiter(mut self, limiter: Arc<dyn ChallengeRateLimiter>) -> Self {
         self.limiter = limiter;
+        self
+    }
+
+    /// Replace the per-source presentation rate limiter (§3.4 check
+    /// order, step 2). Default [`RecommendedLimiter::default`], separate
+    /// from the challenge limiter. Cannot be turned off (RFC-AITP-0009
+    /// §3.1).
+    pub fn presentation_rate_limiter(mut self, limiter: Arc<dyn ChallengeRateLimiter>) -> Self {
+        self.presentation_limiter = limiter;
+        self
+    }
+
+    /// Replace the `message_id` deny list (§3.4 check order, step 1).
+    /// Default a fresh [`InMemoryMessageIdDenyList`]. Verifiers behind a
+    /// load balancer share one, as they share the nonce store.
+    pub fn message_id_deny_list(mut self, deny_list: Arc<dyn MessageIdDenyList>) -> Self {
+        self.deny_list = deny_list;
         self
     }
 
@@ -222,6 +284,8 @@ impl PinnedAdmissionBuilder {
             nonces: self.nonces,
             pinned_keys: self.pinned_keys,
             limiter: self.limiter,
+            presentation_limiter: self.presentation_limiter,
+            deny_list: self.deny_list,
             ttl: self.ttl,
             tolerance_secs: self.tolerance_secs,
             subject: self.subject,
@@ -236,6 +300,8 @@ pub struct PinnedAdmission {
     nonces: Arc<dyn NonceStore>,
     pinned_keys: Arc<dyn PinnedKeyStore>,
     limiter: Arc<dyn ChallengeRateLimiter>,
+    presentation_limiter: Arc<dyn ChallengeRateLimiter>,
+    deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
     tolerance_secs: i64,
     subject: SubjectBinding,
@@ -254,6 +320,8 @@ impl PinnedAdmission {
             nonces,
             pinned_keys,
             limiter: Arc::new(RecommendedLimiter::default()),
+            presentation_limiter: Arc::new(RecommendedLimiter::default()),
+            deny_list: Arc::new(InMemoryMessageIdDenyList::default()),
             ttl: MAX_NONCE_TTL,
             tolerance_secs: DEFAULT_TIMESTAMP_TOLERANCE_SECS,
             subject: SubjectBinding::Unchecked,
@@ -333,54 +401,113 @@ impl PinnedAdmission {
         ))
     }
 
-    /// Admit a presentation received as raw JSON, enforcing the envelope
-    /// member set first.
+    /// Admit a presentation received as raw JSON from `source`. Check
+    /// order steps 1–3 run on the raw members, before any parsing, so a
+    /// replay or an over-limit source is answered without schema work.
     pub async fn admit_wire(
         &self,
         envelope: &serde_json::Value,
+        source: &ChallengeSource,
     ) -> Result<Admitted, AdmissionError> {
-        self.admit_wire_at(envelope, Timestamp::now()).await
+        self.admit_wire_at(envelope, source, Timestamp::now()).await
     }
 
     /// As [`Self::admit_wire`] at an explicit `now`.
     pub async fn admit_wire_at(
         &self,
         envelope: &serde_json::Value,
+        source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<Admitted, AdmissionError> {
-        let env = parse_envelope_wire(envelope).map_err(|e| match e {
-            EnvelopeParseError::UnknownField(f) => AdmissionError::UnknownField(f),
-            other => AdmissionError::InvalidEnvelope(other.to_string()),
-        })?;
-        self.admit_at(&env, now).await
-    }
-
-    /// Admit a presentation at wall-clock time.
-    pub async fn admit(&self, envelope: &AitpEnvelope) -> Result<Admitted, AdmissionError> {
-        self.admit_at(envelope, Timestamp::now()).await
-    }
-
-    /// Admit a presentation at an explicit `now`.
-    ///
-    /// Order: envelope shape → timestamp → payload → nonce length →
-    /// §3.2 steps 1–5 → envelope signature → atomic consume. The nonce
-    /// is consumed only by a presentation that verified, so a party that
-    /// merely observed a nonce cannot burn it.
-    pub async fn admit_at(
-        &self,
-        env: &AitpEnvelope,
-        now: Timestamp,
-    ) -> Result<Admitted, AdmissionError> {
-        let r = self.admit_inner(env, now).await;
+        let r = self.admit_wire_inner(envelope, source, now).await;
         metrics_names::record_admit(&r);
         r
     }
 
-    async fn admit_inner(
+    async fn admit_wire_inner(
         &self,
-        env: &AitpEnvelope,
+        envelope: &serde_json::Value,
+        source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<Admitted, AdmissionError> {
+        // A member that is missing or mistyped skips its gate here and
+        // fails at step 4.
+        let message_id = envelope
+            .get("message_id")
+            .and_then(|v| v.as_str())
+            .and_then(|s| Uuid::try_parse(s).ok());
+        let timestamp = envelope
+            .get("timestamp")
+            .and_then(|v| v.as_i64())
+            .map(Timestamp);
+        self.gate(message_id.as_ref(), timestamp, source, now)
+            .await?;
+        let env = parse_envelope_wire(envelope).map_err(|e| match e {
+            EnvelopeParseError::UnknownField(f) => AdmissionError::UnknownField(f),
+            other => AdmissionError::InvalidEnvelope(other.to_string()),
+        })?;
+        self.verify(&env, now).await
+    }
+
+    /// Admit a presentation from `source` at wall-clock time.
+    pub async fn admit(
+        &self,
+        envelope: &AitpEnvelope,
+        source: &ChallengeSource,
+    ) -> Result<Admitted, AdmissionError> {
+        self.admit_at(envelope, source, Timestamp::now()).await
+    }
+
+    /// Admit a presentation from `source` at an explicit `now`, in the
+    /// §3.4 check order (module docs).
+    pub async fn admit_at(
+        &self,
+        env: &AitpEnvelope,
+        source: &ChallengeSource,
+        now: Timestamp,
+    ) -> Result<Admitted, AdmissionError> {
+        let r = async {
+            self.gate(Some(&env.message_id), Some(env.timestamp), source, now)
+                .await?;
+            self.verify(env, now).await
+        }
+        .await;
+        metrics_names::record_admit(&r);
+        r
+    }
+
+    /// Check order steps 1–3.
+    async fn gate(
+        &self,
+        message_id: Option<&Uuid>,
+        timestamp: Option<Timestamp>,
+        source: &ChallengeSource,
+        now: Timestamp,
+    ) -> Result<(), AdmissionError> {
+        if let Some(id) = message_id {
+            if self
+                .deny_list
+                .contains(id, now)
+                .await
+                .map_err(AdmissionError::DenyList)?
+            {
+                return Err(AdmissionError::Replay);
+            }
+        }
+        self.presentation_limiter
+            .check(source)
+            .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
+        if let Some(ts) = timestamp {
+            if !ts.is_within_tolerance_of(now, self.tolerance_secs) {
+                return Err(AdmissionError::TimestampExpired);
+            }
+        }
+        Ok(())
+    }
+
+    /// Check order steps 4–9, then the deny-list record.
+    async fn verify(&self, env: &AitpEnvelope, now: Timestamp) -> Result<Admitted, AdmissionError> {
+        // Step 4: structure.
         if env.version != PROTOCOL_VERSION {
             return Err(AdmissionError::UnknownVersion(env.version.clone()));
         }
@@ -397,12 +524,6 @@ impl PinnedAdmission {
                 "message_id is not a UUID v4".into(),
             ));
         }
-        if !env
-            .timestamp
-            .is_within_tolerance_of(now, self.tolerance_secs)
-        {
-            return Err(AdmissionError::TimestampExpired);
-        }
         check_members(
             "IdentityPresentationPayload",
             &env.payload,
@@ -415,26 +536,25 @@ impl PinnedAdmission {
                 None => AdmissionError::InvalidEnvelope(format!("payload: {e}")),
             })?;
 
-        // Nonce length before any signature work (Item 5).
+        // Step 5: nonce length, before any signature work.
         let nonce: Nonce = base64url::decode_strict_exact(&payload.pop_nonce).map_err(|_| {
             AdmissionError::Identity("pop_nonce must be 16 bytes, base64url-unpadded".into())
         })?;
 
         let sender = &env.sender.agent_id;
-        let key = verify_pinned_key(
-            &payload.identity,
-            &PinnedKeyVerifyContext {
-                sender_aid: sender,
-                receiver_aid: &self.verifier_aid,
-                message_id: &env.message_id,
-                timestamp: env.timestamp,
-                pop_nonce: &payload.pop_nonce,
-                subject: self.subject,
-            },
-            self.pinned_keys.as_ref(),
-        )
-        .map_err(|e| AdmissionError::Identity(e.to_string()))?;
+        let ctx = PinnedKeyVerifyContext {
+            sender_aid: sender,
+            receiver_aid: &self.verifier_aid,
+            message_id: &env.message_id,
+            timestamp: env.timestamp,
+            pop_nonce: &payload.pop_nonce,
+            subject: self.subject,
+        };
+        // Step 6: §3.2 steps 1–3.
+        let key = resolve_pinned_key(&payload.identity, &ctx, self.pinned_keys.as_ref())
+            .map_err(|e| AdmissionError::Identity(e.to_string()))?;
 
+        // Step 7: envelope signature.
         let digest = envelope_signing_digest(&env.message_id, env.timestamp, sender, &env.payload)
             .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
         let sig = Signature::parse(&env.signature).map_err(|_| AdmissionError::InvalidSignature)?;
@@ -442,22 +562,45 @@ impl PinnedAdmission {
             .verify_jcs(&Digest32::from_bytes(digest), &sig)
             .map_err(|_| AdmissionError::InvalidSignature)?;
 
+        // Step 8: §3.2 steps 4–5.
+        check_pinned_key_proof(&payload.identity, &ctx, &key)
+            .map_err(|e| AdmissionError::Identity(e.to_string()))?;
+
+        // Step 9: atomic consume.
         match self
             .nonces
             .consume(&nonce, &self.verifier_aid, now)
             .await
             .map_err(AdmissionError::Store)?
         {
-            ConsumeOutcome::Consumed => Ok(Admitted {
-                key,
-                subject: payload.identity.subject,
-                message_id: env.message_id,
-            }),
-            ConsumeOutcome::Expired => Err(AdmissionError::Identity("challenge expired".into())),
-            _ => Err(AdmissionError::Identity(
-                "challenge unknown, already used, or for another verifier".into(),
-            )),
+            ConsumeOutcome::Consumed => {}
+            ConsumeOutcome::Expired => {
+                return Err(AdmissionError::Identity("challenge expired".into()))
+            }
+            _ => {
+                return Err(AdmissionError::Identity(
+                    "challenge unknown, already used, or for another verifier".into(),
+                ))
+            }
         }
+
+        // Record until the timestamp leaves the window; past that, step 3
+        // rejects a replay by itself. A concurrent twin that recorded
+        // first makes this one the replay.
+        let until = env.timestamp.plus_secs(self.tolerance_secs);
+        if !self
+            .deny_list
+            .insert(&env.message_id, until, now)
+            .await
+            .map_err(AdmissionError::DenyList)?
+        {
+            return Err(AdmissionError::Replay);
+        }
+        Ok(Admitted {
+            key,
+            subject: payload.identity.subject,
+            message_id: env.message_id,
+        })
     }
 }
 
@@ -538,7 +681,6 @@ impl Draft {
                 extensions: None,
             },
             pop_nonce: self.pop_nonce.clone(),
-            extensions: None,
         })
         .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
         let d = envelope_signing_digest(&self.message_id, self.timestamp, &self.sender, &payload)

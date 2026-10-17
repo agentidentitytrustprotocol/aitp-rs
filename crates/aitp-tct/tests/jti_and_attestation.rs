@@ -320,50 +320,69 @@ fn attestation_revocation_is_consulted() {
 
 // --- KATs -----------------------------------------------------------------
 
-fn kat(id: &str) -> Value {
-    let path = concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../tests/proposal-kats/p256-pinned-key-2026-10.json"
+/// A vendored spec signed example under `known-answer/signed-examples/tct/`.
+fn kat(file: &str) -> Value {
+    let path = format!(
+        "{}/../../tests/schemas/known-answer/signed-examples/tct/{file}.json",
+        env!("CARGO_MANIFEST_DIR")
     );
-    let all: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    all["vectors"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|v| v["id"] == id)
-        .unwrap_or_else(|| panic!("{id} missing"))
-        .clone()
+    serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
-/// The builder reproduces kat-tct-002 / kat-tct-003 byte for byte, and
-/// the attestation verifier accepts them.
+/// The builder reproduces kat-tct-002 / kat-tct-003 byte for byte, the
+/// attestation verifier accepts them, and every grant context refuses
+/// them.
 #[test]
 fn self_attestation_kats_reproduce() {
-    for (id, key) in [
-        ("kat-tct-002-self-attestation", ed(0)),
-        ("kat-tct-003-p256-self-attestation", p256(5)),
+    for (file, key) in [
+        ("kat-keypair-001-self-attestation", ed(0)),
+        ("kat-keypair-005-self-attestation", p256(5)),
     ] {
-        let v = kat(id);
-        let d = &v["jti_derivation"];
+        let v = kat(file);
+        let input = &v["_kat_input"];
+        let id = input["vector_id"].as_str().unwrap();
+        let d = &input["jti_derivation"];
+        let iat = input["iat"].as_i64().unwrap();
         let issued = TctBuilder::new(&key)
             .self_attestation()
             .derived_jti(
-                d["domain_tag"].as_str().unwrap(),
-                d["input_utf8"].as_str().unwrap().as_bytes(),
+                d["tag"].as_str().unwrap(),
+                d["input"].as_str().unwrap().as_bytes(),
             )
-            .ext(v["claims"]["ext"].as_object().unwrap().clone())
-            .ttl_secs(v["ttl_secs"].as_i64().unwrap())
-            .issued_at(Timestamp(v["claims"]["iat"].as_i64().unwrap()))
+            .ext(input["ext"].as_object().unwrap().clone())
+            .ttl_secs(input["exp"].as_i64().unwrap() - iat)
+            .issued_at(Timestamp(iat))
             .build()
             .unwrap();
         assert_eq!(
-            serde_json::to_value(&issued.claims).unwrap(),
-            v["claims"],
+            issued.claims.jti.to_string(),
+            d["jti"].as_str().unwrap(),
             "{id}"
         );
-        assert_eq!(issued.token, v["token"].as_str().unwrap(), "{id}");
+        assert_eq!(
+            serde_json::to_value(&issued.claims).unwrap(),
+            v["decoded_claims"],
+            "{id}"
+        );
+        assert_eq!(issued.token, v["tct_token"].as_str().unwrap(), "{id}");
 
         let ok = verify_attestation(&issued.token, &attestation_ctx(key.aid(), "org.aitp.kat"));
         assert!(ok.is_ok(), "{id}: {ok:?}");
+        let err = verify_tct(&issued.token, &ctx(key.aid(), key.aid())).unwrap_err();
+        assert!(matches!(err, TctError::SelfIssued), "{id}: {err:?}");
     }
+}
+
+/// kat-tct-003's `_must_not_verify.double_hash_jws`: ES256 hashes once,
+/// so a signature over `sha256(sha256(signing_input))` is invalid.
+#[test]
+fn self_attestation_kat_003_double_hash_does_not_verify() {
+    let v = kat("kat-keypair-005-self-attestation");
+    let token = v["_must_not_verify"]["double_hash_jws"].as_str().unwrap();
+    let key = p256(5);
+    let err = verify_attestation(token, &attestation_ctx(key.aid(), "org.aitp.kat")).unwrap_err();
+    assert!(
+        matches!(err, TctError::SignatureInvalid | TctError::Crypto(_)),
+        "{err:?}"
+    );
 }

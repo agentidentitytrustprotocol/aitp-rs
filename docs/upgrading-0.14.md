@@ -181,8 +181,28 @@ admits a pinned-key subject without a full Mutual Handshake:
 let admission = PinnedAdmission::builder(verifier_aid, nonce_store, pinned_keys).build();
 let challenge = admission.challenge(&ChallengeSource::ip(peer_ip)).await?;   // out of band
 let env = present_pinned(&subject_signer, "label", &challenge, Timestamp::now())?; // subject
-let admitted = admission.admit(&env).await?;
+let admitted = admission.admit(&env, &ChallengeSource::ip(peer_ip)).await?;
+// or, straight from the request body:
+let admitted = admission.admit_wire(&body_json, &ChallengeSource::ip(peer_ip)).await?;
 ```
+
+`admit` and `admit_wire` run the RFC-AITP-0002 §3.4 check order (spec
+PR D, a2a24da):
+
+1. `message_id` deny list ⇒ `REPLAY_DETECTED`. A replay costs no
+   rate-limit slot.
+2. Per-source presentation rate limit ⇒ HTTP 429, no AITP code.
+3. Timestamp window ⇒ `TIMESTAMP_EXPIRED`.
+4. Structure ⇒ `INVALID_ENVELOPE` / `UNKNOWN_FIELD`. The payload is
+   exactly `{identity, pop_nonce}`.
+5. Nonce length, 6. §3.2 steps 1–3 (type, key, trust store),
+   8. the proof, 9. the atomic nonce consume ⇒ `IDENTITY_FAILED`;
+   7. the envelope signature ⇒ `INVALID_SIGNATURE`.
+
+An admitted `message_id` is then kept until its timestamp leaves the
+tolerance window. `admit_wire` runs steps 1–3 on the raw JSON members
+before parsing, so a replayed or over-limit request costs no schema
+work. Prefer it at an HTTP edge.
 
 - Challenges are 16-byte, single-use nonces, bound to the verifier,
   valid for at most 300 s. They are consumed atomically, and only after
@@ -214,6 +234,28 @@ let admitted = admission.admit(&env).await?;
 - Either limit refuses with `CHALLENGE_REFUSED` (retryable; see
   `ErrorCode::is_retryable`) and never says which one fired.
   `RefusalCause` is for local metrics only.
+- Presentations have their own limiter, separate from challenge
+  issuance: `presentation_rate_limiter(..)`, default
+  `RecommendedLimiter`. Over the limit, `admit` returns
+  `AdmissionError::RateLimited { retry_after }`. Its `code()` is `None`,
+  and `AdmissionError::http_status()` returns `Some(429)`. Answer with
+  HTTP 429 and `Retry-After`, not with an AITP error body
+  (RFC-AITP-0009 §3.1).
+- The deny list is the `MessageIdDenyList` trait (`contains`, and an
+  atomic `insert` that returns `Ok(false)` when the id is already live),
+  set with `message_id_deny_list(..)`. `InMemoryMessageIdDenyList` is the
+  bounded single-replica reference (100 000 live records by default). It
+  refuses at capacity with `DenyListError::AtCapacity` and never
+  evicts. Behind a load balancer, back the deny list and the nonce store
+  with one shared service (Redis `SET NX EXAT`, for example).
+- New `AdmissionError` variants: `Replay` (`REPLAY_DETECTED`),
+  `RateLimited { retry_after }` and `DenyList(DenyListError)` (local,
+  no code). The enum is `#[non_exhaustive]`.
+- `IdentityPresentationPayload` has no `extensions` member, and an
+  `extensions` key in the payload is `UNKNOWN_FIELD`. Envelope-level
+  `extensions` are unchanged.
+- The admit metric gains `result="rate_limited"` and
+  `result="replay_detected"`.
 - New `MessageType::IdentityPresentation` (`"identity_presentation"`).
 
 ## 7. `HandshakeServer` rate limiting is on and keyed on the transport
@@ -277,3 +319,9 @@ forwarding headers count only from a configured trusted proxy.
   pinned-key proof) as a real artifact. It reports passes that used an
   unminted placeholder: in text output, and as `unminted_placeholders` in
   JSON. `FixtureResult::Pass` gains an `unminted` field.
+- The conformance adapter adds `verify_identity_presentation`,
+  `issue_presentation_challenge` and `verify_attestation` (extensions
+  `aitp-pinned-admission` and `aitp-self-attestation`) and the test-only
+  `begin_fixture`. A failed op may report `http_status` in place of
+  `error_code`, and a fixture can expect it (`expected.http_status`). See
+  [`conformance.md`](conformance.md).
