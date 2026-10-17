@@ -1606,6 +1606,8 @@ dependencies = [
  "aitp-core",
  "aitp-crypto",
  "aitp-delegation",
+ "aitp-envelope",
+ "aitp-handshake",
  "aitp-manifest",
  "aitp-session-bundle",
  "aitp-tct",

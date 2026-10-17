@@ -32,6 +32,13 @@ scope) and reuse that exact token/key material for two negatives: an
 unresolvable issuer key, and a header `alg` rewritten to a different
 key-type than what actually signed it.
 
+P-256 (proposal agentidentitytrustprotocol#72 Items 1, 2, 4, 5) gets a
+leg for every artifact class aitp-rs signs, from `kat-keypair-005-p256`:
+revocation snapshot, Manifest, envelope, pinned-key identity, ES256 TCT,
+ES256 self-attestation and session bundle. The negatives each change one
+thing: the pre-0.14 aitp-rs double-hashed JCS primitive, the high-S twin
+of a valid signature (§5.4.7), and a stripped `p256.` tag (§5.4.3).
+
 Usage:  cargo run -p mint-signed-examples --bin xcheck-mint | \
             python3 scripts/xcheck-verify.py [--committed <path>] [--committed-manifest <path>]
 """
@@ -48,12 +55,15 @@ try:
     from aitp_verifier.b64 import b64url_decode, b64url_encode
     from aitp_verifier.crypto import sha256
     from aitp_verifier.errors import AitpError
-    from aitp_verifier.identity import verify_identity
+    from aitp_verifier.envelope import verify_envelope
+    from aitp_verifier.identity import pinned_key_proof_input, verify_identity
+    from aitp_verifier.jws import parse_compact
     from aitp_verifier.jcs import canonicalize
     from aitp_verifier.manifest import verify_manifest
     from aitp_verifier.revocation import verify_revocation_snapshot
     from aitp_verifier.sessionbundle import verify_session_bundle
     from aitp_verifier.sigfield import decode_tagged_signature
+    from aitp_verifier.tct import verify_tct
 except ImportError as exc:  # pragma: no cover - CI installs it
     sys.exit(
         f"aitp-verifier-py is not importable ({exc}).\n"
@@ -97,6 +107,210 @@ def check_rejects(name: str, fn) -> bool:
         return False
     print(f"  FAIL  {name}\n          accepted a proof that must be rejected")
     return False
+
+
+# P-256 group order (SEC 2 §2.4.2), for deriving the high-S twin of a
+# valid signature: (r, s) and (r, n - s) are both mathematically valid
+# ECDSA signatures, and RFC-AITP-0001 §5.4.7 (proposal #72 Item 4) makes
+# verifiers reject the s > n/2 one.
+P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+
+
+def _high_s_raw(raw: bytes) -> bytes:
+    r, s = raw[:32], int.from_bytes(raw[32:], "big")
+    if s > P256_N // 2:
+        raise AssertionError("minted P-256 signature is already high-S")
+    return r + (P256_N - s).to_bytes(32, "big")
+
+
+def high_s_tagged(sig: str) -> str:
+    """`p256.<b64>` -> the same signature with S replaced by n - S."""
+    tag, _, body = sig.partition(".")
+    if tag != "p256":
+        raise AssertionError(f"expected a p256-tagged signature, got {sig[:12]!r}")
+    return "p256." + b64url_encode(_high_s_raw(b64url_decode(body)))
+
+
+def high_s_jws(token: str) -> str:
+    header, payload, sig = token.split(".")
+    return f"{header}.{payload}.{b64url_encode(_high_s_raw(b64url_decode(sig)))}"
+
+
+def untagged(sig: str) -> str:
+    """`p256.<b64>` -> `<b64>`: read as Ed25519 under RFC-AITP-0001 §5.4.3."""
+    tag, _, body = sig.partition(".")
+    if tag != "p256":
+        raise AssertionError(f"expected a p256-tagged signature, got {sig[:12]!r}")
+    return body
+
+
+def check_p256(minted: dict, now: int) -> bool:
+    """P-256 legs (proposal agentidentitytrustprotocol#72 Items 1, 2, 4, 5).
+
+    Positives: every artifact class aitp-rs signs, minted by
+    `kat-keypair-005-p256`. Negatives, each changing exactly one thing:
+    the pre-0.14 double-hashed JCS primitive (minted by xcheck-mint), the
+    high-S twin of a valid signature, and a stripped `p256.` tag (both
+    derived here from the positive bytes; nothing is re-signed).
+    """
+    p = minted["p256"]
+    ok = True
+    print("\nP-256 legs -- minted by aitp-rs (kat-keypair-005-p256), verified by aitp-verifier-py:")
+
+    def snapshot_input(snapshot: dict) -> dict:
+        return {
+            "policy": {"fail_mode": "fail_closed", "max_staleness_secs": 86400},
+            "now": now + 100,
+            "expected_issuer": p["aid"],
+            "snapshot": snapshot,
+        }
+
+    def envelope_input(envelope: dict) -> dict:
+        return {"envelope": envelope, "tolerance_seconds": 300}
+
+    def tct_input(token: str, audience: str) -> dict:
+        return {
+            "tct_token": token,
+            "expected_audience": audience,
+            "policy": {"fail_mode": "fail_closed", "max_staleness_secs": 86400},
+            "issuer_revocation_list": {"snapshot": p["snapshot"]},
+        }
+
+    pinned = p["pinned_key"]
+
+    def pinned_identity(identity: dict) -> None:
+        verify_identity(
+            identity,
+            pinned["envelope"],
+            p["verifier_aid"],
+            trust_anchors=[],
+            trust_store=[p["aid"]],
+            issuer_keys={},
+            now=now + 100,
+        )
+
+    # ── Positives ────────────────────────────────────────────────────
+    ok &= check(
+        "p256 revocation snapshot",
+        lambda: verify_revocation_snapshot(snapshot_input(p["snapshot"])),
+    )
+    ok &= check(
+        "p256 manifest (44-char pinned_key identity_hint)",
+        lambda: verify_manifest({"manifest": p["manifest"], "now": now + 100}),
+    )
+    ok &= check(
+        "p256 envelope (single-hash JCS primitive, RFC-AITP-0001 §5.4.6)",
+        lambda: verify_envelope(envelope_input(p["envelope"]), now=now + 100),
+    )
+
+    def _proof_input_agrees() -> None:
+        env = pinned["envelope"]
+        ours = bytes.fromhex(pinned["proof_input_hex"])
+        theirs = pinned_key_proof_input(
+            env["sender"]["agent_id"],
+            p["verifier_aid"],
+            env["message_id"],
+            int(env["timestamp"]),
+            env["payload"]["pop_nonce"],
+        )
+        if ours != theirs:
+            raise AssertionError(f"five-field input differs:\n  rs {ours!r}\n  py {theirs!r}")
+
+    ok &= check("p256 pinned-key five-field proof input is byte-identical", _proof_input_agrees)
+    ok &= check(
+        "p256 pinned-key identity (tagged proof, (alg, key) trust store)",
+        lambda: pinned_identity(pinned["identity"]),
+    )
+
+    def _tct() -> None:
+        out = verify_tct(tct_input(p["tct"], p["participant_aid"]), now=now + 100)
+        if out["grants"] != ["session.participate"]:
+            raise AssertionError(f"unexpected grants {out['grants']!r}")
+
+    ok &= check("p256 TCT (ES256)", _tct)
+
+    def _attestation() -> None:
+        # aitp-verifier-py has no attestation-specific verifier yet; this
+        # checks the ES256 signature, claims shape and cnf binding through
+        # verify_tct, then the Item 5 shape on the verified claims.
+        out = verify_tct(tct_input(p["attestation"], p["aid"]), now=now + 100)
+        claims = parse_compact(p["attestation"]).claims
+        if out["grants"] != ["aitp:attestation"]:
+            raise AssertionError(f"unexpected grants {out['grants']!r}")
+        if not (claims["iss"] == claims["sub"] == claims["aud"] == p["aid"]):
+            raise AssertionError("attestation is not iss == sub == aud")
+        if "xcheck.statement" not in claims.get("ext", {}):
+            raise AssertionError("attestation ext lacks the minted statement")
+
+    ok &= check("p256 self-attestation TCT (ES256, Item 5 shape)", _attestation)
+    ok &= check(
+        "p256 session trust bundle",
+        lambda: verify_session_bundle(
+            {
+                "self_aid": p["participant_aid"],
+                "now": now + 100,
+                "session_bundle": p["session_bundle"],
+                "operation": "verify_session_bundle",
+            }
+        ),
+    )
+
+    # ── Negatives ────────────────────────────────────────────────────
+    ok &= check_rejects(
+        "p256 envelope -- double-hashed digest (the pre-0.14 aitp-rs primitive) is rejected",
+        lambda: verify_envelope(envelope_input(p["envelope_double_hash"]), now=now + 100),
+    )
+    ok &= check_rejects(
+        "p256 envelope -- high-S twin is rejected (§5.4.7)",
+        lambda: verify_envelope(
+            envelope_input(dict(p["envelope"], signature=high_s_tagged(p["envelope"]["signature"]))),
+            now=now + 100,
+        ),
+    )
+    ok &= check_rejects(
+        "p256 envelope -- untagged signature under a p256 AID is rejected (§5.4.3)",
+        lambda: verify_envelope(
+            envelope_input(dict(p["envelope"], signature=untagged(p["envelope"]["signature"]))),
+            now=now + 100,
+        ),
+    )
+    ok &= check_rejects(
+        "p256 manifest -- high-S twin is rejected (§5.4.7)",
+        lambda: verify_manifest(
+            {"manifest": dict(p["manifest"], signature=high_s_tagged(p["manifest"]["signature"])), "now": now + 100}
+        ),
+    )
+    ok &= check_rejects(
+        "p256 revocation snapshot -- high-S twin is rejected (§5.4.7)",
+        lambda: verify_revocation_snapshot(
+            snapshot_input(dict(p["snapshot"], signature=high_s_tagged(p["snapshot"]["signature"])))
+        ),
+    )
+    ok &= check_rejects(
+        "p256 TCT -- high-S ES256 twin is rejected (§5.4.7)",
+        lambda: verify_tct(tct_input(high_s_jws(p["tct"]), p["participant_aid"]), now=now + 100),
+    )
+    ok &= check_rejects(
+        "p256 pinned-key -- high-S proof is rejected (§5.4.7)",
+        lambda: pinned_identity(dict(pinned["identity"], proof=high_s_tagged(pinned["identity"]["proof"]))),
+    )
+    ok &= check_rejects(
+        "p256 pinned-key -- untagged proof is rejected (id-011)",
+        lambda: pinned_identity(dict(pinned["identity"], proof=untagged(pinned["identity"]["proof"]))),
+    )
+    ok &= check_rejects(
+        "p256 pinned-key -- key outside the trust store is rejected",
+        lambda: verify_identity(
+            pinned["identity"],
+            pinned["envelope"],
+            p["verifier_aid"],
+            trust_anchors=[],
+            trust_store=[minted["expected_issuer"]],
+            issuer_keys={},
+            now=now + 100,
+        ),
+    )
+    return ok
 
 
 def main() -> int:
@@ -293,6 +507,8 @@ def main() -> int:
                 now=oidc_now,
             ),
         )
+
+    ok &= check_p256(minted, now)
 
     print("\nDirection (b) -- minted by the Python reference, verified by aitp-rs:")
     print("  ok    committed revocation snapshot verified by aitp-rs")

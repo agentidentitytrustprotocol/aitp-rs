@@ -228,8 +228,210 @@ fn main() {
             "eddsa": oidc_eddsa,
             "es256": oidc_es256,
         },
+        "p256": mint_p256_vectors(),
     });
     println!("{}", serde_json::to_string_pretty(&out).unwrap());
+}
+
+// ── P-256 legs (proposal agentidentitytrustprotocol#72 Items 1, 2, 4, 5) ──
+//
+// Every artifact class aitp-rs can sign, minted by `kat-keypair-005-p256`
+// through the production path. Before 0.14 aitp-rs signed the JCS profile
+// as ECDSA-with-SHA-256 over the 32-byte digest `d` (a double hash), which
+// no independent verifier accepted; these legs pin the single-hash
+// primitive (RFC-AITP-0001 §5.4.6) on the wire.
+//
+// The negatives are produced here rather than in the verifier script,
+// because two of them need the private key: a signature over the
+// double-hashed digest (the pre-0.14 aitp-rs bug), and a revocation-free
+// way to state "this is the one wrong thing". The script derives the
+// other two (high-S, stripped `p256.` tag) from the positive bytes, so
+// nothing is re-signed on the verifying side.
+
+/// kat-keypair-005-p256: private scalar 0x05 × 32.
+const KP_005_P256_SCALAR: [u8; 32] = [0x05u8; 32];
+/// The P-256 legs' relying party (Ed25519, kat-keypair-002's seed is
+/// already the bundle participant; this one only appears as an AID).
+const P256_VERIFIER_SEED: [u8; 32] = [0x77u8; 32];
+/// Fixed UUID v4 message ids, so the output is deterministic.
+const P256_ENVELOPE_MESSAGE_ID: u128 = 0x7c1d_6e0a_5b2f_4c3e_9a8b_1f2e_3d4c_5b6a;
+const P256_PINNED_MESSAGE_ID: u128 = 0x2a9f_4e1b_8c7d_4a6e_b5f4_e3d2_c1b0_a998;
+const P256_PINNED_NONCE: &str = "AAECAwQFBgcICQoLDA0ODw";
+const P256_REVOKED_JTI: &str = "550e8400-e29b-41d4-a716-446655440098";
+
+fn mint_p256_vectors() -> serde_json::Value {
+    use aitp_core::MessageType;
+
+    let signer = AitpSigningKey::from_p256_seed(&KP_005_P256_SCALAR).expect("valid p256 scalar");
+    let verifier = AitpSigningKey::from_seed(&P256_VERIFIER_SEED);
+    let participant = AitpSigningKey::from_seed(&KP_002_SEED);
+
+    // Revocation snapshot: also the TCT legs' revocation source.
+    let snapshot = sign_revocation_list(
+        RevocationList {
+            version: aitp_core::PROTOCOL_VERSION.to_string(),
+            issuer: signer.aid().clone(),
+            published_at: Timestamp(NOW),
+            expires_at: Timestamp(NOW + 3600),
+            entries: vec![RevocationEntry {
+                jti: Uuid::parse_str(P256_REVOKED_JTI).unwrap(),
+                revoked_at: Timestamp(NOW + 60),
+                reason: Some("key_compromised".into()),
+            }],
+            extensions: None,
+        },
+        &signer,
+    )
+    .expect("sign p256 revocation snapshot");
+
+    // Manifest whose pinned_key identity_hint is the 44-char P-256 form.
+    let manifest = ManifestBuilder::new(&signer)
+        .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::PinnedKey,
+            subject: "xcheck-manifest-p256".into(),
+            issuer: None,
+            public_key: Some(signer.aid().identifier().to_string()),
+        })
+        .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
+        .accept_identity_type("pinned_key")
+        .offer("demo.echo")
+        .ttl_secs(3600)
+        .published_at(Timestamp(NOW))
+        .build()
+        .expect("mint p256 manifest");
+
+    // Envelope, plus the same envelope signed the pre-0.14 way.
+    let envelope = aitp_envelope::sign_envelope_with(
+        &signer,
+        MessageType::Tct,
+        serde_json::json!({ "note": "xcheck p256 envelope" }),
+        Uuid::from_u128(P256_ENVELOPE_MESSAGE_ID),
+        Timestamp(NOW),
+    )
+    .expect("sign p256 envelope");
+    let envelope_double_hash = {
+        let digest = aitp_core::envelope::envelope_signing_digest(
+            &envelope.message_id,
+            envelope.timestamp,
+            &envelope.sender.agent_id,
+            &envelope.payload,
+        )
+        .expect("envelope digest");
+        let mut e = envelope.clone();
+        e.signature = double_hash_signature(&digest);
+        e
+    };
+
+    // Pinned-key identity (RFC-AITP-0002 §3, proposal Item 2): a P-256
+    // sender's tagged proof over the five-field input.
+    let pinned_message_id = Uuid::from_u128(P256_PINNED_MESSAGE_ID);
+    let pinned_proof = aitp_handshake::sign_pinned_key_proof(
+        &signer,
+        signer.aid(),
+        verifier.aid(),
+        &pinned_message_id,
+        Timestamp(NOW),
+        P256_PINNED_NONCE,
+    )
+    .expect("sign p256 pinned-key proof");
+    let pinned_envelope = aitp_envelope::sign_envelope_with(
+        &signer,
+        MessageType::IdentityPresentation,
+        serde_json::json!({ "pop_nonce": P256_PINNED_NONCE }),
+        pinned_message_id,
+        Timestamp(NOW),
+    )
+    .expect("sign p256 pinned-key envelope");
+    let pinned_input = aitp_handshake::pinned_key_proof_input(
+        signer.aid(),
+        verifier.aid(),
+        &pinned_message_id,
+        Timestamp(NOW),
+        P256_PINNED_NONCE,
+    )
+    .expect("pinned-key proof input");
+
+    // ES256 TCT (peer-issued) and an ES256 self-attestation (Item 5).
+    let tct = TctBuilder::new(&signer)
+        .subject(participant.aid().clone())
+        .audience(participant.aid().clone())
+        .grants(["session.participate"])
+        .ttl_secs(3600)
+        .subject_pubkey(participant.verifying_key())
+        .issued_at(Timestamp(NOW))
+        .jti(Uuid::from_u128(0x5d3c_2b1a_0f9e_4d8c_8b7a_6f5e_4d3c_2b1a))
+        .build()
+        .expect("issue p256 TCT")
+        .token;
+    let mut statement = serde_json::Map::new();
+    statement.insert(
+        "xcheck.statement".into(),
+        serde_json::json!({ "build": "xcheck" }),
+    );
+    let attestation = TctBuilder::new(&signer)
+        .self_attestation()
+        .ext(statement)
+        .ttl_secs(3600)
+        .issued_at(Timestamp(NOW))
+        .jti(Uuid::from_u128(0x6e4d_3c2b_1a0f_4e9d_9c8b_7a6f_5e4d_3c2b))
+        .build()
+        .expect("issue p256 self-attestation")
+        .token;
+
+    // Session bundle coordinated by the P-256 key.
+    let bundle_tct = TctBuilder::new(&signer)
+        .subject(participant.aid().clone())
+        .audience(participant.aid().clone())
+        .grants(["session.participate"])
+        .ttl_secs(3600)
+        .subject_pubkey(participant.verifying_key())
+        .issued_at(Timestamp(NOW))
+        .jti(Uuid::from_u128(0x7f5e_4d3c_2b1a_4f0e_8d9c_8b7a_6f5e_4d3c))
+        .build()
+        .expect("issue p256 bundle TCT")
+        .token;
+    let bundle = SessionBundleBuilder::new(&signer)
+        .session_id(Uuid::parse_str("1f0e2d3c-4b5a-4968-8776-655443322110").unwrap())
+        .issued_at(Timestamp(NOW))
+        .participant(participant.aid().clone(), bundle_tct)
+        .build()
+        .expect("build p256 session bundle");
+
+    serde_json::json!({
+        "aid": signer.aid().to_string(),
+        "public_key": signer.aid().identifier(),
+        "verifier_aid": verifier.aid().to_string(),
+        "participant_aid": participant.aid().to_string(),
+        "snapshot": { "revocation_list": snapshot.revocation_list, "signature": snapshot.signature },
+        "manifest": manifest,
+        "envelope": envelope,
+        "envelope_double_hash": envelope_double_hash,
+        "pinned_key": {
+            "identity": {
+                "type": "pinned_key",
+                "subject": "xcheck-p256-agent",
+                "public_key": signer.aid().identifier(),
+                "proof": pinned_proof,
+            },
+            "envelope": pinned_envelope,
+            "proof_input_hex": hex::encode(&pinned_input),
+        },
+        "tct": tct,
+        "attestation": attestation,
+        "session_bundle": { "session_bundle": serde_json::to_value(&bundle).expect("bundle serializes") },
+    })
+}
+
+/// The pre-0.14 aitp-rs P-256 JCS signature: ECDSA-with-SHA-256 over the
+/// 32-byte digest `d`, i.e. `e = SHA-256(d)` instead of `e = d`. Low-S and
+/// `p256.`-tagged, so the hash input is the only thing wrong with it.
+fn double_hash_signature(digest: &[u8; 32]) -> String {
+    use p256::ecdsa::signature::Signer as _;
+    let sk = p256::ecdsa::SigningKey::from_slice(&KP_005_P256_SCALAR).expect("valid p256 scalar");
+    let sig: p256::ecdsa::Signature = sk.sign(digest);
+    let sig = sig.normalize_s();
+    format!("p256.{}", aitp_core::base64url::encode(&sig.to_bytes()))
 }
 
 /// Mint one OIDC identity-binding cross-check vector: an issuer-signed
