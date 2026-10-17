@@ -42,7 +42,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   which needs only `http` 1.x, not axum) and `TokenBucketLimiter::check_key_at`,
   and admission metrics behind `aitp-handshake/metrics`. Spec PR D
   (a2a24da) and PR E (35eb687, the KAT statement key
-  `io.agentidentitytrustprotocol.kat`) are vendored. Pinned-key admission follows the RFC-AITP-0002
+  `io.agentidentitytrustprotocol.kat`) are vendored, at pin db7d860 (spec #81, which closes #77 and is doc-only). Pinned-key admission follows the RFC-AITP-0002
   §3.4 check order: a `message_id` deny list (`MessageIdDenyList`,
   `REPLAY_DETECTED`) is checked first, then a per-source presentation
   rate limit that answers HTTP 429 with no AITP code. The presentation

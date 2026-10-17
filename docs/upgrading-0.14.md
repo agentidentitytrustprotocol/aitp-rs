@@ -187,7 +187,7 @@ let admitted = admission.admit_wire(&body_json, &ChallengeSource::ip(peer_ip)).a
 ```
 
 `admit` and `admit_wire` run the RFC-AITP-0002 §3.4 check order (spec
-PR D, a2a24da; unchanged at the current pin 35eb687):
+PR D, a2a24da; unchanged at the current pin db7d860):
 
 1. `message_id` deny list ⇒ `REPLAY_DETECTED`. A replay costs no
    rate-limit slot.
