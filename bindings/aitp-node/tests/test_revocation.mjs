@@ -131,7 +131,10 @@ test('verifyRevocationList verifies the committed spec vector as committed', () 
       'utf8',
     ),
   );
-  delete snap._kat_input; // a minting companion, never part of the wire object
+  // `_kat_input` and `signing_input` are vector companions, never part of the
+  // wire object.
+  delete snap._kat_input;
+  delete snap.signing_input;
 
   // Issuer comes from the keypair vector, NOT from the snapshot — deriving it
   // from the envelope would make the issuer-binding check tautological.

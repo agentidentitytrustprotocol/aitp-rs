@@ -133,8 +133,10 @@ def _committed_snapshot() -> str:
             / "kat-keypair-001-snapshot.json"
         ).read_text()
     )
-    # `_kat_input` is a minting companion, never part of the wire object.
+    # `_kat_input` and `signing_input` are vector companions, never part of
+    # the wire object.
     doc.pop("_kat_input", None)
+    doc.pop("signing_input", None)
     return json.dumps(doc)
 
 
