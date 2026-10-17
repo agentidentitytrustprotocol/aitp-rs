@@ -165,6 +165,8 @@ pub fn sign_revocation_list(
 ///    of `entries[]`) — is recovered via [`from_serde_error`] so it, too,
 ///    reports [`TctError::UnknownField`] rather than a generic parse
 ///    failure.
+/// 4. Every `entries[].jti` is strict lowercase UUID v4, else
+///    [`TctError::JtiNotV4`].
 pub fn parse_revocation_snapshot_wire(
     value: &serde_json::Value,
 ) -> Result<RevocationListEnvelope, TctError> {
@@ -176,13 +178,25 @@ pub fn parse_revocation_snapshot_wire(
             .map_err(|e| TctError::UnknownField(e.field))?;
     }
 
-    serde_json::from_value(value.clone()).map_err(|e| {
+    let envelope = serde_json::from_value(value.clone()).map_err(|e| {
         if let Some(field) = from_serde_error(&e) {
             TctError::UnknownField(field)
         } else {
             TctError::ClaimsMalformed(e.to_string())
         }
-    })
+    })?;
+
+    // `entries[].jti` layout (aitp-revocation-list.schema.json, spec
+    // 35aeb84), on the raw strings, which have all parsed as UUIDs above.
+    let entries = value["revocation_list"]["entries"].as_array();
+    for jti in entries
+        .into_iter()
+        .flatten()
+        .filter_map(|e| e["jti"].as_str())
+    {
+        aitp_core::ids::parse_v4(jti).map_err(TctError::JtiNotV4)?;
+    }
+    Ok(envelope)
 }
 
 /// Verify a [`RevocationListEnvelope`].
@@ -596,6 +610,27 @@ mod tests {
             !as_str.contains("extensions"),
             "signing bytes for extensions:None must contain no `extensions` member: {as_str}"
         );
+    }
+
+    /// Spec 35aeb84 (PR C): `entries[].jti` carries the strict lowercase
+    /// UUID v4 pattern. `Uuid`'s deserializer alone would accept a v7,
+    /// a wrong-variant v4 or uppercase input.
+    #[test]
+    fn non_v4_entry_jti_is_rejected() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        for bad in [
+            "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
+            "550e8400-e29b-41d4-c716-446655440000",
+            "550E8400-E29B-41D4-A716-446655440000",
+        ] {
+            let mut value = serde_json::to_value(&env).unwrap();
+            value["revocation_list"]["entries"][0]["jti"] = serde_json::json!(bad);
+            match parse_revocation_snapshot_wire(&value) {
+                Err(TctError::JtiNotV4(_)) => {}
+                other => panic!("{bad}: expected JtiNotV4, got {other:?}"),
+            }
+        }
     }
 
     /// rev-005 equivalent: an unknown member in the wrapper is rejected as

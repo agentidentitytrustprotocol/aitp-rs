@@ -56,6 +56,8 @@ const JCS_ARTIFACT_VECTORS: &[(&str, &str)] = &[
 /// `proof_input_hex`/signature over a signing input, not a JCS-canonical
 /// `object`.
 const NON_CANONICAL_VECTORS: &[&str] = &[
+    // Derived-identifier construction; checked in `derived_uuid_kat.rs`.
+    "kat-derived-uuid-001",
     "kat-manifest-pop-001",
     "kat-multihop-chain-001",
     "kat-multihop-truncation-001",

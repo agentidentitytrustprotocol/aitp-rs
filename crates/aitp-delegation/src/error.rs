@@ -82,4 +82,11 @@ pub enum DelegationError {
     /// draft code, even though delegation itself is a draft-RFC surface.
     #[error("unknown field: {0}")]
     UnknownField(String),
+    /// A hop's `jti` (the outer token's, or any `chain[]` entry's) is
+    /// not in the strict lowercase hyphenated UUID v4 layout
+    /// (RFC-AITP-0011 §1.1, RFC-AITP-0005 §2). Checked on the unverified
+    /// payload, before signature verification, and also raised by the
+    /// builder. Wire code `DELEGATION_INVALID_SIGNATURE`.
+    #[error("delegation hop jti is not a UUID v4: {0}")]
+    JtiNotV4(aitp_core::ids::V4Error),
 }

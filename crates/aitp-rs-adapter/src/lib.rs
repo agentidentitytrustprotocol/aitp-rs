@@ -1516,7 +1516,8 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
 fn revocation_error_code(e: &aitp_tct::TctError) -> String {
     use aitp_tct::TctError::*;
     match e {
-        ClaimsMalformed(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
+        // A non-v4 `entries[].jti` is a malformed snapshot, not a TCT.
+        ClaimsMalformed(_) | JtiNotV4(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
         SignatureInvalid => "REVOCATION_SNAPSHOT_SIGNATURE_INVALID".to_string(),
         other => tct_error_code(other),
     }
@@ -1782,6 +1783,8 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // RFC-AITP-0006 §4 step 10: self-delegation maps to
         // DELEGATION_INVALID_SIGNATURE (same code as a bad outer sig).
         SelfDelegation => "DELEGATION_INVALID_SIGNATURE",
+        // Spec PR C: a non-v4 hop `jti` is a signature-class reject.
+        JtiNotV4(_) => "DELEGATION_INVALID_SIGNATURE",
         EmptyScope | CnfMalformed | MissingField(_) | ClaimsMalformed(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
         // Crypto errors surface from JWS-layer verification. A plain

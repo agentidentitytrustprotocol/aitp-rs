@@ -344,18 +344,18 @@ them.
 
 ### Summary
 
-These counts are **at pin `ea22c71`**, the spec commit in
+These counts are **at pin `35aeb84`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With both draft features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` | 58 | 58 PASS | 57 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` | 63 | 63 PASS | 62 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
-| **Total** | **69** | **59 pass / 0 fail / 10 skip** | **67 pass / 0 fail / 2 skip** |
+| **Total** | **74** | **64 pass / 0 fail / 10 skip** | **72 pass / 0 fail / 2 skip** |
 
 Why the skips look the way they do:
 
@@ -372,20 +372,16 @@ Why the skips look the way they do:
   `crates/aitp-conformance/src/runner/executor.rs`. This is intended
   behaviour, not a gap.
 
-Newer spec commits add fixtures this pin does not have: `man-007`,
-`del-002` and `rev-009`. Run against spec `main`, the adapter already
-passes them. Moving the pin is a separate change.
-
 Reproduce. The fixture path assumes a sibling checkout of the spec repo at
 the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 59 pass / 0 fail / 10 skip at the pin.
+# Strict: 64 pass / 0 fail / 10 skip at the pin.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (Draft RFCs): 67 pass / 0 fail / 2 skip at the pin.
+# Opt-in (Draft RFCs): 72 pass / 0 fail / 2 skip at the pin.
 # This is what the `conformance` CI job runs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \

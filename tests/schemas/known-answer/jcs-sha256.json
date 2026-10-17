@@ -149,6 +149,18 @@
       "sha256_hex": "c577854d144c912e145e8ec6cbab09361ceb709a43be5cbd1ef538085b1aa5e5",
       "sha256_b64url": "xXeFTRRMkS4UXo7Gy6sJNhzrcJpDvly9HvU4CFsapeU",
       "coordinator_signature_b64url": "czzmjpVf5rtZ2-FvfMcviSUCeY2WSu69v2ZECpflHAKVaEikz4w6m5fOVuBZkCL8DXX-lkY905NvYxjQTg_TBw"
+    },
+    {
+      "id": "kat-derived-uuid-001",
+      "rfc_refs": [
+        "RFC-AITP-0005 §2.2"
+      ],
+      "$comment": "Derived-identifier construction (RFC-AITP-0005 §2.2): uuid = h[0..16] of h = SHA-256(domain_tag || 0x00 || input), with h[6] = (h[6] & 0x0f) | 0x40 and h[8] = (h[8] & 0x3f) | 0x80, rendered as lowercase hyphenated 8-4-4-4-12 hex. input_hex is the ASCII string `kat-derived-uuid-001/input`. The tag is registered in registries/jti-domain-tags.md for test use only. Not a JCS vector; it lives here beside the other signing-input and digest pins. make kat-verify recomputes the preimage, digest and UUID from domain_tag and input_hex.",
+      "domain_tag": "aitp-kat-derived-uuid-v1",
+      "input_hex": "6b61742d646572697665642d757569642d3030312f696e707574",
+      "preimage_hex": "616974702d6b61742d646572697665642d757569642d7631006b61742d646572697665642d757569642d3030312f696e707574",
+      "sha256_hex": "27b131aebcc684666b321d0f896453b172d14592218e6f982ddc861c5ce30ccb",
+      "uuid": "27b131ae-bcc6-4466-ab32-1d0f896453b1"
     }
   ]
 }

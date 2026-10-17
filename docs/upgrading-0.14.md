@@ -135,8 +135,9 @@ pub trait AitpSigner: Send + Sync {
 
 ## 4. Ids are strict UUID v4
 
-TCT `jti`, voucher `src_jti` and envelope `message_id` must be
-lowercase, hyphenated UUID v4 (proposal Item 6b). The check runs on the
+TCT `jti`, voucher `src_jti`, envelope `message_id`, every delegation
+hop `jti` and every revocation-list `entries[].jti` must be lowercase,
+hyphenated UUID v4 (proposal Item 6b, spec PR C at 35aeb84). The check runs on the
 unverified token, before signature work. The rejection codes are:
 
 | Field | Code |
@@ -144,13 +145,18 @@ unverified token, before signature work. The rejection codes are:
 | TCT `jti` | `TCT_SIGNATURE_INVALID` |
 | voucher `src_jti` | `DELEGATION_INVALID_VOUCHER` |
 | envelope `message_id` | `INVALID_ENVELOPE` |
+| delegation hop `jti` (outer or `chain[]`) | `DELEGATION_INVALID_SIGNATURE` |
+| revocation `entries[].jti` | `REVOCATION_SNAPSHOT_INVALID` |
 
 If you mint ids yourself, use `aitp_core::ids::random_v4()` or, for a
 deterministic id, `aitp_core::ids::derived_v4(tag, input)`. That is
 SHA-256 of `tag || 0x00 || input`, with the version and variant bits
 set. `TctBuilder::jti(uuid)` and `TctBuilder::derived_jti(tag, input)`
 set a TCT's `jti`. `build()` fails with `TctError::JtiNotV4` on a non-v4
-id.
+id. `DelegationBuilder::jti(uuid)` fails the same way, with
+`DelegationError::JtiNotV4`, a new variant. Domain tags are registered
+in the spec's `registries/jti-domain-tags.md`. Register a production tag
+there before you ship it.
 
 ## 5. TCT additions and deprecations
 

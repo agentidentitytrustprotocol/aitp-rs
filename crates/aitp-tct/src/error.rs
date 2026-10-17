@@ -84,7 +84,9 @@ pub enum TctError {
     /// lowercase hyphenated UUID v4 layout (RFC-AITP-0005 §2, proposal
     /// #72 Item 6b). Wire code: `TCT_SIGNATURE_INVALID` for a TCT,
     /// `DELEGATION_INVALID_VOUCHER` for a voucher. Raised before
-    /// signature verification.
+    /// signature verification. Also raised by
+    /// [`crate::revocation::parse_revocation_snapshot_wire`] for a
+    /// non-v4 `entries[].jti`.
     #[error("jti is not a UUID v4: {0}")]
     JtiNotV4(aitp_core::ids::V4Error),
     /// [`crate::TctBuilder::derived_jti`] was given a domain tag outside

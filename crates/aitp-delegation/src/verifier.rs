@@ -186,6 +186,12 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
         check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
             .map_err(|e| DelegationError::UnknownField(e.field))?;
+        // Hop `jti` layout (RFC-AITP-0011 §1.1 / RFC-AITP-0005 §2), on
+        // the raw string: `Uuid`'s deserializer also takes uppercase,
+        // braced and URN forms. A non-string is left to serde below.
+        if let Some(jti) = peek_value.get("jti").and_then(|v| v.as_str()) {
+            aitp_core::ids::parse_v4(jti).map_err(DelegationError::JtiNotV4)?;
+        }
     }
     serde_json::from_slice(&payload).map_err(|e| {
         if let Some(field) = from_serde_error(&e) {

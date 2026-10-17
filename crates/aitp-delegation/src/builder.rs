@@ -275,7 +275,9 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
 
     /// Mint a per-hop `jti`, making a single-hop token extensible into
     /// a chain (RFC-AITP-0011 §1.1). Multi-hop tokens always carry one.
-    /// Pass a fixed value for tests/fixtures.
+    /// Pass a fixed value for tests/fixtures. It MUST be UUID v4
+    /// (`aitp_core::ids::random_v4` or `derived_v4`); otherwise `build`
+    /// fails with [`DelegationError::JtiNotV4`].
     pub fn jti(mut self, jti: Uuid) -> Self {
         self.jti_override = Some(jti);
         self
@@ -312,6 +314,10 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
         } else {
             max_expiry
         };
+
+        if let Some(jti) = &self.jti_override {
+            aitp_core::ids::check_v4(jti).map_err(DelegationError::JtiNotV4)?;
+        }
 
         let cnf_key = AitpVerifyingKey::from_aid(&delegatee).map_err(DelegationError::Crypto)?;
         let jkt = cnf_key

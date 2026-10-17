@@ -24,8 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [#205](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/205)).
   P-256 JCS signatures made by 0.13 do not verify under 0.14, and the
   reverse. Every builder takes `&dyn AitpSigner`, `verify_pinned_key`
-  takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti` and
-  `message_id` must be UUID v4. `HandshakeServer` rate limiting is on by
+  takes a required `&dyn PinnedKeyStore`, and `jti`, `src_jti`,
+  `message_id`, delegation hop `jti` and revocation `entries[].jti` must
+  be lowercase UUID v4 (spec PR C, 35aeb84). Third-party JOSE (IdP ID
+  tokens, DPoP proofs) accepts high-S ES256; AITP artifacts stay low-S
+  only (RFC-AITP-0001 §5.4.7 scope). `HandshakeServer` rate limiting is on by
   default, keyed on the transport source, and believes forwarding
   headers only from `RateLimitConfig::trusted_proxies` (RFC-AITP-0009
   §3.1, spec #73). See
