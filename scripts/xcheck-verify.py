@@ -63,7 +63,7 @@ try:
     from aitp_verifier.revocation import verify_revocation_snapshot
     from aitp_verifier.sessionbundle import verify_session_bundle
     from aitp_verifier.sigfield import decode_tagged_signature
-    from aitp_verifier.tct import verify_tct
+    from aitp_verifier.tct import verify_attestation, verify_tct
 except ImportError as exc:  # pragma: no cover - CI installs it
     sys.exit(
         f"aitp-verifier-py is not importable ({exc}).\n"
@@ -230,17 +230,31 @@ def check_p256(minted: dict, now: int) -> bool:
     ok &= check("p256 TCT (ES256)", _tct)
 
     def _attestation() -> None:
-        # aitp-verifier-py has no attestation-specific verifier yet; this
-        # checks the ES256 signature, claims shape and cnf binding through
-        # verify_tct, then the Item 5 shape on the verified claims.
-        out = verify_tct(tct_input(p["attestation"], p["aid"]), now=now + 100)
+        # RFC-AITP-0005 §5.3 "Verification": a third-party relying party,
+        # not a grant context. verify_tct now rejects any iss == sub TCT.
+        out = verify_attestation(
+            {
+                "tct_token": p["attestation"],
+                "self_aid": p["participant_aid"],
+                "expected_ext_key": "xcheck.statement",
+                "trust_store": [p["aid"]],
+                "waive_manifest_cap": True,
+                "policy": {"fail_mode": "fail_open"},
+            },
+            now=now + 100,
+        )
+        if not out["statement"]:
+            raise AssertionError("attestation ext lacks the minted statement")
         claims = parse_compact(p["attestation"]).claims
-        if out["grants"] != ["aitp.attestation"]:
-            raise AssertionError(f"unexpected grants {out['grants']!r}")
         if not (claims["iss"] == claims["sub"] == claims["aud"] == p["aid"]):
             raise AssertionError("attestation is not iss == sub == aud")
-        if "xcheck.statement" not in claims.get("ext", {}):
-            raise AssertionError("attestation ext lacks the minted statement")
+        try:
+            verify_tct(tct_input(p["attestation"], p["aid"]), now=now + 100)
+        except AitpError as e:
+            if e.code != "TCT_SIGNATURE_INVALID":
+                raise
+        else:
+            raise AssertionError("verify_tct accepted a self-attestation in a grant context")
 
     ok &= check("p256 self-attestation TCT (ES256, Item 5 shape)", _attestation)
     ok &= check(
