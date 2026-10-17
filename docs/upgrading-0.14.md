@@ -316,9 +316,9 @@ forwarding headers count only from a configured trusted proxy.
 - The conformance adapter accepts P-256 pinned keys and `pinned_keys`
   entry objects in a fixture `trust_store`.
 - The conformance runner mints every negative placeholder (JWT, PoP,
-  pinned-key proof) as a real artifact. It reports passes that used an
-  unminted placeholder: in text output, and as `unminted_placeholders` in
-  JSON. `FixtureResult::Pass` gains an `unminted` field.
+  pinned-key proof) as a real artifact. A fixture that uses a placeholder
+  the runner cannot mint now FAILs, naming the placeholder, instead of
+  passing on the sentinel (spec #77).
 - The conformance adapter adds `verify_identity_presentation`,
   `issue_presentation_challenge` and `verify_attestation` (extensions
   `aitp-pinned-admission` and `aitp-self-attestation`) and the test-only

@@ -16,10 +16,6 @@ pub enum FixtureResult {
         id: String,
         /// Wall-clock duration of the run.
         duration_ms: u64,
-        /// Placeholders the runner could not mint for this fixture.
-        /// Non-empty means the pass may not have exercised the check the
-        /// fixture targets (see [`RunnerContext::unminted`]).
-        unminted: Vec<String>,
     },
     /// One or more assertions failed.
     Fail {
@@ -266,11 +262,29 @@ impl<A: Adapter> Runner<A> {
         };
 
         let duration_ms = started.elapsed().as_millis() as u64;
+        // spec #77: a placeholder the runner could not mint reached the
+        // adapter as a sentinel, so an outcome that matched was not
+        // evidence of the check the fixture names. FAIL, never PASS.
+        let unminted = self.ctx.unminted();
+        let outcome = match outcome {
+            Err(StepError::Skip(_)) => outcome,
+            _ if !unminted.is_empty() => {
+                let mut reason = format!(
+                    "unminted placeholders: {} (the runner cannot mint them, so the fixture's check was not exercised)",
+                    unminted.join(", ")
+                );
+                if let Err(StepError::Fail(r)) = outcome {
+                    reason.push_str("; also: ");
+                    reason.push_str(&r);
+                }
+                Err(StepError::Fail(reason))
+            }
+            _ => outcome,
+        };
         match outcome {
             Ok(()) => FixtureResult::Pass {
                 id: fixture.id.clone(),
                 duration_ms,
-                unminted: self.ctx.unminted().to_vec(),
             },
             Err(StepError::Skip(reason)) => FixtureResult::Skip {
                 id: fixture.id.clone(),

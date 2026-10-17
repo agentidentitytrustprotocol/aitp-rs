@@ -303,15 +303,19 @@ We may revisit this in a future revision if performance ever becomes a concern.
 ### Unminted placeholders
 
 A placeholder the harness does not know is replaced with a
-`RUNNER_UNKNOWN_PLACEHOLDER_*` sentinel. A negative fixture can then pass
-for the wrong reason: the adapter rejects garbage, not the defect the
+`RUNNER_UNKNOWN_PLACEHOLDER_*` sentinel. A negative fixture could then
+pass for the wrong reason: the adapter rejects garbage, not the defect the
 fixture names. Before 652cdb9 was vendored, `id-006` passed this way on
-`__PINNED_PROOF_OVER_WRONG_NONCE__`. The runner now records every
-unminted placeholder and reports it per fixture (`unminted placeholders:`
-in text output, `unminted_placeholders` in `--format json`) and in the
-summary. At the pin, no fixture passes with an unminted placeholder. Each
-negative is a real, correctly formed artifact that differs from its valid
-form in exactly one property. Unit tests in `placeholder.rs` check this.
+`__PINNED_PROOF_OVER_WRONG_NONCE__`. The runner therefore **FAILs** a
+fixture that used a placeholder it could not mint, whatever the adapter
+answered, and names the placeholders in the reason (spec
+[#77](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/issues/77)).
+A fixture skipped before it ran stays a SKIP. At the pin, no fixture uses
+an unminted placeholder. Each negative is a real, correctly formed
+artifact that differs from its valid form in exactly one property. Unit
+tests in `placeholder.rs` check this, and
+`unminted_placeholder_fails_the_fixture` in
+`tests/runner_integration.rs` checks the FAIL.
 
 ## What the fixture corpus cannot detect
 
