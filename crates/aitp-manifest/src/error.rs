@@ -13,9 +13,16 @@ pub enum ManifestError {
     /// PoP signature failed verification.
     #[error("manifest proof-of-possession failed")]
     PopFailed,
-    /// `aid` field does not match the key used to sign.
+    /// `aid` field does not match the key used to sign, or a resolved
+    /// Manifest does not designate the AID it was resolved for
+    /// ([`crate::resolve_verified_manifest`]).
     #[error("manifest aid does not match signing key")]
     AidMismatch,
+    /// No Manifest could be obtained for the requested AID
+    /// (RFC-AITP-0003 §10 `MANIFEST_NOT_FOUND`), from
+    /// [`crate::resolve_verified_manifest`].
+    #[error("no manifest found for the requested AID")]
+    NotFound,
     /// Peer's `accepted_identity_types` does not include the type we
     /// would present (RFC-AITP-0003 §3.2 / §5 step 5). Surfaces as
     /// `INCOMPATIBLE_IDENTITY_TYPE` to the caller. An absent field
