@@ -109,8 +109,16 @@ pub struct PyDelegationVerified {
 /// multi-hop, build the SDK with the `multihop-delegation`
 /// feature and call `verify_delegation_multihop`.
 ///
+/// `issuer_manifests` is the delegator's (B's) Manifest, each entry a
+/// `{"manifest": {...}}` envelope JSON string. RFC-AITP-0006 §4 step 1
+/// verifies the token under the key resolved from its issuer's verified
+/// Manifest; a token whose issuer has no valid Manifest here fails with
+/// `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
+/// before use; when several designate one AID the newest `published_at`
+/// wins.
+///
 /// Returns the verified token's salient fields. Raises `PyValueError` for a
-/// malformed AID and `PyRuntimeError` for verification failure.
+/// malformed AID or Manifest and `PyRuntimeError` for verification failure.
 ///
 /// `revoked_jtis` is an OPTIONAL set of revoked `jti` strings — A's own deny
 /// list. When supplied, a token whose `voucher.src_jti` is in the set is
@@ -119,19 +127,22 @@ pub struct PyDelegationVerified {
 /// omitting it silently redeems a delegation whose source TCT has been
 /// revoked, which step 7 states as a MUST-reject.
 #[pyfunction]
-#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, revoked_jtis = None))]
+#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, issuer_manifests, revoked_jtis = None))]
 pub fn verify_delegation_py(
     delegation_token: &str,
     verifier_aid: &str,
+    issuer_manifests: Vec<String>,
     revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
     let (root_check, _hop_check) = revocation_closures(revoked_jtis.as_ref());
+    let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
     // strict), so a non-empty chain fails before any per-hop work runs — which
     // is also why only the root check is wired here: there are no hops.
-    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
+        .with_issuer_manifests(&manifests);
     if let Some(check) = root_check.as_deref() {
         ctx = ctx.with_revocation_check(check as &dyn Fn(&Uuid) -> bool);
     }
@@ -182,13 +193,7 @@ pub fn verify_delegation_multihop_py(
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
     let (root_check, hop_check) = revocation_closures(revoked_jtis.as_ref());
-    let manifests = issuer_manifests
-        .iter()
-        .map(|json| {
-            crate::wire::manifest(json)
-                .map_err(|e| PyValueError::new_err(format!("invalid issuer manifest JSON: {e}")))
-        })
-        .collect::<PyResult<Vec<_>>>()?;
+    let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
         .with_max_delegation_hops(max_delegation_hops)
@@ -204,6 +209,18 @@ pub fn verify_delegation_multihop_py(
         .map_err(|e| PyRuntimeError::new_err(format!("delegation verification failed: {e}")))?;
 
     Ok(to_verified(&verified))
+}
+
+/// Parse the issuer Manifests (`{"manifest": {...}}` envelope JSON strings)
+/// a verify call resolves delegation issuer keys from.
+fn parse_issuer_manifests(issuer_manifests: &[String]) -> PyResult<Vec<aitp_manifest::Manifest>> {
+    issuer_manifests
+        .iter()
+        .map(|json| {
+            crate::wire::manifest(json)
+                .map_err(|e| PyValueError::new_err(format!("invalid issuer manifest JSON: {e}")))
+        })
+        .collect()
 }
 
 /// Parse the verifier's own AID string.

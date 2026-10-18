@@ -483,9 +483,10 @@ fn hop_signed_by_other_key_is_invalid_signature() {
 }
 
 #[test]
-fn single_hop_does_not_consult_manifests() {
-    // The single-hop path (RFC-AITP-0006) is unchanged: an empty source
-    // does not reject a plain B → C delegation under multi-hop opt-in.
+fn single_hop_under_opt_in_resolves_issuer_manifest() {
+    // A plain B → C delegation takes the single-hop path under multi-hop
+    // opt-in too, and verifies under B's Manifest key (RFC-AITP-0006 §4
+    // step 1) exactly as it does under the strict default.
     let token = DelegationBuilder::new(&b(), &voucher_for_b())
         .unwrap()
         .delegatee(c().aid().clone())
@@ -494,10 +495,13 @@ fn single_hop_does_not_consult_manifests() {
         .now(NOW)
         .build()
         .unwrap();
-    let none: Vec<Manifest> = Vec::new();
     let a_key = a();
-    verify_delegation(&token, &ctx_with(a_key.aid(), &none))
-        .expect("single-hop verifies without Manifests");
+    verify_delegation(&token, &multihop_ctx(a_key.aid()))
+        .expect("single-hop verifies under B's Manifest key");
+    let none: Vec<Manifest> = Vec::new();
+    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &none)).unwrap_err();
+    let cause = key_resolution_cause(err, b().aid());
+    assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
 }
 
 // ───────────────────────── spec KAT vectors ─────────────────────────

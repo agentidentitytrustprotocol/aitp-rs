@@ -36,7 +36,7 @@ function injectMultihopChain(delegationToken) {
 // the requested grants.
 function buildVoucher() {
   const { agent: a, manifest: aManifest } = buildPeer('A', 8301, ['demo.write']);
-  const { agent: b } = buildPeer('B', 8302, ['demo.echo']);
+  const { agent: b, manifest: bManifest } = buildPeer('B', 8302, ['demo.echo']);
   const { agent: c } = buildPeer('C', 8303, ['demo.read']);
 
   const bCompleted = fullHandshake(b, a, aManifest, ['demo.write']);
@@ -45,7 +45,7 @@ function buildVoucher() {
     c.aid,
     ['demo.write'],
   );
-  return { a, delegationToken };
+  return { a, bManifest, delegationToken };
 }
 
 function buildPeer(name, port, offers) {
@@ -72,7 +72,7 @@ function fullHandshake(initiator, responder, respManifest, requested) {
 test('delegation round-trip: A → B → C → A re-issues to C', () => {
   // Use ephemeral ports for clarity; manifests are not actually fetched.
   const { agent: a, manifest: aManifest } = buildPeer('A', 8101, ['demo.write']);
-  const { agent: b } = buildPeer('B', 8102, ['demo.echo']);
+  const { agent: b, manifest: bManifest } = buildPeer('B', 8102, ['demo.echo']);
   const { agent: c } = buildPeer('C', 8103, ['demo.read']);
 
   // B initiates against A and ends up holding A's TCT + grant voucher.
@@ -88,7 +88,7 @@ test('delegation round-trip: A → B → C → A re-issues to C', () => {
   );
 
   // A verifies and mints a fresh TCT bound to C.
-  const verified = verifyDelegation(delegationToken, a.aid);
+  const verified = verifyDelegation(delegationToken, a.aid, [bManifest]);
   assert.equal(verified.delegator, a.aid);
   assert.equal(verified.delegatee, c.aid);
   assert.equal(verified.issuedBy, b.aid);
@@ -109,7 +109,7 @@ test('delegation round-trip: A → B → C → A re-issues to C', () => {
 
 test('verifyDelegation rejects a wrong verifier AID', () => {
   const { agent: a, manifest: aManifest } = buildPeer('A', 8201, ['demo.write']);
-  const { agent: b } = buildPeer('B', 8202, ['demo.echo']);
+  const { agent: b, manifest: bManifest } = buildPeer('B', 8202, ['demo.echo']);
   const { agent: c } = buildPeer('C', 8203, ['demo.read']);
   const { agent: other } = buildPeer('Other', 8204, ['demo.x']);
 
@@ -121,16 +121,35 @@ test('verifyDelegation rejects a wrong verifier AID', () => {
   );
 
   // A different agent's AID should be rejected as the verifier.
-  assert.throws(() => verifyDelegation(delegationToken, other.aid));
+  assert.throws(() => verifyDelegation(delegationToken, other.aid, [bManifest]));
+});
+
+test('verifyDelegation resolves the delegator key from its Manifest', () => {
+  // RFC-AITP-0006 §4 step 1: the token verifies under the key the
+  // delegator's verified Manifest designates. No Manifest for B, or only
+  // someone else's, fails with KEY_RESOLUTION_FAILED (RFC-AITP-0007).
+  const { a, bManifest, delegationToken } = buildVoucher();
+  assert.equal(verifyDelegation(delegationToken, a.aid, [bManifest]).delegator, a.aid);
+  const { manifest: otherManifest } = buildPeer('Other', 8305, ['demo.x']);
+  for (const manifests of [[], [otherManifest]]) {
+    assert.throws(
+      () => verifyDelegation(delegationToken, a.aid, manifests),
+      /key resolution failed for delegation issuer/,
+    );
+  }
+  assert.throws(
+    () => verifyDelegation(delegationToken, a.aid, ['{}']),
+    /invalid issuer manifest JSON/,
+  );
 });
 
 test('verifyDelegation (strict default) rejects a multi-hop chain', () => {
   // RFC-AITP-0006 §4.4: any non-empty chain is rejected with
   // DELEGATION_MULTIHOP_NOT_SUPPORTED before any per-hop work.
-  const { a, delegationToken } = buildVoucher();
+  const { a, bManifest, delegationToken } = buildVoucher();
   const tampered = injectMultihopChain(delegationToken);
   assert.throws(
-    () => verifyDelegation(tampered, a.aid),
+    () => verifyDelegation(tampered, a.aid, [bManifest]),
     /multi-hop delegation is not supported/,
   );
 });
@@ -142,7 +161,7 @@ test(
     // The opt-in verifier must get PAST the hop gate the strict path rejects
     // at — proven by failing with a *different* error (structure/signature)
     // rather than MULTIHOP_NOT_SUPPORTED.
-    const { a, delegationToken } = buildVoucher();
+    const { a, bManifest, delegationToken } = buildVoucher();
     const tampered = injectMultihopChain(delegationToken);
     assert.throws(() => verifyDelegationMultihop(tampered, a.aid, [], 3), (err) => {
       assert.doesNotMatch(String(err.message), /multi-hop delegation is not supported/);
@@ -157,14 +176,14 @@ test(
   () => {
     // RFC-AITP-0011 §3 step 1: hop keys come from the issuers' Manifests,
     // passed as `{"manifest": ...}` envelope JSON strings.
-    const { a, delegationToken } = buildVoucher();
-    const { manifest } = buildPeer('B2', 8304, ['demo.echo']);
+    const { a, bManifest, delegationToken } = buildVoucher();
     assert.throws(
       () => verifyDelegationMultihop(delegationToken, a.aid, ['{}'], 3),
       /invalid issuer manifest JSON/,
     );
-    // A well-formed Manifest is accepted; this single-hop token verifies.
-    verifyDelegationMultihop(delegationToken, a.aid, [manifest], 3);
+    // With B's Manifest this single-hop token verifies (RFC-AITP-0006 §4
+    // step 1 resolves B's key from it too).
+    verifyDelegationMultihop(delegationToken, a.aid, [bManifest], 3);
   },
 );
 
@@ -186,14 +205,14 @@ function srcJti(delegationToken) {
 }
 
 test('revoking the source TCT rejects the delegation', () => {
-  const { a, delegationToken } = buildVoucher();
+  const { a, bManifest, delegationToken } = buildVoucher();
 
   // Sanity: verifies while nothing is revoked, so the rejection below is
   // attributable to the deny list and nothing else.
-  verifyDelegation(delegationToken, a.aid);
+  verifyDelegation(delegationToken, a.aid, [bManifest]);
 
   assert.throws(
-    () => verifyDelegation(delegationToken, a.aid, [srcJti(delegationToken)]),
+    () => verifyDelegation(delegationToken, a.aid, [bManifest], [srcJti(delegationToken)]),
     /revoked/i,
   );
 });
@@ -202,10 +221,10 @@ test('a revoked source TCT yields no TCT for the delegatee', () => {
   // Step 7 is not bookkeeping: redeeming a delegation mints a *fresh TCT*
   // for the delegatee. Skipping it meant a revoked grant kept minting
   // credentials for a third party the grantor never re-authorized.
-  const { a, delegationToken } = buildVoucher();
+  const { a, bManifest, delegationToken } = buildVoucher();
 
   assert.throws(() => {
-    const verified = verifyDelegation(delegationToken, a.aid, [
+    const verified = verifyDelegation(delegationToken, a.aid, [bManifest], [
       srcJti(delegationToken),
     ]);
     // Unreachable while step 7 holds. If it ever is reached, this is the
@@ -217,11 +236,11 @@ test('a revoked source TCT yields no TCT for the delegatee', () => {
 test('an unrelated revoked jti does not reject', () => {
   // The lookup is keyed on `src_jti`, not "the list is non-empty" — without
   // this, a blanket-reject bug would pass the test above.
-  const { a, delegationToken } = buildVoucher();
+  const { a, bManifest, delegationToken } = buildVoucher();
   const unrelated = '00000000-0000-4000-8000-000000000000';
   assert.notEqual(unrelated, srcJti(delegationToken));
 
-  const verified = verifyDelegation(delegationToken, a.aid, [unrelated]);
+  const verified = verifyDelegation(delegationToken, a.aid, [bManifest], [unrelated]);
   assert.equal(verified.delegator, a.aid);
 });
 
@@ -230,8 +249,8 @@ test('omitting revokedJtis verifies a revoked delegation', () => {
   // step 7 entirely — the same posture `verifyTct` takes, and the reason
   // both doc comments say verifiers SHOULD supply it. This documents the
   // hazard rather than endorsing it.
-  const { a, delegationToken } = buildVoucher();
-  const verified = verifyDelegation(delegationToken, a.aid);
+  const { a, bManifest, delegationToken } = buildVoucher();
+  const verified = verifyDelegation(delegationToken, a.aid, [bManifest]);
   assert.equal(verified.delegator, a.aid);
 });
 
@@ -239,8 +258,8 @@ test('malformed jtis in the list are ignored, not treated as matches', () => {
   // `parseRevokedSet` drops anything that is not a UUID. A list of pure
   // garbage must therefore behave exactly like an empty one, rather than
   // rejecting every token that comes near it.
-  const { a, delegationToken } = buildVoucher();
-  const verified = verifyDelegation(delegationToken, a.aid, [
+  const { a, bManifest, delegationToken } = buildVoucher();
+  const verified = verifyDelegation(delegationToken, a.aid, [bManifest], [
     'not-a-uuid',
     '',
   ]);
@@ -252,11 +271,11 @@ test('revocation is consulted only after the signature checks', () => {
   // stateful lookup before the signature checks would let an unauthenticated
   // caller probe which jtis are in a verifier's deny list by watching which
   // forged tokens come back "revoked" versus "bad signature".
-  const { a, delegationToken } = buildVoucher();
+  const { a, bManifest, delegationToken } = buildVoucher();
   const tampered = tamperJwsSignature(delegationToken);
 
   assert.throws(
-    () => verifyDelegation(tampered, a.aid, [srcJti(delegationToken)]),
+    () => verifyDelegation(tampered, a.aid, [bManifest], [srcJti(delegationToken)]),
     (err) => !/revoked/i.test(String(err.message)),
     'a token failing signature verification was reported as revoked — the ' +
       'deny-list lookup ran before the signature checks',

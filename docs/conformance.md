@@ -388,7 +388,7 @@ them.
 
 ### Summary
 
-These counts are **at pin `cfd2f16`**, the spec commit in
+These counts are **at pin `55bafe0`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
@@ -397,17 +397,17 @@ here.
 |---|---|---|---|
 | `core`, `required_for_v0_2: true` | 74 | 74 PASS | 73 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
-| `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
-| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
+| `draft`: session bundle (`experimental-session-bundle`) | 7 | SKIP | 6 PASS, 1 SKIP (`bundle-007`) |
+| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 5 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
-| **Total** | **96** | **75 pass / 0 fail / 21 skip** | **94 pass / 0 fail / 2 skip** |
+| **Total** | **98** | **75 pass / 0 fail / 23 skip** | **95 pass / 0 fail / 3 skip** |
 
 Why the skips look the way they do:
 
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
-  multi-hop returns. The 21 skips are the 6 session-bundle, 4 multi-hop,
+  multi-hop returns. The 23 skips are the 7 session-bundle, 5 multi-hop,
   8 pinned-admission and 3 self-attestation fixtures. A `draft` or
   `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
@@ -417,18 +417,24 @@ Why the skips look the way they do:
   error code to feature is `negated_by_feature` in
   `crates/aitp-conformance/src/runner/executor.rs`. This is intended
   behaviour, not a gap.
+- **With `--feature experimental-session-bundle`.** `bundle-007` expects
+  `KEY_RESOLUTION_FAILED` when the supplied `coordinator_manifest` does not
+  designate the bundle's coordinator (RFC-AITP-0010 §5 step 5). The adapter
+  does not resolve the coordinator key from that Manifest yet, so it answers
+  `OP_NOT_SUPPORTED` and the runner skips the fixture. This is a known gap,
+  tracked in #238.
 
 Reproduce. The fixture path assumes a sibling checkout of the spec repo at
 the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 75 pass / 0 fail / 21 skip at the pin. The `--profile v0.1`
+# Strict: 75 pass / 0 fail / 23 skip at the pin. The `--profile v0.1`
 # counts are the same; only the gate's required flag differs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 94 pass / 0 fail / 2 skip at the pin.
+# Opt-in (draft RFCs and extensions): 95 pass / 0 fail / 3 skip at the pin.
 # The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \

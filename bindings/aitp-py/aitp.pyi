@@ -213,6 +213,7 @@ class AitpAgent:
 def verify_delegation(
     delegation_token: str,
     verifier_aid: str,
+    issuer_manifests: Sequence[str],
     revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.2
@@ -220,6 +221,12 @@ def verify_delegation(
     (RFC-AITP-0011 multi-hop) is rejected with
     `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use
     `verify_delegation_multihop` instead.
+
+    `issuer_manifests` holds the delegator's Manifest, each entry a
+    `{"manifest": {...}}` envelope JSON string. The token is verified under
+    the key resolved from its issuer's verified Manifest (RFC-AITP-0006 §4
+    step 1); an issuer with no valid Manifest in the list fails with
+    `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
 
     `revoked_jtis` is the verifier's own deny list. When supplied, a token
     whose `voucher.src_jti` is in the set is rejected after every signature

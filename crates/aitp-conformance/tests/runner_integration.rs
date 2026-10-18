@@ -377,6 +377,23 @@ fn tier_b_issue_and_verify_delegation_round_trip() {
         }),
     );
     let token = &delegation["delegation_token"];
+    // Bob publishes his Manifest: Alice verifies the delegation under the
+    // key it designates (RFC-AITP-0006 §4 step 1).
+    let bob_manifest = ok(
+        &mut a,
+        "issue_manifest",
+        json!({
+            "keypair": bob["handle"],
+            "handshake_endpoint": "https://b.example.com/handshake",
+            "identity_hint": {
+                "type": "pinned_key",
+                "subject": "bob",
+                "public_key": bob["public_key"],
+            },
+            "accepted_trust_anchors": ["https://idp.example.com"],
+            "ttl_secs": 3600i64,
+        }),
+    );
     // Alice (the original issuer) verifies the delegation.
     let verify = ok(
         &mut a,
@@ -384,6 +401,7 @@ fn tier_b_issue_and_verify_delegation_round_trip() {
         json!({
             "delegation_token": token,
             "verifier_aid": alice["aid"],
+            "issuer_manifests": [bob_manifest["manifest_envelope"]],
             "now": 1_700_000_500i64,
         }),
     );
@@ -415,6 +433,40 @@ fn tier_b_sign_envelope_then_verify_envelope() {
     let envelope = &signed["envelope"];
     let verify = ok(&mut a, "verify_envelope", json!({"envelope": envelope}));
     assert_eq!(verify["verified"], json!(true));
+}
+
+/// A declared op that refuses one input at run time with
+/// `OP_NOT_SUPPORTED` surfaces as `AdapterError::OpNotSupported`, so the
+/// runner SKIPs that fixture instead of failing it (same as the
+/// in-process adapter).
+#[test]
+fn runtime_op_not_supported_maps_to_skip_error() {
+    use aitp_conformance::adapter::AdapterError;
+    let mut a = spawn();
+    let kp = ok(
+        &mut a,
+        "generate_keypair",
+        json!({"seed": "HHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHHA"}),
+    );
+    let signed = ok(
+        &mut a,
+        "sign_envelope",
+        json!({
+            "keypair": kp["handle"],
+            "message_type": "mutual_hello",
+            "payload": {"hello": "world"},
+        }),
+    );
+    // `verify_handshake_payload` is declared, but a non-kat `self_aid`
+    // is a case the adapter does not support.
+    let r = a.execute(
+        "verify_handshake_payload",
+        json!({"envelope": signed["envelope"], "self_aid": kp["aid"]}),
+    );
+    assert!(
+        matches!(r, Err(AdapterError::OpNotSupported(_))),
+        "got: {r:?}"
+    );
 }
 
 #[test]

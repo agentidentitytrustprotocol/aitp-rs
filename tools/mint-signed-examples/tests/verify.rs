@@ -108,7 +108,31 @@ fn minted_delegation_verifies() {
     let token = v["delegation_token"].as_str().expect("delegation_token");
     // Verifier is the original grantor / voucher issuer (A = kat-keypair-001).
     let verifier_aid = kat_001_aid();
-    let ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, fixed_now());
+    // The delegator B (kat-keypair-002) has no minted signed-example
+    // Manifest, so publish one here: the token verifies under the key
+    // B's Manifest designates (RFC-AITP-0006 §4 step 1).
+    let mut seed = [0u8; 32];
+    for (i, b) in seed.iter_mut().enumerate() {
+        *b = i as u8;
+    }
+    let b_key = aitp_crypto::AitpSigningKey::from_seed(&seed);
+    assert_eq!(b_key.aid(), &kat_002_aid());
+    let b_manifest = aitp_manifest::ManifestBuilder::new(&b_key)
+        .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
+        .identity_hint(aitp_manifest::IdentityHint {
+            kind: aitp_manifest::IdentityHintKind::Oidc,
+            subject: "kat-keypair-002".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .published_at(Timestamp(fixed_now().0 - 100))
+        .ttl_secs(3600)
+        .build()
+        .unwrap();
+    let issuer_manifests = vec![b_manifest];
+    let ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, fixed_now())
+        .with_issuer_manifests(&issuer_manifests);
     let verified =
         aitp_delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
     assert_eq!(

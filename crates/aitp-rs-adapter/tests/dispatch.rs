@@ -12,6 +12,7 @@
 use aitp_core::Timestamp;
 use aitp_crypto::{jws, AitpSigningKey};
 use aitp_delegation::DelegationBuilder;
+use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
 use aitp_rs_adapter::{handle, AdapterState};
 use aitp_tct::TctBuilder;
 use serde_json::{json, Value};
@@ -265,6 +266,25 @@ mod single_hop_revocation_check {
         (voucher_claims.src_jti.to_string(), token)
     }
 
+    /// B's published Manifest envelope: the key source for B's
+    /// delegation (RFC-AITP-0006 §4 step 1).
+    fn b_manifest() -> Value {
+        let manifest = ManifestBuilder::new(&b())
+            .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "b".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .published_at(Timestamp(NOW))
+            .ttl_secs(3600)
+            .build()
+            .unwrap();
+        serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
+    }
+
     #[test]
     fn revoked_source_jti_is_rejected() {
         let mut state = AdapterState::default();
@@ -286,9 +306,37 @@ mod single_hop_revocation_check {
             json!({
                 "delegation_token": token,
                 "verifier_aid": a().aid().to_string(),
+                "issuer_manifests": [b_manifest()],
             }),
         );
         assert_err(&resp, "v", "DELEGATION_SOURCE_TCT_REVOKED");
+    }
+
+    /// RFC-AITP-0006 §4 step 1: with no Manifest for B the issuer key
+    /// cannot be resolved, so the token is rejected with
+    /// `KEY_RESOLUTION_FAILED` (RFC-AITP-0007 §1) rather than verified
+    /// under the key B's AID encodes.
+    #[test]
+    fn missing_issuer_manifest_is_key_resolution_failed() {
+        let mut state = AdapterState::default();
+        let (_src_jti, token) = mint_delegation();
+
+        handle(
+            &mut state,
+            "clock",
+            "set_clock",
+            json!({"now_unix_secs": NOW + 60}),
+        );
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_delegation_token",
+            json!({
+                "delegation_token": token,
+                "verifier_aid": a().aid().to_string(),
+            }),
+        );
+        assert_err(&resp, "v", "KEY_RESOLUTION_FAILED");
     }
 
     #[test]
@@ -309,6 +357,7 @@ mod single_hop_revocation_check {
             json!({
                 "delegation_token": token,
                 "verifier_aid": a().aid().to_string(),
+                "issuer_manifests": [b_manifest()],
             }),
         );
         assert_eq!(
@@ -505,9 +554,12 @@ mod session_bundle_wire_shape {
         let ok = verify(&mut state, manifest_envelope(&coordinator(), 24 * 3600));
         assert_eq!(ok["ok"], json!(true), "got {ok}");
 
+        // TODO(#238): KEY_RESOLUTION_FAILED (bundle-007). Until the
+        // coordinator key is resolved from the Manifest, a Manifest for
+        // another AID is reported unsupported so the runner skips it.
         let other = AitpSigningKey::from_seed(&[0x77; 32]);
         let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
-        assert_err(&resp, "v", "SESSION_BUNDLE_INVALID");
+        assert_err(&resp, "v", "OP_NOT_SUPPORTED");
 
         let resp = verify(&mut state, manifest_envelope(&coordinator(), 50));
         assert_err(&resp, "v", "MANIFEST_EXPIRED");

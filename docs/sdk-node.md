@@ -178,19 +178,29 @@ and
 import { verifyDelegation } from '@agentidentitytrustprotocol/aitp';
 
 const carol = AitpAgent.generate();
+// alice's Manifest: bob checks her signature under the key it designates.
+const aliceManifest = alice.buildManifest({
+  displayName: 'alice',
+  handshakeEndpoint: 'https://alice.example/aitp/handshake/',
+  offeredCaps: ['demo.write'],
+});
 // alice delegates part of what bob granted her to carol.
 const delegationJws = alice.buildDelegation(voucherJws, carol.aid, ['demo.echo']);
 
 // bob (the original grantor) verifies and mints carol a TCT of her own.
 const revoked = [];   // bob's deny list, e.g. jtis from verified revocation snapshots
-const verified = verifyDelegation(delegationJws, bob.aid, revoked);
+const verified = verifyDelegation(delegationJws, bob.aid, [aliceManifest], revoked);
 const { tct: carolTct, grantVoucher: carolVoucher } = bob.issueTctForDelegatee(verified);
 console.log(carol.verifyTct(carolTct, 'demo.echo').peerAid === bob.aid);   // true
 ```
 
 The signature is `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`.
-`verifyDelegation(token, verifierAid, revokedJtis?)` is strict single-hop: it
-rejects any token that carries a multi-hop `chain`. Pass `revokedJtis`. If
+`verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?)` is strict
+single-hop: it rejects any token that carries a multi-hop `chain`.
+`issuerManifests` holds the delegator's Manifest as `{"manifest": ...}` JSON
+strings. The token is verified under the key that Manifest designates
+(RFC-AITP-0006 §4 step 1); without a valid one it fails with
+`KEY_RESOLUTION_FAILED`. Pass `revokedJtis`. If
 you omit it, a delegation whose source TCT has been revoked is still
 redeemed. For multi-hop chains, see
 [Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
@@ -364,12 +374,8 @@ const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
 import { verifyDelegationMultihop } from '@agentidentitytrustprotocol/aitp';
 
 // Every hop verifies under the key its issuer's Manifest designates
-// (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
-const aliceManifest = alice.buildManifest({
-  displayName: 'alice',
-  handshakeEndpoint: 'https://alice.example/aitp/handshake/',
-  offeredCaps: ['demo.write'],
-});
+// (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest
+// (`aliceManifest` from the delegation example above).
 const verifiedMultihop = verifyDelegationMultihop(
   delegationJws, bob.aid, [aliceManifest], 3, revoked,
 );

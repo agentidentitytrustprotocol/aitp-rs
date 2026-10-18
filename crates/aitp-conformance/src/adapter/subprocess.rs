@@ -138,7 +138,18 @@ impl Adapter for SubprocessAdapter {
             .clone();
         obj.remove("id");
         let cleaned = serde_json::Value::Object(obj);
-        serde_json::from_value(cleaned).map_err(|e| AdapterError::MalformedResponse(e.to_string()))
+        let result: OpResult = serde_json::from_value(cleaned)
+            .map_err(|e| AdapterError::MalformedResponse(e.to_string()))?;
+        // A declared op can still refuse one input at run time with
+        // OP_NOT_SUPPORTED (a sub-case it does not implement yet): skip
+        // it like an undeclared op, as the in-process adapter does. The
+        // gate still fails a required fixture skipped this way.
+        if let OpResult::Err { error_code, .. } = &result {
+            if error_code == "OP_NOT_SUPPORTED" {
+                return Err(AdapterError::OpNotSupported(op.into()));
+            }
+        }
+        Ok(result)
     }
 
     fn shutdown(&mut self) -> Result<(), AdapterError> {

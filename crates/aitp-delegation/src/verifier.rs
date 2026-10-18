@@ -57,12 +57,13 @@ pub struct VerifyDelegationContext<'a> {
     /// hop's issuer (first argument). Consulted for every chain entry
     /// and the outer token, after all signature checks.
     pub hop_revocation_check: Option<HopRevocationCheck<'a>>,
-    /// Source of each hop issuer's Manifest (RFC-AITP-0011 §3 step 1).
-    /// Every multi-hop hop — each chain entry and the outer token — is
-    /// verified under the key its issuer's verified Manifest designates;
-    /// with no source configured (or no usable Manifest for an issuer)
-    /// the chain is rejected with [`DelegationError::KeyResolutionFailed`].
-    /// Not consulted on the single-hop path.
+    /// Source of each delegation issuer's Manifest (RFC-AITP-0006 §4
+    /// step 1; RFC-AITP-0011 §3 step 1). Every delegation JWS — the
+    /// single-hop token, and each chain entry plus the outer token of a
+    /// multi-hop chain — is verified under the key its issuer's verified
+    /// Manifest designates; with no source configured (or no usable
+    /// Manifest for an issuer) the token is rejected with
+    /// [`DelegationError::KeyResolutionFailed`].
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
 }
 
@@ -102,8 +103,9 @@ impl<'a> VerifyDelegationContext<'a> {
         self
     }
 
-    /// Where multi-hop verification gets each hop issuer's Manifest
-    /// (RFC-AITP-0011 §3 step 1). Required for any chain to verify.
+    /// Where verification gets each delegation issuer's Manifest
+    /// (RFC-AITP-0006 §4 step 1; RFC-AITP-0011 §3 step 1). Required for
+    /// any delegation — single-hop or multi-hop — to verify.
     pub fn with_issuer_manifests(mut self, resolver: &'a dyn ManifestResolver) -> Self {
         self.issuer_manifests = Some(resolver);
         self
@@ -113,7 +115,8 @@ impl<'a> VerifyDelegationContext<'a> {
 /// Verify a delegation token presented to `ctx.verifier` (A).
 ///
 /// Single-hop (RFC-AITP-0006 §4, in order): outer JWS
-/// (typ / alg pin / signature / `ver`) → `aud` + `exp` → embedded
+/// (typ / alg pin / signature under the key the issuer's verified
+/// Manifest designates, from `ctx.issuer_manifests` / `ver`) → `aud` + `exp` → embedded
 /// voucher (typ `aitp-grant+jwt`, `voucher.iss` == A, signature under
 /// A's **own** key) → `voucher.sub` == outer `iss` → expiry
 /// monotonicity → `scope ⊆ voucher.grants` → self-delegation +
@@ -220,37 +223,30 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     })
 }
 
-/// Where a hop's verification key comes from.
-enum HopKey<'a> {
-    /// The key encoded in the claimed `iss` AID (the single-hop path).
-    IssAid,
-    /// The key designated by the claimed issuer's verified Manifest
-    /// (RFC-AITP-0011 §3 step 1); `None` when no source is configured.
-    Manifest(Option<&'a dyn ManifestResolver>, Timestamp),
-}
-
 /// Strictly verify one delegation JWS under its claimed `iss` and return
-/// its claims. A forged `iss` fails the signature check — only the
-/// claimed issuer's key is tried (for [`HopKey::Manifest`], the key that
-/// issuer's Manifest designates), and the AID-derived alg pin forecloses
-/// algorithm confusion (RFC-AITP-0001 §5.4.5).
-fn verify_hop_jws(token: &str, key: HopKey<'_>) -> Result<DelegationClaims, DelegationError> {
+/// its claims. The verification key is the one the claimed issuer's
+/// verified Manifest designates (RFC-AITP-0006 §4 step 1; RFC-AITP-0011
+/// §3 step 1), from `ctx.issuer_manifests`; no source, or no usable
+/// Manifest for the issuer, is [`DelegationError::KeyResolutionFailed`].
+/// A forged `iss` fails the signature check — only the claimed issuer's
+/// key is tried — and the AID-derived alg pin forecloses algorithm
+/// confusion (RFC-AITP-0001 §5.4.5).
+fn verify_hop_jws(
+    token: &str,
+    ctx: &VerifyDelegationContext<'_>,
+) -> Result<DelegationClaims, DelegationError> {
     let claimed = peek_claims(token)?;
-    let signer = match key {
-        HopKey::IssAid => claimed.iss,
-        HopKey::Manifest(resolver, now) => {
-            let resolved = resolver
-                .ok_or(aitp_manifest::ManifestError::NotFound)
-                .and_then(|r| {
-                    resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext { now })
-                })
-                .map_err(|source| DelegationError::KeyResolutionFailed {
-                    issuer: claimed.iss.clone(),
-                    source,
-                })?;
-            resolved.aid
-        }
-    };
+    let signer = ctx
+        .issuer_manifests
+        .ok_or(aitp_manifest::ManifestError::NotFound)
+        .and_then(|r| {
+            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext { now: ctx.now })
+        })
+        .map_err(|source| DelegationError::KeyResolutionFailed {
+            issuer: claimed.iss.clone(),
+            source,
+        })?
+        .aid;
     let payload =
         jws::verify_compact(&signer, jws::TYP_DELEGATION, token).map_err(|e| match e {
             aitp_crypto::CryptoError::SignatureInvalid => DelegationError::InvalidSignature,
@@ -327,8 +323,9 @@ fn verify_single_hop(
     token: &str,
     ctx: &VerifyDelegationContext<'_>,
 ) -> Result<VerifiedDelegation, DelegationError> {
-    // Step 1: outer JWS — strict parse, typ, alg pin, signature, ver.
-    let claims = verify_hop_jws(token, HopKey::IssAid)?;
+    // Step 1: outer JWS — strict parse, typ, alg pin, signature under
+    // the key B's verified Manifest designates, ver.
+    let claims = verify_hop_jws(token, ctx)?;
     // Step 2: addressing and freshness.
     if &claims.aud != ctx.verifier {
         return Err(DelegationError::AudienceMismatch);
@@ -407,7 +404,7 @@ fn verify_multi_hop(
     {
         // Step 1: standard JWS verification (+ ver), under the key the
         // hop issuer's verified Manifest designates.
-        let hop = verify_hop_jws(hop_token, HopKey::Manifest(ctx.issuer_manifests, ctx.now))?;
+        let hop = verify_hop_jws(hop_token, ctx)?;
         // Step 2: common claims + per-hop jti (present, unique).
         check_hop_claims(&hop, ctx)?;
         let jti = hop.jti.ok_or(DelegationError::InvalidVoucher)?;

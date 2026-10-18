@@ -1770,7 +1770,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     } else {
         0
     };
-    let issuer_manifests = match delegation_issuer_manifests(&params, now) {
+    let issuer_manifests = match delegation_issuer_manifests(&params) {
         Ok(m) => m,
         Err((code, msg)) => return err(id, &code, &msg),
     };
@@ -1793,22 +1793,18 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     }
 }
 
-/// The Manifest source for multi-hop hop verification (RFC-AITP-0011 §3
-/// step 1: each hop verifies under the key resolved from its issuer's
-/// Manifest).
+/// The Manifest source for delegation verification: the single-hop
+/// token (RFC-AITP-0006 §4 step 1) and every multi-hop hop
+/// (RFC-AITP-0011 §3 step 1) verify under the key resolved from the
+/// issuer's Manifest.
 ///
-/// - Any `issuer_manifests` the request carries (each a Manifest or a
-///   `{"manifest": …}` envelope), parsed with the §7 member check.
-/// - The Manifest each kat-keypair agent publishes. The spec's `del-mh-*`
-///   fixtures carry no Manifests — their hop issuers are kat-keypair-002
-///   and -003 — so the adapter plays those agents' publication, the same
-///   way `verify_handshake_payload_op` synthesizes the verifier's own.
-///   A supplied Manifest for the same AID with a newer `published_at`
-///   overrides the synthesized one (`[Manifest]` resolver semantics).
-fn delegation_issuer_manifests(
-    params: &Value,
-    now: Timestamp,
-) -> Result<Vec<Manifest>, (String, String)> {
+/// The request's `issuer_manifests` (each a Manifest or a
+/// `{"manifest": …}` envelope, parsed with the §7 member check) is the
+/// verifier's whole Manifest source: no key is derived from an issuer
+/// AID and no Manifest is synthesized, so an issuer without one here
+/// fails with `KEY_RESOLUTION_FAILED` (conformance README, "Manifest
+/// inputs").
+fn delegation_issuer_manifests(params: &Value) -> Result<Vec<Manifest>, (String, String)> {
     let mut manifests = Vec::new();
     for v in params
         .get("issuer_manifests")
@@ -1820,32 +1816,6 @@ fn delegation_issuer_manifests(
         let parsed = aitp_manifest::parse_manifest_wire(&checked(m))
             .map_err(|e| (manifest_error_code(&e), format!("issuer_manifests[]: {e}")))?;
         manifests.push(parsed);
-    }
-    for aid in [
-        "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
-        "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
-        "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
-    ] {
-        let Some(seed) = kat_seed_for_aid(aid) else {
-            continue;
-        };
-        let key = AitpSigningKey::from_seed(&seed);
-        let manifest = ManifestBuilder::new(&key)
-            .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject: "conformance-agent".into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
-                public_key: None,
-            })
-            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-            .ttl_secs(3600)
-            // One second before `now` so a supplied Manifest published
-            // at `now` wins the resolver's newest-`published_at` rule.
-            .published_at(Timestamp(now.0 - 1))
-            .build()
-            .map_err(|e| ("INTERNAL_ERROR".to_string(), format!("kat manifest: {e}")))?;
-        manifests.push(manifest);
     }
     Ok(manifests)
 }
@@ -1877,9 +1847,10 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // in aitp-delegation) — hence DELEGATION_INVALID_VOUCHER.
         Crypto(c) => return crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
         UnknownField(_) => "UNKNOWN_FIELD",
-        // RFC-AITP-0011 §3 step 1 + RFC-AITP-0007 §1: a hop issuer's
-        // Manifest could not be obtained, did not verify, or does not
-        // designate the issuer's AID.
+        // RFC-AITP-0006 §4 step 1 / RFC-AITP-0011 §3 step 1 +
+        // RFC-AITP-0007 §1: the delegation (or hop) issuer's Manifest
+        // could not be obtained, did not verify, or does not designate
+        // the issuer's AID.
         KeyResolutionFailed { .. } => "KEY_RESOLUTION_FAILED",
         _ => "INTERNAL_ERROR",
     }
@@ -3320,6 +3291,23 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
         Ok(b) => b,
         Err(e) => return err(id, &bundle_error_code(&e), &e.to_string()),
     };
+    // TODO(#238): resolve the coordinator key from `coordinator_manifest`
+    // (RFC-AITP-0010 §5 step 5) and map a Manifest that does not designate
+    // `coordinator` to KEY_RESOLUTION_FAILED. Until then report that case
+    // (`bundle-007`) as unsupported so the runner SKIPs it.
+    if let Some(aid) = params
+        .get("coordinator_manifest")
+        .and_then(|m| m.get("manifest").unwrap_or(m).get("aid"))
+        .and_then(|a| a.as_str())
+    {
+        if aid != bundle.coordinator.as_str() {
+            return err(
+                id,
+                "OP_NOT_SUPPORTED",
+                "coordinator_manifest key resolution not implemented yet (#238)",
+            );
+        }
+    }
     // Spec's PLACEHOLDERS.md uses `self_aid` for the receiving
     // participant; older internal callers use `verifier_aid`.
     // Accept either.
@@ -4250,6 +4238,22 @@ mod revocation_unknown_field_tests {
             .unwrap()
             .insert("list_owner".into(), json!("team-trust"));
 
+        // B's Manifest: the delegation's issuer key source
+        // (RFC-AITP-0006 §4 step 1).
+        let b_manifest = ManifestBuilder::new(&b)
+            .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "b".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .published_at(Timestamp(1_700_000_000))
+            .ttl_secs(3600)
+            .build()
+            .unwrap();
+
         let mut state = AdapterState::default();
         // Baseline: with no `revocation_snapshots` supplied, this
         // delegation token verifies.
@@ -4260,6 +4264,7 @@ mod revocation_unknown_field_tests {
             json!({
                 "delegation_token": token,
                 "verifier_aid": a.aid().as_str(),
+                "issuer_manifests": [b_manifest],
                 "now": 1_700_000_100,
             }),
         );
@@ -4272,6 +4277,7 @@ mod revocation_unknown_field_tests {
             json!({
                 "delegation_token": token,
                 "verifier_aid": a.aid().as_str(),
+                "issuer_manifests": [b_manifest],
                 "now": 1_700_000_100,
                 "revocation_snapshots": [
                     { "issuer_aid": a.aid().as_str(), "snapshot": snapshot }

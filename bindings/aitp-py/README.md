@@ -106,7 +106,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `DelegationVerified`  | default | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf` |
 | `JwksProvider`        | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
 | `TctStore`            | default | Cache for `AitpAgent.verify_tct_cached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
-| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Takes `revoked_jtis` |
+| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None)`: verifies under the key the delegator's Manifest designates |
 | `verify_manifest_json()` / `ManifestVerificationError` | default | Raises `ManifestVerificationError` with `.code`; non-manifest input raises `ValueError` |
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |

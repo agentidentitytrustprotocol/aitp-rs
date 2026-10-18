@@ -46,13 +46,14 @@ The normative order is
 How `crates/aitp-delegation/src/verifier.rs` runs it, with the
 `DelegationError` variant each failure maps to:
 
-0. **Strict gate** (`verify_delegation`, lines 124-139). With
+0. **Strict gate** (`verify_delegation`, lines 137-160). With
    `max_delegation_hops == 0`: any `chain` claim (even `[]`) →
    `MultihopNotSupported` (`DELEGATION_MULTIHOP_NOT_SUPPORTED`); a `jti` claim
    on an otherwise single-hop token → `ClaimsMalformed`, because `jti` is not
    in the single-hop claim set (RFC-AITP-0011 §1.1). With the cap raised, a
    token with a non-empty `chain` takes the multi-hop path below; anything
-   else takes the single-hop path.
+   else takes the single-hop path, which resolves its issuer's key from the
+   same Manifest source (RFC-AITP-0006 §4 step 1).
 1. **Hop limit.** `chain.len() + 2 > max_delegation_hops` → `HopLimitExceeded`,
    before any signature work.
 2. **`chain_hash`** recomputed over the verbatim chain strings; absent or
@@ -99,35 +100,35 @@ bound key from the **outer** token's `sub`
   and every `jti`-bearing single-hop token with `ClaimsMalformed`. A single-hop
   token with neither claim verifies normally whatever the cap.
 - **Manifests are supplied, not fetched.** The verifier is synchronous and
-  does no I/O: the caller provides the hop issuers' Manifests through an
+  does no I/O: the caller provides the issuers' Manifests through an
   `aitp_manifest::ManifestResolver` (a `Vec<Manifest>`, a
   `HashMap<Aid, Manifest>`, or its own cache) and is responsible for
-  obtaining them (RFC-AITP-0007 §1 lists the sources).
-- **Single-hop still uses the AID key.** The RFC-AITP-0006 single-hop path
-  verifies the delegator's signature under the key its `aid:pubkey` AID
-  encodes and does not consult a Manifest.
+  obtaining them (RFC-AITP-0007 §1 lists the sources). Single-hop tokens
+  need the delegator's Manifest from the same source (RFC-AITP-0006 §4
+  step 1).
 - **Draft, opt-in.** Outside the v0.2 conformance gate; the `del-mh-*`
   fixtures run only with `--feature experimental-multihop-delegation`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
 
 ## SDK example
 
-The delegation token is a compact JWS string; pass it and the verifier's own
-AID to the verify call. The bindings surface failures as exceptions without a
+The delegation token is a compact JWS string; pass it, the verifier's own
+AID and the issuers' Manifests (`{"manifest": …}` envelope JSON strings) to
+the verify call. The bindings surface failures as exceptions without a
 structured code: Python raises `RuntimeError("delegation verification failed:
 multi-hop delegation is not supported")`, Node throws an `Error` with the same
 message.
 
 ```python
 # Default (strict): any token carrying a `chain` claim is rejected.
-aitp.verify_delegation(delegation_jws, verifier_aid)   # raises RuntimeError
+aitp.verify_delegation(delegation_jws, verifier_aid, issuer_manifests)   # raises RuntimeError
 
 # Multi-hop (explicit opt-in at the call site; max_delegation_hops defaults to 3):
 aitp.verify_delegation_multihop(delegation_jws, verifier_aid, issuer_manifests, 3)
 ```
 
 ```js
-verifyDelegation(delegationJws, verifierAid);              // strict
+verifyDelegation(delegationJws, verifierAid, issuerManifests);             // strict
 verifyDelegationMultihop(delegationJws, verifierAid, issuerManifests, 3);   // multi-hop
 ```
 

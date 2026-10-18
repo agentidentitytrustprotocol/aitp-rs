@@ -5,10 +5,10 @@
 use aitp_core::Timestamp;
 use aitp_crypto::testing::{MockKmsSigner, MockOutput};
 use aitp_crypto::{AitpSigner, AitpSigningKey, AitpVerifyingKey, CryptoError, SignerError};
-use aitp_delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
-};
+use aitp_delegation::{verify_delegation, DelegationBuilder, DelegationError};
 use aitp_tct::TctBuilder;
+
+mod common;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
@@ -43,7 +43,9 @@ fn kms_delegator_mints_a_verifying_delegation() {
         .now(NOW)
         .build()
         .expect("KMS-backed delegation builds");
-    let ctx = VerifyDelegationContext::new(a.aid(), Timestamp(NOW.0 + 60));
+    // B's Manifest, signed through the same KMS-shaped backend.
+    let manifests = vec![common::manifest_for(&b, NOW)];
+    let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("KMS delegation verifies");
     assert_eq!(&verified.claims.iss, b.aid());
 }
@@ -187,6 +189,7 @@ async fn async_delegation_future_is_send() {
     let a = AitpSigningKey::from_seed(&[0xA7; 32]);
     let b_kms = MockKmsSigner::new(p256(0xB8)).output(MockOutput::RandomizedDer);
     let b_aid = b_kms.aid().clone();
+    let manifests = vec![common::manifest_for(&b_kms, NOW)];
     let voucher = voucher_for(&a, &b_kms);
     let b: Arc<dyn aitp_crypto::DynAsyncAitpSigner> = Arc::new(b_kms);
     let c = AitpSigningKey::from_seed(&[0xC7; 32]);
@@ -203,7 +206,7 @@ async fn async_delegation_future_is_send() {
     .await
     .unwrap()
     .expect("async delegation builds on another task");
-    let ctx = VerifyDelegationContext::new(a.aid(), Timestamp(NOW.0 + 60));
+    let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("verifies");
     assert_eq!(verified.claims.iss, b_aid);
 }

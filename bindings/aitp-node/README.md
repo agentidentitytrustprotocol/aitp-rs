@@ -123,7 +123,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
-| `verifyDelegation(token, verifierAid, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
+| `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
 | `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |

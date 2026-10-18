@@ -2,15 +2,30 @@
 //! Phase 6b). No spec fixture pins any of this — it is gated entirely
 //! by the tests in this file.
 
-use aitp_core::{Timestamp, PROTOCOL_VERSION};
+use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey};
 use aitp_delegation::{
     verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
 };
+use aitp_manifest::Manifest;
 use aitp_tct::TctBuilder;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
+
+mod common;
+
+/// B's published Manifest: the single-hop delegator's key source
+/// (RFC-AITP-0006 §4 step 1).
+fn issuer_manifests() -> &'static Vec<Manifest> {
+    static MANIFESTS: OnceLock<Vec<Manifest>> = OnceLock::new();
+    MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
+}
+
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+    common::verify_ctx(verifier, now, issuer_manifests())
+}
 
 fn a() -> AitpSigningKey {
     AitpSigningKey::from_seed(&[0xA1; 32])
@@ -56,7 +71,7 @@ fn outer_claims_unknown_member_rejected_via_verify_delegation() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&token, &ctx).unwrap_err();
     match err {
         DelegationError::UnknownField(field) => assert_eq!(field, "rogue"),
@@ -100,7 +115,7 @@ fn outer_claims_duplicate_member_rejected_via_verify_delegation() {
     );
 
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&dup_token, &ctx).unwrap_err();
     assert!(
         matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
@@ -137,7 +152,7 @@ fn embedded_voucher_unknown_member_rejected_not_invalid_voucher() {
         "voucher": voucher_token,
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &outer_claims).unwrap();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&token, &ctx).unwrap_err();
     match err {
         DelegationError::UnknownField(field) => assert_eq!(field, "rogue"),
