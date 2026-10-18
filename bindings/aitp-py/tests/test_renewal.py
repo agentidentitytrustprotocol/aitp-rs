@@ -97,3 +97,47 @@ def test_renewal_with_wrong_holder_key_rejected():
         a.process_renewal_request(
             bad_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
         )
+
+
+def test_replayed_renewal_request_rejected():
+    a, b, b_held = _issued_pair()
+    renewal_req = b.build_renewal_request(b_held)
+    now = int(time.time())
+    a.process_renewal_request(
+        renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
+    )
+    # Same pop_nonce again: the replay guard refuses it (RFC-AITP-0004 §8.1).
+    with pytest.raises(RuntimeError, match="replay"):
+        a.process_renewal_request(
+            renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
+        )
+
+
+def test_revoked_tct_renewal_rejected():
+    a, b, b_held = _issued_pair()
+    jti = _jws_claims(b_held)["jti"]
+    now = int(time.time())
+    with pytest.raises(RuntimeError, match="revoked"):
+        a.process_renewal_request(
+            b.build_renewal_request(b_held),
+            manifest_exp_unix_secs=now + 86_400,
+            new_ttl_secs=3600,
+            revoked_jtis={jti},
+        )
+
+
+def test_withdrawn_grant_renewal_rejected():
+    a, b, b_held = _issued_pair()
+    # A's Manifest no longer offers demo.write: nothing left to renew.
+    a.build_manifest(
+        display_name="A",
+        handshake_endpoint="http://localhost:9201/aitp/handshake/",
+        offered_caps=["demo.other"],
+    )
+    now = int(time.time())
+    with pytest.raises(RuntimeError, match="renewal request rejected"):
+        a.process_renewal_request(
+            b.build_renewal_request(b_held),
+            manifest_exp_unix_secs=now + 86_400,
+            new_ttl_secs=3600,
+        )

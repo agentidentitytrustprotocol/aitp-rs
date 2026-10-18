@@ -8,7 +8,7 @@
 > `aitp-transport-http` is the **only async crate** in the workspace
 > (`reqwest`/`axum`/`tokio`); the protocol crates stay sync. Its features:
 > `client`, `server`, `client-spki-pinning` (requires `client`; off by
-> default), `experimental-renewal` (mounts `/aitp/handshake/renew`),
+> default), `experimental-renewal` (mounts the renewal route at the advertised `renew_uri`),
 > `experimental-session-bundle` (mounts the bundle routes; implies `server`)
 > and `metrics`. The `aitp` facade re-exposes a subset: `http-client`,
 > `http-server`, `all`, `experimental-renewal` and
@@ -31,7 +31,7 @@
 | `dpop.rs` | DPoP (RFC 9449) proof generation + verification, replay cache | RFC 9449 (no AITP RFC) | done | Wired into token exchange via `TokenExchangeRequest::with_dpop_proof`. See *Support status* below. |
 | `retry.rs` | Exponential backoff + jitter for idempotent outbound reads | — | done | Jitter strategy + max-attempts are configurable; keep retries to idempotent GETs only. |
 | `revocation.rs` | `RevocationCache` + `RevocationProvider`, per-issuer cache, fail modes; `EmptyRevocationProvider` for tests/dev | 0008 | done | Snapshot member-set and shape failures surface as `RevocationError::UnknownField` / `Malformed` (the `REVOCATION_SNAPSHOT_INVALID` case, RFC-AITP-0008 §1.5), distinct from `SignatureInvalid`. Keep `RevocationFailMode` default = fail-closed. |
-| `server.rs` | `ManifestServer` + `HandshakeServer` (hello/commit; `/aitp/handshake/renew` with `experimental-renewal`), `RevocationListProducer` | 0003 / 0004 / 0009 | done | Hello/commit run replay → rate limit → timestamp (RFC-AITP-0009 §3.1). Manifest structural failures map to `MANIFEST_INVALID`; unknown members to `UNKNOWN_FIELD`. Rate limiting is on by default at the RFC-AITP-0009 §3.1 values; `DEFAULT_MAX_SESSIONS` is the §3.1 1 000; `router()` starts a background session sweeper (`without_session_sweeper()` opts out). **Open:** the body cap is above the §3.1 recommendation (see [deployment](deployment.md#known-limitations)). The renew route has no replay guard, rate limit or revocation re-check, and maps every `process_renewal_request` failure to `TCT_SIGNATURE_INVALID` (parse failures map to `UNKNOWN_FIELD`/`INVALID_ENVELOPE`) ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196), see [tct-renewal](tct-renewal.md#known-limitations)). Producer must never mint a fresh empty list on backing-store failure. |
+| `server.rs` | `ManifestServer` + `HandshakeServer` (hello/commit; renewal at the advertised `renew_uri` with `experimental-renewal`), `RevocationListProducer` | 0003 / 0004 / 0009 | done | Hello/commit run replay → rate limit → timestamp (RFC-AITP-0009 §3.1). Manifest structural failures map to `MANIFEST_INVALID`; unknown members to `UNKNOWN_FIELD`. Rate limiting is on by default at the RFC-AITP-0009 §3.1 values; `DEFAULT_MAX_SESSIONS` is the §3.1 1 000; `router()` starts a background session sweeper (`without_session_sweeper()` opts out). **Open:** the body cap is above the §3.1 recommendation (see [deployment](deployment.md#known-limitations)). The renew route is rate limited and replay-guarded, re-checks revocation and grants, and maps each failure to its own code (see [tct-renewal](tct-renewal.md#server-handshakeserver)). Producer must never mint a fresh empty list on backing-store failure. |
 | `server_limits.rs` | Request body-size cap (axum-level) + header recommendations | 0009 | done | Document how the cap composes with `axum::DefaultBodyLimit`. |
 | `tls_pinning.rs` | SHA-256 SPKI pinning for outbound HTTPS | RFC 7469 | done | Behind `client-spki-pinning` (off by default — avoids pulling a rustls `CryptoProvider`). Rustdoc covers `compute_spki_hash` and a `reqwest` integration example. |
 | `token_exchange.rs` | OAuth 2.0 Token Exchange (RFC 8693): bootstrap OIDC identity from mTLS/SAML/JWT | RFC 8693 (no AITP RFC) | done | DPoP-bound exchange (`with_dpop_proof`) and the JWT → AID `cnf.jkt` binding test (`exchanged_token_binds_to_agent_aid_via_cnf_jkt`) landed in `da40242`. Composition with `KeyResolutionPolicy` for the resulting identity is not separately tested. See *Support status*. |
@@ -61,7 +61,6 @@ convenience layer outside the protocol
 
 The four items previously listed here (DPoP-bound token exchange, the
 JWT → AID mapping test, a no-op revocation provider, rustdoc examples for
-`tls_pinning` and `client_config`) were closed by `da40242`. Open now:
+`tls_pinning` and `client_config`) were closed by `da40242`. The items added since have closed too; nothing
+is open now.
 
-1. `/aitp/handshake/renew` replay, revocation and `renew_uri` gaps —
-   [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).

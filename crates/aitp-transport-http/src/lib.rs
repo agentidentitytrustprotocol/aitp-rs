@@ -46,6 +46,9 @@ mod obs;
 pub mod replay_store;
 
 #[cfg(any(feature = "client", feature = "server"))]
+pub mod renew_uri;
+
+#[cfg(any(feature = "client", feature = "server"))]
 pub mod revocation;
 
 #[cfg(feature = "server")]
@@ -120,6 +123,9 @@ pub use common::{
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use replay_store::{InMemoryReplayGuard, ReplayGuard};
+
+#[cfg(any(feature = "client", feature = "server"))]
+pub use renew_uri::{renew_uri_from_manifest, RENEW_URI_EXT};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use revocation::{

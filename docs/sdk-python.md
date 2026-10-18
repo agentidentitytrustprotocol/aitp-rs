@@ -346,11 +346,11 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
   ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
-- **Before you expose renewal:** read
-  [tct-renewal.md § Known limitations](tct-renewal.md#known-limitations).
-  That section covers request replay and the lack of revocation
-  re-evaluation, tracked in
-  [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).
+- **Policy re-evaluation (since 0.15).** The issuer must have called
+  `build_manifest()`; grants its Manifest no longer offers are dropped
+  (none left raises). Pass the issuer's revoked TCT `jti`s as
+  `revoked_jtis=` to refuse a revoked TCT. A replayed request (same
+  `pop_nonce`) raises. See [tct-renewal.md](tct-renewal.md).
 
 ### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
 

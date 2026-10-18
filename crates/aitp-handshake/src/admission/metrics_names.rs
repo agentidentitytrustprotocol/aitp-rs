@@ -21,8 +21,9 @@ pub const ADMIT_TOTAL: &str = "aitp_admission_admit_total";
 
 /// Gauge. Records held by an
 /// [`InMemoryNonceStore`](super::InMemoryNonceStore), including expired
-/// ones not yet reclaimed. Several stores in one process share it.
-pub const NONCES_OUTSTANDING: &str = "aitp_admission_nonces_outstanding";
+/// ones not yet reclaimed. Several stores in one process share it,
+/// including a TCT renewal replay guard's.
+pub const NONCES_OUTSTANDING: &str = aitp_core::nonce_store::NONCES_OUTSTANDING_GAUGE;
 
 #[cfg(feature = "metrics")]
 pub(super) fn challenge_result(r: &Result<AdmissionChallenge, AdmissionError>) -> &'static str {

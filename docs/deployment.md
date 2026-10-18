@@ -171,11 +171,10 @@ Independent of clustering, production servers/clients should set:
   `DEFAULT_MAX_BODY_BYTES` is 256 KiB (RFC: 64 KB for `MUTUAL_HELLO`).
   That is a RECOMMENDED value, so this is a weaker default, not a
   violation.
-- **The renewal route bypasses these protections.** With
-  `experimental-renewal`, `/aitp/handshake/renew` skips the replay guard, rate
-  limiter and timestamp check — see
-  [tct-renewal.md](tct-renewal.md#known-limitations)
-  ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196)).
+- **The renewal replay guard is per process.** With
+  `experimental-renewal`, the renewal route records each `pop_nonce` in an
+  in-memory store; behind several replicas, pass a shared one with
+  `with_renewal_nonce_store` — see [tct-renewal.md](tct-renewal.md#server-handshakeserver).
 - **The SSRF guard warns rather than denies by default.**
   `HostGuard::default()` is `GuardMode::WarnPrivate`: private ranges are
   logged but allowed. Internet-facing deployments should call
