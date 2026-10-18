@@ -140,7 +140,7 @@ def test_multihop_opts_past_the_hop_gate():
     tampered = _inject_multihop_chain(delegation_token)
 
     with pytest.raises(Exception) as exc:
-        aitp.verify_delegation_multihop(tampered, a.aid, 3)
+        aitp.verify_delegation_multihop(tampered, a.aid, [], 3)
     assert "multi-hop delegation is not supported" not in str(exc.value)
 
 
@@ -159,7 +159,7 @@ def test_multihop_kwarg_is_the_spec_name():
         pytest.skip("multihop-delegation feature not compiled in")
     try:
         aitp.verify_delegation_multihop(
-            "not.a.token", "aid:pubkey:AAAA", max_delegation_hops=3
+            "not.a.token", "aid:pubkey:AAAA", [], max_delegation_hops=3
         )
     except TypeError as exc:
         # A wrong kwarg name raises TypeError *before* any verification is
@@ -169,6 +169,24 @@ def test_multihop_kwarg_is_the_spec_name():
         pytest.fail(f"the hop-budget keyword is not `max_delegation_hops`: {exc}")
     except Exception:
         pass
+
+
+def test_multihop_issuer_manifests_are_parsed():
+    """`issuer_manifests` (RFC-AITP-0011 §3 step 1) takes `{"manifest": ...}`
+    envelope JSON strings; anything else is rejected up front with
+    ValueError, before any token verification."""
+    if not hasattr(aitp, "verify_delegation_multihop"):
+        pytest.skip("multihop-delegation feature not compiled in")
+    a, b, _c, delegation_token = _build_delegation_token()
+    b_manifest = b.build_manifest(
+        display_name="B",
+        handshake_endpoint="http://localhost:8101/aitp/handshake/",
+        offered_caps=[PING_CAP],
+    )
+    with pytest.raises(ValueError, match="invalid issuer manifest JSON"):
+        aitp.verify_delegation_multihop(delegation_token, a.aid, ["{}"])
+    # A well-formed Manifest is accepted; this single-hop token verifies.
+    aitp.verify_delegation_multihop(delegation_token, a.aid, [b_manifest])
 
 
 # ── Revocation (RFC-AITP-0006 §4 step 7, RFC-AITP-0011 §6) ───────────────

@@ -356,13 +356,25 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
 ### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
 
 ```python
+# Every hop verifies under the key its issuer's Manifest designates
+# (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
+alice_manifest = alice.build_manifest(
+    display_name="alice",
+    handshake_endpoint="https://alice.example/aitp/handshake/",
+    offered_caps=["demo.write"],
+)
 verified = aitp.verify_delegation_multihop(
-    delegation_jws, bob.aid, max_delegation_hops=3, revoked_jtis=revoked,
+    delegation_jws, bob.aid, [alice_manifest],
+    max_delegation_hops=3, revoked_jtis=revoked,
 )
 ```
 
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
-`max_delegation_hops` total hops, with a default of 3. A single-hop token
+`max_delegation_hops` total hops, with a default of 3. Each hop is verified
+under the key resolved from its issuer's verified Manifest
+(RFC-AITP-0011 §3 step 1), so `issuer_manifests` must hold the
+`{"manifest": …}` envelope JSON of every hop issuer; a hop whose issuer has
+none fails with `KEY_RESOLUTION_FAILED`. A single-hop token
 also verifies, and `max_delegation_hops=0` reverts to strict single-hop.
 `revoked_jtis` is applied to the root voucher's `src_jti` and to every hop's
 `jti`. See [multihop-delegation.md](multihop-delegation.md) for the

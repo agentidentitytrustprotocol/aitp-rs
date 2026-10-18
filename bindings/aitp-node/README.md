@@ -131,7 +131,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` returns a bare compact-JWS TCT |
 | `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010 |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
-| `verifyDelegationMultihop(token, verifierAid, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
 `verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
 the issuer.

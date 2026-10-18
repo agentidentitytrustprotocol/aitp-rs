@@ -119,23 +119,44 @@ pub fn verify_delegation_js(
 /// to every hop regardless of issuer. That can only reject more, never
 /// accept a revoked hop, but it does mean a list aggregated across several
 /// issuers lets any contributor revoke any hop.
+///
+/// `issuerManifests` is the hop issuers' Manifests, each a
+/// `{"manifest": {...}}` envelope JSON string. RFC-AITP-0011 §3 step 1
+/// verifies every hop under the key resolved from its issuer's verified
+/// Manifest; a hop whose issuer has no valid Manifest here fails with
+/// `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
+/// before use; when several designate one AID the newest `published_at`
+/// wins.
 #[cfg(feature = "multihop-delegation")]
 #[napi(js_name = "verifyDelegationMultihop")]
 pub fn verify_delegation_multihop_js(
     token: String,
     verifier_aid: String,
+    issuer_manifests: Vec<String>,
     max_delegation_hops: Option<u32>,
     revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
+    let manifests = issuer_manifests
+        .iter()
+        .map(|json| {
+            crate::wire::manifest(json).map_err(|e| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("invalid issuer manifest JSON: {e}"),
+                )
+            })
+        })
+        .collect::<Result<Vec<_>>>()?;
 
     let revoked = parse_revoked_set(revoked_jtis);
     let root_closure = |jti: &Uuid| revoked.contains(jti);
     let hop_closure = |_issuer: &Aid, jti: &Uuid| revoked.contains(jti);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let mut ctx =
-        VerifyDelegationContext::new(&verifier, Timestamp::now()).with_max_delegation_hops(hops);
+    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
+        .with_max_delegation_hops(hops)
+        .with_issuer_manifests(&manifests);
     if !revoked.is_empty() {
         ctx = ctx
             .with_revocation_check(&root_closure)

@@ -25,6 +25,19 @@ pub enum DelegationError {
     /// Outer signature did not verify.
     #[error("delegation signature is invalid")]
     InvalidSignature,
+    /// A multi-hop hop issuer's key could not be resolved from its
+    /// Manifest (RFC-AITP-0011 §3 step 1): no Manifest source configured
+    /// or none for this issuer ([`aitp_manifest::ManifestError::NotFound`]),
+    /// the Manifest failed RFC-AITP-0003 §5 verification, or it does not
+    /// designate the hop's `iss` ([`aitp_manifest::ManifestError::AidMismatch`]).
+    /// Wire code `KEY_RESOLUTION_FAILED` (RFC-AITP-0007 §1), retryable.
+    #[error("key resolution failed for delegation issuer {issuer}: {source}")]
+    KeyResolutionFailed {
+        /// The hop's claimed issuer.
+        issuer: aitp_core::Aid,
+        /// Why no usable Manifest was obtained.
+        source: aitp_manifest::ManifestError,
+    },
     /// Token or grant proof has expired.
     #[error("delegation token or grant proof has expired")]
     Expired,

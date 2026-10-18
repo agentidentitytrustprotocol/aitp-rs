@@ -275,9 +275,18 @@ function tctRenewal(ns) {
 
 function multihop(ns) {
   // docs/sdk-node.md § Additional capabilities › Multi-hop delegation
-  const { bob, delegationJws, revoked } = ns;
-  const verifiedMultihop = verifyDelegationMultihop(delegationJws, bob.aid, 3, revoked);
-  return { ...ns, verifiedMultihop };
+  const { alice, bob, delegationJws, revoked } = ns;
+  // Every hop verifies under the key its issuer's Manifest designates
+  // (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
+  const aliceManifest = alice.buildManifest({
+    displayName: 'alice',
+    handshakeEndpoint: 'https://alice.example/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+  });
+  const verifiedMultihop = verifyDelegationMultihop(
+    delegationJws, bob.aid, [aliceManifest], 3, revoked,
+  );
+  return { ...ns, aliceManifest, verifiedMultihop };
 }
 
 function sessionBundle(ns) {
