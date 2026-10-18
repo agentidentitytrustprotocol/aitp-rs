@@ -6,7 +6,7 @@
 # index.d.ts` — every type here SHOULD have a camelCase counterpart there
 # (and vice versa), per CLAUDE.md's binding-symmetry rule.
 
-from typing import Callable, Literal, Optional, Union
+from typing import Callable, Literal, Optional, Sequence, Union
 
 # Revoked-`jti` deny lists. The binding extracts these into a Rust
 # `HashSet<str>`, which accepts only a `set` or `frozenset` — not an
@@ -198,9 +198,13 @@ class AitpAgent:
         request_payload_json: str,
         manifest_exp_unix_secs: int,
         new_ttl_secs: int,
+        revoked_jtis: Optional[AbstractSet[str]] = None,
     ) -> str:
         """Issuer side. Returns a JSON object string
         `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
+        Requires `build_manifest()` first: grants the Manifest no longer
+        offers are dropped (none left raises). A TCT whose `jti` is in
+        `revoked_jtis`, or a replayed request, raises RuntimeError.
         Behind the `renewal` feature (on by default)."""
         ...
 
@@ -227,6 +231,7 @@ def verify_delegation(
 def verify_delegation_multihop(
     delegation_token: str,
     verifier_aid: str,
+    issuer_manifests: Sequence[str],
     max_delegation_hops: int = 3,
     revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
@@ -235,6 +240,12 @@ def verify_delegation_multihop(
     `multihop-delegation` Cargo feature); absent only in a
     `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
     single-hop.
+
+    `issuer_manifests` holds the hop issuers' Manifests, each a
+    `{"manifest": {...}}` envelope JSON string. Every hop is verified under
+    the key resolved from its issuer's verified Manifest (RFC-AITP-0011 §3
+    step 1); a hop whose issuer has no valid Manifest in the list fails
+    with `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
 
     `revoked_jtis`, when supplied, is consulted twice — both only after every
     signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
@@ -358,9 +369,15 @@ def verify_session_bundle(
     verifier_aid: str,
     now_unix_secs: Optional[int] = ...,
     revocation_check: Optional[Callable[[str], bool]] = ...,
+    coordinator_manifest_json: Optional[str] = ...,
 ) -> dict:
     """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
-    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default)."""
+    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default).
+
+    `coordinator_manifest_json` (the coordinator's `ManifestEnvelope`
+    JSON) is verified and supplies the coordinator key (RFC-AITP-0010 §5
+    step 5); when omitted the key is derived from the bundle's
+    `coordinator` AID alone."""
     ...
 
 # ── spki-pinning (Cargo feature) ────────────────────────────────

@@ -352,21 +352,35 @@ const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
   bare compact-JWS string and dropped the voucher.
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
-- **Before you expose renewal:** read
-  [tct-renewal.md § Known limitations](tct-renewal.md#known-limitations),
-  tracked in
-  [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).
+- **Policy re-evaluation (since 0.15).** The issuer must have called
+  `buildManifest()`; grants its Manifest no longer offers are dropped
+  (none left throws). Pass the issuer's revoked TCT `jti`s as the optional
+  fourth argument `revokedJtis` to refuse a revoked TCT. A replayed
+  request (same `pop_nonce`) throws. See [tct-renewal.md](tct-renewal.md).
 
 ### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
 
 ```javascript
 import { verifyDelegationMultihop } from '@agentidentitytrustprotocol/aitp';
 
-const verifiedMultihop = verifyDelegationMultihop(delegationJws, bob.aid, 3, revoked);
+// Every hop verifies under the key its issuer's Manifest designates
+// (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
+const aliceManifest = alice.buildManifest({
+  displayName: 'alice',
+  handshakeEndpoint: 'https://alice.example/aitp/handshake/',
+  offeredCaps: ['demo.write'],
+});
+const verifiedMultihop = verifyDelegationMultihop(
+  delegationJws, bob.aid, [aliceManifest], 3, revoked,
+);
 ```
 
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
-`maxDelegationHops` total hops, with a default of 3. A single-hop token also
+`maxDelegationHops` total hops, with a default of 3. Each hop is verified
+under the key resolved from its issuer's verified Manifest
+(RFC-AITP-0011 §3 step 1), so `issuerManifests` must hold the
+`{"manifest": …}` envelope JSON of every hop issuer; a hop whose issuer has
+none fails with `KEY_RESOLUTION_FAILED`. A single-hop token also
 verifies, and `0` reverts to strict single-hop. See
 [multihop-delegation.md](multihop-delegation.md).
 

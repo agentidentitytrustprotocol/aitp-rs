@@ -72,3 +72,38 @@ test(
     );
   },
 );
+
+test('replayed renewal request rejected', { skip: !HAS_RENEWAL }, () => {
+  const { a, b, bHeld } = issuedPair();
+  const req = b.buildRenewalRequest(bHeld);
+  const now = Math.floor(Date.now() / 1000);
+  a.processRenewalRequest(req, now + 86_400, 3600);
+  // Same pop_nonce again: refused (RFC-AITP-0004 §8.1).
+  assert.throws(() => a.processRenewalRequest(req, now + 86_400, 3600), /replay/);
+});
+
+test('revoked TCT renewal rejected', { skip: !HAS_RENEWAL }, () => {
+  const { a, b, bHeld } = issuedPair();
+  const { jti } = decodeJwsPayload(bHeld);
+  const now = Math.floor(Date.now() / 1000);
+  assert.throws(
+    () =>
+      a.processRenewalRequest(b.buildRenewalRequest(bHeld), now + 86_400, 3600, [jti]),
+    /revoked/,
+  );
+});
+
+test('withdrawn grant renewal rejected', { skip: !HAS_RENEWAL }, () => {
+  const { a, b, bHeld } = issuedPair();
+  // A's Manifest no longer offers demo.write: nothing left to renew.
+  a.buildManifest({
+    displayName: 'A',
+    handshakeEndpoint: 'http://localhost:9301/aitp/handshake/',
+    offeredCaps: ['demo.other'],
+  });
+  const now = Math.floor(Date.now() / 1000);
+  assert.throws(
+    () => a.processRenewalRequest(b.buildRenewalRequest(bHeld), now + 86_400, 3600),
+    /renewal request rejected/,
+  );
+});

@@ -116,9 +116,14 @@ export declare class AitpAgent {
    * fresh TCT. Returns `{ tct, grantVoucher }` — the compact-JWS TCT plus
    * its companion grant voucher (`null` when none was minted).
    *
+   * Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+   * agent's Manifest (from `buildManifest()`, required) no longer
+   * offers are dropped, a TCT whose `jti` is in `revokedJtis` is
+   * refused, and a replayed request (same `pop_nonce`) is refused.
+   *
    * Behind the `renewal` Cargo feature (on by default).
    */
-  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number): JsIssuedTct
+  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number, revokedJtis?: Array<string> | undefined | null): JsIssuedTct
 }
 
 /** Outbound handshake session — drives the initiator side. */
@@ -538,8 +543,16 @@ export declare function verifyDelegation(token: string, verifierAid: string, rev
  * to every hop regardless of issuer. That can only reject more, never
  * accept a revoked hop, but it does mean a list aggregated across several
  * issuers lets any contributor revoke any hop.
+ *
+ * `issuerManifests` is the hop issuers' Manifests, each a
+ * `{"manifest": {...}}` envelope JSON string. RFC-AITP-0011 §3 step 1
+ * verifies every hop under the key resolved from its issuer's verified
+ * Manifest; a hop whose issuer has no valid Manifest here fails with
+ * `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
+ * before use; when several designate one AID the newest `published_at`
+ * wins.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 
 /**
  * Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane
@@ -586,6 +599,10 @@ export declare function verifyRevocationList(envelopeJson: string, expectedIssue
 /**
  * Verify a `SessionBundleEnvelope` JSON. `nowUnixSecs` defaults to
  * the system clock. `revocationCheck` receives a JTI string and
- * returns true if revoked.
+ * returns true if revoked. `coordinatorManifestJson` is the
+ * coordinator's `ManifestEnvelope` JSON: when supplied it is verified
+ * and the coordinator key is resolved from it (RFC-AITP-0010 §5 step
+ * 5); when omitted the key is derived from the bundle's `coordinator`
+ * AID alone, which skips that step.
  */
-export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null): JsBundleOutcome
+export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null, coordinatorManifestJson?: string | undefined | null): JsBundleOutcome

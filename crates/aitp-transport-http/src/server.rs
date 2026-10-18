@@ -2,6 +2,8 @@
 
 use crate::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
+#[cfg(feature = "experimental-renewal")]
+use aitp_core::nonce_store::{InMemoryNonceStore, NonceStore, NonceStoreError};
 use aitp_core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
@@ -15,7 +17,7 @@ use aitp_handshake::{
 use aitp_manifest::{Manifest, ManifestEnvelope};
 use aitp_tct::RevocationListEnvelope;
 #[cfg(feature = "experimental-renewal")]
-use aitp_tct::{process_renewal_request, TctRenewalPayload};
+use aitp_tct::{process_renewal_request, RenewalContext, RenewalGrantPolicyFn, TctRenewalPayload};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -45,10 +47,11 @@ pub const DEFAULT_SESSION_TTL: Duration = Duration::from_secs(60);
 /// retained server-side. Once exceeded, the oldest sessions are evicted
 /// preemptively even if their TTL has not elapsed. This defends against
 /// a HELLO flood that would otherwise grow the session table without
-/// bound until the next sweep. 10 000 in-flight sessions covers a
-/// realistic peak for a single-host responder; operators with higher
-/// throughput should raise this via [`HandshakeServer::with_max_sessions`].
-pub const DEFAULT_MAX_SESSIONS: usize = 10_000;
+/// bound until the next sweep. 1 000 is the RFC-AITP-0009 §3.1
+/// recommended maximum of concurrent in-flight handshake sessions;
+/// operators with higher throughput should raise this via
+/// [`HandshakeServer::with_max_sessions`].
+pub const DEFAULT_MAX_SESSIONS: usize = 1_000;
 
 /// Default period for the background session sweeper. Sweep-on-request
 /// alone is insufficient: a HELLO flood that goes quiet leaves stale
@@ -56,7 +59,10 @@ pub const DEFAULT_MAX_SESSIONS: usize = 10_000;
 /// sweep evicts those entries on a bounded schedule independent of
 /// traffic. The default is half the [`DEFAULT_SESSION_TTL`] so any
 /// expired session is reclaimed within at most `TTL + period` from
-/// its creation. Disabled by [`Duration::ZERO`].
+/// its creation. The sweeper starts automatically with the router
+/// (see [`HandshakeServer::router`]); turn it off with
+/// [`HandshakeServer::without_session_sweeper`] or by passing
+/// [`Duration::ZERO`] to [`HandshakeServer::with_session_sweep_interval`].
 pub const DEFAULT_SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Path at which [`HandshakeServer::router`] serves `ListRevoked`, the
@@ -145,6 +151,26 @@ impl ManifestServer {
 pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     state: Arc<HandshakeState<R>>,
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+    #[cfg(feature = "experimental-renewal")]
+    renewal: RenewalConfig,
+}
+
+/// Issuer-side renewal settings (RFC-AITP-0004 §8.1).
+#[cfg(feature = "experimental-renewal")]
+#[derive(Clone)]
+struct RenewalConfig {
+    nonce_store: Arc<dyn NonceStore>,
+    grant_policy: Option<Arc<RenewalGrantPolicyFn>>,
+}
+
+#[cfg(feature = "experimental-renewal")]
+impl Default for RenewalConfig {
+    fn default() -> Self {
+        Self {
+            nonce_store: Arc::new(InMemoryNonceStore::default()),
+            grant_policy: None,
+        }
+    }
 }
 
 /// Sliding-window rate-limit policy for the handshake endpoint
@@ -269,6 +295,13 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// [`HandshakeServer::with_max_sessions`] can configure it after
     /// the `Arc<HandshakeState>` is already built.
     max_sessions: std::sync::atomic::AtomicUsize,
+    /// Period of the background session sweeper started by
+    /// [`HandshakeServer::router`]; `None` disables it. Under a `Mutex`
+    /// so the builder can change it on an already-`Arc`'d server.
+    session_sweep_interval: Mutex<Option<Duration>>,
+    /// Set once a sweeper task has been spawned for this state, so the
+    /// automatic start in `router()` / the first HELLO happens once.
+    sweeper_started: std::sync::atomic::AtomicBool,
     /// Replay deny list (RFC-AITP-0001 §5.5). Every accepted envelope's
     /// `message_id` is recorded for `replay_window`; a duplicate within
     /// that window is rejected with `REPLAY_DETECTED`. Backed by a
@@ -423,6 +456,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 sessions: Mutex::new(HashMap::new()),
                 session_ttl,
                 max_sessions: std::sync::atomic::AtomicUsize::new(DEFAULT_MAX_SESSIONS),
+                session_sweep_interval: Mutex::new(Some(DEFAULT_SESSION_SWEEP_INTERVAL)),
+                sweeper_started: std::sync::atomic::AtomicBool::new(false),
                 replay_guard: Mutex::new(Arc::new(crate::replay_store::InMemoryReplayGuard::new())),
                 replay_window,
                 dpop_policy: Mutex::new(None),
@@ -432,7 +467,30 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
             }),
             revocation_producer: None,
+            #[cfg(feature = "experimental-renewal")]
+            renewal: RenewalConfig::default(),
         }
+    }
+
+    /// Replace the renewal replay guard (default: a process-local
+    /// [`InMemoryNonceStore`]). Every accepted renewal `pop_nonce` is
+    /// recorded here until the presented TCT expires, and a repeat is
+    /// refused with `REPLAY_DETECTED` (RFC-AITP-0004 §8.1). Behind a
+    /// load balancer, share one store across replicas.
+    #[cfg(feature = "experimental-renewal")]
+    pub fn with_renewal_nonce_store(mut self, store: Arc<dyn NonceStore>) -> Self {
+        self.renewal.nonce_store = store;
+        self
+    }
+
+    /// Install a grant-policy hook re-run on every renewal, after the
+    /// presented grants are intersected with this server's Manifest
+    /// `offered_capabilities`. An empty result refuses the renewal with
+    /// `POLICY_VIOLATION`.
+    #[cfg(feature = "experimental-renewal")]
+    pub fn with_renewal_grant_policy(mut self, policy: Arc<RenewalGrantPolicyFn>) -> Self {
+        self.renewal.grant_policy = Some(policy);
+        self
     }
 
     /// Override the in-flight session cap (default
@@ -448,11 +506,30 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
+    /// Change the period of the background session sweeper (default
+    /// [`DEFAULT_SESSION_SWEEP_INTERVAL`]). [`Duration::ZERO`] disables
+    /// it, like [`Self::without_session_sweeper`].
+    pub fn with_session_sweep_interval(self, interval: Duration) -> Self {
+        *self.state.session_sweep_interval.lock() = (!interval.is_zero()).then_some(interval);
+        self
+    }
+
+    /// Don't start the background session sweeper. Expired sessions
+    /// are then evicted only when the next HELLO or COMMIT arrives, so
+    /// a HELLO burst that goes quiet holds memory until more traffic
+    /// comes. Use this only when something else sweeps, e.g. a manual
+    /// [`Self::spawn_session_sweeper`] with your own shutdown handling.
+    pub fn without_session_sweeper(self) -> Self {
+        *self.state.session_sweep_interval.lock() = None;
+        self
+    }
+
     /// Spawn a background task on the current Tokio runtime that
     /// periodically evicts sessions older than the configured TTL.
-    /// Without this, sweep happens only on the next request, so a
-    /// HELLO burst that goes quiet retains memory until the next
-    /// request arrives.
+    ///
+    /// [`Self::router`] already starts one at the configured interval
+    /// unless [`Self::without_session_sweeper`] was called; calling this
+    /// first replaces that automatic sweeper with one at `interval`.
     ///
     /// Returns a [`tokio::task::JoinHandle`] the caller can keep to
     /// abort the sweeper on shutdown, or `Err` if no Tokio runtime
@@ -466,25 +543,33 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         interval: Duration,
     ) -> Result<tokio::task::JoinHandle<()>, tokio::runtime::TryCurrentError> {
         let handle = tokio::runtime::Handle::try_current()?;
-        let weak = Arc::downgrade(&self.state);
-        let ttl = self.state.session_ttl;
-        let join = handle.spawn(async move {
-            let mut ticker = tokio::time::interval(interval);
-            // Don't fire a spurious immediate tick: the first call to
-            // `tick()` always returns instantly, which would log a
-            // zero-eviction sweep at startup. Consume that first tick.
-            ticker.tick().await;
-            loop {
-                ticker.tick().await;
-                let Some(state) = weak.upgrade() else {
-                    debug!("HandshakeState dropped; session sweeper exiting");
-                    return;
-                };
-                let mut sessions = state.sessions.lock();
-                sweep_expired(&mut sessions, ttl);
-            }
-        });
-        Ok(join)
+        self.state
+            .sweeper_started
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        Ok(spawn_sweeper_task(&handle, &self.state, interval))
+    }
+
+    /// Start the configured background sweeper if it is enabled, not
+    /// already running, and a Tokio runtime is current. Called from
+    /// [`Self::router`] and again from the HELLO handler, so a router
+    /// built outside a runtime still gets its sweeper once it serves.
+    fn ensure_session_sweeper(state: &Arc<HandshakeState<R>>) {
+        use std::sync::atomic::Ordering;
+        if state.sweeper_started.load(Ordering::Relaxed) {
+            return;
+        }
+        let Some(interval) = *state.session_sweep_interval.lock() else {
+            return;
+        };
+        let Ok(handle) = tokio::runtime::Handle::try_current() else {
+            return;
+        };
+        if state.sweeper_started.swap(true, Ordering::Relaxed) {
+            return;
+        }
+        // Detached: the task holds only a `Weak` and exits once the
+        // state is dropped, or with the runtime.
+        drop(spawn_sweeper_task(&handle, state, interval));
     }
 
     /// Attach a [`RevocationListProducer`] as the source of the
@@ -634,12 +719,25 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     }
 
     /// The axum router for this handshake server.
+    ///
+    /// With `experimental-renewal`, the renewal route is mounted only
+    /// when this server's Manifest advertises
+    /// `rfc-aitp-0005.renew_uri`, at that URL's path (RFC-AITP-0004
+    /// §8.1: renewal is opt-in and peers never probe a guessed path).
+    ///
+    /// Also starts the background session sweeper
+    /// ([`DEFAULT_SESSION_SWEEP_INTERVAL`] unless changed with
+    /// [`Self::with_session_sweep_interval`] or turned off with
+    /// [`Self::without_session_sweeper`]). Called outside a Tokio
+    /// runtime, the sweeper starts with the first HELLO instead.
     pub fn router(self) -> Router {
+        Self::ensure_session_sweeper(&self.state);
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
             .route("/aitp/handshake/commit", post(handle_commit::<R>));
         #[cfg(feature = "experimental-renewal")]
-        let router = router.route("/aitp/handshake/renew", post(handle_renew::<R>));
+        let renewal_route =
+            renewal_router(&self.state, &self.renewal, self.revocation_producer.clone());
         let advertised = self
             .state
             .manifest
@@ -662,22 +760,96 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 &self.state.signing_key,
             ))),
         };
-        router
+        #[allow(unused_mut)]
+        let mut router = router
             .with_state(self.state)
-            .merge(revocation_router(source))
+            .merge(revocation_router(source));
+        #[cfg(feature = "experimental-renewal")]
+        if let Some(renewal_route) = renewal_route {
+            router = router.merge(renewal_route);
+        }
+        router
     }
 }
 
-/// `POST /aitp/handshake/renew` accepts a [`TctRenewalPayload`] and
-/// returns a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
+/// State for the renewal route: the handshake state plus the renewal
+/// settings and the revocation source.
+#[cfg(feature = "experimental-renewal")]
+struct RenewalRouteState<R: JwksResolver + Send + Sync + 'static> {
+    handshake: Arc<HandshakeState<R>>,
+    config: RenewalConfig,
+    /// The issuer's own revocation list. `None`: the server serves its
+    /// default signed empty snapshot, so nothing is revoked.
+    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+}
+
+/// The renewal route, mounted at the path of the Manifest's
+/// `rfc-aitp-0005.renew_uri`, or `None` when the Manifest does not
+/// advertise one (RFC-AITP-0004 §8.1).
+#[cfg(feature = "experimental-renewal")]
+fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
+    state: &Arc<HandshakeState<R>>,
+    config: &RenewalConfig,
+    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+) -> Option<Router> {
+    // Only the path is used here, to mount this server's own route, so
+    // loopback `http` is accepted; the scheme policy is the client's.
+    let Some(uri) = crate::renew_uri::renew_uri_from_manifest(&state.manifest, true) else {
+        debug!(
+            "Manifest advertises no usable {}; renewal route not mounted",
+            crate::renew_uri::RENEW_URI_EXT
+        );
+        return None;
+    };
+    let path = uri.path().to_string();
+    if matches!(
+        path.as_str(),
+        "/aitp/handshake/hello" | "/aitp/handshake/commit" | REVOCATION_LIST_PATH
+    ) {
+        warn!(
+            "{} {uri} collides with another route; renewal route not mounted",
+            crate::renew_uri::RENEW_URI_EXT
+        );
+        return None;
+    }
+    let route_state = Arc::new(RenewalRouteState {
+        handshake: state.clone(),
+        config: config.clone(),
+        revocation_producer,
+    });
+    Some(
+        Router::new()
+            .route(&path, post(handle_renew::<R>))
+            .with_state(route_state),
+    )
+}
+
+/// `POST <renew_uri path>` accepts a [`TctRenewalPayload`] and returns
+/// a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
 /// Gated behind the `experimental-renewal` Cargo feature
 /// (RFC-AITP-0004 §8.1).
+///
+/// Each request is rate limited per source like the handshake routes
+/// (RFC-AITP-0009 §3.1), the presented TCT is checked against this
+/// server's revocation list and Manifest, its `pop_nonce` goes through
+/// the replay guard, and grants are re-evaluated against the Manifest's
+/// current `offered_capabilities` (see
+/// [`aitp_tct::process_renewal_request`]).
 #[cfg(feature = "experimental-renewal")]
-#[instrument(level = "debug", skip(state, request))]
+#[instrument(level = "debug", skip(route_state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
-    State(state): State<Arc<HandshakeState<R>>>,
+    State(route_state): State<Arc<RenewalRouteState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
+    let state = &route_state.handshake;
+    // Rate limit before any parsing (RFC-AITP-0009 §3.1). The body names
+    // no authenticated AID yet, so only the transport key applies.
+    let source_ip = request_source(state, &request);
+    if let RateLimitOutcome::DenyTooManyRequests { reason } =
+        rate_limit_check(state, source_ip, None)
+    {
+        return Err(ResponseError::too_many_requests(reason));
+    }
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -705,21 +877,34 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
             ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
         }
     })?;
+    // Our own revocation list, read fresh for each request.
+    let revoked: std::collections::HashSet<Uuid> = route_state
+        .revocation_producer
+        .as_ref()
+        .map(|p| {
+            p.current()
+                .revocation_list
+                .entries
+                .iter()
+                .map(|e| e.jti)
+                .collect()
+        })
+        .unwrap_or_default();
+    let revocation_check = move |jti: &Uuid| revoked.contains(jti);
     let now = Timestamp::now();
-    let renewed = process_renewal_request(
-        &payload,
-        &*state.signing_key,
+    let mut ctx = RenewalContext::new(
         state.manifest.expires_at,
+        &state.manifest.offered_capabilities,
+        &revocation_check,
+        &*route_state.config.nonce_store,
         now,
-        aitp_tct::DEFAULT_TCT_TTL_SECS,
-    )
-    .map_err(|e| {
-        if tct_signer_failure(&e) {
-            ResponseError::local_signer_failure(&e)
-        } else {
-            ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string())
-        }
-    })?;
+    );
+    if let Some(policy) = route_state.config.grant_policy.as_deref() {
+        ctx = ctx.grant_policy(policy);
+    }
+    let renewed = process_renewal_request(&payload, &*state.signing_key, &ctx)
+        .await
+        .map_err(|e| renewal_response_error(&e))?;
     #[derive(serde::Serialize)]
     struct RenewalResponse {
         tct: String,
@@ -731,6 +916,61 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
         grant_voucher: renewed.voucher,
     })
     .into_response())
+}
+
+/// Map a renewal failure to the response: our own signer or nonce store
+/// failing is a local 5xx, never blamed on the holder; everything else
+/// is a 400 with [`renewal_error_code`].
+#[cfg(feature = "experimental-renewal")]
+fn renewal_response_error(err: &aitp_tct::TctError) -> ResponseError {
+    match err {
+        e if tct_signer_failure(e) => ResponseError::local_signer_failure(e),
+        aitp_tct::TctError::RenewalNonceStore(store_err) => {
+            let status = match store_err {
+                NonceStoreError::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            ResponseError {
+                status,
+                code: ErrorCode::InvalidEnvelope,
+                message: format!("internal error: renewal replay guard: {store_err}"),
+                emit_envelope: true,
+            }
+        }
+        e => ResponseError::aitp(renewal_error_code(e), e.to_string()),
+    }
+}
+
+/// Map a renewal `TctError` to its registered AITP error code
+/// (RFC-AITP-0001 §5.4.3), one code per failure class rather than the
+/// blanket `TCT_SIGNATURE_INVALID` used before #196.
+#[cfg(feature = "experimental-renewal")]
+fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
+    use aitp_crypto::CryptoError;
+    use aitp_tct::TctError;
+    match err {
+        TctError::RenewalReplayed => ErrorCode::ReplayDetected,
+        TctError::RenewalNonceMalformed(_)
+        | TctError::ClaimsMalformed(_)
+        | TctError::MissingField(_)
+        | TctError::CnfMalformed
+        | TctError::EmptyGrants
+        | TctError::GrantWhitespace(_)
+        | TctError::Crypto(CryptoError::JwsMalformed(_)) => ErrorCode::InvalidEnvelope,
+        TctError::UnknownField(_) => ErrorCode::UnknownField,
+        TctError::VersionUnknown => ErrorCode::UnknownVersion,
+        TctError::Revoked => ErrorCode::TctRevoked,
+        TctError::Expired => ErrorCode::TctExpired,
+        TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
+        TctError::PopFailed => ErrorCode::PopResponseInvalid,
+        TctError::RenewalGrantsWithdrawn => ErrorCode::PolicyViolation,
+        TctError::AudienceMismatch => ErrorCode::AudienceMismatch,
+        TctError::Crypto(CryptoError::AlgMismatch(_)) => ErrorCode::TokenAlgMismatch,
+        TctError::Crypto(CryptoError::TypMismatch { .. }) => ErrorCode::TokenTypMismatch,
+        // Signature, issuer pin (a TCT this issuer did not sign), jti,
+        // self-issued / attestation marker: the token is not one of ours.
+        _ => ErrorCode::TctSignatureInvalid,
+    }
 }
 
 /// Where the `ListRevoked` route gets its snapshot.
@@ -821,6 +1061,8 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     State(state): State<Arc<HandshakeState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
+    // No-op once running; covers a router built outside a runtime.
+    HandshakeServer::<R>::ensure_session_sweeper(&state);
     let source_ip = request_source(&state, &request);
     let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
     enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
@@ -1547,6 +1789,34 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     }
 }
 
+/// The session sweeper loop shared by [`HandshakeServer::spawn_session_sweeper`]
+/// and the automatic start. Holds only a `Weak` to the state, so it
+/// exits on the first tick after the server is dropped.
+fn spawn_sweeper_task<R: JwksResolver + Send + Sync + 'static>(
+    handle: &tokio::runtime::Handle,
+    state: &Arc<HandshakeState<R>>,
+    interval: Duration,
+) -> tokio::task::JoinHandle<()> {
+    let weak = Arc::downgrade(state);
+    let ttl = state.session_ttl;
+    handle.spawn(async move {
+        let mut ticker = tokio::time::interval(interval);
+        // Don't fire a spurious immediate tick: the first call to
+        // `tick()` always returns instantly, which would log a
+        // zero-eviction sweep at startup. Consume that first tick.
+        ticker.tick().await;
+        loop {
+            ticker.tick().await;
+            let Some(state) = weak.upgrade() else {
+                debug!("HandshakeState dropped; session sweeper exiting");
+                return;
+            };
+            let mut sessions = state.sessions.lock();
+            sweep_expired(&mut sessions, ttl);
+        }
+    })
+}
+
 fn sweep_expired(sessions: &mut HashMap<Uuid, SessionEntry>, ttl: Duration) {
     let now = Instant::now();
     let before = sessions.len();
@@ -1589,6 +1859,10 @@ fn evict_oldest_to_capacity<V>(
         cap, "evicted oldest in-flight sessions to enforce max_sessions cap"
     );
 }
+
+#[cfg(test)]
+#[path = "server_sweeper_tests.rs"]
+mod sweeper_tests;
 
 #[cfg(test)]
 mod tests {

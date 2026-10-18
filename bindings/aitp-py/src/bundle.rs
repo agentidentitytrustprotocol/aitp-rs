@@ -7,8 +7,8 @@ use std::sync::Arc;
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_session_bundle::{
-    verify_session_bundle, BundleOutcome, ParticipantEntry, SessionBundleBuilder,
-    SessionBundleEnvelope, VerifySessionBundleContext,
+    verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
+    SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -112,12 +112,18 @@ impl PySessionBundleBuilder {
 ///
 /// `revocation_check` is an optional callable that receives a TCT jti
 /// (UUID string) and returns True if revoked.
+///
+/// `coordinator_manifest_json` is the coordinator's `ManifestEnvelope`
+/// JSON. When supplied it is verified and the coordinator key is resolved
+/// from it (RFC-AITP-0010 §5 step 5); when omitted the key is derived
+/// from the bundle's `coordinator` AID alone, which skips that step.
 #[pyfunction]
 #[pyo3(name = "verify_session_bundle", signature = (
     bundle_envelope_json,
     verifier_aid,
     now_unix_secs = None,
     revocation_check = None,
+    coordinator_manifest_json = None,
 ))]
 pub fn verify_session_bundle_py<'py>(
     py: Python<'py>,
@@ -125,9 +131,14 @@ pub fn verify_session_bundle_py<'py>(
     verifier_aid: &str,
     now_unix_secs: Option<i64>,
     revocation_check: Option<Py<PyAny>>,
+    coordinator_manifest_json: Option<&str>,
 ) -> PyResult<Bound<'py, PyDict>> {
     let bundle = wire::session_bundle(bundle_envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid bundle envelope JSON: {e}")))?;
+    let coordinator_manifest = coordinator_manifest_json
+        .map(wire::manifest)
+        .transpose()
+        .map_err(|e| PyValueError::new_err(format!("invalid coordinator manifest JSON: {e}")))?;
     let verifier = Aid::parse(verifier_aid)
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
@@ -155,6 +166,10 @@ pub fn verify_session_bundle_py<'py>(
             verifier_aid: &verifier,
             now,
             revocation_check: cb_fn.as_deref().map(|b: &dyn Fn(&Uuid) -> bool| b),
+            coordinator_key: match &coordinator_manifest {
+                Some(m) => CoordinatorKeySource::Manifest(m),
+                None => CoordinatorKeySource::UnverifiedAidDangerous,
+            },
         },
     )
     .map_err(|e| PyRuntimeError::new_err(format!("bundle verification failed: {e}")))?;

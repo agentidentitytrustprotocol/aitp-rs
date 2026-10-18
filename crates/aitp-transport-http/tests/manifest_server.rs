@@ -46,7 +46,7 @@ async fn round_trip_manifest_server() {
     // Give the server a moment to start.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let url: Url = format!("http://localhost:{}", port).parse().unwrap();
     let fetched = fetcher.fetch(&url).await.unwrap();
     assert_eq!(fetched.aid, manifest.aid);

@@ -6,13 +6,16 @@
 //! `chain[0]`; C extends to D (-004) as the outer token D presents
 //! to A. Total hops = 3.
 
-use aitp_core::{Timestamp, PROTOCOL_VERSION};
+use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey};
 use aitp_delegation::{
     compute_chain_hash, verify_delegation, DelegationBuilder, DelegationError,
     VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
+use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
 use aitp_tct::TctBuilder;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -70,9 +73,51 @@ fn outer(h1: &str) -> String {
         .unwrap()
 }
 
+fn mallory() -> AitpSigningKey {
+    AitpSigningKey::from_seed(&[0xE1; 32])
+}
+fn e() -> AitpSigningKey {
+    AitpSigningKey::from_seed(&[0xE7; 32])
+}
+
+/// `key`'s published Manifest, valid for `ttl_secs` from `published_at`.
+fn manifest_with_ttl(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> Manifest {
+    ManifestBuilder::new(key)
+        .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "agent".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .published_at(published_at)
+        .ttl_secs(ttl_secs)
+        .build()
+        .unwrap()
+}
+
+fn manifest_for(key: &AitpSigningKey, published_at: Timestamp) -> Manifest {
+    manifest_with_ttl(key, published_at, 86_400)
+}
+
+/// Every potential hop issuer's Manifest (RFC-AITP-0011 §3 step 1),
+/// including the off-path keys some rejection tests sign with, so each
+/// test still reaches the check it targets.
+fn issuer_manifests() -> &'static Vec<Manifest> {
+    static MANIFESTS: OnceLock<Vec<Manifest>> = OnceLock::new();
+    MANIFESTS.get_or_init(|| {
+        [b(), c(), d(), mallory(), e()]
+            .iter()
+            .map(|k| manifest_for(k, NOW))
+            .collect()
+    })
+}
+
 fn multihop_ctx(verifier: &aitp_core::Aid) -> VerifyDelegationContext<'_> {
     VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60))
         .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+        .with_issuer_manifests(issuer_manifests())
 }
 
 #[test]
@@ -167,7 +212,7 @@ fn truncated_chain_rejected() {
     // expressible: the outer (D→E) carries chain [h1, h2]; dropping h1
     // (the most restrictive hop) while keeping chain_hash must die on
     // the digest-array commitment.
-    let e = AitpSigningKey::from_seed(&[0xE7; 32]);
+    let e = e();
     let h1 = hop1(); // B→C, chain-extensible
     let h2 = DelegationBuilder::extending(&c(), &h1)
         .unwrap()
@@ -189,7 +234,8 @@ fn truncated_chain_rejected() {
         .unwrap();
     let a_key = a();
     let full_ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(4);
+        .with_max_delegation_hops(4)
+        .with_issuer_manifests(issuer_manifests());
     verify_delegation(&outer4, &full_ctx)
         .expect("4-hop chain verifies under max_delegation_hops=4");
 
@@ -243,7 +289,7 @@ fn voucher_on_chained_outer_token_rejected() {
 #[test]
 fn continuity_break_rejected() {
     // Outer token issued by an agent that is NOT chain[0].sub.
-    let mallory = AitpSigningKey::from_seed(&[0xE1; 32]);
+    let mallory = mallory();
     let h1 = hop1();
     let claims = serde_json::json!({
         "ver": PROTOCOL_VERSION,
@@ -330,6 +376,130 @@ fn revoked_mid_chain_hop_rejected() {
     ));
 }
 
+// ─────────────── issuer key from the issuer's Manifest ───────────────
+// RFC-AITP-0011 §3 step 1: each hop verifies under `h.iss`'s public key
+// "resolved from that issuer's Manifest", not merely the key the AID
+// encodes.
+
+fn ctx_with<'a>(
+    verifier: &'a Aid,
+    resolver: &'a dyn aitp_manifest::ManifestResolver,
+) -> VerifyDelegationContext<'a> {
+    VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+        .with_issuer_manifests(resolver)
+}
+
+/// Unwrap a `KeyResolutionFailed` for `issuer` and return its cause.
+fn key_resolution_cause(err: DelegationError, issuer: &Aid) -> ManifestError {
+    match err {
+        DelegationError::KeyResolutionFailed {
+            issuer: got,
+            source,
+        } => {
+            assert_eq!(&got, issuer);
+            source
+        }
+        other => panic!("expected KeyResolutionFailed, got {other:?}"),
+    }
+}
+
+#[test]
+fn multihop_without_manifest_source_rejected() {
+    let token = outer(&hop1());
+    let a_key = a();
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
+    // chain[0] is verified first; its issuer is B.
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err(), b().aid());
+    assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
+}
+
+#[test]
+fn hop_issuer_manifest_unavailable_rejected() {
+    // B's Manifest is available; C's (the outer token's issuer) is not.
+    let token = outer(&hop1());
+    let only_b = vec![manifest_for(&b(), NOW)];
+    let a_key = a();
+    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &only_b)).unwrap_err();
+    let cause = key_resolution_cause(err, c().aid());
+    assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
+}
+
+#[test]
+fn hop_key_not_designated_by_issuer_manifest_rejected() {
+    // chain[0] is signed by the key B's AID encodes, but the Manifest
+    // served for B designates a different (rotated, RFC-AITP-0003 §8.1)
+    // key. The AID-embedded key alone MUST NOT verify the hop.
+    let token = outer(&hop1());
+    let rotated_b = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let resolver: HashMap<Aid, Manifest> = HashMap::from([
+        (b().aid().clone(), manifest_for(&rotated_b, NOW)),
+        (c().aid().clone(), manifest_for(&c(), NOW)),
+    ]);
+    let a_key = a();
+    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &resolver)).unwrap_err();
+    let cause = key_resolution_cause(err, b().aid());
+    assert!(matches!(cause, ManifestError::AidMismatch), "got {cause:?}");
+}
+
+#[test]
+fn hop_issuer_manifest_must_verify() {
+    let token = outer(&hop1());
+    let a_key = a();
+
+    // Expired: C's Manifest lapsed before the verification time.
+    let stale_c = manifest_with_ttl(&c(), Timestamp(NOW.0 - 120), 60);
+    let manifests = vec![manifest_for(&b(), NOW), stale_c];
+    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
+    let cause = key_resolution_cause(err, c().aid());
+    assert!(matches!(cause, ManifestError::Expired), "got {cause:?}");
+
+    // Forged: B's Manifest body altered after signing.
+    let mut forged_b = manifest_for(&b(), NOW);
+    forged_b.display_name = Some("not what B signed".into());
+    let manifests = vec![forged_b, manifest_for(&c(), NOW)];
+    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
+    let cause = key_resolution_cause(err, b().aid());
+    assert!(
+        matches!(cause, ManifestError::SignatureInvalid),
+        "got {cause:?}"
+    );
+}
+
+#[test]
+fn hop_signed_by_other_key_is_invalid_signature() {
+    // C's Manifest resolves, but the outer token claiming `iss = C` was
+    // signed by someone else: DELEGATION_INVALID_SIGNATURE.
+    let payload = jws::decode_payload_unverified(&outer(&hop1())).unwrap();
+    let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+    let forged = jws::sign_compact(&mallory(), jws::TYP_DELEGATION, &claims).unwrap();
+    let a_key = a();
+    let err = verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err();
+    assert!(
+        matches!(err, DelegationError::InvalidSignature),
+        "got {err:?}"
+    );
+}
+
+#[test]
+fn single_hop_does_not_consult_manifests() {
+    // The single-hop path (RFC-AITP-0006) is unchanged: an empty source
+    // does not reject a plain B → C delegation under multi-hop opt-in.
+    let token = DelegationBuilder::new(&b(), &voucher_for_b())
+        .unwrap()
+        .delegatee(c().aid().clone())
+        .scope(["read_data"])
+        .ttl_secs(600)
+        .now(NOW)
+        .build()
+        .unwrap();
+    let none: Vec<Manifest> = Vec::new();
+    let a_key = a();
+    verify_delegation(&token, &ctx_with(a_key.aid(), &none))
+        .expect("single-hop verifies without Manifests");
+}
+
 // ───────────────────────── spec KAT vectors ─────────────────────────
 
 fn kat_vectors() -> serde_json::Value {
@@ -370,8 +540,20 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
     );
 
     // Full multi-hop verification at a time inside every hop's window.
+    // The hop issuers B (kat-keypair-002) and C (kat-keypair-003) each
+    // publish a Manifest (RFC-AITP-0011 §3 step 1).
+    let mut kat_002_seed = [0u8; 32];
+    for (i, byte) in kat_002_seed.iter_mut().enumerate() {
+        *byte = i as u8;
+    }
+    let published = Timestamp(1_711_900_000);
+    let manifests = vec![
+        manifest_for(&AitpSigningKey::from_seed(&kat_002_seed), published),
+        manifest_for(&AitpSigningKey::from_seed(&[0xffu8; 32]), published),
+    ];
     let ctx = VerifyDelegationContext::new(verifier.aid(), Timestamp(1_711_900_100))
-        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+        .with_issuer_manifests(&manifests);
     let verified = verify_delegation(outer_token, &ctx).expect("spec chain KAT verifies");
     assert_eq!(verified.claims.scope, vec!["macp.mode.task.v1".to_string()]);
     assert_eq!(

@@ -1324,6 +1324,7 @@ fn manifest_error_code(e: &aitp_manifest::ManifestError) -> String {
         // its dedicated code if the match were ever reordered.
         UnknownField(_) => "UNKNOWN_FIELD",
         Malformed(_) => "MANIFEST_INVALID",
+        NotFound => "MANIFEST_NOT_FOUND",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -1769,8 +1770,13 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     } else {
         0
     };
+    let issuer_manifests = match delegation_issuer_manifests(&params, now) {
+        Ok(m) => m,
+        Err((code, msg)) => return err(id, &code, &msg),
+    };
     let mut ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, now)
-        .with_max_delegation_hops(max_delegation_hops);
+        .with_max_delegation_hops(max_delegation_hops)
+        .with_issuer_manifests(&issuer_manifests);
     if let Some(check) = revocation_check {
         ctx = ctx.with_revocation_check(check);
     }
@@ -1785,6 +1791,63 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         }),
         Err(e) => err(id, &delegation_error_code(&e), &e.to_string()),
     }
+}
+
+/// The Manifest source for multi-hop hop verification (RFC-AITP-0011 §3
+/// step 1: each hop verifies under the key resolved from its issuer's
+/// Manifest).
+///
+/// - Any `issuer_manifests` the request carries (each a Manifest or a
+///   `{"manifest": …}` envelope), parsed with the §7 member check.
+/// - The Manifest each kat-keypair agent publishes. The spec's `del-mh-*`
+///   fixtures carry no Manifests — their hop issuers are kat-keypair-002
+///   and -003 — so the adapter plays those agents' publication, the same
+///   way `verify_handshake_payload_op` synthesizes the verifier's own.
+///   A supplied Manifest for the same AID with a newer `published_at`
+///   overrides the synthesized one (`[Manifest]` resolver semantics).
+fn delegation_issuer_manifests(
+    params: &Value,
+    now: Timestamp,
+) -> Result<Vec<Manifest>, (String, String)> {
+    let mut manifests = Vec::new();
+    for v in params
+        .get("issuer_manifests")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+    {
+        let m = v.get("manifest").unwrap_or(v);
+        let parsed = aitp_manifest::parse_manifest_wire(&checked(m))
+            .map_err(|e| (manifest_error_code(&e), format!("issuer_manifests[]: {e}")))?;
+        manifests.push(parsed);
+    }
+    for aid in [
+        "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+        "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
+    ] {
+        let Some(seed) = kat_seed_for_aid(aid) else {
+            continue;
+        };
+        let key = AitpSigningKey::from_seed(&seed);
+        let manifest = ManifestBuilder::new(&key)
+            .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "conformance-agent".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .ttl_secs(3600)
+            // One second before `now` so a supplied Manifest published
+            // at `now` wins the resolver's newest-`published_at` rule.
+            .published_at(Timestamp(now.0 - 1))
+            .build()
+            .map_err(|e| ("INTERNAL_ERROR".to_string(), format!("kat manifest: {e}")))?;
+        manifests.push(manifest);
+    }
+    Ok(manifests)
 }
 
 fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
@@ -1814,6 +1877,10 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         // in aitp-delegation) — hence DELEGATION_INVALID_VOUCHER.
         Crypto(c) => return crypto_error_code(c, "DELEGATION_INVALID_VOUCHER"),
         UnknownField(_) => "UNKNOWN_FIELD",
+        // RFC-AITP-0011 §3 step 1 + RFC-AITP-0007 §1: a hop issuer's
+        // Manifest could not be obtained, did not verify, or does not
+        // designate the issuer's AID.
+        KeyResolutionFailed { .. } => "KEY_RESOLUTION_FAILED",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -3217,7 +3284,9 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
 }
 
 fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
-    use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+    use aitp_session_bundle::{
+        verify_session_bundle, BundleOutcome, CoordinatorKeySource, VerifySessionBundleContext,
+    };
 
     // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
     // `signature` is a member of the inner body (spec commit 45b5ef978e13
@@ -3290,10 +3359,26 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         Some(&check)
     };
+    // RFC-AITP-0010 §5 step 5: an optional `coordinator_manifest`
+    // (bare body or `{"manifest": …}` envelope) is verified and used as
+    // the coordinator key source. The `bundle-*` fixtures carry none, so
+    // its absence falls back to the AID-derived key.
+    let coordinator_manifest = match params.get("coordinator_manifest") {
+        Some(v) => match aitp_manifest::parse_manifest_wire(&checked(v)) {
+            Ok(m) => Some(m),
+            Err(e) => return err(id, &manifest_error_code(&e), &e.to_string()),
+        },
+        None => None,
+    };
+    let coordinator_key = match &coordinator_manifest {
+        Some(m) => CoordinatorKeySource::Manifest(m),
+        None => CoordinatorKeySource::UnverifiedAidDangerous,
+    };
     let ctx = VerifySessionBundleContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
+        coordinator_key,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {
@@ -3342,6 +3427,8 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         AudienceMismatch => "BUNDLE_AUDIENCE_MISMATCH",
         NotMember => "BUNDLE_NOT_MEMBER",
         EmptyParticipants => "BUNDLE_EMPTY_PARTICIPANTS",
+        CoordinatorManifest(e) => return manifest_error_code(e),
+        CoordinatorManifestMismatch => "SESSION_BUNDLE_INVALID",
         MissingField(_) => "INVALID_REQUEST",
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
@@ -3586,6 +3673,18 @@ mod error_code_mapping_tests {
         assert_eq!(
             delegation_error_code(&DelegationError::UnknownField("rogue".into())),
             "UNKNOWN_FIELD"
+        );
+        // RFC-AITP-0011 §3 step 1: a hop issuer's Manifest is unavailable
+        // or does not designate its key — no fixture covers this.
+        assert_eq!(
+            delegation_error_code(&DelegationError::KeyResolutionFailed {
+                issuer: aitp_core::Aid::parse(
+                    "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik"
+                )
+                .unwrap(),
+                source: ManifestError::NotFound,
+            }),
+            "KEY_RESOLUTION_FAILED"
         );
     }
 

@@ -37,7 +37,7 @@ async fn malformed_json_response_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -77,7 +77,7 @@ async fn malformed_json_with_correct_content_type_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -104,7 +104,7 @@ async fn non_2xx_upstream_status_returned() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -147,7 +147,9 @@ async fn oversized_response_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_max_bytes(64 * 1024);
+    let fetcher = ManifestFetcher::new()
+        .with_insecure_localhost(true)
+        .with_max_bytes(64 * 1024);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -209,7 +211,7 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -268,7 +270,7 @@ async fn duplicate_top_level_key_in_manifest_body_is_rejected_not_silently_accep
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -296,7 +298,7 @@ async fn malformed_wrapper_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -364,7 +366,7 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -384,7 +386,9 @@ async fn timeout_when_server_hangs() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     // Hold the listener; do not call accept.
-    let fetcher = ManifestFetcher::new().with_timeout(Duration::from_millis(150));
+    let fetcher = ManifestFetcher::new()
+        .with_insecure_localhost(true)
+        .with_timeout(Duration::from_millis(150));
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -425,7 +429,7 @@ async fn redirects_are_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -486,6 +490,34 @@ async fn guard_mode_decides_loopback_domain_over_https() {
     assert!(
         matches!(strict_err, FetchError::InsecureUrl),
         "strict guard should reject loopback, got: {strict_err:?}"
+    );
+}
+
+#[tokio::test]
+async fn insecure_localhost_refused_by_default() {
+    // #198: the dev exception is opt-in; a default fetcher treats
+    // `http://localhost` like any other plain-HTTP origin
+    // (RFC-AITP-0003 §4.1).
+    for origin in ["http://localhost:1", "http://127.0.0.1:1"] {
+        let url: Url = origin.parse().unwrap();
+        let err = ManifestFetcher::new().fetch(&url).await.unwrap_err();
+        assert!(
+            matches!(err, FetchError::InsecureUrl),
+            "expected InsecureUrl for {origin} by default, got: {err:?}"
+        );
+    }
+}
+
+#[tokio::test]
+async fn insecure_localhost_opt_in_allows_dev_origin() {
+    // Nothing listens on port 1: with the opt-in the scheme check
+    // passes and the fetch fails at connect, not as InsecureUrl.
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let url: Url = "http://127.0.0.1:1".parse().unwrap();
+    let err = fetcher.fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(err, FetchError::Network(_) | FetchError::Timeout),
+        "opt-in should get past the scheme check, got: {err:?}"
     );
 }
 

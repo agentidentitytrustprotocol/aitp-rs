@@ -346,22 +346,34 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
   ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
-- **Before you expose renewal:** read
-  [tct-renewal.md § Known limitations](tct-renewal.md#known-limitations).
-  That section covers request replay and the lack of revocation
-  re-evaluation, tracked in
-  [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).
+- **Policy re-evaluation (since 0.15).** The issuer must have called
+  `build_manifest()`; grants its Manifest no longer offers are dropped
+  (none left raises). Pass the issuer's revoked TCT `jti`s as
+  `revoked_jtis=` to refuse a revoked TCT. A replayed request (same
+  `pop_nonce`) raises. See [tct-renewal.md](tct-renewal.md).
 
 ### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
 
 ```python
+# Every hop verifies under the key its issuer's Manifest designates
+# (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
+alice_manifest = alice.build_manifest(
+    display_name="alice",
+    handshake_endpoint="https://alice.example/aitp/handshake/",
+    offered_caps=["demo.write"],
+)
 verified = aitp.verify_delegation_multihop(
-    delegation_jws, bob.aid, max_delegation_hops=3, revoked_jtis=revoked,
+    delegation_jws, bob.aid, [alice_manifest],
+    max_delegation_hops=3, revoked_jtis=revoked,
 )
 ```
 
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
-`max_delegation_hops` total hops, with a default of 3. A single-hop token
+`max_delegation_hops` total hops, with a default of 3. Each hop is verified
+under the key resolved from its issuer's verified Manifest
+(RFC-AITP-0011 §3 step 1), so `issuer_manifests` must hold the
+`{"manifest": …}` envelope JSON of every hop issuer; a hop whose issuer has
+none fails with `KEY_RESOLUTION_FAILED`. A single-hop token
 also verifies, and `max_delegation_hops=0` reverts to strict single-hop.
 `revoked_jtis` is applied to the root voucher's `src_jti` and to every hop's
 `jti`. See [multihop-delegation.md](multihop-delegation.md) for the
@@ -386,13 +398,16 @@ outcome = aitp.verify_session_bundle(
 )
 ```
 
-`verify_session_bundle(bundle_envelope_json, verifier_aid, now_unix_secs=None, revocation_check=None)`
+`verify_session_bundle(bundle_envelope_json, verifier_aid, now_unix_secs=None, revocation_check=None, coordinator_manifest_json=None)`
 returns `{"kind": "clear" | "degraded", "active_aids": [...], "dropped_aids": [...]}`.
 `revocation_check` is called with each participant TCT's `jti` and returns
 `True` if that TCT is revoked. A revoked participant is dropped, and `kind`
 becomes `degraded`. If the callback raises or returns a non-bool, the
 participant is treated as **not** revoked (fail-open,
-`bindings/aitp-py/src/bundle.rs:146-149`), so keep it total. See [session-bundle.md](session-bundle.md).
+`bindings/aitp-py/src/bundle.rs:146-149`), so keep it total. Pass the coordinator's `{"manifest": …}` envelope as
+`coordinator_manifest_json` to verify it and resolve the coordinator key from
+it (RFC-AITP-0010 §5 step 5); without it the key comes from the coordinator
+AID alone. See [session-bundle.md](session-bundle.md).
 
 ### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 

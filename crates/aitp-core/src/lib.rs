@@ -12,6 +12,8 @@
 //! - The [`UnknownField`] member-set checker for RFC-AITP-0001 §7, and
 //!   [`CheckedJson`], the duplicate-key-checked input every `parse_*_wire`
 //!   function takes (RFC-AITP-0001 §5.4.5).
+//! - The [`nonce_store::NonceStore`] single-use nonce store trait and its
+//!   in-memory implementation (pinned-key admission, TCT renewal).
 //!
 //! Higher-level protocol crates (`aitp-manifest`, `aitp-tct`, `aitp-handshake`,
 //! `aitp-delegation`) build on these primitives.
@@ -26,6 +28,7 @@ pub mod error;
 pub mod extensions;
 pub mod ids;
 pub mod jcs;
+pub mod nonce_store;
 pub mod raw_url;
 pub mod time;
 pub mod unknown_field;

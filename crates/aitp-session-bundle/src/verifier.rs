@@ -5,8 +5,30 @@ use crate::error::SessionBundleError;
 use crate::types::SessionTrustBundle;
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
+use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use aitp_tct::{verify_tct, TctError, TctVerifyContext};
 use uuid::Uuid;
+
+/// How [`verify_session_bundle`] resolves the coordinator's public key
+/// (RFC-AITP-0010 §5 step 5).
+#[derive(Clone, Copy)]
+pub enum CoordinatorKeySource<'a> {
+    /// The coordinator's Manifest, as fetched by the caller (for example
+    /// with `aitp_transport_http::ManifestFetcher::fetch`). The verifier
+    /// re-runs [`aitp_manifest::verify_manifest`] on it (RFC-AITP-0003 §5),
+    /// requires `manifest.aid == bundle.coordinator`, and resolves the key
+    /// from `manifest.aid`. The Manifest's `expires_at` also caps every
+    /// embedded TCT's `exp` (RFC-AITP-0005 §10.4), since the coordinator
+    /// is their issuer.
+    Manifest(&'a Manifest),
+    /// Skip the Manifest step and derive the key from the
+    /// `bundle.coordinator` AID alone. **Not RFC-AITP-0010 §5 step 5
+    /// conformant**: nothing establishes that the coordinator publishes a
+    /// valid, unexpired Manifest. Only for callers that have no Manifest
+    /// to hand (offline verification, the conformance fixtures, which
+    /// carry none).
+    UnverifiedAidDangerous,
+}
 
 /// Inputs for [`verify_session_bundle`].
 pub struct VerifySessionBundleContext<'a> {
@@ -18,10 +40,12 @@ pub struct VerifySessionBundleContext<'a> {
     pub now: Timestamp,
     /// Optional revocation lookup against the verifier's deny list.
     /// Returns `true` if the JTI is revoked. Per-pair degradation
-    /// (RFC-AITP-0010 §6): a revoked participant is dropped from the
+    /// (RFC-AITP-0010 §7): a revoked participant is dropped from the
     /// active set, but the bundle as a whole remains usable so long
     /// as the verifier's own TCT is still valid.
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
+    /// Where the coordinator's key comes from (§5 step 5).
+    pub coordinator_key: CoordinatorKeySource<'a>,
 }
 
 /// Outcome of verifying a Session Trust Bundle.
@@ -47,18 +71,25 @@ pub enum BundleOutcome {
     },
 }
 
-/// Verify a session bundle.
+/// Verify a session bundle, in RFC-AITP-0010 §5 order:
 ///
-/// Order of checks:
+/// 0. Member-set check — done by the wire parser
+///    ([`crate::parse_session_bundle_wire`]) before this runs.
 /// 1. `version == "aitp/0.2"`.
 /// 2. `expires_at` not in the past.
-/// 3. `expires_at == min(participants[*].tct.expires_at)` invariant.
-/// 4. Verifier's AID is present in `participants[]`.
-/// 5. Outer bundle signature against `coordinator`'s key.
-/// 6. Each participant TCT: issuer == coordinator, audience == entry.aid,
-///    [`verify_tct`] passes.
-/// 7. Per-pair revocation degradation: if any TCT JTI is in the deny
-///    list, that participant is dropped from `active_aids`.
+/// 3. `expires_at == min(participants[*].tct.exp)` invariant. Vacuous on
+///    an empty `participants` array (there is no minimum to exceed), so
+///    an empty bundle is reported by step 4.
+/// 4. `participants` non-empty.
+/// 5. Coordinator key resolution per [`CoordinatorKeySource`]: verify
+///    the coordinator's Manifest (RFC-AITP-0003 §5) and resolve the key
+///    from `manifest.aid`.
+/// 6. Outer bundle signature against that key.
+/// 7. Each participant TCT: issuer == coordinator, audience == entry.aid,
+///    [`verify_tct`] passes. Per-pair revocation (§7): a revoked TCT's
+///    participant is dropped from `active_aids`, not an error.
+/// 8. Verifier's AID is present in `participants[]` (its TCT's `aud`
+///    was pinned to that AID in step 7).
 pub fn verify_session_bundle(
     bundle: &SessionTrustBundle,
     ctx: &VerifySessionBundleContext<'_>,
@@ -73,14 +104,10 @@ pub fn verify_session_bundle(
         return Err(SessionBundleError::Expired);
     }
 
-    if bundle.participants.is_empty() {
-        return Err(SessionBundleError::EmptyParticipants);
-    }
-
     // 3. Expiry-window invariant against the (still-unverified) claim
     // peeks — the embedded token strings become coordinator-attested
-    // once the outer signature verifies in step 5, and each is then
-    // fully verified in step 6.
+    // once the outer signature verifies in step 6, and each is then
+    // fully verified in step 7.
     let mut computed_min: Option<Timestamp> = None;
     for p in &bundle.participants {
         let exp = peek_tct_claims(&p.tct)?.exp;
@@ -89,22 +116,36 @@ pub fn verify_session_bundle(
             _ => exp,
         });
     }
-    let computed_min = computed_min.ok_or(SessionBundleError::EmptyParticipants)?;
-    if computed_min.0 != bundle.expires_at.0 {
-        return Err(SessionBundleError::ExpiryWindowInvariant);
+    if let Some(computed_min) = computed_min {
+        if computed_min.0 != bundle.expires_at.0 {
+            return Err(SessionBundleError::ExpiryWindowInvariant);
+        }
     }
 
     // 4.
-    let verifier_present = bundle
-        .participants
-        .iter()
-        .any(|p| &p.aid == ctx.verifier_aid);
-    if !verifier_present {
-        return Err(SessionBundleError::NotMember);
+    if bundle.participants.is_empty() {
+        return Err(SessionBundleError::EmptyParticipants);
     }
 
-    // 5. Outer signature.
-    let coord_key = AitpVerifyingKey::from_aid(&bundle.coordinator)?;
+    // 5. Coordinator key resolution.
+    let (coord_key, coordinator_manifest_expires_at) = match ctx.coordinator_key {
+        CoordinatorKeySource::Manifest(manifest) => {
+            verify_manifest(manifest, &VerifyManifestContext { now: ctx.now })
+                .map_err(SessionBundleError::CoordinatorManifest)?;
+            if manifest.aid != bundle.coordinator {
+                return Err(SessionBundleError::CoordinatorManifestMismatch);
+            }
+            (
+                AitpVerifyingKey::from_aid(&manifest.aid)?,
+                Some(manifest.expires_at),
+            )
+        }
+        CoordinatorKeySource::UnverifiedAidDangerous => {
+            (AitpVerifyingKey::from_aid(&bundle.coordinator)?, None)
+        }
+    };
+
+    // 6. Outer signature.
     let canonical = crate::builder::bundle_signing_bytes(&crate::builder::BundleSigningBody {
         version: &bundle.version,
         session_id: &bundle.session_id,
@@ -121,7 +162,7 @@ pub fn verify_session_bundle(
         .verify_jcs(&digest, &outer_sig)
         .map_err(|_| SessionBundleError::InvalidSignature)?;
 
-    // 6. Per-participant TCT verification. The coordinator's pubkey
+    // 7. Per-participant TCT verification. The coordinator's pubkey
     // is the issuer's pubkey for every embedded TCT (§3 invariant).
     let mut active = Vec::with_capacity(bundle.participants.len());
     let mut dropped = Vec::new();
@@ -134,14 +175,17 @@ pub fn verify_session_bundle(
         let tct_ctx = TctVerifyContext::builder(&entry.aid, &bundle.coordinator, ctx.now)
             // §7 per-pair revocation is applied separately below, after
             // signature verification (RFC-AITP-0008 §3.3 ordering).
-            .accept_unchecked_revocation_dangerous()
-            // Participant TCTs are coordinator-attested within the bundle;
-            // no per-participant issuer Manifest is resolved here, so the
-            // Manifest-expiry cap does not apply (the bundle's own
-            // expiry-window invariant bounds lifetimes instead).
-            .skip_manifest_expiry_cap_dangerous()
-            .build()
-            .expect("both verify decisions are made above");
+            .accept_unchecked_revocation_dangerous();
+        // The coordinator issued every embedded TCT, so its verified
+        // Manifest's `expires_at` is the issuer-Manifest cap. Without a
+        // Manifest (`UnverifiedAidDangerous`) the cap cannot apply; the
+        // bundle's own expiry-window invariant still bounds lifetimes.
+        let tct_ctx = match coordinator_manifest_expires_at {
+            Some(expires_at) => tct_ctx.issuer_manifest_expires_at(expires_at),
+            None => tct_ctx.skip_manifest_expiry_cap_dangerous(),
+        }
+        .build()
+        .expect("both verify decisions are made above");
         let verified = match verify_tct(&entry.tct, &tct_ctx) {
             Ok(v) => v,
             Err(TctError::IssuerMismatch) => {
@@ -151,7 +195,7 @@ pub fn verify_session_bundle(
             Err(e) => return Err(SessionBundleError::TctVerification(e)),
         };
 
-        // 7. Per-pair revocation: drop revoked participants but don't
+        // Per-pair revocation (§7): drop revoked participants but don't
         // fail the whole bundle.
         let is_revoked = ctx
             .revocation_check
@@ -162,6 +206,16 @@ pub fn verify_session_bundle(
         } else {
             active.push(entry.aid.clone());
         }
+    }
+
+    // 8. Self-membership, last: every embedded TCT has verified, and
+    // step 7 pinned each one's `aud` to its entry's AID.
+    let verifier_present = bundle
+        .participants
+        .iter()
+        .any(|p| &p.aid == ctx.verifier_aid);
+    if !verifier_present {
+        return Err(SessionBundleError::NotMember);
     }
 
     if dropped.is_empty() {

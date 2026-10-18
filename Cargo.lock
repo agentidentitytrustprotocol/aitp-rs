@@ -85,6 +85,7 @@ dependencies = [
  "chrono",
  "criterion",
  "hex",
+ "metrics",
  "proptest",
  "serde",
  "serde_jcs",
@@ -122,6 +123,7 @@ version = "0.14.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
+ "aitp-manifest",
  "aitp-tct",
  "boon",
  "proptest",
@@ -232,6 +234,7 @@ version = "0.14.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
+ "aitp-manifest",
  "aitp-tct",
  "hex",
  "serde",
@@ -239,6 +242,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "url",
  "uuid",
 ]
 
