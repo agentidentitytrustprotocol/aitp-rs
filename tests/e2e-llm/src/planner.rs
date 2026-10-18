@@ -59,17 +59,19 @@ pub async fn handshake(
     let store = StaticPinnedKeyStore::from_aids([&worker_manifest.aid])
         .map_err(|e| anyhow!("worker manifest AID is not a pinnable key: {e}"))?;
 
-    let session = run_initiator_handshake(InitiatorConfig::new(
-        &key,
-        &manifest,
-        worker_origin.clone(),
-        TrustMode::PinnedKeys(&store),
-        IdentityMode::PinnedKey {
-            subject: display_name.into(),
-        },
-        vec![WORK_CAPABILITY.into()],
+    let session = run_initiator_handshake(
+        InitiatorConfig::new(
+            &key,
+            &manifest,
+            worker_origin.clone(),
+            TrustMode::PinnedKeys(&store),
+            IdentityMode::PinnedKey {
+                subject: display_name.into(),
+            },
+            vec![WORK_CAPABILITY.into()],
+        )
+        .with_insecure_localhost(true),
     )
-    .with_insecure_localhost(true))
     .await
     .context("initiator handshake")?;
 
