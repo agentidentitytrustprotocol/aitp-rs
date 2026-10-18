@@ -76,14 +76,14 @@ async fn renews_at_the_advertised_uri() {
     );
     tokio::spawn(async move { axum::serve(listener, server.router()).await.ok() });
 
-    let renewed = renew_tct(&holder, held_tct(&issuer, &holder), &m)
+    let renewed = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
         .await
         .expect("renewal at the advertised URI");
     assert!(!renewed.tct.is_empty());
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.
-    renew_tct(&holder, held_tct(&issuer, &holder), &m)
+    renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
         .await
         .expect("fresh nonce renews again");
 }
@@ -125,7 +125,7 @@ async fn no_renew_uri_means_no_request() {
         .offer("demo.echo")
         .build()
         .unwrap();
-    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m)
+    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
         .await
         .unwrap_err();
     assert!(
@@ -135,7 +135,17 @@ async fn no_renew_uri_means_no_request() {
 
     // Non-HTTPS (non-loopback) URIs are not usable either.
     let m = manifest(&issuer, Some("http://issuer.example/renew".into()));
-    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m)
+    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(err, FacadeError::RenewalNotAdvertised),
+        "got {err:?}"
+    );
+
+    // A loopback `http` URI needs the explicit local-development opt-in.
+    let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));
+    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, false)
         .await
         .unwrap_err();
     assert!(

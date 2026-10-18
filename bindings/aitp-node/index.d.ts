@@ -543,8 +543,16 @@ export declare function verifyDelegation(token: string, verifierAid: string, rev
  * to every hop regardless of issuer. That can only reject more, never
  * accept a revoked hop, but it does mean a list aggregated across several
  * issuers lets any contributor revoke any hop.
+ *
+ * `issuerManifests` is the hop issuers' Manifests, each a
+ * `{"manifest": {...}}` envelope JSON string. RFC-AITP-0011 §3 step 1
+ * verifies every hop under the key resolved from its issuer's verified
+ * Manifest; a hop whose issuer has no valid Manifest here fails with
+ * `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
+ * before use; when several designate one AID the newest `published_at`
+ * wins.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 
 /**
  * Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane

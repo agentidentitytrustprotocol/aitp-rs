@@ -6,7 +6,9 @@
 //! exercised only by an out-of-workspace example binary. This drives it
 //! against a real `aitp::transport::HandshakeServer` over loopback HTTP:
 //! once for the happy path, once for a server-side rejection (which must
-//! surface as `FacadeError::Protocol`, distinct from a transport fault).
+//! surface as `FacadeError::Protocol`, distinct from a transport fault),
+//! and once to check the plain-HTTP loopback origin is refused unless
+//! the config opts in.
 
 #![cfg(all(feature = "http-client", feature = "http-server"))]
 
@@ -98,16 +100,19 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
     let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
-    let session = run_initiator_handshake(InitiatorConfig::new(
-        &alice,
-        &alice_manifest,
-        bob_origin,
-        TrustMode::PinnedKeys(&trusted),
-        IdentityMode::PinnedKey {
-            subject: "alice".into(),
-        },
-        vec!["demo.echo".into()],
-    ))
+    let session = run_initiator_handshake(
+        InitiatorConfig::new(
+            &alice,
+            &alice_manifest,
+            bob_origin,
+            TrustMode::PinnedKeys(&trusted),
+            IdentityMode::PinnedKey {
+                subject: "alice".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_insecure_localhost(true),
+    )
     .await
     .expect("facade handshake succeeds");
 
@@ -140,16 +145,19 @@ async fn facade_surfaces_peer_protocol_rejection() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
     let trusted = aitp::handshake::NoPinnedKeys;
-    let err = run_initiator_handshake(InitiatorConfig::new(
-        &alice,
-        &alice_manifest,
-        bob_origin,
-        TrustMode::PinnedKeys(&trusted),
-        IdentityMode::PinnedKey {
-            subject: "alice".into(),
-        },
-        vec!["demo.echo".into()],
-    ))
+    let err = run_initiator_handshake(
+        InitiatorConfig::new(
+            &alice,
+            &alice_manifest,
+            bob_origin,
+            TrustMode::PinnedKeys(&trusted),
+            IdentityMode::PinnedKey {
+                subject: "alice".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_insecure_localhost(true),
+    )
     .await
     .expect_err("untrusted initiator must be rejected");
 
@@ -162,4 +170,37 @@ async fn facade_surfaces_peer_protocol_rejection() {
         }
         other => panic!("expected FacadeError::Protocol, got {other:?}"),
     }
+}
+
+#[tokio::test]
+async fn facade_refuses_http_localhost_peer_by_default() {
+    // #198: without `with_insecure_localhost(true)` the plain-HTTP
+    // loopback origin is refused at the Manifest fetch (RFC-AITP-0003
+    // §4.1), before any handshake traffic.
+    let (bob, bob_origin) = spawn_bob(0x75, false).await;
+
+    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
+
+    let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let err = run_initiator_handshake(InitiatorConfig::new(
+        &alice,
+        &alice_manifest,
+        bob_origin,
+        TrustMode::PinnedKeys(&trusted),
+        IdentityMode::PinnedKey {
+            subject: "alice".into(),
+        },
+        vec!["demo.echo".into()],
+    ))
+    .await
+    .expect_err("http://localhost peer must be refused by default");
+
+    assert!(
+        matches!(
+            err,
+            FacadeError::Manifest(aitp::transport::FetchError::InsecureUrl)
+        ),
+        "expected FacadeError::Manifest(InsecureUrl), got {err:?}"
+    );
 }

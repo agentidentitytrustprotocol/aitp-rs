@@ -105,7 +105,7 @@ async fn main() {
     // (already verified) Manifest advertises, presenting the
     // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct(&holder, current.token, &manifest)
+    let renewed = renew_tct(&holder, current.token, &manifest, true)
         .await
         .expect("renew_tct round-trip");
 

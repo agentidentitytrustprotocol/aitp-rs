@@ -20,10 +20,14 @@ pub const RENEW_URI_EXT: &str = "rfc-aitp-0005.renew_uri";
 /// The renewal endpoint a Manifest advertises, if any.
 ///
 /// Returns `None` when the extension is missing, not a string, not a URL,
-/// or not HTTPS. Plain `http` is tolerated only for `localhost` and
-/// `127.0.0.1`, the same local-development exemption the
-/// client's `ManifestFetcher` applies by default.
-pub fn renew_uri_from_manifest(manifest: &aitp_manifest::Manifest) -> Option<url::Url> {
+/// or not HTTPS. Plain `http` is accepted only for `localhost` and
+/// `127.0.0.1`, and only when `allow_insecure_localhost` is `true`: the
+/// same opt-in local-development exemption as
+/// `ManifestFetcher::with_insecure_localhost`. Never enable it in production.
+pub fn renew_uri_from_manifest(
+    manifest: &aitp_manifest::Manifest,
+    allow_insecure_localhost: bool,
+) -> Option<url::Url> {
     manifest
         .extensions
         .as_ref()?
@@ -32,7 +36,9 @@ pub fn renew_uri_from_manifest(manifest: &aitp_manifest::Manifest) -> Option<url
         .and_then(|s| url::Url::parse(s).ok())
         .filter(|u| match u.scheme() {
             "https" => true,
-            "http" => matches!(u.host_str(), Some("localhost" | "127.0.0.1")),
+            "http" => {
+                allow_insecure_localhost && matches!(u.host_str(), Some("localhost" | "127.0.0.1"))
+            }
             _ => false,
         })
 }
@@ -68,14 +74,14 @@ mod tests {
     fn reads_advertised_https_uri() {
         let m = manifest(Some("https://issuer.example/renew-here".into()));
         assert_eq!(
-            renew_uri_from_manifest(&m).unwrap().as_str(),
+            renew_uri_from_manifest(&m, false).unwrap().as_str(),
             "https://issuer.example/renew-here"
         );
     }
 
     #[test]
     fn absent_or_unusable_uri_is_none() {
-        assert!(renew_uri_from_manifest(&manifest(None)).is_none());
+        assert!(renew_uri_from_manifest(&manifest(None), true).is_none());
         for bad in [
             serde_json::json!("http://issuer.example/renew"),
             serde_json::json!("ftp://issuer.example/renew"),
@@ -83,15 +89,16 @@ mod tests {
             serde_json::json!(42),
         ] {
             assert!(
-                renew_uri_from_manifest(&manifest(Some(bad.clone()))).is_none(),
+                renew_uri_from_manifest(&manifest(Some(bad.clone())), true).is_none(),
                 "{bad}"
             );
         }
     }
 
     #[test]
-    fn loopback_http_is_tolerated() {
+    fn loopback_http_needs_opt_in() {
         let m = manifest(Some("http://127.0.0.1:8080/aitp/handshake/renew".into()));
-        assert!(renew_uri_from_manifest(&m).is_some());
+        assert!(renew_uri_from_manifest(&m, false).is_none());
+        assert!(renew_uri_from_manifest(&m, true).is_some());
     }
 }

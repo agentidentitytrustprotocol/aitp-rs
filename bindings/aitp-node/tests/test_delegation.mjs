@@ -144,10 +144,27 @@ test(
     // rather than MULTIHOP_NOT_SUPPORTED.
     const { a, delegationToken } = buildVoucher();
     const tampered = injectMultihopChain(delegationToken);
-    assert.throws(() => verifyDelegationMultihop(tampered, a.aid, 3), (err) => {
+    assert.throws(() => verifyDelegationMultihop(tampered, a.aid, [], 3), (err) => {
       assert.doesNotMatch(String(err.message), /multi-hop delegation is not supported/);
       return true;
     });
+  },
+);
+
+test(
+  'verifyDelegationMultihop parses issuerManifests up front',
+  { skip: !HAS_MULTIHOP ? 'built without multihop-delegation' : false },
+  () => {
+    // RFC-AITP-0011 §3 step 1: hop keys come from the issuers' Manifests,
+    // passed as `{"manifest": ...}` envelope JSON strings.
+    const { a, delegationToken } = buildVoucher();
+    const { manifest } = buildPeer('B2', 8304, ['demo.echo']);
+    assert.throws(
+      () => verifyDelegationMultihop(delegationToken, a.aid, ['{}'], 3),
+      /invalid issuer manifest JSON/,
+    );
+    // A well-formed Manifest is accepted; this single-hop token verifies.
+    verifyDelegationMultihop(delegationToken, a.aid, [manifest], 3);
   },
 );
 

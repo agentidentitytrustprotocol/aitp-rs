@@ -290,9 +290,18 @@ def _tct_renewal(ns):
 
 def _multihop(ns):
     # docs/sdk-python.md § Additional capabilities › Multi-hop delegation
-    bob, delegation_jws, revoked = ns.bob, ns.delegation_jws, ns.revoked
+    alice, bob = ns.alice, ns.bob
+    delegation_jws, revoked = ns.delegation_jws, ns.revoked
+    # Every hop verifies under the key its issuer's Manifest designates
+    # (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
+    alice_manifest = alice.build_manifest(
+        display_name="alice",
+        handshake_endpoint="https://alice.example/aitp/handshake/",
+        offered_caps=["demo.write"],
+    )
     verified = aitp.verify_delegation_multihop(
-        delegation_jws, bob.aid, max_delegation_hops=3, revoked_jtis=revoked,
+        delegation_jws, bob.aid, [alice_manifest],
+        max_delegation_hops=3, revoked_jtis=revoked,
     )
     return _ns(ns, locals())
 
