@@ -48,8 +48,8 @@ pub enum DelegationError {
     /// `max_delegation_hops = 0` (single-hop only).
     #[error("multi-hop delegation is not supported")]
     MultihopNotSupported,
-    /// Chain length + 1 exceeds the verifier's configured `max_delegation_hops`
-    /// (RFC-AITP-0011 §2). Default cap is 3.
+    /// `total_hops = chain.len() + 2` exceeds the verifier's configured
+    /// `max_delegation_hops` (RFC-AITP-0011 §2). Default cap is 3.
     #[error("delegation hop limit exceeded")]
     HopLimitExceeded,
     /// `chain` is non-empty but `chain_hash` was missing or did not

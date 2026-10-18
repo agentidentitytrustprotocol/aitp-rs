@@ -18,10 +18,8 @@
 //! - *Private* addresses (loopback, RFC 1918, CGNAT `100.64/10`, IPv6
 //!   unique-local) are legitimate in intranet agent-to-agent
 //!   deployments, so the default mode ([`GuardMode::WarnPrivate`])
-//!   logs a warning and allows them. **The default flips to
-//!   [`GuardMode::DenyPrivate`] in the 0.4 release** — operators on
-//!   private networks should opt in to `WarnPrivate`/`AllowAll`
-//!   explicitly now.
+//!   logs a warning and allows them. Internet-facing deployments
+//!   should opt in to [`GuardMode::DenyPrivate`] explicitly.
 //!
 //! The vetted addresses are returned so callers can **pin** them into
 //! the HTTP client (`reqwest::ClientBuilder::resolve_to_addrs`),
@@ -41,8 +39,7 @@ use url::{Host, Url};
 #[non_exhaustive]
 pub enum GuardMode {
     /// Reject always-forbidden ranges; log a warning for private
-    /// ranges but allow the fetch. Current default; the default
-    /// becomes [`GuardMode::DenyPrivate`] in 0.4.
+    /// ranges but allow the fetch. The default mode.
     WarnPrivate,
     /// Reject always-forbidden and private ranges. The production
     /// posture for internet-facing deployments.
@@ -59,8 +56,8 @@ pub struct HostGuard {
 }
 
 impl Default for HostGuard {
-    /// [`GuardMode::WarnPrivate`] — see the module docs for the
-    /// planned 0.4 default change to `DenyPrivate`.
+    /// [`GuardMode::WarnPrivate`] — see the module docs; internet-facing
+    /// deployments should use [`HostGuard::strict`].
     fn default() -> Self {
         Self {
             mode: GuardMode::WarnPrivate,
@@ -187,7 +184,7 @@ impl HostGuard {
     }
 
     /// [`GuardMode::DenyPrivate`] — the internet-facing production
-    /// posture (becomes the default in 0.4).
+    /// posture (opt-in; the default is `WarnPrivate`).
     ///
     /// ```
     /// use aitp_transport_http::net_guard::{HostGuard, GuardMode};
@@ -267,8 +264,8 @@ impl HostGuard {
                             addr = %sa.ip(),
                             class,
                             "outbound fetch to a private address; \
-                             GuardMode::DenyPrivate becomes the default in 0.4 — \
-                             opt in to WarnPrivate/AllowAll explicitly if this is intentional"
+                             use GuardMode::DenyPrivate to reject these, or opt in to \
+                             WarnPrivate/AllowAll explicitly if this is intentional"
                         );
                     }
                     // Handled by the early return above.
