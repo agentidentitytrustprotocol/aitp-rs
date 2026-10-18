@@ -367,17 +367,19 @@ impl PyAitpAgent {
     }
 
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
-    /// renewal of `current_tct_envelope_json` (RFC-AITP-0013).
+    /// renewal of `current_tct_token` — the held TCT as a compact-JWS
+    /// string (RFC-AITP-0013).
     ///
     /// Behind the `renewal` Cargo feature, which is **on by default** —
     /// build with `maturin develop --no-default-features` to omit it.
     #[cfg(feature = "renewal")]
-    fn build_renewal_request(&self, current_tct_envelope_json: &str) -> PyResult<String> {
-        build_renewal_request_py(&self.key, current_tct_envelope_json)
+    fn build_renewal_request(&self, current_tct_token: &str) -> PyResult<String> {
+        build_renewal_request_py(&self.key, current_tct_token)
     }
 
     /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-    /// fresh `TctEnvelope` JSON.
+    /// fresh TCT. Returns `{"tct": "<compact JWS>", "grant_voucher":
+    /// "<compact JWS>" | null}` JSON.
     ///
     /// `manifest_exp_unix_secs` bounds the new TCT's expiry to the
     /// issuer's manifest window; `new_ttl_secs` is the requested

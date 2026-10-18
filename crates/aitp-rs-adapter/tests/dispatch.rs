@@ -550,3 +550,40 @@ fn presentation_rate_limit_is_http_429_and_begin_fixture_resets() {
     let third = handle(&mut state, "p3", "verify_identity_presentation", params);
     assert_err(&third, "p3", "INVALID_ENVELOPE");
 }
+
+/// RFC-AITP-0002 §3.4 (spec cfd2f16): a full nonce store is reported as
+/// `CHALLENGE_REFUSED` (id-016), while a rate-limited challenge request
+/// is `http_status` 429 with no `error_code`.
+#[test]
+fn challenge_refusal_is_a_code_and_challenge_rate_limit_is_http_429() {
+    let aid = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+    let mut state = AdapterState::default();
+    let bound = json!({"self_aid": aid, "max_outstanding_nonces": 1, "source": "198.51.100.7"});
+    let first = handle(
+        &mut state,
+        "c1",
+        "issue_presentation_challenge",
+        bound.clone(),
+    );
+    assert_eq!(first["ok"], json!(true), "{first}");
+    let refused = handle(&mut state, "c2", "issue_presentation_challenge", bound);
+    assert_err(&refused, "c2", "CHALLENGE_REFUSED");
+    assert!(refused.get("http_status").is_none(), "{refused}");
+
+    let mut state = AdapterState::default();
+    let open = json!({"self_aid": aid, "source": "198.51.100.8"});
+    for i in 0..aitp_handshake::admission::RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+        let r = handle(
+            &mut state,
+            &format!("o{i}"),
+            "issue_presentation_challenge",
+            open.clone(),
+        );
+        assert_eq!(r["ok"], json!(true), "{r}");
+    }
+    let limited = handle(&mut state, "l", "issue_presentation_challenge", open);
+    assert_envelope(&limited, "l");
+    assert_eq!(limited["ok"], json!(false));
+    assert_eq!(limited["http_status"], json!(429));
+    assert!(limited.get("error_code").is_none(), "{limited}");
+}

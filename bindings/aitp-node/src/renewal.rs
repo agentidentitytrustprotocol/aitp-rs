@@ -13,6 +13,8 @@ use aitp_tct::{build_renewal_request, process_renewal_request, TctRenewalPayload
 use napi::bindgen_prelude::*;
 use rand::TryRng;
 
+use crate::tct::JsIssuedTct;
+
 /// Holder side: build a `TctRenewalPayload` JSON. SDK generates the
 /// fresh 128-bit `pop_nonce` internally.
 ///
@@ -36,13 +38,14 @@ pub(crate) fn build_renewal_request_js(
 }
 
 /// Issuer side: verify a renewal request and mint a fresh TCT. Returns
-/// the fresh TCT as a compact-JWS token string.
+/// `{ tct, grantVoucher }` — the fresh TCT compact JWS plus its companion
+/// grant voucher (`null` when none was minted).
 pub(crate) fn process_renewal_request_js(
     issuer_key: &AitpSigningKey,
     request_payload_json: &str,
     manifest_exp_unix_secs: i64,
     new_ttl_secs: i64,
-) -> Result<String> {
+) -> Result<JsIssuedTct> {
     let request: TctRenewalPayload = serde_json::from_str(request_payload_json)
         .map_err(|e| Error::from_reason(format!("invalid renewal payload JSON: {e}")))?;
     let issued = process_renewal_request(
@@ -53,5 +56,5 @@ pub(crate) fn process_renewal_request_js(
         new_ttl_secs,
     )
     .map_err(|e| Error::from_reason(format!("renewal request rejected: {e}")))?;
-    Ok(issued.token)
+    Ok(issued.into())
 }

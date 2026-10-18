@@ -280,7 +280,7 @@ def _tct_renewal(ns):
     alice, bob, tct_jws = ns.alice, ns.bob, ns.tct_jws
     import time
 
-    req = alice.build_renewal_request(tct_jws)   # pass the held TCT positionally
+    req = alice.build_renewal_request(current_tct_token=tct_jws)
     renewed = json.loads(bob.process_renewal_request(
         req, manifest_exp_unix_secs=int(time.time()) + 86_400, new_ttl_secs=3600,
     ))
