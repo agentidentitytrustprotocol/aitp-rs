@@ -351,9 +351,15 @@ def verify_session_bundle(
     verifier_aid: str,
     now_unix_secs: Optional[int] = ...,
     revocation_check: Optional[Callable[[str], bool]] = ...,
+    coordinator_manifest_json: Optional[str] = ...,
 ) -> dict:
     """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
-    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default)."""
+    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default).
+
+    `coordinator_manifest_json` (the coordinator's `ManifestEnvelope`
+    JSON) is verified and supplies the coordinator key (RFC-AITP-0010 §5
+    step 5); when omitted the key is derived from the bundle's
+    `coordinator` AID alone."""
     ...
 
 # ── spki-pinning (Cargo feature) ────────────────────────────────

@@ -64,6 +64,7 @@ fn aitp_verifier_py_committed_bundle_verifies() {
         verifier_aid: &verifier_aid,
         now: reference_now(),
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {

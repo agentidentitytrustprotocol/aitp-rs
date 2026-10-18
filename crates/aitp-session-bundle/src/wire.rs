@@ -91,6 +91,31 @@ pub fn parse_session_bundle_wire(
     }
 }
 
+/// Parse a session bundle that MUST arrive in the `{"session_bundle":
+/// {…}}` transport envelope — the HTTP ingest path (RFC-AITP-0010
+/// §4.3.1: "A bare (unwrapped) `session_bundle` body MUST be rejected at
+/// this endpoint").
+///
+/// Identical to [`parse_session_bundle_wire`] except that a value with
+/// no `session_bundle` member is rejected with
+/// [`SessionBundleError::WireFormInvalid`] (`SESSION_BUNDLE_INVALID`)
+/// instead of being read as a bare body. The coordinator signs the inner
+/// body and "add[s] the wrapper only when transmitting" (§4.2 step 4),
+/// so every transport receives the wrapped form; the bare-body path of
+/// [`parse_session_bundle_wire`] is for in-process library callers only.
+pub fn parse_session_bundle_envelope(
+    value: &CheckedJson,
+) -> Result<SessionTrustBundle, SessionBundleError> {
+    if value.as_value().get("session_bundle").is_none() {
+        return Err(SessionBundleError::WireFormInvalid(
+            "missing `session_bundle` transport wrapper (RFC-AITP-0010 §4.3.1 \
+             rejects a bare body)"
+                .into(),
+        ));
+    }
+    parse_session_bundle_wire(value)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -100,6 +125,22 @@ mod tests {
     /// constructor (a `Value` has no duplicate key, so this cannot fail).
     fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
         v.to_string().parse().expect("valid JSON")
+    }
+
+    #[test]
+    fn envelope_parser_rejects_bare_body() {
+        match parse_session_bundle_envelope(&checked(&valid_body())) {
+            Err(SessionBundleError::WireFormInvalid(msg)) => {
+                assert!(msg.contains("session_bundle"), "got {msg}")
+            }
+            other => panic!("expected WireFormInvalid, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn envelope_parser_accepts_wrapped_body() {
+        let wire = json!({ "session_bundle": valid_body() });
+        assert!(parse_session_bundle_envelope(&checked(&wire)).is_ok());
     }
 
     fn valid_body() -> Value {

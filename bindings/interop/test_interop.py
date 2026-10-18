@@ -794,6 +794,18 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     assert py_part2_aid in outcome2["active_aids"]
     assert nd_part2_aid in outcome2["active_aids"]
 
+    # RFC-AITP-0010 §5 step 5: with the coordinator's (Node-signed)
+    # Manifest supplied, Python verifies it and resolves the coordinator
+    # key from it; another agent's Manifest is rejected.
+    outcome3 = aitp.verify_session_bundle(
+        nd_envelope, py_part2_aid, coordinator_manifest_json=nd_coord_manifest
+    )
+    assert outcome3["kind"] == "clear"
+    with pytest.raises(RuntimeError, match="does not match"):
+        aitp.verify_session_bundle(
+            nd_envelope, py_part2_aid, coordinator_manifest_json=coord_manifest
+        )
+
 
 # ── B2 — P-256 suite negotiation across language boundaries ────────────
 

@@ -387,13 +387,16 @@ outcome = aitp.verify_session_bundle(
 )
 ```
 
-`verify_session_bundle(bundle_envelope_json, verifier_aid, now_unix_secs=None, revocation_check=None)`
+`verify_session_bundle(bundle_envelope_json, verifier_aid, now_unix_secs=None, revocation_check=None, coordinator_manifest_json=None)`
 returns `{"kind": "clear" | "degraded", "active_aids": [...], "dropped_aids": [...]}`.
 `revocation_check` is called with each participant TCT's `jti` and returns
 `True` if that TCT is revoked. A revoked participant is dropped, and `kind`
 becomes `degraded`. If the callback raises or returns a non-bool, the
 participant is treated as **not** revoked (fail-open,
-`bindings/aitp-py/src/bundle.rs:146-149`), so keep it total. See [session-bundle.md](session-bundle.md).
+`bindings/aitp-py/src/bundle.rs:146-149`), so keep it total. Pass the coordinator's `{"manifest": …}` envelope as
+`coordinator_manifest_json` to verify it and resolve the coordinator key from
+it (RFC-AITP-0010 §5 step 5); without it the key comes from the coordinator
+AID alone. See [session-bundle.md](session-bundle.md).
 
 ### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 
