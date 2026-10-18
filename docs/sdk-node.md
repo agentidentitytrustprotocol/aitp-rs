@@ -192,7 +192,8 @@ The signature is `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`.
 `verifyDelegation(token, verifierAid, revokedJtis?)` is strict single-hop: it
 rejects any token that carries a multi-hop `chain`. Pass `revokedJtis`. If
 you omit it, a delegation whose source TCT has been revoked is still
-redeemed. For multi-hop chains, see
+redeemed. The result's `cnfJkt` is the delegatee's `cnf.jkt` (Python:
+`cnf_jkt`). For multi-hop chains, see
 [Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
 
 ### Manifest verification

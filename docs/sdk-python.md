@@ -190,7 +190,9 @@ print(carol.verify_tct(carol_tct, "demo.echo").peer_aid == bob.aid)   # True
 The signature is `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`.
 `verify_delegation` is strict single-hop: it rejects any token that carries a
 multi-hop `chain`. Pass `revoked_jtis`. If you omit it, a delegation whose
-source TCT has been revoked is still redeemed. For multi-hop chains, see
+source TCT has been revoked is still redeemed. The result's `cnf_jkt` is the
+delegatee's `cnf.jkt` (Node: `cnfJkt`). The older name `cnf` still works but
+emits a `DeprecationWarning`. For multi-hop chains, see
 [Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
 
 ### Manifest verification
