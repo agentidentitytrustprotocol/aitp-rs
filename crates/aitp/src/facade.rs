@@ -457,7 +457,8 @@ async fn read_aitp_envelope_response(
 ///
 /// The `guard` and `timeout` come from [`InitiatorConfig`] on the
 /// handshake path (default `WarnPrivate` + 10s, so the local two-agent
-/// demo over `http://localhost` keeps working), or from the built-in
+/// demo over `http://localhost` works once it opts in with
+/// [`InitiatorConfig::with_insecure_localhost`]), or from the built-in
 /// defaults on the renewal path.
 async fn build_guarded_client(
     endpoint: &url::Url,
@@ -488,7 +489,8 @@ pub async fn run_initiator_handshake(
 ) -> Result<SessionContext, FacadeError> {
     let manifest_fetcher = ManifestFetcher::new()
         .with_timeout(config.http_timeout)
-        .with_host_guard(config.host_guard.clone());
+        .with_host_guard(config.host_guard.clone())
+        .with_insecure_localhost(config.allow_insecure_localhost);
     let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
     // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake if
     // the peer doesn't accept the identity type we'd present. Checking
@@ -701,6 +703,11 @@ pub struct InitiatorConfig<'a> {
     /// pass [`HostGuard::strict`] via
     /// [`InitiatorConfig::with_host_guard`].
     pub host_guard: HostGuard,
+    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin for
+    /// the Manifest fetch (local dev only). Default `false`; enable with
+    /// [`InitiatorConfig::with_insecure_localhost`]. See
+    /// [`ManifestFetcher::with_insecure_localhost`].
+    pub allow_insecure_localhost: bool,
 }
 
 impl<'a> InitiatorConfig<'a> {
@@ -755,6 +762,7 @@ impl<'a> InitiatorConfig<'a> {
             requested_grants,
             http_timeout: Duration::from_secs(10),
             host_guard: HostGuard::default(),
+            allow_insecure_localhost: false,
         }
     }
 
@@ -768,6 +776,14 @@ impl<'a> InitiatorConfig<'a> {
     /// Use [`HostGuard::strict`] for internet-facing deployments.
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
+        self
+    }
+
+    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin
+    /// (default `false`). For local demos and tests only; RFC-AITP-0003
+    /// §4.1 requires HTTPS for the Manifest endpoint.
+    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
+        self.allow_insecure_localhost = allow;
         self
     }
 }

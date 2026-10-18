@@ -114,7 +114,7 @@ pub struct ManifestFetcher {
     /// SSRF guard applied to every non-localhost-exempt fetch.
     host_guard: HostGuard,
     /// Tolerate `http://localhost` / `http://127.0.0.1` origins
-    /// (local dev). Default `true`.
+    /// (local dev). Default `false`.
     allow_insecure_localhost: bool,
 }
 
@@ -131,7 +131,7 @@ impl ManifestFetcher {
             retry_policy: RetryPolicy::none(),
             client_cfg,
             host_guard: HostGuard::default(),
-            allow_insecure_localhost: true,
+            allow_insecure_localhost: false,
         }
     }
 
@@ -188,9 +188,9 @@ impl ManifestFetcher {
     }
 
     /// Whether `http://localhost` / `http://127.0.0.1` origins are
-    /// tolerated (local dev convenience). **Default `true`** —
-    /// production deployments should call
-    /// `.with_insecure_localhost(false)`.
+    /// tolerated (local dev convenience). **Default `false`**: every
+    /// origin must be `https://` (RFC-AITP-0003 §4.1). Local demos and
+    /// tests opt in with `.with_insecure_localhost(true)`.
     pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
         self.allow_insecure_localhost = allow;
         self
@@ -206,7 +206,7 @@ impl ManifestFetcher {
         let mut localhost_exempt = false;
         if peer_origin.scheme() != "https" {
             // `http://localhost` is tolerated for local dev (demo)
-            // while `allow_insecure_localhost` holds (default `true`).
+            // only when `allow_insecure_localhost` is set (default `false`).
             let is_localhost_http = peer_origin.scheme() == "http"
                 && (peer_origin.host_str() == Some("localhost")
                     || peer_origin.host_str() == Some("127.0.0.1"));
@@ -217,8 +217,8 @@ impl ManifestFetcher {
             LOCALHOST_WARN.call_once(|| {
                 warn!(
                     "fetching manifests over http://localhost — development \
-                     convenience only; disable now with \
-                     `ManifestFetcher::with_insecure_localhost(false)`"
+                     convenience only; never enable \
+                     `ManifestFetcher::with_insecure_localhost(true)` in production"
                 );
             });
             // localhost / 127.0.0.1 is loopback by definition — the

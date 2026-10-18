@@ -82,18 +82,21 @@ Per-node memory is bounded, partly out of the box and partly by you:
 
 - `with_max_sessions(n)` — oldest-first eviction once `n` in-flight
   sessions are held (defends against a HELLO flood). Default
-  `DEFAULT_MAX_SESSIONS` = 10 000; RFC-AITP-0009 §3.1 recommends at most
-  1 000 concurrent in-flight sessions, so set it explicitly.
+  `DEFAULT_MAX_SESSIONS` = 1 000, the RFC-AITP-0009 §3.1 recommended
+  maximum of concurrent in-flight sessions; raise it for high-volume
+  responders.
 - Session TTL — half-finished sessions expire after `DEFAULT_SESSION_TTL`
   (60 s). To change it, construct the server with
   `HandshakeServer::with_session_ttl(...)`, a constructor that takes
   `new`'s arguments plus the TTL (it is not a builder method).
-- Expired sessions are swept on the next HELLO or COMMIT. **No background
-  sweeper runs unless you start one**: call
-  `server.spawn_session_sweeper(interval)` from inside a Tokio runtime
-  (`DEFAULT_SESSION_SWEEP_INTERVAL` is 30 s) so a burst that goes quiet
-  doesn't hold memory until the next request
-  ([#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)).
+- Expired sessions are swept on every HELLO and COMMIT, and by a
+  background sweeper that `router()` starts every
+  `DEFAULT_SESSION_SWEEP_INTERVAL` (30 s), so a burst that goes quiet
+  doesn't hold memory until the next request. Change the period with
+  `.with_session_sweep_interval(d)` or turn it off with
+  `.without_session_sweeper()`. If `router()` runs outside a Tokio
+  runtime, the sweeper starts with the first HELLO. The task holds only a
+  weak reference and exits once the server state is dropped.
 
 There is deliberately **no** shared session store: it would require
 serializing the handshake state machine and buys nothing that sticky
@@ -143,9 +146,11 @@ Independent of clustering, production servers/clients should set:
   at the edge and call `.without_rate_limit()` only if that edge keys on
   the transport source. The spec's defaults and check order are in
   [RFC-AITP-0009 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md#31-rate-limiting).
-- **HTTPS everywhere** — the fetchers reject non-HTTPS URLs, except that
-  `ManifestFetcher` accepts `http://localhost` / `http://127.0.0.1` by
-  default. Call `.with_insecure_localhost(false)` in production.
+- **HTTPS everywhere** — the fetchers reject non-HTTPS URLs
+  (RFC-AITP-0003 §4.1). `ManifestFetcher` accepts `http://localhost` /
+  `http://127.0.0.1` only after `.with_insecure_localhost(true)` (and the
+  facade only after `InitiatorConfig::with_insecure_localhost(true)`);
+  the default is `false`. Never enable it in production.
 - **Observability** — the optional `metrics` feature on
   `aitp-transport-http` emits low-cardinality counters via the
   [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
@@ -160,27 +165,20 @@ Independent of clustering, production servers/clients should set:
 
 ## Known limitations
 
-`HandshakeServer` and fetcher defaults that fall short of the RFCs, tracked
-in [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)
-(file paths under `crates/aitp-transport-http/src/`):
+`HandshakeServer` and fetcher defaults that fall short of the RFCs:
 
-- **Session and body limits are looser than RFC-AITP-0009 §3.1
-  recommends.** `DEFAULT_MAX_SESSIONS` is 10 000
-  (`server.rs:50`; RFC: 1 000). `DEFAULT_MAX_BODY_BYTES` is 256 KiB
-  (`server.rs:266`; RFC: 64 KB for `MUTUAL_HELLO`). These are RECOMMENDED
-  values, so this is a weaker default, not a violation.
-- **No automatic session sweeper.** `spawn_session_sweeper` (`server.rs:389`)
-  is never called by the library; without it, expired sessions are only
-  swept when the next HELLO or COMMIT arrives.
+- **The body limit is looser than RFC-AITP-0009 §3.1 recommends.**
+  `DEFAULT_MAX_BODY_BYTES` is 256 KiB (RFC: 64 KB for `MUTUAL_HELLO`).
+  That is a RECOMMENDED value, so this is a weaker default, not a
+  violation.
 - **The renewal route bypasses these protections.** With
   `experimental-renewal`, `/aitp/handshake/renew` skips the replay guard, rate
   limiter and timestamp check — see
   [tct-renewal.md](tct-renewal.md#known-limitations)
   ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196)).
-- **Dev conveniences are on by default.** `ManifestFetcher` sets
-  `allow_insecure_localhost: true` (`client.rs:134`), and `HostGuard::default()`
-  is `GuardMode::WarnPrivate` (`net_guard.rs:58-66`). Internet-facing
-  deployments should call `.with_insecure_localhost(false)` and
+- **The SSRF guard warns rather than denies by default.**
+  `HostGuard::default()` is `GuardMode::WarnPrivate`: private ranges are
+  logged but allowed. Internet-facing deployments should call
   `.with_host_guard(HostGuard::strict())`.
 
 ## Summary
