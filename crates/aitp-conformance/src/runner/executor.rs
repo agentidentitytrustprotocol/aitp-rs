@@ -116,7 +116,7 @@ impl<A: Adapter> Runner<A> {
                 if let Some(feature) = negated_by_feature(code) {
                     if self.enabled_features.contains(feature) {
                         return Some(format!(
-                            "feature `{feature}` enabled — assertion `{code}` no longer applies"
+                            "feature `{feature}` enabled — assertion `{code}` {FEATURE_NEGATION_MARKER}"
                         ));
                     }
                 }
@@ -546,6 +546,11 @@ impl StepError {
         }
     }
 }
+
+/// Suffix of a SKIP reason produced by feature negation. The
+/// conformance gate ([`crate::runner::check_gate`]) keys on it to
+/// exempt such skips.
+pub(crate) const FEATURE_NEGATION_MARKER: &str = "no longer applies";
 
 /// Maps a v0.1-strict rejection error code to the experimental
 /// feature whose opt-in invalidates the assertion. See

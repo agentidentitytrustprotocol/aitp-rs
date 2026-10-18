@@ -36,8 +36,14 @@ pub struct Fixture {
     pub status: FixtureStatus,
     /// Whether a v0.1 implementation MUST pass this fixture.
     /// Always `false` when `status != Core`.
-    #[serde(default = "default_required_for_v0_1")]
+    #[serde(default = "default_required")]
     pub required_for_v0_1: bool,
+    /// Whether a v0.2 implementation MUST pass this fixture. `false`
+    /// for v0.1-frozen fixtures (e.g. `del-004`) and every non-core
+    /// fixture. Absent means required, like `required_for_v0_1`, so a
+    /// fixture missing its metadata fails closed.
+    #[serde(default = "default_required")]
+    pub required_for_v0_2: bool,
     /// Opt-in feature flag for non-core fixtures (null/None for
     /// core). Examples: `experimental-multihop-delegation`,
     /// `experimental-session-bundle`. The runner matches this
@@ -65,7 +71,7 @@ fn default_status() -> FixtureStatus {
     FixtureStatus::Core
 }
 
-fn default_required_for_v0_1() -> bool {
+fn default_required() -> bool {
     true
 }
 
