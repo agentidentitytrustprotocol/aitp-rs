@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.14.0...aitp-transport-http-v0.15.0) - 2026-10-18
+
+### Added
+
+- [**breaking**] always serve ListRevoked and advertise rfc-aitp-0008.revocation_list_uri ([#225](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/225)) ([#230](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/230))
+- [**breaking**] CheckedJson newtype for parse_*_wire; route bindings through hardened wire parsers (#146, #152) ([#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227))
+
+### Fixed
+
+- *(renewal)* [**breaking**] replay-guard, re-check revocation and grants, advertise renew_uri ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/196)) ([#235](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/235))
+- *(transport-http)* [**breaking**] RFC-AITP-0009 handshake defaults ([#198](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/198)) ([#231](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/231))
+- *(session-bundle)* [**breaking**] RFC-AITP-0010 §5 check order, coordinator Manifest step, wrapped-only HTTP ingest, bundle_uri advertisement (#197, #195) ([#233](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/233))
+
+### Other
+
+- fix stale rustdoc/help text ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/200)) and mark DPoP/token exchange unsupported ([#151](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/151)) ([#219](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/219))
+
 ## [0.14.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.13.2...aitp-transport-http-v0.14.0) - 2026-10-17
 
 ### Added
