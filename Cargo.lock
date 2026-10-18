@@ -122,6 +122,7 @@ version = "0.14.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
+ "aitp-manifest",
  "aitp-tct",
  "boon",
  "proptest",

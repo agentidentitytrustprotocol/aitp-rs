@@ -6,7 +6,7 @@
 # index.d.ts` — every type here SHOULD have a camelCase counterpart there
 # (and vice versa), per CLAUDE.md's binding-symmetry rule.
 
-from typing import Callable, Literal, Optional, Union
+from typing import Callable, Literal, Optional, Sequence, Union
 
 # Revoked-`jti` deny lists. The binding extracts these into a Rust
 # `HashSet<str>`, which accepts only a `set` or `frozenset` — not an
@@ -227,6 +227,7 @@ def verify_delegation(
 def verify_delegation_multihop(
     delegation_token: str,
     verifier_aid: str,
+    issuer_manifests: Sequence[str],
     max_delegation_hops: int = 3,
     revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
@@ -235,6 +236,12 @@ def verify_delegation_multihop(
     `multihop-delegation` Cargo feature); absent only in a
     `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
     single-hop.
+
+    `issuer_manifests` holds the hop issuers' Manifests, each a
+    `{"manifest": {...}}` envelope JSON string. Every hop is verified under
+    the key resolved from its issuer's verified Manifest (RFC-AITP-0011 §3
+    step 1); a hop whose issuer has no valid Manifest in the list fails
+    with `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
 
     `revoked_jtis`, when supplied, is consulted twice — both only after every
     signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4

@@ -58,10 +58,14 @@ How `crates/aitp-delegation/src/verifier.rs` runs it, with the
 2. **`chain_hash`** recomputed over the verbatim chain strings; absent or
    different → `ChainHashMismatch`.
 3. **Per hop**, oldest first, outer token last:
-   - **JWS.** Strict parse; `typ == aitp-delegation+jwt`; sole `alg` derived
-     from `h.iss`; signature → `InvalidSignature`. The key is the one encoded
-     in `h.iss`'s AID (`jws::verify_compact`); no Manifest is fetched. `ver`
-     must be known → `VersionUnknown`.
+   - **JWS.** Strict parse; `typ == aitp-delegation+jwt`. The verification
+     key comes from `h.iss`'s Manifest (RFC-AITP-0011 §3 step 1), looked up
+     in the `with_issuer_manifests` source: the Manifest must exist, pass
+     `verify_manifest` (RFC-AITP-0003 §5) and designate `h.iss`, else
+     `KeyResolutionFailed` (`KEY_RESOLUTION_FAILED`, RFC-AITP-0007 §1). No
+     source configured fails closed the same way. Then the sole `alg`
+     derived from that key; signature → `InvalidSignature`. `ver` must be
+     known → `VersionUnknown`.
    - **Common claims** (`check_hop_claims`): `aud` equals the verifier at every
      hop → `AudienceMismatch`; `iss != sub` → `SelfDelegation`; non-empty
      `scope` → `EmptyScope`; `cnf.jkt` matches the key in `sub` →
@@ -94,11 +98,14 @@ bound key from the **outer** token's `sub`
   ([RFC-AITP-0006 §4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md#4-verification-rules))
   and every `jti`-bearing single-hop token with `ClaimsMalformed`. A single-hop
   token with neither claim verifies normally whatever the cap.
-- **Hop keys come from the AID.** RFC-AITP-0011 §3 step 1 resolves each hop
-  issuer's key from its Manifest; `aitp-rs` uses the key the `aid:pubkey`
-  AID encodes and does not consult the issuer's Manifest
-  (`crates/aitp-delegation/src/verifier.rs:206`,
-  [#202](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/202)).
+- **Manifests are supplied, not fetched.** The verifier is synchronous and
+  does no I/O: the caller provides the hop issuers' Manifests through an
+  `aitp_manifest::ManifestResolver` (a `Vec<Manifest>`, a
+  `HashMap<Aid, Manifest>`, or its own cache) and is responsible for
+  obtaining them (RFC-AITP-0007 §1 lists the sources).
+- **Single-hop still uses the AID key.** The RFC-AITP-0006 single-hop path
+  verifies the delegator's signature under the key its `aid:pubkey` AID
+  encodes and does not consult a Manifest.
 - **Draft, opt-in.** Outside the v0.2 conformance gate; the `del-mh-*`
   fixtures run only with `--feature experimental-multihop-delegation`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
@@ -116,18 +123,21 @@ message.
 aitp.verify_delegation(delegation_jws, verifier_aid)   # raises RuntimeError
 
 # Multi-hop (explicit opt-in at the call site; max_delegation_hops defaults to 3):
-aitp.verify_delegation_multihop(delegation_jws, verifier_aid, 3)
+aitp.verify_delegation_multihop(delegation_jws, verifier_aid, issuer_manifests, 3)
 ```
 
 ```js
 verifyDelegation(delegationJws, verifierAid);              // strict
-verifyDelegationMultihop(delegationJws, verifierAid, 3);   // multi-hop
+verifyDelegationMultihop(delegationJws, verifierAid, issuerManifests, 3);   // multi-hop
 ```
 
 ```rust
 use aitp_delegation::{verify_delegation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS};
 
+// Any `ManifestResolver` (here a `Vec<Manifest>` of the hop issuers'
+// Manifests): each hop verifies under its issuer's verified Manifest key.
 let ctx = VerifyDelegationContext::new(&my_aid, now)
-    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
+    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+    .with_issuer_manifests(&issuer_manifests);
 let verified = verify_delegation(&delegation_jws, &ctx)?;
 ```

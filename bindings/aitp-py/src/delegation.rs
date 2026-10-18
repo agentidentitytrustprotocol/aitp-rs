@@ -159,23 +159,40 @@ pub fn verify_delegation_py(
 /// chain entry and the outer token — per RFC-AITP-0011 §6, which makes both
 /// a MUST-reject. See [`revocation_closures`] for why one flat set stands in
 /// for §6's per-issuer deny lists.
+///
+/// `issuer_manifests` is the hop issuers' Manifests, each a
+/// `{"manifest": {...}}` envelope JSON string. RFC-AITP-0011 §3 step 1
+/// verifies every hop under the key resolved from its issuer's verified
+/// Manifest; a hop whose issuer has no valid Manifest here fails with
+/// `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
+/// before use; when several designate one AID the newest `published_at`
+/// wins.
 #[cfg(feature = "multihop-delegation")]
 #[pyfunction]
 #[pyo3(
     name = "verify_delegation_multihop",
-    signature = (delegation_token, verifier_aid, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS, revoked_jtis = None)
+    signature = (delegation_token, verifier_aid, issuer_manifests, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS, revoked_jtis = None)
 )]
 pub fn verify_delegation_multihop_py(
     delegation_token: &str,
     verifier_aid: &str,
+    issuer_manifests: Vec<String>,
     max_delegation_hops: usize,
     revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
     let (root_check, hop_check) = revocation_closures(revoked_jtis.as_ref());
+    let manifests = issuer_manifests
+        .iter()
+        .map(|json| {
+            crate::wire::manifest(json)
+                .map_err(|e| PyValueError::new_err(format!("invalid issuer manifest JSON: {e}")))
+        })
+        .collect::<PyResult<Vec<_>>>()?;
 
     let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
-        .with_max_delegation_hops(max_delegation_hops);
+        .with_max_delegation_hops(max_delegation_hops)
+        .with_issuer_manifests(&manifests);
     if let Some(check) = root_check.as_deref() {
         ctx = ctx.with_revocation_check(check as &dyn Fn(&Uuid) -> bool);
     }
