@@ -100,7 +100,7 @@ pub fn parse_session_bundle_wire(
 /// no `session_bundle` member is rejected with
 /// [`SessionBundleError::WireFormInvalid`] (`SESSION_BUNDLE_INVALID`)
 /// instead of being read as a bare body. The coordinator signs the inner
-/// body and "add[s] the wrapper only when transmitting" (§4.2 step 4),
+/// body and "add\[s\] the wrapper only when transmitting" (§4.2 step 4),
 /// so every transport receives the wrapped form; the bare-body path of
 /// [`parse_session_bundle_wire`] is for in-process library callers only.
 pub fn parse_session_bundle_envelope(
