@@ -1,0 +1,164 @@
+name: bump-verifier-py
+# Keep the cross-implementation gate honest (#149). ci.yml's `xcheck` job
+# checks out aitp-verifier-py at the commit pinned in
+# tests/AITP_VERIFIER_PY_VERSION. Pinning by SHA is deliberate (an upstream
+# change must never silently break merges here), but without a nag the pin
+# drifts unattended and the gate validates against an ever-older verifier.
+#
+# Weekly (and on demand) this compares the pin with aitp-verifier-py `main`.
+# When main is ahead it opens ONE PR on `deps/verifier-py-<sha12>` bumping the
+# pin, so that PR's own xcheck job runs the cross-check against the new
+# verifier. Modelled on bump-spec.yml (aitp-ci bump-spec-ref, file mode):
+#   - Same auth: a short-lived aitp-deps-bot App token (org secrets
+#     AITP_BOT_APP_ID / AITP_BOT_PRIVATE_KEY). A PR pushed with the default
+#     GITHUB_TOKEN would not trigger CI, which is the whole point here.
+#   - Same hold: the PR is never auto-merged (auto-merge.yml only arms
+#     Dependabot PRs). Adopting a new verifier is a review decision.
+#   - Idempotent: if the branch for the current main HEAD already exists the
+#     run does nothing, so repeated runs never stack duplicate PRs. Unlike the
+#     spec bot it also closes superseded deps/verifier-py-* PRs (older SHAs),
+#     leaving at most one open bump PR.
+# This workflow is informational: it is not, and should not be made, a
+# required check.
+on:
+  schedule:
+    - cron: "41 5 * * 1"   # 05:41 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Log what would happen; push, open and close nothing'
+        type: boolean
+        required: false
+        default: false
+
+# Reads of the public verifier repo use GITHUB_TOKEN; every write (push, PR
+# open/close, branch delete) goes through the App token.
+permissions:
+  contents: read
+
+concurrency:
+  group: bump-verifier-py
+  cancel-in-progress: false
+
+env:
+  VPY_REPO: agentidentitytrustprotocol/aitp-verifier-py
+  PIN_FILE: tests/AITP_VERIFIER_PY_VERSION
+  BRANCH_PREFIX: deps/verifier-py-
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@v3
+        with:
+          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+
+      # Always bump against the default branch, whatever ref dispatched us.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Compare pin with aitp-verifier-py main
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CUR=$(grep -oE '[0-9a-f]{40}' "$PIN_FILE" | head -1 || true)
+          [ -n "$CUR" ] || { echo "::error::no 40-hex SHA in $PIN_FILE"; exit 1; }
+          HEAD=$(gh api "repos/$VPY_REPO/commits/main" --jq .sha)
+          # base=pin, head=main: "ahead" means main has commits the pin lacks;
+          # "diverged" means the pin is not on main at all (still drift).
+          CMP=$(gh api "repos/$VPY_REPO/compare/$CUR...$HEAD" --jq '"\(.status) \(.ahead_by)"')
+          read -r STATUS AHEAD <<< "$CMP"
+          {
+            echo "cur=$CUR"
+            echo "head=$HEAD"
+            echo "short=${HEAD:0:7}"
+            echo "branch=$BRANCH_PREFIX${HEAD:0:12}"
+            echo "ahead=$AHEAD"
+            case "$STATUS" in ahead|diverged) echo "drift=true" ;; *) echo "drift=false" ;; esac
+          } >> "$GITHUB_OUTPUT"
+          echo "pin ${CUR:0:7} vs $VPY_REPO main ${HEAD:0:7}: $STATUS ($AHEAD commit(s) ahead)"
+          if [ "$STATUS" = "ahead" ] || [ "$STATUS" = "diverged" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown, not a subshell
+            gh api "repos/$VPY_REPO/compare/$CUR...$HEAD" \
+              --jq '.commits[] | "- [`\(.sha[0:7])`](\(.html_url)) \(.commit.message | split("\n")[0])"' > "$RUNNER_TEMP/commits.md"
+          fi
+
+      - name: Open the bump PR and close superseded ones
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry-run || false }}
+          BASE: ${{ github.event.repository.default_branch }}
+          DRIFT: ${{ steps.v.outputs.drift }}
+          CUR: ${{ steps.v.outputs.cur }}
+          HEAD: ${{ steps.v.outputs.head }}
+          SHORT: ${{ steps.v.outputs.short }}
+          BR: ${{ steps.v.outputs.branch }}
+          AHEAD: ${{ steps.v.outputs.ahead }}
+        run: |
+          set -euo pipefail
+          act() { if [ "$DRY_RUN" = "true" ]; then echo "[dry-run] $*"; else "$@"; fi; }
+
+          # Open same-repo bump PRs other than the one for the current HEAD.
+          stale_prs() {
+            gh pr list --state open --base "$BASE" --limit 100 \
+              --json number,headRefName,isCrossRepository \
+              --jq ".[] | select(.isCrossRepository | not)
+                        | select(.headRefName | startswith(\"$BRANCH_PREFIX\"))
+                        | select(.headRefName != \"$BR\") | .number"
+          }
+
+          if [ "$DRIFT" != "true" ]; then
+            echo "Pin is current with $VPY_REPO main."
+            # Any still-open bump PR now points at an older verifier.
+            for n in $(stale_prs); do
+              act gh pr close "$n" --delete-branch \
+                --comment "Superseded: \`$PIN_FILE\` already pins $VPY_REPO main (\`$SHORT\`)."
+            done
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            # Already proposed (open PR, or a human closed it). Do not reopen
+            # or duplicate; a newer verifier commit yields a new branch.
+            echo "::notice::$BR already exists; nothing to do."
+            exit 0
+          fi
+
+          printf '%s\n' "$HEAD" > "$PIN_FILE"
+          git config user.name 'aitp-deps-bot[bot]'
+          git config user.email '${{ steps.app.outputs.app-slug }}[bot]@users.noreply.github.com'
+          git checkout -b "$BR"
+          git add "$PIN_FILE"
+          git commit -m "chore(deps): bump aitp-verifier-py pin to $SHORT"
+          act git push -u origin "$BR"
+
+          {
+            echo "Bumps \`$PIN_FILE\` (\`${CUR:0:7}\` → \`$SHORT\`), $AHEAD commit(s) on [$VPY_REPO](https://github.com/$VPY_REPO) main:"
+            echo
+            cat "$RUNNER_TEMP/commits.md"
+            echo
+            echo "The **cross-impl acceptance (aitp-verifier-py)** job on this PR runs against the new verifier commit — **review the result and merge deliberately**; the pin exists so upstream changes never silently alter CI. Opened by \`.github/workflows/bump-verifier-py.yml\` (#149)."
+          } > "$RUNNER_TEMP/body.md"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[dry-run] gh pr create --base $BASE --head $BR"; cat "$RUNNER_TEMP/body.md"
+            NEW="(new)"
+          else
+            URL=$(gh pr create --base "$BASE" --head "$BR" \
+              --title "chore(deps): adopt aitp-verifier-py @ $SHORT" \
+              --body-file "$RUNNER_TEMP/body.md")
+            echo "Opened $URL"
+            NEW="#${URL##*/}"
+          fi
+
+          for n in $(stale_prs); do
+            act gh pr close "$n" --delete-branch \
+              --comment "Superseded by $NEW (aitp-verifier-py @ \`$SHORT\`)."
+          done
