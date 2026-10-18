@@ -12,6 +12,7 @@ import assert from 'node:assert/strict';
 
 import {
   AitpAgent,
+  computeAidJkt,
   verifyDelegation,
   verifyDelegationMultihop,
 } from '../index.js';
@@ -93,6 +94,8 @@ test('delegation round-trip: A → B → C → A re-issues to C', () => {
   assert.equal(verified.delegatee, c.aid);
   assert.equal(verified.issuedBy, b.aid);
   assert.deepEqual(verified.grants, ['demo.write']);
+  // Same name as Python's `cnf_jkt` (#240).
+  assert.equal(verified.cnfJkt, computeAidJkt(c.aid));
 
   const issued = a.issueTctForDelegatee(verified);
   // Same shape as Python's `{"tct", "grant_voucher"}` (#199).

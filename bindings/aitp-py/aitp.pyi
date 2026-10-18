@@ -8,6 +8,8 @@
 
 from typing import Callable, Literal, Optional, Sequence, Union
 
+from typing_extensions import deprecated
+
 # Revoked-`jti` deny lists. The binding extracts these into a Rust
 # `HashSet<str>`, which accepts only a `set` or `frozenset` — not an
 # arbitrary `AbstractSet` (e.g. `dict.keys()`) and not a `list`.
@@ -42,7 +44,12 @@ class DelegationVerified:
     issued_by: str
     grants: list[str]
     expires_at: int
-    cnf: str  # RFC 7638 JWK thumbprint (cnf.jkt) of the delegatee's key
+    cnf_jkt: str  # RFC 7638 JWK thumbprint (cnf.jkt) of the delegatee's key
+    @property
+    @deprecated("DelegationVerified.cnf is deprecated; use cnf_jkt")
+    def cnf(self) -> str:
+        """Deprecated alias for `cnf_jkt`. Reading it emits a
+        `DeprecationWarning`."""
 
 class InitiatorSession:
     """Outbound handshake session. Construct via `AitpAgent.new_session`."""

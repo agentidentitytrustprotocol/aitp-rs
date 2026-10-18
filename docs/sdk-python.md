@@ -202,7 +202,9 @@ multi-hop `chain`. `issuer_manifests` holds the delegator's Manifest as
 `{"manifest": …}` envelope JSON strings. The token is verified under the key
 that Manifest designates (RFC-AITP-0006 §4 step 1); without a valid one it
 fails with `KEY_RESOLUTION_FAILED`. Pass `revoked_jtis`. If you omit it, a delegation whose
-source TCT has been revoked is still redeemed. For multi-hop chains, see
+source TCT has been revoked is still redeemed. The result's `cnf_jkt` is the
+delegatee's `cnf.jkt` (Node: `cnfJkt`). The older name `cnf` still works but
+emits a `DeprecationWarning`. For multi-hop chains, see
 [Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
 
 ### Manifest verification

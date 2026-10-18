@@ -202,7 +202,8 @@ strings. The token is verified under the key that Manifest designates
 (RFC-AITP-0006 §4 step 1); without a valid one it fails with
 `KEY_RESOLUTION_FAILED`. Pass `revokedJtis`. If
 you omit it, a delegation whose source TCT has been revoked is still
-redeemed. For multi-hop chains, see
+redeemed. The result's `cnfJkt` is the delegatee's `cnf.jkt` (Python:
+`cnf_jkt`). For multi-hop chains, see
 [Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
 
 ### Manifest verification

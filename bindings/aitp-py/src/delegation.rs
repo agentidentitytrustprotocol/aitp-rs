@@ -20,7 +20,7 @@ use aitp_delegation::{verify_delegation, DelegationBuilder, VerifyDelegationCont
 // warning in the default (strict v0.1) build.
 #[cfg(feature = "multihop-delegation")]
 use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
-use pyo3::exceptions::{PyRuntimeError, PyValueError};
+use pyo3::exceptions::{PyDeprecationWarning, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashSet;
 use uuid::Uuid;
@@ -95,8 +95,26 @@ pub struct PyDelegationVerified {
     /// The delegatee's `cnf.jkt` — the RFC 7638 JWK thumbprint binding the
     /// delegatee's key. Redundant with the key encoded in `delegatee`'s AID
     /// (the AID is authoritative), but surfaced for JOSE-generic callers.
+    /// Named after the claim path, matching Node's `cnfJkt` and
+    /// `compute_aid_jkt` (#240).
     #[pyo3(get)]
-    pub cnf: String,
+    pub cnf_jkt: String,
+}
+
+#[pymethods]
+impl PyDelegationVerified {
+    /// Deprecated alias for `cnf_jkt`, kept so 0.15 callers keep working
+    /// (#240). Emits a `DeprecationWarning` on every read.
+    #[getter]
+    fn cnf(&self, py: Python<'_>) -> PyResult<String> {
+        PyErr::warn(
+            py,
+            &py.get_type::<PyDeprecationWarning>(),
+            c"DelegationVerified.cnf is deprecated; use cnf_jkt",
+            1,
+        )?;
+        Ok(self.cnf_jkt.clone())
+    }
 }
 
 /// Verify a delegation token (compact-JWS string) under **strict AITP v0.1**
@@ -238,7 +256,7 @@ fn to_verified(verified: &aitp_delegation::VerifiedDelegation) -> PyDelegationVe
         issued_by: verified.claims.iss.to_string(),
         grants: verified.claims.scope.clone(),
         expires_at: verified.claims.exp.0,
-        cnf: verified.claims.cnf.jkt.clone(),
+        cnf_jkt: verified.claims.cnf.jkt.clone(),
     }
 }
 
