@@ -72,11 +72,18 @@ def test_renewal_round_trip():
             renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
         )
     )
+    # Same shape as Node's `{ tct, grantVoucher }` (#199).
+    assert set(fresh) == {"tct", "grant_voucher"}
     old = _jws_claims(b_held)
     new = _jws_claims(fresh["tct"])
     assert new["jti"] != old["jti"]
     assert new["sub"] == old["sub"]
     assert new["grants"] == old["grants"]
+    # The re-minted voucher is bound to the fresh TCT, not the old one.
+    voucher = _jws_claims(fresh["grant_voucher"])
+    assert voucher["sub"] == new["sub"]
+    assert voucher["src_jti"] == new["jti"]
+    assert voucher["grants"] == new["grants"]
 
 
 def test_renewal_with_wrong_holder_key_rejected():

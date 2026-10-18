@@ -17,7 +17,7 @@ pub mod error;
 pub mod types;
 pub mod verifier;
 
-pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL_SECS};
+pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL_SECS, REVOCATION_LIST_URI_EXT};
 pub use error::ManifestError;
 pub use types::{
     IdentityHint, IdentityHintKind, Manifest, ManifestEnvelope, ManifestPop, MANIFEST_MEMBERS,

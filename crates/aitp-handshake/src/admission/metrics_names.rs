@@ -5,8 +5,6 @@
 //! Label values are a fixed set, so cardinality is bounded no matter
 //! what peers send.
 
-#[cfg(feature = "metrics")]
-use super::RefusalCause;
 use super::{AdmissionChallenge, AdmissionError, Admitted};
 
 /// Counter. One per [`challenge`](super::PinnedAdmission::challenge)
@@ -31,14 +29,8 @@ pub const NONCES_OUTSTANDING: &str = aitp_core::nonce_store::NONCES_OUTSTANDING_
 pub(super) fn challenge_result(r: &Result<AdmissionChallenge, AdmissionError>) -> &'static str {
     match r {
         Ok(_) => "issued",
-        Err(AdmissionError::ChallengeRefused {
-            cause: RefusalCause::RateLimited,
-            ..
-        }) => "rate_limited",
-        Err(AdmissionError::ChallengeRefused {
-            cause: RefusalCause::AtCapacity,
-            ..
-        }) => "at_capacity",
+        Err(AdmissionError::RateLimited { .. }) => "rate_limited",
+        Err(AdmissionError::ChallengeRefused { .. }) => "at_capacity",
         Err(_) => "error",
     }
 }

@@ -14,8 +14,12 @@
 //! [`MAX_NONCE_TTL`] and bound to the verifier's AID. Outstanding nonces
 //! are bounded: at the bound new challenges are refused, never evicted.
 //! Challenge issuance is always rate limited per transport source
-//! ([`RecommendedLimiter`] unless replaced). Either refusal is
-//! `CHALLENGE_REFUSED`, retryable, and does not say which limit fired.
+//! ([`RecommendedLimiter`] unless replaced). RFC-AITP-0002 §3.4 requires
+//! the two refusals to stay distinguishable: a rate-limited source gets
+//! HTTP 429 and no AITP code ([`AdmissionError::RateLimited`]); a full
+//! nonce store gets `CHALLENGE_REFUSED`, retryable, which over HTTP is 503
+//! with `Retry-After` and `{"error":"CHALLENGE_REFUSED"}`
+//! ([`AdmissionError::ChallengeRefused`]).
 //!
 //! [`admit`] runs the RFC-AITP-0002 §3.4 check order:
 //!
@@ -130,10 +134,11 @@ pub enum AdmissionError {
     /// reusing its `message_id`, was already admitted.
     #[error("message_id already admitted")]
     Replay,
-    /// The source exceeded its presentation rate limit (RFC-AITP-0009
-    /// §3.1). No AITP error envelope: answer HTTP 429, with
-    /// `Retry-After` from `retry_after`. See [`Self::http_status`].
-    #[error("presentation rate limit exceeded")]
+    /// The source exceeded its challenge or presentation rate limit
+    /// (RFC-AITP-0009 §3.1). No AITP error envelope: within the profile
+    /// RFC-AITP-0002 §3.4 requires HTTP 429, with `Retry-After` from
+    /// `retry_after`. See [`Self::http_status`].
+    #[error("rate limit exceeded")]
     RateLimited {
         /// When the source may present again.
         retry_after: Duration,
@@ -149,9 +154,13 @@ pub enum AdmissionError {
     /// The envelope signature does not verify under the admitted key.
     #[error("envelope signature invalid")]
     InvalidSignature,
-    /// No challenge issued. Wire code `CHALLENGE_REFUSED`, retryable;
-    /// send it in the out-of-band challenge response (HTTP 429 alongside
-    /// is fine). The message never names the cause.
+    /// No challenge issued: the outstanding-nonce bound is reached. Wire
+    /// code `CHALLENGE_REFUSED`, retryable. It is not an AITP error
+    /// envelope and travels in the challenge's own transport: over HTTP,
+    /// answer [`Self::http_status`] (503) with a `Retry-After` header from
+    /// [`Self::retry_after`] and the body [`Self::http_body`]
+    /// (RFC-AITP-0002 §3.4). Never 429, which the client must be able to
+    /// tell apart as a per-source rate limit.
     #[error("challenge refused")]
     ChallengeRefused {
         /// When a retry may succeed, if known (a `Retry-After` value).
@@ -199,9 +208,37 @@ impl AdmissionError {
     }
 
     /// The HTTP status a transport answers with when it must not send an
-    /// AITP error envelope: 429 for [`Self::RateLimited`], else `None`.
+    /// AITP error envelope (RFC-AITP-0002 §3.4): 429 for
+    /// [`Self::RateLimited`], 503 for [`Self::ChallengeRefused`], else
+    /// `None`.
     pub fn http_status(&self) -> Option<u16> {
-        matches!(self, Self::RateLimited { .. }).then_some(429)
+        match self {
+            Self::RateLimited { .. } => Some(429),
+            Self::ChallengeRefused { .. } => Some(503),
+            _ => None,
+        }
+    }
+
+    /// The `Retry-After` to send with [`Self::http_status`]. For a
+    /// [`Self::ChallengeRefused`] whose store did not know when a slot
+    /// frees, [`MAX_NONCE_TTL`]: every outstanding nonce expires within
+    /// it. `None` for every other error.
+    pub fn retry_after(&self) -> Option<Duration> {
+        match self {
+            Self::RateLimited { retry_after } => Some(*retry_after),
+            Self::ChallengeRefused { retry_after, .. } => {
+                Some(retry_after.unwrap_or(MAX_NONCE_TTL))
+            }
+            _ => None,
+        }
+    }
+
+    /// The HTTP body to send with [`Self::http_status`]:
+    /// `{"error":"CHALLENGE_REFUSED"}` for [`Self::ChallengeRefused`]
+    /// (RFC-AITP-0002 §3.4); `None`, an empty body, for
+    /// [`Self::RateLimited`] (RFC-AITP-0009 §3.1) and every other error.
+    pub fn http_body(&self) -> Option<&'static str> {
+        matches!(self, Self::ChallengeRefused { .. }).then_some(r#"{"error":"CHALLENGE_REFUSED"}"#)
     }
 }
 
@@ -210,9 +247,8 @@ impl AdmissionError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum RefusalCause {
-    /// The source's rate limit.
-    RateLimited,
-    /// The outstanding-nonce bound.
+    /// The outstanding-nonce bound. (A rate-limited challenge request is
+    /// [`AdmissionError::RateLimited`], not a refusal.)
     AtCapacity,
 }
 
@@ -360,10 +396,7 @@ impl PinnedAdmission {
     ) -> Result<AdmissionChallenge, AdmissionError> {
         self.limiter
             .check(source)
-            .map_err(|retry_after| AdmissionError::ChallengeRefused {
-                retry_after: Some(retry_after),
-                cause: RefusalCause::RateLimited,
-            })?;
+            .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
         let expires_at = now.plus_secs(self.ttl.as_secs() as i64);
         // A duplicate means the CSPRNG repeated 128 bits; one retry is
         // already paranoid.

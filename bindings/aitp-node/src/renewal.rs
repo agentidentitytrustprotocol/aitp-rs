@@ -19,6 +19,8 @@ use std::sync::OnceLock;
 use std::task::{Context, Poll};
 use uuid::Uuid;
 
+use crate::tct::JsIssuedTct;
+
 /// Holder side: build a `TctRenewalPayload` JSON. SDK generates the
 /// fresh 128-bit `pop_nonce` internally.
 ///
@@ -42,7 +44,8 @@ pub(crate) fn build_renewal_request_js(
 }
 
 /// Issuer side: verify a renewal request and mint a fresh TCT. Returns
-/// the fresh TCT as a compact-JWS token string.
+/// `{ tct, grantVoucher }` — the fresh TCT compact JWS plus its companion
+/// grant voucher (`null` when none was minted).
 ///
 /// `offered_grants` is the issuer Manifest's current
 /// `offered_capabilities`: grants it no longer offers are dropped, and
@@ -57,7 +60,7 @@ pub(crate) fn process_renewal_request_js(
     new_ttl_secs: i64,
     offered_grants: &[String],
     revoked_jtis: &[String],
-) -> Result<String> {
+) -> Result<JsIssuedTct> {
     let request: TctRenewalPayload = serde_json::from_str(request_payload_json)
         .map_err(|e| Error::from_reason(format!("invalid renewal payload JSON: {e}")))?;
     let revoked = revoked_jtis
@@ -77,7 +80,7 @@ pub(crate) fn process_renewal_request_js(
     let issued = poll_ready(process_renewal_request(&request, issuer_key, &ctx))
         .ok_or_else(|| Error::from_reason("renewal replay guard did not complete"))?
         .map_err(|e| Error::from_reason(format!("renewal request rejected: {e}")))?;
-    Ok(issued.token)
+    Ok(issued.into())
 }
 
 /// The process-wide renewal replay guard. Shared by every agent in the

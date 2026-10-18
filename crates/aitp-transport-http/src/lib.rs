@@ -100,7 +100,7 @@ pub use key_resolution::{
 #[cfg(feature = "server")]
 pub use server::{
     DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome,
-    RevocationListProducer, DEFAULT_SESSION_TTL,
+    RevocationListProducer, DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
 };
 
 #[cfg(feature = "source-ip")]

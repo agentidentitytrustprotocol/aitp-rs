@@ -136,7 +136,8 @@ The renewal route applies the server's per-source rate limit and checks
 the content type, then runs `process_renewal_request` with:
 
 - revocation from the attached `RevocationListProducer`'s current list
-  (none attached means nothing is revoked);
+  (none attached: the server serves its default signed empty snapshot, so
+  nothing is revoked);
 - grants from the server Manifest's `offered_capabilities`, plus the
   optional `with_renewal_grant_policy` hook;
 - an in-memory replay guard by default, replaceable with
@@ -180,9 +181,8 @@ Each failure maps to its own registry code:
 import json
 
 # Holder side: build the renewal request bound to a fresh nonce.
-# current_tct is the holder's TCT as a compact JWS string. Pass it
-# positionally (the keyword name differs between aitp.pyi and the binding, #199).
-req_json = holder_agent.build_renewal_request(current_tct)
+# current_tct is the holder's TCT as a compact JWS string.
+req_json = holder_agent.build_renewal_request(current_tct_token=current_tct)
 
 # Issuer side: verify PoP + mint a fresh TCT (bounded by the issuer manifest).
 # The issuer must have called build_manifest(): grants it no longer offers
@@ -196,9 +196,8 @@ result = json.loads(
 fresh_tct = result["tct"]
 ```
 
-In Node, `processRenewalRequest(...)` returns the fresh TCT as a bare compact
-JWS string, with no voucher
-([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
+In Node, `processRenewalRequest(...)` returns the same fields as an object,
+`{ tct, grantVoucher }`.
 
 `bindings/aitp-py/tests/test_renewal.py` covers the holder → issuer
 round-trip and rejection of a wrong holder key, a replayed request, a

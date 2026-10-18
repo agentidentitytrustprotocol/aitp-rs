@@ -18,7 +18,7 @@ use crate::oidc::JwksProvider;
 #[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
 use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
-use crate::tct::{js_verify_tct, js_verify_tct_cached, JsTctIdentity, JsTctStore};
+use crate::tct::{js_verify_tct, js_verify_tct_cached, JsIssuedTct, JsTctIdentity, JsTctStore};
 
 /// Input shape for `signRevocationList`. Field names map to spec
 /// `RevocationEntry` (jti, revoked_at, reason).
@@ -368,15 +368,17 @@ impl AitpAgent {
         build_delegation_token_json(&self.key, &voucher_token, &delegatee_aid, scope, ttl_secs)
     }
 
-    /// Mint a fresh compact-JWS TCT for a delegatee after the verifier has
-    /// confirmed the delegation. The subject-key binding is derived from
-    /// the verified delegation's `delegatee` AID.
+    /// Mint a fresh TCT for a delegatee after the verifier has confirmed
+    /// the delegation. Returns `{ tct, grantVoucher }` — the compact-JWS
+    /// TCT plus its companion grant voucher (`null` when none was minted).
+    /// The subject-key binding is derived from the verified delegation's
+    /// `delegatee` AID.
     #[napi]
     pub fn issue_tct_for_delegatee(
         &self,
         verified: JsDelegationVerified,
         ttl_secs: Option<i64>,
-    ) -> Result<String> {
+    ) -> Result<JsIssuedTct> {
         issue_tct_for_delegatee_json(&self.key, &verified, ttl_secs)
     }
 
@@ -446,7 +448,8 @@ impl AitpAgent {
     }
 
     /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-    /// fresh TCT, returned as a compact-JWS token string.
+    /// fresh TCT. Returns `{ tct, grantVoucher }` — the compact-JWS TCT plus
+    /// its companion grant voucher (`null` when none was minted).
     ///
     /// Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
     /// agent's Manifest (from `buildManifest()`, required) no longer
@@ -461,7 +464,7 @@ impl AitpAgent {
         manifest_exp_unix_secs: i64,
         new_ttl_secs: i64,
         revoked_jtis: Option<Vec<String>>,
-    ) -> Result<String> {
+    ) -> Result<JsIssuedTct> {
         let manifest = self
             .manifest
             .as_ref()

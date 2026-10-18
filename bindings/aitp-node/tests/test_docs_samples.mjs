@@ -175,9 +175,9 @@ function delegation(ns) {
   // bob (the original grantor) verifies and mints carol a TCT of her own.
   const revoked = [];   // bob's deny list, e.g. jtis from verified revocation snapshots
   const verified = verifyDelegation(delegationJws, bob.aid, revoked);
-  const carolTct = bob.issueTctForDelegatee(verified);   // bare compact-JWS string
+  const { tct: carolTct, grantVoucher: carolVoucher } = bob.issueTctForDelegatee(verified);
   console.log(carol.verifyTct(carolTct, 'demo.echo').peerAid === bob.aid);   // true
-  return { ...ns, carol, delegationJws, revoked, verified, carolTct };
+  return { ...ns, carol, delegationJws, revoked, verified, carolTct, carolVoucher };
 }
 
 function manifestVerification(ns) {
@@ -267,10 +267,10 @@ function tctRenewal(ns) {
   // docs/sdk-node.md § Additional capabilities › TCT renewal (feature `renewal`)
   const { alice, bob, tctJws } = ns;
   const req = alice.buildRenewalRequest(tctJws);   // the held TCT compact JWS
-  const freshTct = bob.processRenewalRequest(
+  const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
     req, Math.floor(Date.now() / 1000) + 86_400, 3600,
-  );   // bare compact-JWS string — no grant voucher
-  return { ...ns, freshTct };
+  );
+  return { ...ns, freshTct, freshVoucher };
 }
 
 function multihop(ns) {
@@ -382,6 +382,7 @@ test('docs: delegation', () => {
   const [ns, logs] = captureLogs(throughDelegation);
   assert.deepEqual(logs, ['true']);
   assert.equal(ns.carolTct.split('.').length, 3);
+  assert.equal(ns.carolVoucher.split('.').length, 3);
   assert.equal(ns.verified.delegatee, ns.carol.aid);
 });
 
@@ -426,6 +427,7 @@ test('docs: TCT renewal', { skip: !HAS_RENEWAL }, () => {
   assert.equal(typeof ns.freshTct, 'string');
   assert.equal(ns.freshTct.split('.').length, 3);
   assert.notEqual(ns.freshTct, ns.tctJws);
+  assert.equal(ns.freshVoucher.split('.').length, 3);
 });
 
 test('docs: multi-hop delegation', { skip: !HAS_MULTIHOP }, () => {

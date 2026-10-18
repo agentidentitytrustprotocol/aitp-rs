@@ -61,16 +61,37 @@ pub const DEFAULT_MAX_SESSIONS: usize = 10_000;
 /// its creation. Disabled by [`Duration::ZERO`].
 pub const DEFAULT_SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
+/// Path at which [`HandshakeServer::router`] serves `ListRevoked`, the
+/// issuer's signed revocation snapshot (RFC-AITP-0005 §11,
+/// RFC-AITP-0008 §1.5). The issuer's Manifest advertises the absolute
+/// URL of this route via
+/// [`ManifestBuilder::revocation_list_uri`](aitp_manifest::ManifestBuilder::revocation_list_uri),
+/// e.g. `origin.join(REVOCATION_LIST_PATH)`.
+pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
+
+/// Validity window of the default signed empty snapshot a
+/// [`HandshakeServer`] serves when no [`RevocationListProducer`] is
+/// attached.
+const DEFAULT_EMPTY_SNAPSHOT_TTL_SECS: i64 = 3600;
+
+/// How long a default signed empty snapshot is reused before it is
+/// re-signed. Bounds signing-backend load (a KMS call per poll on an
+/// unauthenticated GET) while keeping `published_at` fresh well inside
+/// any sane `max_staleness_secs`.
+const DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS: i64 = 60;
+
 /// Producer of the local issuer's [`RevocationListEnvelope`] for the
-/// outbound `/.well-known/aitp-revocation-list` endpoint
-/// (RFC-AITP-0008 §1.5).
+/// outbound [`REVOCATION_LIST_PATH`] endpoint (RFC-AITP-0008 §1.5).
+///
+/// A [`HandshakeServer`] always serves `ListRevoked` (RFC-AITP-0005 §11).
+/// Without a producer it serves a signed empty snapshot, which is only
+/// true for a deployment that never revokes; attach a producer as soon
+/// as the deployment can revoke.
 ///
 /// Implementations choose how to source the list — common options:
 /// - hold an in-memory `RwLock<RevocationListEnvelope>` and update it
-///   from your control plane,
-/// - re-sign on every poll from a database table, or
-/// - lazily mint an empty signed snapshot for issuers that have nothing
-///   to revoke (this is itself a meaningful signed assertion).
+///   from your control plane, or
+/// - re-sign on every poll from a database table.
 ///
 /// The producer is sync; if the source is I/O-bound, fan out to a
 /// background task and just return the latest cached value here.
@@ -118,6 +139,8 @@ impl ManifestServer {
 ///   MUTUAL_HELLO_ACK
 /// - `POST /aitp/handshake/commit` accepts MUTUAL_COMMIT, replies with
 ///   MUTUAL_COMMIT_ACK
+/// - `GET` [`REVOCATION_LIST_PATH`] serves `ListRevoked`, always
+///   (RFC-AITP-0005 §11); see [`Self::with_revocation_producer`]
 ///
 /// Sessions are correlated by the `X-Aitp-Session-Id` HTTP header; clients
 /// receive a session id in the same header on the HELLO_ACK response.
@@ -509,8 +532,15 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         Ok(join)
     }
 
-    /// Attach a [`RevocationListProducer`] so the server's router will
-    /// also serve `GET /.well-known/aitp-revocation-list`.
+    /// Attach a [`RevocationListProducer`] as the source of the
+    /// `GET` [`REVOCATION_LIST_PATH`] (`ListRevoked`) snapshot.
+    ///
+    /// The route is served either way (RFC-AITP-0005 §11): without a
+    /// producer it returns an empty snapshot freshly signed by this
+    /// server's `signing_key` (the TCT issuer key), re-signed every
+    /// minute and valid for an hour. That asserts "this issuer has
+    /// revoked nothing", so a deployment that can revoke MUST attach a
+    /// producer backed by its deny list.
     pub fn with_revocation_producer(mut self, producer: Arc<dyn RevocationListProducer>) -> Self {
         self.revocation_producer = Some(producer);
         self
@@ -661,13 +691,35 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         #[cfg(feature = "experimental-renewal")]
         let renewal_route =
             renewal_router(&self.state, &self.renewal, self.revocation_producer.clone());
-        let mut router = router.with_state(self.state);
+        let advertised = self
+            .state
+            .manifest
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.get(crate::revocation::REVOCATION_LIST_URI_EXT).is_some());
+        if !advertised {
+            // RFC-AITP-0005 §11 / RFC-AITP-0008 §1.4: a TCT issuer MUST
+            // advertise its ListRevoked URL. Peers still accept the
+            // Manifest, but treat this issuer's revocation as unavailable.
+            warn!(
+                key = crate::revocation::REVOCATION_LIST_URI_EXT,
+                "handshake server Manifest does not advertise its ListRevoked URL; \
+                 set it with ManifestBuilder::revocation_list_uri"
+            );
+        }
+        let source = match self.revocation_producer {
+            Some(producer) => RevocationSource::Producer(producer),
+            None => RevocationSource::SignedEmpty(SignedEmptySnapshot::new(Arc::clone(
+                &self.state.signing_key,
+            ))),
+        };
+        #[allow(unused_mut)]
+        let mut router = router
+            .with_state(self.state)
+            .merge(revocation_router(source));
         #[cfg(feature = "experimental-renewal")]
         if let Some(renewal_route) = renewal_route {
             router = router.merge(renewal_route);
-        }
-        if let Some(producer) = self.revocation_producer {
-            router = router.merge(revocation_router(producer));
         }
         router
     }
@@ -679,7 +731,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 struct RenewalRouteState<R: JwksResolver + Send + Sync + 'static> {
     handshake: Arc<HandshakeState<R>>,
     config: RenewalConfig,
-    /// The issuer's own revocation list. `None`: nothing is revoked.
+    /// The issuer's own revocation list. `None`: the server serves its
+    /// default signed empty snapshot, so nothing is revoked.
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
 }
 
@@ -702,7 +755,7 @@ fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
     let path = uri.path().to_string();
     if matches!(
         path.as_str(),
-        "/aitp/handshake/hello" | "/aitp/handshake/commit" | "/.well-known/aitp-revocation-list"
+        "/aitp/handshake/hello" | "/aitp/handshake/commit" | REVOCATION_LIST_PATH
     ) {
         warn!(
             "{} {uri} collides with another route; renewal route not mounted",
@@ -871,12 +924,73 @@ fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
     }
 }
 
-fn revocation_router(producer: Arc<dyn RevocationListProducer>) -> Router {
+/// Where the `ListRevoked` route gets its snapshot.
+enum RevocationSource {
+    /// Operator-supplied deny list.
+    Producer(Arc<dyn RevocationListProducer>),
+    /// Default: an empty snapshot signed by the issuer key.
+    SignedEmpty(SignedEmptySnapshot),
+}
+
+/// Default `ListRevoked` snapshot: empty `entries`, `issuer` = the
+/// server's own AID, signed by the same key that signs its TCTs, so a
+/// consumer verifies it against the issuer Manifest's key
+/// (RFC-AITP-0008 §1.5 "Empty lists are signed"). Reused for
+/// [`DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS`], then re-signed.
+struct SignedEmptySnapshot {
+    issuer: aitp_core::Aid,
+    provider: crate::revocation::EmptyRevocationProvider,
+    cached: Mutex<Option<RevocationListEnvelope>>,
+}
+
+impl SignedEmptySnapshot {
+    fn new(signing_key: Arc<dyn AitpSigner>) -> Self {
+        Self {
+            issuer: signing_key.aid().clone(),
+            provider: crate::revocation::EmptyRevocationProvider::new(signing_key)
+                .with_ttl_secs(DEFAULT_EMPTY_SNAPSHOT_TTL_SECS),
+            cached: Mutex::new(None),
+        }
+    }
+
+    fn current(&self) -> Result<RevocationListEnvelope, crate::revocation::RevocationError> {
+        use crate::revocation::RevocationProvider as _;
+        let now = Timestamp::now();
+        let mut cached = self.cached.lock();
+        if let Some(env) = cached.as_ref() {
+            let age = now.0.saturating_sub(env.revocation_list.published_at.0);
+            if (0..DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS).contains(&age) {
+                return Ok(env.clone());
+            }
+        }
+        let env = self.provider.fetch(&self.issuer)?;
+        *cached = Some(env.clone());
+        Ok(env)
+    }
+}
+
+fn revocation_router(source: RevocationSource) -> Router {
+    let source = Arc::new(source);
     Router::new().route(
-        "/.well-known/aitp-revocation-list",
+        REVOCATION_LIST_PATH,
         get(move || {
-            let producer = producer.clone();
-            async move { Json(producer.current()) }
+            let source = source.clone();
+            async move {
+                match &*source {
+                    RevocationSource::Producer(p) => Json(p.current()).into_response(),
+                    RevocationSource::SignedEmpty(d) => match d.current() {
+                        Ok(env) => Json(env).into_response(),
+                        // Local signing-backend fault: there is no
+                        // snapshot to serve. Consumers see the issuer as
+                        // unreachable and apply their fail mode
+                        // (RFC-AITP-0008 §3).
+                        Err(e) => {
+                            warn!(error = %e, "could not sign default revocation snapshot");
+                            StatusCode::SERVICE_UNAVAILABLE.into_response()
+                        }
+                    },
+                }
+            }
         }),
     )
 }

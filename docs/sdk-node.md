@@ -184,7 +184,7 @@ const delegationJws = alice.buildDelegation(voucherJws, carol.aid, ['demo.echo']
 // bob (the original grantor) verifies and mints carol a TCT of her own.
 const revoked = [];   // bob's deny list, e.g. jtis from verified revocation snapshots
 const verified = verifyDelegation(delegationJws, bob.aid, revoked);
-const carolTct = bob.issueTctForDelegatee(verified);   // bare compact-JWS string
+const { tct: carolTct, grantVoucher: carolVoucher } = bob.issueTctForDelegatee(verified);
 console.log(carol.verifyTct(carolTct, 'demo.echo').peerAid === bob.aid);   // true
 ```
 
@@ -340,13 +340,16 @@ them; add back by named Cargo feature: `renewal`, `session-bundle`,
 
 ```javascript
 const req = alice.buildRenewalRequest(tctJws);   // the held TCT compact JWS
-const freshTct = bob.processRenewalRequest(
+const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
   req, Math.floor(Date.now() / 1000) + 86_400, 3600,
-);   // bare compact-JWS string — no grant voucher
+);
 ```
 
-- **Return value:** `processRenewalRequest` returns only the fresh TCT. The
-  Python binding also returns the re-minted grant voucher.
+- **Return value:** `processRenewalRequest` returns `{ tct, grantVoucher }`:
+  the fresh TCT plus a grant voucher re-minted for it (`grantVoucher` is
+  absent when issuance policy declined to mint one).
+  `issueTctForDelegatee` returns the same shape. Before 0.15 both returned a
+  bare compact-JWS string and dropped the voucher.
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
 - **Policy re-evaluation (since 0.15).** The issuer must have called

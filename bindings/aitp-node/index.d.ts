@@ -89,11 +89,13 @@ export declare class AitpAgent {
    */
   buildDelegation(voucherToken: string, delegateeAid: string, scope: Array<string>, ttlSecs?: number | undefined | null): string
   /**
-   * Mint a fresh compact-JWS TCT for a delegatee after the verifier has
-   * confirmed the delegation. The subject-key binding is derived from
-   * the verified delegation's `delegatee` AID.
+   * Mint a fresh TCT for a delegatee after the verifier has confirmed
+   * the delegation. Returns `{ tct, grantVoucher }` — the compact-JWS
+   * TCT plus its companion grant voucher (`null` when none was minted).
+   * The subject-key binding is derived from the verified delegation's
+   * `delegatee` AID.
    */
-  issueTctForDelegatee(verified: JsDelegationVerified, ttlSecs?: number | undefined | null): string
+  issueTctForDelegatee(verified: JsDelegationVerified, ttlSecs?: number | undefined | null): JsIssuedTct
   /**
    * Sign a `RevocationList` with this agent's key. `entries` carries
    * the revoked-TCT records; `expiresInSecs` defaults to 3600 s.
@@ -111,7 +113,8 @@ export declare class AitpAgent {
   buildRenewalRequest(currentTctToken: string): string
   /**
    * Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-   * fresh TCT, returned as a compact-JWS token string.
+   * fresh TCT. Returns `{ tct, grantVoucher }` — the compact-JWS TCT plus
+   * its companion grant voucher (`null` when none was minted).
    *
    * Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
    * agent's Manifest (from `buildManifest()`, required) no longer
@@ -120,7 +123,7 @@ export declare class AitpAgent {
    *
    * Behind the `renewal` Cargo feature (on by default).
    */
-  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number, revokedJtis?: Array<string> | undefined | null): string
+  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number, revokedJtis?: Array<string> | undefined | null): JsIssuedTct
 }
 
 /** Outbound handshake session — drives the initiator side. */
@@ -387,6 +390,25 @@ export interface JsHelloAckResult {
   ackJson: string
   /** Correlation id — set as the `X-Aitp-Session-Id` response header. */
   sessionId: string
+}
+
+/**
+ * A TCT this agent just minted for someone else — the return shape of
+ * `processRenewalRequest` and `issueTctForDelegatee`. Mirrors the Python
+ * SDK's `{"tct", "grant_voucher"}` JSON object.
+ */
+export interface JsIssuedTct {
+  /**
+   * The fresh TCT as an opaque compact-JWS string. Deliver it to the
+   * holder verbatim.
+   */
+  tct: string
+  /**
+   * The companion grant voucher (compact JWS, RFC-AITP-0005 §8), or
+   * `null` when issuance policy declined to mint one — the holder then
+   * cannot delegate. Deliver it alongside `tct`.
+   */
+  grantVoucher?: string
 }
 
 /** The verified peer identity carried by a TCT. */

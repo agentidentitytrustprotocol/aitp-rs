@@ -204,7 +204,12 @@ impl PyInitiatorSession {
     }
 
     /// Step 2 — process `MUTUAL_HELLO_ACK`, produce `MUTUAL_COMMIT`.
-    fn process_hello_ack(&mut self, hello_ack_json: &str, _session_id: &str) -> PyResult<String> {
+    ///
+    /// `session_id` is the responder's `X-Aitp-Session-Id` header. It is
+    /// accepted for transport bookkeeping and parity with the Node SDK's
+    /// `processHelloAck(helloAckJson, sessionId)` but not used here.
+    fn process_hello_ack(&mut self, hello_ack_json: &str, session_id: &str) -> PyResult<String> {
+        let _ = session_id;
         let envelope: AitpEnvelope = wire::envelope(hello_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualHelloAckPayload = wire::check_payload(
