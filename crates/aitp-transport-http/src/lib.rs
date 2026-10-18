@@ -110,7 +110,7 @@ pub use server_limits::{
 };
 
 #[cfg(feature = "experimental-session-bundle")]
-pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
+pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES, SESSION_BUNDLE_PATH};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use common::{

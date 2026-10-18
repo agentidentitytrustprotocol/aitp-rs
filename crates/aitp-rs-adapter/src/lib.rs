@@ -3284,7 +3284,9 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
 }
 
 fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
-    use aitp_session_bundle::{verify_session_bundle, BundleOutcome, VerifySessionBundleContext};
+    use aitp_session_bundle::{
+        verify_session_bundle, BundleOutcome, CoordinatorKeySource, VerifySessionBundleContext,
+    };
 
     // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
     // `signature` is a member of the inner body (spec commit 45b5ef978e13
@@ -3357,10 +3359,26 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         Some(&check)
     };
+    // RFC-AITP-0010 §5 step 5: an optional `coordinator_manifest`
+    // (bare body or `{"manifest": …}` envelope) is verified and used as
+    // the coordinator key source. The `bundle-*` fixtures carry none, so
+    // its absence falls back to the AID-derived key.
+    let coordinator_manifest = match params.get("coordinator_manifest") {
+        Some(v) => match aitp_manifest::parse_manifest_wire(&checked(v)) {
+            Ok(m) => Some(m),
+            Err(e) => return err(id, &manifest_error_code(&e), &e.to_string()),
+        },
+        None => None,
+    };
+    let coordinator_key = match &coordinator_manifest {
+        Some(m) => CoordinatorKeySource::Manifest(m),
+        None => CoordinatorKeySource::UnverifiedAidDangerous,
+    };
     let ctx = VerifySessionBundleContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
+        coordinator_key,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {
@@ -3409,6 +3427,8 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         AudienceMismatch => "BUNDLE_AUDIENCE_MISMATCH",
         NotMember => "BUNDLE_NOT_MEMBER",
         EmptyParticipants => "BUNDLE_EMPTY_PARTICIPANTS",
+        CoordinatorManifest(e) => return manifest_error_code(e),
+        CoordinatorManifestMismatch => "SESSION_BUNDLE_INVALID",
         MissingField(_) => "INVALID_REQUEST",
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",

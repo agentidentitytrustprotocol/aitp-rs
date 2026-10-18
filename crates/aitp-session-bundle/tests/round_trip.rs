@@ -61,6 +61,7 @@ fn happy_path_three_participants() {
             verifier_aid: me,
             now: NOW,
             revocation_check: None,
+            coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
         };
         let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
         match outcome {
@@ -93,6 +94,7 @@ fn non_member_rejected() {
         verifier_aid: evan.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::NotMember));
@@ -113,6 +115,7 @@ fn expired_bundle_rejected() {
         verifier_aid: alice.aid(),
         now: Timestamp(NOW.0 + 3600 * 24 * 365),
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::Expired));
@@ -135,6 +138,7 @@ fn tampered_signature_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::InvalidSignature));
@@ -173,6 +177,7 @@ fn wrapped_signed_bundle_is_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(
@@ -206,6 +211,7 @@ fn revoked_participant_degrades_subset() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: Some(&revoke),
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     match verify_session_bundle(&bundle, &ctx).unwrap() {
         BundleOutcome::DegradedSubset {
@@ -284,6 +290,7 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     // Rejected — the tampered peek value can never yield acceptance.
@@ -380,6 +387,7 @@ fn version_mismatch_rejected() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::VersionMismatch));
@@ -428,6 +436,7 @@ fn populated_extensions_round_trip_and_signature_verifies() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -530,6 +539,7 @@ fn unknown_keys_inside_extensions_are_preserved_through_round_trip() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -558,6 +568,7 @@ fn bundle_without_extensions_still_verifies_unchanged() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -598,6 +609,7 @@ fn present_but_empty_extensions_still_verifies() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
     assert!(

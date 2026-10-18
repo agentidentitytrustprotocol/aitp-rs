@@ -7,8 +7,8 @@ use std::sync::Arc;
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_session_bundle::{
-    verify_session_bundle, BundleOutcome, ParticipantEntry, SessionBundleBuilder,
-    SessionBundleEnvelope, VerifySessionBundleContext,
+    verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
+    SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
 };
 
 use crate::wire;
@@ -114,7 +114,11 @@ impl SessionBundleBuilderJs {
 
 /// Verify a `SessionBundleEnvelope` JSON. `nowUnixSecs` defaults to
 /// the system clock. `revocationCheck` receives a JTI string and
-/// returns true if revoked.
+/// returns true if revoked. `coordinatorManifestJson` is the
+/// coordinator's `ManifestEnvelope` JSON: when supplied it is verified
+/// and the coordinator key is resolved from it (RFC-AITP-0010 §5 step
+/// 5); when omitted the key is derived from the bundle's `coordinator`
+/// AID alone, which skips that step.
 #[napi(js_name = "verifySessionBundle")]
 pub fn verify_session_bundle_js(
     env: Env,
@@ -122,9 +126,15 @@ pub fn verify_session_bundle_js(
     verifier_aid: String,
     now_unix_secs: Option<i64>,
     revocation_check: Option<FunctionRef<String, bool>>,
+    coordinator_manifest_json: Option<String>,
 ) -> Result<JsBundleOutcome> {
     let bundle = wire::session_bundle(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
+    let coordinator_manifest = coordinator_manifest_json
+        .as_deref()
+        .map(wire::manifest)
+        .transpose()
+        .map_err(|e| Error::from_reason(format!("invalid coordinator manifest JSON: {e}")))?;
     let verifier = Aid::parse(&verifier_aid)
         .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
@@ -153,6 +163,10 @@ pub fn verify_session_bundle_js(
             verifier_aid: &verifier,
             now,
             revocation_check: closure.as_deref(),
+            coordinator_key: match &coordinator_manifest {
+                Some(m) => CoordinatorKeySource::Manifest(m),
+                None => CoordinatorKeySource::UnverifiedAidDangerous,
+            },
         },
     )
     .map_err(|e| Error::from_reason(format!("bundle verification failed: {e}")))?;

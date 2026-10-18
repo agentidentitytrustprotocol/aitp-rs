@@ -462,6 +462,56 @@ mod session_bundle_wire_shape {
         );
         assert_err(&resp, "v", "UNKNOWN_FIELD");
     }
+
+    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: i64) -> Value {
+        use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+        let manifest = ManifestBuilder::new(key)
+            .display_name("coordinator")
+            .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::PinnedKey,
+                subject: "coordinator".into(),
+                issuer: None,
+                public_key: Some(key.aid().identifier().to_string()),
+            })
+            .offer("session.coordinate")
+            .published_at(Timestamp(NOW))
+            .ttl_secs(ttl_secs)
+            .build()
+            .unwrap();
+        serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
+    }
+
+    /// RFC-AITP-0010 §5 step 5 (issue #197): an optional
+    /// `coordinator_manifest` is verified and must be the coordinator's.
+    #[test]
+    fn coordinator_manifest_is_verified() {
+        let mut state = AdapterState::default();
+        let body = issue_bundle(&mut state);
+        let verify = |state: &mut AdapterState, manifest: Value| {
+            handle(
+                state,
+                "v",
+                "verify_session_bundle",
+                json!({
+                    "session_bundle": { "session_bundle": body.clone() },
+                    "verifier_aid": participant().aid().to_string(),
+                    "now": NOW + 100,
+                    "coordinator_manifest": manifest,
+                }),
+            )
+        };
+
+        let ok = verify(&mut state, manifest_envelope(&coordinator(), 24 * 3600));
+        assert_eq!(ok["ok"], json!(true), "got {ok}");
+
+        let other = AitpSigningKey::from_seed(&[0x77; 32]);
+        let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
+        assert_err(&resp, "v", "SESSION_BUNDLE_INVALID");
+
+        let resp = verify(&mut state, manifest_envelope(&coordinator(), 50));
+        assert_err(&resp, "v", "MANIFEST_EXPIRED");
+    }
 }
 
 /// A rate-limited presentation is answered with `http_status` 429 and no

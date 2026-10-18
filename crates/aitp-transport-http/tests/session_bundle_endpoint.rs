@@ -319,6 +319,7 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     verify_session_bundle(&got.session_bundle, &ctx)
         .expect("fetched bundle must verify under the coordinator's key");
@@ -354,4 +355,129 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         "signature must NOT verify over the wrapped \
          {{\"session_bundle\": …}} form — the transport wrapper is not signed"
     );
+}
+
+/// RFC-AITP-0010 §4.3.1 (issue #195): the endpoint accepts only the
+/// wrapped `{"session_bundle": {…}}` envelope; a bare inner body MUST be
+/// rejected — as `SESSION_BUNDLE_INVALID` — and not stored.
+#[tokio::test]
+async fn bare_body_is_rejected_and_not_stored() {
+    let envelope = sample_bundle(Uuid::new_v4());
+    let bare = serde_json::to_vec(&envelope.session_bundle).unwrap();
+
+    let server = SessionBundleServer::new();
+    let router = server.clone().router();
+    let resp = router
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/aitp/session/bundle")
+                .header("content-type", "application/json")
+                .body(Body::from(bare))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    let bytes = axum::body::to_bytes(resp.into_body(), 1 << 20)
+        .await
+        .unwrap();
+    let text = String::from_utf8(bytes.to_vec()).unwrap();
+    assert!(
+        text.contains("SESSION_BUNDLE_INVALID"),
+        "expected the SESSION_BUNDLE_INVALID class, got: {text}"
+    );
+    assert!(server.is_empty(), "a bare body must not be stored");
+}
+
+/// RFC-AITP-0010 §4.3.1 (issue #195): a coordinator advertises the
+/// concrete endpoint URL under `extensions["rfc-aitp-0010.bundle_uri"]`
+/// INSIDE its signed Manifest. The advertised URL routes to this
+/// server's POST path, the Manifest still verifies with it, tampering
+/// with the advertised value breaks the Manifest signature, and a
+/// Manifest without the key advertises nothing.
+#[tokio::test]
+async fn bundle_uri_is_advertised_in_the_signed_manifest() {
+    use aitp_manifest::{verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder};
+    use aitp_manifest::{ManifestError, VerifyManifestContext};
+    use aitp_session_bundle::{
+        advertise_bundle_uri, bundle_uri_from_manifest, RFC_AITP_0010_BUNDLE_URI,
+    };
+
+    const NOW: Timestamp = Timestamp(1_700_000_000);
+    let coordinator = AitpSigningKey::from_seed(&[0xC0; 32]);
+    let builder = || {
+        ManifestBuilder::new(&coordinator)
+            .display_name("coordinator")
+            .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::PinnedKey,
+                subject: "coordinator".into(),
+                issuer: None,
+                public_key: Some(coordinator.aid().identifier().to_string()),
+            })
+            .offer("session.coordinate")
+            .published_at(NOW)
+    };
+
+    let bundle_uri =
+        SessionBundleServer::bundle_uri(&"https://coord.example".parse().unwrap()).unwrap();
+    assert_eq!(
+        bundle_uri.as_str(),
+        "https://coord.example/aitp/session/bundle"
+    );
+    let manifest = advertise_bundle_uri(builder(), &bundle_uri)
+        .build()
+        .unwrap();
+    let ctx = VerifyManifestContext { now: NOW };
+    verify_manifest(&manifest, &ctx).expect("advertising Manifest verifies");
+    assert_eq!(
+        bundle_uri_from_manifest(&manifest),
+        Some(bundle_uri.clone())
+    );
+    assert_eq!(bundle_uri.path(), aitp_transport_http::SESSION_BUNDLE_PATH);
+
+    // The advertised URL is covered by the Manifest signature.
+    let mut tampered = manifest.clone();
+    tampered.extensions.as_mut().unwrap().insert(
+        RFC_AITP_0010_BUNDLE_URI,
+        serde_json::json!("https://attacker.example/aitp/session/bundle"),
+    );
+    assert!(matches!(
+        verify_manifest(&tampered, &ctx),
+        Err(ManifestError::SignatureInvalid)
+    ));
+
+    // Absent key: HTTPS is unavailable for this coordinator (§4.3.1).
+    let plain = builder().build().unwrap();
+    assert_eq!(bundle_uri_from_manifest(&plain), None);
+
+    // Plain HTTP is only tolerated for localhost development.
+    let http = advertise_bundle_uri(
+        builder(),
+        &"http://coord.example/aitp/session/bundle".parse().unwrap(),
+    )
+    .build()
+    .unwrap();
+    assert_eq!(bundle_uri_from_manifest(&http), None);
+
+    // The advertised path is the one this server's POST route serves.
+    let server = SessionBundleServer::new();
+    let resp = server
+        .clone()
+        .router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(bundle_uri.path())
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    serde_json::to_vec(&sample_bundle(Uuid::new_v4())).unwrap(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), StatusCode::OK);
+    assert_eq!(server.len(), 1);
 }
