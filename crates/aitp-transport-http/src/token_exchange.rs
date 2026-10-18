@@ -20,6 +20,15 @@
 //! response shape.
 //!
 //! [RFC 8693 §2.1]: https://www.rfc-editor.org/rfc/rfc8693#section-2.1
+//!
+//! # Support status
+//!
+//! **Unsupported.** No AITP RFC specifies OAuth 2.0 Token Exchange
+//! (RFC 8693); this module has no conformance fixtures and no
+//! RFC-AITP-0009 threat-model entry.
+//! See [support status of DPoP and token exchange].
+//!
+//! [support status of DPoP and token exchange]: https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/transport-hardening.md#support-status-of-dpop-and-token-exchange
 
 use serde::{Deserialize, Serialize};
 use url::Url;

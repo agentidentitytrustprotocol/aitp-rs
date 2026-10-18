@@ -165,10 +165,10 @@ in [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)
   [tct-renewal.md](tct-renewal.md#known-limitations)
   ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196)).
 - **Dev conveniences are on by default.** `ManifestFetcher` sets
-  `allow_insecure_localhost: true` (`client.rs:135`), and `HostGuard::default()`
-  is `GuardMode::WarnPrivate` (`net_guard.rs:61-68`). Their rustdoc says these
-  defaults flip "in 0.4"; that note is stale and the defaults are unchanged
-  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200)).
+  `allow_insecure_localhost: true` (`client.rs:134`), and `HostGuard::default()`
+  is `GuardMode::WarnPrivate` (`net_guard.rs:58-66`). Internet-facing
+  deployments should call `.with_insecure_localhost(false)` and
+  `.with_host_guard(HostGuard::strict())`.
 
 ## Summary
 
