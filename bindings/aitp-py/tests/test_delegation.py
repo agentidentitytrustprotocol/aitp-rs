@@ -83,6 +83,7 @@ def test_delegation_round_trip_strict():
     assert verified.delegatee == c.aid
     assert verified.issued_by == b.aid
     assert verified.grants == [PING_CAP]
+    assert verified.cnf_jkt == aitp.compute_aid_jkt(c.aid)
 
     # A mints a fresh TCT for C; completion shape is {"tct", "grant_voucher"}.
     fresh = json.loads(a.issue_tct_for_delegatee(verified))
@@ -91,6 +92,18 @@ def test_delegation_round_trip_strict():
     ident = c.verify_tct(fresh["tct"], PING_CAP, c.aid)
     assert ident.peer_aid == a.aid
     assert PING_CAP in ident.grants
+
+
+def test_delegation_verified_cnf_is_deprecated_alias():
+    """`cnf` is the pre-0.16 name of `cnf_jkt` (#240): it still returns the
+    same thumbprint but warns, pointing at the caller's line."""
+    a, _b, _c, delegation_token = _build_delegation_token()
+    verified = aitp.verify_delegation(delegation_token, a.aid)
+
+    with pytest.warns(DeprecationWarning, match="use cnf_jkt") as record:
+        legacy = verified.cnf
+    assert legacy == verified.cnf_jkt
+    assert record[0].filename == __file__
 
 
 def test_verify_delegation_rejects_wrong_verifier():
