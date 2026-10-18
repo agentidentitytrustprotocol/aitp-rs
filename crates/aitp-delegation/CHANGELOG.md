@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-delegation-v0.14.0...aitp-delegation-v0.15.0) - 2026-10-18
+
+### Fixed
+
+- *(delegation)* [**breaking**] resolve multi-hop issuer keys from verified Manifests ([#202](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/202)) ([#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234))
+
+### Other
+
+- fix stale rustdoc/help text ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/200)) and mark DPoP/token exchange unsupported ([#151](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/151)) ([#219](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/219))
+
 ## [0.14.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-delegation-v0.13.2...aitp-delegation-v0.14.0) - 2026-10-17
 
 ### Added

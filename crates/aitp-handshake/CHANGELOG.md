@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.15.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.14.0...aitp-handshake-v0.15.0) - 2026-10-18
+
+### Added
+
+- [**breaking**] vendor spec cfd2f16; pinned admission 429 vs 503 ([#226](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/226)) ([#229](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/229))
+- [**breaking**] CheckedJson newtype for parse_*_wire; route bindings through hardened wire parsers (#146, #152) ([#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227))
+
+### Fixed
+
+- *(renewal)* [**breaking**] replay-guard, re-check revocation and grants, advertise renew_uri ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/196)) ([#235](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/235))
+
 ## [0.14.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-handshake-v0.13.2...aitp-handshake-v0.14.0) - 2026-10-17
 
 ### Added
