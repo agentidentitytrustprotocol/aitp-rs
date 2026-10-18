@@ -7,13 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
-> This `[Unreleased]` section has not been rotated since 0.4.0 and covers
-> changes shipped in 0.4.1 through 0.13.2 as well as unreleased work. For
-> what shipped in each version, see the
-> [GitHub releases and tags](https://github.com/agentidentitytrustprotocol/aitp-rs/releases)
-> and the release-plz-generated `crates/*/CHANGELOG.md` files. Splitting
-> this section into per-version headings is tracked in
-> [#201](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/201).
+## [0.14.0] — 2026-10-18
 
 ### BREAKING
 
@@ -55,18 +49,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
   how to migrate.
 
-- **`RevocationError` gains a `Malformed` variant and is now
-  `#[non_exhaustive]`** (`aitp-transport-http`, released in 0.13.0,
-  [#168](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/168)).
-  A fetched revocation snapshot whose member set is intact but has a
-  missing or mistyped required member (`aitp_tct::TctError::ClaimsMalformed`)
-  now surfaces as `RevocationError::Malformed` — the
-  `REVOCATION_SNAPSHOT_INVALID` case — instead of being folded into
-  `RevocationError::SignatureInvalid` by `RevocationCache`. The conformance
-  adapter reports `REVOCATION_SNAPSHOT_INVALID` for the same input.
-  Downstream code that matches `RevocationError` exhaustively needs a
-  wildcard arm. `RevocationProvider` implementations should map
-  `ClaimsMalformed` to the new variant.
+## [0.13.2] — 2026-10-08
 
 ### Fixed
 
@@ -83,6 +66,91 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   #144 entry under "Fixed" below. `IncompatibleIdentityType` is unchanged
   (`IDENTITY_FAILED` in the HTTP transport, `INCOMPATIBLE_IDENTITY_TYPE` in
   the adapter).
+
+## [0.13.1] — 2026-09-27
+
+### Added
+
+- **Committed manifest fixture now covered by cross-implementation
+  acceptance**
+  ([#148](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/148)).
+  `scripts/xcheck-verify.py` already verified freshly-minted manifests
+  through `aitp-verifier-py`'s real `verify_manifest` (issue #148's
+  original, mostly-stale premise — that half already shipped via PR #141),
+  but never the already-committed, spec-vendored reference fixture
+  (`kat-keypair-001-manifest.json`). Two fresh mints agreeing with each
+  other only proves the two implementations agree on *a* convention, not
+  that either agrees with the spec's actual committed bytes — the same trap
+  this script's own module docstring names as its reason for existing. The
+  script now verifies the committed fixture through `aitp-verifier-py`,
+  with a paired negative confirming its signature does not verify over the
+  wrapped `{"manifest": ...}` form — both reuse `verify_manifest`'s own
+  internal primitives, nothing is re-signed on either side. Also fully
+  closes issue #150's CI path-filter defect (this fix's own coverage
+  depended on it): `.github/workflows/ci.yml`'s `changes` job now
+  triggers the `rust` output (and `xcheck`/`conformance`/`wasm`/
+  `e2e-llm-build`) on `scripts/**` and `tools/**`, not just
+  `crates/**`/`tests/**`. Issue #150's second, unrelated defect (Direction
+  (b) printing `ok` unconditionally) remains open. Test/CI tooling only —
+  no public API, no schema, no wire-behavior change.
+
+- **Manifest signing now has a single, shared signing-view derivation, and
+  a production-funnel regression test to prove it**
+  ([#147](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/147)).
+  `ManifestBuilder::build()` and `verify_manifest()` previously each
+  hand-built their own `ManifestSigningView`, independently — a symmetric
+  mistake at both call sites (e.g. both canonicalizing the wrapped
+  `{"manifest": ...}` form instead of the inner body) would be
+  self-consistent and pass `cargo test -p aitp-manifest` green but for one
+  incidental failure unrelated to the wrapper convention itself, the same
+  bug class already fixed for the revocation snapshot (PR #168) and still
+  present in the session bundle. Both call sites now derive the
+  view through a single `impl From<&Manifest> for ManifestSigningView`, so
+  there is exactly one place that can get the derivation wrong, not two
+  that could disagree. New tests in `signing_input_kat.rs` drive the
+  committed, spec-vendored fixture through the real `parse_manifest_wire` +
+  `verify_manifest` funnel (not a local re-canonicalization), plus a
+  from-scratch wrapped-form-signature rejection test and a byte-pinned KAT
+  test against the spec's `kat-manifest-001` vector. `ManifestSigningView`
+  and its `From` impl are `pub(crate)` only — no public API or wire-behavior
+  change.
+
+## [0.13.0] — 2026-09-23
+
+### BREAKING
+
+- **`RevocationError` gains a `Malformed` variant and is now
+  `#[non_exhaustive]`** (`aitp-transport-http`, released in 0.13.0,
+  [#168](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/168)).
+  A fetched revocation snapshot whose member set is intact but has a
+  missing or mistyped required member (`aitp_tct::TctError::ClaimsMalformed`)
+  now surfaces as `RevocationError::Malformed` — the
+  `REVOCATION_SNAPSHOT_INVALID` case — instead of being folded into
+  `RevocationError::SignatureInvalid` by `RevocationCache`. The conformance
+  adapter reports `REVOCATION_SNAPSHOT_INVALID` for the same input.
+  Downstream code that matches `RevocationError` exhaustively needs a
+  wildcard arm. `RevocationProvider` implementations should map
+  `ClaimsMalformed` to the new variant.
+
+## [0.12.0] — 2026-09-20
+
+### BREAKING
+
+- **`cargo-semver-checks` reports four major findings from the
+  `UNKNOWN_FIELD` work above**, all expected and absorbed by this
+  already-breaking release: `constructible_struct_adds_field` on
+  `AitpEnvelope` (new `extensions` field) and on `RevocationList` (new
+  `extensions` field); the same finding on `Manifest`, plus a field-type
+  change on `Manifest::extensions` from `ExtensionsMap` to
+  `Option<ExtensionsMap>` (fixing a latent bug where a manifest's literal
+  `"extensions":{}` was indistinguishable from an absent `extensions` key,
+  which could silently change the reconstructed JCS signing input); and
+  `enum_variant_added` on `SessionBundleError` (new `UnknownField` variant)
+  — the one artifact error enum in this codebase that is not
+  `#[non_exhaustive]`, so the addition is semver-major rather than
+  transparent to matching callers. A fifth major finding, unrelated to
+  the `UNKNOWN_FIELD` work, is disclosed separately under issue #144's
+  `IdentityDescriptor.extensions` entry above.
 
 ### Added
 
@@ -215,50 +283,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   is a conformance-test-harness fix, not a change to `aitp-handshake`'s
   public library behavior — `verify_oidc` itself is untouched.
 
-- **Committed manifest fixture now covered by cross-implementation
-  acceptance**
-  ([#148](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/148)).
-  `scripts/xcheck-verify.py` already verified freshly-minted manifests
-  through `aitp-verifier-py`'s real `verify_manifest` (issue #148's
-  original, mostly-stale premise — that half already shipped via PR #141),
-  but never the already-committed, spec-vendored reference fixture
-  (`kat-keypair-001-manifest.json`). Two fresh mints agreeing with each
-  other only proves the two implementations agree on *a* convention, not
-  that either agrees with the spec's actual committed bytes — the same trap
-  this script's own module docstring names as its reason for existing. The
-  script now verifies the committed fixture through `aitp-verifier-py`,
-  with a paired negative confirming its signature does not verify over the
-  wrapped `{"manifest": ...}` form — both reuse `verify_manifest`'s own
-  internal primitives, nothing is re-signed on either side. Also fully
-  closes issue #150's CI path-filter defect (this fix's own coverage
-  depended on it): `.github/workflows/ci.yml`'s `changes` job now
-  triggers the `rust` output (and `xcheck`/`conformance`/`wasm`/
-  `e2e-llm-build`) on `scripts/**` and `tools/**`, not just
-  `crates/**`/`tests/**`. Issue #150's second, unrelated defect (Direction
-  (b) printing `ok` unconditionally) remains open. Test/CI tooling only —
-  no public API, no schema, no wire-behavior change.
-
-- **Manifest signing now has a single, shared signing-view derivation, and
-  a production-funnel regression test to prove it**
-  ([#147](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/147)).
-  `ManifestBuilder::build()` and `verify_manifest()` previously each
-  hand-built their own `ManifestSigningView`, independently — a symmetric
-  mistake at both call sites (e.g. both canonicalizing the wrapped
-  `{"manifest": ...}` form instead of the inner body) would be
-  self-consistent and pass `cargo test -p aitp-manifest` green but for one
-  incidental failure unrelated to the wrapper convention itself, the same
-  bug class already fixed for the revocation snapshot (PR #168) and still
-  present in the session bundle. Both call sites now derive the
-  view through a single `impl From<&Manifest> for ManifestSigningView`, so
-  there is exactly one place that can get the derivation wrong, not two
-  that could disagree. New tests in `signing_input_kat.rs` drive the
-  committed, spec-vendored fixture through the real `parse_manifest_wire` +
-  `verify_manifest` funnel (not a local re-canonicalization), plus a
-  from-scratch wrapped-form-signature rejection test and a byte-pinned KAT
-  test against the spec's `kat-manifest-001` vector. `ManifestSigningView`
-  and its `From` impl are `pub(crate)` only — no public API or wire-behavior
-  change.
-
 ### Fixed
 
 - **The HTTP transport's `handshake_error_code` no longer collapses
@@ -290,17 +314,55 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   through to the generic `INVALID_ENVELOPE` catch-all — now also
   reports its own dedicated `GRANT_OVERFLOW` code.
 
-### Security
+- **Duplicate top-level JSON keys are rejected again on every wire-parsing
+  path this release touches** (RFC-AITP-0001 §5.4.5), closing a regression
+  introduced by the `UNKNOWN_FIELD` work above rather than a pre-existing
+  gap. Checking a member set ahead of a typed deserialize requires first
+  parsing into an untyped `serde_json::Value` — but `Value`'s object
+  representation is last-write-wins on a repeated key, so by the time a
+  `Value` exists, the automatic duplicate-field rejection every
+  `serde`-derived struct normally provides (independent of
+  `deny_unknown_fields`) is already gone, at every nesting level. This
+  silently affected the envelope, manifest, revocation snapshot, session
+  bundle, handshake payload, and TCT/voucher/delegation claim parsing paths
+  wherever this release routed them through a member-set check, and
+  reached the live HTTP server and client facade — not just the
+  conformance adapter — before being caught. Fixed with a new
+  `aitp_core::reject_duplicate_keys`, which detects a repeated key
+  anywhere in a JSON document (every nesting level, including inside
+  arrays) directly from raw bytes, via `serde`'s own
+  `Deserializer`/`Visitor`/`DeserializeSeed` traits, without ever
+  constructing a `Value`; every affected entry point now calls it against
+  the original bytes before any `Value` is built. No conformance fixture
+  exercises a duplicate key, so this was undetected by the corpus; a new
+  regression test exists per affected artifact, including a live HTTP
+  test.
 
-- **`bindings/aitp-py` bumps pyo3 `0.22` → `0.29`**, closing
-  [RUSTSEC-2025-0020](https://rustsec.org/advisories/RUSTSEC-2025-0020) and
-  [RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177), both
-  unfixable in the 0.22.x line and previously suppressed via `deny.toml` /
-  `cargo audit --ignore` pending this migration
-  ([#104](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/104)).
-  Mechanical only — `Python::with_gil` → `Python::attach`, the `_bound`-suffixed
-  constructor/accessor methods dropped their suffix, and
-  `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
+## [0.11.0] — 2026-08-30
+
+### BREAKING
+
+- **Pinned-key proof `timestamp` is now encoded as ASCII-decimal, not
+  8-byte big-endian binary** (RFC-AITP-0002 §3.1 erratum, spec issue #17).
+  `identity_pinned::pinned_key_proof_input` (used by both
+  `sign_pinned_key_proof` and `verify_pinned_key`) previously packed the
+  envelope `timestamp` field into the proof-input bytes as a signed
+  8-byte big-endian integer. Per the §3.1 erratum, it MUST instead be the
+  timestamp's base-10 ASCII-decimal string (e.g. `1711900000` → UTF-8
+  bytes `"1711900000"`), matching how `message_id` is already
+  string-encoded in the same construction. This is a wire-visible change:
+  **a pinned-key proof minted by aitp-rs at the old encoding will not
+  verify against the fixed version, and vice versa.** The fix is now
+  machine-checked against the spec's `kat-pinned-key-proof-001` KAT
+  vector. It also brings `aitp-rs` in line with the reference Python
+  implementation, `aitp-verifier-py`, which has always used the
+  ASCII-decimal form — this closes a previously-existing, undetected
+  interop gap between the two implementations rather than introducing a
+  new incompatibility with a pairing that previously worked. The gap went
+  undetected by this repo's own conformance suite because the only
+  fixture exercising this code path (`id-007`) is rejected earlier, at
+  the trust-store gate (RFC-AITP-0002 §3.2 step 1), before the signature
+  is ever checked.
 
 ### Changed
 
@@ -337,29 +399,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   unchanged (`>=16`) — the CLI's own Node ≥20.17 requirement is a
   contributor/build-time constraint, not a consumer-facing one.
 
-### BREAKING
+### Fixed
 
-- **Pinned-key proof `timestamp` is now encoded as ASCII-decimal, not
-  8-byte big-endian binary** (RFC-AITP-0002 §3.1 erratum, spec issue #17).
-  `identity_pinned::pinned_key_proof_input` (used by both
-  `sign_pinned_key_proof` and `verify_pinned_key`) previously packed the
-  envelope `timestamp` field into the proof-input bytes as a signed
-  8-byte big-endian integer. Per the §3.1 erratum, it MUST instead be the
-  timestamp's base-10 ASCII-decimal string (e.g. `1711900000` → UTF-8
-  bytes `"1711900000"`), matching how `message_id` is already
-  string-encoded in the same construction. This is a wire-visible change:
-  **a pinned-key proof minted by aitp-rs at the old encoding will not
-  verify against the fixed version, and vice versa.** The fix is now
-  machine-checked against the spec's `kat-pinned-key-proof-001` KAT
-  vector. It also brings `aitp-rs` in line with the reference Python
-  implementation, `aitp-verifier-py`, which has always used the
-  ASCII-decimal form — this closes a previously-existing, undetected
-  interop gap between the two implementations rather than introducing a
-  new incompatibility with a pairing that previously worked. The gap went
-  undetected by this repo's own conformance suite because the only
-  fixture exercising this code path (`id-007`) is rejected earlier, at
-  the trust-store gate (RFC-AITP-0002 §3.2 step 1), before the signature
-  is ever checked.
+- **Conformance adapter now enforces the pinned-key trust store**
+  (RFC-AITP-0002 §3.2 step 1). `aitp-rs-adapter`'s
+  `verify_handshake_payload_op` always configured `PeerConfig::pinned_key_store`
+  as `None` — a documented no-op in `aitp-handshake` meaning "no local
+  trust store enforced" — so fixtures could never actually exercise the
+  gate that rejects a pinned-key proof whose signer key is not locally
+  trusted, even though the underlying gate in
+  `aitp_handshake::state_machine::bootstrap_verify_peer` was already
+  implemented correctly. This went undetected because the one fixture
+  exercising it, `id-007-pinned-untrusted-key-rejected`, coincidentally
+  still failed for an unrelated reason: the pinned-key proof timestamp
+  encoding bug above meant its signature never verified in the first
+  place, masking the missing trust-store check behind a different
+  rejection. Fixing the timestamp encoding surfaced this as a real CI
+  regression (`id-007` unexpectedly passing) rather than a coincidental
+  pass. The adapter now builds a `StaticPinnedKeyStore` from the
+  fixture's `trust_store` field when present, so `id-007` is now
+  correctly rejected with `IDENTITY_FAILED` for the right reason. This
+  is a conformance-test-harness fix, not a change to
+  `aitp-handshake`'s public library behavior.
+
+- **Vendored schemas re-synced to spec commit
+  `43f9d3937238a2cf9d727c9b5ca1b631060ecbc8`.** Picks up the RFC-AITP-0002
+  §3.1 pinned-key proof-input known-answer vector
+  (`kat-pinned-key-proof-001`), a new attacker keypair vector
+  (`kat-keypair-006-attacker`), a new session-bundle signed example, and two
+  new draft conformance fixtures (`bundle-004-signature-sibling-rejected`,
+  `bundle-005-extensions-accepted`). Also picked up: `oidc_issuers` in the
+  Manifest schema drops `minItems: 1`, and the Mutual Handshake schema's
+  root `oneOf` becomes `anyOf` (no runtime impact — this repo only ever
+  validates that schema's `$defs` sub-schemas, never its document root).
+  The separately-tracked RFC-AITP-0002 §3.1 pinned-key proof timestamp
+  encoding erratum is **not** part of this pin bump; it lands separately
+  pending a cross-implementation compatibility check.
+
+- **`verify_session_bundle` accepted the pre-erratum sibling-signature wire
+  shape**, silently discarding a `signature` sent as a SIBLING of the
+  `{"session_bundle": …}` transport wrapper instead of as a member of the
+  wrapped body, and then reporting the resulting deserialize failure as the
+  generic `INVALID_REQUEST` rather than a bundle-specific code.
+  RFC-AITP-0010 §3 fixes `signature` as a member of the signed body, never
+  a sibling of the wrapper, because a bundle is redistributable and must
+  carry its own proof across any hop that strips the transport wrapper
+  (RFC-AITP-0001 §5.4.1) — conformance fixture
+  `bundle-004-signature-sibling-rejected` pins this. A new
+  `aitp_session_bundle::parse_session_bundle_wire` routes both the
+  unwrap and the `additionalProperties: false` rejection through
+  `SessionBundleEnvelope`'s existing `deny_unknown_fields`, surfacing a new
+  `SessionBundleError::WireFormInvalid` variant that
+  `aitp-rs-adapter::bundle_error_code` maps to `SESSION_BUNDLE_INVALID`
+  (`ErrorCode::SessionBundleInvalid` already existed; only the mapping was
+  missing). `crates/aitp-transport-http/src/session_bundle_server.rs`
+  already rejected this shape with HTTP 400 via the same
+  `deny_unknown_fields` and needed no change — only a regression test.
+
+- **OIDC identity-binding verification reported every issuer-key-resolution
+  failure as `IDENTITY_FAILED`, including the case where the issuer's key
+  couldn't be resolved at all.** `verify_oidc` (`crates/aitp-handshake/src/identity_oidc.rs`)
+  mapped both "the JWKS couldn't be fetched/resolved" and "candidates were
+  resolved but none matched the token's `kid`" to the same
+  `HandshakeError::Identity`. RFC-AITP-0001 §5.4.3 says the distinction is
+  load-bearing: `KEY_RESOLUTION_FAILED` is retryable (§5.7) while
+  `IDENTITY_FAILED`-family codes are not, and RFC-AITP-0007 §3's
+  `fail_closed` mode explicitly requires `KEY_RESOLUTION_FAILED` when the
+  issuer's key can't be resolved. Reporting the wrong one invites a caller
+  to retry a request that can never succeed, or to give up on one that
+  would succeed once the transient resolution issue clears.
+
+  A new `HandshakeError::KeyResolutionFailed { issuer, reason }` variant now
+  covers the "no key available for this issuer at all" case — the
+  `JwksResolver` returned an error, or resolved successfully but produced
+  zero candidate keys. A `kid`/`alg` mismatch against a non-empty candidate
+  set, or an invalid signature, remains `HandshakeError::Identity`: the
+  proof itself is what's wrong there, not the resolution process.
+  `HandshakeError` is `#[non_exhaustive]`, so matching callers keep
+  compiling; `cargo-semver-checks` confirms adding this variant is not a
+  breaking change. Both wire-code mapping sites now route the new variant
+  to `KEY_RESOLUTION_FAILED` (`crates/aitp-rs-adapter/src/lib.rs`'s
+  `handshake_error_code`, and `crates/aitp-transport-http/src/server.rs`'s
+  `handshake_error_code`) — previously the transport-http mapper's
+  `#[non_exhaustive]` catch-all would have defaulted an unmatched new
+  variant to `INVALID_ENVELOPE`. The adapter's separate `env-003`
+  conformance-fixture path (`verify_envelope_key_resolution`) already
+  returned `KEY_RESOLUTION_FAILED` for its fixture-shaped scenario and is
+  unaffected — it doesn't go through `verify_oidc`.
+
+## [0.10.0] — 2026-08-29
+
+### BREAKING
 
 - **`aitp_handshake::JwkPublicKey` no longer exposes `jsonwebtoken` types**
   (closes #99). `pub alg: jsonwebtoken::Algorithm` and
@@ -384,68 +514,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   separate affine coordinates JWKs carry for `EC` keys (as opposed to
   `from_compressed`'s SEC1-compressed form).
 
-- **`cargo-semver-checks` reports four major findings from the
-  `UNKNOWN_FIELD` work above**, all expected and absorbed by this
-  already-breaking release: `constructible_struct_adds_field` on
-  `AitpEnvelope` (new `extensions` field) and on `RevocationList` (new
-  `extensions` field); the same finding on `Manifest`, plus a field-type
-  change on `Manifest::extensions` from `ExtensionsMap` to
-  `Option<ExtensionsMap>` (fixing a latent bug where a manifest's literal
-  `"extensions":{}` was indistinguishable from an absent `extensions` key,
-  which could silently change the reconstructed JCS signing input); and
-  `enum_variant_added` on `SessionBundleError` (new `UnknownField` variant)
-  — the one artifact error enum in this codebase that is not
-  `#[non_exhaustive]`, so the addition is semver-major rather than
-  transparent to matching callers. A fifth major finding, unrelated to
-  the `UNKNOWN_FIELD` work, is disclosed separately under issue #144's
-  `IdentityDescriptor.extensions` entry above.
+### Security
 
-### Fixed
-
-- **Duplicate top-level JSON keys are rejected again on every wire-parsing
-  path this release touches** (RFC-AITP-0001 §5.4.5), closing a regression
-  introduced by the `UNKNOWN_FIELD` work above rather than a pre-existing
-  gap. Checking a member set ahead of a typed deserialize requires first
-  parsing into an untyped `serde_json::Value` — but `Value`'s object
-  representation is last-write-wins on a repeated key, so by the time a
-  `Value` exists, the automatic duplicate-field rejection every
-  `serde`-derived struct normally provides (independent of
-  `deny_unknown_fields`) is already gone, at every nesting level. This
-  silently affected the envelope, manifest, revocation snapshot, session
-  bundle, handshake payload, and TCT/voucher/delegation claim parsing paths
-  wherever this release routed them through a member-set check, and
-  reached the live HTTP server and client facade — not just the
-  conformance adapter — before being caught. Fixed with a new
-  `aitp_core::reject_duplicate_keys`, which detects a repeated key
-  anywhere in a JSON document (every nesting level, including inside
-  arrays) directly from raw bytes, via `serde`'s own
-  `Deserializer`/`Visitor`/`DeserializeSeed` traits, without ever
-  constructing a `Value`; every affected entry point now calls it against
-  the original bytes before any `Value` is built. No conformance fixture
-  exercises a duplicate key, so this was undetected by the corpus; a new
-  regression test exists per affected artifact, including a live HTTP
-  test.
-
-- **Conformance adapter now enforces the pinned-key trust store**
-  (RFC-AITP-0002 §3.2 step 1). `aitp-rs-adapter`'s
-  `verify_handshake_payload_op` always configured `PeerConfig::pinned_key_store`
-  as `None` — a documented no-op in `aitp-handshake` meaning "no local
-  trust store enforced" — so fixtures could never actually exercise the
-  gate that rejects a pinned-key proof whose signer key is not locally
-  trusted, even though the underlying gate in
-  `aitp_handshake::state_machine::bootstrap_verify_peer` was already
-  implemented correctly. This went undetected because the one fixture
-  exercising it, `id-007-pinned-untrusted-key-rejected`, coincidentally
-  still failed for an unrelated reason: the pinned-key proof timestamp
-  encoding bug above meant its signature never verified in the first
-  place, masking the missing trust-store check behind a different
-  rejection. Fixing the timestamp encoding surfaced this as a real CI
-  regression (`id-007` unexpectedly passing) rather than a coincidental
-  pass. The adapter now builds a `StaticPinnedKeyStore` from the
-  fixture's `trust_store` field when present, so `id-007` is now
-  correctly rejected with `IDENTITY_FAILED` for the right reason. This
-  is a conformance-test-harness fix, not a change to
-  `aitp-handshake`'s public library behavior.
+- **`bindings/aitp-py` bumps pyo3 `0.22` → `0.29`**, closing
+  [RUSTSEC-2025-0020](https://rustsec.org/advisories/RUSTSEC-2025-0020) and
+  [RUSTSEC-2026-0177](https://rustsec.org/advisories/RUSTSEC-2026-0177), both
+  unfixable in the 0.22.x line and previously suppressed via `deny.toml` /
+  `cargo audit --ignore` pending this migration
+  ([#104](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/104)).
+  Mechanical only — `Python::with_gil` → `Python::attach`, the `_bound`-suffixed
+  constructor/accessor methods dropped their suffix, and
+  `PyAnyMethods::downcast` → `Bound::cast` — no public API or behavior change.
 
 ### Removed
 
@@ -472,6 +551,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   dalek's `verify_strict` (already the case via `verify_raw`), which is
   strictly *more* rejecting than `ring`'s prior path — it additionally
   rejects non-canonical signatures.
+
+## [0.9.0] — 2026-08-28
+
+No root-changelog entries were recorded for this release; see the
+release-plz-generated `crates/*/CHANGELOG.md` files.
+
+## [0.8.0] — 2026-08-28
+
+No root-changelog entries were recorded for this release; see the
+release-plz-generated `crates/*/CHANGELOG.md` files.
+
+## [0.7.0] — 2026-08-26
 
 ### Added
 
@@ -508,8 +599,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   accept a revoked hop — but a set aggregated across issuers lets any
   contributor revoke any hop.
 
-### Added
-
 - **`verify_manifest_json` raises a typed error with a stable `code`**, in both
   bindings — Python `aitp.ManifestVerificationError`, Node an `Error` whose
   `code` property carries the cause. Causes: `signature_invalid`,
@@ -527,6 +616,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `RevocationVerificationError` now inherit `RuntimeError`, which is what these
   paths raised before they were typed, so a caller already catching the failure
   keeps working and gains `.code`.
+
+## [0.6.0] — 2026-08-26
 
 ### Added
 
@@ -547,12 +638,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     stable `.code`.
   - Node: `verifyRevocationList(envelopeJson, expectedIssuerAid, nowUnixSecs?)`,
     throwing an `Error` whose stable `code` property carries the cause.
+
 - **`revocation_signing_bytes` / `revocationSigningBytes` are bound**, so a
   caller needing the exact signed bytes obtains them instead of reconstructing
   `JCS(revocation_list)` at the call site. Reconstructing that shape is how
   signer, verifier and conformance fixture drifted apart before 0.5.0 — and
   the callers who most needed it were on the far side of a binding that did
   not exist.
+
 - **A typed error with a machine-readable cause.** The Python binding
   previously registered no exception classes at all: every failure was an
   untyped `RuntimeError`/`ValueError` carrying prose, so the only way to tell
@@ -562,40 +655,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `version_unknown`, `expired`, `malformed`.
 
 ### Fixed
-
-- **Vendored schemas re-synced to spec commit
-  `43f9d3937238a2cf9d727c9b5ca1b631060ecbc8`.** Picks up the RFC-AITP-0002
-  §3.1 pinned-key proof-input known-answer vector
-  (`kat-pinned-key-proof-001`), a new attacker keypair vector
-  (`kat-keypair-006-attacker`), a new session-bundle signed example, and two
-  new draft conformance fixtures (`bundle-004-signature-sibling-rejected`,
-  `bundle-005-extensions-accepted`). Also picked up: `oidc_issuers` in the
-  Manifest schema drops `minItems: 1`, and the Mutual Handshake schema's
-  root `oneOf` becomes `anyOf` (no runtime impact — this repo only ever
-  validates that schema's `$defs` sub-schemas, never its document root).
-  The separately-tracked RFC-AITP-0002 §3.1 pinned-key proof timestamp
-  encoding erratum is **not** part of this pin bump; it lands separately
-  pending a cross-implementation compatibility check.
-
-- **`verify_session_bundle` accepted the pre-erratum sibling-signature wire
-  shape**, silently discarding a `signature` sent as a SIBLING of the
-  `{"session_bundle": …}` transport wrapper instead of as a member of the
-  wrapped body, and then reporting the resulting deserialize failure as the
-  generic `INVALID_REQUEST` rather than a bundle-specific code.
-  RFC-AITP-0010 §3 fixes `signature` as a member of the signed body, never
-  a sibling of the wrapper, because a bundle is redistributable and must
-  carry its own proof across any hop that strips the transport wrapper
-  (RFC-AITP-0001 §5.4.1) — conformance fixture
-  `bundle-004-signature-sibling-rejected` pins this. A new
-  `aitp_session_bundle::parse_session_bundle_wire` routes both the
-  unwrap and the `additionalProperties: false` rejection through
-  `SessionBundleEnvelope`'s existing `deny_unknown_fields`, surfacing a new
-  `SessionBundleError::WireFormInvalid` variant that
-  `aitp-rs-adapter::bundle_error_code` maps to `SESSION_BUNDLE_INVALID`
-  (`ErrorCode::SessionBundleInvalid` already existed; only the mapping was
-  missing). `crates/aitp-transport-http/src/session_bundle_server.rs`
-  already rejected this shape with HTTP 400 via the same
-  `deny_unknown_fields` and needed no change — only a regression test.
 
 - **`verify_revocation_list` reported an issuer mismatch as
   `TctError::CnfMalformed`.** The code carried a comment explaining the
@@ -614,37 +673,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   fixture pins that case — `rev-001`..`rev-004` cover staleness, soft-fail,
   success and lookup ordering — so nothing breaks, but the wire code moved.
 
-- **OIDC identity-binding verification reported every issuer-key-resolution
-  failure as `IDENTITY_FAILED`, including the case where the issuer's key
-  couldn't be resolved at all.** `verify_oidc` (`crates/aitp-handshake/src/identity_oidc.rs`)
-  mapped both "the JWKS couldn't be fetched/resolved" and "candidates were
-  resolved but none matched the token's `kid`" to the same
-  `HandshakeError::Identity`. RFC-AITP-0001 §5.4.3 says the distinction is
-  load-bearing: `KEY_RESOLUTION_FAILED` is retryable (§5.7) while
-  `IDENTITY_FAILED`-family codes are not, and RFC-AITP-0007 §3's
-  `fail_closed` mode explicitly requires `KEY_RESOLUTION_FAILED` when the
-  issuer's key can't be resolved. Reporting the wrong one invites a caller
-  to retry a request that can never succeed, or to give up on one that
-  would succeed once the transient resolution issue clears.
-
-  A new `HandshakeError::KeyResolutionFailed { issuer, reason }` variant now
-  covers the "no key available for this issuer at all" case — the
-  `JwksResolver` returned an error, or resolved successfully but produced
-  zero candidate keys. A `kid`/`alg` mismatch against a non-empty candidate
-  set, or an invalid signature, remains `HandshakeError::Identity`: the
-  proof itself is what's wrong there, not the resolution process.
-  `HandshakeError` is `#[non_exhaustive]`, so matching callers keep
-  compiling; `cargo-semver-checks` confirms adding this variant is not a
-  breaking change. Both wire-code mapping sites now route the new variant
-  to `KEY_RESOLUTION_FAILED` (`crates/aitp-rs-adapter/src/lib.rs`'s
-  `handshake_error_code`, and `crates/aitp-transport-http/src/server.rs`'s
-  `handshake_error_code`) — previously the transport-http mapper's
-  `#[non_exhaustive]` catch-all would have defaulted an unmatched new
-  variant to `INVALID_ENVELOPE`. The adapter's separate `env-003`
-  conformance-fixture path (`verify_envelope_key_resolution`) already
-  returned `KEY_RESOLUTION_FAILED` for its fixture-shaped scenario and is
-  unaffected — it doesn't go through `verify_oidc`.
-
 ### Note on scope
 
 `VerifyRevocationListContext` deliberately gains **no** staleness knob. It
@@ -653,6 +681,8 @@ non-expiry, and RFC-AITP-0008 §3 puts freshness policy at the consuming peer.
 Collapsing authenticity and freshness into one switch is how a `soft_fail`
 mode ends up reporting a *forged* snapshot as not-revoked. The binding
 documents that `published_at` staleness belongs to the caller.
+
+## [0.5.0] — 2026-08-24
 
 ### BREAKING
 
@@ -709,35 +739,21 @@ documents that `published_at` staleness belongs to the caller.
 - `aitp_tct::revocation_signing_bytes` — the single definition of a
   revocation snapshot's signing input, so callers needing the exact signed
   bytes do not reconstruct the shape themselves.
+
 - **Cross-implementation acceptance in CI** (`cross-impl acceptance
   (aitp-verifier-py)`): `aitp-rs` mints a revocation snapshot and a session
   bundle; [`aitp-verifier-py`](https://github.com/agentidentitytrustprotocol/aitp-verifier-py)
   — an implementation written from the RFC texts alone, sharing no code with
   this workspace — verifies those exact bytes, with no re-minting on either
   side. Pinned by SHA in `tests/AITP_VERIFIER_PY_VERSION`.
+
 - Known-answer coverage for every JCS-profile artifact: canonical bytes, the
   committed signature verified **as committed**, and a **negative** test that
   the signature fails over the wrong shape. The session bundle had no KAT at
   all before; the negative column was empty for all three artifacts.
+
 - The spec's own `verify-known-answer.mjs` (50 checks, independent JCS/JOSE
   stack) now runs in CI.
-- **`aitp` CLI** (`aitp-cli` crate): an offline command-line tool for the
-  common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
-  and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
-  in-repo (`cargo run -p aitp-cli`); not yet published to crates.io.
-- **Tests**: direct integration suites for `aitp-rs-adapter` (dispatch +
-  raw NDJSON protocol), P-256 envelope coverage, session-bundle error
-  variants, CLI negative/manifest cases, `proptest` suites mirroring the
-  `envelope_parse`/`manifest_parse` fuzz targets, runnable doctests on the
-  facade / `TctVerifyContext::builder` / `HostGuard::strict`, and Node SDK
-  `manifest-verify` + `revocation` suites for Python parity.
-- **CI**: the full spec conformance corpus now runs in CI (new `conformance`
-  job against the pinned spec commit); a `wasm32-wasip1` portability
-  build-check over the pure crates; the `test` job runs `cargo-nextest` plus
-  a dedicated doctest pass; a `dorny/paths-filter` fast-path lets docs-only
-  PRs skip the heavy net-new jobs. All GitHub Actions are SHA-pinned; added
-  `CODEOWNERS` and CI-parity `make` targets (`deny`/`audit`/`msrv`/`semver`/
-  `coverage`/`ci`).
 
 ### Fixed
 
@@ -745,12 +761,37 @@ documents that `published_at` staleness belongs to the caller.
   upstream previously lingered in `tests/schemas/` *and* left `git diff`
   clean, so the "vendored schemas in sync" drift check reported green over a
   file that no longer existed in the spec.
+
 - `crates/aitp-core/tests/kat.rs` no longer selects which shape to
   canonicalize by inspecting the pinned answer — it asserts the vector's
   declared `signing_input`, so it can actually fail. `tools/mint-conformance-fixtures`
   and `crates/aitp-conformance`'s placeholder signer also minted the wrapped
   form; because that harness both mints and checks, every implementation
   passed against its own convention while disagreeing on the wire.
+
+## [0.4.1] — 2026-07-10
+
+### Added
+
+- **`aitp` CLI** (`aitp-cli` crate): an offline command-line tool for the
+  common build/debug tasks — `keygen`, `aid`, `tct inspect`, `tct verify`,
+  and `manifest verify` (stdin-friendly, non-zero exit on failure). Ships
+  in-repo (`cargo run -p aitp-cli`); not yet published to crates.io.
+
+- **Tests**: direct integration suites for `aitp-rs-adapter` (dispatch +
+  raw NDJSON protocol), P-256 envelope coverage, session-bundle error
+  variants, CLI negative/manifest cases, `proptest` suites mirroring the
+  `envelope_parse`/`manifest_parse` fuzz targets, runnable doctests on the
+  facade / `TctVerifyContext::builder` / `HostGuard::strict`, and Node SDK
+  `manifest-verify` + `revocation` suites for Python parity.
+
+- **CI**: the full spec conformance corpus now runs in CI (new `conformance`
+  job against the pinned spec commit); a `wasm32-wasip1` portability
+  build-check over the pure crates; the `test` job runs `cargo-nextest` plus
+  a dedicated doctest pass; a `dorny/paths-filter` fast-path lets docs-only
+  PRs skip the heavy net-new jobs. All GitHub Actions are SHA-pinned; added
+  `CODEOWNERS` and CI-parity `make` targets (`deny`/`audit`/`msrv`/`semver`/
+  `coverage`/`ci`).
 
 ### Changed
 

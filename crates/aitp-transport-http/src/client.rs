@@ -17,9 +17,9 @@ use url::Url;
 pub enum FetchError {
     /// URL was not HTTPS, or its host is (or resolves to) an address
     /// the configured [`crate::net_guard::HostGuard`] forbids. The
-    /// precise guard rejection is logged at `warn` level. (A dedicated
-    /// guard variant arrives with the 0.4 `#[non_exhaustive]` error
-    /// rework; reusing this variant keeps 0.3.x non-breaking.)
+    /// precise guard rejection is logged at `warn` level. (There is no
+    /// dedicated guard variant; `FetchError` is exhaustive, so adding
+    /// one would be a breaking change.)
     #[error("manifest URL must be HTTPS and resolve to a permitted address")]
     InsecureUrl,
     /// reqwest network error.
@@ -114,8 +114,7 @@ pub struct ManifestFetcher {
     /// SSRF guard applied to every non-localhost-exempt fetch.
     host_guard: HostGuard,
     /// Tolerate `http://localhost` / `http://127.0.0.1` origins
-    /// (local dev). Default `true` through 0.3.x; flips to `false`
-    /// in 0.4.
+    /// (local dev). Default `true`.
     allow_insecure_localhost: bool,
 }
 
@@ -189,9 +188,9 @@ impl ManifestFetcher {
     }
 
     /// Whether `http://localhost` / `http://127.0.0.1` origins are
-    /// tolerated (local dev convenience). Default `true` through
-    /// 0.3.x; **the default flips to `false` in 0.4** — production
-    /// deployments should call `.with_insecure_localhost(false)` now.
+    /// tolerated (local dev convenience). **Default `true`** —
+    /// production deployments should call
+    /// `.with_insecure_localhost(false)`.
     pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
         self.allow_insecure_localhost = allow;
         self
@@ -207,8 +206,7 @@ impl ManifestFetcher {
         let mut localhost_exempt = false;
         if peer_origin.scheme() != "https" {
             // `http://localhost` is tolerated for local dev (demo)
-            // while `allow_insecure_localhost` holds (default through
-            // 0.3.x; the default flips off in 0.4).
+            // while `allow_insecure_localhost` holds (default `true`).
             let is_localhost_http = peer_origin.scheme() == "http"
                 && (peer_origin.host_str() == Some("localhost")
                     || peer_origin.host_str() == Some("127.0.0.1"));
@@ -220,8 +218,7 @@ impl ManifestFetcher {
                 warn!(
                     "fetching manifests over http://localhost — development \
                      convenience only; disable now with \
-                     `ManifestFetcher::with_insecure_localhost(false)` \
-                     (this becomes the default in 0.4)"
+                     `ManifestFetcher::with_insecure_localhost(false)`"
                 );
             });
             // localhost / 127.0.0.1 is loopback by definition — the
