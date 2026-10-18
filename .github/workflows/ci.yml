@@ -426,8 +426,8 @@ jobs:
         # Opt into the draft features and extensions so the bundle-*,
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
-        # required fixture FAILs. Expected: 92 pass / 0 fail / 2 skip
-        # of 94 fixtures (del-004 and del-007 are negated by multi-hop;
+        # required fixture FAILs. Expected: 94 pass / 0 fail / 2 skip
+        # of 96 fixtures (del-004 and del-007 are negated by multi-hop;
         # see docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
@@ -453,7 +453,8 @@ jobs:
         run: echo "sha=$(cat aitp-rs/tests/AITP_VERIFIER_PY_VERSION)" >> "$GITHUB_OUTPUT"
       # Pinned by SHA, never a floating ref: this job is a required check,
       # so an unpinned dependency would let an upstream change break every
-      # merge here. Bumping the pin is a deliberate commit.
+      # merge here. Bumping the pin is a deliberate commit;
+      # bump-verifier-py.yml opens that PR weekly when verifier main moves.
       - name: Checkout aitp-verifier-py at pinned commit
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
