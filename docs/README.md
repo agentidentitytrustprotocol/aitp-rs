@@ -30,6 +30,7 @@ delegation token) are now RFC 7515 compact JWS strings — see the
 | Use the offline `aitp` CLI (keygen / tct / manifest) | [`../crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) |
 | Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
+| Upgrade from 0.14 to 0.15 | [`upgrading-0.15.md`](upgrading-0.15.md) |
 | Upgrade from 0.13 to 0.14 | [`upgrading-0.14.md`](upgrading-0.14.md) |
 | See the release history / direction | [`../CHANGELOG.md`](../CHANGELOG.md) |
 

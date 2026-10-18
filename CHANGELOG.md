@@ -7,6 +7,193 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- **0.15.0: checked wire JSON, ListRevoked by default, RFC-AITP-0009 §3.1
+  handshake defaults, the RFC-AITP-0010 §5 session-bundle order,
+  Manifest-resolved multi-hop keys, hardened renewal and a v0.2
+  conformance gate.** Spec pin `db7d860` → `cfd2f16`. See
+  [`docs/upgrading-0.15.md`](docs/upgrading-0.15.md) for every change and
+  how to migrate.
+- **`parse_*_wire` and `PinnedAdmission::admit_wire` / `admit_wire_at`
+  take `&CheckedJson`** instead of `&serde_json::Value`
+  ([#146](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/146),
+  [#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227)).
+  The new `aitp_core::CheckedJson` is built from bytes or text
+  (`CheckedJson::from_slice`, `FromStr`) and has already rejected
+  duplicate keys (RFC-AITP-0001 §5.4.5), so every caller gets that
+  check. This covers `parse_envelope_wire`, `parse_manifest_wire`,
+  `parse_revocation_snapshot_wire` and `parse_session_bundle_wire`.
+- **The bindings run peer JSON through the hardened wire parsers and
+  report `unknown_field`**
+  ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152),
+  [#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227)).
+  `verifyManifestJson` / `verify_manifest_json` and
+  `verifyRevocationList` / `verify_revocation_list` report a member
+  outside the schema as `unknown_field`. It was `malformed`, or a
+  `ValueError` in Python's Manifest path. The revocation entry points and
+  the four handshake-envelope entry points now apply the wire parsers'
+  member-set and UUID v4 checks.
+- **Pinned admission answers a rate limit with 429 and a refusal with
+  503** (spec `cfd2f16`, RFC-AITP-0002 §3.4,
+  [#226](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/226),
+  [#229](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/229)).
+  A rate-limited `challenge()` returns `AdmissionError::RateLimited`,
+  not `ChallengeRefused`. `RefusalCause::RateLimited` is removed.
+  `http_status()` is `Some(503)` for `ChallengeRefused`, and the new
+  `AdmissionError::retry_after()` and `http_body()` give the
+  `Retry-After` value and the `{"error":"CHALLENGE_REFUSED"}` body.
+- **`HandshakeServer::router()` always serves
+  `GET /.well-known/aitp-revocation-list`** (spec `876e124`,
+  [#225](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/225),
+  [#230](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/230)).
+  With no `RevocationListProducer` it serves an empty snapshot signed by
+  the server key (RFC-AITP-0008 §1.5). RFC-AITP-0005 §11 requires
+  advertising it: use the new `ManifestBuilder::revocation_list_uri`.
+  `router()` warns when the Manifest lacks it. A handler you mounted at
+  that path yourself now overlaps the built-in route.
+- **Handshake defaults follow RFC-AITP-0009 §3.1 and RFC-AITP-0003 §4.1**
+  ([#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198),
+  [#231](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/231)).
+  `router()` starts the session sweeper (opt out with
+  `without_session_sweeper()`), `DEFAULT_MAX_SESSIONS` is 1 000 (was
+  10 000), and `ManifestFetcher` rejects `http://localhost` unless
+  `.with_insecure_localhost(true)`. `InitiatorConfig` gains the same
+  opt-in.
+- **Bindings parity**
+  ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199),
+  [#232](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/232)).
+  Node `processRenewalRequest` and `issueTctForDelegatee` return
+  `{ tct, grantVoucher }` instead of a string. Python
+  `build_renewal_request(current_tct_envelope_json=…)` becomes
+  `current_tct_token=…`, and `process_hello_ack(…, _session_id=…)`
+  becomes `session_id=…`.
+- **Session bundle verification follows RFC-AITP-0010 §5**
+  ([#197](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/197),
+  [#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195),
+  [#233](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/233)).
+  `VerifySessionBundleContext` gains the required
+  `coordinator_key: CoordinatorKeySource` (`Manifest(&m)` or
+  `UnverifiedAidDangerous`). A supplied coordinator Manifest is verified,
+  must match `bundle.coordinator`, and caps participant TCT expiry.
+  `SessionBundleError` gains `CoordinatorManifest` and
+  `CoordinatorManifestMismatch`. Self-membership is now checked last, so
+  a forged bundle that omits the verifier reports
+  `BUNDLE_INVALID_SIGNATURE`. `POST /aitp/session/bundle` rejects a bare
+  body with `SESSION_BUNDLE_INVALID`.
+- **Multi-hop delegation resolves each hop's key from the issuer's
+  Manifest** (RFC-AITP-0011 §3,
+  [#202](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/202),
+  [#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234)).
+  Pass the Manifests with
+  `VerifyDelegationContext::with_issuer_manifests`, or a chain fails with
+  the new `DelegationError::KeyResolutionFailed` (`KEY_RESOLUTION_FAILED`).
+  The Python and Node multi-hop verifiers take a required
+  `issuer_manifests` / `issuerManifests` third argument.
+- **TCT renewal is replay-guarded and re-evaluated** (RFC-AITP-0004 §8.1,
+  [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196),
+  [#235](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/235)).
+  `process_renewal_request` is async and takes a `RenewalContext`. The
+  `pop_nonce` must be 16 bytes and is single use. The presented TCT is
+  checked for revocation and the Manifest expiry cap, and its grants are
+  re-evaluated. `HandshakeServer` no longer mounts
+  `/aitp/handshake/renew`; it mounts the route at the path of the
+  Manifest's `rfc-aitp-0005.renew_uri` (`RENEW_URI_EXT`). Failures return
+  specific codes instead of `TCT_SIGNATURE_INVALID`.
+  `aitp::facade::renew_tct` takes the issuer Manifest, posts only to an
+  advertised `https` `renew_uri`, and otherwise returns
+  `FacadeError::RenewalNotAdvertised`. The Python and Node
+  `process_renewal_request` need `build_manifest()` first and refuse
+  replays.
+- **`aitp-conformance run` gates on `required_for_v0_2` by default**
+  ([#194](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/194),
+  [#236](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/236)).
+  A required fixture that fails or is skipped fails the run. Use
+  `--profile v0.1` for the old gate.
+
+### Added
+
+- `aitp_core::CheckedJson` and `CheckedJsonError`
+  ([#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227)).
+- `aitp_manifest::ManifestBuilder::revocation_list_uri`,
+  `aitp_transport_http::REVOCATION_LIST_PATH` and
+  `RevocationCache::for_issuer_manifest`. `REVOCATION_LIST_URI_EXT` moves
+  to `aitp_manifest` and is re-exported from `aitp_transport_http`
+  ([#230](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/230)).
+- `HandshakeServer::without_session_sweeper`,
+  `HandshakeServer::with_session_sweep_interval` and
+  `InitiatorConfig::with_insecure_localhost`
+  ([#231](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/231)).
+- `aitp_session_bundle::parse_session_bundle_envelope`,
+  `advertise_bundle_uri` and `bundle_uri_from_manifest`, plus
+  `SessionBundleServer::bundle_uri` and `SESSION_BUNDLE_PATH`
+  (RFC-AITP-0010 §4.3.1). The Python and Node `verify_session_bundle`
+  take an optional coordinator Manifest
+  ([#233](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/233)).
+- `aitp_manifest::ManifestResolver`, `resolve_verified_manifest` and
+  `ManifestError::NotFound` (`MANIFEST_NOT_FOUND`)
+  ([#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234)).
+- Renewal: `RenewalContext`, `RenewalGrantPolicyFn`, the `TctError`
+  variants `RenewalNonceMalformed`, `RenewalReplayed`,
+  `RenewalGrantsWithdrawn` and `RenewalNonceStore`,
+  `HandshakeServer::with_renewal_nonce_store` and
+  `with_renewal_grant_policy`, `RENEW_URI_EXT`, `renew_uri_from_manifest`
+  and `aitp::facade::renew_tct_with_insecure_localhost`. `NonceStore`
+  moves to `aitp_core::nonce_store` (still re-exported from
+  `aitp_handshake::admission`), and `aitp-core` gains a `metrics` feature
+  ([#235](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/235)).
+- `aitp-conformance run --profile v0.1|v0.2`. Feature-negation
+  exemptions are listed on stderr, and CI adds a strict conformance step
+  with no `--feature` flags
+  ([#236](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/236)).
+- `bindings/aitp-py/tests/test_stub_signatures.py` checks every
+  `aitp.pyi` signature against the compiled extension
+  ([#232](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/232)).
+- A weekly `bump-verifier-py` workflow opens a PR when
+  `tests/AITP_VERIFIER_PY_VERSION` falls behind `aitp-verifier-py` `main`
+  ([#149](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/149),
+  [#228](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/228)).
+- The new spec fixtures `id-023` and `tct-021` pass with no code change
+  ([#229](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/229)).
+
+### Changed
+
+- The root `CHANGELOG.md` is split into one section per release
+  ([#201](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/201),
+  [#220](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/220)).
+- `aitp-delegation` now depends on `aitp-manifest`
+  ([#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234)).
+- `aitp.pyi` types `revoked_jtis` on the delegation verifiers as
+  `set[str] | frozenset[str]`, and the `process_commit` docstring now
+  gives the right direction
+  ([#232](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/232)).
+
+### Fixed
+
+- Stale rustdoc and help text in `aitp-transport-http`, `aitp-delegation`
+  and the conformance runner. A new `aitp-transport-http` README marks
+  DPoP and token exchange as unsupported
+  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200),
+  [#151](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/151),
+  [#219](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/219)).
+- Node renewal and delegatee issuance no longer drop the grant voucher
+  (RFC-AITP-0005 §8,
+  [#232](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/232)).
+
+### Security
+
+- Every binding entry point that reads peer JSON now rejects duplicate
+  keys and unknown members
+  ([#227](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/227)).
+- A renewal request can no longer be replayed, renew a revoked TCT, or
+  carry a withdrawn grant forward
+  ([#235](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/235)).
+- Multi-hop hops are verified under the key the issuer's Manifest
+  designates, not the key encoded in the AID
+  ([#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234)).
+- Plain-HTTP localhost Manifest fetches are off by default
+  ([#231](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/231)).
+
 ## [0.14.0] — 2026-10-18
 
 ### BREAKING
