@@ -353,7 +353,9 @@ Two things close that gap, and conformance is neither:
    `xcheck` job in `.github/workflows/ci.yml` does qualify. `aitp-rs` mints
    with `cargo run -p mint-signed-examples --bin xcheck-mint`, and
    [`aitp-verifier-py`](https://github.com/agentidentitytrustprotocol/aitp-verifier-py),
-   pinned by `tests/AITP_VERIFIER_PY_VERSION`, verifies those exact bytes
+   pinned by `tests/AITP_VERIFIER_PY_VERSION` (kept current by the weekly
+   `bump-verifier-py` workflow, which opens a bump PR when the verifier's
+   `main` moves), verifies those exact bytes
    through `scripts/xcheck-verify.py`. The reverse direction is covered by
    the committed bytes in `tests/xcheck-fixtures/`. See
    [testing.md](testing.md#cross-implementation-acceptance-xcheck).
