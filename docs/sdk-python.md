@@ -209,14 +209,14 @@ except aitp.ManifestVerificationError as err:
 - **Verification failures** raise `ManifestVerificationError`, a subclass of
   `RuntimeError`. Its `.code` is one of `signature_invalid`, `pop_failed`,
   `aid_mismatch`, `expired`, `version_unknown`, `identity_hint_malformed`,
-  `incompatible_identity_type` or `malformed`. Branch on `.code`, not on the
-  message.
-- **Unknown members** (the `UNKNOWN_FIELD` case) are rejected while the binding
-  parses the JSON, so Python raises `ValueError` ("invalid manifest JSON:
-  unknown field …") rather than `ManifestVerificationError`; there is no
-  `UNKNOWN_FIELD` code
+  `incompatible_identity_type`, `unknown_field` or `malformed`. Branch on
+  `.code`, not on the message.
+- **Unknown members** (the `UNKNOWN_FIELD` case, RFC-AITP-0001 §7) raise
+  `ManifestVerificationError` with `.code == "unknown_field"`. The binding
+  runs the same hardened wire parser as the HTTP transport
   ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
-- **Input that is not a manifest at all** raises `ValueError`.
+- **Input that is not a manifest at all**, including JSON with a duplicate
+  key anywhere (RFC-AITP-0001 §5.4.5), raises `ValueError`.
 - **`now_unix_secs`** overrides the verification clock.
 
 ### Revocation lists (RFC-AITP-0008)
@@ -243,8 +243,9 @@ signed_bytes = aitp.revocation_signing_bytes(snapshot)   # JCS of the inner body
 
 `verify_revocation_list(envelope_json, expected_issuer_aid, now_unix_secs=None)`
 returns `None` or raises `RevocationVerificationError`. Its `.code` is one of
-`signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired` or
-`malformed`. A bad `expected_issuer_aid` raises `ValueError` instead.
+`signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
+`unknown_field` (a member outside the schema) or `malformed` (including a
+duplicate JSON key). A bad `expected_issuer_aid` raises `ValueError` instead.
 
 The function checks only that the snapshot is authentic and has not expired.
 It does not decide whether the snapshot is fresh enough. That policy belongs
@@ -410,18 +411,15 @@ HTTP itself.
 
 The two bindings wrap the same Rust core, but they differ in these places.
 [#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)
-tracks the first three rows and
-[#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152) the
-fourth.
+tracks the first three rows.
 
 | Operation | Python | Node |
 |---|---|---|
 | `process_renewal_request` / `processRenewalRequest` | JSON string with `tct` and `grant_voucher` | bare compact-JWS TCT (no voucher) |
 | `issue_tct_for_delegatee` / `issueTctForDelegatee` | JSON string with `tct` and `grant_voucher` | bare compact-JWS TCT (no voucher) |
 | `build_renewal_request` argument | pass positionally; the compiled keyword is `current_tct_envelope_json`, not the stub's `current_tct_token` | `buildRenewalRequest(currentTctToken)` |
-| Unknown manifest members (`UNKNOWN_FIELD`) | `ValueError` (parse-time rejection; no code) | `error.code === 'malformed'` |
 | Handshake completion | `complete()` returns a JSON string; no decoded claims | `complete()` returns an object with `tct`, `claims` and an optional `grantVoucher` |
-| Non-manifest input to manifest verification | `ValueError` | `Error` with `code === 'malformed'` (also used for unknown members) |
+| Non-manifest input to manifest verification (including a duplicate key) | `ValueError` | `Error` with `code === 'malformed'` |
 | Revoked-JTI sets | `set` or `frozenset` of `str` (the stub's `AbstractSet` is wider than what the binding accepts, [#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)) | `Array<string>` |
 | TCT verification failure | `RuntimeError`, no `.code` | `Error` with napi's generic `code === 'GenericFailure'`, no AITP code |
 

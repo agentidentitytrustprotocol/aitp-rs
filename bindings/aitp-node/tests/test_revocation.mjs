@@ -242,3 +242,36 @@ test('revocationSigningBytes are the inner body, not the wrapper', () => {
   // Derived from the envelope, never pasted from output.
   assert.equal(bytes.toString(), canon(JSON.parse(env).revocation_list));
 });
+
+// ── Hardened wire parsing (aitp-rs#152) ──────────────────────────────────
+//
+// A duplicate key (RFC-AITP-0001 §5.4.5) and a member outside the schema
+// (RFC-AITP-0001 §7) are each rejected before any signature check runs.
+
+function codeOf(fn) {
+  try {
+    fn();
+  } catch (err) {
+    return err.code;
+  }
+  throw new Error('expected verification to fail, but it succeeded');
+}
+
+test('verifyRevocationList rejects a duplicate JSON key as malformed', () => {
+  const iss = issuer();
+  const text = iss.signRevocationList([{ jti: randomUUID() }], 600);
+  assert.ok(text.includes('"revocation_list":{'));
+  const dup = text.replace('"revocation_list":{', '"revocation_list":{"version":"aitp/0.2",');
+  assert.notEqual(dup, text);
+  assert.equal(codeOf(() => verifyRevocationList(dup, iss.aid)), 'malformed');
+});
+
+test('verifyRevocationList rejects an unknown member as unknown_field', () => {
+  const iss = issuer();
+  const env = JSON.parse(iss.signRevocationList([{ jti: randomUUID() }], 600));
+  env.revocation_list.deployment_region = 'eu-west-1';
+  assert.equal(
+    codeOf(() => verifyRevocationList(JSON.stringify(env), iss.aid)),
+    'unknown_field',
+  );
+});

@@ -143,3 +143,29 @@ def test_expired_is_distinct_from_signature_invalid():
 
     assert _code_for(stale) == "expired"
     assert _code_for(json.dumps(forged)) == "signature_invalid"
+
+
+# ── Hardened wire parsing (aitp-rs#152) ──────────────────────────────────
+#
+# verify_manifest_json routes its input through the same checked parser as
+# the HTTP transport: a duplicate key (RFC-AITP-0001 §5.4.5) and a member
+# outside the schema (RFC-AITP-0001 §7) are both rejected before any
+# signature check runs.
+
+
+def test_verify_manifest_rejects_a_duplicate_json_key():
+    text = _signed_manifest()
+    assert '"manifest":{' in text
+    # Repeat `aid` inside the manifest body. json.loads would keep the last
+    # value; the wire parser must refuse the document outright.
+    other = aitp.AitpAgent.generate().aid
+    dup = text.replace('"manifest":{', '"manifest":{"aid":"%s",' % other, 1)
+    assert dup != text
+    with pytest.raises(ValueError, match="duplicate"):
+        aitp.verify_manifest_json(dup)
+
+
+def test_verify_manifest_rejects_an_unknown_member_as_unknown_field():
+    env = json.loads(_signed_manifest())
+    env["manifest"]["deployment_region"] = "eu-west-1"
+    assert _code_for(json.dumps(env)) == "unknown_field"

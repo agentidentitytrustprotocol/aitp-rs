@@ -16,9 +16,10 @@
 
 use aitp_core::{Aid, Timestamp};
 use aitp_tct::{
-    revocation_signing_bytes, verify_revocation_list, RevocationListEnvelope, TctError,
-    VerifyRevocationListContext,
+    revocation_signing_bytes, verify_revocation_list, TctError, VerifyRevocationListContext,
 };
+
+use crate::wire;
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -60,8 +61,10 @@ fn throw_verification_error(env: Env, code: &str, message: String) -> Error {
 ///
 /// Resolves on success; on failure throws an `Error` whose **`code`** property
 /// is one of `signature_invalid`, `issuer_mismatch`, `version_unknown`,
-/// `expired`, `malformed`. Branch on `error.code`, never on `error.message`:
-/// the code is the contract, the message wording is not.
+/// `expired`, `unknown_field`, `malformed`. Branch on `error.code`, never on
+/// `error.message`: the code is the contract, the message wording is not.
+/// A duplicate JSON key (RFC-AITP-0001 §5.4.5) is `malformed`; a member
+/// outside the schema (RFC-AITP-0001 §7) is `unknown_field`.
 ///
 /// Establishes **authenticity and non-expiry only** — that the snapshot was
 /// signed by the holder of `expectedIssuerAid` and that its `expires_at` has
@@ -77,10 +80,10 @@ pub fn verify_revocation_list_js(
     expected_issuer_aid: String,
     now_unix_secs: Option<i64>,
 ) -> Result<()> {
-    let envelope: RevocationListEnvelope = serde_json::from_str(&envelope_json).map_err(|e| {
+    let envelope = wire::revocation_snapshot(&envelope_json).map_err(|e| {
         throw_verification_error(
             env,
-            "malformed",
+            e.code(),
             format!("invalid revocation envelope JSON: {e}"),
         )
     })?;
@@ -108,7 +111,7 @@ pub fn verify_revocation_list_js(
 /// conformance fixture drifted apart before 0.5.0.
 #[napi(js_name = "revocationSigningBytes")]
 pub fn revocation_signing_bytes_js(envelope_json: String) -> Result<Buffer> {
-    let envelope: RevocationListEnvelope = serde_json::from_str(&envelope_json)
+    let envelope = wire::revocation_snapshot(&envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid revocation envelope JSON: {e}")))?;
     let bytes = revocation_signing_bytes(&envelope.revocation_list)
         .map_err(|e| Error::from_reason(format!("canonicalization failed: {e}")))?;

@@ -21,14 +21,17 @@ use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
     MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
+use aitp_manifest::{IdentityHintKind, Manifest};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
 
 use crate::helpers::{make_peer_config, NoOpJwksResolver};
 use crate::oidc::make_oidc_minter;
+use crate::wire;
 
 /// Per-session configuration cached at agent.new_session() time.
 pub struct SessionContext {
@@ -164,9 +167,7 @@ impl PyInitiatorSession {
         requested_grants: Vec<String>,
         oidc_mint_jwt: Option<Py<PyAny>>,
     ) -> PyResult<String> {
-        let ManifestEnvelope {
-            manifest: peer_manifest,
-        } = serde_json::from_str(peer_manifest_json)
+        let peer_manifest = wire::manifest(peer_manifest_json)
             .map_err(|e| PyValueError::new_err(format!("invalid peer manifest JSON: {e}")))?;
 
         // The pinned-key identity proof binds (message_id, timestamp), so
@@ -204,10 +205,15 @@ impl PyInitiatorSession {
 
     /// Step 2 — process `MUTUAL_HELLO_ACK`, produce `MUTUAL_COMMIT`.
     fn process_hello_ack(&mut self, hello_ack_json: &str, _session_id: &str) -> PyResult<String> {
-        let envelope: AitpEnvelope = serde_json::from_str(hello_ack_json)
+        let envelope: AitpEnvelope = wire::envelope(hello_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
-        let ack: MutualHelloAckPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| PyValueError::new_err(format!("invalid hello_ack payload: {e}")))?;
+        let ack: MutualHelloAckPayload = wire::check_payload(
+            &envelope,
+            "MutualHelloAckPayload",
+            MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| PyValueError::new_err(format!("invalid hello_ack payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -238,10 +244,15 @@ impl PyInitiatorSession {
     /// the TCT the peer issued to us, plus the companion grant voucher
     /// (when issued — the voucher is what lets us later mint delegations).
     fn complete(&mut self, commit_ack_json: &str) -> PyResult<String> {
-        let envelope: AitpEnvelope = serde_json::from_str(commit_ack_json)
+        let envelope: AitpEnvelope = wire::envelope(commit_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
-        let ack: MutualCommitAckPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
+        let ack: MutualCommitAckPayload = wire::check_payload(
+            &envelope,
+            "MutualCommitAckPayload",
+            MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -310,10 +321,15 @@ impl PyResponderSession {
         hello_json: &str,
         oidc_mint_jwt: Option<Py<PyAny>>,
     ) -> PyResult<(String, String)> {
-        let envelope: AitpEnvelope = serde_json::from_str(hello_json)
+        let envelope: AitpEnvelope = wire::envelope(hello_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
-        let hello: MutualHelloPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| PyValueError::new_err(format!("invalid hello payload: {e}")))?;
+        let hello: MutualHelloPayload = wire::check_payload(
+            &envelope,
+            "MutualHelloPayload",
+            MUTUAL_HELLO_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| PyValueError::new_err(format!("invalid hello payload: {e}")))?;
 
         // The HELLO_ACK identity proof binds (message_id, timestamp);
         // sign the ack envelope with the same pair.
@@ -363,10 +379,15 @@ impl PyResponderSession {
 
     /// Process an incoming `MUTUAL_COMMIT` envelope.
     fn process_commit(&mut self, commit_json: &str) -> PyResult<(String, String)> {
-        let envelope: AitpEnvelope = serde_json::from_str(commit_json)
+        let envelope: AitpEnvelope = wire::envelope(commit_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
-        let commit: MutualCommitPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
+        let commit: MutualCommitPayload = wire::check_payload(
+            &envelope,
+            "MutualCommitPayload",
+            MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(

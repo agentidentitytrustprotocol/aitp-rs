@@ -125,3 +125,26 @@ test('expired is distinct from signature_invalid', () => {
     causeOf(() => verifyManifestJson(JSON.stringify(forged))),
   );
 });
+
+// ── Hardened wire parsing (aitp-rs#152) ──────────────────────────────────
+//
+// verifyManifestJson routes its input through the same checked parser as
+// the HTTP transport: a duplicate key (RFC-AITP-0001 §5.4.5) and a member
+// outside the schema (RFC-AITP-0001 §7) are each rejected before any
+// signature check runs, with distinct codes.
+
+test('verifyManifestJson rejects a duplicate JSON key as malformed', () => {
+  const text = signedManifest();
+  assert.ok(text.includes('"manifest":{'));
+  // Repeat `aid` inside the manifest body. JSON.parse would keep the last
+  // value; the wire parser must refuse the document outright.
+  const dup = text.replace('"manifest":{', `"manifest":{"aid":"${AitpAgent.generate().aid}",`);
+  assert.notEqual(dup, text);
+  assert.equal(causeOf(() => verifyManifestJson(dup)), 'malformed');
+});
+
+test('verifyManifestJson rejects an unknown member as unknown_field', () => {
+  const env = JSON.parse(signedManifest());
+  env.manifest.deployment_region = 'eu-west-1';
+  assert.equal(causeOf(() => verifyManifestJson(JSON.stringify(env))), 'unknown_field');
+});

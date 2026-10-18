@@ -248,8 +248,8 @@ class ManifestVerificationError(RuntimeError):
     `code` is the stable, machine-readable cause — one of
     `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
     `version_unknown`, `identity_hint_malformed`,
-    `incompatible_identity_type`, `malformed`. **Branch on `code`, never on
-    the message text.**
+    `incompatible_identity_type`, `unknown_field`, `malformed`. **Branch on
+    `code`, never on the message text.**
 
     Inherits `RuntimeError`, which is what this function raised before it was
     typed — adding a machine-readable cause does not break a caller that was
@@ -266,7 +266,10 @@ def verify_manifest_json(
     Raises `ManifestVerificationError` (with `.code`) when the envelope does
     not verify, and `ValueError` when it is not parseable as a manifest at
     all — that second one is the caller handing us the wrong bytes, not a
-    peer failing verification.
+    peer failing verification. A duplicate JSON key anywhere
+    (RFC-AITP-0001 §5.4.5) raises `ValueError`; a member outside the schema
+    (RFC-AITP-0001 §7) raises `ManifestVerificationError` with
+    `code == "unknown_field"`.
 
     `now_unix_secs` overrides the verification clock — omit it to use the
     system clock, or pass a pinned value in tests. Matches
@@ -278,7 +281,9 @@ class RevocationVerificationError(RuntimeError):
 
     `code` is the stable, machine-readable cause — one of
     `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
-    `malformed`. **Branch on `code`, never on the message text**: matching an
+    `unknown_field`, `malformed`. A duplicate JSON key (RFC-AITP-0001 §5.4.5)
+    is `malformed`; a member outside the schema (RFC-AITP-0001 §7) is
+    `unknown_field`. **Branch on `code`, never on the message text**: matching an
     exception message pins program output as an expected value, which is the
     bug class the 0.5.0 signing-input change exposed. Before 0.6.0 there was
     no typed error here at all, so message-matching was the only option."""
