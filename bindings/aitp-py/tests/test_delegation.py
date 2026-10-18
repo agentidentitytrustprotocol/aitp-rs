@@ -86,6 +86,8 @@ def test_delegation_round_trip_strict():
 
     # A mints a fresh TCT for C; completion shape is {"tct", "grant_voucher"}.
     fresh = json.loads(a.issue_tct_for_delegatee(verified))
+    assert set(fresh) == {"tct", "grant_voucher"}  # same shape as Node (#199)
+    assert fresh["grant_voucher"].count(".") == 2  # a compact JWS
     ident = c.verify_tct(fresh["tct"], PING_CAP, c.aid)
     assert ident.peer_aid == a.aid
     assert PING_CAP in ident.grants

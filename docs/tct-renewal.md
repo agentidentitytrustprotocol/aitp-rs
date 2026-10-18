@@ -145,9 +145,8 @@ fixed.
 import json
 
 # Holder side: build the renewal request bound to a fresh nonce.
-# current_tct is the holder's TCT as a compact JWS string. Pass it
-# positionally (the keyword name differs between aitp.pyi and the binding, #199).
-req_json = holder_agent.build_renewal_request(current_tct)
+# current_tct is the holder's TCT as a compact JWS string.
+req_json = holder_agent.build_renewal_request(current_tct_token=current_tct)
 
 # Issuer side: verify PoP + mint a fresh TCT (bounded by the issuer manifest).
 # Returns a JSON string: {"tct": "<jws>", "grant_voucher": "<jws>"}.
@@ -157,9 +156,8 @@ result = json.loads(
 fresh_tct = result["tct"]
 ```
 
-In Node, `processRenewalRequest(...)` returns the fresh TCT as a bare compact
-JWS string, with no voucher
-([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
+In Node, `processRenewalRequest(...)` returns the same fields as an object,
+`{ tct, grantVoucher }`.
 
 `bindings/aitp-py/tests/test_renewal.py` covers the holder → issuer
 round-trip and the wrong-holder-key rejection; `bindings/aitp-node/tests/test_renewal.mjs`
