@@ -483,6 +483,12 @@ mod tests {
     use aitp_crypto::AitpSigningKey;
     use aitp_tct::RevocationEntry;
 
+    /// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+    /// constructor (a `Value` has no duplicate key, so this cannot fail).
+    fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+        v.to_string().parse().expect("valid JSON")
+    }
+
     fn make_envelope(
         jti: Uuid,
         issuer_key: &AitpSigningKey,
@@ -677,7 +683,7 @@ mod tests {
     }
     impl RevocationProvider for WireParsingProvider {
         fn fetch(&self, _issuer: &Aid) -> Result<RevocationListEnvelope, RevocationError> {
-            aitp_tct::parse_revocation_snapshot_wire(&self.raw).map_err(|e| match e {
+            aitp_tct::parse_revocation_snapshot_wire(&checked(&self.raw)).map_err(|e| match e {
                 TctError::UnknownField(field) => RevocationError::UnknownField(field),
                 TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
                 other => RevocationError::SignatureInvalid(other),

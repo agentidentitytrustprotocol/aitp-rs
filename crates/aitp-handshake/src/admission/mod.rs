@@ -55,6 +55,7 @@ use crate::identity_pinned::{
 };
 use crate::{IdentityDescriptor, IdentityKind, VerifiedPinnedKey};
 use aitp_core::envelope::{envelope_signing_digest, parse_envelope_wire, EnvelopeParseError};
+use aitp_core::CheckedJson;
 use aitp_core::{
     base64url, check_members, from_serde_error, Aid, AitpEnvelope, MessageType, Sender, Timestamp,
     DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
@@ -404,9 +405,13 @@ impl PinnedAdmission {
     /// Admit a presentation received as raw JSON from `source`. Check
     /// order steps 1–3 run on the raw members, before any parsing, so a
     /// replay or an over-limit source is answered without schema work.
+    ///
+    /// `envelope` is a [`CheckedJson`], built from the request body's
+    /// bytes, so a duplicate key (RFC-AITP-0001 §5.4.5) has already been
+    /// rejected before this is reached.
     pub async fn admit_wire(
         &self,
-        envelope: &serde_json::Value,
+        envelope: &CheckedJson,
         source: &ChallengeSource,
     ) -> Result<Admitted, AdmissionError> {
         self.admit_wire_at(envelope, source, Timestamp::now()).await
@@ -415,7 +420,7 @@ impl PinnedAdmission {
     /// As [`Self::admit_wire`] at an explicit `now`.
     pub async fn admit_wire_at(
         &self,
-        envelope: &serde_json::Value,
+        envelope: &CheckedJson,
         source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<Admitted, AdmissionError> {
@@ -426,7 +431,7 @@ impl PinnedAdmission {
 
     async fn admit_wire_inner(
         &self,
-        envelope: &serde_json::Value,
+        envelope: &CheckedJson,
         source: &ChallengeSource,
         now: Timestamp,
     ) -> Result<Admitted, AdmissionError> {

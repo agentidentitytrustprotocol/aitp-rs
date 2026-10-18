@@ -6,7 +6,7 @@
 //! handshake from a Manifest URL in a single call.
 
 use crate::core::{
-    check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
+    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
@@ -348,12 +348,8 @@ fn interpret_aitp_envelope_response(
     // response body (top level or nested inside `payload`) must be
     // rejected against the ORIGINAL bytes, before a `Value` (which would
     // already have silently collapsed it) is ever built.
-    if let Err(e) = reject_duplicate_keys(body) {
-        return Err(FacadeError::Http(format!(
-            "malformed JSON in response body: {e}"
-        )));
-    }
-    let value: serde_json::Value = serde_json::from_slice(body)
+    // `CheckedJson::from_slice` runs that check before building the value.
+    let value = CheckedJson::from_slice(body)
         .map_err(|e| FacadeError::Http(format!("malformed JSON in response body: {e}")))?;
     parse_envelope_wire(&value).map_err(|e| match e {
         EnvelopeParseError::UnknownField(field) => {

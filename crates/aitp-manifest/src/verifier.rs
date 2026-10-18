@@ -3,7 +3,7 @@
 use crate::builder::{manifest_signing_bytes, ManifestSigningView};
 use crate::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
 use crate::ManifestError;
-use aitp_core::{base64url, check_members, from_serde_error, Timestamp};
+use aitp_core::{base64url, check_members, from_serde_error, CheckedJson, Timestamp};
 use aitp_crypto::{AitpVerifyingKey, Signature};
 
 /// Inputs for verifying a Manifest.
@@ -148,7 +148,8 @@ pub fn verify_manifest(
 ///    `identity_hint` or `proof_of_possession`), [`from_serde_error`]
 ///    recovers the offending field name so the caller still gets
 ///    [`ManifestError::UnknownField`] rather than a generic parse failure.
-pub fn parse_manifest_wire(value: &serde_json::Value) -> Result<Manifest, ManifestError> {
+pub fn parse_manifest_wire(value: &CheckedJson) -> Result<Manifest, ManifestError> {
+    let value = value.as_value();
     const WRAPPER_MEMBERS: &[&str] = &["manifest"];
 
     let body = match value.as_object() {

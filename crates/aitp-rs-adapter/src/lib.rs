@@ -13,7 +13,7 @@
 
 #![forbid(unsafe_code)]
 
-use aitp_core::{base64url, jcs, Aid, AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp_core::{base64url, jcs, Aid, AitpEnvelope, CheckedJson, MessageType, Sender, Timestamp};
 use aitp_crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp_delegation::DelegationBuilder;
 use aitp_handshake::{
@@ -533,7 +533,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     }
 
     let envelope_value = params.get("envelope").cloned().unwrap_or_default();
-    let envelope = match aitp_core::parse_envelope_wire(&envelope_value) {
+    let envelope = match aitp_core::parse_envelope_wire(&checked(&envelope_value)) {
         Ok(e) => e,
         Err(e) => {
             return err(
@@ -1278,7 +1278,7 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
     } else {
         return err(id, "INVALID_ENVELOPE", "missing manifest");
     };
-    let manifest = match aitp_manifest::parse_manifest_wire(&manifest_value) {
+    let manifest = match aitp_manifest::parse_manifest_wire(&checked(&manifest_value)) {
         Ok(m) => m,
         Err(e) => {
             return err(
@@ -1418,7 +1418,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
             // read as "nothing is revoked" (issue #140 hazard 4): that is
             // a fail-open hazard under a permissive revocation policy.
             // Surface the error instead of falling through.
-            match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
+            match aitp_tct::parse_revocation_snapshot_wire(&checked(snapshot)) {
                 Ok(env) => {
                     let snapshot_issuer = env.revocation_list.issuer.clone();
                     let rev_ctx = aitp_tct::VerifyRevocationListContext::new(&snapshot_issuer, now);
@@ -1712,7 +1712,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
             // a fail-open hazard under a permissive revocation policy.
             // Surface the error instead of skipping the entry.
             let env: aitp_tct::RevocationListEnvelope =
-                match aitp_tct::parse_revocation_snapshot_wire(snapshot) {
+                match aitp_tct::parse_revocation_snapshot_wire(&checked(snapshot)) {
                     Ok(e) => e,
                     Err(e) => {
                         return err(
@@ -2766,7 +2766,7 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .or_else(|| params.get("envelope").cloned())
         .unwrap_or_default();
     let env: aitp_tct::RevocationListEnvelope =
-        match aitp_tct::parse_revocation_snapshot_wire(&env_value) {
+        match aitp_tct::parse_revocation_snapshot_wire(&checked(&env_value)) {
             Ok(e) => e,
             Err(e) => {
                 return err(
@@ -3137,6 +3137,23 @@ fn dump_session_op(state: &AdapterState, id: &str, params: Value) -> Value {
     }
 }
 
+/// Re-enter a request sub-value as a [`CheckedJson`] for the
+/// `parse_*_wire` functions.
+///
+/// The adapter's dispatch navigates (and occasionally edits) a `Value`
+/// built from one NDJSON request line, and `main.rs` already ran the
+/// RFC-AITP-0001 §5.4.5 duplicate-key check on that line's raw bytes
+/// before the `Value` existed. A sub-tree of a checked document carries
+/// no duplicate key, so re-serializing it and parsing it back through
+/// [`CheckedJson`]'s only constructor cannot fail on that ground; it keeps
+/// the parsers' input type honest instead of adding an unchecked
+/// `Value -> CheckedJson` escape hatch to `aitp-core`.
+pub(crate) fn checked(v: &Value) -> CheckedJson {
+    v.to_string()
+        .parse()
+        .expect("a serialized serde_json::Value is valid JSON with no duplicate key")
+}
+
 fn err(id: &str, code: &str, message: &str) -> Value {
     json!({"id": id, "ok": false, "error_code": code, "message": message})
 }
@@ -3230,7 +3247,7 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     // run BEFORE parsing: it mutates the raw wire value (stripping a
     // per-participant key), not the deserialized bundle.
     strip_claims_companions(&mut wire_value);
-    let bundle = match aitp_session_bundle::parse_session_bundle_wire(&wire_value) {
+    let bundle = match aitp_session_bundle::parse_session_bundle_wire(&checked(&wire_value)) {
         Ok(b) => b,
         Err(e) => return err(id, &bundle_error_code(&e), &e.to_string()),
     };

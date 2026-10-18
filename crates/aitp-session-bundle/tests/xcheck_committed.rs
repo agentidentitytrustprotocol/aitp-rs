@@ -109,11 +109,17 @@ fn aitp_verifier_py_committed_bundle_rejects_the_sibling_shape() {
     // `parse_session_bundle_wire`, which unwraps the transport envelope
     // and rejects any sibling member via `SessionBundleEnvelope`'s
     // `deny_unknown_fields`.
-    let result = parse_session_bundle_wire(&sibling);
+    let result = parse_session_bundle_wire(&checked(&sibling));
     assert!(
         matches!(result, Err(SessionBundleError::WireFormInvalid(_))),
         "sibling-shaped bundle (signature outside the inner body) must be \
          rejected as an invalid wire form -- RFC-AITP-0010 §3 places \
          `signature` inside the body, never beside the wrapper, got {result:?}"
     );
+}
+
+/// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+/// constructor (a `Value` has no duplicate key, so this cannot fail).
+fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+    v.to_string().parse().expect("valid JSON")
 }

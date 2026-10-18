@@ -20,12 +20,12 @@ fn valid_body() -> serde_json::Value {
 #[test]
 fn wrapped_with_signature_inside_is_ok() {
     let wire = json!({ "session_bundle": valid_body() });
-    assert!(parse_session_bundle_wire(&wire).is_ok());
+    assert!(parse_session_bundle_wire(&checked(&wire)).is_ok());
 }
 
 #[test]
 fn bare_body_is_ok() {
-    assert!(parse_session_bundle_wire(&valid_body()).is_ok());
+    assert!(parse_session_bundle_wire(&checked(&valid_body())).is_ok());
 }
 
 /// `bundle-004-signature-sibling-rejected`: `signature` as a SIBLING of
@@ -36,7 +36,7 @@ fn sibling_signature_shape_is_wire_form_invalid() {
     let signature = body.as_object_mut().unwrap().remove("signature").unwrap();
     let wire = json!({ "session_bundle": body, "signature": signature });
     assert!(matches!(
-        parse_session_bundle_wire(&wire),
+        parse_session_bundle_wire(&checked(&wire)),
         Err(SessionBundleError::WireFormInvalid(_))
     ));
 }
@@ -45,7 +45,7 @@ fn sibling_signature_shape_is_wire_form_invalid() {
 fn wrapper_with_unexpected_sibling_key_is_wire_form_invalid() {
     let wire = json!({ "session_bundle": valid_body(), "extensions_leak": {} });
     assert!(matches!(
-        parse_session_bundle_wire(&wire),
+        parse_session_bundle_wire(&checked(&wire)),
         Err(SessionBundleError::WireFormInvalid(_))
     ));
 }
@@ -55,7 +55,7 @@ fn bare_body_missing_signature_with_no_sibling_is_wire_form_invalid() {
     let mut body = valid_body();
     body.as_object_mut().unwrap().remove("signature");
     assert!(matches!(
-        parse_session_bundle_wire(&body),
+        parse_session_bundle_wire(&checked(&body)),
         Err(SessionBundleError::WireFormInvalid(_))
     ));
 }
@@ -71,8 +71,14 @@ fn unknown_inner_body_member_is_unknown_field() {
         .unwrap()
         .insert("coordinator_note".into(), json!("primary-region"));
     let wire = json!({ "session_bundle": body });
-    match parse_session_bundle_wire(&wire) {
+    match parse_session_bundle_wire(&checked(&wire)) {
         Err(SessionBundleError::UnknownField(field)) => assert_eq!(field, "coordinator_note"),
         other => panic!("expected UnknownField(\"coordinator_note\"), got {other:?}"),
     }
+}
+
+/// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+/// constructor (a `Value` has no duplicate key, so this cannot fail).
+fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+    v.to_string().parse().expect("valid JSON")
 }
