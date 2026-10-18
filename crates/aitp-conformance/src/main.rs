@@ -4,13 +4,17 @@ use aitp_conformance::adapter::subprocess::SubprocessAdapter;
 use aitp_conformance::adapter::Adapter;
 use aitp_conformance::fixture::FixtureLoader;
 use aitp_conformance::runner::{
-    render_json, render_summary, render_tap, render_text, FixtureResult, OutputFormat, Runner,
+    check_gate, render_json, render_summary, render_tap, render_text, FixtureResult, OutputFormat,
+    Profile, Runner,
 };
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "aitp-conformance", about = "AITP conformance test runner")]
+#[command(
+    name = "aitp-conformance",
+    about = "AITP conformance test runner (gates on v0.2 by default; see `run --profile`)"
+)]
 struct Cli {
     #[command(subcommand)]
     command: Command,
@@ -46,6 +50,12 @@ enum Command {
         /// Stop on first failure.
         #[arg(long)]
         fail_fast: bool,
+        /// Protocol version to gate on: `v0.2` (default) fails the run
+        /// when any `required_for_v0_2` fixture fails or is SKIPped
+        /// (e.g. OP_NOT_SUPPORTED); `v0.1` gates on `required_for_v0_1`
+        /// instead. Any FAIL fails the run under either profile.
+        #[arg(long, default_value_t = Profile::V0_2)]
+        profile: Profile,
     },
     /// List available fixtures.
     List {
@@ -77,6 +87,7 @@ fn main() {
             features,
             output,
             fail_fast,
+            profile,
         } => run(
             target,
             fixtures_dir,
@@ -85,6 +96,7 @@ fn main() {
             features,
             output,
             fail_fast,
+            profile,
         ),
         Command::List { fixtures_dir, tag } => list(fixtures_dir, tag),
         Command::Describe { fixtures_dir, id } => describe(fixtures_dir, id),
@@ -92,6 +104,7 @@ fn main() {
     std::process::exit(exit);
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run(
     target: PathBuf,
     fixtures_dir: PathBuf,
@@ -100,6 +113,7 @@ fn run(
     features: Vec<String>,
     output: String,
     fail_fast: bool,
+    profile: Profile,
 ) -> i32 {
     let format = match OutputFormat::parse(&output) {
         Ok(f) => f,
@@ -179,39 +193,35 @@ fn run(
         OutputFormat::Tap => println!("{}", render_tap(&results)),
     }
 
-    // v0.1 conformance gate: a fixture marked `required_for_v0_1` MUST
-    // pass — it may neither fail nor be SKIPped because the adapter
-    // lacks the op (OP_NOT_SUPPORTED). A skip whose v0.1 assertion was
-    // negated by an opted-in experimental feature (e.g. `del-004`
-    // under `experimental-multihop-delegation`) is exempt — that is a
-    // deliberate post-v0.1 run, not a missing v0.1 capability.
-    let mut v0_1_violations: Vec<String> = Vec::new();
-    for r in &results {
-        let (id, kind, detail) = match r {
-            FixtureResult::Pass { .. } => continue,
-            FixtureResult::Fail { id, reason, .. } => (id, "FAIL", reason.as_str()),
-            FixtureResult::Skip { id, reason } => {
-                if reason.contains("no longer applies") {
-                    continue; // feature-negation skip — not a v0.1 gap
-                }
-                (id, "SKIP", reason.as_str())
-            }
-        };
-        if fixtures.iter().any(|f| &f.id == id && f.required_for_v0_1) {
-            v0_1_violations.push(format!("  {id}: {kind} — {detail}"));
+    // Conformance gate (spec conformance README, "Conformance runner
+    // enforcement rules"): a fixture marked `required_for_v0_N` for the
+    // selected profile MUST pass — it may neither fail nor be SKIPped
+    // because the adapter lacks the op (OP_NOT_SUPPORTED). A skip whose
+    // assertion was negated by an opted-in experimental feature (e.g.
+    // `del-007` under `experimental-multihop-delegation`) is exempt —
+    // that is a deliberate post-v0.2 run, not a missing capability —
+    // but is still listed so the exemption is visible.
+    let gate = check_gate(profile, &fixtures, &results);
+    if !gate.exempted.is_empty() {
+        eprintln!(
+            "\n{profile} conformance gate: {} required fixture(s) exempted by feature negation:",
+            gate.exempted.len()
+        );
+        for e in &gate.exempted {
+            eprintln!("{e}");
         }
     }
-    if !v0_1_violations.is_empty() {
+    if !gate.passed() {
         eprintln!(
-            "\nv0.1 conformance gate FAILED — {} required fixture(s) did not pass:",
-            v0_1_violations.len()
+            "\n{profile} conformance gate FAILED — {} required fixture(s) did not pass:",
+            gate.violations.len()
         );
-        for v in &v0_1_violations {
+        for v in &gate.violations {
             eprintln!("{v}");
         }
     }
 
-    if any_fail || !v0_1_violations.is_empty() {
+    if any_fail || !gate.passed() {
         1
     } else {
         0

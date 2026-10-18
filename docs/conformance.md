@@ -254,7 +254,8 @@ How `aitp-conformance` implements those rules:
   op runs. The reference clock is the constant `REFERENCE_NOW` in that
   file.
 - `crates/aitp-conformance/src/fixture/types.rs` deserializes the
-  fixture. Its `required_for_v0_1` field drives the exit-code gate; see
+  fixture. Its `required_for_v0_2` field (or `required_for_v0_1` under
+  `--profile v0.1`) drives the exit-code gate; see
   [v0.2 conformance gate](#v02-conformance-gate).
 
 ## CLI surface
@@ -262,7 +263,8 @@ How `aitp-conformance` implements those rules:
 ```
 aitp-conformance run --target <CMD> [--fixtures-dir <DIR>] [--filter <PAT>] \
                      [--tag <TAG>] [--feature <NAME>]... \
-                     [--output text|json|tap] [--fail-fast]
+                     [--output text|json|tap] [--fail-fast] \
+                     [--profile v0.2|v0.1]
 aitp-conformance list [--fixtures-dir <DIR>] [--tag <TAG>]
 aitp-conformance describe [--fixtures-dir <DIR>] <FIXTURE_ID>
 ```
@@ -270,8 +272,9 @@ aitp-conformance describe [--fixtures-dir <DIR>] <FIXTURE_ID>
 `--fixtures-dir` defaults to `./schemas/conformance`. `--feature` can be
 repeated. Each one opts into a draft feature (for example
 `experimental-session-bundle`), so fixtures tagged with it run instead of
-being skipped. The flags are defined in
-`crates/aitp-conformance/src/main.rs`.
+being skipped. `--profile` picks the protocol version the exit-code gate
+checks (default `v0.2`; see [v0.2 conformance gate](#v02-conformance-gate)).
+The flags are defined in `crates/aitp-conformance/src/main.rs`.
 
 Text output has this shape (from `crates/aitp-conformance/src/runner/output.rs`):
 
@@ -420,12 +423,13 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 75 pass / 0 fail / 21 skip at the pin.
+# Strict: 75 pass / 0 fail / 21 skip at the pin. The `--profile v0.1`
+# counts are the same; only the gate's required flag differs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
 # Opt-in (draft RFCs and extensions): 94 pass / 0 fail / 2 skip at the pin.
-# This is what the `conformance` CI job runs.
+# The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -440,22 +444,25 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
 `aitp-conformance run` exits non-zero in two cases:
 
 1. Any fixture fails.
-2. A fixture marked **`required_for_v0_1: true`** is skipped. A
-   feature-negation skip, like the ones described above, does not count.
+2. A fixture required by the selected profile fails or is skipped, for
+   example because the adapter answers `OP_NOT_SUPPORTED`. The default
+   profile is `v0.2`, which checks **`required_for_v0_2: true`**.
+   `--profile v0.1` checks `required_for_v0_1: true` instead (at the pin,
+   only `del-004`). This follows the spec's
+   [Conformance runner enforcement rules](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#conformance-runner-enforcement-rules)
+   and RFC-AITP-0001 §10 item 9.
 
-The gate is built in `run()` in `crates/aitp-conformance/src/main.rs`,
-using the `required_for_v0_1` field in
-`crates/aitp-conformance/src/fixture/types.rs`.
+A feature-negation skip does not count, because the run opted into a
+feature that contradicts the fixture's assertion (see the multi-hop note
+above). The runner lists each such exemption on stderr, so it is never
+silent. With all four features at the pin that is `del-007` under the
+default profile, and `del-004` under `--profile v0.1`. There is no other
+allowlist: every other required fixture must pass.
 
-#### Known limitations
-
-- **The gate checks the v0.1 flag, not the v0.2 flag**
-  ([#194](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/194)).
-  At the pin only `del-004` has `required_for_v0_1: true`. So a
-  `required_for_v0_2` fixture that is skipped because the adapter lacks
-  its op does **not** fail the run. It shows up only as a higher skip
-  count. Until #194 is fixed, compare the skip count with the summary
-  above. The `conformance` CI job has the same blind spot.
+The gate is `check_gate` in `crates/aitp-conformance/src/runner/gate.rs`,
+called from `run()` in `crates/aitp-conformance/src/main.rs`. The
+`conformance` CI job runs the corpus twice under the default profile:
+strict, and with all four features.
 
 ### Fixtures by area
 

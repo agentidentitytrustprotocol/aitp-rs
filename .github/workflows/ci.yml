@@ -421,14 +421,26 @@ jobs:
       - name: Build adapter + runner
         working-directory: aitp-rs
         run: cargo build -p aitp-rs-adapter -p aitp-conformance
+      - name: Run the core fixture corpus (strict, v0.2 gate)
+        working-directory: aitp-rs
+        # No --feature: the v0.2 gate (the default --profile) fails the
+        # run if any required_for_v0_2 fixture FAILs or is SKIPped, e.g.
+        # OP_NOT_SUPPORTED. Expected: 75 pass / 0 fail / 21 skip of 96
+        # (the skips are the draft and extension fixtures; see
+        # docs/conformance.md).
+        run: |
+          ./target/debug/aitp-conformance run \
+            --target ./target/debug/aitp-rs-adapter \
+            --fixtures-dir ../spec/schemas/conformance
       - name: Run the full fixture corpus against the Rust adapter
         working-directory: aitp-rs
         # Opt into the draft features and extensions so the bundle-*,
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
-        # required fixture FAILs. Expected: 94 pass / 0 fail / 2 skip
-        # of 96 fixtures (del-004 and del-007 are negated by multi-hop;
-        # see docs/conformance.md).
+        # fixture FAILs or a required_for_v0_2 fixture is SKIPped.
+        # Expected: 94 pass / 0 fail / 2 skip of 96 fixtures (del-004
+        # and del-007 are negated by multi-hop; the runner lists del-007
+        # as a gate exemption; see docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
             --target ./target/debug/aitp-rs-adapter \

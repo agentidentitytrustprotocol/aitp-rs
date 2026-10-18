@@ -151,12 +151,11 @@ opt-in run modes, and the commands to reproduce them are in
 [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix). That
 page is the only place these docs give fixture counts.
 
-The runner's exit-code gate has a known blind spot: it keys on
-`required_for_v0_1`, not `required_for_v0_2`, so a required v0.2 fixture
-skipped for a missing op does not fail the run
-([#194](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/194);
-details under
-[v0.2 conformance gate](docs/conformance.md#v02-conformance-gate)).
+The runner's exit-code gate keys on `required_for_v0_2` by default: a
+required v0.2 fixture that fails, or is skipped because the adapter lacks
+its op, fails the run. `--profile v0.1` gates on `required_for_v0_1`
+instead. Details are under
+[v0.2 conformance gate](docs/conformance.md#v02-conformance-gate).
 
 ## Install
 
