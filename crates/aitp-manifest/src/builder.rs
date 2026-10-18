@@ -15,6 +15,12 @@ use serde::Serialize;
 /// Default Manifest TTL (24 hours).
 pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
 
+/// Manifest `extensions` key (registered, RFC-AITP-0012 namespace) under
+/// which a TCT issuer advertises its `ListRevoked` URL
+/// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4). Set it with
+/// [`ManifestBuilder::revocation_list_uri`].
+pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
+
 /// Fluent builder for issuing a Manifest.
 ///
 /// ```ignore
@@ -257,6 +263,19 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
     pub fn display_name(mut self, name: impl Into<String>) -> Self {
         self.display_name = Some(name.into());
         self
+    }
+
+    /// Advertise this issuer's `ListRevoked` URL under
+    /// [`REVOCATION_LIST_URI_EXT`]. Every peer that issues TCTs (every
+    /// peer completing the Mutual Handshake) MUST advertise it
+    /// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4, RFC-AITP-0001 §10 item 6).
+    /// The value is an absolute HTTPS URL; it is set before signing, so
+    /// the Manifest signature covers it.
+    pub fn revocation_list_uri(self, url: url::Url) -> Self {
+        self.extension(
+            REVOCATION_LIST_URI_EXT,
+            serde_json::Value::String(url.into()),
+        )
     }
 
     /// Insert a forward-compatible extension key.
