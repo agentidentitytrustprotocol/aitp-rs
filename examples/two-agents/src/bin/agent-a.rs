@@ -45,7 +45,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Discover B's Manifest (also serves as a readiness poll). The
     // verified Manifest's pinned public key becomes our trust anchor.
-    let fetcher = ManifestFetcher::new();
+    // The demo runs over plain HTTP on localhost, which is refused
+    // unless opted in (here and on the InitiatorConfig below).
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     let bob_manifest = wait_for_peer(&fetcher, &peer_origin).await?;
     println!("agent-a: fetched B's manifest, AID = {}", bob_manifest.aid);
 
@@ -55,16 +57,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let store = StaticPinnedKeyStore::from_aids([&bob_manifest.aid])?;
 
     // One call drives the whole handshake and returns the TCT B issued us.
-    let session = run_initiator_handshake(InitiatorConfig::new(
-        &key,
-        &manifest,
-        peer_origin.clone(),
-        TrustMode::PinnedKeys(&store),
-        IdentityMode::PinnedKey {
-            subject: "agent-a".into(),
-        },
-        vec!["demo.echo".into()],
-    ))
+    let session = run_initiator_handshake(
+        InitiatorConfig::new(
+            &key,
+            &manifest,
+            peer_origin.clone(),
+            TrustMode::PinnedKeys(&store),
+            IdentityMode::PinnedKey {
+                subject: "agent-a".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_insecure_localhost(true),
+    )
     .await?;
     println!(
         "agent-a: handshake complete — holding TCT issued by {} with grants {:?}",

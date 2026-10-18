@@ -68,7 +68,8 @@ pub async fn handshake(
             subject: display_name.into(),
         },
         vec![WORK_CAPABILITY.into()],
-    ))
+    )
+    .with_insecure_localhost(true))
     .await
     .context("initiator handshake")?;
 
@@ -80,7 +81,7 @@ pub async fn handshake(
 
 /// Poll the worker's Manifest endpoint until it comes up (or time out).
 async fn wait_for_worker(worker_origin: &Url) -> anyhow::Result<Manifest> {
-    let fetcher = ManifestFetcher::new();
+    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
     for attempt in 0..40 {
         match fetcher.fetch(worker_origin).await {
             Ok(manifest) => return Ok(manifest),
