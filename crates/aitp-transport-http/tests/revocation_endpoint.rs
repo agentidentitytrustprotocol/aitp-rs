@@ -1,6 +1,7 @@
 //! P12 — `GET /.well-known/aitp-revocation-list` integration test.
 //!
-//! Spins up a `HandshakeServer` configured with a `RevocationListProducer`
+//! Spins up a `HandshakeServer` (with a `RevocationListProducer`, and with
+//! none — the default signed empty snapshot of issue #225)
 //! and asserts that the wire response is a valid `RevocationListEnvelope`
 //! the consuming side can verify against the issuer's AID.
 
@@ -14,7 +15,10 @@ use aitp_tct::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
     RevocationListEnvelope, VerifyRevocationListContext,
 };
-use aitp_transport_http::{HandshakeServer, RevocationListProducer};
+use aitp_transport_http::{
+    revocation_list_uri_from_manifest, HandshakeServer, RevocationCache, RevocationError,
+    RevocationListProducer, RevocationPolicy, RevocationProvider, REVOCATION_LIST_PATH,
+};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -198,4 +202,120 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
         "served signature must NOT verify over the wrapped \
          {{\"revocation_list\": …}} form — the transport wrapper is not signed"
     );
+}
+
+fn advertising_manifest(issuer: &AitpSigningKey, origin: &url::Url) -> aitp_manifest::Manifest {
+    ManifestBuilder::new(issuer)
+        .display_name("issuer")
+        .handshake_endpoint(origin.join("/aitp/handshake").unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "issuer".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .revocation_list_uri(origin.join(REVOCATION_LIST_PATH).unwrap())
+        .build()
+        .unwrap()
+}
+
+async fn serve(server: HandshakeServer<NoOpResolver>) -> u16 {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        axum::serve(listener, server.router()).await.unwrap();
+    });
+    port
+}
+
+/// Issue #225 / RFC-AITP-0005 §11: a `HandshakeServer` with no producer
+/// still serves `ListRevoked` — a signed **empty** snapshot
+/// (RFC-AITP-0008 §1.5 "Empty lists are signed") whose `issuer` is the
+/// server's AID and whose signature verifies under that key, through the
+/// same wire parser a consumer runs.
+#[tokio::test]
+async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
+    let issuer = AitpSigningKey::from_seed(&[0x51; 32]);
+    let origin: url::Url = "https://issuer.example".parse().unwrap();
+    let manifest = advertising_manifest(&issuer, &origin);
+
+    // The Manifest advertises the absolute route URL inside its signed
+    // body, and a consumer resolves exactly that URL from it.
+    aitp_manifest::verify_manifest(&manifest, &aitp_manifest::VerifyManifestContext::now())
+        .unwrap();
+    let advertised = revocation_list_uri_from_manifest(&manifest).expect("advertised");
+    assert_eq!(
+        advertised.as_str(),
+        "https://issuer.example/.well-known/aitp-revocation-list"
+    );
+
+    let server = HandshakeServer::new(
+        AitpSigningKey::from_seed(&[0x51; 32]),
+        manifest,
+        vec![],
+        NoOpResolver,
+        vec!["demo.echo".into()],
+    );
+    let port = serve(server).await;
+
+    // Poll the advertised path on the local listener.
+    let url = format!("http://127.0.0.1:{port}{}", advertised.path());
+    let resp = reqwest::get(&url).await.unwrap();
+    assert_eq!(resp.status(), 200, "ListRevoked must be served by default");
+    let text = resp.text().await.unwrap();
+    let env = aitp_tct::parse_revocation_snapshot_wire(&text.parse().unwrap())
+        .expect("default snapshot passes the consumer's wire parser");
+    let now = Timestamp::now();
+    verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer.aid(), now))
+        .expect("default snapshot verifies under the issuer key");
+    let list = &env.revocation_list;
+    assert_eq!(list.version, "aitp/0.2");
+    assert_eq!(&list.issuer, issuer.aid());
+    assert!(list.entries.is_empty());
+    assert!(list.extensions.is_none());
+    assert!(list.published_at.0 <= now.0 && list.published_at.0 > now.0 - 60);
+    assert!(list.expires_at.0 > list.published_at.0);
+
+    // A second poll inside the refresh window reuses the snapshot rather
+    // than re-signing on every unauthenticated GET.
+    let again: RevocationListEnvelope = reqwest::get(&url).await.unwrap().json().await.unwrap();
+    assert_eq!(again.signature, env.signature);
+
+    // And the consumer-side cache built from the Manifest reads "clear".
+    let cache = RevocationCache::for_issuer_manifest(
+        &advertising_manifest(&issuer, &origin),
+        RevocationPolicy::default(),
+        |_url| StaticSource(env.clone()),
+    );
+    assert!(!cache
+        .is_revoked(&Uuid::new_v4(), issuer.aid(), now)
+        .unwrap());
+}
+
+struct StaticSource(RevocationListEnvelope);
+impl RevocationProvider for StaticSource {
+    fn fetch(&self, _issuer: &aitp_core::Aid) -> Result<RevocationListEnvelope, RevocationError> {
+        Ok(self.0.clone())
+    }
+}
+
+/// A signing-backend failure on the default snapshot is answered with 503
+/// and no body — never an unsigned or mis-signed list. Consumers treat it
+/// as an unreachable source and apply their fail mode (RFC-AITP-0008 §3).
+#[tokio::test]
+async fn default_snapshot_signer_failure_is_503_not_an_unsigned_list() {
+    use aitp_crypto::testing::MockKmsSigner;
+    let issuer = AitpSigningKey::from_p256_seed(&[0x52; 32]).unwrap();
+    let origin: url::Url = "https://issuer.example".parse().unwrap();
+    let manifest = advertising_manifest(&issuer, &origin);
+    let broken = MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[0x52; 32]).unwrap())
+        .sign_with(AitpSigningKey::from_p256_seed(&[0x53; 32]).unwrap());
+    let server = HandshakeServer::new(broken, manifest, vec![], NoOpResolver, vec![]);
+    let port = serve(server).await;
+    let resp = reqwest::get(format!("http://127.0.0.1:{port}{REVOCATION_LIST_PATH}"))
+        .await
+        .unwrap();
+    assert_eq!(resp.status(), 503);
 }

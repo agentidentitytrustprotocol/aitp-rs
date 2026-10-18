@@ -121,6 +121,13 @@ async fn main() {
         })
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
+        // RFC-AITP-0005 §11: a TCT issuer MUST advertise its ListRevoked
+        // URL inside the signed Manifest.
+        .revocation_list_uri(
+            "https://issuer.example.com/.well-known/aitp-revocation-list"
+                .parse()
+                .unwrap(),
+        )
         .build()
         .unwrap();
 
