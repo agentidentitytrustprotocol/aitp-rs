@@ -231,10 +231,11 @@ const methods = {
     };
   },
 
-  issue_tct_for_delegatee: (p) => ({
-    // v0.2: issueTctForDelegatee returns the TCT as an opaque compact-JWS
-    // string. The JsDelegationVerified shape carries `cnfJkt`.
-    tct: registry.get(p.agent).issueTctForDelegatee(
+  issue_tct_for_delegatee: (p) => {
+    // issueTctForDelegatee returns `{ tct, grantVoucher }`, the same fields
+    // as Python's `{"tct", "grant_voucher"}` JSON. The JsDelegationVerified
+    // shape carries `cnfJkt`.
+    const issued = registry.get(p.agent).issueTctForDelegatee(
       {
         delegator: p.verified.delegator,
         delegatee: p.verified.delegatee,
@@ -244,8 +245,9 @@ const methods = {
         cnfJkt: p.verified.cnf_jkt,
       },
       p.ttl_secs ?? null,
-    ),
-  }),
+    );
+    return { tct: issued.tct, grant_voucher: issued.grantVoucher ?? null };
+  },
 
   // ── A3 — revocation list ──────────────────────────────────────────
   sign_revocation_list: (p) => ({
