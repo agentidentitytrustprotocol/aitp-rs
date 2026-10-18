@@ -10,10 +10,18 @@
 //! and confirms the access token's `cnf.jkt` thumbprint matches
 //! the proof's signing key.
 //!
-//! AITP v0.1 OIDC handshakes accept identity tokens with static
+//! AITP OIDC handshakes accept identity tokens with static
 //! `cnf.jkt` bindings (RFC-AITP-0002 §2.3); DPoP is additive — it
 //! lets an IdP and resource server agree to require a per-request
 //! proof on top of the static binding.
+//!
+//! # Support status
+//!
+//! **Unsupported.** No AITP RFC specifies DPoP (RFC 9449); this module
+//! has no conformance fixtures and no RFC-AITP-0009 threat-model entry.
+//! See [support status of DPoP and token exchange].
+//!
+//! [support status of DPoP and token exchange]: https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/transport-hardening.md#support-status-of-dpop-and-token-exchange
 //!
 //! # Use
 //!

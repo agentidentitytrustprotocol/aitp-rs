@@ -454,10 +454,6 @@ using the `required_for_v0_1` field in
   its op does **not** fail the run. It shows up only as a higher skip
   count. Until #194 is fixed, compare the skip count with the summary
   above. The `conformance` CI job has the same blind spot.
-- **`aitp-conformance --help` still says "AITP v0.1 conformance test
-  runner"**
-  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200)).
-  It is the same runner.
 
 ### Fixtures by area
 

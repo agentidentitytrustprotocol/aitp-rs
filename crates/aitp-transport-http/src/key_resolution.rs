@@ -1,15 +1,20 @@
 //! Key resolution policy (RFC-AITP-0007).
 //!
 //! Composes a [`PinnedIssuerKeyStore`], a [`JwksFetcher`] and an
-//! in-memory cache into a single [`JwksResolver`]. The resolution order
-//! is fixed by RFC-AITP-0007 §2:
+//! in-memory cache into a single [`JwksResolver`]. Resolution proceeds
+//! as follows:
 //!
-//! 1. **Cache** (unexpired) — short-circuit, never network.
+//! 1. **Cache** (unexpired) — short-circuit, never network. A fresh
+//!    negative-cache entry likewise short-circuits to the fail mode.
 //! 2. **Pinned issuer key store** — operator-supplied issuer →
-//!    `Vec<JwkPublicKey>` mapping. Survives outages.
-//! 3. **`/.well-known/aitp-keys`** — AITP-native discovery.
-//! 4. **OIDC JWKS** — full `/.well-known/openid-configuration` →
-//!    `jwks_uri` walk.
+//!    `Vec<JwkPublicKey>` mapping. Survives outages. In offline mode
+//!    resolution stops here.
+//! 3. **Network**, via [`JwksFetcher::resolve`]. Per RFC-AITP-0007 §2.3
+//!    this is a branch, not a priority list: OIDC discovery
+//!    (`/.well-known/openid-configuration` → `jwks_uri`) is tried first;
+//!    `/.well-known/aitp-keys` is consulted only when discovery is not
+//!    validly exposed. Once discovery yields a usable `jwks_uri`, a JWKS
+//!    fetch failure is surfaced and `aitp-keys` is never tried.
 //!
 //! The fail mode is configurable per issuer:
 //!
@@ -380,9 +385,9 @@ impl JwksResolver for KeyResolutionPolicy {
             return self.apply_fail_mode(issuer, "offline mode and no pinned keys".into());
         }
 
-        // 3 + 4. Network: aitp-keys then OIDC JWKS. Both go through the
-        // same `JwksFetcher::resolve`, which already encapsulates the
-        // OIDC-then-aitp-keys fallback per RFC-AITP-0007 §2.3.
+        // 3. Network: `JwksFetcher::resolve` tries OIDC discovery first
+        // and falls back to aitp-keys only when discovery is not validly
+        // exposed (RFC-AITP-0007 §2.3 branch, not a priority list).
         let Some(fetcher) = self.fetcher.as_ref() else {
             return self.apply_fail_mode(
                 issuer,

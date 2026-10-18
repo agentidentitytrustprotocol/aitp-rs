@@ -10,7 +10,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 #[derive(Debug, Parser)]
-#[command(name = "aitp-conformance", about = "AITP v0.1 conformance test runner")]
+#[command(name = "aitp-conformance", about = "AITP conformance test runner")]
 struct Cli {
     #[command(subcommand)]
     command: Command,

@@ -196,4 +196,4 @@
 - **Chose:** D1 CHANGELOG additions only, rotation tracked in #201. D2 docs checker is a non-required CI job. D3 pin not bumped (docs describe the pin; bump is a separate code PR, branch `deps/spec-ab7f67cb80bb`). D4 one PR. D5 tracked `PROGRESS.md` overwritten, this file appended. D6 SDK doc samples become executable tests.
 - **Alternatives:** rotate CHANGELOG now; bump pin in the same PR; several PRs; required CI gate for the checker.
 - **Blast radius if wrong:** docs-only, reverted with the PR; D2 can be flipped to required in a one-line branch-protection change.
-- **Status:** UNCONFIRMED
+- **Status:** D2–D6 CONFIRMED (owner, 2026-10-18). D1 REVERSED (owner, 2026-10-18) — the root CHANGELOG is being rotated now under #201 rather than only appended to.

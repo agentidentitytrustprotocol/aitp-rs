@@ -99,10 +99,6 @@ bound key from the **outer** token's `sub`
   AID encodes and does not consult the issuer's Manifest
   (`crates/aitp-delegation/src/verifier.rs:206`,
   [#202](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/202)).
-- **Stale rustdoc.** The `HopLimitExceeded` doc comment
-  (`crates/aitp-delegation/src/error.rs`) says "Chain length + 1"; the code and
-  RFC use `+ 2`
-  ([#200](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/200)).
 - **Draft, opt-in.** Outside the v0.2 conformance gate; the `del-mh-*`
   fixtures run only with `--feature experimental-multihop-delegation`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
