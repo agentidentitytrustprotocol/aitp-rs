@@ -35,7 +35,7 @@
 | `server_limits.rs` | Request body-size cap (axum-level) + header recommendations | 0009 | done | Document how the cap composes with `axum::DefaultBodyLimit`. |
 | `tls_pinning.rs` | SHA-256 SPKI pinning for outbound HTTPS | RFC 7469 | done | Behind `client-spki-pinning` (off by default — avoids pulling a rustls `CryptoProvider`). Rustdoc covers `compute_spki_hash` and a `reqwest` integration example. |
 | `token_exchange.rs` | OAuth 2.0 Token Exchange (RFC 8693): bootstrap OIDC identity from mTLS/SAML/JWT | RFC 8693 (no AITP RFC) | done | DPoP-bound exchange (`with_dpop_proof`) and the JWT → AID `cnf.jkt` binding test (`exchanged_token_binds_to_agent_aid_via_cnf_jkt`) landed in `da40242`. Composition with `KeyResolutionPolicy` for the resulting identity is not separately tested. See *Support status*. |
-| `session_bundle_server.rs` | Session Trust Bundle HTTP transport (§4.3.1) — in-memory store, no verification | 0010 (Draft, opt-in) | tested | Behind `experimental-session-bundle`. Unknown body member → `UNKNOWN_FIELD`; wrapper defect → `SESSION_BUNDLE_INVALID`. **Open:** accepts a bare (unwrapped) body and does not advertise `rfc-aitp-0010.bundle_uri` ([#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195), see [session-bundle](session-bundle.md#known-limitations)). |
+| `session_bundle_server.rs` | Session Trust Bundle HTTP transport (§4.3.1) — in-memory store, no verification | 0010 (Draft, opt-in) | tested | Behind `experimental-session-bundle`. Unknown body member → `UNKNOWN_FIELD`; wrapper defect or bare (unwrapped) body → `SESSION_BUNDLE_INVALID`. Advertise the route with `aitp_session_bundle::advertise_bundle_uri` and `SessionBundleServer::bundle_uri` (see [session-bundle](session-bundle.md)). |
 | `obs.rs` | Low-cardinality counters at trust-decision points | — | done | Behind `metrics`; metric names in [deployment](deployment.md#transport-hardening-you-should-turn-on). |
 
 ## Support status of DPoP and token exchange
@@ -67,5 +67,3 @@ JWT → AID mapping test, a no-op revocation provider, rustdoc examples for
    [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198).
 2. `/aitp/handshake/renew` replay, revocation and `renew_uri` gaps —
    [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).
-3. `session_bundle_server.rs` bare body and `bundle_uri` —
-   [#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195).

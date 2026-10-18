@@ -27,6 +27,14 @@ pub enum SessionBundleError {
     /// back to them, so audience and entry.aid must match).
     #[error("participant TCT audience does not match entry AID")]
     AudienceMismatch,
+    /// The coordinator's Manifest failed RFC-AITP-0003 §5 verification
+    /// (RFC-AITP-0010 §5 step 5).
+    #[error("coordinator manifest verification failed: {0}")]
+    CoordinatorManifest(aitp_manifest::ManifestError),
+    /// The supplied coordinator Manifest's `aid` is not the bundle's
+    /// `coordinator` (RFC-AITP-0010 §5 step 5).
+    #[error("coordinator manifest aid does not match bundle coordinator")]
+    CoordinatorManifestMismatch,
     /// Verifier's AID is not present in `participants[]`.
     #[error("verifier is not a member of this bundle")]
     NotMember,

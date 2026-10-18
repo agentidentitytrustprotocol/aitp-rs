@@ -43,6 +43,7 @@ fn kms_coordinator_signs_a_verifying_bundle() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     match verify_session_bundle(&bundle, &ctx).expect("KMS bundle verifies") {
         BundleOutcome::Clear { active_aids } => assert_eq!(active_aids, vec![alice.aid().clone()]),
@@ -167,6 +168,7 @@ async fn async_bundle_future_is_send() {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     verify_session_bundle(&bundle, &ctx).expect("verifies");
 }

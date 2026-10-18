@@ -156,8 +156,9 @@ always specified: `signature` is a member of the inner body. `aitp-rs` rejects t
 `{"session_bundle": …, "signature": …}`, with `SESSION_BUNDLE_INVALID`
 (`parse_session_bundle_wire` in `crates/aitp-session-bundle/src/wire.rs`;
 fixture `bundle-004`). That parser still accepts a bare, unwrapped body
-for internal callers. The HTTP server exposes that path; see
-[#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195).
+for library callers. The HTTP server does not: it uses
+`parse_session_bundle_envelope`, which rejects a bare body with
+`SESSION_BUNDLE_INVALID` (RFC-AITP-0010 §4.3.1).
 
 Each artifact has exactly one function that defines its signing input.
 The signer, the verifier and the known-answer test all go through it:
