@@ -2,6 +2,8 @@
 
 use crate::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
+#[cfg(feature = "experimental-renewal")]
+use aitp_core::nonce_store::{InMemoryNonceStore, NonceStore, NonceStoreError};
 use aitp_core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
@@ -15,7 +17,7 @@ use aitp_handshake::{
 use aitp_manifest::{Manifest, ManifestEnvelope};
 use aitp_tct::RevocationListEnvelope;
 #[cfg(feature = "experimental-renewal")]
-use aitp_tct::{process_renewal_request, TctRenewalPayload};
+use aitp_tct::{process_renewal_request, RenewalContext, RenewalGrantPolicyFn, TctRenewalPayload};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -122,6 +124,26 @@ impl ManifestServer {
 pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     state: Arc<HandshakeState<R>>,
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+    #[cfg(feature = "experimental-renewal")]
+    renewal: RenewalConfig,
+}
+
+/// Issuer-side renewal settings (RFC-AITP-0004 §8.1).
+#[cfg(feature = "experimental-renewal")]
+#[derive(Clone)]
+struct RenewalConfig {
+    nonce_store: Arc<dyn NonceStore>,
+    grant_policy: Option<Arc<RenewalGrantPolicyFn>>,
+}
+
+#[cfg(feature = "experimental-renewal")]
+impl Default for RenewalConfig {
+    fn default() -> Self {
+        Self {
+            nonce_store: Arc::new(InMemoryNonceStore::default()),
+            grant_policy: None,
+        }
+    }
 }
 
 /// Sliding-window rate-limit policy for the handshake endpoint
@@ -409,7 +431,30 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
             }),
             revocation_producer: None,
+            #[cfg(feature = "experimental-renewal")]
+            renewal: RenewalConfig::default(),
         }
+    }
+
+    /// Replace the renewal replay guard (default: a process-local
+    /// [`InMemoryNonceStore`]). Every accepted renewal `pop_nonce` is
+    /// recorded here until the presented TCT expires, and a repeat is
+    /// refused with `REPLAY_DETECTED` (RFC-AITP-0004 §8.1). Behind a
+    /// load balancer, share one store across replicas.
+    #[cfg(feature = "experimental-renewal")]
+    pub fn with_renewal_nonce_store(mut self, store: Arc<dyn NonceStore>) -> Self {
+        self.renewal.nonce_store = store;
+        self
+    }
+
+    /// Install a grant-policy hook re-run on every renewal, after the
+    /// presented grants are intersected with this server's Manifest
+    /// `offered_capabilities`. An empty result refuses the renewal with
+    /// `POLICY_VIOLATION`.
+    #[cfg(feature = "experimental-renewal")]
+    pub fn with_renewal_grant_policy(mut self, policy: Arc<RenewalGrantPolicyFn>) -> Self {
+        self.renewal.grant_policy = Some(policy);
+        self
     }
 
     /// Override the in-flight session cap (default
@@ -604,13 +649,23 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     }
 
     /// The axum router for this handshake server.
+    ///
+    /// With `experimental-renewal`, the renewal route is mounted only
+    /// when this server's Manifest advertises
+    /// `rfc-aitp-0005.renew_uri`, at that URL's path (RFC-AITP-0004
+    /// §8.1: renewal is opt-in and peers never probe a guessed path).
     pub fn router(self) -> Router {
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
             .route("/aitp/handshake/commit", post(handle_commit::<R>));
         #[cfg(feature = "experimental-renewal")]
-        let router = router.route("/aitp/handshake/renew", post(handle_renew::<R>));
+        let renewal_route =
+            renewal_router(&self.state, &self.renewal, self.revocation_producer.clone());
         let mut router = router.with_state(self.state);
+        #[cfg(feature = "experimental-renewal")]
+        if let Some(renewal_route) = renewal_route {
+            router = router.merge(renewal_route);
+        }
         if let Some(producer) = self.revocation_producer {
             router = router.merge(revocation_router(producer));
         }
@@ -618,16 +673,81 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     }
 }
 
-/// `POST /aitp/handshake/renew` accepts a [`TctRenewalPayload`] and
-/// returns a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
+/// State for the renewal route: the handshake state plus the renewal
+/// settings and the revocation source.
+#[cfg(feature = "experimental-renewal")]
+struct RenewalRouteState<R: JwksResolver + Send + Sync + 'static> {
+    handshake: Arc<HandshakeState<R>>,
+    config: RenewalConfig,
+    /// The issuer's own revocation list. `None`: nothing is revoked.
+    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+}
+
+/// The renewal route, mounted at the path of the Manifest's
+/// `rfc-aitp-0005.renew_uri`, or `None` when the Manifest does not
+/// advertise one (RFC-AITP-0004 §8.1).
+#[cfg(feature = "experimental-renewal")]
+fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
+    state: &Arc<HandshakeState<R>>,
+    config: &RenewalConfig,
+    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+) -> Option<Router> {
+    let Some(uri) = crate::renew_uri::renew_uri_from_manifest(&state.manifest) else {
+        debug!(
+            "Manifest advertises no usable {}; renewal route not mounted",
+            crate::renew_uri::RENEW_URI_EXT
+        );
+        return None;
+    };
+    let path = uri.path().to_string();
+    if matches!(
+        path.as_str(),
+        "/aitp/handshake/hello" | "/aitp/handshake/commit" | "/.well-known/aitp-revocation-list"
+    ) {
+        warn!(
+            "{} {uri} collides with another route; renewal route not mounted",
+            crate::renew_uri::RENEW_URI_EXT
+        );
+        return None;
+    }
+    let route_state = Arc::new(RenewalRouteState {
+        handshake: state.clone(),
+        config: config.clone(),
+        revocation_producer,
+    });
+    Some(
+        Router::new()
+            .route(&path, post(handle_renew::<R>))
+            .with_state(route_state),
+    )
+}
+
+/// `POST <renew_uri path>` accepts a [`TctRenewalPayload`] and returns
+/// a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
 /// Gated behind the `experimental-renewal` Cargo feature
 /// (RFC-AITP-0004 §8.1).
+///
+/// Each request is rate limited per source like the handshake routes
+/// (RFC-AITP-0009 §3.1), the presented TCT is checked against this
+/// server's revocation list and Manifest, its `pop_nonce` goes through
+/// the replay guard, and grants are re-evaluated against the Manifest's
+/// current `offered_capabilities` (see
+/// [`aitp_tct::process_renewal_request`]).
 #[cfg(feature = "experimental-renewal")]
-#[instrument(level = "debug", skip(state, request))]
+#[instrument(level = "debug", skip(route_state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
-    State(state): State<Arc<HandshakeState<R>>>,
+    State(route_state): State<Arc<RenewalRouteState<R>>>,
     request: Request,
 ) -> Result<Response, ResponseError> {
+    let state = &route_state.handshake;
+    // Rate limit before any parsing (RFC-AITP-0009 §3.1). The body names
+    // no authenticated AID yet, so only the transport key applies.
+    let source_ip = request_source(state, &request);
+    if let RateLimitOutcome::DenyTooManyRequests { reason } =
+        rate_limit_check(state, source_ip, None)
+    {
+        return Err(ResponseError::too_many_requests(reason));
+    }
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -655,21 +775,34 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
             ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
         }
     })?;
+    // Our own revocation list, read fresh for each request.
+    let revoked: std::collections::HashSet<Uuid> = route_state
+        .revocation_producer
+        .as_ref()
+        .map(|p| {
+            p.current()
+                .revocation_list
+                .entries
+                .iter()
+                .map(|e| e.jti)
+                .collect()
+        })
+        .unwrap_or_default();
+    let revocation_check = move |jti: &Uuid| revoked.contains(jti);
     let now = Timestamp::now();
-    let renewed = process_renewal_request(
-        &payload,
-        &*state.signing_key,
+    let mut ctx = RenewalContext::new(
         state.manifest.expires_at,
+        &state.manifest.offered_capabilities,
+        &revocation_check,
+        &*route_state.config.nonce_store,
         now,
-        aitp_tct::DEFAULT_TCT_TTL_SECS,
-    )
-    .map_err(|e| {
-        if tct_signer_failure(&e) {
-            ResponseError::local_signer_failure(&e)
-        } else {
-            ResponseError::aitp(ErrorCode::TctSignatureInvalid, e.to_string())
-        }
-    })?;
+    );
+    if let Some(policy) = route_state.config.grant_policy.as_deref() {
+        ctx = ctx.grant_policy(policy);
+    }
+    let renewed = process_renewal_request(&payload, &*state.signing_key, &ctx)
+        .await
+        .map_err(|e| renewal_response_error(&e))?;
     #[derive(serde::Serialize)]
     struct RenewalResponse {
         tct: String,
@@ -681,6 +814,61 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
         grant_voucher: renewed.voucher,
     })
     .into_response())
+}
+
+/// Map a renewal failure to the response: our own signer or nonce store
+/// failing is a local 5xx, never blamed on the holder; everything else
+/// is a 400 with [`renewal_error_code`].
+#[cfg(feature = "experimental-renewal")]
+fn renewal_response_error(err: &aitp_tct::TctError) -> ResponseError {
+    match err {
+        e if tct_signer_failure(e) => ResponseError::local_signer_failure(e),
+        aitp_tct::TctError::RenewalNonceStore(store_err) => {
+            let status = match store_err {
+                NonceStoreError::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
+                _ => StatusCode::INTERNAL_SERVER_ERROR,
+            };
+            ResponseError {
+                status,
+                code: ErrorCode::InvalidEnvelope,
+                message: format!("internal error: renewal replay guard: {store_err}"),
+                emit_envelope: true,
+            }
+        }
+        e => ResponseError::aitp(renewal_error_code(e), e.to_string()),
+    }
+}
+
+/// Map a renewal `TctError` to its registered AITP error code
+/// (RFC-AITP-0001 §5.4.3), one code per failure class rather than the
+/// blanket `TCT_SIGNATURE_INVALID` used before #196.
+#[cfg(feature = "experimental-renewal")]
+fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
+    use aitp_crypto::CryptoError;
+    use aitp_tct::TctError;
+    match err {
+        TctError::RenewalReplayed => ErrorCode::ReplayDetected,
+        TctError::RenewalNonceMalformed(_)
+        | TctError::ClaimsMalformed(_)
+        | TctError::MissingField(_)
+        | TctError::CnfMalformed
+        | TctError::EmptyGrants
+        | TctError::GrantWhitespace(_)
+        | TctError::Crypto(CryptoError::JwsMalformed(_)) => ErrorCode::InvalidEnvelope,
+        TctError::UnknownField(_) => ErrorCode::UnknownField,
+        TctError::VersionUnknown => ErrorCode::UnknownVersion,
+        TctError::Revoked => ErrorCode::TctRevoked,
+        TctError::Expired => ErrorCode::TctExpired,
+        TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
+        TctError::PopFailed => ErrorCode::PopResponseInvalid,
+        TctError::RenewalGrantsWithdrawn => ErrorCode::PolicyViolation,
+        TctError::AudienceMismatch => ErrorCode::AudienceMismatch,
+        TctError::Crypto(CryptoError::AlgMismatch(_)) => ErrorCode::TokenAlgMismatch,
+        TctError::Crypto(CryptoError::TypMismatch { .. }) => ErrorCode::TokenTypMismatch,
+        // Signature, issuer pin (a TCT this issuer did not sign), jti,
+        // self-issued / attestation marker: the token is not one of ours.
+        _ => ErrorCode::TctSignatureInvalid,
+    }
 }
 
 fn revocation_router(producer: Arc<dyn RevocationListProducer>) -> Router {

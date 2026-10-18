@@ -191,9 +191,13 @@ class AitpAgent:
         request_payload_json: str,
         manifest_exp_unix_secs: int,
         new_ttl_secs: int,
+        revoked_jtis: Optional[AbstractSet[str]] = None,
     ) -> str:
         """Issuer side. Returns a JSON object string
         `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
+        Requires `build_manifest()` first: grants the Manifest no longer
+        offers are dropped (none left raises). A TCT whose `jti` is in
+        `revoked_jtis`, or a replayed request, raises RuntimeError.
         Behind the `renewal` feature (on by default)."""
         ...
 

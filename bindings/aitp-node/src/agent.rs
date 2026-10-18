@@ -448,6 +448,11 @@ impl AitpAgent {
     /// Issuer side: verify a `TctRenewalPayload` JSON request and mint a
     /// fresh TCT, returned as a compact-JWS token string.
     ///
+    /// Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+    /// agent's Manifest (from `buildManifest()`, required) no longer
+    /// offers are dropped, a TCT whose `jti` is in `revokedJtis` is
+    /// refused, and a replayed request (same `pop_nonce`) is refused.
+    ///
     /// Behind the `renewal` Cargo feature (on by default).
     #[napi]
     pub fn process_renewal_request(
@@ -455,12 +460,19 @@ impl AitpAgent {
         request_payload_json: String,
         manifest_exp_unix_secs: i64,
         new_ttl_secs: i64,
+        revoked_jtis: Option<Vec<String>>,
     ) -> Result<String> {
+        let manifest = self
+            .manifest
+            .as_ref()
+            .ok_or_else(|| Error::from_reason("call buildManifest() before processing renewals"))?;
         process_renewal_request_js(
             &self.key,
             &request_payload_json,
             manifest_exp_unix_secs,
             new_ttl_secs,
+            &manifest.offered_capabilities,
+            revoked_jtis.as_deref().unwrap_or_default(),
         )
     }
 }

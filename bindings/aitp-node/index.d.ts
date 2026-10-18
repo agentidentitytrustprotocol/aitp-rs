@@ -113,9 +113,14 @@ export declare class AitpAgent {
    * Issuer side: verify a `TctRenewalPayload` JSON request and mint a
    * fresh TCT, returned as a compact-JWS token string.
    *
+   * Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+   * agent's Manifest (from `buildManifest()`, required) no longer
+   * offers are dropped, a TCT whose `jti` is in `revokedJtis` is
+   * refused, and a replayed request (same `pop_nonce`) is refused.
+   *
    * Behind the `renewal` Cargo feature (on by default).
    */
-  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number): string
+  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number, revokedJtis?: Array<string> | undefined | null): string
 }
 
 /** Outbound handshake session — drives the initiator side. */

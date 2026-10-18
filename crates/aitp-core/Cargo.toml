@@ -21,6 +21,13 @@ chrono = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }
+metrics = { workspace = true, optional = true }
+
+[features]
+default = []
+# The `aitp_admission_nonces_outstanding` gauge from `InMemoryNonceStore`
+# via the `metrics` facade. `aitp-handshake/metrics` enables it.
+metrics = ["dep:metrics"]
 
 [dev-dependencies]
 proptest = { workspace = true }

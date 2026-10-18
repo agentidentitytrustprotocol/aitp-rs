@@ -383,19 +383,33 @@ impl PyAitpAgent {
     /// issuer's manifest window; `new_ttl_secs` is the requested
     /// lifetime (capped by the bound).
     ///
+    /// Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+    /// agent's Manifest (from `build_manifest()`, required) no longer
+    /// offers are dropped, a TCT whose `jti` is in `revoked_jtis` is
+    /// refused, and a replayed request (same `pop_nonce`) is refused.
+    ///
     /// **Gated by the `renewal` Cargo feature.**
     #[cfg(feature = "renewal")]
+    #[pyo3(signature = (request_payload_json, manifest_exp_unix_secs, new_ttl_secs, revoked_jtis = None))]
     fn process_renewal_request(
         &self,
         request_payload_json: &str,
         manifest_exp_unix_secs: i64,
         new_ttl_secs: i64,
+        revoked_jtis: Option<HashSet<String>>,
     ) -> PyResult<String> {
+        let manifest = self.manifest.as_ref().ok_or_else(|| {
+            PyRuntimeError::new_err("call build_manifest() before processing renewals")
+        })?;
         process_renewal_request_py(
             &self.key,
             request_payload_json,
             manifest_exp_unix_secs,
             new_ttl_secs,
+            &manifest.offered_capabilities,
+            &revoked_jtis
+                .map(|s| s.into_iter().collect::<Vec<_>>())
+                .unwrap_or_default(),
         )
     }
 }

@@ -349,10 +349,11 @@ const freshTct = bob.processRenewalRequest(
   Python binding also returns the re-minted grant voucher.
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
-- **Before you expose renewal:** read
-  [tct-renewal.md § Known limitations](tct-renewal.md#known-limitations),
-  tracked in
-  [#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196).
+- **Policy re-evaluation (since 0.15).** The issuer must have called
+  `buildManifest()`; grants its Manifest no longer offers are dropped
+  (none left throws). Pass the issuer's revoked TCT `jti`s as the optional
+  fourth argument `revokedJtis` to refuse a revoked TCT. A replayed
+  request (same `pop_nonce`) throws. See [tct-renewal.md](tct-renewal.md).
 
 ### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
 

@@ -231,6 +231,12 @@ pub enum FacadeError {
     /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
     #[error("manifest verification: {0}")]
     ManifestVerify(#[from] aitp_manifest::ManifestError),
+    /// The issuer's Manifest advertises no usable
+    /// `rfc-aitp-0005.renew_uri`, so it does not offer renewal. Run a
+    /// full Mutual Handshake instead; RFC-AITP-0004 §8.1 forbids probing
+    /// a guessed renewal path.
+    #[error("issuer Manifest advertises no rfc-aitp-0005.renew_uri; run a full handshake")]
+    RenewalNotAdvertised,
 }
 
 /// Maximum size of a handshake or renewal response body the facade
@@ -785,12 +791,18 @@ pub struct RenewedTct {
     pub grant_voucher: Option<String>,
 }
 
-/// Send a TCT renewal request to a peer's `/aitp/handshake/renew`.
+/// Send a TCT renewal request to the endpoint the issuer advertises in
+/// its Manifest as `rfc-aitp-0005.renew_uri` (RFC-AITP-0004 §8.1).
 /// Gated behind the `experimental-renewal` Cargo feature.
 ///
-/// `current` is the currently-held TCT compact JWS. Returns the
-/// freshly-issued [`RenewedTct`]. The caller SHOULD verify the new
-/// token with [`aitp_tct::verify_tct`] before storing it.
+/// `current` is the currently-held TCT compact JWS; `issuer_manifest`
+/// is the issuer's verified Manifest (e.g. from
+/// [`ManifestFetcher::fetch`]). When it advertises no usable
+/// `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
+/// without sending anything: run a full handshake instead (no guessed
+/// path is ever probed). Returns the freshly-issued [`RenewedTct`]. The
+/// caller SHOULD verify the new token with [`aitp_tct::verify_tct`]
+/// before storing it.
 ///
 /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
 /// failure returns `FacadeError::Renewal(TctError::Crypto(CryptoError::Signer(_)))`.
@@ -798,22 +810,16 @@ pub struct RenewedTct {
 pub async fn renew_tct(
     holder_key: &dyn AitpSigner,
     current: String,
-    peer_handshake_endpoint: &url::Url,
+    issuer_manifest: &Manifest,
 ) -> Result<RenewedTct, FacadeError> {
+    let url = crate::transport::renew_uri_from_manifest(issuer_manifest)
+        .ok_or(FacadeError::RenewalNotAdvertised)?;
     let pop_nonce = aitp_core::base64url::encode(&rand_bytes_16());
     let request: TctRenewalPayload = build_renewal_request(holder_key, current, pop_nonce)?;
 
-    let url = peer_handshake_endpoint
-        .join("renew")
-        .map_err(|e| FacadeError::Http(format!("build renew URL: {e}")))?;
-    // SSRF-guard the peer-chosen handshake endpoint before the POST,
+    // SSRF-guard the peer-chosen renewal endpoint before the POST,
     // with the built-in transport defaults (10s, WarnPrivate).
-    let client = build_guarded_client(
-        peer_handshake_endpoint,
-        Duration::from_secs(10),
-        &HostGuard::default(),
-    )
-    .await?;
+    let client = build_guarded_client(&url, Duration::from_secs(10), &HostGuard::default()).await?;
     let renew_resp = client
         .post(url)
         .json(&request)

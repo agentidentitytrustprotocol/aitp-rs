@@ -1,8 +1,9 @@
 //! TCT renewal demo (P15).
 //!
-//! Spawns an issuer agent serving `POST /aitp/handshake/renew`, mints
-//! an initial TCT in-process, and exercises the renewal endpoint via
-//! `aitp::facade::renew_tct`. Asserts the new TCT has a fresh JTI and
+//! Spawns an issuer agent whose Manifest advertises
+//! `rfc-aitp-0005.renew_uri` (RFC-AITP-0004 §8.1), mints an initial TCT
+//! in-process, and exercises the renewal endpoint via
+//! `aitp::facade::renew_tct`, which reads that URL from the Manifest. Asserts the new TCT has a fresh JTI and
 //! a refreshed expiry.
 //!
 //! ```sh
@@ -16,7 +17,7 @@ use aitp::facade::{renew_tct, TctStore};
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::{verify_tct, TctBuilder, TctVerifyContext};
-use aitp::transport::HandshakeServer;
+use aitp::transport::{HandshakeServer, RENEW_URI_EXT};
 use tokio::net::TcpListener;
 
 struct NoOpResolver;
@@ -60,7 +61,11 @@ async fn main() {
     let store = TctStore::default();
     store.insert(initial_verified.clone(), initial.voucher.clone());
 
-    // Stand up the issuer's handshake server (it serves /aitp/handshake/renew).
+    // Stand up the issuer's handshake server. Its Manifest advertises the
+    // renewal endpoint; the server mounts the route at that path.
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let renew_uri = format!("http://127.0.0.1:{port}/aitp/handshake/renew");
     let manifest = ManifestBuilder::new(&issuer)
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example.com/aitp/handshake".parse().unwrap())
@@ -78,32 +83,29 @@ async fn main() {
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .ttl_secs(86_400)
+        .extension(RENEW_URI_EXT, renew_uri.into())
         .build()
         .unwrap();
 
     let server = HandshakeServer::new(
         AitpSigningKey::from_seed(&[0x60; 32]),
-        manifest,
+        manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
     );
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
     println!("issuer listening on http://127.0.0.1:{port}");
     tokio::spawn(async move {
         axum::serve(listener, server.router()).await.ok();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Holder side: drive `renew_tct` against the issuer's renew endpoint,
-    // presenting the currently-held TCT compact JWS.
-    let endpoint: url::Url = format!("http://127.0.0.1:{port}/aitp/handshake/")
-        .parse()
-        .unwrap();
+    // Holder side: drive `renew_tct` against the endpoint the issuer's
+    // (already verified) Manifest advertises, presenting the
+    // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct(&holder, current.token, &endpoint)
+    let renewed = renew_tct(&holder, current.token, &manifest)
         .await
         .expect("renew_tct round-trip");
 

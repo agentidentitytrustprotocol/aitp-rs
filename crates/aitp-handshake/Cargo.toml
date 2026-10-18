@@ -41,7 +41,7 @@ pinned-admission = []
 # Admission counters and the outstanding-nonce gauge via the `metrics`
 # facade (zero-cost with no recorder installed). Only emits anything
 # with `pinned-admission` on. `aitp-transport-http/metrics` enables it.
-metrics = ["dep:metrics"]
+metrics = ["dep:metrics", "aitp-core/metrics"]
 
 [dev-dependencies]
 # `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.

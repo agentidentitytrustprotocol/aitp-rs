@@ -159,11 +159,10 @@ in [#198](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/198)
 - **No automatic session sweeper.** `spawn_session_sweeper` (`server.rs:389`)
   is never called by the library; without it, expired sessions are only
   swept when the next HELLO or COMMIT arrives.
-- **The renewal route bypasses these protections.** With
-  `experimental-renewal`, `/aitp/handshake/renew` skips the replay guard, rate
-  limiter and timestamp check — see
-  [tct-renewal.md](tct-renewal.md#known-limitations)
-  ([#196](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/196)).
+- **The renewal replay guard is per process.** With
+  `experimental-renewal`, the renewal route records each `pop_nonce` in an
+  in-memory store; behind several replicas, pass a shared one with
+  `with_renewal_nonce_store` — see [tct-renewal.md](tct-renewal.md#server-handshakeserver).
 - **Dev conveniences are on by default.** `ManifestFetcher` sets
   `allow_insecure_localhost: true` (`client.rs:134`), and `HostGuard::default()`
   is `GuardMode::WarnPrivate` (`net_guard.rs:58-66`). Internet-facing
