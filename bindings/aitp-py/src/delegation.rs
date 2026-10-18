@@ -159,8 +159,8 @@ pub fn verify_delegation_py(
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
     // strict), so a non-empty chain fails before any per-hop work runs — which
     // is also why only the root check is wired here: there are no hops.
-    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
-        .with_issuer_manifests(&manifests);
+    let mut ctx =
+        VerifyDelegationContext::new(&verifier, Timestamp::now()).with_issuer_manifests(&manifests);
     if let Some(check) = root_check.as_deref() {
         ctx = ctx.with_revocation_check(check as &dyn Fn(&Uuid) -> bool);
     }
