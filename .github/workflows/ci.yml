@@ -426,8 +426,8 @@ jobs:
         # Opt into the draft features and extensions so the bundle-*,
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
-        # required fixture FAILs. Expected: 92 pass / 0 fail / 2 skip
-        # of 94 fixtures (del-004 and del-007 are negated by multi-hop;
+        # required fixture FAILs. Expected: 94 pass / 0 fail / 2 skip
+        # of 96 fixtures (del-004 and del-007 are negated by multi-hop;
         # see docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
