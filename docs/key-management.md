@@ -228,6 +228,8 @@ rotation as an identity change, not a transparent key swap:
      ([RFC-AITP-0008 §1.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md#15-signed-revocation-response)).
      With `aitp-transport-http`, that is what a `RevocationListProducer`
      attached via `HandshakeServer::with_revocation_producer` serves.
+     Without one, the server serves an empty signed snapshot, which
+     revokes nothing.
   3. Notify known peers of the new AID out of band.
 
   If the compromised host can still publish, first set a short

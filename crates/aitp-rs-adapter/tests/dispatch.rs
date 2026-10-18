@@ -462,6 +462,56 @@ mod session_bundle_wire_shape {
         );
         assert_err(&resp, "v", "UNKNOWN_FIELD");
     }
+
+    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: i64) -> Value {
+        use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+        let manifest = ManifestBuilder::new(key)
+            .display_name("coordinator")
+            .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
+            .identity_hint(IdentityHint {
+                kind: IdentityHintKind::PinnedKey,
+                subject: "coordinator".into(),
+                issuer: None,
+                public_key: Some(key.aid().identifier().to_string()),
+            })
+            .offer("session.coordinate")
+            .published_at(Timestamp(NOW))
+            .ttl_secs(ttl_secs)
+            .build()
+            .unwrap();
+        serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
+    }
+
+    /// RFC-AITP-0010 §5 step 5 (issue #197): an optional
+    /// `coordinator_manifest` is verified and must be the coordinator's.
+    #[test]
+    fn coordinator_manifest_is_verified() {
+        let mut state = AdapterState::default();
+        let body = issue_bundle(&mut state);
+        let verify = |state: &mut AdapterState, manifest: Value| {
+            handle(
+                state,
+                "v",
+                "verify_session_bundle",
+                json!({
+                    "session_bundle": { "session_bundle": body.clone() },
+                    "verifier_aid": participant().aid().to_string(),
+                    "now": NOW + 100,
+                    "coordinator_manifest": manifest,
+                }),
+            )
+        };
+
+        let ok = verify(&mut state, manifest_envelope(&coordinator(), 24 * 3600));
+        assert_eq!(ok["ok"], json!(true), "got {ok}");
+
+        let other = AitpSigningKey::from_seed(&[0x77; 32]);
+        let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
+        assert_err(&resp, "v", "SESSION_BUNDLE_INVALID");
+
+        let resp = verify(&mut state, manifest_envelope(&coordinator(), 50));
+        assert_err(&resp, "v", "MANIFEST_EXPIRED");
+    }
 }
 
 /// A rate-limited presentation is answered with `http_status` 429 and no
@@ -499,4 +549,41 @@ fn presentation_rate_limit_is_http_429_and_begin_fixture_resets() {
     assert_eq!(begin["ok"], json!(true));
     let third = handle(&mut state, "p3", "verify_identity_presentation", params);
     assert_err(&third, "p3", "INVALID_ENVELOPE");
+}
+
+/// RFC-AITP-0002 §3.4 (spec cfd2f16): a full nonce store is reported as
+/// `CHALLENGE_REFUSED` (id-016), while a rate-limited challenge request
+/// is `http_status` 429 with no `error_code`.
+#[test]
+fn challenge_refusal_is_a_code_and_challenge_rate_limit_is_http_429() {
+    let aid = "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
+    let mut state = AdapterState::default();
+    let bound = json!({"self_aid": aid, "max_outstanding_nonces": 1, "source": "198.51.100.7"});
+    let first = handle(
+        &mut state,
+        "c1",
+        "issue_presentation_challenge",
+        bound.clone(),
+    );
+    assert_eq!(first["ok"], json!(true), "{first}");
+    let refused = handle(&mut state, "c2", "issue_presentation_challenge", bound);
+    assert_err(&refused, "c2", "CHALLENGE_REFUSED");
+    assert!(refused.get("http_status").is_none(), "{refused}");
+
+    let mut state = AdapterState::default();
+    let open = json!({"self_aid": aid, "source": "198.51.100.8"});
+    for i in 0..aitp_handshake::admission::RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+        let r = handle(
+            &mut state,
+            &format!("o{i}"),
+            "issue_presentation_challenge",
+            open.clone(),
+        );
+        assert_eq!(r["ok"], json!(true), "{r}");
+    }
+    let limited = handle(&mut state, "l", "issue_presentation_challenge", open);
+    assert_envelope(&limited, "l");
+    assert_eq!(limited["ok"], json!(false));
+    assert_eq!(limited["http_status"], json!(429));
+    assert!(limited.get("error_code").is_none(), "{limited}");
 }

@@ -37,10 +37,10 @@ How `aitp-rs` maps it:
 |---|---|
 | Inner signed body | `SessionTrustBundle` (`crates/aitp-session-bundle/src/types.rs`). `extensions` is `Option<ExtensionsMap>`, so absent and `{}` stay distinct in the signing input. |
 | Transport wrapper | `SessionBundleEnvelope` |
-| Wire parsing | `parse_session_bundle_wire` (`src/wire.rs`): a sibling member beside the wrapper (the pre-erratum `signature` placement) → `WireFormInvalid` (`SESSION_BUNDLE_INVALID`); an unknown body member outside `extensions` → `UnknownField` (`UNKNOWN_FIELD`). Both run before any crypto. |
+| Wire parsing | `parse_session_bundle_wire` (`src/wire.rs`) accepts the wrapped envelope or, for library callers, a bare inner body; `parse_session_bundle_envelope` requires the wrapper. A sibling member beside the wrapper (the pre-erratum `signature` placement) → `WireFormInvalid` (`SESSION_BUNDLE_INVALID`); an unknown body member outside `extensions` → `UnknownField` (`UNKNOWN_FIELD`). Both run before any crypto. |
 | Issuance (§4.2) | `SessionBundleBuilder` (`src/builder.rs`) — sets `expires_at = min(participants[*].tct.exp)` and signs `sha256(JCS(body minus signature))`. |
-| Coordinator advertisement (§4.3.1) | the `RFC_AITP_0010_BUNDLE_URI` constant (`"rfc-aitp-0010.bundle_uri"`, `src/lib.rs`) — see *Known limitations*. |
-| HTTP binding (§4.3.1) | `SessionBundleServer` (`crates/aitp-transport-http/src/session_bundle_server.rs`), behind `aitp-transport-http/experimental-session-bundle`. Stores and serves bundles verbatim; it does **no** trust verification. |
+| Coordinator advertisement (§4.3.1) | `advertise_bundle_uri(manifest_builder, &url)` sets `extensions["rfc-aitp-0010.bundle_uri"]` (`RFC_AITP_0010_BUNDLE_URI`) inside the coordinator's signed Manifest; `bundle_uri_from_manifest` reads it back (HTTPS only, or `http://localhost` / `http://127.0.0.1`), returning `None` when the coordinator advertises nothing. `SessionBundleServer::bundle_uri(&origin)` gives the URL of the server's route. |
+| HTTP binding (§4.3.1) | `SessionBundleServer` (`crates/aitp-transport-http/src/session_bundle_server.rs`), behind `aitp-transport-http/experimental-session-bundle`. `POST` accepts only the wrapped `{"session_bundle": …}` body (`parse_session_bundle_envelope`); a bare body is `SESSION_BUNDLE_INVALID`. Stores and serves bundles verbatim; it does **no** trust verification. |
 
 ## Verification (`verify_session_bundle`)
 
@@ -51,7 +51,7 @@ invariant, (4) participants non-empty, (5) fetch and verify the coordinator's
 Manifest, (6) bundle signature, (7) per-participant TCT verification,
 (8) self-membership.
 
-What `aitp-rs` actually runs (`crates/aitp-session-bundle/src/verifier.rs:63-178`),
+`aitp-rs` runs exactly that order (`crates/aitp-session-bundle/src/verifier.rs`),
 with the adapter's error code for each (`bundle_error_code` in
 `crates/aitp-rs-adapter/src/lib.rs`):
 
@@ -59,28 +59,40 @@ with the adapter's error code for each (`bundle_error_code` in
    (before the verifier is called) → `UNKNOWN_FIELD` / `SESSION_BUNDLE_INVALID`.
 1. `version == "aitp/0.2"` → `VersionMismatch` (`BUNDLE_VERSION_MISMATCH`).
 2. `expires_at` not in the past → `Expired` (`BUNDLE_EXPIRED`).
-3. `participants` non-empty → `EmptyParticipants` (`BUNDLE_EMPTY_PARTICIPANTS`).
-4. `expires_at == min(participants[*].tct.exp)`, read from the still-unverified
+3. `expires_at == min(participants[*].tct.exp)`, read from the still-unverified
    payloads → `ExpiryWindowInvariant` (`BUNDLE_EXPIRY_WINDOW_INVARIANT`).
-5. The verifier's AID appears in `participants[*].aid` → `NotMember` (`BUNDLE_NOT_MEMBER`).
-6. Coordinator signature, with the key **derived from the coordinator AID**
-   (no Manifest fetch) → `InvalidSignature` (`BUNDLE_INVALID_SIGNATURE`).
+   Vacuous for an empty roster, which step 4 reports.
+4. `participants` non-empty → `EmptyParticipants` (`BUNDLE_EMPTY_PARTICIPANTS`).
+5. Coordinator Manifest, chosen by `VerifySessionBundleContext::coordinator_key`:
+   - `CoordinatorKeySource::Manifest(&m)` — the caller fetched the coordinator's
+     Manifest (e.g. `aitp_transport_http::ManifestFetcher::fetch`); it is
+     re-verified with `aitp_manifest::verify_manifest` → `CoordinatorManifest(_)`
+     (the Manifest's own error code, e.g. `MANIFEST_EXPIRED`), must have
+     `m.aid == coordinator` → `CoordinatorManifestMismatch`
+     (`SESSION_BUNDLE_INVALID`), and the signing key is resolved from `m.aid`.
+     `m.expires_at` also caps every participant TCT in step 7.
+   - `CoordinatorKeySource::UnverifiedAidDangerous` — skips step 5 and derives
+     the key from the `aid:pubkey` coordinator AID alone; the coordinator's
+     Manifest expiry and rotation state are not consulted.
+6. Coordinator signature → `InvalidSignature` (`BUNDLE_INVALID_SIGNATURE`).
 7. For each entry, `verify_tct` with issuer pinned to `coordinator` and
    audience pinned to `entry.aid`: `CoordinatorIssuerMismatch`,
    `AudienceMismatch`, or any other TCT failure → `TctVerification`
-   (`BUNDLE_PARTICIPANT_TCT_INVALID`).
-8. Per-pair revocation (§7): if `revocation_check` reports an entry's `jti`
-   revoked, that participant is **dropped**, not failed.
-
-The order differs from §5 — see *Known limitations*.
+   (`BUNDLE_PARTICIPANT_TCT_INVALID`). Per-pair revocation (§7): if
+   `revocation_check` reports an entry's `jti` revoked, that participant is
+   **dropped**, not failed.
+8. The verifier's AID appears in `participants[*].aid` → `NotMember`
+   (`BUNDLE_NOT_MEMBER`). Last, so a forged bundle that omits the verifier
+   reports `BUNDLE_INVALID_SIGNATURE`.
 
 On success the result is a `BundleOutcome`: `Clear { active_aids }` when no
 participant was revoked, or `DegradedSubset { active_aids, dropped_aids }`
 when some were. A revoked participant (including the verifier itself) appears
 in `dropped_aids` rather than failing the call; the caller decides policy.
 Every AID in `active_aids` had its TCT signature, claims and expiry
-verified; revocation is applied separately afterwards, and the Manifest
-grant cap is not applied to participant TCTs (`verifier.rs:138,143`).
+verified; revocation is applied separately afterwards. The Manifest grant
+cap is not applied to participant TCTs; the Manifest expiry cap is applied
+only when a coordinator Manifest is supplied.
 
 ## Known limitations
 
@@ -88,33 +100,18 @@ grant cap is not applied to participant TCTs (`verifier.rs:138,143`).
   bogus roster, but cannot forge TCTs for agents it never issued to (each TCT
   is still independently verified). Pairs that need direct peer binding must
   still handshake (RFC-AITP-0010 §2).
-- **The HTTP endpoint accepts a bare body**
-  ([#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195)).
-  `POST /aitp/session/bundle` passes the request to `parse_session_bundle_wire`
-  (`session_bundle_server.rs:141`), whose no-wrapper branch accepts a bare
-  inner body (`crates/aitp-session-bundle/src/wire.rs:77-88`); the server then
-  stores it wrapped. RFC-AITP-0010 §4.3.1 at spec `main` says the request
-  body MUST be the wrapped envelope and a bare body MUST be rejected. That
-  sentence came in an erratum after the spec revision `aitp-rs` pins, and
-  §4.3.1 is titled "non-normative for Draft", so this is a divergence from
-  the spec's stated requirement rather than a conformance failure.
-- **`bundle_uri` is not advertised for you** (#195). §4.3.1 says a coordinator
-  serving bundles over HTTPS MUST advertise the concrete URL in its Manifest
-  under `extensions["rfc-aitp-0010.bundle_uri"]`. Nothing in the crates adds
-  it; set it yourself with the Manifest builder's `extension(...)` using the
-  `RFC_AITP_0010_BUNDLE_URI` constant. No client in `aitp-rs` reads it either.
-- **Check order differs from RFC-AITP-0010 §5**
-  ([#197](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/197),
-  `verifier.rs:67-123`): non-empty runs before the expiry-window invariant;
-  self-membership runs before the signature instead of last; and there is no
-  step 5 — the coordinator key is taken from its `aid:pubkey` AID with no
-  Manifest fetch or verification, so the coordinator's Manifest expiry and
-  rotation state are not consulted. A forged bundle that omits the verifier
-  therefore reports `BUNDLE_NOT_MEMBER` rather than `BUNDLE_INVALID_SIGNATURE`.
+- **The coordinator Manifest is caller-supplied.** The sync verifier does not
+  fetch it; fetch it yourself (e.g. `ManifestFetcher::fetch`) and pass
+  `CoordinatorKeySource::Manifest`. The conformance adapter and the language
+  bindings take it as an optional argument (`coordinator_manifest` /
+  `coordinator_manifest_json`) and fall back to the AID-only path when it is
+  omitted.
+- **No client reads `bundle_uri` for you.** `bundle_uri_from_manifest` returns
+  the advertised URL; posting to it is up to the caller.
 - **No `session_id` replay tracking.** RFC-AITP-0010 §10 says consumers MUST
   reject a bundle whose `session_id` they already accepted with a different
   signature. `verify_session_bundle` is stateless
-  (`crates/aitp-session-bundle/src/verifier.rs:63-178`); track accepted
+  (`crates/aitp-session-bundle/src/verifier.rs`); track accepted
   `session_id`s in your code.
 - **The bundle server is an in-memory reference.** `SessionBundleServer` is
   process-local, unbounded, overwrites on a repeated `session_id`, and

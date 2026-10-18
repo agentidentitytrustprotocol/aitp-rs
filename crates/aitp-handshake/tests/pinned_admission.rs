@@ -300,9 +300,8 @@ async fn rate_limit_refuses_per_source() {
     a.challenge_at(&src("x"), NOW).await.unwrap();
     a.challenge_at(&src("x"), NOW).await.unwrap();
     match a.challenge_at(&src("x"), NOW).await.unwrap_err() {
-        AdmissionError::ChallengeRefused { retry_after, cause } => {
-            assert!(retry_after.is_some());
-            assert_eq!(cause, RefusalCause::RateLimited);
+        e @ AdmissionError::RateLimited { .. } => {
+            assert!(e.retry_after().is_some());
         }
         e => panic!("{e}"),
     }
@@ -379,10 +378,13 @@ async fn subject_binding_sender_aid_is_enforced_by_admission() {
     assert_eq!(ok.subject, key.aid().as_str());
 }
 
-/// id-016 / Item 5: a refusal is `CHALLENGE_REFUSED` (retryable) and
-/// does not say whether the rate limit or the nonce bound fired.
+/// id-016 / RFC-AITP-0002 §3.4 (spec cfd2f16): the nonce bound refuses
+/// with `CHALLENGE_REFUSED` (retryable), over HTTP a 503 with
+/// `Retry-After` and `{"error":"CHALLENGE_REFUSED"}`. A rate-limited
+/// challenge request is exactly HTTP 429 with no code and an empty body,
+/// so the client can tell the two apart.
 #[tokio::test]
-async fn refusal_is_challenge_refused_without_naming_the_cause() {
+async fn refusal_is_503_and_rate_limit_is_429() {
     let bound = admission_with(Arc::new(InMemoryNonceStore::new(1)));
     bound.challenge_at(&src("a"), NOW).await.unwrap();
     let at_bound = bound.challenge_at(&src("b"), NOW).await.unwrap_err();
@@ -397,12 +399,6 @@ async fn refusal_is_challenge_refused_without_naming_the_cause() {
     limited.challenge_at(&src("a"), NOW).await.unwrap();
     let rate = limited.challenge_at(&src("a"), NOW).await.unwrap_err();
 
-    for e in [&at_bound, &rate] {
-        assert_eq!(e.code(), Some("CHALLENGE_REFUSED"));
-        assert!(aitp_core::ErrorCode::ChallengeRefused.is_retryable());
-    }
-    // Same peer-visible text for both causes.
-    assert_eq!(at_bound.to_string(), rate.to_string());
     assert!(matches!(
         at_bound,
         AdmissionError::ChallengeRefused {
@@ -410,6 +406,40 @@ async fn refusal_is_challenge_refused_without_naming_the_cause() {
             ..
         }
     ));
+    assert_eq!(at_bound.code(), Some("CHALLENGE_REFUSED"));
+    assert!(aitp_core::ErrorCode::ChallengeRefused.is_retryable());
+    assert_eq!(at_bound.http_status(), Some(503));
+    assert_eq!(at_bound.retry_after(), Some(Duration::from_secs(301)));
+    assert_eq!(
+        at_bound.http_body(),
+        Some(r#"{"error":"CHALLENGE_REFUSED"}"#)
+    );
+    let body: serde_json::Value = serde_json::from_str(at_bound.http_body().unwrap()).unwrap();
+    assert_eq!(body, serde_json::json!({"error": "CHALLENGE_REFUSED"}));
+
+    assert!(
+        matches!(rate, AdmissionError::RateLimited { .. }),
+        "{rate:?}"
+    );
+    assert_eq!(rate.code(), None);
+    assert_eq!(rate.http_status(), Some(429));
+    assert!(rate.retry_after().is_some());
+    assert_eq!(rate.http_body(), None);
+}
+
+/// A store that cannot say when a slot frees still yields a
+/// `Retry-After`: `MAX_NONCE_TTL` bounds every outstanding nonce.
+#[test]
+fn refusal_without_store_hint_retries_after_max_ttl() {
+    let e = AdmissionError::ChallengeRefused {
+        retry_after: None,
+        cause: RefusalCause::AtCapacity,
+    };
+    assert_eq!(
+        e.retry_after(),
+        Some(aitp_handshake::admission::MAX_NONCE_TTL)
+    );
+    assert_eq!(e.http_status(), Some(503));
 }
 
 /// Item 5 / #69: rate limiting is on by default, at RFC-AITP-0009 §3.1's
@@ -422,7 +452,7 @@ async fn rate_limit_is_on_by_default() {
         a.challenge_at(&ip, NOW).await.unwrap();
     }
     let e = a.challenge_at(&ip, NOW).await.unwrap_err();
-    assert_eq!(e.code(), Some("CHALLENGE_REFUSED"));
+    assert_eq!(e.http_status(), Some(429), "{e:?}");
 }
 
 /// A self-asserted label (a claimed AID) never replaces the transport

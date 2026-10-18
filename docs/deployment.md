@@ -113,6 +113,19 @@ Independent of clustering, production servers/clients should set:
   (`GuardMode::DenyPrivate`) on internet-facing deployments where no
   legitimate peer/IdP host is on a private network. (See
   [`transport-hardening.md`](transport-hardening.md).)
+- **Revocation list (`ListRevoked`)** — required of every TCT issuer
+  (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4). `HandshakeServer::router`
+  always serves it at `REVOCATION_LIST_PATH`. Without a
+  `RevocationListProducer` it serves an empty snapshot signed by the
+  server key, re-signed every 60 s and valid for an hour. That snapshot
+  says "nothing is revoked", so once you can revoke, attach a producer
+  backed by your deny list. Advertise the absolute HTTPS URL in the signed
+  Manifest with `ManifestBuilder::revocation_list_uri(origin.join(REVOCATION_LIST_PATH)?)`;
+  the server logs a warning when the key is missing. On the consumer side,
+  `RevocationCache::for_issuer_manifest` polls the advertised URL. A
+  Manifest without the key is still accepted: revocation for that issuer
+  is treated as unavailable and the configured `RevocationFailMode`
+  applies (RFC-AITP-0008 §3).
 - **Strict TCT verification** — build `TctVerifyContext` via
   `::builder(...)` and supply a revocation source and the issuer-Manifest
   expiry cap, rather than the permissive `::now()` / `::permissive_at()`

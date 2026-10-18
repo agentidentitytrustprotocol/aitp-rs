@@ -295,6 +295,32 @@ impl<P: RevocationProvider> RevocationCache<P> {
         }
     }
 
+    /// Construct for the issuer whose (already verified) Manifest is
+    /// `manifest`, polling the `ListRevoked` URL it advertises under
+    /// [`REVOCATION_LIST_URI_EXT`] (RFC-AITP-0008 §1.4). `make_provider`
+    /// builds the provider for that URL.
+    ///
+    /// A Manifest without the key (or with a non-HTTPS value) is not
+    /// rejected: the result is [`Self::offline`], so every check reports
+    /// revocation as unavailable and `policy.fail_mode` decides
+    /// (RFC-AITP-0008 §3).
+    pub fn for_issuer_manifest(
+        manifest: &aitp_manifest::Manifest,
+        policy: RevocationPolicy,
+        make_provider: impl FnOnce(url::Url) -> P,
+    ) -> Self {
+        match revocation_list_uri_from_manifest(manifest) {
+            Some(url) => Self::new(make_provider(url), policy),
+            None => {
+                debug!(
+                    issuer = %manifest.aid,
+                    "issuer Manifest advertises no revocation_list_uri; revocation unavailable"
+                );
+                Self::offline(policy)
+            }
+        }
+    }
+
     /// Decide what to do for `(jti, issuer)`. Snapshot fetch /
     /// signature / staleness failures translate via the configured
     /// fail mode (RFC-AITP-0008):
@@ -448,18 +474,26 @@ impl<P: RevocationProvider> RevocationCache<P> {
 }
 
 /// Manifest extension key (RFC-AITP-0012 namespace) carrying the
-/// revocation list URL when an issuer publishes one. Wire format:
+/// issuer's `ListRevoked` URL. Every TCT issuer MUST advertise it
+/// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4); issuers set it with
+/// [`aitp_manifest::ManifestBuilder::revocation_list_uri`]. Wire format:
 ///
 /// ```json
 /// "extensions": {
 ///   "rfc-aitp-0008.revocation_list_uri": "https://issuer.example/.well-known/aitp-revocation-list"
 /// }
 /// ```
-pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
+pub const REVOCATION_LIST_URI_EXT: &str = aitp_manifest::REVOCATION_LIST_URI_EXT;
 
 /// Helper: pull a revocation list URI out of a Manifest's
 /// `extensions` map, if any. Returns `None` when the extension is
-/// missing or not a string.
+/// missing, not a string, or not an HTTPS URL.
+///
+/// `None` is never a reason to reject the Manifest (RFC-AITP-0008
+/// §1.4): the issuer's revocation status is unavailable and the
+/// configured [`RevocationFailMode`] applies, exactly as for an
+/// unreachable endpoint. [`RevocationCache::for_issuer_manifest`] wires
+/// that up.
 pub fn revocation_list_uri_from_manifest(manifest: &aitp_manifest::Manifest) -> Option<url::Url> {
     manifest
         .extensions
@@ -827,6 +861,97 @@ mod tests {
             .check(&Uuid::new_v4(), key.aid(), Timestamp::now())
             .unwrap_err();
         assert!(matches!(err, RevocationError::Network(_)));
+    }
+
+    fn issuer_manifest(
+        key: &AitpSigningKey,
+        revocation_uri: Option<&str>,
+    ) -> aitp_manifest::Manifest {
+        let mut b = aitp_manifest::ManifestBuilder::new(key)
+            .handshake_endpoint("https://issuer.example/aitp/handshake".parse().unwrap())
+            .identity_hint(aitp_manifest::IdentityHint {
+                kind: aitp_manifest::IdentityHintKind::Oidc,
+                subject: "issuer".into(),
+                issuer: Some("https://idp.example.com".parse().unwrap()),
+                public_key: None,
+            })
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .offer("demo.echo");
+        if let Some(uri) = revocation_uri {
+            b = b.revocation_list_uri(uri.parse().unwrap());
+        }
+        b.build().unwrap()
+    }
+
+    /// RFC-AITP-0008 §1.4 / §3: an issuer Manifest without
+    /// `rfc-aitp-0008.revocation_list_uri` still verifies and is not
+    /// rejected; revocation is unavailable and the fail mode decides —
+    /// the provider factory is never invoked.
+    #[test]
+    fn manifest_without_revocation_uri_applies_fail_mode() {
+        let key = AitpSigningKey::from_seed(&[10u8; 32]);
+        let manifest = issuer_manifest(&key, None);
+        aitp_manifest::verify_manifest(&manifest, &aitp_manifest::VerifyManifestContext::now())
+            .expect("a Manifest lacking the key MUST NOT be rejected");
+        assert!(revocation_list_uri_from_manifest(&manifest).is_none());
+        let now = Timestamp::now();
+        let jti = Uuid::new_v4();
+        let never = |_: url::Url| -> FakeProvider { panic!("no URL is advertised") };
+
+        let closed =
+            RevocationCache::for_issuer_manifest(&manifest, RevocationPolicy::default(), never);
+        assert!(matches!(
+            closed.check(&jti, key.aid(), now),
+            Err(RevocationError::NoSnapshotFailClosed)
+        ));
+
+        let open = RevocationCache::for_issuer_manifest(
+            &manifest,
+            RevocationPolicy {
+                fail_mode: RevocationFailMode::FailOpen,
+                ..Default::default()
+            },
+            never,
+        );
+        assert_eq!(
+            open.check(&jti, key.aid(), now).unwrap(),
+            RevocationOutcome::Clear
+        );
+
+        let soft = RevocationCache::for_issuer_manifest(
+            &manifest,
+            RevocationPolicy {
+                fail_mode: RevocationFailMode::SoftFail {
+                    safe_grants: vec!["read_data".into()],
+                },
+                ..Default::default()
+            },
+            never,
+        );
+        assert_eq!(
+            soft.check(&jti, key.aid(), now).unwrap(),
+            RevocationOutcome::SoftFailSafeSubset {
+                safe_grants: vec!["read_data".into()]
+            }
+        );
+    }
+
+    /// With the key advertised, the provider is built for exactly that URL
+    /// and its snapshot is consulted.
+    #[test]
+    fn manifest_with_revocation_uri_polls_the_advertised_url() {
+        let key = AitpSigningKey::from_seed(&[11u8; 32]);
+        let uri = "https://issuer.example/.well-known/aitp-revocation-list";
+        let manifest = issuer_manifest(&key, Some(uri));
+        let now = Timestamp::now();
+        let jti = Uuid::new_v4();
+        let env = make_envelope(jti, &key, now, Timestamp(now.0 + 3600));
+        let cache =
+            RevocationCache::for_issuer_manifest(&manifest, RevocationPolicy::default(), |url| {
+                assert_eq!(url.as_str(), uri);
+                FakeProvider { envelope: env }
+            });
+        assert!(cache.is_revoked(&jti, key.aid(), now).unwrap());
     }
 
     #[test]

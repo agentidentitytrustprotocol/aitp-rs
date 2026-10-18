@@ -385,27 +385,27 @@ them.
 
 ### Summary
 
-These counts are **at pin `db7d860`**, the spec commit in
+These counts are **at pin `cfd2f16`**, the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With all four features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` | 73 | 73 PASS | 72 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` | 74 | 74 PASS | 73 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 6 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 4 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
-| `extension`: self-attestation (`aitp-self-attestation`) | 2 | SKIP | PASS |
-| **Total** | **94** | **74 pass / 0 fail / 20 skip** | **92 pass / 0 fail / 2 skip** |
+| `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
+| **Total** | **96** | **75 pass / 0 fail / 21 skip** | **94 pass / 0 fail / 2 skip** |
 
 Why the skips look the way they do:
 
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
-  multi-hop returns. The 20 skips are the 6 session-bundle, 4 multi-hop,
-  8 pinned-admission and 2 self-attestation fixtures. A `draft` or
+  multi-hop returns. The 21 skips are the 6 session-bundle, 4 multi-hop,
+  8 pinned-admission and 3 self-attestation fixtures. A `draft` or
   `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
   `del-007` both expect `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Turning the
@@ -420,11 +420,11 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 74 pass / 0 fail / 20 skip at the pin.
+# Strict: 75 pass / 0 fail / 21 skip at the pin.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 92 pass / 0 fail / 2 skip at the pin.
+# Opt-in (draft RFCs and extensions): 94 pass / 0 fail / 2 skip at the pin.
 # This is what the `conformance` CI job runs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
@@ -470,12 +470,13 @@ is set, as explained above.
 | Manifest: RFC-AITP-0003 | `man-001`–`man-007` |
 | Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` |
 | Pinned-key P-256, tagged AIDs and descriptor shape: RFC-AITP-0002 §1, §3.1–§3.3 | `id-010`, `id-011`, `id-011b`, `id-012`, `id-017`, `id-018` |
+| OIDC `cnf.jkt` follows the AID's algorithm (P-256): RFC-AITP-0002 §2.2.1 | `id-023` |
 | One-way pinned-key admission (extension `aitp-pinned-admission`): RFC-AITP-0002 §3.4 | `id-013`–`id-016`, `id-019`–`id-022` |
 | TCT: RFC-AITP-0005 | `tct-002`–`tct-007` |
 | TCT `jti` UUID v4 layout: RFC-AITP-0005 §2.2 | `tct-013`, `tct-014` |
 | Self-issued and attestation TCTs in a grant context: RFC-AITP-0005 §5.3 | `tct-015`, `tct-016`, `tct-018` |
 | ES256 low-S: RFC-AITP-0001 §5.4.7 | `tct-017` |
-| Self-attestation verification (extension `aitp-self-attestation`): RFC-AITP-0005 §5.3 | `tct-019`, `tct-020` |
+| Self-attestation verification (extension `aitp-self-attestation`): RFC-AITP-0005 §5.3 | `tct-019`–`tct-021` |
 | JWS `alg`/`typ` pinning: RFC-AITP-0001 §5.4.5, RFC-AITP-0005 §7.2 steps 2–3 | `tct-008`, `tct-009`, `tct-010` |
 | TCT unknown claims: RFC-AITP-0005 §7.2 step 1 | `tct-011`, `tct-012` |
 | Grant voucher: RFC-AITP-0005 §8 | `vch-001`, `vch-002` |

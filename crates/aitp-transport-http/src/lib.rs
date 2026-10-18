@@ -97,7 +97,7 @@ pub use key_resolution::{
 #[cfg(feature = "server")]
 pub use server::{
     DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome,
-    RevocationListProducer, DEFAULT_SESSION_TTL,
+    RevocationListProducer, DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
 };
 
 #[cfg(feature = "source-ip")]
@@ -110,7 +110,7 @@ pub use server_limits::{
 };
 
 #[cfg(feature = "experimental-session-bundle")]
-pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES};
+pub use session_bundle_server::{SessionBundleServer, MAX_BUNDLE_BYTES, SESSION_BUNDLE_PATH};
 
 #[cfg(any(feature = "client", feature = "server"))]
 pub use common::{

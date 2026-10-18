@@ -44,12 +44,19 @@ test('TCT renewal round-trips', { skip: !HAS_RENEWAL }, () => {
   const req = b.buildRenewalRequest(bHeld);
   const now = Math.floor(Date.now() / 1000);
   const fresh = a.processRenewalRequest(req, now + 86_400, 3600);
+  // Same shape as Python's `{"tct", "grant_voucher"}` (#199).
+  assert.deepEqual(Object.keys(fresh).sort(), ['grantVoucher', 'tct']);
   // Both TCTs are compact-JWS tokens; decode the claims to compare.
   const oldT = decodeJwsPayload(bHeld);
-  const newT = decodeJwsPayload(fresh);
+  const newT = decodeJwsPayload(fresh.tct);
   assert.notEqual(newT.jti, oldT.jti);
   assert.equal(newT.sub, oldT.sub);
   assert.deepEqual(newT.grants, oldT.grants);
+  // The re-minted voucher is bound to the fresh TCT, not the old one.
+  const voucher = decodeJwsPayload(fresh.grantVoucher);
+  assert.equal(voucher.sub, newT.sub);
+  assert.equal(voucher.src_jti, newT.jti);
+  assert.deepEqual(voucher.grants, newT.grants);
 });
 
 test(
