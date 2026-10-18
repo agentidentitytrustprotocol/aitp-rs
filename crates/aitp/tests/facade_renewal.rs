@@ -6,7 +6,7 @@
 
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::facade::{renew_tct, FacadeError};
+use aitp::facade::{renew_tct, renew_tct_with_insecure_localhost, FacadeError};
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::TctBuilder;
@@ -76,14 +76,14 @@ async fn renews_at_the_advertised_uri() {
     );
     tokio::spawn(async move { axum::serve(listener, server.router()).await.ok() });
 
-    let renewed = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
+    let renewed = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
         .expect("renewal at the advertised URI");
     assert!(!renewed.tct.is_empty());
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.
-    renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
+    renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
         .expect("fresh nonce renews again");
 }
@@ -125,7 +125,7 @@ async fn no_renew_uri_means_no_request() {
         .offer("demo.echo")
         .build()
         .unwrap();
-    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
+    let err = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
         .unwrap_err();
     assert!(
@@ -135,7 +135,7 @@ async fn no_renew_uri_means_no_request() {
 
     // Non-HTTPS (non-loopback) URIs are not usable either.
     let m = manifest(&issuer, Some("http://issuer.example/renew".into()));
-    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, true)
+    let err = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
         .unwrap_err();
     assert!(
@@ -145,7 +145,7 @@ async fn no_renew_uri_means_no_request() {
 
     // A loopback `http` URI needs the explicit local-development opt-in.
     let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));
-    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m, false)
+    let err = renew_tct(&holder, held_tct(&issuer, &holder), &m)
         .await
         .unwrap_err();
     assert!(

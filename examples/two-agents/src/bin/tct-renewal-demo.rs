@@ -13,7 +13,7 @@
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::facade::{renew_tct, TctStore};
+use aitp::facade::{renew_tct_with_insecure_localhost, TctStore};
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::{verify_tct, TctBuilder, TctVerifyContext};
@@ -101,11 +101,11 @@ async fn main() {
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Holder side: drive `renew_tct` against the endpoint the issuer's
+    // Holder side: drive `renew_tct_with_insecure_localhost` (loopback demo) against the endpoint the issuer's
     // (already verified) Manifest advertises, presenting the
     // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct(&holder, current.token, &manifest, true)
+    let renewed = renew_tct_with_insecure_localhost(&holder, current.token, &manifest)
         .await
         .expect("renew_tct round-trip");
 

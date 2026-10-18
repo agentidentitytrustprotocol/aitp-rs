@@ -813,12 +813,9 @@ pub struct RenewedTct {
 ///
 /// `current` is the currently-held TCT compact JWS; `issuer_manifest`
 /// is the issuer's verified Manifest (e.g. from
-/// [`ManifestFetcher::fetch`]). `allow_insecure_localhost` accepts a
-/// plain-`http` loopback `renew_uri` for local development, as
-/// [`InitiatorConfig::with_insecure_localhost`] does; it defaults to
-/// `false` everywhere else and must stay off in production. When the
-/// Manifest advertises no usable
-/// `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
+/// [`ManifestFetcher::fetch`]). Only an `https` `renew_uri` is used
+/// here; see [`renew_tct_with_insecure_localhost`] for local development.
+/// When the Manifest advertises no usable `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
 /// without sending anything: run a full handshake instead (no guessed
 /// path is ever probed). Returns the freshly-issued [`RenewedTct`]. The
 /// caller SHOULD verify the new token with [`aitp_tct::verify_tct`]
@@ -828,6 +825,28 @@ pub struct RenewedTct {
 /// failure returns `FacadeError::Renewal(TctError::Crypto(CryptoError::Signer(_)))`.
 #[cfg(feature = "experimental-renewal")]
 pub async fn renew_tct(
+    holder_key: &dyn AitpSigner,
+    current: String,
+    issuer_manifest: &Manifest,
+) -> Result<RenewedTct, FacadeError> {
+    renew_at_advertised_uri(holder_key, current, issuer_manifest, false).await
+}
+
+/// [`renew_tct`] that also accepts a plain-`http` `renew_uri` on
+/// `localhost` / `127.0.0.1`: the explicit local-development opt-in, as
+/// [`InitiatorConfig::with_insecure_localhost`] is for handshakes. Never
+/// use it in production. Gated behind the `experimental-renewal` feature.
+#[cfg(feature = "experimental-renewal")]
+pub async fn renew_tct_with_insecure_localhost(
+    holder_key: &dyn AitpSigner,
+    current: String,
+    issuer_manifest: &Manifest,
+) -> Result<RenewedTct, FacadeError> {
+    renew_at_advertised_uri(holder_key, current, issuer_manifest, true).await
+}
+
+#[cfg(feature = "experimental-renewal")]
+async fn renew_at_advertised_uri(
     holder_key: &dyn AitpSigner,
     current: String,
     issuer_manifest: &Manifest,

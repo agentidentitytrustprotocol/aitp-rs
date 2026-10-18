@@ -82,10 +82,11 @@ let manifest = ManifestBuilder::new(&key)
 - **Server.** `HandshakeServer::router()` mounts the renewal route at the
   path of that URL, and only then. A Manifest without a usable
   `renew_uri` gets no renewal route.
-- **Client.** `aitp::facade::renew_tct(holder, current, &issuer_manifest, allow_insecure_localhost)`
+- **Client.** `aitp::facade::renew_tct(holder, current, &issuer_manifest)`
   reads the extension from the issuer's (verified) Manifest and POSTs
-  there. A plain-`http` loopback `renew_uri` is accepted only when
-  `allow_insecure_localhost` is `true` (local development only). With no usable `renew_uri` it fails with
+  there. It uses only an `https` `renew_uri`; for a plain-`http`
+  loopback one in local development, call
+  `renew_tct_with_insecure_localhost` instead (never in production). With no usable `renew_uri` it fails with
   `FacadeError::RenewalNotAdvertised` before sending anything: per
   RFC-AITP-0004 §8.1 the holder MUST NOT probe a guessed path and falls
   back to a full handshake.
