@@ -206,6 +206,17 @@ direction is the committed session bundle in
 `tests/xcheck-fixtures/session-bundle/`. `aitp-verifier-py` minted it, and
 `crates/aitp-session-bundle/tests/xcheck_committed.rs` verifies it.
 
+The verifier pin in `tests/AITP_VERIFIER_PY_VERSION` is a commit SHA, never
+a branch, so an upstream change cannot break merges here unannounced. To keep
+it from going stale, `.github/workflows/bump-verifier-py.yml` runs every
+Monday (and on demand from the Actions tab, with a `dry-run` option). It
+compares the pin with `aitp-verifier-py` `main`. When `main` is ahead, it
+opens one PR on `deps/verifier-py-<sha>` that bumps the pin, so that PR's
+`xcheck` job runs against the new verifier. It closes older bump PRs it
+supersedes, and does nothing if the branch for the current `main` already
+exists. The PR is never auto-merged, and the workflow is not a required
+check.
+
 ## Minting tools
 
 - `tools/mint-signed-examples` (binary `mint-signed-examples`) mints the
