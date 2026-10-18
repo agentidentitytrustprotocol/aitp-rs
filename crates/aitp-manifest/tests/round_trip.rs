@@ -455,3 +455,59 @@ fn parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field() {
 fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
     v.to_string().parse().expect("valid JSON")
 }
+
+/// RFC-AITP-0005 §11 / RFC-AITP-0008 §1.4: the `ListRevoked` URL set via
+/// `revocation_list_uri` lands in `extensions` *before* signing, so the
+/// Manifest signature covers it — swapping the advertised URL breaks it.
+#[test]
+fn revocation_list_uri_is_advertised_inside_the_signed_body() {
+    let now = Timestamp(1_700_000_000);
+    let key = alice_key();
+    let uri = "https://alice.example.com/.well-known/aitp-revocation-list";
+    let m = ManifestBuilder::new(&key)
+        .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "alice".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .revocation_list_uri(uri.parse().unwrap())
+        .published_at(now)
+        .ttl_secs(3600)
+        .build()
+        .unwrap();
+    assert_eq!(
+        m.extensions
+            .as_ref()
+            .and_then(|e| e.get(aitp_manifest::REVOCATION_LIST_URI_EXT))
+            .and_then(|v| v.as_str()),
+        Some(uri)
+    );
+    verify_manifest(&m, &VerifyManifestContext { now }).expect("advertising manifest verifies");
+
+    let mut swapped = m;
+    let mut ext = swapped.extensions.take().unwrap();
+    ext.insert(
+        aitp_manifest::REVOCATION_LIST_URI_EXT,
+        serde_json::json!("https://attacker.example/.well-known/aitp-revocation-list"),
+    );
+    swapped.extensions = Some(ext);
+    let err = verify_manifest(&swapped, &VerifyManifestContext { now }).unwrap_err();
+    assert!(
+        matches!(err, ManifestError::SignatureInvalid),
+        "a swapped revocation_list_uri must fail the Manifest signature: {err:?}"
+    );
+}
+
+/// RFC-AITP-0008 §1.4: a verifier MUST NOT reject a Manifest solely
+/// because `rfc-aitp-0008.revocation_list_uri` is absent.
+#[test]
+fn manifest_without_revocation_list_uri_still_verifies() {
+    let now = Timestamp(1_700_000_000);
+    let m = build_alice_manifest_at(now);
+    assert!(m.extensions.is_none());
+    verify_manifest(&m, &VerifyManifestContext { now }).expect("absent key is not a reject");
+}

@@ -73,8 +73,6 @@ Both `complete()` and the second element of `process_commit()` are JSON
 strings of the form `{"tct": …, "grant_voucher": …}`.
 `complete()` gives the initiator the TCT the responder issued to it.
 `process_commit()` gives the responder the TCT the initiator issued to it.
-The `aitp.pyi` docstring for `process_commit` describes this the other way
-round ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)), but the code above is what the binding does.
 
 The Python binding does not return decoded TCT claims; the Node binding
 returns them as `held.claims`. The claim set is defined in
@@ -332,7 +330,7 @@ them; add back by named Cargo feature: `renewal`, `session-bundle`,
 ```python
 import time
 
-req = alice.build_renewal_request(tct_jws)   # pass the held TCT positionally
+req = alice.build_renewal_request(current_tct_token=tct_jws)
 renewed = json.loads(bob.process_renewal_request(
     req, manifest_exp_unix_secs=int(time.time()) + 86_400, new_ttl_secs=3600,
 ))
@@ -340,10 +338,11 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
 ```
 
 - **Return value:** `process_renewal_request` returns a JSON string with
-  `tct` and `grant_voucher`. The Node binding returns only the TCT.
-- **Pass the held TCT positionally.** The stub names the argument
-  `current_tct_token`, but the compiled keyword is
-  `current_tct_envelope_json`, even though it takes a compact JWS
+  `tct` and `grant_voucher`. The Node binding returns the same fields as an
+  object, `{ tct, grantVoucher }`.
+- **Argument:** `current_tct_token`, the held TCT as a compact JWS. Before
+  0.15 the compiled keyword was `current_tct_envelope_json`, which disagreed
+  with the stub
   ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
 - **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
   extension is non-normative.
@@ -422,17 +421,16 @@ HTTP itself.
 ## Python vs Node differences
 
 The two bindings wrap the same Rust core, but they differ in these places.
-[#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)
-tracks the first three rows.
+Python returns structured results as JSON strings where Node returns objects;
+the field names match apart from casing (`grant_voucher` / `grantVoucher`).
 
 | Operation | Python | Node |
 |---|---|---|
-| `process_renewal_request` / `processRenewalRequest` | JSON string with `tct` and `grant_voucher` | bare compact-JWS TCT (no voucher) |
-| `issue_tct_for_delegatee` / `issueTctForDelegatee` | JSON string with `tct` and `grant_voucher` | bare compact-JWS TCT (no voucher) |
-| `build_renewal_request` argument | pass positionally; the compiled keyword is `current_tct_envelope_json`, not the stub's `current_tct_token` | `buildRenewalRequest(currentTctToken)` |
+| `process_renewal_request` / `processRenewalRequest` | JSON string with `tct` and `grant_voucher` | object `{ tct, grantVoucher }` |
+| `issue_tct_for_delegatee` / `issueTctForDelegatee` | JSON string with `tct` and `grant_voucher` | object `{ tct, grantVoucher }` |
 | Handshake completion | `complete()` returns a JSON string; no decoded claims | `complete()` returns an object with `tct`, `claims` and an optional `grantVoucher` |
 | Non-manifest input to manifest verification (including a duplicate key) | `ValueError` | `Error` with `code === 'malformed'` |
-| Revoked-JTI sets | `set` or `frozenset` of `str` (the stub's `AbstractSet` is wider than what the binding accepts, [#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)) | `Array<string>` |
+| Revoked-JTI sets | `set` or `frozenset` of `str` (not a `list` or other iterable) | `Array<string>` |
 | TCT verification failure | `RuntimeError`, no `.code` | `Error` with napi's generic `code === 'GenericFailure'`, no AITP code |
 
 ## Tests + interop

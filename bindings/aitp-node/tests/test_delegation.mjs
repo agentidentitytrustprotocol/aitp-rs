@@ -94,10 +94,15 @@ test('delegation round-trip: A → B → C → A re-issues to C', () => {
   assert.equal(verified.issuedBy, b.aid);
   assert.deepEqual(verified.grants, ['demo.write']);
 
-  const freshTctForC = a.issueTctForDelegatee(verified);
+  const issued = a.issueTctForDelegatee(verified);
+  // Same shape as Python's `{"tct", "grant_voucher"}` (#199).
+  assert.deepEqual(Object.keys(issued).sort(), ['grantVoucher', 'tct']);
+  const voucher = decodeJwsPayload(issued.grantVoucher);
+  assert.equal(voucher.sub, c.aid);
+  assert.equal(voucher.src_jti, decodeJwsPayload(issued.tct).jti);
 
   // C verifies the new TCT under the presented-TCT model (audience = C.aid).
-  const ident = c.verifyTct(freshTctForC, 'demo.write', c.aid);
+  const ident = c.verifyTct(issued.tct, 'demo.write', c.aid);
   assert.equal(ident.peerAid, a.aid);
   assert.ok(ident.grants.includes('demo.write'));
 });

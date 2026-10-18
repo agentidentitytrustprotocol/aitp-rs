@@ -6,7 +6,12 @@
 # index.d.ts` — every type here SHOULD have a camelCase counterpart there
 # (and vice versa), per CLAUDE.md's binding-symmetry rule.
 
-from typing import AbstractSet, Callable, Literal, Optional, Sequence
+from typing import Callable, Literal, Optional, Sequence, Union
+
+# Revoked-`jti` deny lists. The binding extracts these into a Rust
+# `HashSet<str>`, which accepts only a `set` or `frozenset` — not an
+# arbitrary `AbstractSet` (e.g. `dict.keys()`) and not a `list`.
+RevokedJtis = Union[set[str], frozenset[str]]
 
 # ── Core handshake surface ──────────────────────────────────────────────
 
@@ -66,7 +71,9 @@ class ResponderSession:
     def process_commit(self, commit_json: str) -> tuple[str, str]:
         """Returns `(commit_ack_json, completed_json)` where `completed_json`
         is `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`
-        — the TCT we issued to the peer plus its companion grant voucher."""
+        — the TCT the initiator issued to us (the responder) plus its
+        companion grant voucher. The TCT we issued to the initiator travels
+        inside `commit_ack_json`."""
         ...
 
 # ── OIDC identity (RFC-AITP-0002) ───────────────────────────────────────
@@ -135,7 +142,7 @@ class AitpAgent:
         tct_token: str,
         required_grant: str,
         expected_audience: Optional[str] = ...,
-        revoked_jtis: Optional[AbstractSet[str]] = ...,
+        revoked_jtis: Optional[RevokedJtis] = ...,
     ) -> TctIdentity:
         """Verify a TCT compact-JWS string. `revoked_jtis` is an OPTIONAL set
         of revoked TCT `jti` strings (RFC-AITP-0008); when supplied, a TCT
@@ -149,7 +156,7 @@ class AitpAgent:
         required_grant: str,
         store: TctStore,
         expected_audience: Optional[str] = ...,
-        revoked_jtis: Optional[AbstractSet[str]] = ...,
+        revoked_jtis: Optional[RevokedJtis] = ...,
     ) -> TctIdentity:
         """Like `verify_tct` but consults `store` first. `revoked_jtis` (F-1)
         is re-checked on every call, cache hits included."""
@@ -202,7 +209,7 @@ class AitpAgent:
 def verify_delegation(
     delegation_token: str,
     verifier_aid: str,
-    revoked_jtis: Optional[AbstractSet[str]] = None,
+    revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.2
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
@@ -222,7 +229,7 @@ def verify_delegation_multihop(
     verifier_aid: str,
     issuer_manifests: Sequence[str],
     max_delegation_hops: int = 3,
-    revoked_jtis: Optional[AbstractSet[str]] = None,
+    revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
     multi-hop chains up to `max_delegation_hops` total hops. Present by default (the

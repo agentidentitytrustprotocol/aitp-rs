@@ -99,7 +99,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 
 | Type / function       | Feature | Notes |
 |-----------------------|:-------:|-------|
-| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns JSON), `sign_revocation_list(...)` |
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_revocation_list(...)` |
 | `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
 | `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
 | `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
@@ -111,7 +111,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
 | `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
-| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `process_renewal_request` returns JSON |
+| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `build_renewal_request(current_tct_token)`; `process_renewal_request` returns `{"tct", "grant_voucher"}` JSON |
 | `SessionBundleBuilder`, `verify_session_bundle()` | `session-bundle` | RFC-AITP-0010 |
 | `compute_spki_hash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verify_delegation_multihop()` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |

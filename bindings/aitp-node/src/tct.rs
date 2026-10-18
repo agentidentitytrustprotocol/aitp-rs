@@ -31,6 +31,29 @@ pub struct JsTctIdentity {
     pub jti: String,
 }
 
+/// A TCT this agent just minted for someone else — the return shape of
+/// `processRenewalRequest` and `issueTctForDelegatee`. Mirrors the Python
+/// SDK's `{"tct", "grant_voucher"}` JSON object.
+#[napi(object)]
+pub struct JsIssuedTct {
+    /// The fresh TCT as an opaque compact-JWS string. Deliver it to the
+    /// holder verbatim.
+    pub tct: String,
+    /// The companion grant voucher (compact JWS, RFC-AITP-0005 §8), or
+    /// `null` when issuance policy declined to mint one — the holder then
+    /// cannot delegate. Deliver it alongside `tct`.
+    pub grant_voucher: Option<String>,
+}
+
+impl From<aitp_tct::IssuedTct> for JsIssuedTct {
+    fn from(issued: aitp_tct::IssuedTct) -> Self {
+        Self {
+            tct: issued.token,
+            grant_voucher: issued.voucher,
+        }
+    }
+}
+
 /// Decode the unverified payload of a compact-JWS TCT into its claims.
 ///
 /// This is a structural peek **only** — it does no signature check. We

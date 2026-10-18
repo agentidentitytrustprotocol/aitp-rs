@@ -28,7 +28,7 @@ use uuid::Uuid;
 // as "not revoked", turning a failed deny-list lookup into a silently
 // honored revoked token. For a check RFC-AITP-0006 §4 step 7 states as a
 // MUST, failing open on error is not an acceptable default.
-use crate::tct::parse_revoked_set;
+use crate::tct::{parse_revoked_set, JsIssuedTct};
 
 /// The verified delegation's salient fields. Returned from
 /// `verifyDelegation` and consumed by `AitpAgent.issueTctForDelegatee`.
@@ -224,8 +224,9 @@ pub(crate) fn build_delegation_token_json(
         .map_err(|e| Error::from_reason(format!("delegation build failed: {e}")))
 }
 
-/// Mint a fresh TCT compact JWS for the delegatee after `verifyDelegation`
-/// succeeded. Returns the opaque token string.
+/// Mint a fresh TCT for the delegatee after `verifyDelegation` succeeded.
+/// Returns `{ tct, grantVoucher }` — the TCT compact JWS plus its
+/// companion grant voucher (`null` when none was minted).
 ///
 /// In v0.2 audience MUST equal subject, so both are set to the delegatee's
 /// AID. The subject's public key is decoded from the delegatee AID itself
@@ -235,7 +236,7 @@ pub(crate) fn issue_tct_for_delegatee_json(
     issuer_key: &aitp_crypto::AitpSigningKey,
     verified: &JsDelegationVerified,
     ttl_secs: Option<i64>,
-) -> Result<String> {
+) -> Result<JsIssuedTct> {
     let delegatee_aid = Aid::parse(&verified.delegatee)
         .map_err(|e| Error::from_reason(format!("invalid delegatee AID: {e}")))?;
     let delegatee_pk = AitpVerifyingKey::from_aid(&delegatee_aid)
@@ -254,5 +255,5 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .build()
         .map_err(|e| Error::from_reason(format!("TCT mint failed: {e}")))?;
 
-    Ok(issued.token)
+    Ok(issued.into())
 }

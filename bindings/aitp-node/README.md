@@ -118,7 +118,7 @@ compact-JWS token strings** (`header.payload.signature`).
 
 | Export                    | Feature | Notes |
 |---------------------------|:-------:|-------|
-| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` (bare compact JWS), `signRevocationList(entries, expiresInSecs?)` |
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signRevocationList(entries, expiresInSecs?)` |
 | `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
@@ -128,7 +128,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
 | `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
-| `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` returns a bare compact-JWS TCT |
+| `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` → `{ tct, grantVoucher? }` |
 | `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010 |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |

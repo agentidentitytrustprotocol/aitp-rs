@@ -160,12 +160,16 @@ fn harness<'s>(
 }
 
 fn admission_err(id: &str, e: &AdmissionError) -> Value {
-    if let Some(status) = e.http_status() {
-        // RFC-AITP-0009 §3.1: refused below the protocol layer, so no
-        // AITP error code.
-        return json!({"id": id, "ok": false, "http_status": status, "message": e.to_string()});
+    // A wire code wins: `CHALLENGE_REFUSED` (id-016) has one, carried in
+    // a 503 over HTTP. A rate limit has none (RFC-AITP-0009 §3.1):
+    // refused below the protocol layer, so report the HTTP 429.
+    match (e.code(), e.http_status()) {
+        (Some(code), _) => err(id, code, &e.to_string()),
+        (None, Some(status)) => {
+            json!({"id": id, "ok": false, "http_status": status, "message": e.to_string()})
+        }
+        (None, None) => err(id, "INTERNAL_ERROR", &e.to_string()),
     }
-    err(id, e.code().unwrap_or("INTERNAL_ERROR"), &e.to_string())
 }
 
 /// `verify_identity_presentation`: admit one `identity_presentation`
