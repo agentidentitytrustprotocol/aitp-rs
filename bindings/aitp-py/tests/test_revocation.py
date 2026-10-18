@@ -310,3 +310,36 @@ def test_a_wrapped_form_signature_is_rejected():
         }
     )
     assert aitp.verify_revocation_list(current, aid) is None
+
+
+# ── Hardened wire parsing (aitp-rs#152) ──────────────────────────────────
+#
+# A duplicate key (RFC-AITP-0001 §5.4.5) and a member outside the schema
+# (RFC-AITP-0001 §7) are each rejected before any signature check runs.
+
+
+def _fresh_snapshot():
+    issuer = aitp.AitpAgent.generate()
+    issuer.build_manifest(
+        display_name="issuer",
+        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        offered_caps=["demo.echo"],
+    )
+    return issuer, issuer.sign_revocation_list([{"jti": str(uuid.uuid4())}], 600)
+
+
+def test_verify_revocation_list_rejects_a_duplicate_json_key_as_malformed():
+    issuer, text = _fresh_snapshot()
+    assert '"revocation_list":{' in text
+    dup = text.replace(
+        '"revocation_list":{', '"revocation_list":{"version":"aitp/0.2",', 1
+    )
+    assert dup != text
+    assert _code_for(dup, issuer.aid) == "malformed"
+
+
+def test_verify_revocation_list_rejects_an_unknown_member_as_unknown_field():
+    issuer, text = _fresh_snapshot()
+    env = json.loads(text)
+    env["revocation_list"]["deployment_region"] = "eu-west-1"
+    assert _code_for(json.dumps(env), issuer.aid) == "unknown_field"

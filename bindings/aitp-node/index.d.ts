@@ -527,8 +527,13 @@ export declare function verifyDelegationMultihop(token: string, verifierAid: str
  * On failure throws an `Error` whose **`code`** property is one of
  * `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
  * `version_unknown`, `identity_hint_malformed`,
- * `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
- * on `error.message`: the code is the contract, the wording is not.
+ * `incompatible_identity_type`, `unknown_field`, `malformed`. Branch on
+ * `error.code`, never on `error.message`: the code is the contract, the
+ * wording is not.
+ *
+ * The JSON goes through the hardened wire parser before verification: a
+ * duplicate key anywhere (RFC-AITP-0001 §5.4.5) is `malformed`, and a
+ * member outside the schema (RFC-AITP-0001 §7) is `unknown_field`.
  *
  * `nowUnixSecs` overrides the verification clock — omit it to use the
  * system clock, or pass a pinned value in tests. Matches
@@ -541,8 +546,10 @@ export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnix
  *
  * Resolves on success; on failure throws an `Error` whose **`code`** property
  * is one of `signature_invalid`, `issuer_mismatch`, `version_unknown`,
- * `expired`, `malformed`. Branch on `error.code`, never on `error.message`:
- * the code is the contract, the message wording is not.
+ * `expired`, `unknown_field`, `malformed`. Branch on `error.code`, never on
+ * `error.message`: the code is the contract, the message wording is not.
+ * A duplicate JSON key (RFC-AITP-0001 §5.4.5) is `malformed`; a member
+ * outside the schema (RFC-AITP-0001 §7) is `unknown_field`.
  *
  * Establishes **authenticity and non-expiry only** — that the snapshot was
  * signed by the holder of `expectedIssuerAid` and that its `expires_at` has

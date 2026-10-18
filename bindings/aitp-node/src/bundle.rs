@@ -10,6 +10,8 @@ use aitp_session_bundle::{
     verify_session_bundle, BundleOutcome, ParticipantEntry, SessionBundleBuilder,
     SessionBundleEnvelope, VerifySessionBundleContext,
 };
+
+use crate::wire;
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -121,7 +123,7 @@ pub fn verify_session_bundle_js(
     now_unix_secs: Option<i64>,
     revocation_check: Option<FunctionRef<String, bool>>,
 ) -> Result<JsBundleOutcome> {
-    let envelope: SessionBundleEnvelope = serde_json::from_str(&bundle_envelope_json)
+    let bundle = wire::session_bundle(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
     let verifier = Aid::parse(&verifier_aid)
         .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
@@ -146,7 +148,7 @@ pub fn verify_session_bundle_js(
     };
 
     let outcome = verify_session_bundle(
-        &envelope.session_bundle,
+        &bundle,
         &VerifySessionBundleContext {
             verifier_aid: &verifier,
             now,

@@ -3,7 +3,7 @@
 
 use crate::error::SessionBundleError;
 use crate::types::{SessionBundleEnvelope, SessionTrustBundle, SESSION_BUNDLE_MEMBERS};
-use aitp_core::{check_members, from_serde_error};
+use aitp_core::{check_members, from_serde_error, CheckedJson};
 use serde_json::Value;
 
 /// Full member set of the `{"session_bundle": {...}}` transport
@@ -47,7 +47,10 @@ const SESSION_BUNDLE_ENVELOPE_MEMBERS: &[&str] = &["session_bundle"];
 /// The bare-body path (no wrapper, used by internal callers) applies the
 /// SAME body-level member-set check as the wrapped form, so the two
 /// entry points never disagree about what a valid body looks like.
-pub fn parse_session_bundle_wire(value: &Value) -> Result<SessionTrustBundle, SessionBundleError> {
+pub fn parse_session_bundle_wire(
+    value: &CheckedJson,
+) -> Result<SessionTrustBundle, SessionBundleError> {
+    let value: &Value = value.as_value();
     if value.get("session_bundle").is_some() {
         check_members(
             "SessionBundleEnvelope",
@@ -93,6 +96,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+    /// constructor (a `Value` has no duplicate key, so this cannot fail).
+    fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+        v.to_string().parse().expect("valid JSON")
+    }
+
     fn valid_body() -> Value {
         json!({
             "version": "aitp/0.2",
@@ -108,12 +117,12 @@ mod tests {
     #[test]
     fn wrapped_with_signature_inside_parses() {
         let wire = json!({ "session_bundle": valid_body() });
-        assert!(parse_session_bundle_wire(&wire).is_ok());
+        assert!(parse_session_bundle_wire(&checked(&wire)).is_ok());
     }
 
     #[test]
     fn bare_body_parses() {
-        assert!(parse_session_bundle_wire(&valid_body()).is_ok());
+        assert!(parse_session_bundle_wire(&checked(&valid_body())).is_ok());
     }
 
     #[test]
@@ -122,7 +131,7 @@ mod tests {
         let signature = body.as_object_mut().unwrap().remove("signature").unwrap();
         let wire = json!({ "session_bundle": body, "signature": signature });
         assert!(matches!(
-            parse_session_bundle_wire(&wire),
+            parse_session_bundle_wire(&checked(&wire)),
             Err(SessionBundleError::WireFormInvalid(_))
         ));
     }
@@ -131,7 +140,7 @@ mod tests {
     fn unexpected_sibling_key_is_rejected() {
         let wire = json!({ "session_bundle": valid_body(), "extra": "nope" });
         assert!(matches!(
-            parse_session_bundle_wire(&wire),
+            parse_session_bundle_wire(&checked(&wire)),
             Err(SessionBundleError::WireFormInvalid(_))
         ));
     }
@@ -141,7 +150,7 @@ mod tests {
         let mut body = valid_body();
         body.as_object_mut().unwrap().remove("signature");
         assert!(matches!(
-            parse_session_bundle_wire(&body),
+            parse_session_bundle_wire(&checked(&body)),
             Err(SessionBundleError::WireFormInvalid(_))
         ));
     }
@@ -157,7 +166,7 @@ mod tests {
             .unwrap()
             .insert("coordinator_note".into(), json!("primary-region"));
         let wire = json!({ "session_bundle": body });
-        match parse_session_bundle_wire(&wire) {
+        match parse_session_bundle_wire(&checked(&wire)) {
             Err(SessionBundleError::UnknownField(field)) => {
                 assert_eq!(field, "coordinator_note")
             }
@@ -174,7 +183,7 @@ mod tests {
         body.as_object_mut()
             .unwrap()
             .insert("rogue".into(), json!(1));
-        match parse_session_bundle_wire(&body) {
+        match parse_session_bundle_wire(&checked(&body)) {
             Err(SessionBundleError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
         }
@@ -191,7 +200,7 @@ mod tests {
             .unwrap()
             .insert("extensions".into(), json!({ "tee": { "platform": "sgx" } }));
         let wire = json!({ "session_bundle": body });
-        assert!(parse_session_bundle_wire(&wire).is_ok());
+        assert!(parse_session_bundle_wire(&checked(&wire)).is_ok());
     }
 
     /// A nested closed object (`participants[]` entry) with an unknown
@@ -209,7 +218,7 @@ mod tests {
             "rogue": "nope",
         }]);
         let wire = json!({ "session_bundle": body });
-        match parse_session_bundle_wire(&wire) {
+        match parse_session_bundle_wire(&checked(&wire)) {
             Err(SessionBundleError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
         }
@@ -232,7 +241,7 @@ mod tests {
             .unwrap()
             .insert("rogue".into(), json!("nope"));
         let wire = json!({ "session_bundle": body });
-        match parse_session_bundle_wire(&wire) {
+        match parse_session_bundle_wire(&checked(&wire)) {
             Err(SessionBundleError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!(
                 "expected the unknown-member check to short-circuit before `coordinator` is \

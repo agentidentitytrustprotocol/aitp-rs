@@ -19,7 +19,10 @@
 //! representation is last-write-wins on a duplicate JSON key — by the time
 //! a `Value` exists, RFC-AITP-0001 §5.4.5's duplicate-key rejection is
 //! already impossible to perform. [`reject_duplicate_keys`] operates on the
-//! raw bytes instead, before any `Value` is built.
+//! raw bytes instead, before any `Value` is built. [`CheckedJson`] makes
+//! that ordering structural: it is the only input type the `parse_*_wire`
+//! functions accept, and it can only be built from raw text by a
+//! constructor that runs [`reject_duplicate_keys`] first.
 
 use std::collections::{BTreeSet, HashSet};
 
@@ -112,6 +115,88 @@ pub fn from_serde_error(e: &serde_json::Error) -> Option<String> {
 pub fn reject_duplicate_keys(bytes: &[u8]) -> Result<(), String> {
     let mut de = serde_json::Deserializer::from_slice(bytes);
     Deserializer::deserialize_any(&mut de, DuplicateKeyChecker).map_err(|e| e.to_string())
+}
+
+/// A JSON document parsed from raw wire bytes AFTER passing
+/// [`reject_duplicate_keys`] (RFC-AITP-0001 §5.4.5).
+///
+/// Every `parse_*_wire` entry point in this workspace takes a
+/// `&CheckedJson` rather than a bare [`serde_json::Value`]. A `Value` cannot
+/// carry a duplicate key — its map representation keeps the last
+/// occurrence — so the duplicate-key check can only be performed on the
+/// original text. Making the wire parsers accept only this type means a
+/// call site cannot reach them without having gone through that check:
+/// the only constructors are [`CheckedJson::from_slice`] and
+/// [`str::parse`] (via [`FromStr`](std::str::FromStr)), both of which run
+/// [`reject_duplicate_keys`] on the raw input before building the `Value`.
+///
+/// There is deliberately no `From<Value>` constructor. Code that only
+/// holds an in-memory `Value` (a test built with `json!`, a value that has
+/// been edited) serializes it and parses the text, which keeps the
+/// "parsed from text, checked" invariant honest.
+///
+/// Read access goes through [`Deref`](std::ops::Deref) /
+/// [`CheckedJson::as_value`]; [`CheckedJson::member`] hands out a checked
+/// sub-document (a sub-tree of a checked document is itself free of
+/// duplicate keys, since the check is recursive).
+#[derive(Debug, Clone, PartialEq)]
+pub struct CheckedJson(serde_json::Value);
+
+/// Error from constructing a [`CheckedJson`]: the input repeats an object
+/// key somewhere (RFC-AITP-0001 §5.4.5) or is not valid JSON. The message
+/// is serde_json's diagnostic; for a repeated key it begins
+/// ``duplicate field `<key>` ``.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("{0}")]
+pub struct CheckedJsonError(String);
+
+impl CheckedJson {
+    /// Parse `bytes` as JSON, rejecting a duplicate object key at any
+    /// nesting level before the [`serde_json::Value`] is built.
+    pub fn from_slice(bytes: &[u8]) -> Result<Self, CheckedJsonError> {
+        reject_duplicate_keys(bytes).map_err(CheckedJsonError)?;
+        serde_json::from_slice(bytes)
+            .map(CheckedJson)
+            .map_err(|e| CheckedJsonError(e.to_string()))
+    }
+
+    /// The parsed document.
+    pub fn as_value(&self) -> &serde_json::Value {
+        &self.0
+    }
+
+    /// Consume the wrapper, returning the parsed document.
+    pub fn into_value(self) -> serde_json::Value {
+        self.0
+    }
+
+    /// The member `key` of a top-level object, as its own checked
+    /// document. `None` when `self` is not an object or has no such key.
+    pub fn member(&self, key: &str) -> Option<CheckedJson> {
+        self.0.get(key).cloned().map(CheckedJson)
+    }
+}
+
+impl std::str::FromStr for CheckedJson {
+    type Err = CheckedJsonError;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::from_slice(s.as_bytes())
+    }
+}
+
+impl std::ops::Deref for CheckedJson {
+    type Target = serde_json::Value;
+
+    fn deref(&self) -> &serde_json::Value {
+        &self.0
+    }
+}
+
+impl AsRef<serde_json::Value> for CheckedJson {
+    fn as_ref(&self) -> &serde_json::Value {
+        &self.0
+    }
 }
 
 /// A `Visitor`/`DeserializeSeed` that walks a JSON document purely to
@@ -285,6 +370,31 @@ mod tests {
     fn returns_none_for_type_mismatch_error() {
         let err = serde_json::from_str::<Closed>(r#"{"a":"not a number"}"#).unwrap_err();
         assert_eq!(from_serde_error(&err), None);
+    }
+
+    // ---- CheckedJson --------------------------------------------------------
+
+    #[test]
+    fn checked_json_rejects_a_duplicate_key_at_any_depth() {
+        let err = CheckedJson::from_slice(br#"{"a":1,"a":2}"#).unwrap_err();
+        assert!(err.to_string().contains("duplicate field `a`"), "{err}");
+        let err = r#"{"x":{"b":1,"b":2}}"#.parse::<CheckedJson>().unwrap_err();
+        assert!(err.to_string().contains("duplicate field `b`"), "{err}");
+    }
+
+    #[test]
+    fn checked_json_rejects_invalid_json() {
+        assert!(CheckedJson::from_slice(b"{not json").is_err());
+    }
+
+    #[test]
+    fn checked_json_round_trips_a_clean_document() {
+        let c: CheckedJson = r#"{"a":{"b":[1,2]}}"#.parse().unwrap();
+        assert_eq!(c.as_value(), &json!({"a": {"b": [1, 2]}}));
+        assert_eq!(c.member("a").unwrap().as_value(), &json!({"b": [1, 2]}));
+        assert!(c.member("missing").is_none());
+        assert_eq!(c["a"]["b"][0], 1);
+        assert_eq!(c.into_value(), json!({"a": {"b": [1, 2]}}));
     }
 
     // ---- reject_duplicate_keys --------------------------------------------

@@ -3,7 +3,7 @@
 use crate::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
 use aitp_core::{
-    check_members, from_serde_error, parse_envelope_wire, reject_duplicate_keys, AitpEnvelope,
+    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
 use aitp_crypto::{AitpSigner, AitpVerifyingKey};
@@ -1134,13 +1134,9 @@ async fn parse_envelope_request(
     // against the ORIGINAL bytes, before `Value` ever exists: `Value`'s
     // object representation is last-write-wins on a duplicate key, so the
     // information is unrecoverable one line down.
-    if let Err(e) = reject_duplicate_keys(&body) {
-        return Err(ResponseError::aitp(
-            ErrorCode::InvalidEnvelope,
-            format!("malformed JSON: {e}"),
-        ));
-    }
-    let value: serde_json::Value = serde_json::from_slice(&body).map_err(|e| {
+    // `CheckedJson::from_slice` runs that check before building the
+    // `Value`, and is the only input `parse_envelope_wire` accepts.
+    let value = CheckedJson::from_slice(&body).map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
     })?;
     // RFC-AITP-0001 §7: reject an envelope carrying a top-level member

@@ -10,7 +10,7 @@
 //! `presentation_rate_limit`, and `outstanding_challenges` seeded into
 //! its nonce store.
 
-use super::{err, peek_token_aid_claim, trust_store_param, AdapterState};
+use super::{checked, err, peek_token_aid_claim, trust_store_param, AdapterState};
 use aitp_core::{base64url, Aid, Timestamp};
 use aitp_handshake::admission::{
     AdmissionError, ChallengeRateLimiter, ChallengeSource, InMemoryNonceStore, IssuedNonce,
@@ -187,7 +187,7 @@ pub(crate) fn verify_identity_presentation_op(
         Ok(h) => h,
         Err(e) => return err(id, "INVALID_REQUEST", &e),
     };
-    match ready(h.admission.admit_wire_at(envelope, &source, now)) {
+    match ready(h.admission.admit_wire_at(&checked(envelope), &source, now)) {
         Ok(a) => json!({"id": id, "ok": true, "result": {
             "admitted": true,
             "subject": a.subject,

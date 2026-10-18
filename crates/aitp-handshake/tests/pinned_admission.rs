@@ -84,7 +84,7 @@ async fn wire_round_trip() {
     let ch: aitp_handshake::admission::AdmissionChallenge =
         serde_json::from_value(serde_json::to_value(&ch).unwrap()).unwrap();
     let env = present_pinned(&subject_ed(), "w", &ch, NOW).unwrap();
-    let wire = serde_json::to_value(&env).unwrap();
+    let wire: aitp_core::CheckedJson = serde_json::to_string(&env).unwrap().parse().unwrap();
     assert_eq!(wire["message_type"], "identity_presentation");
     a.admit_wire_at(&wire, &src("p"), NOW).await.unwrap();
 }
@@ -681,10 +681,12 @@ async fn wire_replay_is_detected_before_structure() {
     let ch = a.challenge_at(&src("c"), NOW).await.unwrap();
     let env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
     let mut wire = serde_json::to_value(&env).unwrap();
-    a.admit_wire_at(&wire, &src("p"), NOW).await.unwrap();
+    let checked: aitp_core::CheckedJson = wire.to_string().parse().unwrap();
+    a.admit_wire_at(&checked, &src("p"), NOW).await.unwrap();
     wire["bogus"] = true.into();
+    let checked: aitp_core::CheckedJson = wire.to_string().parse().unwrap();
     assert_eq!(
-        code(&a.admit_wire_at(&wire, &src("p"), NOW).await.unwrap_err()),
+        code(&a.admit_wire_at(&checked, &src("p"), NOW).await.unwrap_err()),
         "REPLAY_DETECTED"
     );
 }

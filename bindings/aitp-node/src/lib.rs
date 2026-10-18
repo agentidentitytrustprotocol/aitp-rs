@@ -29,9 +29,10 @@ mod renewal;
 mod revocation;
 mod session;
 mod tct;
+mod wire;
 
 use aitp_core::Timestamp;
-use aitp_manifest::{verify_manifest, ManifestEnvelope, ManifestError, VerifyManifestContext};
+use aitp_manifest::{verify_manifest, ManifestError, VerifyManifestContext};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -62,8 +63,13 @@ fn manifest_verification_cause(err: &ManifestError) -> &'static str {
 /// On failure throws an `Error` whose **`code`** property is one of
 /// `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
 /// `version_unknown`, `identity_hint_malformed`,
-/// `incompatible_identity_type`, `malformed`. Branch on `error.code`, never
-/// on `error.message`: the code is the contract, the wording is not.
+/// `incompatible_identity_type`, `unknown_field`, `malformed`. Branch on
+/// `error.code`, never on `error.message`: the code is the contract, the
+/// wording is not.
+///
+/// The JSON goes through the hardened wire parser before verification: a
+/// duplicate key anywhere (RFC-AITP-0001 §5.4.5) is `malformed`, and a
+/// member outside the schema (RFC-AITP-0001 §7) is `unknown_field`.
 ///
 /// `nowUnixSecs` overrides the verification clock — omit it to use the
 /// system clock, or pass a pinned value in tests. Matches
@@ -74,10 +80,10 @@ pub fn verify_manifest_json(
     manifest_envelope_json: String,
     now_unix_secs: Option<i64>,
 ) -> Result<()> {
-    let envelope: ManifestEnvelope = serde_json::from_str(&manifest_envelope_json)
-        .map_err(|e| throw_with_code(env, "malformed", format!("invalid manifest JSON: {e}")))?;
+    let manifest = wire::manifest(&manifest_envelope_json)
+        .map_err(|e| throw_with_code(env, e.code(), format!("invalid manifest JSON: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&envelope.manifest, &VerifyManifestContext { now }).map_err(|e| {
+    verify_manifest(&manifest, &VerifyManifestContext { now }).map_err(|e| {
         throw_with_code(
             env,
             manifest_verification_cause(&e),

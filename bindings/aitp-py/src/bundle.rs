@@ -16,6 +16,7 @@ use pyo3::types::PyDict;
 use uuid::Uuid;
 
 use crate::agent::PyAitpAgent;
+use crate::wire;
 
 /// Revocation-check closure: maps a TCT `jti` to "is it revoked?".
 type RevocationFn = Box<dyn Fn(&Uuid) -> bool>;
@@ -125,7 +126,7 @@ pub fn verify_session_bundle_py<'py>(
     now_unix_secs: Option<i64>,
     revocation_check: Option<Py<PyAny>>,
 ) -> PyResult<Bound<'py, PyDict>> {
-    let envelope: SessionBundleEnvelope = serde_json::from_str(bundle_envelope_json)
+    let bundle = wire::session_bundle(bundle_envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid bundle envelope JSON: {e}")))?;
     let verifier = Aid::parse(verifier_aid)
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))?;
@@ -149,7 +150,7 @@ pub fn verify_session_bundle_py<'py>(
     });
 
     let outcome = verify_session_bundle(
-        &envelope.session_bundle,
+        &bundle,
         &VerifySessionBundleContext {
             verifier_aid: &verifier,
             now,

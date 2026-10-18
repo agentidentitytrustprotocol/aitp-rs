@@ -45,8 +45,8 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
     // Read it the way the adapter does: through the wire-form parser,
     // wrapped in the transport envelope.
     let wire = serde_json::json!({ "session_bundle": body });
-    let bundle =
-        parse_session_bundle_wire(&wire).expect("vendored bundle parses as valid wire form");
+    let bundle = parse_session_bundle_wire(&checked(&wire))
+        .expect("vendored bundle parses as valid wire form");
 
     let verifier_aid = participant_aid();
     let ctx = aitp_session_bundle::VerifySessionBundleContext {
@@ -64,4 +64,10 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
         }
         other => panic!("vendored kat-keypair-001 bundle must verify clean, got {other:?}"),
     }
+}
+
+/// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+/// constructor (a `Value` has no duplicate key, so this cannot fail).
+fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+    v.to_string().parse().expect("valid JSON")
 }

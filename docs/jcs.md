@@ -42,18 +42,21 @@ silently kept the last of any duplicate keys. `JcsError::DuplicateKey` is
 never constructed. Duplicates are rejected earlier, from the raw bytes, by
 `aitp_core::reject_duplicate_keys` (`crates/aitp-core/src/unknown_field.rs`).
 That check runs at the wire-parse entry points, before any `Value`
-exists:
+exists. Every `parse_*_wire` function takes an `aitp_core::CheckedJson`,
+whose only constructors (`from_slice`, `FromStr`) run the check, so a
+caller cannot reach those parsers with unchecked input:
 
 - the JWS claim parsers in `aitp-tct` and `aitp-delegation`
 - HTTP request and response parsing in `aitp-transport-http`
 - the session-bundle builder, on each participant TCT's claims
 - the NDJSON adapter
+- the Node and Python bindings' manifest, revocation, session-bundle and
+  handshake-envelope entry points (`bindings/*/src/wire.rs`,
+  [#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152))
 
 [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts)
-requires this check for JWS payloads. The language bindings reach it for TCT
-claims (they call `aitp_tct::verify_tct`), but their manifest, revocation,
-bundle and envelope entry points bypass the hardened wire parsers
-([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
+requires this check for JWS payloads. The language bindings also reach it
+for TCT claims, because they call `aitp_tct::verify_tct`.
 
 ## Strategy: depend on `serde_jcs`, vet with test vectors
 

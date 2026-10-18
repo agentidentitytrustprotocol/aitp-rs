@@ -21,7 +21,7 @@
 //! the actual 32 bytes that get fed into Ed25519.
 
 use crate::jcs;
-use crate::unknown_field::{check_members, from_serde_error};
+use crate::unknown_field::{check_members, from_serde_error, CheckedJson};
 use crate::{Aid, ExtensionsMap, Timestamp};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -120,6 +120,9 @@ pub enum EnvelopeParseError {
 /// Parse a raw wire-form JSON value into an [`AitpEnvelope`], enforcing
 /// RFC-AITP-0001 §7's member-set check before typed deserialization.
 ///
+/// Takes a [`CheckedJson`], so the RFC-AITP-0001 §5.4.5 duplicate-key
+/// check has necessarily already run on the original bytes.
+///
 /// Order of operations:
 /// 1. [`check_members`] against [`AITP_ENVELOPE_MEMBERS`] — rejects any
 ///    top-level member the schema does not declare, before anything else
@@ -130,7 +133,8 @@ pub enum EnvelopeParseError {
 ///    `deny_unknown_fields`), [`from_serde_error`] recovers the offending
 ///    field name so the caller can still report `UnknownField` rather
 ///    than a generic parse failure.
-pub fn parse_envelope_wire(value: &serde_json::Value) -> Result<AitpEnvelope, EnvelopeParseError> {
+pub fn parse_envelope_wire(value: &CheckedJson) -> Result<AitpEnvelope, EnvelopeParseError> {
+    let value = value.as_value();
     check_members("AitpEnvelope", value, AITP_ENVELOPE_MEMBERS)
         .map_err(|e| EnvelopeParseError::UnknownField(e.field))?;
     serde_json::from_value(value.clone()).map_err(|e| {
@@ -248,6 +252,12 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+    /// constructor (a `Value` has no duplicate key, so this cannot fail).
+    fn checked(v: &serde_json::Value) -> crate::CheckedJson {
+        v.to_string().parse().expect("valid JSON")
+    }
+
     fn sample_aid() -> Aid {
         Aid::from_ed25519(&[0u8; 32])
     }
@@ -330,7 +340,7 @@ mod tests {
     fn parse_envelope_wire_rejects_unknown_top_level_sibling() {
         let mut v = serde_json::to_value(sample_envelope(MessageType::MutualHello)).unwrap();
         v.as_object_mut().unwrap().insert("rogue".into(), json!(1));
-        let err = parse_envelope_wire(&v).unwrap_err();
+        let err = parse_envelope_wire(&checked(&v)).unwrap_err();
         assert_eq!(err, EnvelopeParseError::UnknownField("rogue".into()));
     }
 
@@ -341,7 +351,8 @@ mod tests {
             "extensions".into(),
             json!({"junk_key_of_any_shape": {"deeply": {"nested": true}}}),
         );
-        let env = parse_envelope_wire(&v).expect("junk inside extensions must be ignored");
+        let env =
+            parse_envelope_wire(&checked(&v)).expect("junk inside extensions must be ignored");
         assert!(env.extensions.is_some());
     }
 
@@ -356,7 +367,7 @@ mod tests {
             "payload": {},
             "signature": "A".repeat(86),
         });
-        let err = parse_envelope_wire(&bad).unwrap_err();
+        let err = parse_envelope_wire(&checked(&bad)).unwrap_err();
         assert_eq!(err, EnvelopeParseError::UnknownField("rogue".into()));
     }
 
@@ -371,43 +382,34 @@ mod tests {
             "payload": {},
             "signature": "A".repeat(86),
         });
-        let err = parse_envelope_wire(&bad).unwrap_err();
+        let err = parse_envelope_wire(&checked(&bad)).unwrap_err();
         assert!(
             matches!(err, EnvelopeParseError::Malformed(_)),
             "got: {err:?}"
         );
     }
 
-    /// RFC-AITP-0001 §5.4.5 / issue #140: `parse_envelope_wire` takes a
-    /// `Value`, which cannot represent a duplicate key at all — by the
-    /// time a `Value` exists, the duplicate is already gone. This is the
-    /// empirical confirmation of the bug: a wire body with a duplicate
-    /// top-level `version` key silently deserializes clean via
-    /// `parse_envelope_wire`, exactly as it always used to for a bare
-    /// `serde_json::from_slice::<AitpEnvelope>`. It pins WHY every real
-    /// call site (`aitp-transport-http`'s `parse_envelope_request`,
-    /// `aitp`'s `interpret_aitp_envelope_response`) MUST run
-    /// [`crate::reject_duplicate_keys`] against the ORIGINAL bytes before
-    /// ever constructing the `Value` this function takes.
+    /// RFC-AITP-0001 §5.4.5 / issues #140, #146: a `Value` cannot
+    /// represent a duplicate key, so `parse_envelope_wire` takes a
+    /// [`CheckedJson`], whose only constructors run the raw-bytes
+    /// duplicate-key guard. A body with a duplicate top-level `version`
+    /// never becomes a `CheckedJson`, so it cannot reach the parser.
     #[test]
-    fn parse_envelope_wire_alone_cannot_see_a_duplicate_key_the_bytes_guard_must_run_first() {
+    fn a_duplicate_key_never_reaches_parse_envelope_wire() {
         let env = sample_envelope(MessageType::Tct);
         let good = serde_json::to_string(&env).unwrap();
         let needle = "\"version\":\"aitp/0.2\",";
         assert!(good.contains(needle), "fixture shape changed: {good}");
         let dup_bytes = good.replacen(needle, &format!("{needle}{needle}"), 1);
 
-        // The raw-bytes guard catches it...
-        let err = crate::reject_duplicate_keys(dup_bytes.as_bytes()).unwrap_err();
-        assert!(err.contains("duplicate field `version`"), "got: {err}");
-
-        // ...but `parse_envelope_wire` alone, given a `Value` already
-        // built from those same bytes, cannot: the duplicate is gone.
-        let value: serde_json::Value = serde_json::from_str(&dup_bytes).unwrap();
+        let err = CheckedJson::from_slice(dup_bytes.as_bytes()).unwrap_err();
         assert!(
-            parse_envelope_wire(&value).is_ok(),
-            "demonstrates why the raw-bytes guard must run before this, not after"
+            err.to_string().contains("duplicate field `version`"),
+            "got: {err}"
         );
+        // The same bytes without the duplicate do parse.
+        let clean: CheckedJson = good.parse().unwrap();
+        assert!(parse_envelope_wire(&checked(&clean)).is_ok());
     }
 
     #[test]
@@ -497,7 +499,7 @@ mod tests {
     #[test]
     fn non_v4_message_id_is_malformed() {
         let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
-        assert!(parse_envelope_wire(&good).is_ok());
+        assert!(parse_envelope_wire(&checked(&good)).is_ok());
         for bad in [
             "01890a5d-ac96-774b-bcce-b302099a8057",
             "770e8400-e29b-41d4-c716-446655440702",
@@ -508,7 +510,7 @@ mod tests {
             v["message_id"] = serde_json::json!(bad);
             assert!(
                 matches!(
-                    parse_envelope_wire(&v),
+                    parse_envelope_wire(&checked(&v)),
                     Err(EnvelopeParseError::Malformed(_))
                 ),
                 "{bad}"

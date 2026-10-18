@@ -3,7 +3,7 @@
 use crate::client_config::ClientConfig;
 use crate::net_guard::HostGuard;
 use crate::retry::RetryPolicy;
-use aitp_core::{reject_duplicate_keys, Aid, Timestamp};
+use aitp_core::{Aid, CheckedJson, Timestamp};
 use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
 use parking_lot::Mutex;
 use std::collections::HashMap;
@@ -346,12 +346,9 @@ impl ManifestFetcher {
         // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere
         // in the manifest response body MUST be rejected, against the
         // ORIGINAL bytes before a `Value` — last-write-wins on a
-        // duplicate key — is ever built.
-        if let Err(e) = reject_duplicate_keys(&body) {
-            return Err(FetchError::MalformedJson(e));
-        }
-        let value: serde_json::Value =
-            serde_json::from_slice(&body).map_err(|e| FetchError::MalformedJson(e.to_string()))?;
+        // duplicate key — is ever built. `CheckedJson` does both steps.
+        let value =
+            CheckedJson::from_slice(&body).map_err(|e| FetchError::MalformedJson(e.to_string()))?;
         // RFC-AITP-0003 §6.1: `/.well-known/aitp-manifest` MUST respond
         // with the `{"manifest": {...}}` transport wrapper specifically —
         // unlike `aitp_manifest::parse_manifest_wire`, which is
@@ -361,16 +358,16 @@ impl ManifestFetcher {
         // the wrapper is required here before handing off to the lenient
         // parser.
         let inner = match value.as_object() {
-            Some(obj) if obj.contains_key("manifest") => {
-                value.get("manifest").expect("checked contains_key above")
-            }
+            Some(obj) if obj.contains_key("manifest") => value
+                .member("manifest")
+                .expect("checked contains_key above"),
             _ => return Err(FetchError::MalformedWrapper),
         };
         // RFC-AITP-0001 §7 (issue #140): the member-set check MUST run
         // before any expiry/PoP/signature check (RFC-AITP-0003 §5 step 2).
         // Distinguish an unknown-member rejection from a generic malformed
         // body so callers can tell the two failure classes apart.
-        let manifest = aitp_manifest::parse_manifest_wire(inner).map_err(|e| match e {
+        let manifest = aitp_manifest::parse_manifest_wire(&inner).map_err(|e| match e {
             aitp_manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
             other => FetchError::MalformedJson(other.to_string()),
         })?;

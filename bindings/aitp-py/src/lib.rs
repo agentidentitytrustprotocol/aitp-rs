@@ -23,6 +23,7 @@ mod renewal;
 mod revocation;
 mod session;
 mod tct;
+mod wire;
 
 use pyo3::prelude::*;
 use pyo3::wrap_pyfunction;

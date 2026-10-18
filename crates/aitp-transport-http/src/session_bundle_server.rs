@@ -113,14 +113,8 @@ async fn store_bundle(State(store): State<BundleStore>, request: Request) -> Res
     // be rejected, against the ORIGINAL bytes before a `Value` — whose
     // map representation is last-write-wins on a duplicate key — is ever
     // built.
-    if let Err(e) = aitp_core::reject_duplicate_keys(&body) {
-        return (
-            StatusCode::BAD_REQUEST,
-            format!("malformed session bundle: {e}"),
-        )
-            .into_response();
-    }
-    let wire_value: serde_json::Value = match serde_json::from_slice(&body) {
+    // `CheckedJson::from_slice` runs that check before building the value.
+    let wire_value = match aitp_core::CheckedJson::from_slice(&body) {
         Ok(v) => v,
         Err(e) => {
             return (

@@ -13,8 +13,10 @@ use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
     MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp_manifest::{IdentityHintKind, Manifest, ManifestEnvelope};
+use aitp_manifest::{IdentityHintKind, Manifest};
 use aitp_tct::VerifiedTct;
 use napi::bindgen_prelude::*;
 use napi::Env;
@@ -23,6 +25,7 @@ use uuid::Uuid;
 
 use crate::helpers::{make_peer_config, NoOpJwksResolver};
 use crate::oidc::make_oidc_minter;
+use crate::wire;
 
 /// Per-session OIDC + trust-anchor context.
 pub struct SessionContext {
@@ -208,9 +211,7 @@ impl JsInitiatorSession {
         requested_grants: Vec<String>,
         oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<String> {
-        let ManifestEnvelope {
-            manifest: peer_manifest,
-        } = serde_json::from_str(&peer_manifest_json)
+        let peer_manifest = wire::manifest(&peer_manifest_json)
             .map_err(|e| Error::from_reason(format!("invalid peer manifest JSON: {e}")))?;
 
         let msg_id = Uuid::new_v4();
@@ -250,10 +251,15 @@ impl JsInitiatorSession {
         hello_ack_json: String,
         _session_id: String,
     ) -> Result<String> {
-        let envelope: AitpEnvelope = serde_json::from_str(&hello_ack_json)
+        let envelope: AitpEnvelope = wire::envelope(&hello_ack_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
-        let ack: MutualHelloAckPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| Error::from_reason(format!("invalid hello_ack payload: {e}")))?;
+        let ack: MutualHelloAckPayload = wire::check_payload(
+            &envelope,
+            "MutualHelloAckPayload",
+            MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| Error::from_reason(format!("invalid hello_ack payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -282,10 +288,15 @@ impl JsInitiatorSession {
     /// token plus its decoded claims) and the optional grant voucher.
     #[napi]
     pub fn complete(&mut self, commit_ack_json: String) -> Result<JsCompletedHandshake> {
-        let envelope: AitpEnvelope = serde_json::from_str(&commit_ack_json)
+        let envelope: AitpEnvelope = wire::envelope(&commit_ack_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
-        let ack: MutualCommitAckPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| Error::from_reason(format!("invalid commit_ack payload: {e}")))?;
+        let ack: MutualCommitAckPayload = wire::check_payload(
+            &envelope,
+            "MutualCommitAckPayload",
+            MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| Error::from_reason(format!("invalid commit_ack payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -348,10 +359,15 @@ impl JsResponderSession {
         hello_json: String,
         oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<JsHelloAckResult> {
-        let envelope: AitpEnvelope = serde_json::from_str(&hello_json)
+        let envelope: AitpEnvelope = wire::envelope(&hello_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
-        let hello: MutualHelloPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| Error::from_reason(format!("invalid hello payload: {e}")))?;
+        let hello: MutualHelloPayload = wire::check_payload(
+            &envelope,
+            "MutualHelloPayload",
+            MUTUAL_HELLO_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| Error::from_reason(format!("invalid hello payload: {e}")))?;
 
         let ack_msg_id = Uuid::new_v4();
         let ack_ts = Timestamp::now();
@@ -400,10 +416,15 @@ impl JsResponderSession {
     /// Process an incoming `MUTUAL_COMMIT` envelope.
     #[napi]
     pub fn process_commit(&mut self, commit_json: String) -> Result<JsCommitAckResult> {
-        let envelope: AitpEnvelope = serde_json::from_str(&commit_json)
+        let envelope: AitpEnvelope = wire::envelope(&commit_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
-        let commit: MutualCommitPayload = serde_json::from_value(envelope.payload.clone())
-            .map_err(|e| Error::from_reason(format!("invalid commit payload: {e}")))?;
+        let commit: MutualCommitPayload = wire::check_payload(
+            &envelope,
+            "MutualCommitPayload",
+            MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+        )
+        .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
+        .map_err(|e| Error::from_reason(format!("invalid commit payload: {e}")))?;
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(

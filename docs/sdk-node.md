@@ -212,11 +212,13 @@ try {
 - **Verification failures** throw an `Error` whose `code` is one of
   `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`,
   `version_unknown`, `identity_hint_malformed`,
-  `incompatible_identity_type` or `malformed`. Branch on `error.code`, not on
-  `error.message`.
-- **Unparseable JSON** also gives `malformed`.
-- **Unknown members** (the `UNKNOWN_FIELD` case) come back as `malformed`;
-  there is no separate code
+  `incompatible_identity_type`, `unknown_field` or `malformed`. Branch on
+  `error.code`, not on `error.message`.
+- **Unparseable JSON**, and JSON with a duplicate key anywhere
+  (RFC-AITP-0001 §5.4.5), gives `malformed`.
+- **Unknown members** (the `UNKNOWN_FIELD` case, RFC-AITP-0001 §7) give
+  `unknown_field`. The binding runs the same hardened wire parser as the
+  HTTP transport
   ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
 - **The optional second argument** `nowUnixSecs` overrides the verification
   clock.
@@ -247,8 +249,9 @@ const signedBytes = revocationSigningBytes(snapshot);   // Buffer: JCS of the in
 
 `verifyRevocationList(envelopeJson, expectedIssuerAid, nowUnixSecs?)` returns
 on success. On failure it throws an `Error` whose `code` is one of
-`signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired` or
-`malformed`. An invalid `expectedIssuerAid` throws with napi's generic `GenericFailure`
+`signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
+`unknown_field` (a member outside the schema) or `malformed` (including a
+duplicate JSON key). An invalid `expectedIssuerAid` throws with napi's generic `GenericFailure`
 code instead.
 
 The function checks only that the snapshot is authentic and has not expired.

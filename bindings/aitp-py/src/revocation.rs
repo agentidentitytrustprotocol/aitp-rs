@@ -18,12 +18,14 @@ use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{
     revocation_signing_bytes, sign_revocation_list, verify_revocation_list, RevocationEntry,
-    RevocationList, RevocationListEnvelope, TctError, VerifyRevocationListContext,
+    RevocationList, TctError, VerifyRevocationListContext,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
 use uuid::Uuid;
+
+use crate::wire;
 
 mod verification_error_type {
     use pyo3::create_exception;
@@ -40,7 +42,7 @@ mod verification_error_type {
         "A revocation snapshot failed verification.\n\n\
          Carries a stable machine-readable `code` attribute — one of \
          `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`, \
-         `malformed`. Branch on `code`, never on the message text: callers that \
+         `unknown_field`, `malformed`. Branch on `code`, never on the message text: callers that \
          string-match an exception message are pinning program output as an \
          expected value, which is the bug class the 0.5.0 signing-input change \
          exposed."
@@ -156,7 +158,9 @@ pub fn sign_revocation_list_py(
 /// Verify a `RevocationListEnvelope` JSON string against a pinned issuer.
 ///
 /// Returns `None` on success; raises `RevocationVerificationError` with a
-/// `.code` otherwise.
+/// `.code` otherwise. The JSON goes through the hardened wire parser first:
+/// a duplicate key anywhere (RFC-AITP-0001 §5.4.5) is `malformed`, and a
+/// member outside the schema (RFC-AITP-0001 §7) is `unknown_field`.
 ///
 /// Establishes **authenticity and non-expiry only**: that the snapshot was
 /// signed by the holder of `expected_issuer_aid` and that its `expires_at`
@@ -172,11 +176,8 @@ pub fn verify_revocation_list_py(
     expected_issuer_aid: &str,
     now_unix_secs: Option<i64>,
 ) -> PyResult<()> {
-    let envelope: RevocationListEnvelope = serde_json::from_str(envelope_json).map_err(|e| {
-        verification_error(
-            "malformed",
-            format!("invalid revocation envelope JSON: {e}"),
-        )
+    let envelope = wire::revocation_snapshot(envelope_json).map_err(|e| {
+        verification_error(e.code(), format!("invalid revocation envelope JSON: {e}"))
     })?;
     let expected = Aid::parse(expected_issuer_aid).map_err(|e| {
         // A bad AID is the caller's error, not the snapshot's — do not
@@ -203,7 +204,7 @@ pub fn verify_revocation_list_py(
 #[pyfunction]
 #[pyo3(name = "revocation_signing_bytes")]
 pub fn revocation_signing_bytes_py(py: Python<'_>, envelope_json: &str) -> PyResult<Py<PyBytes>> {
-    let envelope: RevocationListEnvelope = serde_json::from_str(envelope_json)
+    let envelope = wire::revocation_snapshot(envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid revocation envelope JSON: {e}")))?;
     let bytes = revocation_signing_bytes(&envelope.revocation_list)
         .map_err(|e| PyRuntimeError::new_err(format!("canonicalization failed: {e}")))?;

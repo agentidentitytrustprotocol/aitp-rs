@@ -168,8 +168,9 @@ pub fn sign_revocation_list(
 /// 4. Every `entries[].jti` is strict lowercase UUID v4, else
 ///    [`TctError::JtiNotV4`].
 pub fn parse_revocation_snapshot_wire(
-    value: &serde_json::Value,
+    value: &aitp_core::CheckedJson,
 ) -> Result<RevocationListEnvelope, TctError> {
+    let value = value.as_value();
     check_members("RevocationListEnvelope", value, REVOCATION_ENVELOPE_MEMBERS)
         .map_err(|e| TctError::UnknownField(e.field))?;
 
@@ -270,6 +271,12 @@ impl<'a> VerifyRevocationListContext<'a> {
 mod tests {
     use super::*;
     use aitp_crypto::AitpSigningKey;
+
+    /// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+    /// constructor (a `Value` has no duplicate key, so this cannot fail).
+    fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+        v.to_string().parse().expect("valid JSON")
+    }
 
     fn issuer_key() -> AitpSigningKey {
         AitpSigningKey::from_seed(&[0xA0; 32])
@@ -650,7 +657,7 @@ mod tests {
         ] {
             let mut value = serde_json::to_value(&env).unwrap();
             value["revocation_list"]["entries"][0]["jti"] = serde_json::json!(bad);
-            match parse_revocation_snapshot_wire(&value) {
+            match parse_revocation_snapshot_wire(&checked(&value)) {
                 Err(TctError::JtiNotV4(_)) => {}
                 other => panic!("{bad}: expected JtiNotV4, got {other:?}"),
             }
@@ -669,7 +676,7 @@ mod tests {
             .unwrap()
             .insert("rogue".into(), serde_json::json!("nope"));
 
-        match parse_revocation_snapshot_wire(&value) {
+        match parse_revocation_snapshot_wire(&checked(&value)) {
             Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
         }
@@ -689,7 +696,7 @@ mod tests {
             .unwrap()
             .insert("rogue".into(), serde_json::json!("nope"));
 
-        match parse_revocation_snapshot_wire(&value) {
+        match parse_revocation_snapshot_wire(&checked(&value)) {
             Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
         }
@@ -709,7 +716,7 @@ mod tests {
             .unwrap()
             .insert("rogue".into(), serde_json::json!("nope"));
 
-        match parse_revocation_snapshot_wire(&value) {
+        match parse_revocation_snapshot_wire(&checked(&value)) {
             Err(TctError::UnknownField(field)) => assert_eq!(field, "rogue"),
             other => panic!("expected UnknownField(\"rogue\"), got {other:?}"),
         }
@@ -730,7 +737,7 @@ mod tests {
         let env = sign_revocation_list(body, &key).unwrap();
         let value = serde_json::to_value(&env).unwrap();
 
-        let parsed = parse_revocation_snapshot_wire(&value)
+        let parsed = parse_revocation_snapshot_wire(&checked(&value))
             .expect("a snapshot with a declared `extensions` member must parse");
         let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&parsed, &ctx)
@@ -752,8 +759,8 @@ mod tests {
             "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
         );
 
-        let parsed =
-            parse_revocation_snapshot_wire(&value).expect("well-formed shape still parses");
+        let parsed = parse_revocation_snapshot_wire(&checked(&value))
+            .expect("well-formed shape still parses");
         let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
         assert!(
             matches!(
@@ -764,18 +771,13 @@ mod tests {
         );
     }
 
-    /// RFC-AITP-0001 §5.4.5 / issue #140: a duplicate key anywhere in the
-    /// wire body — including inside `revocation_list.entries[]` — is
-    /// unrecoverable once collapsed into a `serde_json::Value`, so every
-    /// real call site (the adapter, a `RevocationProvider::fetch`
-    /// implementation) MUST run [`aitp_core::reject_duplicate_keys`]
-    /// against the ORIGINAL bytes before ever building the `Value` that
-    /// `parse_revocation_snapshot_wire` takes. This pins that the
-    /// composed pipeline — raw bytes, then the duplicate-key guard, then
-    /// `Value`, then `parse_revocation_snapshot_wire` — actually rejects,
-    /// proving why the guard is necessary: `parse_revocation_snapshot_wire`
-    /// alone, given a `Value` built from these same bytes, could never
-    /// see the duplicate at all.
+    /// RFC-AITP-0001 §5.4.5 / issues #140, #146: a duplicate key anywhere
+    /// in the wire body — including inside `revocation_list.entries[]` —
+    /// is unrecoverable once collapsed into a `serde_json::Value`.
+    /// `parse_revocation_snapshot_wire` therefore takes a
+    /// [`aitp_core::CheckedJson`], whose only constructors run the
+    /// raw-bytes duplicate-key guard; this input never becomes one, so it
+    /// can never reach the parser.
     #[test]
     fn wire_bytes_with_duplicate_entry_member_are_rejected_before_a_value_ever_exists() {
         let key = issuer_key();
@@ -788,17 +790,10 @@ mod tests {
         assert!(good.contains(needle), "fixture shape changed: {good}");
         good = good.replacen(needle, &format!("{needle},{needle}"), 1);
 
-        let err = aitp_core::reject_duplicate_keys(good.as_bytes()).unwrap_err();
-        assert!(err.contains("duplicate field `revoked_at`"), "got: {err}");
-
-        // And confirm the negative: parsing straight to `Value` first (the
-        // pre-fix call-site shape) silently swallows the duplicate and
-        // sails through `parse_revocation_snapshot_wire` — this is the
-        // regression the guard exists to close.
-        let value: serde_json::Value = serde_json::from_str(&good).unwrap();
+        let err = aitp_core::CheckedJson::from_slice(good.as_bytes()).unwrap_err();
         assert!(
-            parse_revocation_snapshot_wire(&value).is_ok(),
-            "demonstrates why the raw-bytes guard must run before this, not after"
+            err.to_string().contains("duplicate field `revoked_at`"),
+            "got: {err}"
         );
     }
 

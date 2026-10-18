@@ -302,10 +302,35 @@ fn unknown_field_precedes_signature_check_via_parse_manifest_wire() {
     sig.push(if last == 'A' { 'B' } else { 'A' });
     obj.insert("signature".into(), serde_json::json!(sig));
 
-    let err = parse_manifest_wire(&value).unwrap_err();
+    let err = parse_manifest_wire(&checked(&value)).unwrap_err();
     assert!(
         matches!(err, ManifestError::UnknownField(ref f) if f == "deployment_region"),
         "expected UnknownField(\"deployment_region\"), got: {err:?}"
+    );
+}
+
+/// Issue #146: wire text goes `bytes -> CheckedJson -> parse_manifest_wire`.
+/// A duplicate top-level key is rejected at the first step (so it can
+/// never reach the parser); an unknown member passes it and is rejected
+/// by the parser as `UnknownField`.
+#[test]
+fn wire_text_duplicate_key_and_unknown_field_are_both_rejected() {
+    let m = build_alice_manifest_at(Timestamp(1_700_000_000));
+    let good = serde_json::to_string(&m).unwrap();
+    assert!(parse_manifest_wire(&good.parse().unwrap()).is_ok());
+
+    let dup = good.replacen('{', r#"{"version":"aitp/0.2","#, 1);
+    let err = dup.parse::<aitp_core::CheckedJson>().unwrap_err();
+    assert!(
+        err.to_string().contains("duplicate field `version`"),
+        "{err}"
+    );
+
+    let unknown = good.replacen('{', r#"{"deployment_region":"us-east-1","#, 1);
+    let err = parse_manifest_wire(&unknown.parse().unwrap()).unwrap_err();
+    assert!(
+        matches!(err, ManifestError::UnknownField(ref f) if f == "deployment_region"),
+        "{err:?}"
     );
 }
 
@@ -321,7 +346,8 @@ fn unknown_version_value_is_not_confused_with_unknown_field() {
     m.version = "aitp/9.9".into();
     let value = serde_json::to_value(&m).unwrap();
 
-    let parsed = parse_manifest_wire(&value).expect("known member with an unknown value parses");
+    let parsed =
+        parse_manifest_wire(&checked(&value)).expect("known member with an unknown value parses");
     let err = verify_manifest(&parsed, &VerifyManifestContext { now }).unwrap_err();
     assert!(matches!(err, ManifestError::VersionUnknown), "got: {err:?}");
 }
@@ -338,7 +364,8 @@ fn parse_manifest_wire_ignores_junk_key_inside_extensions() {
         "extensions".into(),
         serde_json::json!({"junk_key_of_any_shape": {"deeply": {"nested": true}}}),
     );
-    let parsed = parse_manifest_wire(&value).expect("junk key inside extensions must be ignored");
+    let parsed =
+        parse_manifest_wire(&checked(&value)).expect("junk key inside extensions must be ignored");
     assert!(parsed.extensions.is_some());
 }
 
@@ -350,7 +377,7 @@ fn parse_manifest_wire_accepts_the_transport_wrapper() {
     let now = Timestamp(1_700_000_000);
     let m = build_alice_manifest_at(now);
     let wrapped = serde_json::json!({ "manifest": m });
-    let parsed = parse_manifest_wire(&wrapped).expect("wrapped manifest parses");
+    let parsed = parse_manifest_wire(&checked(&wrapped)).expect("wrapped manifest parses");
     assert_eq!(parsed.aid, m.aid);
 }
 
@@ -362,7 +389,7 @@ fn parse_manifest_wire_rejects_unknown_sibling_of_the_wrapper() {
     let now = Timestamp(1_700_000_000);
     let m = build_alice_manifest_at(now);
     let wrapped = serde_json::json!({ "manifest": m, "rogue": 1 });
-    let err = parse_manifest_wire(&wrapped).unwrap_err();
+    let err = parse_manifest_wire(&checked(&wrapped)).unwrap_err();
     assert!(
         matches!(err, ManifestError::UnknownField(ref f) if f == "rogue"),
         "got: {err:?}"
@@ -386,7 +413,7 @@ fn parse_manifest_wire_accepts_accepted_signature_algorithms() {
         "accepted_signature_algorithms".into(),
         serde_json::json!(["ed25519"]),
     );
-    let parsed = parse_manifest_wire(&body)
+    let parsed = parse_manifest_wire(&checked(&body))
         .expect("accepted_signature_algorithms must not be misclassified as UNKNOWN_FIELD");
     assert_eq!(
         parsed.accepted_signature_algorithms,
@@ -412,7 +439,7 @@ fn parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field() {
     let mut body = serde_json::to_value(&m).unwrap();
     body.as_object_mut().unwrap().remove("handshake_endpoint");
 
-    let err = parse_manifest_wire(&body).unwrap_err();
+    let err = parse_manifest_wire(&checked(&body)).unwrap_err();
     assert!(
         matches!(err, ManifestError::Malformed(_)),
         "a manifest missing a required field must be Malformed, not {err:?}"
@@ -421,4 +448,10 @@ fn parse_manifest_wire_missing_required_field_is_malformed_not_unknown_field() {
         !matches!(err, ManifestError::UnknownField(_)),
         "a missing member is not an unknown one: got {err:?}"
     );
+}
+
+/// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+/// constructor (a `Value` has no duplicate key, so this cannot fail).
+fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+    v.to_string().parse().expect("valid JSON")
 }

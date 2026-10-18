@@ -88,7 +88,7 @@ fn committed_manifest_example_verifies_via_verify_manifest() {
         assert_eq!(si, "body", "Manifest examples sign the body");
     }
 
-    let manifest = parse_manifest_wire(&value)
+    let manifest = parse_manifest_wire(&checked(&value))
         .expect("committed example parses via the real wire-parsing entry point");
 
     // Fixture validity window is [1_711_900_000, 1_711_986_400) — same
@@ -246,7 +246,7 @@ fn committed_p256_manifest_example_verifies_and_double_hash_does_not() {
     let ctx = VerifyManifestContext {
         now: Timestamp(1_711_900_500),
     };
-    let manifest = parse_manifest_wire(&value).expect("parses");
+    let manifest = parse_manifest_wire(&checked(&value)).expect("parses");
     assert_eq!(manifest.aid, kat_keypair_aid("kat-keypair-005-p256"));
     verify_manifest(&manifest, &ctx).expect("committed P-256 manifest verifies as committed");
 
@@ -260,4 +260,10 @@ fn committed_p256_manifest_example_verifies_and_double_hash_does_not() {
         .unwrap()
         .into();
     assert!(verify_manifest(&pop_dh, &ctx).is_err());
+}
+
+/// Re-enter an in-memory `Value` through `CheckedJson`'s text-only
+/// constructor (a `Value` has no duplicate key, so this cannot fail).
+fn checked(v: &serde_json::Value) -> aitp_core::CheckedJson {
+    v.to_string().parse().expect("valid JSON")
 }

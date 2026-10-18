@@ -124,7 +124,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
 | `verifyDelegation(token, verifierAid, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
-| `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `malformed`) |
+| `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
 | `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |

@@ -5,9 +5,11 @@
 //! endpoint out of a peer's manifest.
 
 use aitp_core::Timestamp;
-use aitp_manifest::{verify_manifest, ManifestEnvelope, ManifestError, VerifyManifestContext};
+use aitp_manifest::{verify_manifest, ManifestError, VerifyManifestContext};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
+
+use crate::wire::{self, WireError};
 
 mod verification_error_type {
     use pyo3::create_exception;
@@ -25,7 +27,8 @@ mod verification_error_type {
          Carries a stable machine-readable `code` attribute — one of \
          `signature_invalid`, `pop_failed`, `aid_mismatch`, `expired`, \
          `version_unknown`, `identity_hint_malformed`, \
-         `incompatible_identity_type`, `malformed`. Branch on `code`, never \
+         `incompatible_identity_type`, `unknown_field`, `malformed`. Branch \
+         on `code`, never \
          on the message text: matching an exception message pins program \
          output as an expected value, which is the bug class the 0.5.0 \
          signing-input change exposed."
@@ -69,6 +72,11 @@ fn verification_error(code: &str, message: String) -> PyErr {
 ///
 /// On failure raises `ManifestVerificationError` with a stable `.code`.
 ///
+/// The JSON goes through the hardened wire parser first. A member outside
+/// the schema (RFC-AITP-0001 §7) raises `ManifestVerificationError` with
+/// `.code == "unknown_field"`; any other parse failure, including a
+/// duplicate key anywhere (RFC-AITP-0001 §5.4.5), raises `ValueError`.
+///
 /// `now_unix_secs` overrides the verification clock — omit it to use the
 /// system clock, or pass a pinned value in tests. Matches
 /// `verify_revocation_list`'s `now_unix_secs` parameter.
@@ -78,10 +86,14 @@ pub fn verify_manifest_json_py(
     manifest_envelope_json: &str,
     now_unix_secs: Option<i64>,
 ) -> PyResult<()> {
-    let envelope: ManifestEnvelope = serde_json::from_str(manifest_envelope_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid manifest JSON: {e}")))?;
+    let manifest = wire::manifest(manifest_envelope_json).map_err(|e| match e {
+        WireError::UnknownField(_) => {
+            verification_error(e.code(), format!("invalid manifest JSON: {e}"))
+        }
+        WireError::Malformed(_) => PyValueError::new_err(format!("invalid manifest JSON: {e}")),
+    })?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&envelope.manifest, &VerifyManifestContext { now }).map_err(|e| {
+    verify_manifest(&manifest, &VerifyManifestContext { now }).map_err(|e| {
         verification_error(
             verification_cause(&e),
             format!("manifest verification failed: {e}"),
