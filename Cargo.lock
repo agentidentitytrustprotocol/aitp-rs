@@ -233,6 +233,7 @@ version = "0.14.0"
 dependencies = [
  "aitp-core",
  "aitp-crypto",
+ "aitp-manifest",
  "aitp-tct",
  "hex",
  "serde",
@@ -240,6 +241,7 @@ dependencies = [
  "sha2",
  "thiserror",
  "tokio",
+ "url",
  "uuid",
 ]
 

@@ -53,6 +53,7 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
         verifier_aid: &verifier_aid,
         now: Timestamp(1_711_900_100),
         revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {

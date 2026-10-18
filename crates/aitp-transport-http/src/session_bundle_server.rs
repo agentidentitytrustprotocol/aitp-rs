@@ -13,13 +13,23 @@
 //! was delivered. The server therefore performs NO trust verification —
 //! it stores and serves envelopes verbatim.
 //!
+//! Only the wrapped `{"session_bundle": {…}}` transport envelope is
+//! accepted; a bare inner body is rejected with HTTP 400
+//! (`SESSION_BUNDLE_INVALID`, §4.3.1).
+//!
 //! Coordinators offering this endpoint MUST advertise its concrete URL
 //! in their Manifest `extensions` map under
-//! [`aitp_session_bundle::RFC_AITP_0010_BUNDLE_URI`]; participants that
-//! do not find that key MUST NOT probe these paths (§4.3.1 — the
-//! absence of the extension key is the discovery signal).
+//! [`aitp_session_bundle::RFC_AITP_0010_BUNDLE_URI`] — use
+//! [`SessionBundleServer::bundle_uri`] with
+//! [`aitp_session_bundle::advertise_bundle_uri`] when building the
+//! Manifest; participants read it back with
+//! [`aitp_session_bundle::bundle_uri_from_manifest`] and MUST NOT probe
+//! these paths when it is absent (§4.3.1 — the absence of the extension
+//! key is the discovery signal).
 
-use aitp_session_bundle::{parse_session_bundle_wire, SessionBundleEnvelope, SessionBundleError};
+use aitp_session_bundle::{
+    parse_session_bundle_envelope, SessionBundleEnvelope, SessionBundleError,
+};
 use axum::{
     body::to_bytes,
     extract::{Path, Request, State},
@@ -38,6 +48,10 @@ use uuid::Uuid;
 /// with dozens of participant TCTs is well under this; the cap rejects
 /// accidental large uploads.
 pub const MAX_BUNDLE_BYTES: usize = 512 * 1024;
+
+/// Path of the `POST` route (§4.3.1). The `GET` route is this path
+/// followed by `/{session_id}`.
+pub const SESSION_BUNDLE_PATH: &str = "/aitp/session/bundle";
 
 type BundleStore = Arc<Mutex<HashMap<Uuid, SessionBundleEnvelope>>>;
 
@@ -69,11 +83,19 @@ impl SessionBundleServer {
         self.bundles.lock().is_empty()
     }
 
+    /// The concrete bundle URL to advertise under
+    /// [`aitp_session_bundle::RFC_AITP_0010_BUNDLE_URI`] when this router
+    /// is mounted at the root of `origin` (e.g. `https://coord.example`
+    /// → `https://coord.example/aitp/session/bundle`).
+    pub fn bundle_uri(origin: &url::Url) -> Result<url::Url, url::ParseError> {
+        origin.join(SESSION_BUNDLE_PATH)
+    }
+
     /// The axum router for the two §4.3.1 routes. Mount under whatever
     /// prefix the advertised `bundle_uri` resolves to (usually `/`).
     pub fn router(self) -> Router {
         Router::new()
-            .route("/aitp/session/bundle", post(store_bundle))
+            .route(SESSION_BUNDLE_PATH, post(store_bundle))
             // axum 0.8 replaced the `:param` capture syntax with
             // `{param}` and panics at router-build time on the old form.
             .route("/aitp/session/bundle/{session_id}", get(fetch_bundle))
@@ -124,7 +146,9 @@ async fn store_bundle(State(store): State<BundleStore>, request: Request) -> Res
                 .into_response()
         }
     };
-    // Route through the same `parse_session_bundle_wire` discipline the
+    // `parse_session_bundle_envelope` requires the `{"session_bundle": …}`
+    // wrapper — a bare body is `SESSION_BUNDLE_INVALID` here (§4.3.1) —
+    // then applies the `parse_session_bundle_wire` discipline the
     // conformance adapter uses, so the live HTTP ingest also tells apart
     // the wrapper-level `SESSION_BUNDLE_INVALID` class (RFC-AITP-0010 §3
     // — e.g. `signature` sitting beside the wrapper) from the body-level
@@ -132,7 +156,7 @@ async fn store_bundle(State(store): State<BundleStore>, request: Request) -> Res
     // unrecognized member of the signed body). Before this, both classes
     // fell out of a bare `serde_json::from_slice` as an undifferentiated
     // "malformed" 400.
-    let bundle = match parse_session_bundle_wire(&wire_value) {
+    let bundle = match parse_session_bundle_envelope(&wire_value) {
         Ok(b) => b,
         Err(SessionBundleError::UnknownField(field)) => {
             return (
