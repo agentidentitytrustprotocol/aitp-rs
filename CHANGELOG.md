@@ -9,6 +9,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **0.16.0: single-hop delegation keys resolved from Manifests, and the
+  coordinator Manifest required for session bundles in the bindings.**
+  Spec pin `cfd2f16` → `ab214d2`. See
+  [`docs/upgrading-0.16.md`](docs/upgrading-0.16.md) for every change and
+  how to migrate.
+- **Single-hop delegation verifies under the issuer's Manifest key**
+  (RFC-AITP-0006 §4 step 1,
+  [#237](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/237),
+  [#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)).
+  `verify_delegation` needs the delegator's Manifest through
+  `VerifyDelegationContext::with_issuer_manifests` for every token, not
+  only for multi-hop chains. Without it the token fails with
+  `DelegationError::KeyResolutionFailed` (`KEY_RESOLUTION_FAILED`).
+  Python `verify_delegation(token, verifier_aid, issuer_manifests,
+  revoked_jtis=None)` and Node `verifyDelegation(token, verifierAid,
+  issuerManifests, revokedJtis?)` take the Manifests as a required third
+  argument, so `revoked_jtis` / `revokedJtis` moves to fourth.
+- **The bindings and the conformance adapter require the coordinator
+  Manifest to verify a session bundle** (RFC-AITP-0010 §5 step 5,
+  [#238](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/238),
+  [#247](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/247)).
+  Python `verify_session_bundle(bundle_json, verifier_aid,
+  coordinator_manifest_json, now_unix_secs=None, revocation_check=None)`
+  and Node `verifySessionBundle(bundleJson, verifierAid,
+  coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` take it as a
+  required third argument. There is no AID-only fallback. Because a
+  Manifest is now always supplied, its `expires_at` caps every
+  participant TCT (RFC-AITP-0005 §10.4). Callers of the 0.15 no-Manifest
+  path never hit that check. The adapter reports a missing Manifest, or
+  one for another AID, as `KEY_RESOLUTION_FAILED`. The Rust API is
+  unchanged, and `CoordinatorKeySource::UnverifiedAidDangerous` stays.
+
+### Added
+
+- Python `DelegationVerified.cnf_jkt`, the delegatee's `cnf.jkt`. Node
+  already called it `cnfJkt`
+  ([#240](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/240),
+  [#244](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/244)).
+- The new spec fixture `del-mh-005` passes, and `bundle-007` now runs and
+  passes
+  ([#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246),
+  [#247](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/247)).
+
+### Changed
+
+- The spec pin moves to `55bafe0`, whose delegation fixtures carry
+  `input.issuer_manifests`
+  ([#239](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/239),
+  [#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)),
+  and then to `ab214d2`
+  ([#248](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/248)).
+  `ab214d2` is a text-only v0.2 erratum to RFC-AITP-0001 §5.4. The
+  `aitp/0.2` envelope signing input covers only `message_id`,
+  `timestamp`, `sender.agent_id` and `payload`. Receivers MUST NOT treat
+  `version`, `message_type` or `extensions` as sender-authenticated, and
+  MUST NOT base a trust decision on envelope `extensions`. `aitp-rs`
+  already complies, so no code changed.
+- The conformance adapter no longer synthesizes stand-in Manifests for
+  the delegation fixtures. The fixtures' `issuer_manifests` are its only
+  source
+  ([#239](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/239),
+  [#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)).
+- `SubprocessAdapter` turns a per-request `OP_NOT_SUPPORTED` into a SKIP,
+  as `InProcessAdapter` already did. A skipped required fixture still
+  fails the gate
+  ([#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)).
+
+### Deprecated
+
+- Python `DelegationVerified.cnf`. It still returns the thumbprint but
+  emits a `DeprecationWarning`. Use `cnf_jkt`
+  ([#244](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/244)).
+
+### Security
+
+- Single-hop delegation tokens are verified under the key the issuer's
+  verified Manifest designates. A delegator with no valid Manifest is
+  rejected
+  ([#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)).
+- The bindings can no longer verify a session bundle without the
+  coordinator's verified Manifest
+  ([#247](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/247)).
+
+## [0.15.0] — 2026-10-18
+
+### BREAKING
+
 - **0.15.0: checked wire JSON, ListRevoked by default, RFC-AITP-0009 §3.1
   handshake defaults, the RFC-AITP-0010 §5 session-bundle order,
   Manifest-resolved multi-hop keys, hardened renewal and a v0.2
