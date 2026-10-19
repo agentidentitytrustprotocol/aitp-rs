@@ -116,11 +116,12 @@ class PyEndpoint:
         agent = aitp.AitpAgent.generate(suite=suite)
         return agent, agent.aid
 
-    def build_manifest(self, agent, display_name, endpoint, caps):
+    def build_manifest(self, agent, display_name, endpoint, caps, ttl_secs=None):
         return agent.build_manifest(
             display_name=display_name,
             handshake_endpoint=endpoint,
             offered_caps=caps,
+            ttl_secs=ttl_secs,
         )
 
     def new_session(self, agent, pinned_keys=None):
@@ -174,13 +175,14 @@ class NodeEndpoint:
         result = self._w.call("new_agent", suite=suite)
         return result["handle"], result["aid"]
 
-    def build_manifest(self, agent, display_name, endpoint, caps):
+    def build_manifest(self, agent, display_name, endpoint, caps, ttl_secs=None):
         return self._w.call(
             "build_manifest",
             agent=agent,
             display_name=display_name,
             handshake_endpoint=endpoint,
             offered_caps=caps,
+            ttl_secs=ttl_secs,
         )["manifest"]
 
     def new_session(self, agent, pinned_keys=None):
@@ -709,8 +711,14 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     py_part, py_part_aid = py.new_agent()
     nd_part_handle, nd_part_aid = nd.new_agent()
 
+    # The coordinator Manifest's expires_at caps every participant TCT
+    # (RFC-AITP-0005 §10.4); outlive the 1 h TCTs issued below.
     coord_manifest = py.build_manifest(
-        coord, "coord", "http://localhost:9001/aitp/handshake/", ["session.member"]
+        coord,
+        "coord",
+        "http://localhost:9001/aitp/handshake/",
+        ["session.member"],
+        ttl_secs=24 * 3600,
     )
     py.build_manifest(
         py_part, "py-part", "http://localhost:9002/aitp/handshake/", ["x"]
@@ -762,6 +770,7 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         "nd-coord",
         "http://localhost:9011/aitp/handshake/",
         ["session.member"],
+        ttl_secs=24 * 3600,
     )
 
     def handshake_to_nd_coord(py_or_nd_endpoint, part_handle, part_aid):

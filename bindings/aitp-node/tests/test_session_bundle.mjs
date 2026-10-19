@@ -32,6 +32,8 @@ function setup() {
     displayName: 'coordinator',
     handshakeEndpoint: 'http://localhost:9601/aitp/handshake/',
     offeredCaps: ['session.member'],
+    // Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
+    ttlSecs: 24 * 3600,
   });
   alice.buildManifest({
     displayName: 'alice',

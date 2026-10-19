@@ -45,6 +45,8 @@ def test_session_bundle_round_trip():
         display_name="coordinator",
         handshake_endpoint="http://localhost:9401/aitp/handshake/",
         offered_caps=["session.member"],
+        # Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
+        ttl_secs=24 * 3600,
     )
     alice.build_manifest(
         display_name="alice",
@@ -110,6 +112,8 @@ def test_session_bundle_revocation_drops_participant():
         display_name="coordinator",
         handshake_endpoint="http://localhost:9501/aitp/handshake/",
         offered_caps=["session.member"],
+        # Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
+        ttl_secs=24 * 3600,
     )
     alice.build_manifest(
         display_name="alice",

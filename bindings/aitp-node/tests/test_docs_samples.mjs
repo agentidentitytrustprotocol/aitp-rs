@@ -293,15 +293,22 @@ function multihop(ns) {
 
 function sessionBundle(ns) {
   // docs/sdk-node.md § Additional capabilities › Session Trust Bundle
-  const { alice, bob, bobManifest, carol, tctJws, carolTct, revoked } = ns;
+  const { alice, bob, carol, tctJws, carolTct, revoked } = ns;
   const bundle = new SessionBundleBuilder(bob)   // bob coordinates
     .sessionId(randomUUID())                     // optional; defaults to a fresh UUID
     .issuedAt(Math.floor(Date.now() / 1000))     // optional; defaults to now
     .participant(alice.aid, tctJws)              // TCTs bob issued to each member
     .participant(carol.aid, carolTct)
     .build();
-  // The coordinator's Manifest is required: it designates the key the
-  // bundle verifies under (RFC-AITP-0010 §5 step 5).
+  // The coordinator's current Manifest is required: it designates the key
+  // the bundle verifies under (RFC-AITP-0010 §5 step 5), and its expires_at
+  // must outlive every participant TCT (RFC-AITP-0005 §10.4).
+  const bobManifest = bob.buildManifest({
+    displayName: 'bob',
+    handshakeEndpoint: 'https://bob.example/aitp/handshake/',
+    offeredCaps: ['demo.echo'],
+    ttlSecs: 24 * 3600,
+  });
   const outcome = verifySessionBundle(bundle, alice.aid, bobManifest);
   console.log(outcome.kind);   // clear  (fields: kind, activeAids, droppedAids)
 

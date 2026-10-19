@@ -400,8 +400,15 @@ bundle = (
         .participant(carol.aid, carol_tct)
         .build()
 )
-# The coordinator's Manifest is required: it designates the key the
-# bundle verifies under (RFC-AITP-0010 §5 step 5).
+# The coordinator's current Manifest is required: it designates the key
+# the bundle verifies under (RFC-AITP-0010 §5 step 5), and its expires_at
+# must outlive every participant TCT (RFC-AITP-0005 §10.4).
+bob_manifest = bob.build_manifest(
+    display_name="bob",
+    handshake_endpoint="https://bob.example/aitp/handshake/",
+    offered_caps=["demo.echo"],
+    ttl_secs=24 * 3600,
+)
 outcome = aitp.verify_session_bundle(bundle, alice.aid, bob_manifest)
 print(outcome["kind"])   # clear  (keys: kind, active_aids, dropped_aids)
 

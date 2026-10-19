@@ -120,6 +120,7 @@ const methods = {
       displayName: p.display_name,
       handshakeEndpoint: p.handshake_endpoint,
       offeredCaps: p.offered_caps,
+      ttlSecs: p.ttl_secs ?? undefined,
     }),
   }),
 
