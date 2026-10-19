@@ -600,6 +600,9 @@ strict run, and passes 94 and skips 2 with all four features. See
 
 These are known gaps in 0.15.0, each tracked by an issue.
 
+> **Resolved in 0.16.0:** #237, #238, #239 and #240. See
+> [`upgrading-0.16.md`](upgrading-0.16.md).
+
 - **Single-hop delegation still uses the AID key**
   ([#237](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/237)).
   RFC-AITP-0006 §4 step 1 asks for the issuer key "resolved from that
