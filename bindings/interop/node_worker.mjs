@@ -370,7 +370,11 @@ const methods = {
   },
 
   verify_session_bundle: (p) => {
-    const outcome = verifySessionBundle(p.envelope, p.verifier_aid);
+    const outcome = verifySessionBundle(
+      p.envelope,
+      p.verifier_aid,
+      p.coordinator_manifest,
+    );
     return {
       kind: outcome.kind,
       active_aids: outcome.activeAids,

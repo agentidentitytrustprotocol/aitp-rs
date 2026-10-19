@@ -70,8 +70,8 @@ def test_session_bundle_round_trip():
     assert "session_bundle" in parsed
     assert parsed["session_bundle"]["coordinator"] == coord.aid
 
-    # Alice verifies her own membership.
-    outcome = aitp.verify_session_bundle(envelope, alice.aid)
+    # Alice verifies her own membership under the coordinator's Manifest.
+    outcome = aitp.verify_session_bundle(envelope, alice.aid, coord_manifest)
     assert outcome["kind"] == "clear"
     assert alice.aid in outcome["active_aids"]
     assert bob.aid in outcome["active_aids"]
@@ -80,7 +80,25 @@ def test_session_bundle_round_trip():
     # Non-member rejected.
     outsider = aitp.AitpAgent.generate()
     with pytest.raises(RuntimeError, match="bundle verification failed"):
-        aitp.verify_session_bundle(envelope, outsider.aid)
+        aitp.verify_session_bundle(envelope, outsider.aid, coord_manifest)
+
+    # RFC-AITP-0010 §5 step 5 (#238): the coordinator Manifest is
+    # mandatory; there is no AID-only fallback.
+    with pytest.raises(TypeError):
+        aitp.verify_session_bundle(envelope, alice.aid)
+
+    # A Manifest for another AID resolves no coordinator key.
+    other_manifest = outsider.build_manifest(
+        display_name="outsider",
+        handshake_endpoint="http://localhost:9404/aitp/handshake/",
+        offered_caps=["x"],
+    )
+    with pytest.raises(RuntimeError, match="coordinator manifest aid"):
+        aitp.verify_session_bundle(envelope, alice.aid, other_manifest)
+
+    # A malformed Manifest is a ValueError.
+    with pytest.raises(ValueError, match="invalid coordinator manifest JSON"):
+        aitp.verify_session_bundle(envelope, alice.aid, "{}")
 
 
 def test_session_bundle_revocation_drops_participant():
@@ -118,6 +136,7 @@ def test_session_bundle_revocation_drops_participant():
     outcome = aitp.verify_session_bundle(
         envelope,
         alice.aid,
+        coord_manifest,
         revocation_check=lambda jti: jti == revoked_jti,
     )
     assert outcome["kind"] == "degraded"

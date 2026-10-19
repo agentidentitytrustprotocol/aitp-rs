@@ -313,6 +313,7 @@ def _multihop(ns):
 def _session_bundle(ns):
     # docs/sdk-python.md § Additional capabilities › Session Trust Bundle
     alice, bob, carol = ns.alice, ns.bob, ns.carol
+    bob_manifest = ns.bob_manifest
     tct_jws, carol_tct, revoked = ns.tct_jws, ns.carol_tct, ns.revoked
     bundle = (
         aitp.SessionBundleBuilder(bob)              # bob coordinates
@@ -322,11 +323,13 @@ def _session_bundle(ns):
             .participant(carol.aid, carol_tct)
             .build()
     )
-    outcome = aitp.verify_session_bundle(bundle, alice.aid)
+    # The coordinator's Manifest is required: it designates the key the
+    # bundle verifies under (RFC-AITP-0010 §5 step 5).
+    outcome = aitp.verify_session_bundle(bundle, alice.aid, bob_manifest)
     print(outcome["kind"])   # clear  (keys: kind, active_aids, dropped_aids)
 
     outcome = aitp.verify_session_bundle(
-        bundle, alice.aid, revocation_check=lambda jti: jti in revoked,
+        bundle, alice.aid, bob_manifest, revocation_check=lambda jti: jti in revoked,
     )
     return _ns(ns, locals())
 

@@ -381,17 +381,18 @@ class SessionBundleBuilder:
 def verify_session_bundle(
     bundle_envelope_json: str,
     verifier_aid: str,
+    coordinator_manifest_json: str,
     now_unix_secs: Optional[int] = ...,
     revocation_check: Optional[Callable[[str], bool]] = ...,
-    coordinator_manifest_json: Optional[str] = ...,
 ) -> dict:
     """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
     "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default).
 
-    `coordinator_manifest_json` (the coordinator's `ManifestEnvelope`
-    JSON) is verified and supplies the coordinator key (RFC-AITP-0010 §5
-    step 5); when omitted the key is derived from the bundle's
-    `coordinator` AID alone."""
+    `coordinator_manifest_json` (required; the coordinator's
+    `ManifestEnvelope` JSON) is verified, must designate the bundle's
+    `coordinator`, and supplies the coordinator key (RFC-AITP-0010 §5
+    step 5). There is no AID-only fallback. Raises `RuntimeError` when
+    it names another AID, `ValueError` when it is malformed."""
     ...
 
 # ── spki-pinning (Cargo feature) ────────────────────────────────

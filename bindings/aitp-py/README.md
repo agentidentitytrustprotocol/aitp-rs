@@ -112,7 +112,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
 | `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
 | `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `build_renewal_request(current_tct_token)`; `process_renewal_request` returns `{"tct", "grant_voucher"}` JSON |
-| `SessionBundleBuilder`, `verify_session_bundle()` | `session-bundle` | RFC-AITP-0010 |
+| `SessionBundleBuilder`, `verify_session_bundle(json, verifier_aid, coordinator_manifest_json, ...)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinator_manifest_json` required) |
 | `compute_spki_hash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verify_delegation_multihop()` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 

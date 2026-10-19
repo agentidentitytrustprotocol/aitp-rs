@@ -402,14 +402,20 @@ const bundle = new SessionBundleBuilder(bob)   // bob coordinates
   .participant(alice.aid, tctJws)              // TCTs bob issued to each member
   .participant(carol.aid, carolTct)
   .build();
-const outcome = verifySessionBundle(bundle, alice.aid);
+// The coordinator's Manifest is required: it designates the key the
+// bundle verifies under (RFC-AITP-0010 §5 step 5).
+const outcome = verifySessionBundle(bundle, alice.aid, bobManifest);
 console.log(outcome.kind);   // clear  (fields: kind, activeAids, droppedAids)
 
-const checked = verifySessionBundle(bundle, alice.aid, null, (jti) => revoked.includes(jti));
+const checked = verifySessionBundle(bundle, alice.aid, bobManifest, null, (jti) => revoked.includes(jti));
 ```
 
-`verifySessionBundle(bundleEnvelopeJson, verifierAid, nowUnixSecs?, revocationCheck?)`
+`verifySessionBundle(bundleEnvelopeJson, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)`
 returns `{ kind: 'clear' | 'degraded', activeAids, droppedAids }`.
+`coordinatorManifestJson` is required: the coordinator's `{"manifest": …}`
+envelope is verified, must designate the bundle's `coordinator`, and supplies
+the coordinator key (RFC-AITP-0010 §5 step 5). There is no AID-only fallback;
+a Manifest for another AID throws.
 `revocationCheck` is called with each participant TCT's `jti` and returns
 `true` if that TCT is revoked. See [session-bundle.md](session-bundle.md).
 

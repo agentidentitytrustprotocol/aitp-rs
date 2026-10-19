@@ -607,10 +607,10 @@ export declare function verifyRevocationList(envelopeJson: string, expectedIssue
 /**
  * Verify a `SessionBundleEnvelope` JSON. `nowUnixSecs` defaults to
  * the system clock. `revocationCheck` receives a JTI string and
- * returns true if revoked. `coordinatorManifestJson` is the
- * coordinator's `ManifestEnvelope` JSON: when supplied it is verified
- * and the coordinator key is resolved from it (RFC-AITP-0010 §5 step
- * 5); when omitted the key is derived from the bundle's `coordinator`
- * AID alone, which skips that step.
+ * returns true if revoked. `coordinatorManifestJson` (required) is the
+ * coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
+ * §5), must designate the bundle's `coordinator`, and the coordinator
+ * key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
+ * AID-only fallback.
  */
-export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null, coordinatorManifestJson?: string | undefined | null): JsBundleOutcome
+export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null): JsBundleOutcome
