@@ -147,7 +147,7 @@ Stateless operations on fully-formed AITP objects.
 | `verify_handshake_payload` | Verify a single handshake message payload (`id-*` / `mh-*` fixtures). |
 | `verify_jcs` | Compute JCS canonical form (return hex). |
 | `compute_jwk_thumbprint` | Compute thumbprint of a pubkey. |
-| `verify_session_bundle` | Verify a Session Trust Bundle (draft, `experimental-session-bundle`). |
+| `verify_session_bundle` | Verify a Session Trust Bundle (draft, `experimental-session-bundle`). Requires `coordinator_manifest`; a missing Manifest or one for another AID is `KEY_RESOLUTION_FAILED` (RFC-AITP-0010 §5 step 5). |
 | `verify_attestation` | Verify a self-attestation outside a grant context (RFC-AITP-0005 §5.3, extension `aitp-self-attestation`). The issuer must be in the step's `trust_store`. |
 
 Tier A handles the majority of fixture types.
@@ -397,11 +397,11 @@ here.
 |---|---|---|---|
 | `core`, `required_for_v0_2: true` | 74 | 74 PASS | 73 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
-| `draft`: session bundle (`experimental-session-bundle`) | 7 | SKIP | 6 PASS, 1 SKIP (`bundle-007`) |
+| `draft`: session bundle (`experimental-session-bundle`) | 7 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 5 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
-| **Total** | **98** | **75 pass / 0 fail / 23 skip** | **95 pass / 0 fail / 3 skip** |
+| **Total** | **98** | **75 pass / 0 fail / 23 skip** | **96 pass / 0 fail / 2 skip** |
 
 Why the skips look the way they do:
 
@@ -417,12 +417,6 @@ Why the skips look the way they do:
   error code to feature is `negated_by_feature` in
   `crates/aitp-conformance/src/runner/executor.rs`. This is intended
   behaviour, not a gap.
-- **With `--feature experimental-session-bundle`.** `bundle-007` expects
-  `KEY_RESOLUTION_FAILED` when the supplied `coordinator_manifest` does not
-  designate the bundle's coordinator (RFC-AITP-0010 §5 step 5). The adapter
-  does not resolve the coordinator key from that Manifest yet, so it answers
-  `OP_NOT_SUPPORTED` and the runner skips the fixture. This is a known gap,
-  tracked in #238.
 
 Reproduce. The fixture path assumes a sibling checkout of the spec repo at
 the pinned commit:
@@ -434,7 +428,7 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 95 pass / 0 fail / 3 skip at the pin.
+# Opt-in (draft RFCs and extensions): 96 pass / 0 fail / 2 skip at the pin.
 # The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
@@ -498,7 +492,7 @@ is set, as explained above.
 | Revocation snapshot unknown members: RFC-AITP-0008 §1.5, RFC-AITP-0001 §7 | `rev-005`, `rev-006` |
 | Revocation snapshot structural validation: RFC-AITP-0008 §1.5 | `rev-007`, `rev-008` |
 | Delegation (voucher-based): RFC-AITP-0006 | `del-001`, `del-003`, `del-005`, `del-006`, `del-007`; `del-004` (v0.1 shape) |
-| Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-006` |
+| Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-007` |
 | Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-004` |
 
 The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md).

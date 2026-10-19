@@ -129,7 +129,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
 | `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
 | `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` → `{ tct, grantVoucher? }` |
-| `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010 |
+| `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 

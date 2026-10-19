@@ -120,6 +120,7 @@ const methods = {
       displayName: p.display_name,
       handshakeEndpoint: p.handshake_endpoint,
       offeredCaps: p.offered_caps,
+      ttlSecs: p.ttl_secs ?? undefined,
     }),
   }),
 
@@ -370,7 +371,11 @@ const methods = {
   },
 
   verify_session_bundle: (p) => {
-    const outcome = verifySessionBundle(p.envelope, p.verifier_aid);
+    const outcome = verifySessionBundle(
+      p.envelope,
+      p.verifier_aid,
+      p.coordinator_manifest,
+    );
     return {
       kind: outcome.kind,
       active_aids: outcome.activeAids,

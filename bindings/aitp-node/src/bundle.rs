@@ -114,26 +114,23 @@ impl SessionBundleBuilderJs {
 
 /// Verify a `SessionBundleEnvelope` JSON. `nowUnixSecs` defaults to
 /// the system clock. `revocationCheck` receives a JTI string and
-/// returns true if revoked. `coordinatorManifestJson` is the
-/// coordinator's `ManifestEnvelope` JSON: when supplied it is verified
-/// and the coordinator key is resolved from it (RFC-AITP-0010 §5 step
-/// 5); when omitted the key is derived from the bundle's `coordinator`
-/// AID alone, which skips that step.
+/// returns true if revoked. `coordinatorManifestJson` (required) is the
+/// coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
+/// §5), must designate the bundle's `coordinator`, and the coordinator
+/// key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
+/// AID-only fallback.
 #[napi(js_name = "verifySessionBundle")]
 pub fn verify_session_bundle_js(
     env: Env,
     bundle_envelope_json: String,
     verifier_aid: String,
+    coordinator_manifest_json: String,
     now_unix_secs: Option<i64>,
     revocation_check: Option<FunctionRef<String, bool>>,
-    coordinator_manifest_json: Option<String>,
 ) -> Result<JsBundleOutcome> {
     let bundle = wire::session_bundle(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
-    let coordinator_manifest = coordinator_manifest_json
-        .as_deref()
-        .map(wire::manifest)
-        .transpose()
+    let coordinator_manifest = wire::manifest(&coordinator_manifest_json)
         .map_err(|e| Error::from_reason(format!("invalid coordinator manifest JSON: {e}")))?;
     let verifier = Aid::parse(&verifier_aid)
         .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
@@ -163,10 +160,7 @@ pub fn verify_session_bundle_js(
             verifier_aid: &verifier,
             now,
             revocation_check: closure.as_deref(),
-            coordinator_key: match &coordinator_manifest {
-                Some(m) => CoordinatorKeySource::Manifest(m),
-                None => CoordinatorKeySource::UnverifiedAidDangerous,
-            },
+            coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
         },
     )
     .map_err(|e| Error::from_reason(format!("bundle verification failed: {e}")))?;

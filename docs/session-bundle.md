@@ -69,11 +69,14 @@ with the adapter's error code for each (`bundle_error_code` in
      re-verified with `aitp_manifest::verify_manifest` → `CoordinatorManifest(_)`
      (the Manifest's own error code, e.g. `MANIFEST_EXPIRED`), must have
      `m.aid == coordinator` → `CoordinatorManifestMismatch`
-     (`SESSION_BUNDLE_INVALID`), and the signing key is resolved from `m.aid`.
+     (`KEY_RESOLUTION_FAILED`, RFC-AITP-0007 §1), and the signing key is
+     resolved from `m.aid`.
      `m.expires_at` also caps every participant TCT in step 7.
    - `CoordinatorKeySource::UnverifiedAidDangerous` — skips step 5 and derives
      the key from the `aid:pubkey` coordinator AID alone; the coordinator's
-     Manifest expiry and rotation state are not consulted.
+     Manifest expiry and rotation state are not consulted. Not §5 step 5
+     conformant; kept for offline callers that pin the coordinator out of
+     band. The conformance adapter and the language bindings never use it.
 6. Coordinator signature → `InvalidSignature` (`BUNDLE_INVALID_SIGNATURE`).
 7. For each entry, `verify_tct` with issuer pinned to `coordinator` and
    audience pinned to `entry.aid`: `CoordinatorIssuerMismatch`,
@@ -103,9 +106,10 @@ only when a coordinator Manifest is supplied.
 - **The coordinator Manifest is caller-supplied.** The sync verifier does not
   fetch it; fetch it yourself (e.g. `ManifestFetcher::fetch`) and pass
   `CoordinatorKeySource::Manifest`. The conformance adapter and the language
-  bindings take it as an optional argument (`coordinator_manifest` /
-  `coordinator_manifest_json`) and fall back to the AID-only path when it is
-  omitted.
+  bindings require it (`coordinator_manifest` in the adapter,
+  `coordinator_manifest_json` / `coordinatorManifestJson` in Python / Node)
+  and have no AID-only fallback: the adapter reports a missing Manifest as
+  `KEY_RESOLUTION_FAILED`.
 - **No client reads `bundle_uri` for you.** `bundle_uri_from_manifest` returns
   the advertised URL; posting to it is up to the caller.
 - **No `session_id` replay tracking.** RFC-AITP-0010 §10 says consumers MUST
@@ -134,11 +138,13 @@ bundle_json = b.build()        # expires_at auto-set to min(member expiries)
 ```
 
 ```js
-// Participant (Node) verifies the bundle naming its own AID:
-const outcome = verifySessionBundle(bundleJson, myAid);   // `session-bundle` feature
+// Participant (Node) verifies the bundle naming its own AID, under the
+// key the coordinator's Manifest designates (`{"manifest": …}` JSON,
+// required; RFC-AITP-0010 §5 step 5):
+const outcome = verifySessionBundle(bundleJson, myAid, coordinatorManifestJson);   // `session-bundle` feature
 // outcome = { kind: "clear" | "degraded", activeAids, droppedAids }
-// Throws on NotMember / ExpiryWindowInvariant / bad coordinator signature /
-// any embedded TCT failing verification.
+// Throws on a Manifest for another AID / NotMember / ExpiryWindowInvariant /
+// bad coordinator signature / any embedded TCT failing verification.
 ```
 
 The cross-language `test_session_bundle_python_coordinator_node_verifier`

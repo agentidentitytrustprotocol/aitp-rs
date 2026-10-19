@@ -452,6 +452,7 @@ mod session_bundle_wire_shape {
                 "session_bundle": { "session_bundle": body },
                 "verifier_aid": participant().aid().to_string(),
                 "now": NOW + 100,
+                "coordinator_manifest": manifest_envelope(&coordinator(), 24 * 3600),
             }),
         );
         assert_eq!(
@@ -531,8 +532,9 @@ mod session_bundle_wire_shape {
         serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
     }
 
-    /// RFC-AITP-0010 §5 step 5 (issue #197): an optional
-    /// `coordinator_manifest` is verified and must be the coordinator's.
+    /// RFC-AITP-0010 §5 step 5 (issues #197, #238): the
+    /// `coordinator_manifest` is required, verified, and must be the
+    /// coordinator's.
     #[test]
     fn coordinator_manifest_is_verified() {
         let mut state = AdapterState::default();
@@ -554,15 +556,40 @@ mod session_bundle_wire_shape {
         let ok = verify(&mut state, manifest_envelope(&coordinator(), 24 * 3600));
         assert_eq!(ok["ok"], json!(true), "got {ok}");
 
-        // TODO(#238): KEY_RESOLUTION_FAILED (bundle-007). Until the
-        // coordinator key is resolved from the Manifest, a Manifest for
-        // another AID is reported unsupported so the runner skips it.
+        // The bare Manifest body (the `bundle-*` fixtures' shape) is
+        // accepted as well as the `{"manifest": …}` envelope.
+        let bare = manifest_envelope(&coordinator(), 24 * 3600)["manifest"].clone();
+        let ok = verify(&mut state, bare);
+        assert_eq!(ok["ok"], json!(true), "got {ok}");
+
+        // bundle-007: a Manifest for another AID resolves no coordinator
+        // key (RFC-AITP-0007 §1).
         let other = AitpSigningKey::from_seed(&[0x77; 32]);
         let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
-        assert_err(&resp, "v", "OP_NOT_SUPPORTED");
+        assert_err(&resp, "v", "KEY_RESOLUTION_FAILED");
 
         let resp = verify(&mut state, manifest_envelope(&coordinator(), 50));
         assert_err(&resp, "v", "MANIFEST_EXPIRED");
+    }
+
+    /// #238: there is no AID-only fallback. A bundle that would verify
+    /// under the coordinator's AID is still rejected without its
+    /// Manifest, as KEY_RESOLUTION_FAILED (RFC-AITP-0010 §5 step 5).
+    #[test]
+    fn missing_coordinator_manifest_is_key_resolution_failed() {
+        let mut state = AdapterState::default();
+        let body = issue_bundle(&mut state);
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_session_bundle",
+            json!({
+                "session_bundle": { "session_bundle": body },
+                "verifier_aid": participant().aid().to_string(),
+                "now": NOW + 100,
+            }),
+        );
+        assert_err(&resp, "v", "KEY_RESOLUTION_FAILED");
     }
 }
 

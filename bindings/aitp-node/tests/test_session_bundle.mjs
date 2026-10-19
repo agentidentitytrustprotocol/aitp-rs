@@ -32,6 +32,8 @@ function setup() {
     displayName: 'coordinator',
     handshakeEndpoint: 'http://localhost:9601/aitp/handshake/',
     offeredCaps: ['session.member'],
+    // Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
+    ttlSecs: 24 * 3600,
   });
   alice.buildManifest({
     displayName: 'alice',
@@ -45,11 +47,11 @@ function setup() {
   });
   const aliceTct = handshakeToCoordinator(alice, coord, coordManifest);
   const bobTct = handshakeToCoordinator(bob, coord, coordManifest);
-  return { coord, alice, bob, aliceTct, bobTct };
+  return { coord, coordManifest, alice, bob, aliceTct, bobTct };
 }
 
 test('session bundle round-trips', { skip: !HAS_BUNDLE }, () => {
-  const { coord, alice, bob, aliceTct, bobTct } = setup();
+  const { coord, coordManifest, alice, bob, aliceTct, bobTct } = setup();
   const envelope = new SessionBundleBuilder(coord)
     .participant(alice.aid, aliceTct)
     .participant(bob.aid, bobTct)
@@ -57,14 +59,46 @@ test('session bundle round-trips', { skip: !HAS_BUNDLE }, () => {
   const parsed = JSON.parse(envelope);
   assert.equal(parsed.session_bundle.coordinator, coord.aid);
 
-  const outcome = verifySessionBundle(envelope, alice.aid);
+  const outcome = verifySessionBundle(envelope, alice.aid, coordManifest);
   assert.equal(outcome.kind, 'clear');
   assert.ok(outcome.activeAids.includes(alice.aid));
   assert.ok(outcome.activeAids.includes(bob.aid));
   assert.equal(outcome.droppedAids.length, 0);
 
   const outsider = AitpAgent.generate();
-  assert.throws(() => verifySessionBundle(envelope, outsider.aid));
+  assert.throws(() => verifySessionBundle(envelope, outsider.aid, coordManifest));
+});
+
+// RFC-AITP-0010 §5 step 5 (#238): the coordinator Manifest is
+// mandatory and must designate the bundle's coordinator.
+test('coordinator Manifest is required and checked', { skip: !HAS_BUNDLE }, () => {
+  const { coord, alice, bob, aliceTct, bobTct } = setup();
+  const envelope = new SessionBundleBuilder(coord)
+    .participant(alice.aid, aliceTct)
+    .participant(bob.aid, bobTct)
+    .build();
+
+  // No AID-only fallback: omitting it (or passing null) throws.
+  assert.throws(() => verifySessionBundle(envelope, alice.aid));
+  assert.throws(() => verifySessionBundle(envelope, alice.aid, null));
+
+  // A Manifest for another AID resolves no coordinator key.
+  const outsider = AitpAgent.generate();
+  const otherManifest = outsider.buildManifest({
+    displayName: 'outsider',
+    handshakeEndpoint: 'http://localhost:9604/aitp/handshake/',
+    offeredCaps: ['x'],
+  });
+  assert.throws(
+    () => verifySessionBundle(envelope, alice.aid, otherManifest),
+    /coordinator manifest aid does not match/,
+  );
+
+  // A malformed Manifest is rejected before verification.
+  assert.throws(
+    () => verifySessionBundle(envelope, alice.aid, '{}'),
+    /invalid coordinator manifest JSON/,
+  );
 });
 
 // Regression: napi Ref leak. Previously, passing a revocationCheck
@@ -81,7 +115,7 @@ test(
       return false;
     };
     assert.throws(() =>
-      verifySessionBundle('not json', 'aid:pubkey:irrelevant', null, cb),
+      verifySessionBundle('not json', 'aid:pubkey:irrelevant', '{}', null, cb),
     );
     assert.equal(called, false);
   },
@@ -91,7 +125,7 @@ test(
   'revocation drops a participant',
   { skip: !HAS_BUNDLE },
   () => {
-    const { coord, alice, bob, aliceTct, bobTct } = setup();
+    const { coord, coordManifest, alice, bob, aliceTct, bobTct } = setup();
     const envelope = new SessionBundleBuilder(coord)
       .participant(alice.aid, aliceTct)
       .participant(bob.aid, bobTct)
@@ -100,6 +134,7 @@ test(
     const outcome = verifySessionBundle(
       envelope,
       alice.aid,
+      coordManifest,
       null,
       (jti) => jti === revokedJti,
     );

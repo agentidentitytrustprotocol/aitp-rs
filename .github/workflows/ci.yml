@@ -438,10 +438,9 @@ jobs:
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
         # fixture FAILs or a required_for_v0_2 fixture is SKIPped.
-        # Expected: 95 pass / 0 fail / 3 skip of 98 fixtures (del-004
+        # Expected: 96 pass / 0 fail / 2 skip of 98 fixtures (del-004
         # and del-007 are negated by multi-hop; the runner lists del-007
-        # as a gate exemption; bundle-007 is skipped by the adapter until
-        # #238; see docs/conformance.md).
+        # as a gate exemption; see docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
             --target ./target/debug/aitp-rs-adapter \

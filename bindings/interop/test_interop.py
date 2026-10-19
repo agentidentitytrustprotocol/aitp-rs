@@ -116,11 +116,12 @@ class PyEndpoint:
         agent = aitp.AitpAgent.generate(suite=suite)
         return agent, agent.aid
 
-    def build_manifest(self, agent, display_name, endpoint, caps):
+    def build_manifest(self, agent, display_name, endpoint, caps, ttl_secs=None):
         return agent.build_manifest(
             display_name=display_name,
             handshake_endpoint=endpoint,
             offered_caps=caps,
+            ttl_secs=ttl_secs,
         )
 
     def new_session(self, agent, pinned_keys=None):
@@ -174,13 +175,14 @@ class NodeEndpoint:
         result = self._w.call("new_agent", suite=suite)
         return result["handle"], result["aid"]
 
-    def build_manifest(self, agent, display_name, endpoint, caps):
+    def build_manifest(self, agent, display_name, endpoint, caps, ttl_secs=None):
         return self._w.call(
             "build_manifest",
             agent=agent,
             display_name=display_name,
             handshake_endpoint=endpoint,
             offered_caps=caps,
+            ttl_secs=ttl_secs,
         )["manifest"]
 
     def new_session(self, agent, pinned_keys=None):
@@ -709,8 +711,14 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     py_part, py_part_aid = py.new_agent()
     nd_part_handle, nd_part_aid = nd.new_agent()
 
+    # The coordinator Manifest's expires_at caps every participant TCT
+    # (RFC-AITP-0005 §10.4); outlive the 1 h TCTs issued below.
     coord_manifest = py.build_manifest(
-        coord, "coord", "http://localhost:9001/aitp/handshake/", ["session.member"]
+        coord,
+        "coord",
+        "http://localhost:9001/aitp/handshake/",
+        ["session.member"],
+        ttl_secs=24 * 3600,
     )
     py.build_manifest(
         py_part, "py-part", "http://localhost:9002/aitp/handshake/", ["x"]
@@ -742,8 +750,14 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         .build()
     )
 
-    # Node verifies its own membership.
-    outcome = node.call("verify_session_bundle", envelope=envelope, verifier_aid=nd_part_aid)
+    # Node verifies its own membership under the (Python-signed)
+    # coordinator Manifest, which RFC-AITP-0010 §5 step 5 requires.
+    outcome = node.call(
+        "verify_session_bundle",
+        envelope=envelope,
+        verifier_aid=nd_part_aid,
+        coordinator_manifest=coord_manifest,
+    )
     assert outcome["kind"] == "clear"
     assert nd_part_aid in outcome["active_aids"]
     assert py_part_aid in outcome["active_aids"]
@@ -756,6 +770,7 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         "nd-coord",
         "http://localhost:9011/aitp/handshake/",
         ["session.member"],
+        ttl_secs=24 * 3600,
     )
 
     def handshake_to_nd_coord(py_or_nd_endpoint, part_handle, part_aid):
@@ -789,19 +804,16 @@ def test_session_bundle_python_coordinator_node_verifier(node):
         ],
     )["envelope"]
 
-    # Python verifies the Node-built bundle.
-    outcome2 = aitp.verify_session_bundle(nd_envelope, py_part2_aid)
+    # Python verifies the Node-built bundle. RFC-AITP-0010 §5 step 5:
+    # Python verifies the coordinator's (Node-signed) Manifest and
+    # resolves the coordinator key from it; another agent's Manifest is
+    # rejected.
+    outcome2 = aitp.verify_session_bundle(
+        nd_envelope, py_part2_aid, coordinator_manifest_json=nd_coord_manifest
+    )
     assert outcome2["kind"] == "clear"
     assert py_part2_aid in outcome2["active_aids"]
     assert nd_part2_aid in outcome2["active_aids"]
-
-    # RFC-AITP-0010 §5 step 5: with the coordinator's (Node-signed)
-    # Manifest supplied, Python verifies it and resolves the coordinator
-    # key from it; another agent's Manifest is rejected.
-    outcome3 = aitp.verify_session_bundle(
-        nd_envelope, py_part2_aid, coordinator_manifest_json=nd_coord_manifest
-    )
-    assert outcome3["kind"] == "clear"
     with pytest.raises(RuntimeError, match="does not match"):
         aitp.verify_session_bundle(
             nd_envelope, py_part2_aid, coordinator_manifest_json=coord_manifest

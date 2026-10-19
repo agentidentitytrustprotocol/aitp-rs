@@ -24,9 +24,10 @@ pub enum CoordinatorKeySource<'a> {
     /// Skip the Manifest step and derive the key from the
     /// `bundle.coordinator` AID alone. **Not RFC-AITP-0010 §5 step 5
     /// conformant**: nothing establishes that the coordinator publishes a
-    /// valid, unexpired Manifest. Only for callers that have no Manifest
-    /// to hand (offline verification, the conformance fixtures, which
-    /// carry none).
+    /// valid, unexpired Manifest. Only for callers that pin the
+    /// coordinator out of band and have no Manifest to hand (offline
+    /// verification, tests). The conformance adapter and the language
+    /// bindings never use it: they require the coordinator's Manifest.
     UnverifiedAidDangerous,
 }
 
