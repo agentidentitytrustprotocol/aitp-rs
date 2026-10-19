@@ -220,7 +220,7 @@ const methods = {
     const v =
       hops > 0
         ? verifyDelegationMultihop(p.token, p.verifier_aid, p.issuer_manifests ?? [], hops)
-        : verifyDelegation(p.token, p.verifier_aid);
+        : verifyDelegation(p.token, p.verifier_aid, p.issuer_manifests ?? []);
     return {
       delegator: v.delegator,
       delegatee: v.delegatee,

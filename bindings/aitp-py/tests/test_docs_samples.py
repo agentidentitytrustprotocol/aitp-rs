@@ -180,12 +180,20 @@ def _delegation(ns):
     # docs/sdk-python.md § Delegation (RFC-AITP-0006)
     alice, bob, voucher_jws = ns.alice, ns.bob, ns.voucher_jws
     carol = aitp.AitpAgent.generate()
+    # alice's Manifest: bob checks her signature under the key it designates.
+    alice_manifest = alice.build_manifest(
+        display_name="alice",
+        handshake_endpoint="https://alice.example/aitp/handshake/",
+        offered_caps=["demo.write"],
+    )
     # alice delegates part of what bob granted her to carol.
     delegation_jws = alice.build_delegation(voucher_jws, carol.aid, ["demo.echo"])
 
     # bob (the original grantor) verifies and mints carol a TCT of her own.
     revoked = set()   # bob's deny list, e.g. jtis from verified revocation snapshots
-    verified = aitp.verify_delegation(delegation_jws, bob.aid, revoked_jtis=revoked)
+    verified = aitp.verify_delegation(
+        delegation_jws, bob.aid, [alice_manifest], revoked_jtis=revoked
+    )
     issued = json.loads(bob.issue_tct_for_delegatee(verified))  # JSON string
     carol_tct = issued["tct"]
     print(carol.verify_tct(carol_tct, "demo.echo").peer_aid == bob.aid)   # True
@@ -290,15 +298,11 @@ def _tct_renewal(ns):
 
 def _multihop(ns):
     # docs/sdk-python.md § Additional capabilities › Multi-hop delegation
-    alice, bob = ns.alice, ns.bob
+    bob, alice_manifest = ns.bob, ns.alice_manifest
     delegation_jws, revoked = ns.delegation_jws, ns.revoked
     # Every hop verifies under the key its issuer's Manifest designates
-    # (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest.
-    alice_manifest = alice.build_manifest(
-        display_name="alice",
-        handshake_endpoint="https://alice.example/aitp/handshake/",
-        offered_caps=["demo.write"],
-    )
+    # (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest
+    # (`alice_manifest` from the delegation example above).
     verified = aitp.verify_delegation_multihop(
         delegation_jws, bob.aid, [alice_manifest],
         max_delegation_hops=3, revoked_jtis=revoked,

@@ -2,15 +2,31 @@
 //! delegates a subset to C; A verifies — plus the RFC-AITP-0006 §4
 //! rejection matrix.
 
-use aitp_core::{Timestamp, PROTOCOL_VERSION};
+use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey, CryptoError};
 use aitp_delegation::{
     verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
 };
+use aitp_manifest::{Manifest, ManifestError};
 use aitp_tct::TctBuilder;
+use std::collections::HashMap;
+use std::sync::OnceLock;
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
+
+mod common;
+
+/// B's published Manifest: the single-hop delegator's key source
+/// (RFC-AITP-0006 §4 step 1).
+fn issuer_manifests() -> &'static Vec<Manifest> {
+    static MANIFESTS: OnceLock<Vec<Manifest>> = OnceLock::new();
+    MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
+}
+
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+    common::verify_ctx(verifier, now, issuer_manifests())
+}
 
 fn a() -> AitpSigningKey {
     AitpSigningKey::from_seed(&[0xA1; 32])
@@ -53,7 +69,7 @@ fn delegate_to_c(voucher: &str) -> String {
 fn happy_path_round_trip() {
     let token = delegate_to_c(&voucher_for_b());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
     assert_eq!(verified.claims.iss, *b().aid());
     assert_eq!(verified.claims.sub, *c().aid());
@@ -110,7 +126,7 @@ fn builder_caps_expiry_at_voucher() {
         .build()
         .unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).unwrap();
     assert_eq!(verified.claims.exp.0, NOW.0 + 7200, "capped at voucher exp");
 }
@@ -129,7 +145,7 @@ fn missing_voucher_rejected() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::InvalidVoucher
@@ -166,7 +182,7 @@ fn voucher_issued_by_third_party_rejected() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&token, &ctx).unwrap_err();
     // Dies verifying the voucher signature under A's own key.
     assert!(
@@ -196,7 +212,9 @@ fn voucher_subject_mismatch_rejected() {
     });
     let token = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    // Mallory publishes a valid Manifest, so the check under test is reached.
+    let manifests = vec![common::manifest_for(&mallory, NOW)];
+    let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::InvalidVoucher
@@ -207,7 +225,7 @@ fn voucher_subject_mismatch_rejected() {
 fn audience_mismatch_rejected() {
     let token = delegate_to_c(&voucher_for_b());
     let other = AitpSigningKey::from_seed(&[0xD3; 32]);
-    let ctx = VerifyDelegationContext::new(other.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(other.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::AudienceMismatch
@@ -218,7 +236,7 @@ fn audience_mismatch_rejected() {
 fn expired_delegation_rejected() {
     let token = delegate_to_c(&voucher_for_b());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 4000));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 4000));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::Expired
@@ -240,7 +258,7 @@ fn exp_beyond_voucher_rejected() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::Expired
@@ -261,7 +279,7 @@ fn scope_exceeding_voucher_rejected() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::ScopeExceeded
@@ -284,7 +302,7 @@ fn forged_cnf_jkt_rejected() {
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::CnfMalformed
@@ -300,7 +318,7 @@ fn revoked_source_tct_rejected() {
     let token = delegate_to_c(&voucher);
     let revoked = move |jti: &Uuid| *jti == src;
     let a_key = a();
-    let mut ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let mut ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     ctx.revocation_check = Some(&revoked);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
@@ -314,7 +332,7 @@ fn tampered_token_rejected() {
     let last = token.pop().unwrap();
     token.push(if last == 'A' { 'B' } else { 'A' });
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&token, &ctx).unwrap_err();
     // A flipped final character fails either as a bad signature or as
     // non-canonical base64 in the signature segment — both refusals.
@@ -340,7 +358,7 @@ fn tct_presented_as_delegation_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let err = verify_delegation(&issued.token, &ctx).unwrap_err();
     // `peek_claims` now has a typ-first gate (D7 / issue #140 follow-up),
     // mirroring `aitp_tct::verify_tct`/`verify_voucher`'s established
@@ -372,12 +390,118 @@ fn jti_without_multihop_opt_in_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::ClaimsMalformed(_)
     ));
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(3);
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60)).with_max_delegation_hops(3);
     verify_delegation(&token, &ctx).expect("jti-bearing single-hop verifies under opt-in");
+}
+
+// ─────────────── issuer key from the issuer's Manifest ───────────────
+// RFC-AITP-0006 §4 step 1: the outer signature verifies against B's
+// public key "resolved from the `iss` AID via B's Manifest", not merely
+// the key the AID encodes. A missing or unusable Manifest is
+// KEY_RESOLUTION_FAILED (RFC-AITP-0007 §1).
+
+/// Unwrap a `KeyResolutionFailed` for B and return its cause.
+fn key_resolution_cause(err: DelegationError) -> ManifestError {
+    match err {
+        DelegationError::KeyResolutionFailed { issuer, source } => {
+            assert_eq!(issuer, *b().aid());
+            source
+        }
+        other => panic!("expected KeyResolutionFailed, got {other:?}"),
+    }
+}
+
+#[test]
+fn verifies_under_issuer_manifest_key() {
+    let token = delegate_to_c(&voucher_for_b());
+    let a_key = a();
+    // Unrelated Manifests alongside B's do not get in the way.
+    let manifests = vec![
+        common::manifest_for(&c(), NOW),
+        common::manifest_for(&b(), NOW),
+    ];
+    let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
+    let verified = verify_delegation(&token, &ctx).expect("verifies under B's Manifest key");
+    assert_eq!(verified.claims.iss, *b().aid());
+}
+
+#[test]
+fn no_manifest_source_rejected() {
+    // No source configured fails closed: the AID-embedded key alone
+    // MUST NOT verify the token.
+    let token = delegate_to_c(&voucher_for_b());
+    let a_key = a();
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
+    assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
+}
+
+#[test]
+fn issuer_manifest_missing_rejected() {
+    // A source is configured, but it holds no Manifest for B.
+    let token = delegate_to_c(&voucher_for_b());
+    let a_key = a();
+    let manifests = vec![common::manifest_for(&c(), NOW)];
+    let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
+    assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
+}
+
+#[test]
+fn key_not_designated_by_issuer_manifest_rejected() {
+    // The token is signed by the key B's AID encodes, but the Manifest
+    // served for B designates a different (rotated, RFC-AITP-0003 §8.1)
+    // key.
+    let token = delegate_to_c(&voucher_for_b());
+    let rotated_b = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let resolver: HashMap<Aid, Manifest> =
+        HashMap::from([(b().aid().clone(), common::manifest_for(&rotated_b, NOW))]);
+    let a_key = a();
+    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
+        .with_issuer_manifests(&resolver);
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
+    assert!(matches!(cause, ManifestError::AidMismatch), "got {cause:?}");
+}
+
+#[test]
+fn issuer_manifest_must_verify() {
+    let token = delegate_to_c(&voucher_for_b());
+    let a_key = a();
+    // Forged: B's Manifest body altered after signing.
+    let mut forged = common::manifest_for(&b(), NOW);
+    forged.display_name = Some("not what B signed".into());
+    let manifests = vec![forged];
+    let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
+    assert!(
+        matches!(cause, ManifestError::SignatureInvalid),
+        "got {cause:?}"
+    );
+    // Expired: B's Manifest lapsed before the verification time.
+    let manifests = vec![common::manifest_for(&b(), NOW)];
+    let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 86_401), &manifests);
+    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
+    assert!(matches!(cause, ManifestError::Expired), "got {cause:?}");
+}
+
+#[test]
+fn signed_by_key_other_than_issuer_manifest_key_is_invalid_signature() {
+    // B's Manifest resolves, but the token claiming `iss = B` was signed
+    // by someone else: DELEGATION_INVALID_SIGNATURE.
+    let payload = jws::decode_payload_unverified(&delegate_to_c(&voucher_for_b())).unwrap();
+    let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+    let mallory = AitpSigningKey::from_seed(&[0xE1; 32]);
+    let forged = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
+    let a_key = a();
+    let err =
+        verify_delegation(&forged, &verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60))).unwrap_err();
+    assert!(
+        matches!(err, DelegationError::InvalidSignature),
+        "got {err:?}"
+    );
 }

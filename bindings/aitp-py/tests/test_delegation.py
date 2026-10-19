@@ -35,7 +35,8 @@ def _b64url_encode(raw: bytes) -> str:
 def _build_delegation_token():
     """A issues a TCT (+ grant voucher) to B via an in-process handshake; B
     mints a single-hop delegation token (compact JWS) authorizing C. Returns
-    (a, b, c, delegation_token)."""
+    (a, b, c, delegation_token, b_manifest): B's Manifest is the key source
+    for verifying B's token (RFC-AITP-0006 §4 step 1)."""
     a = aitp.AitpAgent.generate()
     b = aitp.AitpAgent.generate()
     c = aitp.AitpAgent.generate()
@@ -45,7 +46,7 @@ def _build_delegation_token():
         handshake_endpoint="http://localhost:8100/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
-    b.build_manifest(
+    b_manifest = b.build_manifest(
         display_name="B",
         handshake_endpoint="http://localhost:8101/aitp/handshake/",
         offered_caps=[PING_CAP],
@@ -70,15 +71,15 @@ def _build_delegation_token():
     # B mints a delegation token rooted in A's voucher, binding C, scoped to
     # PING_CAP. C's key binding is derived from its AID — no pubkey arg.
     delegation_token = b.build_delegation(b_voucher, c.aid, [PING_CAP])
-    return a, b, c, delegation_token
+    return a, b, c, delegation_token, b_manifest
 
 
 def test_delegation_round_trip_strict():
     """RFC-AITP-0006 single-hop: A verifies B's delegation under the strict
     default verifier and mints a fresh TCT for C, which C can verify."""
-    a, b, c, delegation_token = _build_delegation_token()
+    a, b, c, delegation_token, b_manifest = _build_delegation_token()
 
-    verified = aitp.verify_delegation(delegation_token, a.aid)
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
     assert verified.delegator == a.aid
     assert verified.delegatee == c.aid
     assert verified.issued_by == b.aid
@@ -97,8 +98,8 @@ def test_delegation_round_trip_strict():
 def test_delegation_verified_cnf_is_deprecated_alias():
     """`cnf` is the pre-0.16 name of `cnf_jkt` (#240): it still returns the
     same thumbprint but warns, pointing at the caller's line."""
-    a, _b, _c, delegation_token = _build_delegation_token()
-    verified = aitp.verify_delegation(delegation_token, a.aid)
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
 
     with pytest.warns(DeprecationWarning, match="use cnf_jkt") as record:
         legacy = verified.cnf
@@ -107,10 +108,31 @@ def test_delegation_verified_cnf_is_deprecated_alias():
 
 
 def test_verify_delegation_rejects_wrong_verifier():
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     other = aitp.AitpAgent.generate()
     with pytest.raises(Exception):
-        aitp.verify_delegation(delegation_token, other.aid)
+        aitp.verify_delegation(delegation_token, other.aid, [b_manifest])
+
+
+def test_verify_delegation_resolves_issuer_key_from_manifest():
+    """RFC-AITP-0006 §4 step 1: the token verifies under the key B's
+    verified Manifest designates. No Manifest for B, or only someone
+    else's, fails with KEY_RESOLUTION_FAILED (RFC-AITP-0007); a malformed
+    Manifest string is rejected up front with ValueError."""
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
+    assert aitp.verify_delegation(delegation_token, a.aid, [b_manifest]).delegator == a.aid
+
+    other = aitp.AitpAgent.generate()
+    other_manifest = other.build_manifest(
+        display_name="Other",
+        handshake_endpoint="http://localhost:8103/aitp/handshake/",
+        offered_caps=[PING_CAP],
+    )
+    for manifests in ([], [other_manifest]):
+        with pytest.raises(RuntimeError, match="key resolution failed for delegation issuer"):
+            aitp.verify_delegation(delegation_token, a.aid, manifests)
+    with pytest.raises(ValueError, match="invalid issuer manifest JSON"):
+        aitp.verify_delegation(delegation_token, a.aid, ["{}"])
 
 
 def _inject_multihop_chain(delegation_token):
@@ -135,11 +157,11 @@ def test_strict_verify_rejects_multihop_chain():
     """The default `verify_delegation` is strict v0.2: any non-empty chain is
     rejected with DELEGATION_MULTIHOP_NOT_SUPPORTED before any per-hop work
     (RFC-AITP-0006 §4.4)."""
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     tampered = _inject_multihop_chain(delegation_token)
 
     with pytest.raises(Exception) as exc:
-        aitp.verify_delegation(tampered, a.aid)
+        aitp.verify_delegation(tampered, a.aid, [b_manifest])
     assert "multi-hop delegation is not supported" in str(exc.value)
 
 
@@ -151,7 +173,7 @@ def test_multihop_opts_past_the_hop_gate():
     if not hasattr(aitp, "verify_delegation_multihop"):
         pytest.skip("binding built without --features multihop-delegation")
 
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     tampered = _inject_multihop_chain(delegation_token)
 
     with pytest.raises(Exception) as exc:
@@ -192,12 +214,7 @@ def test_multihop_issuer_manifests_are_parsed():
     ValueError, before any token verification."""
     if not hasattr(aitp, "verify_delegation_multihop"):
         pytest.skip("multihop-delegation feature not compiled in")
-    a, b, _c, delegation_token = _build_delegation_token()
-    b_manifest = b.build_manifest(
-        display_name="B",
-        handshake_endpoint="http://localhost:8101/aitp/handshake/",
-        offered_caps=[PING_CAP],
-    )
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     with pytest.raises(ValueError, match="invalid issuer manifest JSON"):
         aitp.verify_delegation_multihop(delegation_token, a.aid, ["{}"])
     # A well-formed Manifest is accepted; this single-hop token verifies.
@@ -231,15 +248,15 @@ def _src_jti(delegation_token: str) -> str:
 
 def test_revoking_the_source_tct_rejects_the_delegation():
     """RFC-AITP-0006 §4 step 7 — the MUST that was unreachable from Python."""
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
 
     # Sanity: this exact token verifies while nothing is revoked, so the
     # rejection below is attributable to the deny list and nothing else.
-    aitp.verify_delegation(delegation_token, a.aid)
+    aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
 
     with pytest.raises(RuntimeError, match="revoked"):
         aitp.verify_delegation(
-            delegation_token, a.aid, {_src_jti(delegation_token)}
+            delegation_token, a.aid, [b_manifest], {_src_jti(delegation_token)}
         )
 
 
@@ -250,11 +267,11 @@ def test_a_revoked_source_tct_yields_no_tct_for_the_delegatee():
     the delegatee. Skipping the check meant a revoked grant kept minting
     credentials for a third party the grantor never re-authorized.
     """
-    a, _b, c, delegation_token = _build_delegation_token()
+    a, _b, c, delegation_token, b_manifest = _build_delegation_token()
     revoked = {_src_jti(delegation_token)}
 
     with pytest.raises(RuntimeError):
-        verified = aitp.verify_delegation(delegation_token, a.aid, revoked)
+        verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest], revoked)
         # Unreachable while step 7 holds. If it ever is reached, this is the
         # line that shows what the omission actually costs.
         a.issue_tct_for_delegatee(verified)
@@ -266,12 +283,12 @@ def test_an_unrelated_revoked_jti_does_not_reject():
 
     Without this, a blanket-reject bug would pass the test above.
     """
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
 
     unrelated = "00000000-0000-4000-8000-000000000000"
     assert unrelated != _src_jti(delegation_token)
 
-    verified = aitp.verify_delegation(delegation_token, a.aid, {unrelated})
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest], {unrelated})
     assert verified.delegator == a.aid
 
 
@@ -284,10 +301,10 @@ def test_omitting_revoked_jtis_verifies_a_revoked_delegation():
     if the default ever becomes fail-closed, this is the test that says so
     out loud instead of letting callers discover it at runtime.
     """
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
 
     # Revoked in every sense except that nobody asked.
-    verified = aitp.verify_delegation(delegation_token, a.aid)
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
     assert verified.delegator == a.aid
 
 
@@ -299,7 +316,7 @@ def test_revocation_is_consulted_only_after_the_signature_checks():
     verifier's deny list by watching which forged tokens come back "revoked"
     versus "bad signature".
     """
-    a, _b, _c, delegation_token = _build_delegation_token()
+    a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     revoked = {_src_jti(delegation_token)}
 
     # Corrupt the outer signature, leaving the voucher (and its src_jti)
@@ -309,7 +326,7 @@ def test_revocation_is_consulted_only_after_the_signature_checks():
     tampered = f"{head}.{payload}.{flipped}{sig[1:]}"
 
     with pytest.raises(RuntimeError) as excinfo:
-        aitp.verify_delegation(tampered, a.aid, revoked)
+        aitp.verify_delegation(tampered, a.aid, [b_manifest], revoked)
     assert "revoked" not in str(excinfo.value).lower(), (
         "a token that fails signature verification was reported as revoked — "
         "the deny-list lookup ran before the signature checks"

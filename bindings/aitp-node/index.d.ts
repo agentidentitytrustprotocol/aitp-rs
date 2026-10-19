@@ -510,6 +510,14 @@ export interface SessionOpts {
  * matching the Rust core default. To allow multi-hop chains, call
  * `verifyDelegationMultihop` instead.
  *
+ * `issuerManifests` is the delegator's Manifest(s), each a
+ * `{"manifest": {...}}` envelope JSON string. RFC-AITP-0006 §4 step 1
+ * verifies the token under the key resolved from its issuer's verified
+ * Manifest; with no valid Manifest for the issuer here the token fails
+ * with `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003
+ * §5) before use; when several designate one AID the newest
+ * `published_at` wins.
+ *
  * `revokedJtis` is an optional list of revoked `jti` strings — the
  * verifier's own deny list. When non-empty, a token whose
  * `voucher.src_jti` is in it is rejected after every signature check passes
@@ -517,7 +525,7 @@ export interface SessionOpts {
  * SHOULD supply it.** Omitting it silently redeems a delegation whose
  * source TCT has been revoked, which step 7 states as a MUST-reject.
  */
-export declare function verifyDelegation(token: string, verifierAid: string, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**

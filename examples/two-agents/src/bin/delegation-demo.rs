@@ -24,6 +24,7 @@
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
 fn main() {
@@ -74,7 +75,25 @@ fn main() {
     println!("B → C: delegation token minted (scope [\"demo.read\"])\n");
 
     // ── A verifies C's delegation token ────────────────────────────────
-    let ctx = VerifyDelegationContext::new(a.aid(), now);
+    // A checks B's signature under the key B's verified Manifest
+    // designates (RFC-AITP-0006 §4 step 1). In a real deployment A
+    // already holds B's Manifest from the handshake (or fetches it,
+    // RFC-AITP-0007); here B publishes one in place.
+    let b_manifest = ManifestBuilder::new(&b)
+        .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "agent-b".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .published_at(now)
+        .ttl_secs(3600)
+        .build()
+        .expect("B publishes its Manifest");
+    let issuer_manifests = vec![b_manifest];
+    let ctx = VerifyDelegationContext::new(a.aid(), now).with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
@@ -100,7 +119,8 @@ fn main() {
     // ── Negative 2: only the grantor (A) may verify ────────────────────
     // The token binds `aud == voucher issuer == A`. Anyone else verifying
     // it — here C tries — is rejected.
-    let wrong_ctx = VerifyDelegationContext::new(c.aid(), now);
+    let wrong_ctx =
+        VerifyDelegationContext::new(c.aid(), now).with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),
         Ok(_) => panic!("only the grantor A should be able to verify this token"),

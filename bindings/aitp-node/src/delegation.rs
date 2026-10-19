@@ -65,6 +65,14 @@ pub struct JsDelegationVerified {
 /// matching the Rust core default. To allow multi-hop chains, call
 /// `verifyDelegationMultihop` instead.
 ///
+/// `issuerManifests` is the delegator's Manifest(s), each a
+/// `{"manifest": {...}}` envelope JSON string. RFC-AITP-0006 §4 step 1
+/// verifies the token under the key resolved from its issuer's verified
+/// Manifest; with no valid Manifest for the issuer here the token fails
+/// with `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003
+/// §5) before use; when several designate one AID the newest
+/// `published_at` wins.
+///
 /// `revokedJtis` is an optional list of revoked `jti` strings — the
 /// verifier's own deny list. When non-empty, a token whose
 /// `voucher.src_jti` is in it is rejected after every signature check passes
@@ -75,9 +83,11 @@ pub struct JsDelegationVerified {
 pub fn verify_delegation_js(
     token: String,
     verifier_aid: String,
+    issuer_manifests: Vec<String>,
     revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
+    let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let revoked = parse_revoked_set(revoked_jtis);
     let root_closure = |jti: &Uuid| revoked.contains(jti);
@@ -85,7 +95,8 @@ pub fn verify_delegation_js(
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0`, so a non-empty
     // chain fails before any per-hop work runs — which is also why only the
     // root check is wired here: there are no hops.
-    let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now());
+    let mut ctx =
+        VerifyDelegationContext::new(&verifier, Timestamp::now()).with_issuer_manifests(&manifests);
     if !revoked.is_empty() {
         ctx = ctx.with_revocation_check(&root_closure);
     }
@@ -137,17 +148,7 @@ pub fn verify_delegation_multihop_js(
     revoked_jtis: Option<Vec<String>>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
-    let manifests = issuer_manifests
-        .iter()
-        .map(|json| {
-            crate::wire::manifest(json).map_err(|e| {
-                Error::new(
-                    Status::InvalidArg,
-                    format!("invalid issuer manifest JSON: {e}"),
-                )
-            })
-        })
-        .collect::<Result<Vec<_>>>()?;
+    let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let revoked = parse_revoked_set(revoked_jtis);
     let root_closure = |jti: &Uuid| revoked.contains(jti);
@@ -172,6 +173,21 @@ pub fn verify_delegation_multihop_js(
 /// Parse the verifier's own AID string.
 fn parse_verifier(verifier_aid: &str) -> Result<Aid> {
     Aid::parse(verifier_aid).map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))
+}
+
+/// Parse the issuers' `{"manifest": {...}}` envelope JSON strings.
+fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp_manifest::Manifest>> {
+    issuer_manifests
+        .iter()
+        .map(|json| {
+            crate::wire::manifest(json).map_err(|e| {
+                Error::new(
+                    Status::InvalidArg,
+                    format!("invalid issuer manifest JSON: {e}"),
+                )
+            })
+        })
+        .collect()
 }
 
 /// Project a verified delegation's salient fields into the Node-facing type.

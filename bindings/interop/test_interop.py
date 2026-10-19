@@ -442,7 +442,7 @@ def test_delegation_python_issuer_node_chain(node):
     a_manifest = py.build_manifest(
         a, "py-A", "http://localhost:8500/aitp/handshake/", [PING_CAP]
     )
-    py.build_manifest(
+    b_manifest = py.build_manifest(
         b, "py-B", "http://localhost:8501/aitp/handshake/", [PING_CAP]
     )
 
@@ -463,9 +463,10 @@ def test_delegation_python_issuer_node_chain(node):
     # B (Python) builds a delegation token rooted in A's voucher, binding C.
     delegation_token = b.build_delegation(b_voucher, c_aid, [PING_CAP])
 
-    # A (Python) verifies → mints fresh TCT for C. issue_tct_for_delegatee
-    # returns a `{"tct", "grant_voucher"}` JSON string.
-    verified = aitp.verify_delegation(delegation_token, a.aid)
+    # A (Python) verifies under the key B's Manifest designates
+    # (RFC-AITP-0006 §4 step 1) → mints fresh TCT for C.
+    # issue_tct_for_delegatee returns a `{"tct", "grant_voucher"}` JSON string.
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
     fresh_tct_for_c = json.loads(a.issue_tct_for_delegatee(verified))["tct"]
 
     # C (Node) verifies the fresh TCT under presented-TCT mode.

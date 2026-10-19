@@ -9,15 +9,30 @@
 
 use std::collections::BTreeSet;
 
-use aitp_core::Timestamp;
+use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_delegation::{
     verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
 };
+use aitp_manifest::Manifest;
 use aitp_tct::TctBuilder;
 use proptest::prelude::*;
+use std::sync::OnceLock;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
+
+mod common;
+
+/// B's published Manifest: the single-hop delegator's key source
+/// (RFC-AITP-0006 §4 step 1).
+fn issuer_manifests() -> &'static Vec<Manifest> {
+    static MANIFESTS: OnceLock<Vec<Manifest>> = OnceLock::new();
+    MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
+}
+
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+    common::verify_ctx(verifier, now, issuer_manifests())
+}
 
 fn a() -> AitpSigningKey {
     AitpSigningKey::from_seed(&[0xA1; 32])
@@ -87,7 +102,7 @@ proptest! {
             .expect("subset scope must build");
 
         let a_key = a();
-        let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+        let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
         let verified = verify_delegation(&token, &ctx).expect("subset delegation verifies");
         let got: BTreeSet<String> = verified.claims.scope.into_iter().collect();
         prop_assert_eq!(got, scope);
@@ -139,7 +154,7 @@ proptest! {
         // [NOW, NOW+ttl] with ttl >= 1, so NOW is always inside the
         // window regardless of the (possibly tiny) sampled ttl.
         let a_key = a();
-        let ctx = VerifyDelegationContext::new(a_key.aid(), NOW);
+        let ctx = verify_ctx(a_key.aid(), NOW);
         let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
         // Voucher TTL is 7200s from NOW; delegation exp must not exceed it.
         prop_assert!(verified.claims.exp.0 <= NOW.0 + 7200);
