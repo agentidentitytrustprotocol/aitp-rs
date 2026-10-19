@@ -3291,23 +3291,25 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
         Ok(b) => b,
         Err(e) => return err(id, &bundle_error_code(&e), &e.to_string()),
     };
-    // TODO(#238): resolve the coordinator key from `coordinator_manifest`
-    // (RFC-AITP-0010 §5 step 5) and map a Manifest that does not designate
-    // `coordinator` to KEY_RESOLUTION_FAILED. Until then report that case
-    // (`bundle-007`) as unsupported so the runner SKIPs it.
-    if let Some(aid) = params
-        .get("coordinator_manifest")
-        .and_then(|m| m.get("manifest").unwrap_or(m).get("aid"))
-        .and_then(|a| a.as_str())
-    {
-        if aid != bundle.coordinator.as_str() {
+    // RFC-AITP-0010 §5 step 5: the coordinator's key is resolved from
+    // the coordinator's own verified Manifest (bare body or
+    // `{"manifest": …}` envelope). There is no AID-only fallback here:
+    // without a Manifest no key can be resolved, which is
+    // KEY_RESOLUTION_FAILED (RFC-AITP-0007 §1), as is a Manifest that
+    // designates another AID (`bundle-007`, mapped in `bundle_error_code`).
+    let coordinator_manifest = match params.get("coordinator_manifest") {
+        Some(v) => match aitp_manifest::parse_manifest_wire(&checked(v)) {
+            Ok(m) => m,
+            Err(e) => return err(id, &manifest_error_code(&e), &e.to_string()),
+        },
+        None => {
             return err(
                 id,
-                "OP_NOT_SUPPORTED",
-                "coordinator_manifest key resolution not implemented yet (#238)",
-            );
+                "KEY_RESOLUTION_FAILED",
+                "missing 'coordinator_manifest': the coordinator key is resolved from its Manifest (RFC-AITP-0010 §5 step 5)",
+            )
         }
-    }
+    };
     // Spec's PLACEHOLDERS.md uses `self_aid` for the receiving
     // participant; older internal callers use `verifier_aid`.
     // Accept either.
@@ -3347,26 +3349,11 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         Some(&check)
     };
-    // RFC-AITP-0010 §5 step 5: an optional `coordinator_manifest`
-    // (bare body or `{"manifest": …}` envelope) is verified and used as
-    // the coordinator key source. The `bundle-*` fixtures carry none, so
-    // its absence falls back to the AID-derived key.
-    let coordinator_manifest = match params.get("coordinator_manifest") {
-        Some(v) => match aitp_manifest::parse_manifest_wire(&checked(v)) {
-            Ok(m) => Some(m),
-            Err(e) => return err(id, &manifest_error_code(&e), &e.to_string()),
-        },
-        None => None,
-    };
-    let coordinator_key = match &coordinator_manifest {
-        Some(m) => CoordinatorKeySource::Manifest(m),
-        None => CoordinatorKeySource::UnverifiedAidDangerous,
-    };
     let ctx = VerifySessionBundleContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
-        coordinator_key,
+        coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {
@@ -3416,7 +3403,10 @@ fn bundle_error_code(e: &aitp_session_bundle::SessionBundleError) -> String {
         NotMember => "BUNDLE_NOT_MEMBER",
         EmptyParticipants => "BUNDLE_EMPTY_PARTICIPANTS",
         CoordinatorManifest(e) => return manifest_error_code(e),
-        CoordinatorManifestMismatch => "SESSION_BUNDLE_INVALID",
+        // The Manifest does not designate the coordinator, so the
+        // coordinator's key cannot be resolved (RFC-AITP-0010 §5 step 5,
+        // RFC-AITP-0007 §1; `bundle-007`).
+        CoordinatorManifestMismatch => "KEY_RESOLUTION_FAILED",
         MissingField(_) => "INVALID_REQUEST",
         Canonicalization(_) => "INTERNAL_ERROR",
         TctVerification(_) => "BUNDLE_PARTICIPANT_TCT_INVALID",
@@ -3693,6 +3683,17 @@ mod error_code_mapping_tests {
         assert_eq!(
             bundle_error_code(&aitp_session_bundle::SessionBundleError::Crypto(signer())),
             "INTERNAL_ERROR"
+        );
+    }
+
+    #[test]
+    fn coordinator_manifest_mismatch_is_key_resolution_failed() {
+        // RFC-AITP-0010 §5 step 5 / RFC-AITP-0007 §1 (bundle-007, #238).
+        assert_eq!(
+            bundle_error_code(
+                &aitp_session_bundle::SessionBundleError::CoordinatorManifestMismatch
+            ),
+            "KEY_RESOLUTION_FAILED"
         );
     }
 
