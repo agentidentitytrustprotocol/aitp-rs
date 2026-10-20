@@ -1,0 +1,35 @@
+{
+  "_kat_input": {
+    "$comment": "Real Ed25519-signed envelope (RFC-AITP-0001 §5.4) with a non-empty `extensions` member. The envelope is exactly env-007's input envelope with its committed signature; scripts/verify-known-answer.mjs asserts the two are identical. sig_input_v2 is the 16 ASCII bytes \"aitp-envelope-v2\", one 0x00 byte, then JCS(envelope without `signature`), so `version`, `message_type` and `extensions` are all covered; d = sha256(sig_input_v2); the signature is PureEdDSA (RFC 8032) over the 32 bytes of d (§5.4.6), untagged because the sender AID is untagged.",
+    "kat_id": "kat-envelope-002-ed25519",
+    "signer_seed_id": "kat-keypair-001",
+    "source_fixture": "env-007-extensions-unknown-key-accepted.json"
+  },
+  "signing_input": "sig_input_v2",
+  "sig_input_v2_hex": "616974702d656e76656c6f70652d7632007b22657874656e73696f6e73223a7b22636f6d2e6578616d706c652e64656275675f7472616365223a7b22726571756573745f6964223a2237373065383430302d653239622d343164342d613731362d343436363535343439393938227d7d2c226d6573736167655f6964223a2237373065383430302d653239622d343164342d613731362d343436363535343431303037222c226d6573736167655f74797065223a226d757475616c5f68656c6c6f222c227061796c6f6164223a7b2268656c6c6f223a747275657d2c2273656e646572223a7b226167656e745f6964223a226169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b227d2c2274696d657374616d70223a313731313930303030302c2276657273696f6e223a22616974702f302e33227d",
+  "sig_input_v2_len_bytes": 343,
+  "sig_input_v2_sha256_hex": "5b2d7921353114373df6dc6384f96275140b9be534fa75f8cef13a00005e17b4",
+  "envelope": {
+    "version": "aitp/0.3",
+    "message_type": "mutual_hello",
+    "message_id": "770e8400-e29b-41d4-a716-446655441007",
+    "timestamp": 1711900000,
+    "sender": {
+      "agent_id": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik"
+    },
+    "payload": {
+      "hello": true
+    },
+    "extensions": {
+      "com.example.debug_trace": {
+        "request_id": "770e8400-e29b-41d4-a716-446655449998"
+      }
+    },
+    "signature": "mW2htyofIn3wJhfxaIRespw-WQpV6KYRtGiOJBJyWu_Dzj1ThhY7xFTKQiJJu3_nToWu11UviiXHRhehaswTAw"
+  },
+  "_must_not_verify": {
+    "$comment": "v1_signature is a valid Ed25519 signature over sha256(v1_sig_input), the retired pipe-composed input (message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))). It MUST NOT verify over sig_input_v2.",
+    "v1_sig_input": "770e8400-e29b-41d4-a716-446655441007|1711900000|aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik|22aa94d130a4e9012e5f7cc0efff255681a24b35665fbf7e0d0dcbd433c492f0",
+    "v1_signature": "9m2fJO0wxMk3xtffyKKR0TUwyKcNo7XF8HipC7DdOXDX4qGnUjFVB1XQ6Rufg0foC3Lwz7w61C65Qdt0XTNjAA"
+  }
+}

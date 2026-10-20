@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/manifest.json",
+  "$id": "https://aitp.dev/schema/v0.3/manifest.json",
   "title": "AgentManifest",
-  "description": "AITP v0.2 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
+  "description": "AITP v0.3 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
   "type": "object",
   "required": [
     "manifest"
@@ -25,8 +25,8 @@
       "properties": {
         "version": {
           "type": "string",
-          "const": "aitp/0.2",
-          "description": "Protocol version. MUST be 'aitp/0.2'."
+          "const": "aitp/0.3",
+          "description": "Protocol version. MUST be 'aitp/0.3'."
         },
         "aid": {
           "type": "string",
@@ -98,7 +98,7 @@
             ]
           },
           "uniqueItems": true,
-          "description": "Signature algorithms this agent accepts from peers (RFC-AITP-0001 §5.4.3). Default semantics per RFC-AITP-0003 §3.2: absent defaults to the mandatory algorithm set for the Manifest's `version` — [\"ed25519\"] for aitp/0.1 (Ed25519-only per RFC-AITP-0009 §4), [\"ed25519\", \"p256\"] for aitp/0.2. An explicit [] rejects every peer's envelope signature. Preserve absent vs explicit-empty in the JCS signing bytes."
+          "description": "Signature algorithms this agent accepts from peers (RFC-AITP-0001 §5.4.3). Default semantics per RFC-AITP-0003 §3.2: absent defaults to the mandatory algorithm set for the Manifest's `version` — [\"ed25519\"] for aitp/0.1 (Ed25519-only per RFC-AITP-0009 §4), [\"ed25519\", \"p256\"] for aitp/0.3. An explicit [] rejects every peer's envelope signature. Preserve absent vs explicit-empty in the JCS signing bytes."
         },
         "proof_of_possession": {
           "type": "object",
@@ -162,7 +162,7 @@
             "oidc",
             "pinned_key"
           ],
-          "description": "Identity mechanism. v0.2: oidc, pinned_key."
+          "description": "Identity mechanism. v0.3: oidc, pinned_key."
         },
         "issuer": {
           "type": "string",
@@ -208,7 +208,7 @@
   "examples": [
     {
       "manifest": {
-        "version": "aitp/0.2",
+        "version": "aitp/0.3",
         "aid": "aid:pubkey:worker_pubkey_AID_v01_placeholder_wwwwwwwww",
         "display_name": "WorkerAgent-7",
         "identity_hint": {

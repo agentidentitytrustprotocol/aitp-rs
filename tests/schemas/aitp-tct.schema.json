@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/tct.json",
+  "$id": "https://aitp.dev/schema/v0.3/tct.json",
   "title": "TrustContextTokenClaims",
-  "description": "AITP v0.2 Trust Context Token — decoded JWS payload claims (RFC-AITP-0005). On the wire a TCT is an opaque compact JWS string (typ 'aitp-tct+jwt', RFC-AITP-0001 §5.4.5); this schema validates the decoded claims object. The compact-string form is pinned by the $defs/CompactJws pattern, referenced by embedding schemas.",
+  "description": "AITP v0.3 Trust Context Token — decoded JWS payload claims (RFC-AITP-0005). On the wire a TCT is an opaque compact JWS string (typ 'aitp-tct+jwt', RFC-AITP-0001 §5.4.5); this schema validates the decoded claims object. The compact-string form is pinned by the $defs/CompactJws pattern, referenced by embedding schemas.",
   "type": "object",
   "$defs": {
     "CompactJws": {
@@ -43,8 +43,8 @@
   "properties": {
     "ver": {
       "type": "string",
-      "const": "aitp/0.2",
-      "description": "Protocol version private claim. MUST be 'aitp/0.2'."
+      "const": "aitp/0.3",
+      "description": "Protocol version private claim. MUST be 'aitp/0.3'."
     },
     "jti": {
       "type": "string",
@@ -96,7 +96,7 @@
   "additionalProperties": false,
   "examples": [
     {
-      "ver": "aitp/0.2",
+      "ver": "aitp/0.3",
       "jti": "550e8400-e29b-41d4-a716-446655440000",
       "iss": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
       "sub": "aid:pubkey:agentB_pubkey_AID_v01_placeholder_BBBBBBBBB",

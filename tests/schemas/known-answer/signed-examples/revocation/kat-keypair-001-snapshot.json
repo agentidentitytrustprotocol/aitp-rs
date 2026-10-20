@@ -13,7 +13,7 @@
   },
   "signing_input": "body",
   "revocation_list": {
-    "version": "aitp/0.2",
+    "version": "aitp/0.3",
     "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
     "published_at": 1711900000,
     "expires_at": 1711903600,
@@ -25,5 +25,5 @@
       }
     ]
   },
-  "signature": "DTmCoELd0lIRCRBdhDuLmEqvFK1VqpTSGyPEG6-C0InTOeF8LB4a-Rf4ercCvhLYD6H1t9_T-7FgQ1ufBfKkCQ"
+  "signature": "wWcNpzrG_gT0B21GXeMFXDq9nU4dvGPXmUsoVE1Z7W7ttcaQ0nOf5WDbQWAeGx6FM_sZ0J1wlHoIXtHUR9IACQ"
 }

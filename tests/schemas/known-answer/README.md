@@ -1,6 +1,6 @@
 # Known-Answer Test Vectors
 
-Pinned reference values that every conformant AITP v0.2 implementation
+Pinned reference values that every conformant AITP v0.3 implementation
 MUST reproduce byte-for-byte. These vectors close interop ambiguities
 that schema validation alone cannot catch — JCS canonical-byte ordering,
 JWK thumbprint serialization, Ed25519 seed-to-AID derivation, the
@@ -13,10 +13,10 @@ verifier rejects (§5.4.7).
 | File | Purpose | Spec reference |
 |---|---|---|
 | [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×5, P-256 ×1), plus `kat-keypair-001-tagged`, which pins the algorithm-tagged `aid:pubkey:ed25519:` spelling of kat-keypair-001 beside its untagged one | RFC-AITP-0001 §5.3 |
-| [`jwk-thumbprints.json`](jwk-thumbprints.json) | RFC 7638 thumbprints of the canonical JWK forms. **Load-bearing in v0.2:** these are the `cnf.jkt` values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4), as well as the OIDC identity binding's `cnf.jkt` | RFC-AITP-0001 §5.4.4, RFC-AITP-0002 §2.2.1 |
+| [`jwk-thumbprints.json`](jwk-thumbprints.json) | RFC 7638 thumbprints of the canonical JWK forms. **Load-bearing in v0.3:** these are the `cnf.jkt` values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4), as well as the OIDC identity binding's `cnf.jkt` | RFC-AITP-0001 §5.4.4, RFC-AITP-0002 §2.2.1 |
 | [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, the Draft multihop vectors, and the derived-identifier vector `kat-derived-uuid-001` (RFC-AITP-0005 §2.2). Each vector names its own signing input; see below. Also the single-hash P-256 vectors `kat-p256-jcs-sign-001`, `kat-manifest-pop-002-p256` and `kat-pinned-key-proof-002-p256`, each with the double-hash value that MUST NOT verify, and the pinned-key proof vectors `kat-pinned-key-proof-001` (Ed25519, untagged AID) and `kat-pinned-key-proof-003-tagged-ed25519` (Ed25519, `aid:pubkey:ed25519:` AID) | RFC-AITP-0001 §5.4.1–§5.4.2, RFC-AITP-0005 §2.2, RFC-AITP-0001 §5.4.6, RFC-AITP-0002 §3.1 |
 | [`signature-strictness.json`](signature-strictness.json) | Raw (public key, message, signature) tuples that a lax verifier accepts and a strict one MUST reject: Ed25519 small-order key (`sig-001`), Ed25519 `S ≥ L` (`sig-002`), P-256 high-S (`sig-003`) | RFC-AITP-0001 §5.4.7 |
-| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle; and P-256 (`kat-keypair-005-p256`) siblings: an envelope, Manifest, revocation snapshot and `ES256` TCT; and two self-attestation TCTs (`kat-tct-002` EdDSA, `kat-tct-003` ES256) | RFC-AITP-0005 §5.3/§7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3, RFC-AITP-0001 §5.4 |
+| [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle; and P-256 (`kat-keypair-005-p256`) siblings: an envelope, Manifest, revocation snapshot and `ES256` TCT; an Ed25519 envelope with a non-empty `extensions` member (`kat-envelope-002-ed25519`); and two self-attestation TCTs (`kat-tct-002` EdDSA, `kat-tct-003` ES256) | RFC-AITP-0005 §5.3/§7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3, RFC-AITP-0001 §5.4 |
 
 The v0.1 `kat-tct-001` and `kat-delegation-001` JCS vectors are
 **retired**: the v0.2 TCT and delegation token are compact JWS
@@ -143,7 +143,7 @@ a re-mint reproduces them byte for byte.
 
 ## Stability
 
-These vectors are stable for AITP v0.2. New vectors MAY be added; an
+These vectors are stable for AITP v0.3. New vectors MAY be added; an
 existing vector's output MUST NOT change without an RFC bump. If JCS
 or JWK Thumbprint specifications change in a way that breaks these
 vectors, AITP will issue a major version bump.
@@ -157,3 +157,10 @@ publishes the old and new bytes, digests and signatures so a consumer
 pinning them can tell which copy they hold. Note the direction: the
 requirement did not change, the artifacts were wrong — which is why it
 is a patch bump and not a protocol or schema-namespace break.
+
+**Re-minted for `aitp/0.3`.** The `aitp/0.3` revision changed the
+literal inside every signed artifact, so every vector and signed example
+that carries it was re-minted by script with the same keys, `jti`s and
+timestamps. That is a protocol revision, not a use of the rule above.
+`CHANGELOG.md` lists each old and new output, and the `aitp/0.2` values
+stay in the frozen v0.2 line (commit `f9ee7ea`).

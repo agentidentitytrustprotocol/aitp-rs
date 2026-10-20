@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/envelope.json",
+  "$id": "https://aitp.dev/schema/v0.3/envelope.json",
   "title": "AitpEnvelope",
-  "description": "AITP v0.2 message envelope. Wraps all protocol messages exchanged during the Mutual Handshake (RFC-AITP-0004) and the TCTs it produces, the downstream PoP exchange (RFC-AITP-0005 §6.1), and the one-way pinned-admission presentation (RFC-AITP-0002 §3.4). The message_type values are listed in registries/message-types.md.",
+  "description": "AITP v0.3 message envelope. Wraps all protocol messages exchanged during the Mutual Handshake (RFC-AITP-0004) and the TCTs it produces, the downstream PoP exchange (RFC-AITP-0005 §6.1), and the one-way pinned-admission presentation (RFC-AITP-0002 §3.4). The message_type values are listed in registries/message-types.md.",
   "type": "object",
   "required": [
     "version",
@@ -16,7 +16,7 @@
   "properties": {
     "version": {
       "type": "string",
-      "const": "aitp/0.2"
+      "const": "aitp/0.3"
     },
     "message_type": {
       "type": "string",

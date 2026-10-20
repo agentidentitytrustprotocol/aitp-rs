@@ -1,12 +1,12 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/mutual-handshake.json",
+  "$id": "https://aitp.dev/schema/v0.3/mutual-handshake.json",
   "title": "MutualHandshakeMessages",
-  "description": "AITP v0.2 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack. Commit payloads carry the peer's TCT (and optional grant voucher) as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
+  "description": "AITP v0.3 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack. Commit payloads carry the peer's TCT (and optional grant voucher) as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
   "$defs": {
     "IdentityDescriptor": {
       "$comment": "Mirror of schemas/json/aitp-identity.schema.json (RFC-AITP-0002 §1 names that file the canonical identity-descriptor schema). This $defs copy exists so the handshake schema stays self-contained — no schema in this repo resolves a cross-file $ref — and it MUST stay byte-equivalent to the canonical file minus its $schema/$id/title/examples metadata. scripts/check-doc-coherence.sh stage 5 enforces that; edit the canonical file and re-run `make validate` rather than editing this copy.",
-      "description": "AITP v0.2 identity binding. Connects an AID to a verifiable issuer claim.",
+      "description": "AITP v0.3 identity binding. Connects an AID to a verifiable issuer claim.",
       "type": "object",
       "required": [
         "type",
@@ -20,7 +20,7 @@
             "oidc",
             "pinned_key"
           ],
-          "description": "Identity mechanism. v0.2 supports: oidc, pinned_key"
+          "description": "Identity mechanism. v0.3 supports: oidc, pinned_key"
         },
         "issuer": {
           "type": "string",
@@ -265,7 +265,7 @@
         "proof": "eyJhbGciOiJFZERTQSJ9..."
       },
       "manifest": {
-        "version": "aitp/0.2",
+        "version": "aitp/0.3",
         "aid": "aid:pubkey:agentA_pubkey_AID_v01_placeholder_AAAAAAAAA",
         "signature": "sig_A_manifest_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
       },
@@ -277,8 +277,8 @@
     },
     {
       "title": "MutualCommit",
-      "tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJ2ZXIiOiJhaXRwLzAuMiJ9.tct_jws_signature_placeholder",
-      "grant_voucher": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJ2ZXIiOiJhaXRwLzAuMiJ9.voucher_jws_signature_placeholder",
+      "tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJ2ZXIiOiJhaXRwLzAuMyJ9.tct_jws_signature_placeholder",
+      "grant_voucher": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtZ3JhbnQrand0In0.eyJ2ZXIiOiJhaXRwLzAuMyJ9.voucher_jws_signature_placeholder",
       "pop_signature": "sig_A_pop_v01_placeholder_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
       "pop_nonce_echo": "nonce_B_pop_v01_aaannn"
     }

@@ -14,7 +14,7 @@
   },
   "signing_input": "body",
   "manifest": {
-    "version": "aitp/0.2",
+    "version": "aitp/0.3",
     "aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
     "display_name": "kat-keypair-005-p256",
     "identity_hint": {
@@ -38,11 +38,11 @@
     },
     "published_at": 1711900000,
     "expires_at": 1711986400,
-    "signature": "p256.-udvH6qwriW7E_9k9rfm4FETZ-2aBtLd9eMIG1CjVp0Zi03X_pDVXD4iTzBddPtH-MuM6pdRZUq7RVowjgPZOg"
+    "signature": "p256.BbkRZRheHRDskHFFOn5ZHq8a-0gA80l0XilXLeQv584ouqAdyTo3wkrCnPicBKNR1ui6bh6eDkpEQR1eTRHTdQ"
   },
   "_must_not_verify": {
     "$comment": "ECDSA over sha256(d) instead of d (RFC-AITP-0001 §5.4.6). `double_hash_signature` MUST NOT verify over the inner Manifest body; `double_hash_pop_signature` MUST NOT verify over the decoded challenge.",
-    "double_hash_signature": "p256.VZ1rGRElpiZpZXoi17yeUrOMHEl6C1ldHluR-mthwGp9flNnRLQJ7OD6jw_rMoyPuJebta8PNtgfRwWdAPUvhw",
+    "double_hash_signature": "p256.Kbsc5ojUkMS_dX4kJbWGvfV3jrQfaXV2zqcK7TQ_T9sNTCDodpMowVK1-o3DR1Ys2pM-BYZl-KoD9FfPykTNbg",
     "double_hash_pop_signature": "p256.AQHw7S2naDqP4xuQ5WGyVmidrqG_pDXrYsPTN9Gv9z5krpVfMYwya1rXrDmr80px0Kkl69cgpHt9CcOizvYIjg"
   }
 }
