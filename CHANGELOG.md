@@ -9,6 +9,146 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **0.17.0: protocol revision `aitp/0.3`, with envelope signing input v2
+  and a strict cutover from `aitp/0.2`.** Spec pin `ab214d2` → `bf00e75`
+  ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/253),
+  [#254](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/254)).
+  0.17 does not interoperate with 0.16 peers. It also ships the HTTP
+  server receive order (#259), stricter envelope parsing (#262) and
+  envelope signing and verification in the bindings (#260). See
+  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) for every change and
+  how to migrate.
+- **Strict `aitp/0.2` → `aitp/0.3` cutover.** `aitp_core::PROTOCOL_VERSION`
+  is `"aitp/0.3"`, and every producer and checker uses it. An `aitp/0.2`
+  artifact is rejected on its version, with no dual-accept window:
+  envelopes, TCTs, grant vouchers, delegation tokens and revocation
+  snapshots with `UNKNOWN_VERSION`, Manifests with
+  `MANIFEST_VERSION_UNKNOWN` and session bundles with
+  `BUNDLE_VERSION_MISMATCH`.
+- **Envelope signing input v2** (RFC-AITP-0001 §5.4). The envelope
+  signature is over `sha256("aitp-envelope-v2" || 0x00 ||
+  JCS(envelope minus signature))`. `version`, `message_type` and
+  `extensions` are now sender-authenticated. The pipe-composed 0.16 input
+  is gone, and an envelope signed over it fails with `INVALID_SIGNATURE`.
+  `extensions` must be attached before signing.
+- **`aitp_core::envelope_signing_input` and `envelope_signing_digest`
+  take `&AitpEnvelope`** and ignore its `signature`. They used to take
+  `(message_id, timestamp, sender_aid, payload)`.
+- **`EnvelopeParseError::UnknownVersion(String)` is new.** An exhaustive
+  `match` must add the arm.
+- **Envelope check order** (RFC-AITP-0001 §5.4). `parse_envelope_wire`
+  checks `version` (`UNKNOWN_VERSION`) before the member set
+  (`UNKNOWN_FIELD`) and structure (`INVALID_ENVELOPE`). The caller then
+  checks the signature (`INVALID_SIGNATURE`). An envelope with no
+  `version`, `{}` included, is now `UNKNOWN_VERSION`, not
+  `INVALID_ENVELOPE`. The Python and Node handshake entry points reject a
+  non-`aitp/0.3` envelope with `unknown protocol version …`.
+- **HTTP handshake server receive order** (RFC-AITP-0009 §3.1,
+  [#255](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/255),
+  [#259](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/259)).
+  The hello and commit routes of `HandshakeServer` now check the replay
+  deny list, the rate limit and the timestamp window before Content-Type
+  and the envelope's version and structure. There is no API change. What
+  changes is the response:
+  - A replayed or stale envelope gets `REPLAY_DETECTED` /
+    `TIMESTAMP_EXPIRED` even when it also has an unknown version, an
+    unknown member, a bad structure or `message_type`, or the wrong
+    Content-Type.
+  - A `message_id`, `timestamp` or `sender.agent_id` that cannot be read
+    (not a UUID, not an `i64` integer, not a valid AID) skips the step
+    that needs it, and the structural check reports it.
+  - Malformed requests now count against the rate limit, and are answered
+    HTTP 429 with an empty body once the budget is spent.
+  - A malformed envelope with a readable `message_id` consumes that id.
+  - Deviation: the 256 KiB body-size limit is applied while the body is
+    read, before the §3.1 steps 1 to 3, not at step 4.
+- **The envelope parser enforces the schema rules for `payload`,
+  `timestamp`, `signature` and `extensions`**
+  ([#261](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/261),
+  [#262](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/262)).
+  `parse_envelope_wire` now rejects these as
+  `EnvelopeParseError::Malformed` (`INVALID_ENVELOPE`), after the version
+  and member-set checks:
+  - a `payload` that is not a JSON object;
+  - a negative `timestamp`;
+  - a `signature` outside `^((ed25519|p256)\.)?[A-Za-z0-9_-]{86}$`,
+    which used to be `INVALID_SIGNATURE`;
+  - `"extensions": null`, which used to be read as absent.
+
+  Every receive path changes, Python and Node `verify_envelope` included.
+  On the HTTP server a negative `timestamp` is still `TIMESTAMP_EXPIRED`,
+  because the timestamp window runs first.
+- **The envelope signer refuses a non-object `payload` and a negative
+  `timestamp`.** `sign_prepared_envelope*` and `sign_envelope*` return
+  `Err`, and the binding `sign_envelope` / `signEnvelope` raise or throw.
+
+### Added
+
+- `aitp_envelope::sign_prepared_envelope` and
+  `sign_prepared_envelope_async` sign an envelope the caller assembled,
+  for example one with `extensions`. They refuse a `version` other than
+  `PROTOCOL_VERSION`, a non-v4 `message_id`, a non-object `payload`, a
+  negative `timestamp`, and a sender that is not the signer.
+- `aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG` (`b"aitp-envelope-v2"`).
+- `aitp_core::check_envelope_structure` checks the `payload`, `timestamp`
+  and `signature` schema rules on a typed envelope.
+  `aitp_core::check_unsigned_envelope_structure` checks `payload` and
+  `timestamp` only, for an envelope that is not signed yet (#262).
+- **Envelope signing and verification in the Python and Node bindings**
+  ([#256](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/256),
+  [#260](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/260)).
+  - **Verify:** Python `aitp.verify_envelope(envelope_json,
+    expected_sender_aid)` raises `aitp.EnvelopeVerificationError`, a
+    `RuntimeError` subclass, with `.code`. Node `verifyEnvelope` throws an
+    `Error` with `.code`.
+  - **Codes, in RFC-AITP-0001 §5.4 order:** `UNKNOWN_VERSION`,
+    `UNKNOWN_FIELD` / `INVALID_ENVELOPE`, then `INVALID_SIGNATURE`. A
+    sender other than the pinned AID is `INVALID_SIGNATURE`.
+  - **Scope:** callers own the replay and timestamp checks; these
+    functions do not run them.
+  - **Sign:** Python `AitpAgent.sign_envelope(message_type, payload_json,
+    extensions_json=None, message_id=None, timestamp=None)` and Node
+    `agent.signEnvelope(messageType, payloadJson, opts?)` sign over input
+    v2, `extensions` included. They refuse a non-object payload and a
+    negative timestamp.
+- The envelope KATs `kat-envelope-001-p256` (re-minted) and
+  `kat-envelope-002-ed25519` (new, with `extensions`) are reproduced byte
+  for byte, and their v1 signatures are asserted not to verify. Spec
+  fixtures env-008 to env-011 pass, and env-007 now carries a real
+  signature.
+
+### Changed
+
+- The spec pin moves to `bf00e75`, and `tests/schemas/` holds the full
+  `schemas/` tree at that commit. Every signed vector and fixture was
+  re-minted by the spec. The JSON Schema `$id` namespace is
+  `https://aitp.dev/schema/v0.3/`.
+- The aitp-verifier-py pin moves from `43cf702` to `f335f4f`, which
+  speaks `aitp/0.3`. `tests/xcheck-fixtures/session-bundle/kat-keypair-001-bundle.json`
+  is re-minted. The old bundle is kept as
+  `kat-keypair-001-bundle-aitp-0.2.json`, and a test asserts that it is
+  refused.
+- The conformance runner's `--profile v0.2` and the fixture key
+  `required_for_v0_2` keep their names. For `aitp/0.3` they mean the core
+  tier. At `bf00e75` the strict run is 79 pass / 0 fail / 23 skip, and
+  the all-features run is 100 pass / 0 fail / 2 skip.
+
+### Security
+
+- `version`, `message_type` and `extensions` can no longer be changed in
+  transit without breaking the envelope signature. This closes the gap
+  the v0.2 erratum in 0.16 documented.
+- A relay can no longer add `"extensions": null` to an envelope without
+  it being rejected (#262).
+- The optional `ed25519.` / `p256.` tag is part of `signature`, which the
+  signature does not cover. An Ed25519 signature verifies with or without
+  `ed25519.`, so do not identify or deduplicate envelopes by their
+  `signature` string. A P-256 signature without `p256.` fails.
+
+## [0.16.0] — 2026-10-19
+
+### BREAKING
+
 - **0.16.0: single-hop delegation keys resolved from Manifests, and the
   coordinator Manifest required for session bundles in the bindings.**
   Spec pin `cfd2f16` → `ab214d2`. See
