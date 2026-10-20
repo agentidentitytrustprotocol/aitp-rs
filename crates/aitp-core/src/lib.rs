@@ -35,8 +35,9 @@ pub mod unknown_field;
 
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
-    envelope_signing_digest, envelope_signing_input, parse_envelope_wire, AitpEnvelope,
-    EnvelopeParseError, MessageType, Sender, AITP_ENVELOPE_MEMBERS, ENVELOPE_SIGNING_DOMAIN_TAG,
+    check_envelope_structure, check_unsigned_envelope_structure, envelope_signing_digest,
+    envelope_signing_input, parse_envelope_wire, AitpEnvelope, EnvelopeParseError, MessageType,
+    Sender, AITP_ENVELOPE_MEMBERS, ENVELOPE_SIGNING_DOMAIN_TAG,
 };
 pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;

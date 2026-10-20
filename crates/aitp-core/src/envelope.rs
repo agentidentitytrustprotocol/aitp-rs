@@ -143,12 +143,20 @@ pub enum EnvelopeParseError {
 ///    dual-accept: `aitp/0.2` is as unknown as `aitp/9.9`.
 /// 2. [`check_members`] against [`AITP_ENVELOPE_MEMBERS`] — rejects any
 ///    top-level member the schema does not declare.
-/// 3. `serde_json::from_value` into [`AitpEnvelope`].
-/// 4. On a residual serde error (which, now that the top-level check has
+/// 3. `extensions`, when present, must be an object. `null` is
+///    `Malformed` rather than read as absent: absent and present are
+///    different signing inputs, so folding `null` into absent would let a
+///    relay add the member without breaking the signature.
+/// 4. `serde_json::from_value` into [`AitpEnvelope`].
+/// 5. On a residual serde error (which, now that the top-level check has
 ///    already passed, can only come from the nested `Sender` object's own
 ///    `deny_unknown_fields`), [`from_serde_error`] recovers the offending
 ///    field name so the caller can still report `UnknownField` rather
 ///    than a generic parse failure.
+/// 6. [`check_envelope_structure`]: the `aitp-envelope.schema.json` rules
+///    the typed envelope does not carry (`payload` an object, `timestamp`
+///    `>= 0`, the `signature` pattern). A failure is `Malformed`
+///    (`INVALID_ENVELOPE`), still ahead of the signature step.
 pub fn parse_envelope_wire(value: &CheckedJson) -> Result<AitpEnvelope, EnvelopeParseError> {
     let value = value.as_value();
     let obj = value
@@ -161,13 +169,70 @@ pub fn parse_envelope_wire(value: &CheckedJson) -> Result<AitpEnvelope, Envelope
     }
     check_members("AitpEnvelope", value, AITP_ENVELOPE_MEMBERS)
         .map_err(|e| EnvelopeParseError::UnknownField(e.field))?;
-    serde_json::from_value(value.clone()).map_err(|e| {
+    if obj.get("extensions").is_some_and(|ext| !ext.is_object()) {
+        return Err(EnvelopeParseError::Malformed(
+            "extensions: must be a JSON object".into(),
+        ));
+    }
+    let envelope: AitpEnvelope = serde_json::from_value(value.clone()).map_err(|e| {
         if let Some(field) = from_serde_error(&e) {
             EnvelopeParseError::UnknownField(field)
         } else {
             EnvelopeParseError::Malformed(e.to_string())
         }
-    })
+    })?;
+    check_envelope_structure(&envelope).map_err(EnvelopeParseError::Malformed)?;
+    Ok(envelope)
+}
+
+/// Length of the base64url-unpadded part of an envelope `signature`: a
+/// 64-byte raw signature (Ed25519, or P-256 `r || s`).
+const ENVELOPE_SIGNATURE_B64_LEN: usize = 86;
+
+/// Check the `aitp-envelope.schema.json` rules a typed [`AitpEnvelope`]
+/// does not enforce by construction, `signature` aside: `payload` is a
+/// JSON object and `timestamp` is `>= 0`.
+///
+/// A signer runs this before signing so it never produces an envelope
+/// [`parse_envelope_wire`] rejects (`aitp-envelope` does). The other
+/// members are typed: `version` is checked on its own, `message_type` is
+/// an enum, `message_id` deserializes only in the strict UUID v4 form,
+/// `sender.agent_id` is a validated [`Aid`], and `extensions` is a map.
+pub fn check_unsigned_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
+    if !envelope.payload.is_object() {
+        return Err("payload: must be a JSON object".into());
+    }
+    if envelope.timestamp.0 < 0 {
+        return Err(format!(
+            "timestamp: must be >= 0, got {}",
+            envelope.timestamp.0
+        ));
+    }
+    Ok(())
+}
+
+/// [`check_unsigned_envelope_structure`], plus the `signature` pattern
+/// `^((ed25519|p256)\.)?[A-Za-z0-9_-]{86}$`: an optional algorithm tag
+/// (RFC-AITP-0001 §5.4.3) and exactly 86 base64url-unpadded characters.
+///
+/// These are structure rules (RFC-AITP-0001 §5.4 check order, step 2):
+/// a failure is `INVALID_ENVELOPE`, reported before the signature step,
+/// not `INVALID_SIGNATURE`. [`parse_envelope_wire`] runs this on every
+/// envelope it returns.
+pub fn check_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
+    check_unsigned_envelope_structure(envelope)?;
+    let sig = envelope.signature.as_str();
+    let b64 = sig
+        .strip_prefix("ed25519.")
+        .or_else(|| sig.strip_prefix("p256."))
+        .unwrap_or(sig);
+    if b64.len() != ENVELOPE_SIGNATURE_B64_LEN || !b64.bytes().all(crate::aid::is_base64url_byte) {
+        return Err(
+            "signature: must be an optional `ed25519.`/`p256.` tag and 86 base64url characters"
+                .into(),
+        );
+    }
+    Ok(())
 }
 
 /// Sender identification block.
@@ -609,6 +674,166 @@ mod tests {
                 "{bad}"
             );
         }
+    }
+
+    /// Issue #261: `aitp-envelope.schema.json` declares
+    /// `payload: {"type": "object"}`; any other JSON type is a structure
+    /// failure (`INVALID_ENVELOPE`), not something the signature step
+    /// sees.
+    #[test]
+    fn non_object_payload_is_malformed() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        for payload in [
+            json!([]),
+            json!([1, 2]),
+            json!("text"),
+            json!(1),
+            json!(true),
+            json!(null),
+        ] {
+            let mut v = good.clone();
+            v["payload"] = payload.clone();
+            let err = parse_envelope_wire(&checked(&v)).unwrap_err();
+            assert!(
+                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("payload")),
+                "{payload}: {err:?}"
+            );
+        }
+        let mut empty = good;
+        empty["payload"] = json!({});
+        assert!(parse_envelope_wire(&checked(&empty)).is_ok());
+    }
+
+    /// Issue #261: `timestamp` is `{"type": "integer", "minimum": 0}`.
+    #[test]
+    fn negative_timestamp_is_malformed() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        for ts in [json!(-1), json!(i64::MIN)] {
+            let mut v = good.clone();
+            v["timestamp"] = ts.clone();
+            let err = parse_envelope_wire(&checked(&v)).unwrap_err();
+            assert!(
+                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("timestamp")),
+                "{ts}: {err:?}"
+            );
+        }
+        // Non-integers were already rejected by the typed `Timestamp`.
+        for ts in [json!(1.5), json!("1711900000"), json!(null)] {
+            let mut v = good.clone();
+            v["timestamp"] = ts.clone();
+            assert!(
+                matches!(
+                    parse_envelope_wire(&checked(&v)),
+                    Err(EnvelopeParseError::Malformed(_))
+                ),
+                "{ts}"
+            );
+        }
+        let mut zero = good;
+        zero["timestamp"] = json!(0);
+        assert!(parse_envelope_wire(&checked(&zero)).is_ok());
+    }
+
+    /// Issue #261: `signature` matches
+    /// `^((ed25519|p256)\.)?[A-Za-z0-9_-]{86}$`.
+    #[test]
+    fn signature_outside_the_schema_pattern_is_malformed() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        let b64 = "A".repeat(86);
+        for sig in [
+            String::new(),
+            "A".repeat(85),
+            "A".repeat(87),
+            format!("{}=", "A".repeat(85)),
+            format!("{}+", "A".repeat(85)),
+            format!("{}/", "A".repeat(85)),
+            format!("{} ", "A".repeat(85)),
+            format!("{b64}\n"),
+            format!("rsa.{b64}"),
+            format!("ED25519.{b64}"),
+            format!("ed25519:{b64}"),
+            format!("ed25519.p256.{b64}"),
+            "ed25519.".into(),
+        ] {
+            let mut v = good.clone();
+            v["signature"] = json!(sig);
+            let err = parse_envelope_wire(&checked(&v)).unwrap_err();
+            assert!(
+                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("signature")),
+                "{sig:?}: {err:?}"
+            );
+        }
+        let mut non_string = good.clone();
+        non_string["signature"] = json!(86);
+        assert!(matches!(
+            parse_envelope_wire(&checked(&non_string)),
+            Err(EnvelopeParseError::Malformed(_))
+        ));
+        for sig in [
+            b64.clone(),
+            format!("ed25519.{b64}"),
+            format!("p256.{b64}"),
+            format!("{}-_09az", "A".repeat(80)),
+        ] {
+            let mut v = good.clone();
+            v["signature"] = json!(sig);
+            assert!(parse_envelope_wire(&checked(&v)).is_ok(), "{sig}");
+        }
+    }
+
+    /// `extensions` is `{"type": "object"}`: `null` is not read as
+    /// absent, and other JSON types were already rejected by the map.
+    #[test]
+    fn non_object_extensions_is_malformed() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        for ext in [json!(null), json!([]), json!("x"), json!(1)] {
+            let mut v = good.clone();
+            v["extensions"] = ext.clone();
+            assert!(
+                matches!(
+                    parse_envelope_wire(&checked(&v)),
+                    Err(EnvelopeParseError::Malformed(_))
+                ),
+                "{ext}"
+            );
+        }
+    }
+
+    /// RFC-AITP-0001 §5.4 check order: an unknown `version` (step 1)
+    /// wins over every issue #261 structure defect, and an unknown member
+    /// is still `UnknownField`.
+    #[test]
+    fn version_and_member_set_win_over_schema_rule_defects() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        let mut bad = good.clone();
+        bad["payload"] = json!([1]);
+        bad["timestamp"] = json!(-5);
+        bad["signature"] = json!("short");
+        bad["extensions"] = json!(null);
+        let mut unknown_version = bad.clone();
+        unknown_version["version"] = json!("aitp/9.9");
+        assert_eq!(
+            parse_envelope_wire(&checked(&unknown_version)).unwrap_err(),
+            EnvelopeParseError::UnknownVersion("\"aitp/9.9\"".into())
+        );
+        let mut unknown_member = bad.clone();
+        unknown_member["trace_id"] = json!(1);
+        assert_eq!(
+            parse_envelope_wire(&checked(&unknown_member)).unwrap_err(),
+            EnvelopeParseError::UnknownField("trace_id".into())
+        );
+        assert!(matches!(
+            parse_envelope_wire(&checked(&bad)).unwrap_err(),
+            EnvelopeParseError::Malformed(_)
+        ));
+    }
+
+    #[test]
+    fn check_unsigned_envelope_structure_ignores_signature() {
+        let mut env = sample_envelope(MessageType::Tct);
+        env.signature = String::new();
+        assert!(check_unsigned_envelope_structure(&env).is_ok());
+        assert!(check_envelope_structure(&env).is_err());
     }
 
     #[test]

@@ -298,11 +298,56 @@ fn sign_prepared_envelope_refuses_bad_inputs() {
     assert!(sign_prepared_envelope(&k, other_sender)
         .unwrap_err()
         .contains("sender.agent_id"));
-    let mut non_v4 = good;
+    let mut non_v4 = good.clone();
     non_v4.message_id = Uuid::from_u128(0x0189_0a5d_ac96_774b_bcce_b302_099a_8057);
     assert!(sign_prepared_envelope(&k, non_v4)
         .unwrap_err()
         .contains("message_id"));
+    // Issue #261: what a verifier rejects as INVALID_ENVELOPE is not
+    // signed either.
+    for payload in [
+        serde_json::json!([1, 2]),
+        serde_json::json!("text"),
+        serde_json::json!(null),
+        serde_json::json!(7),
+    ] {
+        let mut non_object = good.clone();
+        non_object.payload = payload;
+        assert!(sign_prepared_envelope(&k, non_object)
+            .unwrap_err()
+            .contains("payload"));
+    }
+    let mut negative_ts = good;
+    negative_ts.timestamp = Timestamp(-1);
+    assert!(sign_prepared_envelope(&k, negative_ts)
+        .unwrap_err()
+        .contains("timestamp"));
+    assert!(sign_envelope_with(
+        &k,
+        MessageType::Tct,
+        serde_json::json!([]),
+        Uuid::new_v4(),
+        Timestamp(1),
+    )
+    .unwrap_err()
+    .contains("payload"));
+}
+
+/// Issue #261: whatever the signer emits passes the structure step a
+/// verifier runs, for both algorithms and at `timestamp` 0.
+#[test]
+fn signed_envelopes_pass_the_structure_check() {
+    for k in [key(0x45), p256_key(0x46)] {
+        let env = sign_envelope_with(
+            &k,
+            MessageType::Tct,
+            sample_payload(),
+            Uuid::new_v4(),
+            Timestamp(0),
+        )
+        .unwrap();
+        aitp_core::check_envelope_structure(&env).expect("signed envelope is well formed");
+    }
 }
 
 #[tokio::test]
@@ -362,4 +407,30 @@ fn ed25519_key_does_not_verify_p256_envelope() {
         ),
         "Ed25519 key must not verify a P-256 envelope, got {err:?}"
     );
+}
+
+/// Issue #261: an envelope whose signature genuinely verifies over a
+/// non-object `payload` or a negative `timestamp` is still rejected by
+/// the parser, at the structure step (`INVALID_ENVELOPE`), before the
+/// signature is looked at. Signed by hand, since the signer refuses.
+#[test]
+fn well_signed_schema_violations_fail_the_structure_step() {
+    let k = key(0x47);
+    let base = signed(&k);
+    let mut array_payload = base.clone();
+    array_payload.payload = serde_json::json!([1, 2]);
+    let mut negative_ts = base;
+    negative_ts.timestamp = Timestamp(-1);
+    for (field, mut env) in [("payload", array_payload), ("timestamp", negative_ts)] {
+        let digest = envelope_signing_digest(&env).unwrap();
+        env.signature = aitp_crypto::sign_jcs(&k, &aitp_crypto::Digest32::from(digest))
+            .unwrap()
+            .into_string();
+        verify_envelope_signature(&env, &k.verifying_key()).expect("the signature itself is good");
+        let wire: aitp_core::CheckedJson = serde_json::to_string(&env).unwrap().parse().unwrap();
+        match aitp_core::parse_envelope_wire(&wire) {
+            Err(aitp_core::EnvelopeParseError::Malformed(m)) => assert!(m.contains(field), "{m}"),
+            other => panic!("{field}: {other:?}"),
+        }
+    }
 }

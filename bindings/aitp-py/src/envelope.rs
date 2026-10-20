@@ -72,7 +72,9 @@ fn wire_code(err: &WireError) -> &'static str {
 /// 2. a member outside the schema and outside `extensions` →
 ///    `UNKNOWN_FIELD`; any other structural defect (a duplicate key,
 ///    RFC-AITP-0001 §5.4.5, a missing member, an unregistered
-///    `message_type`, a non-v4 `message_id`) → `INVALID_ENVELOPE`;
+///    `message_type`, a non-v4 `message_id`, a non-object `payload`, a
+///    negative `timestamp`, a `signature` outside the schema pattern) →
+///    `INVALID_ENVELOPE`;
 /// 3. a signature that does not verify over `sig_input_v2` under the
 ///    expected sender's key → `INVALID_SIGNATURE`. An envelope whose
 ///    `sender.agent_id` is not `expected_sender_aid` fails here too: it is
@@ -155,7 +157,8 @@ pub fn sign_envelope_py(
         extensions,
         signature: String::new(),
     };
-    // Refuses a non-v4 `message_id` before signing.
+    // Refuses a non-v4 `message_id` and a negative `timestamp` before
+    // signing: whatever a verifier rejects is not signed.
     let signed = aitp_envelope::sign_prepared_envelope(key, envelope)
         .map_err(|e| PyValueError::new_err(format!("sign_envelope failed: {e}")))?;
     serde_json::to_string(&signed).map_err(|e| PyRuntimeError::new_err(e.to_string()))

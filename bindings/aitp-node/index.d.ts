@@ -596,7 +596,9 @@ export declare function verifyDelegationMultihop(token: string, verifierAid: str
  * 2. a member outside the schema and outside `extensions` →
  *    `UNKNOWN_FIELD`; any other structural defect (a duplicate key,
  *    RFC-AITP-0001 §5.4.5, a missing member, an unregistered
- *    `message_type`, a non-v4 `message_id`) → `INVALID_ENVELOPE`;
+ *    `message_type`, a non-v4 `message_id`, a non-object `payload`, a
+ *    negative `timestamp`, a `signature` outside the schema pattern) →
+ *    `INVALID_ENVELOPE`;
  * 3. a signature that does not verify over `sig_input_v2` under the
  *    expected sender's key → `INVALID_SIGNATURE`. An envelope whose
  *    `sender.agent_id` is not `expectedSenderAid` fails here too: it is

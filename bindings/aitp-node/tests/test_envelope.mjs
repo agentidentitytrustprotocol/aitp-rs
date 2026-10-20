@@ -115,6 +115,18 @@ for (const [label, mutate] of [
   ['missing payload', (e) => delete e.payload],
   ['unregistered message_type', (e) => (e.message_type = 'not_registered')],
   ['non-v4 message_id', (e) => (e.message_id = '770e8400-e29b-11d4-a716-446655441007')],
+  // Issue #261: the aitp-envelope.schema.json rules for payload, timestamp
+  // and signature (and extensions) are structure, checked before the
+  // signature.
+  ['payload an array', (e) => (e.payload = [1, 2])],
+  ['payload a string', (e) => (e.payload = 'text')],
+  ['payload null', (e) => (e.payload = null)],
+  ['negative timestamp', (e) => (e.timestamp = -1)],
+  ['signature too short', (e) => (e.signature = e.signature.slice(1))],
+  ['signature with padding', (e) => (e.signature = e.signature.slice(1) + '=')],
+  ['signature with an unknown tag', (e) => (e.signature = `rsa.${e.signature}`)],
+  ['empty signature', (e) => (e.signature = '')],
+  ['extensions null', (e) => (e.extensions = null)],
 ]) {
   test(`structural defect (${label}) is INVALID_ENVELOPE`, () => {
     const envelope = env007();
@@ -122,6 +134,19 @@ for (const [label, mutate] of [
     assert.equal(codeOf(envelope), 'INVALID_ENVELOPE');
   });
 }
+
+test('unknown version wins over a schema-rule defect', () => {
+  const envelope = { ...env007(), version: 'aitp/9.9', payload: [], timestamp: -1, signature: 'x' };
+  assert.equal(codeOf(envelope), 'UNKNOWN_VERSION');
+});
+
+test('a tagged signature passes the structure step', () => {
+  // The schema pattern allows the optional `ed25519.` tag
+  // (RFC-AITP-0001 §5.4.3); the tagged form of a valid signature verifies.
+  const envelope = env007();
+  envelope.signature = `ed25519.${envelope.signature}`;
+  assert.equal(verifyEnvelope(JSON.stringify(envelope), ED25519_AID), undefined);
+});
 
 test('duplicate key is INVALID_ENVELOPE', () => {
   const text = JSON.stringify(env007());
@@ -173,6 +198,7 @@ for (const [label, args] of [
   ['payload not an object', ['tct', '[]']],
   ['extensions not an object', ['tct', '{}', { extensionsJson: '[]' }]],
   ['non-v4 message id', ['tct', '{}', { messageId: '770e8400-e29b-11d4-a716-446655441007' }]],
+  ['negative timestamp', ['tct', '{}', { timestamp: -1 }]],
 ]) {
   test(`signEnvelope rejects bad input (${label})`, () => {
     assert.throws(() => AitpAgent.generate().signEnvelope(...args));

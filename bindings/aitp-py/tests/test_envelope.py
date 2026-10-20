@@ -125,13 +125,53 @@ def test_missing_version_is_unknown_version():
         lambda e: e.pop("payload"),
         lambda e: e.update(message_type="not_registered"),
         lambda e: e.update(message_id="770e8400-e29b-11d4-a716-446655441007"),
+        # Issue #261: the aitp-envelope.schema.json rules for payload,
+        # timestamp and signature (and extensions) are structure, checked
+        # before the signature.
+        lambda e: e.update(payload=[1, 2]),
+        lambda e: e.update(payload="text"),
+        lambda e: e.update(payload=None),
+        lambda e: e.update(timestamp=-1),
+        lambda e: e.update(signature=e["signature"][1:]),
+        lambda e: e.update(signature=e["signature"][1:] + "="),
+        lambda e: e.update(signature="rsa." + e["signature"]),
+        lambda e: e.update(signature=""),
+        lambda e: e.update(extensions=None),
     ],
-    ids=["missing-payload", "unregistered-message-type", "non-v4-message-id"],
+    ids=[
+        "missing-payload",
+        "unregistered-message-type",
+        "non-v4-message-id",
+        "payload-array",
+        "payload-string",
+        "payload-null",
+        "negative-timestamp",
+        "signature-too-short",
+        "signature-padded",
+        "signature-unknown-tag",
+        "signature-empty",
+        "extensions-null",
+    ],
 )
 def test_structural_defects_are_invalid_envelope(mutate):
     envelope = _env007()
     mutate(envelope)
     assert _code(envelope) == "INVALID_ENVELOPE"
+
+
+def test_unknown_version_wins_over_a_schema_rule_defect():
+    envelope = dict(
+        _env007(), version="aitp/9.9", payload=[], timestamp=-1, signature="x"
+    )
+    assert _code(envelope) == "UNKNOWN_VERSION"
+
+
+def test_tagged_signature_passes_the_structure_step():
+    # The schema pattern allows the optional `ed25519.` tag
+    # (RFC-AITP-0001 §5.4.3); the tagged form of a valid signature verifies.
+    envelope = _env007()
+    envelope["signature"] = "ed25519." + envelope["signature"]
+    assert aitp.verify_envelope(json.dumps(envelope), ED25519_AID) is None
 
 
 def test_duplicate_key_is_invalid_envelope():
@@ -200,8 +240,15 @@ def test_sign_envelope_round_trips_and_covers_extensions():
         (("tct", "[]"), {}),
         (("tct", "{}"), {"extensions_json": "[]"}),
         (("tct", "{}"), {"message_id": "770e8400-e29b-11d4-a716-446655441007"}),
+        (("tct", "{}"), {"timestamp": -1}),
     ],
-    ids=["message-type", "payload-not-object", "extensions-not-object", "non-v4-id"],
+    ids=[
+        "message-type",
+        "payload-not-object",
+        "extensions-not-object",
+        "non-v4-id",
+        "negative-timestamp",
+    ],
 )
 def test_sign_envelope_rejects_bad_input(args, kwargs):
     with pytest.raises(ValueError):
