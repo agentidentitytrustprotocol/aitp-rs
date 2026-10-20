@@ -508,7 +508,8 @@ def test_python_revocation_list_parses_on_node(node):
     )
     envelope = issuer.sign_revocation_list(
         [
-            {"jti": "11111111-1111-1111-1111-111111111111", "reason": "test"},
+            # A UUID v4: signing refuses any other version (#268).
+            {"jti": "11111111-1111-4111-8111-111111111111", "reason": "test"},
         ],
         expires_in_secs=600,
     )

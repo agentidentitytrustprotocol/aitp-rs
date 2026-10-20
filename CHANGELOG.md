@@ -33,6 +33,36 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
   corrected.
 
+- **Revocation signing refuses a non-v4 `entries[].jti`, and every
+  deserialization of `RevocationEntry` takes the strict wire form**
+  ([#268](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/268)).
+  The verifier already rejected such a list, so 0.17.0 could sign
+  snapshots nobody would accept. Four things change:
+  - `aitp_tct::revocation_signing_bytes`, and through it
+    `sign_revocation_list`, return `TctError::JtiNotV4` for an entry
+    whose `jti` is not a UUID v4 with the RFC 9562 variant. This is the
+    same check the delegation builder runs. `verify_revocation_list`
+    goes through the same function, so an envelope built in code with
+    a non-v4 `jti` is rejected too (`REVOCATION_SNAPSHOT_INVALID` in the
+    adapter).
+  - `RevocationEntry::jti` deserializes through
+    `aitp_core::ids::serde_v4`. Plain `serde_json::from_*` of a
+    `RevocationListEnvelope` now refuses an uppercase, braced, URN,
+    simple or non-v4 `jti`, as `parse_revocation_snapshot_wire` already
+    did. `parse_revocation_snapshot_wire` checks `jti` before the serde
+    step, so it still reports `JtiNotV4`. The serialized form is
+    unchanged, and so are the signing bytes.
+  - Node `AitpAgent.signRevocationList` and Python
+    `AitpAgent.sign_revocation_list` parse `jti` with the strict wire
+    parser. They used to accept any UUID version and any case, and
+    signed an uppercase input lowercased. That is why an uppercase
+    `jti` appeared to verify through `verifyRevocationList`. Verify was
+    already strict: an uppercase `jti` on the wire is `malformed`. Pass
+    `randomUUID()` / `str(uuid.uuid4())` output unchanged.
+  - The claim in [`docs/upgrading-0.15.md`](docs/upgrading-0.15.md)
+    section 2 that the revocation signing-bytes entry points apply the
+    wire parser's `jti` check now holds for the Rust function as well.
+
 ### Changed
 
 - **Spec pin `597efbd` → `4bbda67`** (spec #94), which adds the core

@@ -241,7 +241,7 @@ import { randomUUID } from 'node:crypto';
 import { verifyRevocationList, revocationSigningBytes } from '@agentidentitytrustprotocol/aitp';
 
 const snapshot = bob.signRevocationList(
-  [{ jti: randomUUID(), reason: 'compromised' }],   // jti must be a UUID
+  [{ jti: randomUUID(), reason: 'compromised' }],   // jti must be a lowercase UUID v4
   600,
 );
 verifyRevocationList(snapshot, bob.aid);   // pin the expected issuer
@@ -255,7 +255,8 @@ revoked.push(...JSON.parse(snapshot).revocation_list.entries.map((e) => e.jti));
 const signedBytes = revocationSigningBytes(snapshot);   // Buffer: JCS of the inner body
 ```
 
-`signRevocationList` entries take `jti` (a UUID string), plus optional
+`signRevocationList` entries take `jti` (a lowercase hyphenated UUID v4,
+as `randomUUID()` returns; any other form throws), plus optional
 `revokedAt` (unix seconds, defaulting to now) and `reason`.
 
 `verifyRevocationList(envelopeJson, expectedIssuerAid, nowUnixSecs?)` returns

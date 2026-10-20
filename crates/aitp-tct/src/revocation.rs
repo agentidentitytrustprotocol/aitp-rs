@@ -73,7 +73,12 @@ pub const REVOCATION_ENVELOPE_MEMBERS: &[&str] = &["revocation_list", "signature
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RevocationEntry {
-    /// JTI of the revoked TCT.
+    /// JTI of the revoked TCT: strict lowercase hyphenated UUID v4 on the
+    /// wire (`aitp-revocation-list.schema.json`). Deserialized through
+    /// [`aitp_core::ids::serde_v4`], so every serde path refuses an
+    /// uppercase, braced, URN, simple or non-v4 form, not only
+    /// [`parse_revocation_snapshot_wire`] (#268).
+    #[serde(with = "aitp_core::ids::serde_v4")]
     pub jti: Uuid,
     /// Unix timestamp when the issuing peer revoked the TCT.
     pub revoked_at: Timestamp,
@@ -120,7 +125,18 @@ pub struct RevocationListEnvelope {
 /// them instead of reconstructing the shape at the call site. Reconstructing
 /// it is how the signer, the verifier and the conformance fixture minter
 /// drifted apart in the first place.
+///
+/// # Errors
+///
+/// [`TctError::JtiNotV4`] if any `entries[].jti` is not a UUID v4 with the
+/// RFC 9562 variant (#268). The wire parser refuses such a snapshot, so
+/// signing one would only produce a list no verifier accepts. Because
+/// [`sign_revocation_list`] and [`verify_revocation_list`] both route
+/// through here, both apply the check.
 pub fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctError> {
+    for entry in &body.entries {
+        aitp_core::ids::check_v4(&entry.jti).map_err(TctError::JtiNotV4)?;
+    }
     jcs::canonicalize_serializable(body).map_err(|e| TctError::Canonicalization(e.to_string()))
 }
 
@@ -159,14 +175,16 @@ pub fn sign_revocation_list(
 ///    [`REVOCATION_ENVELOPE_MEMBERS`] (`{revocation_list, signature}`).
 /// 2. If a `revocation_list` member is present, [`check_members`] it
 ///    against [`REVOCATION_LIST_MEMBERS`].
-/// 3. `serde_json::from_value` into [`RevocationListEnvelope`]. A residual
+/// 3. Every string `entries[].jti` is strict lowercase UUID v4, else
+///    [`TctError::JtiNotV4`]. Checked on the raw strings before serde, so
+///    the specific cause survives (the `serde_v4` deserializer on
+///    [`RevocationEntry::jti`] would also refuse it, as a generic error).
+/// 4. `serde_json::from_value` into [`RevocationListEnvelope`]. A residual
 ///    serde error — which, now that both top-level member sets have
 ///    already passed, can only come from a nested closed object (a member
 ///    of `entries[]`) — is recovered via [`from_serde_error`] so it, too,
 ///    reports [`TctError::UnknownField`] rather than a generic parse
 ///    failure.
-/// 4. Every `entries[].jti` is strict lowercase UUID v4, else
-///    [`TctError::JtiNotV4`].
 pub fn parse_revocation_snapshot_wire(
     value: &aitp_core::CheckedJson,
 ) -> Result<RevocationListEnvelope, TctError> {
@@ -179,16 +197,8 @@ pub fn parse_revocation_snapshot_wire(
             .map_err(|e| TctError::UnknownField(e.field))?;
     }
 
-    let envelope = serde_json::from_value(value.clone()).map_err(|e| {
-        if let Some(field) = from_serde_error(&e) {
-            TctError::UnknownField(field)
-        } else {
-            TctError::ClaimsMalformed(e.to_string())
-        }
-    })?;
-
     // `entries[].jti` layout (aitp-revocation-list.schema.json, spec
-    // 35aeb84), on the raw strings, which have all parsed as UUIDs above.
+    // 35aeb84), on the raw strings. A non-string `jti` is left to serde.
     let entries = value["revocation_list"]["entries"].as_array();
     for jti in entries
         .into_iter()
@@ -197,7 +207,14 @@ pub fn parse_revocation_snapshot_wire(
     {
         aitp_core::ids::parse_v4(jti).map_err(TctError::JtiNotV4)?;
     }
-    Ok(envelope)
+
+    serde_json::from_value(value.clone()).map_err(|e| {
+        if let Some(field) = from_serde_error(&e) {
+            TctError::UnknownField(field)
+        } else {
+            TctError::ClaimsMalformed(e.to_string())
+        }
+    })
 }
 
 /// Verify a [`RevocationListEnvelope`].
@@ -214,7 +231,10 @@ pub fn parse_revocation_snapshot_wire(
 ///    `CnfMalformed` conflated "this snapshot is from the wrong issuer" with
 ///    "this snapshot is malformed", which a caller cannot separate and which
 ///    a binding cannot surface as distinct causes.
-/// 4. `signature` is present and verifies under that public key over
+/// 4. Every `entries[].jti` is a UUID v4, else [`TctError::JtiNotV4`]
+///    (checked by [`revocation_signing_bytes`]; it matters for an envelope
+///    built in code, since the wire parser already refused it).
+/// 5. `signature` is present and verifies under that public key over
 ///    `sha256(JCS(revocation_list))` — the inner body; see
 ///    [`revocation_signing_bytes`].
 pub fn verify_revocation_list(
@@ -662,6 +682,80 @@ mod tests {
                 other => panic!("{bad}: expected JtiNotV4, got {other:?}"),
             }
         }
+    }
+
+    /// #268: signing refuses a non-v4 `entries[].jti`, as the delegation
+    /// builder does, instead of producing a list the wire parser rejects.
+    #[test]
+    fn signing_refuses_non_v4_entry_jti() {
+        let key = issuer_key();
+        for (bad, want) in [
+            (
+                "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
+                aitp_core::ids::V4Error::Version,
+            ),
+            (
+                "550e8400-e29b-11d4-a716-446655440000",
+                aitp_core::ids::V4Error::Version,
+            ),
+            (
+                "550e8400-e29b-41d4-c716-446655440000",
+                aitp_core::ids::V4Error::Variant,
+            ),
+        ] {
+            let mut body = sample_body(key.aid().clone());
+            body.entries[0].jti = Uuid::parse_str(bad).unwrap();
+            match revocation_signing_bytes(&body) {
+                Err(TctError::JtiNotV4(e)) => assert_eq!(e, want, "{bad}"),
+                other => panic!("{bad}: signing bytes: expected JtiNotV4, got {other:?}"),
+            }
+            match sign_revocation_list(body, &key) {
+                Err(TctError::JtiNotV4(e)) => assert_eq!(e, want, "{bad}"),
+                other => panic!("{bad}: sign: expected JtiNotV4, got {other:?}"),
+            }
+        }
+    }
+
+    /// #268: an envelope built in code with a non-v4 jti does not verify,
+    /// even though the wire parser was never involved.
+    #[test]
+    fn verify_refuses_non_v4_entry_jti_built_in_code() {
+        let key = issuer_key();
+        let mut env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        env.revocation_list.entries[0].jti =
+            Uuid::parse_str("0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e").unwrap();
+        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        assert!(matches!(
+            verify_revocation_list(&env, &ctx),
+            Err(TctError::JtiNotV4(aitp_core::ids::V4Error::Version))
+        ));
+    }
+
+    /// #268: plain serde (not only the wire parser) refuses a
+    /// non-canonical `jti`, so a caller that deserializes
+    /// `RevocationListEnvelope` directly gets the strict form too.
+    #[test]
+    fn plain_serde_refuses_non_canonical_entry_jti() {
+        let key = issuer_key();
+        let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
+        for bad in [
+            "550E8400-E29B-41D4-A716-446655440000",
+            "{550e8400-e29b-41d4-a716-446655440000}",
+            "urn:uuid:550e8400-e29b-41d4-a716-446655440000",
+            "550e8400e29b41d4a716446655440000",
+            "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
+        ] {
+            let mut value = serde_json::to_value(&env).unwrap();
+            value["revocation_list"]["entries"][0]["jti"] = serde_json::json!(bad);
+            assert!(
+                serde_json::from_value::<RevocationListEnvelope>(value).is_err(),
+                "{bad}: plain serde must refuse it"
+            );
+        }
+        // The canonical form still round-trips byte for byte.
+        let text = serde_json::to_string(&env).unwrap();
+        let back: RevocationListEnvelope = serde_json::from_str(&text).unwrap();
+        assert_eq!(serde_json::to_string(&back).unwrap(), text);
     }
 
     /// rev-005 equivalent: an unknown member in the wrapper is rejected as
