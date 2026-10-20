@@ -77,7 +77,7 @@ by one could never verify against the other. See
 
 The rule now: **verify committed bytes as committed.** The spec's
 `signed-examples/` exist for exactly this, and its README says so — those
-files "MUST verify under any conformant AITP v0.2 implementation,
+files "MUST verify under any conformant AITP v0.3 implementation,
 byte-for-byte, without any placeholder substitution."
 
 ### What every JCS-profile artifact must have

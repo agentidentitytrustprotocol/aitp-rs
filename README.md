@@ -7,7 +7,7 @@
 
 Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 
-> **Status:** tracks the AITP **v0.2** wire protocol (`aitp/0.2`) at the
+> **Status:** tracks the AITP **v0.3** wire protocol (`aitp/0.3`) at the
 > spec commit pinned in [`tests/schemas/SPEC_VERSION`](tests/schemas/SPEC_VERSION).
 > The current crate version is in [`Cargo.toml`](Cargo.toml) and the
 > [release notes](https://github.com/agentidentitytrustprotocol/aitp-rs/releases);
@@ -114,7 +114,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ◐ container only | The §1 container is carried: `ExtensionsMap` on JCS payloads, the `ext` claim on JWS artifacts, unknown keys ignored; revocation URL extension wired. No ZK/TEE extension family is implemented. |
 | [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ opt-in; implementation ahead of spec status (Planned) | Shortened in-band renewal (RFC-0004 §8.1, non-normative) behind the `experimental-renewal` Cargo feature: `renew_tct` facade + holder-PoP renewal exchange, advertised via `rfc-aitp-0005.renew_uri`, replay-guarded, re-checking revocation and grants; see [`docs/tct-renewal.md`](docs/tct-renewal.md). |
 
-## Known limitations (v0.2)
+## Known limitations (v0.3)
 
 - **Single-hop delegation only by default.** Multi-hop chains (RFC-0011)
   are rejected unless the caller opts in at runtime with
@@ -152,7 +152,7 @@ opt-in run modes, and the commands to reproduce them are in
 page is the only place these docs give fixture counts.
 
 The runner's exit-code gate keys on `required_for_v0_2` by default: a
-required v0.2 fixture that fails, or is skipped because the adapter lacks
+required core fixture that fails, or is skipped because the adapter lacks
 its op, fails the run. `--profile v0.1` gates on `required_for_v0_1`
 instead. Details are under
 [v0.2 conformance gate](docs/conformance.md#v02-conformance-gate).
@@ -244,7 +244,7 @@ complete. See [`CHANGELOG.md`](CHANGELOG.md) for the history and
 transport-layer status register.
 
 The runtime covers the common case: two agents, pinned-key or OIDC
-identity, single-hop delegation, the `aitp/0.2` wire. The crates are
+identity, single-hop delegation, the `aitp/0.3` wire. The crates are
 pre-1.0, so a breaking API change bumps the minor version. The remaining
 work is the opt-in extensions (Session Trust Bundle, multi-hop delegation,
 TCT renewal), which follow their RFCs through the spec lifecycle.

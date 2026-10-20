@@ -210,7 +210,7 @@ guide. What follows is the `aitp-rs` runbook.
 
 Because the AID is derived from the public key, **rotating the signing
 key produces a new AID** (RFC-AITP-0003 §8.1). There is no in-band
-cryptographic link from the old AID to the new one in v0.2 — peers learn
+cryptographic link from the old AID to the new one in v0.3 — peers learn
 the new AID out of band, and every pinned reference, trust-anchor entry,
 and outstanding TCT `iss` that named the old AID must be updated. Plan
 rotation as an identity change, not a transparent key swap:
@@ -234,11 +234,11 @@ rotation as an identity change, not a transparent key swap:
 
   If the compromised host can still publish, first set a short
   `expires_at` on the old Manifest (e.g. `now + 300`) so cached copies
-  expire quickly. There is no AID-level revocation in v0.2 (RFC-AITP-0003
+  expire quickly. There is no AID-level revocation in v0.3 (RFC-AITP-0003
   §8.1, last paragraph): trust in the old AID ends when its Manifest
   expires and its TCTs are revoked.
 
-> **Not in v0.2:** key-rotation *continuity* — a signed statement by which
+> **Not in v0.3:** key-rotation *continuity* — a signed statement by which
 > the old key vouches for its successor, or a dual-key overlap window. No
 > AITP RFC specifies it yet. Until one does, treat every rotation as a
 > fresh trust bootstrap.

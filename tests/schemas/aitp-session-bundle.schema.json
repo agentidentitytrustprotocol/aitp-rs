@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/session-bundle.json",
+  "$id": "https://aitp.dev/schema/v0.3/session-bundle.json",
   "title": "SessionTrustBundle",
-  "description": "AITP v0.2 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh. The bundle itself is JCS-profile signed; participant TCTs are embedded as opaque compact JWS strings. On the wire the signed body is carried inside a `{\"session_bundle\": \u2026}` transport wrapper; the `signature` member lives inside that body, not beside the wrapper.",
+  "description": "AITP v0.3 Session Trust Bundle (RFC-AITP-0010 §3). A coordinator-attested membership artifact for multi-agent sessions: redistributes N bilateral coordinator↔participant Mutual Handshakes to all participants without an O(N^2) full mesh. The bundle itself is JCS-profile signed; participant TCTs are embedded as opaque compact JWS strings. On the wire the signed body is carried inside a `{\"session_bundle\": \u2026}` transport wrapper; the `signature` member lives inside that body, not beside the wrapper.",
   "type": "object",
   "required": [
     "session_bundle"
@@ -24,8 +24,8 @@
       "properties": {
         "version": {
           "type": "string",
-          "const": "aitp/0.2",
-          "description": "MUST be `aitp/0.2` for this RFC."
+          "const": "aitp/0.3",
+          "description": "MUST be `aitp/0.3` for this RFC."
         },
         "session_id": {
           "type": "string",

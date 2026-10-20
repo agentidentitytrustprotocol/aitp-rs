@@ -36,7 +36,7 @@ pub mod unknown_field;
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
     envelope_signing_digest, envelope_signing_input, parse_envelope_wire, AitpEnvelope,
-    EnvelopeParseError, MessageType, Sender, AITP_ENVELOPE_MEMBERS,
+    EnvelopeParseError, MessageType, Sender, AITP_ENVELOPE_MEMBERS, ENVELOPE_SIGNING_DOMAIN_TAG,
 };
 pub use error::{AitpError, ErrorCode};
 pub use extensions::ExtensionsMap;
@@ -50,7 +50,7 @@ pub use unknown_field::{
 /// Protocol version this crate implements. Carried as the `version`
 /// field on JCS-profile artifacts and as the `ver` private claim on
 /// compact-JWS portable trust artifacts (RFC-AITP-0001 §5.4.5).
-pub const PROTOCOL_VERSION: &str = "aitp/0.2";
+pub const PROTOCOL_VERSION: &str = "aitp/0.3";
 
 /// Default timestamp tolerance for replay protection (300 seconds, ±).
 pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;

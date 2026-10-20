@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/trust-anchors.json",
+  "$id": "https://aitp.dev/schema/v0.3/trust-anchors.json",
   "title": "TrustAnchorsConfig",
-  "description": "AITP v0.2 trust anchor and pinned key configuration.",
+  "description": "AITP v0.3 trust anchor and pinned key configuration.",
   "type": "object",
   "properties": {
     "trust_anchors": {

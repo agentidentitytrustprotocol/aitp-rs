@@ -300,7 +300,7 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 ///    member, recovered via [`from_serde_error`]. Before the signature
 ///    check, a string `jti` not in the strict v4 layout is rejected
 ///    with [`TctError::JtiNotV4`] (proposal #72 Item 6b).
-/// 5. `ver == "aitp/0.2"` — else [`TctError::VersionUnknown`].
+/// 5. `ver == "aitp/0.3"` — else [`TctError::VersionUnknown`].
 /// 6. `iss == ctx.issuer` — else [`TctError::IssuerMismatch`].
 /// 7. `aud == ctx.expected_audience` and `aud == sub` — else
 ///    [`TctError::AudienceMismatch`].
@@ -793,7 +793,7 @@ mod claim_set_tests {
     fn base_tct_claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> serde_json::Value {
         let jkt = subject.verifying_key().to_jwk_thumbprint().unwrap();
         json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "jti": "550e8400-e29b-41d4-a716-446655440000",
             "iss": issuer.aid().as_str(),
             "sub": subject.aid().as_str(),
@@ -807,7 +807,7 @@ mod claim_set_tests {
 
     fn base_voucher_claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> serde_json::Value {
         json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "iss": issuer.aid().as_str(),
             "sub": subject.aid().as_str(),
             "grants": ["demo.echo"],

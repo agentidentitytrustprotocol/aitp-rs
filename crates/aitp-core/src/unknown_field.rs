@@ -431,7 +431,7 @@ mod tests {
     #[test]
     fn accepts_document_with_no_duplicates_at_any_level() {
         let bytes = br#"{
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "sender": {"agent_id": "aid:pubkey:abc"},
             "entries": [
                 {"jti": "a", "cnf": {"jkt": "x"}},

@@ -2,7 +2,7 @@
 
 > **Status: Draft, opt-in.**
 > [RFC-AITP-0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md)
-> is a Community Standards Track (Draft) RFC outside v0.2 core conformance.
+> is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
 > Implemented in `aitp-session-bundle`, re-exported as `aitp::session_bundle`
 > under the facade's `experimental-session-bundle` feature (the language
 > bindings use their own `session-bundle` feature, on by default). No
@@ -57,7 +57,7 @@ with the adapter's error code for each (`bundle_error_code` in
 
 0. Member-set and wrapper-shape checks, in `parse_session_bundle_wire`
    (before the verifier is called) → `UNKNOWN_FIELD` / `SESSION_BUNDLE_INVALID`.
-1. `version == "aitp/0.2"` → `VersionMismatch` (`BUNDLE_VERSION_MISMATCH`).
+1. `version == PROTOCOL_VERSION` (`"aitp/0.3"`) → `VersionMismatch` (`BUNDLE_VERSION_MISMATCH`).
 2. `expires_at` not in the past → `Expired` (`BUNDLE_EXPIRED`).
 3. `expires_at == min(participants[*].tct.exp)`, read from the still-unverified
    payloads → `ExpiryWindowInvariant` (`BUNDLE_EXPIRY_WINDOW_INVARIANT`).

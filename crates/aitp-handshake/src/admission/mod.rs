@@ -481,6 +481,7 @@ impl PinnedAdmission {
         self.gate(message_id.as_ref(), timestamp, source, now)
             .await?;
         let env = parse_envelope_wire(envelope).map_err(|e| match e {
+            EnvelopeParseError::UnknownVersion(v) => AdmissionError::UnknownVersion(v),
             EnvelopeParseError::UnknownField(f) => AdmissionError::UnknownField(f),
             other => AdmissionError::InvalidEnvelope(other.to_string()),
         })?;
@@ -593,7 +594,7 @@ impl PinnedAdmission {
             .map_err(|e| AdmissionError::Identity(e.to_string()))?;
 
         // Step 7: envelope signature.
-        let digest = envelope_signing_digest(&env.message_id, env.timestamp, sender, &env.payload)
+        let digest = envelope_signing_digest(env)
             .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
         let sig = Signature::parse(&env.signature).map_err(|_| AdmissionError::InvalidSignature)?;
         key.key
@@ -653,9 +654,9 @@ pub fn present_pinned(
 ) -> Result<AitpEnvelope, AdmissionError> {
     let draft = Draft::new(signer.aid(), subject, challenge, now)?;
     let proof = aitp_crypto::sign_jcs(signer, &draft.proof_digest)?;
-    let (envelope_digest, payload) = draft.payload(proof)?;
-    let signature = aitp_crypto::sign_jcs(signer, &envelope_digest)?;
-    Ok(draft.envelope(payload, signature))
+    let (envelope_digest, mut envelope) = draft.unsigned_envelope(proof)?;
+    envelope.signature = aitp_crypto::sign_jcs(signer, &envelope_digest)?.into_string();
+    Ok(envelope)
 }
 
 /// As [`present_pinned`] through an async (KMS, HSM) signer.
@@ -667,9 +668,11 @@ pub async fn present_pinned_async(
 ) -> Result<AitpEnvelope, AdmissionError> {
     let draft = Draft::new(signer.aid(), subject, challenge, now)?;
     let proof = aitp_crypto::sign_jcs_async(signer, &draft.proof_digest).await?;
-    let (envelope_digest, payload) = draft.payload(proof)?;
-    let signature = aitp_crypto::sign_jcs_async(signer, &envelope_digest).await?;
-    Ok(draft.envelope(payload, signature))
+    let (envelope_digest, mut envelope) = draft.unsigned_envelope(proof)?;
+    envelope.signature = aitp_crypto::sign_jcs_async(signer, &envelope_digest)
+        .await?
+        .into_string();
+    Ok(envelope)
 }
 
 /// Everything about a presentation except its two signatures.
@@ -708,7 +711,13 @@ impl Draft {
         })
     }
 
-    fn payload(&self, proof: Signature) -> Result<(Digest32, serde_json::Value), AdmissionError> {
+    /// The presentation envelope with an empty `signature`, and the
+    /// digest that signature covers (RFC-AITP-0001 §5.4: the whole
+    /// envelope minus `signature`).
+    fn unsigned_envelope(
+        self,
+        proof: Signature,
+    ) -> Result<(Digest32, AitpEnvelope), AdmissionError> {
         let payload = serde_json::to_value(IdentityPresentationPayload {
             identity: IdentityDescriptor {
                 kind: IdentityKind::PinnedKey,
@@ -721,13 +730,7 @@ impl Draft {
             pop_nonce: self.pop_nonce.clone(),
         })
         .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
-        let d = envelope_signing_digest(&self.message_id, self.timestamp, &self.sender, &payload)
-            .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
-        Ok((Digest32::from_bytes(d), payload))
-    }
-
-    fn envelope(self, payload: serde_json::Value, signature: Signature) -> AitpEnvelope {
-        AitpEnvelope {
+        let envelope = AitpEnvelope {
             version: PROTOCOL_VERSION.to_owned(),
             message_type: MessageType::IdentityPresentation,
             message_id: self.message_id,
@@ -737,7 +740,10 @@ impl Draft {
             },
             payload,
             extensions: None,
-            signature: signature.into_string(),
-        }
+            signature: String::new(),
+        };
+        let d = envelope_signing_digest(&envelope)
+            .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
+        Ok((Digest32::from_bytes(d), envelope))
     }
 }

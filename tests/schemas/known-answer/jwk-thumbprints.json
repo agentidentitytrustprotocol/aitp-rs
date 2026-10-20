@@ -1,5 +1,5 @@
 {
-  "$comment": "AITP v0.2 JWK SHA-256 thumbprint known-answer vectors per RFC 7638. Load-bearing for v0.2: these are the cnf.jkt values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4) as well as the OIDC identity binding's cnf.jkt (RFC-AITP-0002 §2.2.1). Canonical JWK form: members in lex order (OKP: crv, kty, x; EC: crv, kty, x, y), no whitespace.",
+  "$comment": "AITP v0.3 JWK SHA-256 thumbprint known-answer vectors per RFC 7638. Load-bearing for v0.3: these are the cnf.jkt values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4) as well as the OIDC identity binding's cnf.jkt (RFC-AITP-0002 §2.2.1). Canonical JWK form: members in lex order (OKP: crv, kty, x; EC: crv, kty, x, y), no whitespace.",
   "vectors": [
     {
       "id": "kat-jwk-thumb-001",

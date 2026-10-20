@@ -232,7 +232,7 @@ mod tests {
 
     fn claims() -> serde_json::Value {
         json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "iss": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "grants": ["demo.echo"],
         })
@@ -357,7 +357,7 @@ mod tests {
         let (h, rest) = token.split_once('.').unwrap();
         let (_, s) = rest.split_once('.').unwrap();
         let tampered_payload = base64url::encode(
-            &jcs::canonicalize_serializable(&json!({"ver": "aitp/0.2"})).unwrap(),
+            &jcs::canonicalize_serializable(&json!({"ver": "aitp/0.3"})).unwrap(),
         );
         let tampered = format!("{h}.{tampered_payload}.{s}");
         assert!(matches!(

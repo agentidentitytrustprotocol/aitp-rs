@@ -18,15 +18,26 @@ verifies these exact committed bytes. Neither side re-mints — see
 `aitp_verifier_py_committed_bundle_verifies` and its negative twin
 `aitp_verifier_py_committed_bundle_rejects_the_sibling_shape`.
 
+**Strict-cutover fixture.** `kat-keypair-001-bundle-aitp-0.2.json` is the
+same input minted by aitp-verifier-py `43cf702f` at `aitp/0.2`, kept
+byte-for-byte (it was this file until the aitp/0.3 regeneration).
+`committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover` asserts
+`aitp-rs` refuses it on `version` (`BUNDLE_VERSION_MISMATCH`): aitp/0.3 has
+no dual-accept. Never regenerate or hand-edit it; the `version` member is
+signed.
+
 Provenance is reproducible, not just asserted: running the command below
-against the two pinned commits reproduces this file byte-for-byte. If it
+against the two pinned commits reproduces `kat-keypair-001-bundle.json`
+byte-for-byte. It was last regenerated for `aitp/0.3`, from aitp-verifier-py
+`f335f4f` and spec `bf00e75`. If it
 ever stops doing so, the fixture is no longer what this README claims and
 direction (b) has quietly become circular.
 
 ## Regenerating
 
-Only regenerate this file if the minting convention changes (e.g. a future
-spec revision moves the signature placement again). Otherwise it must stay
+Only regenerate this file if the minting convention or the protocol
+revision changes (e.g. a future spec revision moves the signature placement
+again, or bumps the signed `version` literal). Otherwise it must stay
 byte-for-byte fixed, the same as any other committed KAT vector.
 
 ```sh

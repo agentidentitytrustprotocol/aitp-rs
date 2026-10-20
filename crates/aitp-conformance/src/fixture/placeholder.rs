@@ -303,7 +303,7 @@ impl RunnerContext {
         let claims = if claims.is_object() {
             claims.clone()
         } else {
-            serde_json::json!({ "ver": "aitp/0.2" })
+            serde_json::json!({ "ver": aitp_core::PROTOCOL_VERSION })
         };
         let seed = claims
             .get("iss")
@@ -560,8 +560,8 @@ impl RunnerContext {
                         // - **Envelope** — has `message_id`,
                         //   `timestamp`, `sender`, `payload`. The
                         //   signing input per RFC-AITP-0001 §5.4 is
-                        //   `message_id|timestamp|sender.agent_id|
-                        //   hex(sha256(payload_canonical_json))`. The
+                        //   `"aitp-envelope-v2" || 0x00 ||
+                        //   JCS(envelope without signature)`. The
                         //   sender's KAT-keypair is used (we map the
                         //   agent_id back to a seed).
                         //
@@ -1000,10 +1000,8 @@ fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>)
 }
 
 fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<String> {
-    // RFC-AITP-0001 §5.4 envelope signing input:
-    //   message_id | timestamp | sender.agent_id | hex(sha256(payload_canonical_json))
-    let message_id = map.get("message_id")?.as_str()?.to_string();
-    let timestamp = map.get("timestamp")?.as_i64()?;
+    // RFC-AITP-0001 §5.4 envelope signing input (aitp/0.3):
+    //   "aitp-envelope-v2" || 0x00 || JCS(envelope without `signature`)
     let sender_aid = map.get("sender")?.get("agent_id")?.as_str()?.to_string();
     let sender_key = kat_key_for_aid(&sender_aid);
 
@@ -1037,26 +1035,24 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     // them before computing the digest.
     let mut payload = map.get("payload")?.clone();
     strip_claims_companions(&mut payload);
-    let payload_canonical = jcs::canonicalize(&payload).ok()?;
-    let payload_hash = Sha256::digest(&payload_canonical);
-    let signing_input = format!(
-        "{}|{}|{}|{}",
-        message_id,
-        timestamp,
-        sender_aid,
-        hex::encode(payload_hash)
-    );
+    let mut unsigned = map.clone();
+    unsigned.remove("signature");
+    unsigned.insert("payload".into(), payload);
+    let canonical = jcs::canonicalize(&Value::Object(unsigned)).ok()?;
+    let mut signing_input = aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG.to_vec();
+    signing_input.push(0x00);
+    signing_input.extend_from_slice(&canonical);
     // Unknown sender AIDs (e.g. mh-002's one-shot attacker key, whose
     // seed is not published) get a syntactically valid filler signed
     // by kp-001 — those fixtures reject on a check that runs before
     // the envelope signature (RFC-AITP-0004 §5.1 verifies the
     // Manifest and identity first), so the value is never verified.
     let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_seed(&[0u8; 32]));
-    // v0.2 envelope convention: the Ed25519/ES256 message is
-    // `sha256(signing_input)` (aitp_core::envelope_signing_digest),
-    // not the raw input bytes.
+    // The Ed25519/ES256 message is `d = sha256(sig_input_v2)`
+    // (aitp_core::envelope_signing_digest), hashed once, never the raw
+    // input bytes.
     Some(
-        key.sign_jcs(&aitp_crypto::Digest32::sha256(signing_input.as_bytes()))
+        key.sign_jcs(&aitp_crypto::Digest32::sha256(&signing_input))
             .into_string(),
     )
 }
@@ -1618,7 +1614,7 @@ mod tests {
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__VALID_TCT_SIG__",
         });
@@ -1650,7 +1646,7 @@ mod tests {
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIG__",
         });
@@ -1681,7 +1677,7 @@ mod tests {
         // sign-then-flip-LSB recipe.
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIGNATURE__",
         });
@@ -1875,7 +1871,7 @@ mod tests {
         let mut v = json!({
             "self_aid": KP_001_AID,
             "envelope": {
-                "version": "aitp/0.2",
+                "version": "aitp/0.3",
                 "message_type": "mutual_hello",
                 "message_id": message_id,
                 "timestamp": ctx.now,
@@ -1900,13 +1896,9 @@ mod tests {
         assert_ne!(proof, "__VALID_JWT__", "must have been minted already");
 
         let sender_aid = aitp_core::Aid::parse(KP_001_AID).unwrap();
-        let digest = aitp_core::envelope_signing_digest(
-            &message_id,
-            aitp_core::Timestamp(ctx.now),
-            &sender_aid,
-            &envelope["payload"],
-        )
-        .unwrap();
+        let typed: aitp_core::AitpEnvelope = serde_json::from_value(envelope.clone()).unwrap();
+        assert_eq!(typed.message_id, message_id);
+        let digest = aitp_core::envelope_signing_digest(&typed).unwrap();
         let sig_b64 = envelope["signature"].as_str().unwrap();
         let sig = aitp_crypto::Signature::parse(sig_b64).unwrap();
         let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();

@@ -24,11 +24,22 @@ use serde_json::Value;
 use std::path::PathBuf;
 
 fn fixture() -> Value {
+    committed("kat-keypair-001-bundle.json")
+}
+
+/// The same `bundle-001-success` input minted by aitp-verifier-py at
+/// `43cf702f` (`aitp/0.2`), kept byte-for-byte to pin the strict cutover.
+fn fixture_aitp_0_2() -> Value {
+    committed("kat-keypair-001-bundle-aitp-0.2.json")
+}
+
+fn committed(name: &str) -> Value {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .and_then(|p| p.parent())
         .expect("repo root")
-        .join("tests/xcheck-fixtures/session-bundle/kat-keypair-001-bundle.json");
+        .join("tests/xcheck-fixtures/session-bundle")
+        .join(name);
     let raw = std::fs::read(&path)
         .unwrap_or_else(|e| panic!("read committed aitp-verifier-py bundle {path:?}: {e}"));
     serde_json::from_slice(&raw).expect("committed fixture is valid JSON")
@@ -49,6 +60,11 @@ fn reference_now() -> Timestamp {
 #[test]
 fn aitp_verifier_py_committed_bundle_verifies() {
     let envelope = fixture();
+    assert_eq!(
+        envelope["session_bundle"]["version"],
+        aitp_core::PROTOCOL_VERSION,
+        "the committed bundle is minted at the current revision"
+    );
     // The wire envelope is `{"session_bundle": {<inner body incl.
     // signature>}}` -- unwrap exactly the one transport key, matching how
     // `aitp-rs-adapter::verify_session_bundle_op` reads the wire form.
@@ -75,6 +91,32 @@ fn aitp_verifier_py_committed_bundle_verifies() {
         }
         other => panic!("committed aitp-verifier-py bundle must verify clean, got {other:?}"),
     }
+}
+
+/// Strict cutover (spec bf00e75, `aitp/0.3`): a genuine `aitp/0.2`
+/// bundle, minted by the previous aitp-verifier-py pin and validly signed
+/// under its own revision, is refused on its version, before any
+/// signature work, rather than dual-accepted.
+#[test]
+fn committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover() {
+    let body = fixture_aitp_0_2()
+        .get("session_bundle")
+        .expect("envelope carries the transport-wrapped body")
+        .clone();
+    assert_eq!(body["version"], "aitp/0.2");
+    let bundle: aitp_session_bundle::SessionTrustBundle =
+        serde_json::from_value(body).expect("aitp-verifier-py-minted bundle deserializes");
+    let verifier_aid = receiving_participant_aid();
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: &verifier_aid,
+        now: reference_now(),
+        revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+    };
+    assert!(matches!(
+        verify_session_bundle(&bundle, &ctx),
+        Err(SessionBundleError::VersionMismatch)
+    ));
 }
 
 /// The committed bundle must NOT verify when reframed into the pre-spec-fix

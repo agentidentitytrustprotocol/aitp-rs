@@ -2,7 +2,7 @@
 
 > **Status: Draft, opt-in at the call site.**
 > [RFC-AITP-0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md)
-> is a Community Standards Track (Draft) RFC outside v0.2 core conformance.
+> is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
 > The multi-hop verifier is always compiled into `aitp-delegation` and is
 > **gated at runtime**: `VerifyDelegationContext::new` sets
 > `max_delegation_hops = 0` (strict default), so any token carrying a `chain`

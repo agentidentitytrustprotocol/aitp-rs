@@ -9,12 +9,18 @@ They are deliberately **not** a copy of the protocol. The protocol is
 [`agentidentitytrustprotocol`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol)
 repo. Where a wire detail matters, these docs **point to the RFC section**
 rather than restating it — if an RFC and a page here ever disagree, the
-RFC wins. `aitp-rs` tracks **AITP v0.2** (protocol version literal
-`aitp/0.2`; spec commit pinned in
-[`../tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION)). v0.2's
-headline change: the portable trust artifacts (TCT, grant voucher,
-delegation token) are now RFC 7515 compact JWS strings — see the
-[signing-profile boundary](architecture.md#the-two-signing-profiles).
+RFC wins. `aitp-rs` tracks **AITP v0.3** (protocol version literal
+`aitp/0.3`; spec commit pinned in
+[`../tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION)). v0.3's
+headline change is the envelope signing input: the signature now covers
+`"aitp-envelope-v2" || 0x00 || JCS(envelope minus signature)`
+(RFC-AITP-0001 §5.4), so every member, `extensions` included, is signed.
+v0.3 is a strict cutover: an `aitp/0.2` envelope is `UNKNOWN_VERSION`. The
+portable trust artifacts (TCT, grant voucher, delegation token) stay RFC
+7515 compact JWS strings, as since v0.2 — see the
+[signing-profile boundary](architecture.md#the-two-signing-profiles) and
+the spec's
+[migration notes](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/implementer-quickstart.md#migrating-from-the-v02-line).
 
 ## Start here
 
@@ -46,7 +52,7 @@ that governs it.
 | [`architecture.md`](architecture.md) | Topology, crate map, workspace-split rationale, sync/async boundary, MSRV | — (build rationale) |
 | [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, WASM, conformance, xcheck, bindings, interop, e2e) + how to run each | — (test rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
-| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, the v0.2 fixture matrix (the only page with fixture counts) and the gate caveat | spec `schemas/conformance/` |
+| [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, the fixture matrix (the only page with fixture counts) and the gate caveat | spec `schemas/conformance/` |
 | [`handshake-transcripts.md`](handshake-transcripts.md) | Four-message handshake shapes and where `aitp-rs` builds each signing input | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
 | [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (RFC Draft; opt-in feature) | RFC-AITP-0010 |
 | [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (RFC Draft; runtime opt-in) | RFC-AITP-0011 |

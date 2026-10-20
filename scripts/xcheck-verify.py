@@ -531,7 +531,8 @@ def main() -> int:
     print("  ok    committed session bundle (minted by aitp-verifier-py's own")
     print("        minter) verified by aitp-rs")
     print("          (crates/aitp-session-bundle aitp_verifier_py_committed_bundle_verifies,")
-    print("           + its negative aitp_verifier_py_committed_bundle_rejects_the_sibling_shape)")
+    print("           + its negative aitp_verifier_py_committed_bundle_rejects_the_sibling_shape;")
+    print("           the aitp/0.2 mint is refused by committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover)")
     print(
         "  Both are asserted by `cargo test --workspace`, not by this script -- "
         "see tests/xcheck-fixtures/session-bundle/README.md for the bundle's provenance."

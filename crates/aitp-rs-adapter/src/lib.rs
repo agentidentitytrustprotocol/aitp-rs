@@ -543,17 +543,12 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
             )
         }
     };
-    // RFC-AITP-0001 §5.5 / §5.6: version + freshness checks are part of
-    // envelope verification. When the fixture supplies `tolerance_seconds`
+    // RFC-AITP-0001 §5.4 check order: `parse_envelope_wire` has run
+    // steps 1 (`version`, UNKNOWN_VERSION) and 2 (member set and
+    // structure); step 3, the signature, follows the freshness check.
+    // RFC-AITP-0001 §5.5: when the fixture supplies `tolerance_seconds`
     // we enforce it relative to the verifier's clock (or the fixture's
     // explicit `now`).
-    if envelope.version != aitp_core::PROTOCOL_VERSION {
-        return err(
-            id,
-            "UNKNOWN_VERSION",
-            &format!("unsupported envelope version `{}`", envelope.version),
-        );
-    }
     if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
         let now_secs = params
             .get("now")
@@ -572,12 +567,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
         Ok(p) => p,
         Err(e) => return err(id, "KEY_RESOLUTION_FAILED", &e.to_string()),
     };
-    let digest = match aitp_core::envelope_signing_digest(
-        &envelope.message_id,
-        envelope.timestamp,
-        &envelope.sender.agent_id,
-        &envelope.payload,
-    ) {
+    let digest = match aitp_core::envelope_signing_digest(&envelope) {
         Ok(d) => d,
         Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
     };
@@ -594,6 +584,7 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
 fn envelope_parse_error_code(e: &aitp_core::EnvelopeParseError) -> String {
     use aitp_core::EnvelopeParseError::*;
     match e {
+        UnknownVersion(_) => "UNKNOWN_VERSION",
         UnknownField(_) => "UNKNOWN_FIELD",
         Malformed(_) => "INVALID_ENVELOPE",
     }
@@ -745,11 +736,19 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         return verify_handshake_dual_peer(id, peer_a, peer_b, state.now());
     }
 
-    let mut envelope = match serde_json::from_value::<AitpEnvelope>(
-        params.get("envelope").cloned().unwrap_or_default(),
-    ) {
+    // RFC-AITP-0001 §5.4 check order, steps 1 (`version`) and 2 (member
+    // set and structure); the envelope signature (step 3) runs below at
+    // the RFC-AITP-0004 §5.1 position for its message type.
+    let envelope_value = params.get("envelope").cloned().unwrap_or_default();
+    let mut envelope = match aitp_core::parse_envelope_wire(&checked(&envelope_value)) {
         Ok(e) => e,
-        Err(e) => return err(id, "INVALID_ENVELOPE", &format!("envelope parse: {e}")),
+        Err(e) => {
+            return err(
+                id,
+                &envelope_parse_error_code(&e),
+                &format!("envelope parse: {e}"),
+            )
+        }
     };
     // The spec fixtures may carry `*_claims` companion fields inside
     // the payload (claims-sibling minting convention). They are never
@@ -833,13 +832,8 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     let verify_envelope_sig = |envelope: &AitpEnvelope| -> Result<(), String> {
         let pk = AitpVerifyingKey::from_aid(&envelope.sender.agent_id)
             .map_err(|e| format!("aid: {e}"))?;
-        let digest = aitp_core::envelope_signing_digest(
-            &envelope.message_id,
-            envelope.timestamp,
-            &envelope.sender.agent_id,
-            &envelope.payload,
-        )
-        .map_err(|e| format!("digest: {e}"))?;
+        let digest =
+            aitp_core::envelope_signing_digest(envelope).map_err(|e| format!("digest: {e}"))?;
         let sig = Signature::parse(&envelope.signature).map_err(|e| format!("sig: {e}"))?;
         pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
             .map_err(|_| "verify".to_string())
@@ -2224,12 +2218,6 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
     let payload = params.get("payload").cloned().unwrap_or(json!({}));
     let message_id = Uuid::new_v4();
     let timestamp = state.now();
-    let digest =
-        match aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload) {
-            Ok(d) => d,
-            Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
-        };
-    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
     let env = AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
@@ -2240,9 +2228,26 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
         },
         payload,
         extensions: None,
-        signature: sig.into_string(),
+        signature: String::new(),
+    };
+    let env = match sign_unsigned_envelope(key, env) {
+        Ok(env) => env,
+        Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
     };
     json!({"id": id, "ok": true, "result": {"envelope": env}})
+}
+
+/// Set `envelope.signature` over the RFC-AITP-0001 §5.4 digest of the
+/// whole envelope minus `signature` (`aitp-envelope-v2` input).
+fn sign_unsigned_envelope(
+    key: &AitpSigningKey,
+    mut envelope: AitpEnvelope,
+) -> Result<AitpEnvelope, aitp_core::jcs::JcsError> {
+    let digest = aitp_core::envelope_signing_digest(&envelope)?;
+    envelope.signature = key
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
+    Ok(envelope)
 }
 
 fn parse_message_type(s: &str) -> Option<MessageType> {
@@ -2777,10 +2782,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
     ts: Timestamp,
 ) -> AitpEnvelope {
     let payload_value = serde_json::to_value(payload).unwrap();
-    let digest =
-        aitp_core::envelope_signing_digest(&mid, ts, key.aid(), &payload_value).expect("digest");
-    let sig = key.sign_jcs(&aitp_crypto::Digest32::from(digest));
-    AitpEnvelope {
+    let envelope = AitpEnvelope {
         version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id: mid,
@@ -2790,8 +2792,9 @@ fn sign_envelope_with_key<P: serde::Serialize>(
         },
         payload: payload_value,
         extensions: None,
-        signature: sig.into_string(),
-    }
+        signature: String::new(),
+    };
+    sign_unsigned_envelope(key, envelope).expect("digest")
 }
 
 fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) -> Value {
@@ -3442,9 +3445,6 @@ mod p256_readiness_tests {
         let message_id = Uuid::from_u128(0x0102_0304_0506_4708_890a_0b0c_0d0e_0f10);
         let timestamp = Timestamp(1_700_000_000);
         let payload = json!({"hello": "p256"});
-        let digest =
-            aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
-                .unwrap();
         let envelope = AitpEnvelope {
             version: aitp_core::PROTOCOL_VERSION.into(),
             message_type: MessageType::MutualHello,
@@ -3455,10 +3455,9 @@ mod p256_readiness_tests {
             },
             payload,
             extensions: None,
-            signature: key
-                .sign_jcs(&aitp_crypto::Digest32::from(digest))
-                .into_string(),
+            signature: String::new(),
         };
+        let envelope = sign_unsigned_envelope(&key, envelope).unwrap();
         serde_json::to_value(&envelope).unwrap()
     }
 
@@ -3499,6 +3498,54 @@ mod p256_readiness_tests {
             "tampered envelope must fail: {out}"
         );
         assert_eq!(out["error_code"], json!("INVALID_SIGNATURE"));
+    }
+
+    fn verify_code(env: Value) -> Value {
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "env-check-order",
+            "verify_envelope",
+            json!({ "envelope": env }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        out["error_code"].clone()
+    }
+
+    /// RFC-AITP-0001 §5.4 check order (env-008..env-011 shapes):
+    /// `version` → member set → signature. A changed `message_type` or
+    /// `extensions` under a known version is INVALID_SIGNATURE (both are
+    /// signed); an unknown version wins over an unknown member and a bad
+    /// signature; a correctly signed `aitp/0.2` envelope is
+    /// UNKNOWN_VERSION (strict cutover).
+    #[test]
+    fn adapter_envelope_check_order() {
+        let mut mt = p256_signed_envelope();
+        mt["message_type"] = json!("mutual_hello_ack");
+        assert_eq!(verify_code(mt), json!("INVALID_SIGNATURE"));
+
+        let mut ext = p256_signed_envelope();
+        ext["extensions"] = json!({"com.example.debug_trace": "x"});
+        assert_eq!(verify_code(ext), json!("INVALID_SIGNATURE"));
+
+        let mut ver = p256_signed_envelope();
+        ver["version"] = json!("aitp/9.9");
+        ver["trace_id"] = json!("rogue");
+        assert_eq!(verify_code(ver), json!("UNKNOWN_VERSION"));
+
+        let key = AitpSigningKey::from_p256_seed(&[0x42; 32]).unwrap();
+        let mut prev: AitpEnvelope = serde_json::from_value(p256_signed_envelope()).unwrap();
+        prev.version = "aitp/0.2".into();
+        let prev = sign_unsigned_envelope(&key, prev).unwrap();
+        assert_eq!(
+            verify_code(serde_json::to_value(prev).unwrap()),
+            json!("UNKNOWN_VERSION")
+        );
+
+        let mut field = p256_signed_envelope();
+        field["trace_id"] = json!("rogue");
+        field["signature"] = json!("A".repeat(86));
+        assert_eq!(verify_code(field), json!("UNKNOWN_FIELD"));
     }
 }
 
@@ -4335,9 +4382,6 @@ mod handshake_unknown_field_tests {
         let key = AitpSigningKey::from_seed(&[0x11; 32]);
         let message_id = Uuid::new_v4();
         let timestamp = Timestamp(1_700_000_000);
-        let digest =
-            aitp_core::envelope_signing_digest(&message_id, timestamp, key.aid(), &payload)
-                .unwrap();
         let envelope = AitpEnvelope {
             version: aitp_core::PROTOCOL_VERSION.into(),
             message_type,
@@ -4348,10 +4392,9 @@ mod handshake_unknown_field_tests {
             },
             payload,
             extensions: None,
-            signature: key
-                .sign_jcs(&aitp_crypto::Digest32::from(digest))
-                .into_string(),
+            signature: String::new(),
         };
+        let envelope = sign_unsigned_envelope(&key, envelope).unwrap();
         serde_json::to_value(&envelope).unwrap()
     }
 
@@ -4381,6 +4424,31 @@ mod handshake_unknown_field_tests {
         );
         assert_eq!(out["ok"], json!(false), "got: {out}");
         assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"));
+    }
+
+    /// RFC-AITP-0001 §5.4 check order on the handshake path: an
+    /// `aitp/0.2` envelope is UNKNOWN_VERSION before its unknown
+    /// envelope-level member (UNKNOWN_FIELD) is looked at.
+    #[test]
+    fn handshake_payload_checks_envelope_version_first() {
+        let mut env = dummy_envelope(MessageType::MutualHello, json!({}));
+        env["trace_id"] = json!("rogue");
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "mh-version-first",
+            "verify_handshake_payload",
+            json!({ "envelope": env.clone() }),
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_FIELD"), "got: {out}");
+        env["version"] = json!("aitp/0.2");
+        let out = handle(
+            &mut state,
+            "mh-version-first",
+            "verify_handshake_payload",
+            json!({ "envelope": env }),
+        );
+        assert_eq!(out["error_code"], json!("UNKNOWN_VERSION"), "got: {out}");
     }
 
     /// Same check on MUTUAL_HELLO_ACK.

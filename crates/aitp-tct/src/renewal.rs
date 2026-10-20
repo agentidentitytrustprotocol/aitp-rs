@@ -504,7 +504,7 @@ mod tests {
         let payload_bytes = base64url::decode_strict(parts[1]).unwrap();
         let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
         assert!(payload_str.starts_with('{'));
-        let dup_payload = format!("{{\"ver\":\"aitp/0.2\",{}", &payload_str[1..]);
+        let dup_payload = format!("{{\"ver\":\"aitp/0.3\",{}", &payload_str[1..]);
         let dup_token = format!(
             "{}.{}.{}",
             parts[0],

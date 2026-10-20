@@ -45,16 +45,16 @@ pub fn sign_envelope_with(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> Result<AitpEnvelope, String> {
-    let digest = envelope_digest(signing_key.aid(), &payload, &message_id, timestamp)?;
-    let signature = aitp_crypto::sign_jcs(signing_key, &digest).map_err(backend_failed)?;
-    Ok(assemble(
-        signing_key.aid(),
-        message_type,
-        payload,
-        message_id,
-        timestamp,
-        signature,
-    ))
+    sign_prepared_envelope(
+        signing_key,
+        unsigned(
+            signing_key.aid(),
+            message_type,
+            payload,
+            message_id,
+            timestamp,
+        ),
+    )
 }
 
 /// As [`sign_envelope_with`], signed by an async backend (KMS, HSM,
@@ -69,31 +69,78 @@ pub async fn sign_envelope_with_async(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> Result<AitpEnvelope, String> {
-    let digest = envelope_digest(signing_key.aid(), &payload, &message_id, timestamp)?;
-    let signature = aitp_crypto::sign_jcs_async(signing_key, &digest)
-        .await
-        .map_err(backend_failed)?;
-    Ok(assemble(
-        signing_key.aid(),
-        message_type,
-        payload,
-        message_id,
-        timestamp,
-        signature,
-    ))
+    sign_prepared_envelope_async(
+        signing_key,
+        unsigned(
+            signing_key.aid(),
+            message_type,
+            payload,
+            message_id,
+            timestamp,
+        ),
+    )
+    .await
 }
 
-/// The digest the envelope signature covers (RFC-AITP-0001 §5.4).
-fn envelope_digest(
-    sender: &Aid,
-    payload: &serde_json::Value,
-    message_id: &Uuid,
-    timestamp: Timestamp,
-) -> Result<Digest32, String> {
+/// Sign an envelope the caller assembled, e.g. one carrying an
+/// `extensions` map, and return it with `signature` set.
+///
+/// The signature covers every member except `signature`
+/// (RFC-AITP-0001 §5.4, `aitp/0.3`), so `extensions` MUST be attached
+/// **before** this call; changing any member afterwards invalidates the
+/// signature. Whatever `envelope.signature` holds on input is ignored and
+/// replaced.
+///
+/// Refuses, before the backend is called: a `version` other than
+/// [`aitp_core::PROTOCOL_VERSION`], a non-v4 `message_id`, and a
+/// `sender.agent_id` that is not the signer's AID.
+pub fn sign_prepared_envelope(
+    signing_key: &dyn AitpSigner,
+    mut envelope: AitpEnvelope,
+) -> Result<AitpEnvelope, String> {
+    let digest = envelope_digest(signing_key.aid(), &envelope)?;
+    envelope.signature = aitp_crypto::sign_jcs(signing_key, &digest)
+        .map_err(backend_failed)?
+        .into_string();
+    Ok(envelope)
+}
+
+/// As [`sign_prepared_envelope`], signed by an async backend. The
+/// returned future is `Send`.
+pub async fn sign_prepared_envelope_async(
+    signing_key: &dyn DynAsyncAitpSigner,
+    mut envelope: AitpEnvelope,
+) -> Result<AitpEnvelope, String> {
+    let digest = envelope_digest(signing_key.aid(), &envelope)?;
+    envelope.signature = aitp_crypto::sign_jcs_async(signing_key, &digest)
+        .await
+        .map_err(backend_failed)?
+        .into_string();
+    Ok(envelope)
+}
+
+/// Validate an envelope about to be signed and return the digest its
+/// signature covers: `sha256("aitp-envelope-v2" || 0x00 ||
+/// JCS(envelope minus signature))` (RFC-AITP-0001 §5.4).
+fn envelope_digest(signer: &Aid, envelope: &AitpEnvelope) -> Result<Digest32, String> {
+    if envelope.version != aitp_core::PROTOCOL_VERSION {
+        return Err(format!(
+            "version: `{}` is not `{}`",
+            envelope.version,
+            aitp_core::PROTOCOL_VERSION
+        ));
+    }
     // Proposal #72 Item 6b: every verifier rejects a non-v4 message_id,
     // so refuse to sign one.
-    aitp_core::ids::check_v4(message_id).map_err(|e| format!("message_id: {e}"))?;
-    envelope_signing_digest(message_id, timestamp, sender, payload)
+    aitp_core::ids::check_v4(&envelope.message_id).map_err(|e| format!("message_id: {e}"))?;
+    if &envelope.sender.agent_id != signer {
+        return Err(format!(
+            "sender.agent_id `{}` is not the signer's AID `{}`",
+            envelope.sender.agent_id.as_str(),
+            signer.as_str()
+        ));
+    }
+    envelope_signing_digest(envelope)
         .map(Digest32::from)
         .map_err(|e| e.to_string())
 }
@@ -102,17 +149,17 @@ fn backend_failed(e: aitp_crypto::SignerError) -> String {
     format!("signing backend failed: {e}")
 }
 
-/// Assemble the signed envelope; shared by the sync and async paths.
-fn assemble(
+/// The envelope the plain `sign_envelope*` functions sign: no
+/// `extensions`, empty `signature`.
+fn unsigned(
     sender: &Aid,
     message_type: MessageType,
     payload: serde_json::Value,
     message_id: Uuid,
     timestamp: Timestamp,
-    signature: aitp_crypto::Signature,
 ) -> AitpEnvelope {
     AitpEnvelope {
-        version: "aitp/0.2".into(),
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type,
         message_id,
         timestamp,
@@ -121,7 +168,7 @@ fn assemble(
         },
         payload,
         extensions: None,
-        signature: signature.into_string(),
+        signature: String::new(),
     }
 }
 
@@ -167,17 +214,16 @@ pub async fn sign_envelope_async(
 }
 
 /// Verify an envelope's outer signature given the sender's verifying key.
+///
+/// The digest is re-computed over the whole envelope minus `signature`
+/// (RFC-AITP-0001 §5.4), so a change to any member, `extensions`
+/// included, fails verification.
 pub fn verify_envelope_signature(
     envelope: &AitpEnvelope,
     sender_pubkey: &aitp_crypto::AitpVerifyingKey,
 ) -> Result<(), aitp_crypto::CryptoError> {
-    let digest = envelope_signing_digest(
-        &envelope.message_id,
-        envelope.timestamp,
-        &envelope.sender.agent_id,
-        &envelope.payload,
-    )
-    .map_err(|e| aitp_crypto::CryptoError::SignatureMalformed(e.to_string()))?;
+    let digest = envelope_signing_digest(envelope)
+        .map_err(|e| aitp_crypto::CryptoError::SignatureMalformed(e.to_string()))?;
     let sig = aitp_crypto::Signature::parse(&envelope.signature)?;
     sender_pubkey.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
 }

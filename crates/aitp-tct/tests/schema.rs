@@ -121,7 +121,7 @@ fn regex_lite() -> impl Fn(&str) -> bool {
 fn signed_revocation_list_validates_against_spec_schema() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
     let body = RevocationList {
-        version: "aitp/0.2".into(),
+        version: "aitp/0.3".into(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(1_700_000_000),
         expires_at: Timestamp(1_700_003_600),
@@ -143,7 +143,7 @@ fn signed_revocation_list_validates_against_spec_schema() {
 fn empty_entries_revocation_list_validates() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
     let body = RevocationList {
-        version: "aitp/0.2".into(),
+        version: "aitp/0.3".into(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(1_700_000_000),
         expires_at: Timestamp(1_700_003_600),
@@ -161,7 +161,7 @@ fn empty_entries_revocation_list_validates() {
 fn revocation_list_with_present_but_empty_extensions_validates_against_spec_schema() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
     let body = RevocationList {
-        version: "aitp/0.2".into(),
+        version: "aitp/0.3".into(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(1_700_000_000),
         expires_at: Timestamp(1_700_003_600),

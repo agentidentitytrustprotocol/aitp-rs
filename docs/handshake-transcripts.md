@@ -37,7 +37,7 @@ deterministic per the seed.
 
 ```json
 {
-  "version": "aitp/0.2",
+  "version": "aitp/0.3",
   "message_type": "mutual_hello",
   "message_id": "<uuid v4 — alice picks>",
   "timestamp": 1700000000,
@@ -87,7 +87,7 @@ Two encoding details cause most interop failures:
 
 ```json
 {
-  "version": "aitp/0.2",
+  "version": "aitp/0.3",
   "message_type": "mutual_hello_ack",
   "message_id": "<bob's mid>",
   "timestamp": 1700000000,
@@ -120,7 +120,7 @@ passes in the `message_id` and timestamp it already used for the payload.
 
 ```json
 {
-  "version": "aitp/0.2",
+  "version": "aitp/0.3",
   "message_type": "mutual_commit",
   "message_id": "<alice's commit mid>",
   "timestamp": 1700000000,
@@ -211,10 +211,8 @@ It checks that all four messages verify and that each side ends up holding
 the TCT it should. Only the key seeds (`[0xA1] * 32`, `[0xB2] * 32`) and
 the clock (`NOW = 1_700_000_000`) are fixed. Every run uses fresh random
 `message_id`s (`Uuid::new_v4()`), `pop_nonce`s and TCT `jti`s, so the
-signatures differ from run to run. Its test-only `envelope_with` helper
-also stamps envelopes `"aitp/0.1"`. Production code uses
-`aitp_core::PROTOCOL_VERSION` (`"aitp/0.2"`), which is the shape shown
-above.
+signatures differ from run to run. Envelopes are stamped
+`aitp_core::PROTOCOL_VERSION` (`"aitp/0.3"`), the shape shown above.
 
 For bytes that are fixed and pinned, use the spec's known-answer
 vectors:

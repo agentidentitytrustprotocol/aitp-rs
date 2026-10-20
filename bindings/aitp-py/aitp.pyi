@@ -223,7 +223,7 @@ def verify_delegation(
     issuer_manifests: Sequence[str],
     revoked_jtis: Optional[RevokedJtis] = None,
 ) -> DelegationVerified:
-    """Verify a delegation token (compact-JWS string) under strict AITP v0.2
+    """Verify a delegation token (compact-JWS string) under strict AITP v0.3
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
     (RFC-AITP-0011 multi-hop) is rejected with
     `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use

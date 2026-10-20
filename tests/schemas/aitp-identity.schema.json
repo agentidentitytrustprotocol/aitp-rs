@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.2/identity.json",
+  "$id": "https://aitp.dev/schema/v0.3/identity.json",
   "title": "IdentityDescriptor",
-  "description": "AITP v0.2 identity binding. Connects an AID to a verifiable issuer claim.",
+  "description": "AITP v0.3 identity binding. Connects an AID to a verifiable issuer claim.",
   "type": "object",
   "required": [
     "type",
@@ -16,7 +16,7 @@
         "oidc",
         "pinned_key"
       ],
-      "description": "Identity mechanism. v0.2 supports: oidc, pinned_key"
+      "description": "Identity mechanism. v0.3 supports: oidc, pinned_key"
     },
     "issuer": {
       "type": "string",

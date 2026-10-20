@@ -46,7 +46,7 @@ fn statement(kat: &str) -> Map<String, Value> {
 /// Valid TCT claims from `issuer` for `subject`, as raw JSON for forging.
 fn claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> Value {
     json!({
-        "ver": "aitp/0.2",
+        "ver": "aitp/0.3",
         "jti": "770e8400-e29b-41d4-a716-446655440702",
         "iss": issuer.aid(),
         "sub": subject.aid(),
@@ -145,7 +145,7 @@ fn verify_voucher_rejects_non_v4_src_jti() {
     let iss = ed(1);
     let sub = ed(2);
     let voucher = json!({
-        "ver": "aitp/0.2", "iss": iss.aid(), "sub": sub.aid(), "grants": ["demo.echo"],
+        "ver": "aitp/0.3", "iss": iss.aid(), "sub": sub.aid(), "grants": ["demo.echo"],
         "iat": NOW.0, "exp": NOW.0 + 3600, "src_jti": V7,
     });
     let token = jws::sign_compact(&iss, jws::TYP_GRANT_VOUCHER, &voucher).unwrap();

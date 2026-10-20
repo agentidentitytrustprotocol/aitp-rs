@@ -93,7 +93,7 @@ impl RevocationListProducer for LiveRevocations {
         let entries = self.revoked.lock().clone();
         sign_revocation_list(
             RevocationList {
-                version: "aitp/0.2".into(),
+                version: "aitp/0.3".into(),
                 issuer: self.issuer.aid().clone(),
                 published_at: now,
                 expires_at: Timestamp(now.0 + 3600),

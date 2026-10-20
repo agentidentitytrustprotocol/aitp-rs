@@ -500,7 +500,7 @@ export interface SessionOpts {
 }
 
 /**
- * Verify a delegation compact JWS under **strict AITP v0.2**
+ * Verify a delegation compact JWS under **strict AITP v0.3**
  * (RFC-AITP-0006 single-hop). `verifierAid` is the verifier's own AID
  * string — it MUST equal the delegation's `aud` (the root grantor), and
  * the embedded voucher MUST verify under the verifier's own key.

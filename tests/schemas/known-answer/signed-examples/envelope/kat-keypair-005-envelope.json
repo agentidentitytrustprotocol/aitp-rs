@@ -1,15 +1,16 @@
 {
   "_kat_input": {
-    "$comment": "Real P-256-signed envelope (RFC-AITP-0001 §5.4). The envelope is exactly env-005's input envelope with its __VALID_ENVELOPE_SIG__ placeholder replaced by a committed signature; scripts/verify-known-answer.mjs asserts the two agree member for member apart from `signature`. sig_input is message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload))); d = sha256(sig_input); the p256 signature is ECDSA with e = d (§5.4.6), RFC 6979 deterministic k, low-S (§5.4.7).",
+    "$comment": "Real P-256-signed envelope (RFC-AITP-0001 §5.4). The envelope is exactly env-005's input envelope with its __VALID_ENVELOPE_SIG__ placeholder replaced by a committed signature; scripts/verify-known-answer.mjs asserts the two agree member for member apart from `signature`. sig_input_v2 is the 16 ASCII bytes \"aitp-envelope-v2\", one 0x00 byte, then JCS(envelope without `signature`); d = sha256(sig_input_v2); the p256 signature is ECDSA with e = d (§5.4.6), RFC 6979 deterministic k, low-S (§5.4.7).",
     "kat_id": "kat-envelope-001-p256",
     "signer_seed_id": "kat-keypair-005-p256",
     "source_fixture": "env-005-p256-envelope-success.json"
   },
-  "signing_input": "sig_input",
-  "sig_input": "770e8400-e29b-41d4-a716-446655441005|1711900000|aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR|22aa94d130a4e9012e5f7cc0efff255681a24b35665fbf7e0d0dcbd433c492f0",
-  "sig_input_sha256_hex": "899070806444e28a20a08e8621aa7d1b56346876b90e2110ca22db512e138bf6",
+  "signing_input": "sig_input_v2",
+  "sig_input_v2_hex": "616974702d656e76656c6f70652d7632007b226d6573736167655f6964223a2237373065383430302d653239622d343164342d613731362d343436363535343431303035222c226d6573736167655f74797065223a226d757475616c5f68656c6c6f222c227061796c6f6164223a7b2268656c6c6f223a747275657d2c2273656e646572223a7b226167656e745f6964223a226169643a7075626b65793a703235363a4177654244716c307a715633506d4f346c5f4e2d4f2d6d676e6e706636626c78704530515a6177714f704d52227d2c2274696d657374616d70223a313731313930303030302c2276657273696f6e223a22616974702f302e33227d",
+  "sig_input_v2_len_bytes": 254,
+  "sig_input_v2_sha256_hex": "e676a375b5f2e6db0531d9280dc21311aad9c51d73a0fd4fc5cb945e68ee043f",
   "envelope": {
-    "version": "aitp/0.2",
+    "version": "aitp/0.3",
     "message_type": "mutual_hello",
     "message_id": "770e8400-e29b-41d4-a716-446655441005",
     "timestamp": 1711900000,
@@ -19,10 +20,12 @@
     "payload": {
       "hello": true
     },
-    "signature": "p256.x8byAWOkPakdN1zUauZZWaBm0hacdCOcWJ236euSREtnL_wz-SQFm-p-c4WSoWv_aPRH6QAYP2QMSkNcoYvCiQ"
+    "signature": "p256.BytCJBGZPIVZAKoijm5pbVUortpHaAOYtBL8Lr0F2sMQwXYW-uBPJjCEIY0c8vJ1Lsk9DZGAS65OMP2ZhkOkew"
   },
   "_must_not_verify": {
-    "$comment": "ECDSA over sha256(d) instead of d: what a signer that hashes the digest again emits. It MUST NOT verify over sig_input.",
-    "double_hash_signature": "p256.2q_zGfNz6HV1qtA1BDMsEb85Ixl7YrR1SG0Vq07fnktQ-D3G7j96yi33yokBEDiWUIi3At4QzVvGSmHBBTN04A"
+    "$comment": "Neither value verifies over sig_input_v2. double_hash_signature is ECDSA over sha256(d) instead of d: what a signer that hashes the digest again emits. v1_signature is this vector's value before issue #87: a valid signature over the retired pipe-composed input v1_sig_input (message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))), which covers neither version, message_type nor extensions.",
+    "double_hash_signature": "p256.Yk_AxecAVPzLz7eKOenvVBmN2Y5UuGBXql8ZMvMq72kixZeuKYIAw1bD4Bd4-dlg13iXCpNoiY6xWMpwTdFEqA",
+    "v1_sig_input": "770e8400-e29b-41d4-a716-446655441005|1711900000|aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR|22aa94d130a4e9012e5f7cc0efff255681a24b35665fbf7e0d0dcbd433c492f0",
+    "v1_signature": "p256.x8byAWOkPakdN1zUauZZWaBm0hacdCOcWJ236euSREtnL_wz-SQFm-p-c4WSoWv_aPRH6QAYP2QMSkNcoYvCiQ"
   }
 }

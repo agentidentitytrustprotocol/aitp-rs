@@ -6,6 +6,12 @@
 //! for a v0.1 runner — and that a `status: core` fixture carrying the
 //! matching flag MUST execute: an `OP_NOT_SUPPORTED` result or runner
 //! SKIP MUST be reported as a failure (RFC-AITP-0001 §10 item 9).
+//!
+//! At `aitp/0.3` (spec bf00e75) the README keeps the key name
+//! `required_for_v0_2` "so existing runners keep working"; it now marks
+//! the core tier of the current revision. [`Profile::V0_2`] therefore
+//! remains the default gate, and its name tracks the fixture key, not
+//! the protocol literal.
 
 use crate::fixture::Fixture;
 use crate::runner::executor::FEATURE_NEGATION_MARKER;
@@ -18,7 +24,8 @@ use std::str::FromStr;
 pub enum Profile {
     /// Gate on `required_for_v0_1` (the pre-0.15 runner behaviour).
     V0_1,
-    /// Gate on `required_for_v0_2`. The default.
+    /// Gate on `required_for_v0_2`, the `aitp/0.3` core tier. The
+    /// default.
     #[default]
     V0_2,
 }

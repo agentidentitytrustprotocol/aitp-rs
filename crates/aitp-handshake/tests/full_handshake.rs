@@ -58,11 +58,8 @@ fn envelope_with(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> AitpEnvelope {
-    let digest =
-        aitp_core::envelope_signing_digest(&message_id, timestamp, sender.aid(), &payload).unwrap();
-    let sig = sender.sign_jcs(&aitp_crypto::Digest32::from(digest));
-    AitpEnvelope {
-        version: "aitp/0.1".into(),
+    let mut envelope = AitpEnvelope {
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id,
         timestamp,
@@ -71,8 +68,13 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: sig.into_string(),
-    }
+        signature: String::new(),
+    };
+    let digest = aitp_core::envelope_signing_digest(&envelope).unwrap();
+    envelope.signature = sender
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
+    envelope
 }
 
 #[test]
@@ -648,10 +650,19 @@ fn insufficient_grants_aborts() {
 #[test]
 fn envelope_signing_input_round_trips() {
     let alice = alice_key();
-    let mid = Uuid::nil();
-    let payload = json!({"hello": "world"});
-    let digest =
-        aitp_core::envelope_signing_digest(&mid, Timestamp(1), alice.aid(), &payload).unwrap();
+    let envelope = AitpEnvelope {
+        version: aitp_core::PROTOCOL_VERSION.into(),
+        message_type: MessageType::Tct,
+        message_id: Uuid::nil(),
+        timestamp: Timestamp(1),
+        sender: Sender {
+            agent_id: alice.aid().clone(),
+        },
+        payload: json!({"hello": "world"}),
+        extensions: None,
+        signature: String::new(),
+    };
+    let digest = aitp_core::envelope_signing_digest(&envelope).unwrap();
     let sig = alice.sign_jcs(&aitp_crypto::Digest32::from(digest));
     // Verify with the verifying key.
     alice

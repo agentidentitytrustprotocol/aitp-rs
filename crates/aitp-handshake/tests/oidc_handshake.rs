@@ -48,9 +48,8 @@ fn envelope_with(
     mid: Uuid,
     ts: Timestamp,
 ) -> AitpEnvelope {
-    let digest = aitp_core::envelope_signing_digest(&mid, ts, key.aid(), &payload).unwrap();
-    AitpEnvelope {
-        version: "aitp/0.1".into(),
+    let mut envelope = AitpEnvelope {
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id: mid,
         timestamp: ts,
@@ -59,10 +58,13 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: key
-            .sign_jcs(&aitp_crypto::Digest32::from(digest))
-            .into_string(),
-    }
+        signature: String::new(),
+    };
+    let digest = aitp_core::envelope_signing_digest(&envelope).unwrap();
+    envelope.signature = key
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
+    envelope
 }
 
 #[test]

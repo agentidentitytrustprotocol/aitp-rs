@@ -5,7 +5,7 @@
 > [RFC-AITP-0004 §8.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md#81-non-normative-shortened-renewal-extension);
 > its standardization is reserved as
 > [RFC-AITP-0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md),
-> whose status is **Planned** (a non-normative stub). It is not part of v0.2
+> whose status is **Planned** (a non-normative stub). It is not part of v0.3
 > conformance. In `aitp-rs` it is off by default:
 >
 > - `aitp-tct` — `build_renewal_request` / `process_renewal_request` behind
@@ -23,7 +23,7 @@
 What the spec asks of an implementation that offers renewal (advertise
 `rfc-aitp-0005.renew_uri`, no probing, current TCT unexpired, re-evaluate
 grant policy and revocation) is summarised in the spec's operational guide,
-[Shortened renewal](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#shortened-renewal-opt-in-not-part-of-v02-conformance).
+[Shortened renewal](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#shortened-renewal-opt-in-not-part-of-v03-conformance).
 This page describes what `aitp-rs` does; see also
 [Known limitations](#known-limitations).
 

@@ -15,7 +15,7 @@
 //!
 //! Output is byte-stable for the same KAT seeds + reference clock.
 
-use aitp_core::{base64url, jcs, Aid, Timestamp};
+use aitp_core::{base64url, jcs, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use jsonwebtoken::{EncodingKey, Header};
 use serde::Serialize;
@@ -476,19 +476,13 @@ fn mint_env_001(value: &mut Value) {
 }
 
 fn sign_aitp_envelope(env: &mut Map<String, Value>, key: &AitpSigningKey) {
-    use uuid::Uuid;
-    let mid_str = env.get("message_id").and_then(|v| v.as_str()).unwrap();
-    let mid = Uuid::parse_str(mid_str).unwrap();
-    let ts_int = env.get("timestamp").and_then(|v| v.as_i64()).unwrap();
-    let ts = Timestamp(ts_int);
-    let sender_aid = env
-        .get("sender")
-        .and_then(|s| s.get("agent_id"))
-        .and_then(|v| v.as_str())
-        .unwrap();
-    let aid = Aid::parse(sender_aid).unwrap();
-    let payload = env.get("payload").cloned().unwrap_or(json!({}));
-    let digest = aitp_core::envelope_signing_digest(&mid, ts, &aid, &payload).unwrap();
+    // RFC-AITP-0001 §5.4 (aitp/0.3): the signature covers the whole
+    // envelope minus `signature`, behind the `aitp-envelope-v2` tag.
+    let mut unsigned = env.clone();
+    unsigned.insert("signature".into(), json!(""));
+    let typed: aitp_core::AitpEnvelope =
+        serde_json::from_value(Value::Object(unsigned)).expect("fixture envelope shape");
+    let digest = aitp_core::envelope_signing_digest(&typed).unwrap();
     let sig = key
         .sign_jcs(&aitp_crypto::Digest32::from(digest))
         .into_string();

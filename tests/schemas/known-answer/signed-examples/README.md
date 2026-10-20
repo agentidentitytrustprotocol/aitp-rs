@@ -4,7 +4,7 @@ This directory holds **real, cryptographically valid** AITP artifacts
 minted from the pinned known-answer keypairs in
 [`../keypairs.json`](../keypairs.json). It is the canonical location
 for cross-implementation interop fixtures — files here MUST verify
-under any conformant AITP v0.2 implementation, byte-for-byte, without
+under any conformant AITP v0.3 implementation, byte-for-byte, without
 any placeholder substitution.
 
 The portable trust artifacts (TCT, grant voucher, delegation token)
@@ -50,7 +50,7 @@ would have caught it.
 The session bundle's inner body and coordinator signature are the same
 pinned artifact as vector `kat-session-bundle-001` in
 [`../jcs-sha256.json`](../jcs-sha256.json) (922 canonical bytes,
-`sha256_hex` starting `c577854d…`) — restated here as a full, standalone,
+`sha256_hex` starting `b0e7a9e5…`) — restated here as a full, standalone,
 schema-validating artifact rather than a replacement for that vector.
 
 ## Layout
@@ -59,6 +59,7 @@ schema-validating artifact rather than a replacement for that vector.
 signed-examples/
 ├── README.md                               (this file)
 ├── envelope/
+│   ├── kat-keypair-001-envelope.json       env-007's envelope (non-empty extensions), Ed25519-signed by kat-keypair-001
 │   └── kat-keypair-005-envelope.json       env-005's envelope, P-256-signed by kat-keypair-005-p256
 ├── manifest/
 │   ├── kat-keypair-001-manifest.json       Manifest signed by kat-keypair-001 (JCS profile)
@@ -114,16 +115,30 @@ carries a `_must_not_verify` companion holding the signature a signer
 that hashes the digest again (`e = SHA-256(d)`) would emit, which
 RFC-AITP-0001 §5.4.6 forbids. `make kat-verify` requires each such value
 to fail over the real signing input and to be a valid signature under
-the double-hash reading, so it is a real negative. The envelope file
-declares `"signing_input": "sig_input"`: an envelope signs the
-`message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))` string
-of RFC-AITP-0001 §5.4, which the file restates as `sig_input` and
-`sig_input_sha256_hex`, and the signed object is its `envelope`
-member. That envelope is exactly conformance fixture env-005's input
-envelope with the `__VALID_ENVELOPE_SIG__` placeholder replaced, and
-`make kat-verify` asserts the two agree member for member. All
-companions whose names begin with `_`, and `signing_input`, are
-stripped before schema validation.
+the double-hash reading, so it is a real negative.
+
+**Envelope files.** Both envelope files declare
+`"signing_input": "sig_input_v2"`: an envelope signs the 16 ASCII bytes
+`aitp-envelope-v2`, one `0x00` byte, then JCS of the whole envelope
+minus `signature` (RFC-AITP-0001 §5.4). Each file restates that input
+as `sig_input_v2_hex`, `sig_input_v2_len_bytes` and
+`sig_input_v2_sha256_hex`, and the signed object is its `envelope`
+member. `kat-keypair-005-envelope.json` (`kat-envelope-001-p256`) is
+exactly conformance fixture env-005's input envelope with the
+`__VALID_ENVELOPE_SIG__` placeholder replaced;
+`kat-keypair-001-envelope.json` (`kat-envelope-002-ed25519`) is exactly
+env-007's envelope, whose `extensions` member is non-empty, and env-007
+commits the same signature. `make kat-verify` asserts each envelope
+agrees with its fixture member for member. Each file's
+`_must_not_verify` also carries `v1_signature`, a valid signature over
+the retired pipe-composed input `v1_sig_input`
+(`message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))`),
+which MUST NOT verify over `sig_input_v2`. For `kat-envelope-001-p256`
+that value is the signature the file pinned before issue #87.
+
+All companions whose names begin with `_`, the `sig_input_v2_*`
+companions, and `signing_input` are stripped before schema validation
+(the envelope files validate their `envelope` member only).
 
 **JWS minting conventions for byte-stability** (minting conventions
 only — verifiers never re-serialize, per RFC-AITP-0001 §5.4.5):
@@ -144,6 +159,6 @@ are minted outside `scripts/regen-known-answer.py` and recomputed by
 
 ## Stability
 
-A populated file's byte sequence is stable for the AITP v0.2
+A populated file's byte sequence is stable for the AITP v0.3
 lifecycle. Editing it (other than to fix a verified divergence from
 the spec) is a breaking change to the conformance suite.

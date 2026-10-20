@@ -319,7 +319,7 @@ fn wire_text_duplicate_key_and_unknown_field_are_both_rejected() {
     let good = serde_json::to_string(&m).unwrap();
     assert!(parse_manifest_wire(&good.parse().unwrap()).is_ok());
 
-    let dup = good.replacen('{', r#"{"version":"aitp/0.2","#, 1);
+    let dup = good.replacen('{', r#"{"version":"aitp/0.3","#, 1);
     let err = dup.parse::<aitp_core::CheckedJson>().unwrap_err();
     assert!(
         err.to_string().contains("duplicate field `version`"),

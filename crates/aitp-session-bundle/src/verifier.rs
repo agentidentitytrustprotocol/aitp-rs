@@ -76,7 +76,7 @@ pub enum BundleOutcome {
 ///
 /// 0. Member-set check — done by the wire parser
 ///    ([`crate::parse_session_bundle_wire`]) before this runs.
-/// 1. `version == "aitp/0.2"`.
+/// 1. `version == "aitp/0.3"`.
 /// 2. `expires_at` not in the past.
 /// 3. `expires_at == min(participants[*].tct.exp)` invariant. Vacuous on
 ///    an empty `participants` array (there is no minimum to exceed), so

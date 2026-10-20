@@ -272,40 +272,87 @@ fn p256_out_of_range_scalars_rejected() {
     }
 }
 
-/// Spec PR A's signed examples for kat-keypair-005-p256, verified as
-/// committed (the TCT, Manifest and snapshot are checked through the
-/// real verifiers in their own crates).
-#[test]
-fn committed_p256_envelope_verifies_and_double_hash_does_not() {
-    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
-        "../../tests/schemas/known-answer/signed-examples/envelope/kat-keypair-005-envelope.json",
-    );
-    let v: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
-    assert_eq!(v["signing_input"], "sig_input");
+fn envelope_kat(file: &str) -> Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../tests/schemas/known-answer/signed-examples/envelope")
+        .join(file);
+    serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
+}
+
+/// Check one committed envelope vector against the RFC-AITP-0001 §5.4
+/// (aitp/0.3) signing input: the `sig_input_v2` bytes, length and digest
+/// are reproduced from the envelope, the committed signature verifies and
+/// is re-produced deterministically, and the retired pipe-composed (v1)
+/// signature, genuine over its own input, does not verify over `d`.
+fn check_envelope_kat(v: &Value, key: &AitpSigningKey) -> (Digest32, AitpVerifyingKey) {
+    assert_eq!(v["signing_input"], "sig_input_v2");
     let env: aitp_core::AitpEnvelope = serde_json::from_value(v["envelope"].clone()).unwrap();
-    let digest = aitp_core::envelope::envelope_signing_digest(
-        &env.message_id,
-        env.timestamp,
-        &env.sender.agent_id,
-        &env.payload,
-    )
-    .unwrap();
+    let input = aitp_core::envelope::envelope_signing_input(&env).unwrap();
+    assert_eq!(hex::encode(&input), v["sig_input_v2_hex"].as_str().unwrap());
+    assert_eq!(
+        input.len() as u64,
+        v["sig_input_v2_len_bytes"].as_u64().unwrap()
+    );
+    assert_eq!(&input[..16], b"aitp-envelope-v2");
+    assert_eq!(input[16], 0x00);
+    let digest = aitp_core::envelope::envelope_signing_digest(&env).unwrap();
     assert_eq!(
         hex::encode(digest),
-        v["sig_input_sha256_hex"].as_str().unwrap()
-    );
-    assert_eq!(
-        Digest32::sha256(v["sig_input"].as_str().unwrap().as_bytes()).as_bytes(),
-        &digest
+        v["sig_input_v2_sha256_hex"].as_str().unwrap()
     );
     let d = Digest32::from_bytes(digest);
     let vk = AitpVerifyingKey::from_aid(&env.sender.agent_id).unwrap();
-    assert_eq!(vk, p256_key().verifying_key());
+    assert_eq!(vk, key.verifying_key());
     vk.verify_jcs(&d, &Signature::parse(&env.signature).unwrap())
-        .expect("committed P-256 envelope verifies");
-    assert_eq!(p256_key().sign_jcs(&d).as_str(), env.signature);
+        .expect("committed envelope verifies over sig_input_v2");
+    assert_eq!(key.sign_jcs(&d).as_str(), env.signature);
+
+    // The v1 negative: genuine over sha256(v1_sig_input), never over d.
+    let neg = &v["_must_not_verify"];
+    let v1_sig = Signature::parse(neg["v1_signature"].as_str().unwrap()).unwrap();
+    let v1_digest = Digest32::sha256(neg["v1_sig_input"].as_str().unwrap().as_bytes());
+    vk.verify_jcs(&v1_digest, &v1_sig)
+        .expect("v1_signature is genuine over the retired pipe input");
+    assert!(
+        vk.verify_jcs(&d, &v1_sig).is_err(),
+        "a v1 (pipe-input) signature must not verify over sig_input_v2"
+    );
+    (d, vk)
+}
+
+/// `kat-envelope-001-p256`: env-005's envelope, P-256 sender, prehash
+/// with e = d (§5.4.6), low-S. The double-hash and v1 signatures are
+/// negatives.
+#[test]
+fn kat_envelope_001_p256_verifies_and_negatives_do_not() {
+    let v = envelope_kat("kat-keypair-005-envelope.json");
+    assert_eq!(v["_kat_input"]["kat_id"], "kat-envelope-001-p256");
+    let (d, vk) = check_envelope_kat(&v, &p256_key());
     let dh = v["_must_not_verify"]["double_hash_signature"]
         .as_str()
         .unwrap();
     assert!(vk.verify_jcs(&d, &Signature::parse(dh).unwrap()).is_err());
+}
+
+/// `kat-envelope-002-ed25519`: env-007's envelope, Ed25519 sender
+/// (kat-keypair-001), with a non-empty `extensions` member that the
+/// signature covers.
+#[test]
+fn kat_envelope_002_ed25519_with_extensions_verifies_and_v1_does_not() {
+    let v = envelope_kat("kat-keypair-001-envelope.json");
+    assert_eq!(v["_kat_input"]["kat_id"], "kat-envelope-002-ed25519");
+    assert!(v["envelope"]["extensions"]
+        .as_object()
+        .is_some_and(|m| !m.is_empty()));
+    let (d, vk) = check_envelope_kat(&v, &AitpSigningKey::from_seed(&[0u8; 32]));
+
+    // Dropping `extensions` changes the input, so the signature fails.
+    let mut stripped: aitp_core::AitpEnvelope =
+        serde_json::from_value(v["envelope"].clone()).unwrap();
+    stripped.extensions = None;
+    let d2 = Digest32::from_bytes(aitp_core::envelope::envelope_signing_digest(&stripped).unwrap());
+    assert_ne!(d, d2);
+    assert!(vk
+        .verify_jcs(&d2, &Signature::parse(&stripped.signature).unwrap())
+        .is_err());
 }
