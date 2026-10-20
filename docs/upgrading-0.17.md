@@ -307,8 +307,8 @@ every defect in the table, and an unknown member is still
 
 **Malformed signatures change code.** A `signature` string outside the
 pattern is now `INVALID_ENVELOPE`, not `INVALID_SIGNATURE`. Examples are
-the wrong length, padding, `+` or `/`, an unknown tag such as `rsa.`, or a
-non-string value. If you branch on the code for a malformed signature,
+the wrong length, padding, `+` or `/`, or an unknown tag such as `rsa.`.
+A non-string `signature` was already `INVALID_ENVELOPE`. If you branch on the code for a malformed signature,
 expect the new one. A well-formed signature that does not verify is still
 `INVALID_SIGNATURE`.
 
