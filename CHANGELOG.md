@@ -9,6 +9,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **0.17.0: protocol revision `aitp/0.3`, with envelope signing input v2
+  and a strict cutover from `aitp/0.2`.** Spec pin `ab214d2` → `bf00e75`
+  ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/253),
+  [#254](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/254)).
+  0.17 does not interoperate with 0.16 peers. See
+  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) for every change and
+  how to migrate.
+- **Strict `aitp/0.2` → `aitp/0.3` cutover.** `aitp_core::PROTOCOL_VERSION`
+  is `"aitp/0.3"`, and every producer and checker uses it. An `aitp/0.2`
+  artifact is rejected on its version, with no dual-accept window:
+  envelopes, TCTs, grant vouchers, delegation tokens and revocation
+  snapshots with `UNKNOWN_VERSION`, Manifests with
+  `MANIFEST_VERSION_UNKNOWN` and session bundles with
+  `BUNDLE_VERSION_MISMATCH`.
+- **Envelope signing input v2** (RFC-AITP-0001 §5.4). The envelope
+  signature is over `sha256("aitp-envelope-v2" || 0x00 ||
+  JCS(envelope minus signature))`. `version`, `message_type` and
+  `extensions` are now sender-authenticated. The pipe-composed 0.16 input
+  is gone, and an envelope signed over it fails with `INVALID_SIGNATURE`.
+  `extensions` must be attached before signing.
+- **`aitp_core::envelope_signing_input` and `envelope_signing_digest`
+  take `&AitpEnvelope`** and ignore its `signature`. They used to take
+  `(message_id, timestamp, sender_aid, payload)`.
+- **`EnvelopeParseError::UnknownVersion(String)` is new.** An exhaustive
+  `match` must add the arm.
+- **Envelope check order** (RFC-AITP-0001 §5.4). `parse_envelope_wire`
+  checks `version` (`UNKNOWN_VERSION`) before the member set
+  (`UNKNOWN_FIELD`) and structure (`INVALID_ENVELOPE`). The caller then
+  checks the signature (`INVALID_SIGNATURE`). An envelope with no
+  `version`, `{}` included, is now `UNKNOWN_VERSION`, not
+  `INVALID_ENVELOPE`. The Python and Node handshake entry points reject a
+  non-`aitp/0.3` envelope with `unknown protocol version …`.
+
+### Added
+
+- `aitp_envelope::sign_prepared_envelope` and
+  `sign_prepared_envelope_async` sign an envelope the caller assembled,
+  for example one with `extensions`. They refuse a `version` other than
+  `PROTOCOL_VERSION`, a non-v4 `message_id`, and a sender that is not the
+  signer.
+- `aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG` (`b"aitp-envelope-v2"`).
+- The envelope KATs `kat-envelope-001-p256` (re-minted) and
+  `kat-envelope-002-ed25519` (new, with `extensions`) are reproduced byte
+  for byte, and their v1 signatures are asserted not to verify. Spec
+  fixtures env-008 to env-011 pass, and env-007 now carries a real
+  signature.
+
+### Changed
+
+- The spec pin moves to `bf00e75`, and `tests/schemas/` holds the full
+  `schemas/` tree at that commit. Every signed vector and fixture was
+  re-minted by the spec. The JSON Schema `$id` namespace is
+  `https://aitp.dev/schema/v0.3/`.
+- The aitp-verifier-py pin moves from `43cf702` to `f335f4f`, which
+  speaks `aitp/0.3`. `tests/xcheck-fixtures/session-bundle/kat-keypair-001-bundle.json`
+  is re-minted. The old bundle is kept as
+  `kat-keypair-001-bundle-aitp-0.2.json`, and a test asserts that it is
+  refused.
+- The conformance runner's `--profile v0.2` and the fixture key
+  `required_for_v0_2` keep their names. For `aitp/0.3` they mean the core
+  tier. At `bf00e75` the strict run is 79 pass / 0 fail / 23 skip, and
+  the all-features run is 100 pass / 0 fail / 2 skip.
+
+### Security
+
+- `version`, `message_type` and `extensions` can no longer be changed in
+  transit without breaking the envelope signature. This closes the gap
+  the v0.2 erratum in 0.16 documented.
+
+## [0.16.0] — 2026-10-19
+
+### BREAKING
+
 - **0.16.0: single-hop delegation keys resolved from Manifests, and the
   coordinator Manifest required for session bundles in the bindings.**
   Spec pin `cfd2f16` → `ab214d2`. See
