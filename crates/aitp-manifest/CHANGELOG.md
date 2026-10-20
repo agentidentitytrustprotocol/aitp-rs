@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.17.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-manifest-v0.16.0...aitp-manifest-v0.17.0) - 2026-10-20
+
+### Added
+
+- [**breaking**] adopt aitp/0.3 — envelope signing input v2 and revision bump ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/253)) ([#254](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/254))
+
 ## [0.15.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-manifest-v0.14.0...aitp-manifest-v0.15.0) - 2026-10-18
 
 ### Added
