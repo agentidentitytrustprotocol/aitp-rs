@@ -92,8 +92,11 @@ pub async fn sign_envelope_with_async(
 /// replaced.
 ///
 /// Refuses, before the backend is called: a `version` other than
-/// [`aitp_core::PROTOCOL_VERSION`], a non-v4 `message_id`, and a
-/// `sender.agent_id` that is not the signer's AID.
+/// [`aitp_core::PROTOCOL_VERSION`], a non-v4 `message_id`, a `payload`
+/// that is not a JSON object, a negative `timestamp`, and a
+/// `sender.agent_id` that is not the signer's AID. The `signature` it
+/// writes always matches the schema pattern, so the result passes
+/// [`aitp_core::check_envelope_structure`].
 pub fn sign_prepared_envelope(
     signing_key: &dyn AitpSigner,
     mut envelope: AitpEnvelope,
@@ -133,6 +136,9 @@ fn envelope_digest(signer: &Aid, envelope: &AitpEnvelope) -> Result<Digest32, St
     // Proposal #72 Item 6b: every verifier rejects a non-v4 message_id,
     // so refuse to sign one.
     aitp_core::ids::check_v4(&envelope.message_id).map_err(|e| format!("message_id: {e}"))?;
+    // Issue #261: every verifier rejects a non-object `payload` and a
+    // negative `timestamp` as INVALID_ENVELOPE, so refuse to sign them.
+    aitp_core::check_unsigned_envelope_structure(envelope)?;
     if &envelope.sender.agent_id != signer {
         return Err(format!(
             "sender.agent_id `{}` is not the signer's AID `{}`",

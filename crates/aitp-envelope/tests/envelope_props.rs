@@ -56,10 +56,12 @@ proptest! {
         payload in arb_json(),
     ) {
         let key = AitpSigningKey::from_seed(&[seed; 32]);
+        // `payload` must be an object (issue #261); nest the arbitrary
+        // value inside one.
         let env = sign_envelope_with(
             &key,
             MessageType::MutualHello,
-            payload,
+            serde_json::json!({ "v": payload }),
             Uuid::from_u128(0x1234_5678_9abc_4ef0_8000_0000_0000_0000),
             Timestamp(ts),
         ).expect("sign");

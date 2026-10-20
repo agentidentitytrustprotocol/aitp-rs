@@ -484,6 +484,42 @@ async fn timestamp_window_is_checked_before_version_and_structure() {
     extreme["timestamp"] = i64::MIN.into();
     let resp = post_hello(port, "application/json", &extreme).await;
     assert_error_code(resp, "TIMESTAMP_EXPIRED").await;
+    // Issue #261: a negative `timestamp` is also a schema violation
+    // (`minimum: 0`), but it is readable, so the window (step 3) sees it
+    // first and it stays TIMESTAMP_EXPIRED, even with other structure
+    // defects alongside.
+    let mut negative = stale();
+    negative["timestamp"] = (-1).into();
+    negative["payload"] = serde_json::json!([]);
+    negative["signature"] = "short".into();
+    let resp = post_hello(port, "application/json", &negative).await;
+    assert_error_code(resp, "TIMESTAMP_EXPIRED").await;
+}
+
+/// Issue #261: inside the window, the `aitp-envelope.schema.json` rules
+/// for `payload`, `signature` and `extensions` fail the RFC-AITP-0001
+/// §5.4 structure step (`INVALID_ENVELOPE`), and an unknown `version`
+/// still wins over them.
+#[tokio::test]
+async fn schema_rule_defects_are_invalid_envelope_after_version() {
+    let port = spawn_server().await;
+    let fresh = || hello_wire(0xE3, Uuid::new_v4(), 0);
+    let mut array_payload = fresh();
+    array_payload["payload"] = serde_json::json!([1]);
+    let mut bad_signature = fresh();
+    bad_signature["signature"] = "not-86-chars".into();
+    let mut null_extensions = fresh();
+    null_extensions["extensions"] = Value::Null;
+    for wire in [&array_payload, &bad_signature, &null_extensions] {
+        let resp = post_hello(port, "application/json", wire).await;
+        assert_error_code(resp, "INVALID_ENVELOPE").await;
+    }
+    let mut unknown_version = fresh();
+    unknown_version["version"] = "aitp/9.9".into();
+    unknown_version["payload"] = serde_json::json!([1]);
+    unknown_version["signature"] = "not-86-chars".into();
+    let resp = post_hello(port, "application/json", &unknown_version).await;
+    assert_error_code(resp, "UNKNOWN_VERSION").await;
 }
 
 /// Issue #255: a `timestamp` or `message_id` that cannot be read skips

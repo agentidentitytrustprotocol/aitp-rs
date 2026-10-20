@@ -381,9 +381,11 @@ def verify_envelope(envelope_json: str, expected_sender_aid: str) -> None:
     not `aitp/0.3` → `UNKNOWN_VERSION`; a member outside the schema and
     outside `extensions` → `UNKNOWN_FIELD`; any other structural defect
     (duplicate key, missing member, unregistered `message_type`, non-v4
-    `message_id`) → `INVALID_ENVELOPE`; a signature that does not verify over
-    signing input v2 under the expected sender's key, or a `sender.agent_id`
-    other than `expected_sender_aid` → `INVALID_SIGNATURE`. Raises
+    `message_id`, non-object `payload`, negative `timestamp`, `signature`
+    outside the schema pattern) → `INVALID_ENVELOPE`; a signature that does
+    not verify over signing input v2 under the expected sender's key, or a
+    `sender.agent_id` other than `expected_sender_aid` → `INVALID_SIGNATURE`.
+    Raises
     `ValueError` if `expected_sender_aid` is not a valid AID.
 
     The key comes from `expected_sender_aid` (an AID encodes its public key).

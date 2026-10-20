@@ -273,7 +273,7 @@ pub enum AidParseError {
     InvalidChars,
 }
 
-fn is_base64url_byte(b: u8) -> bool {
+pub(crate) fn is_base64url_byte(b: u8) -> bool {
     matches!(b, b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_')
 }
 
