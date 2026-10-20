@@ -13,7 +13,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   and a strict cutover from `aitp/0.2`.** Spec pin `ab214d2` → `bf00e75`
   ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/253),
   [#254](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/254)).
-  0.17 does not interoperate with 0.16 peers. See
+  0.17 does not interoperate with 0.16 peers. It also ships the HTTP
+  server receive order (#259), stricter envelope parsing (#262) and
+  envelope signing and verification in the bindings (#260). See
   [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) for every change and
   how to migrate.
 - **Strict `aitp/0.2` → `aitp/0.3` cutover.** `aitp_core::PROTOCOL_VERSION`
@@ -41,7 +43,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `version`, `{}` included, is now `UNKNOWN_VERSION`, not
   `INVALID_ENVELOPE`. The Python and Node handshake entry points reject a
   non-`aitp/0.3` envelope with `unknown protocol version …`.
-
 - **HTTP handshake server receive order** (RFC-AITP-0009 §3.1,
   [#255](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/255),
   [#259](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/259)).
@@ -61,15 +62,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - A malformed envelope with a readable `message_id` consumes that id.
   - Deviation: the 256 KiB body-size limit is applied while the body is
     read, before the §3.1 steps 1 to 3, not at step 4.
+- **The envelope parser enforces the schema rules for `payload`,
+  `timestamp`, `signature` and `extensions`**
+  ([#261](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/261),
+  [#262](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/262)).
+  `parse_envelope_wire` now rejects these as
+  `EnvelopeParseError::Malformed` (`INVALID_ENVELOPE`), after the version
+  and member-set checks:
+  - a `payload` that is not a JSON object;
+  - a negative `timestamp`;
+  - a `signature` outside `^((ed25519|p256)\.)?[A-Za-z0-9_-]{86}$`,
+    which used to be `INVALID_SIGNATURE`;
+  - `"extensions": null`, which used to be read as absent.
+
+  Every receive path changes, Python and Node `verify_envelope` included.
+  On the HTTP server a negative `timestamp` is still `TIMESTAMP_EXPIRED`,
+  because the timestamp window runs first.
+- **The envelope signer refuses a non-object `payload` and a negative
+  `timestamp`.** `sign_prepared_envelope*` and `sign_envelope*` return
+  `Err`, and the binding `sign_envelope` / `signEnvelope` raise or throw.
 
 ### Added
 
 - `aitp_envelope::sign_prepared_envelope` and
   `sign_prepared_envelope_async` sign an envelope the caller assembled,
   for example one with `extensions`. They refuse a `version` other than
-  `PROTOCOL_VERSION`, a non-v4 `message_id`, and a sender that is not the
-  signer.
+  `PROTOCOL_VERSION`, a non-v4 `message_id`, a non-object `payload`, a
+  negative `timestamp`, and a sender that is not the signer.
 - `aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG` (`b"aitp-envelope-v2"`).
+- `aitp_core::check_envelope_structure` checks the `payload`, `timestamp`
+  and `signature` schema rules on a typed envelope.
+  `aitp_core::check_unsigned_envelope_structure` checks `payload` and
+  `timestamp` only, for an envelope that is not signed yet (#262).
 - **Envelope signing and verification in the Python and Node bindings**
   ([#256](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/256),
   [#260](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/260)).
@@ -85,7 +109,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - **Sign:** Python `AitpAgent.sign_envelope(message_type, payload_json,
     extensions_json=None, message_id=None, timestamp=None)` and Node
     `agent.signEnvelope(messageType, payloadJson, opts?)` sign over input
-    v2, `extensions` included.
+    v2, `extensions` included. They refuse a non-object payload and a
+    negative timestamp.
 - The envelope KATs `kat-envelope-001-p256` (re-minted) and
   `kat-envelope-002-ed25519` (new, with `extensions`) are reproduced byte
   for byte, and their v1 signatures are asserted not to verify. Spec
@@ -113,6 +138,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `version`, `message_type` and `extensions` can no longer be changed in
   transit without breaking the envelope signature. This closes the gap
   the v0.2 erratum in 0.16 documented.
+- A relay can no longer add `"extensions": null` to an envelope without
+  it being rejected (#262).
+- The optional `ed25519.` / `p256.` tag is part of `signature`, which the
+  signature does not cover. An Ed25519 signature verifies with or without
+  `ed25519.`, so do not identify or deduplicate envelopes by their
+  `signature` string. A P-256 signature without `p256.` fails.
 
 ## [0.16.0] — 2026-10-19
 

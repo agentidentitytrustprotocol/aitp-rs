@@ -8,13 +8,30 @@ envelope except `signature` (signing input v2), and every artifact carries
 the literal `aitp/0.3` instead of `aitp/0.2`. The cutover is strict: 0.17
 rejects every `aitp/0.2` artifact.
 
-It is a breaking release in three ways:
+Three follow-up changes also ship in 0.17.0:
+
+- The HTTP handshake server checks replay, rate limit and timestamp
+  before the envelope's structure
+  ([#259](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/259),
+  section 4).
+- The envelope parser enforces the schema rules for `payload`,
+  `timestamp`, `signature` and `extensions`
+  ([#262](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/262),
+  section 5).
+- The Python and Node bindings can sign and verify envelopes
+  ([#260](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/260),
+  section 7).
+
+It is a breaking release in four ways:
 
 - **On the wire.** A 0.17 peer and a 0.16 peer cannot talk to each other.
   Upgrade both sides together.
+- **In what receivers return.** Some envelopes 0.16 accepted are now
+  `INVALID_ENVELOPE`. Some error codes change when an envelope fails more
+  than one check.
 - **In Rust.** `aitp_core::envelope_signing_input` and
-  `envelope_signing_digest` take the envelope, and `EnvelopeParseError`
-  has a new variant.
+  `envelope_signing_digest` take the envelope, `EnvelopeParseError` has a
+  new variant, and the envelope signer refuses inputs it used to sign.
 - **For anyone who vendors the spec's vectors or fixtures.** Every signed
   vector was re-minted.
 
@@ -52,7 +69,7 @@ A 0.16 peer fails against a 0.17 peer in two ways:
 | Delegation token (single-hop, and every hop of a multi-hop chain) | `ver` | `DelegationError::VersionUnknown` | `UNKNOWN_VERSION` |
 
 The Rust variants are not new. Only the value they reject has changed.
-The one new variant is `EnvelopeParseError::UnknownVersion` (section 5).
+The one new variant is `EnvelopeParseError::UnknownVersion` (section 6).
 An envelope with no `version` at all, `{}` included, is now
 `UNKNOWN_VERSION`. 0.16 reported it as `INVALID_ENVELOPE`. A JSON value
 that is not an object is still `INVALID_ENVELOPE`.
@@ -117,13 +134,22 @@ let unsigned = AitpEnvelope {
 let env = aitp_envelope::sign_prepared_envelope(&key, unsigned)?;
 ```
 
-`sign_prepared_envelope` refuses three things before the backend is
-called: a `version` other than `PROTOCOL_VERSION`, a `message_id` that is
-not UUID v4, and a `sender.agent_id` that is not the signer's AID. It
-lives in `aitp-envelope` only. `aitp-transport-http` does not re-export
-it, so import it from `aitp_envelope`. `sign_envelope`,
+`sign_prepared_envelope` refuses five things before the backend is
+called:
+
+- a `version` other than `PROTOCOL_VERSION`;
+- a `message_id` that is not UUID v4;
+- a `payload` that is not a JSON object;
+- a negative `timestamp`;
+- a `sender.agent_id` that is not the signer's AID.
+
+The `payload` and `timestamp` refusals came with #262 (section 5).
+`sign_prepared_envelope` lives in `aitp-envelope` only.
+`aitp-transport-http` does not re-export it, so import it from
+`aitp_envelope`. `sign_envelope`,
 `sign_envelope_with` and their async forms keep their signatures. They
 build an envelope with no `extensions` and sign it over the v2 input.
+They go through `sign_prepared_envelope`, so the same refusals apply.
 `verify_envelope_signature` is also unchanged in signature, and it now
 checks the v2 input.
 
@@ -135,7 +161,8 @@ envelope, and the first failure is reported:
 1. **`version`.** Absent, not a string, or not `aitp/0.3` →
    `UNKNOWN_VERSION`. This runs before the member set is looked at.
 2. **Member set and structure.** A member outside the schema →
-   `UNKNOWN_FIELD`. Any other structural defect → `INVALID_ENVELOPE`.
+   `UNKNOWN_FIELD`. Any other structural defect, including the schema
+   rules in section 5 → `INVALID_ENVELOPE`.
 3. **Signature** over `sig_input_v2` → `INVALID_SIGNATURE`.
 
 `aitp_core::parse_envelope_wire` now runs step 1 before step 2. 0.16 ran
@@ -148,7 +175,7 @@ so the order holds in:
 - the `aitp` facade's response path
 - the conformance adapter, `verify_handshake_payload` included
 - the Python and Node handshake entry points, and their new
-  `verify_envelope` / `verifyEnvelope` (section 6)
+  `verify_envelope` / `verifyEnvelope` (section 7)
 
 Two consequences:
 
@@ -209,8 +236,10 @@ problem. This follows aitp-verifier-py at `f335f4f`.
   that parses as a UUID.
 - `timestamp` is checked against the window only if it is a JSON integer
   that fits in `i64`. A missing, string, float or out-of-range value
-  skips step 3, and step 5 reports `INVALID_ENVELOPE`. `i64::MIN` is a
-  readable value and fails the window with `TIMESTAMP_EXPIRED`.
+  skips step 3, and step 5 reports `INVALID_ENVELOPE`. A negative
+  integer, `i64::MIN` included, is readable, so it fails the window with
+  `TIMESTAMP_EXPIRED` before step 5 can call it `INVALID_ENVELOPE`
+  (section 5).
 - `sender.agent_id` keys the per-AID bucket only if it is a valid AID.
   Otherwise only the transport key is rate limited.
 - A body that is not JSON, or that has a duplicate key, skips steps 1
@@ -247,7 +276,80 @@ replay or timestamp state, so they have no §3.1 step to reorder. The
 conformance adapter's `verify_envelope` op now applies a fixture's
 `tolerance_seconds` window before `parse_envelope_wire`.
 
-## 5. `aitp-core` API changes
+## 5. Envelope schema rules the parser now enforces
+
+In 0.16, `aitp_core::parse_envelope_wire` accepted some envelopes that
+`aitp-envelope.schema.json` rejects. 0.17 enforces those rules
+([#261](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/261),
+[#262](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/262)).
+Each one fails the structure step: `EnvelopeParseError::Malformed` in
+Rust, `INVALID_ENVELOPE` on the wire and in `verify_envelope`.
+
+| Member | Schema rule | 0.16 | 0.17 |
+|---|---|---|---|
+| `payload` | a JSON object | Any JSON value. A well-signed array, string or `null` payload verified. | `INVALID_ENVELOPE` |
+| `timestamp` | an integer `>= 0` | A negative value was accepted. | `INVALID_ENVELOPE` (but see the HTTP server below) |
+| `signature` | `^((ed25519\|p256)\.)?[A-Za-z0-9_-]{86}$` | Checked only at the signature step: `INVALID_SIGNATURE`. | `INVALID_ENVELOPE`, before the signature step |
+| `extensions` | a JSON object when present | `"extensions": null` was read as absent. | `INVALID_ENVELOPE` |
+
+Every receive path parses with `parse_envelope_wire`, so all of them
+change together:
+
+- the HTTP handshake server;
+- the `aitp` facade;
+- pinned-key admission;
+- the conformance adapter;
+- Python and Node `verify_envelope` / `verifyEnvelope` (section 7).
+
+**The check order is unchanged.** An unknown `version` still wins over
+every defect in the table, and an unknown member is still
+`UNKNOWN_FIELD`.
+
+**Malformed signatures change code.** A `signature` string outside the
+pattern is now `INVALID_ENVELOPE`, not `INVALID_SIGNATURE`. Examples are
+the wrong length, padding, `+` or `/`, an unknown tag such as `rsa.`, or a
+non-string value. If you branch on the code for a malformed signature,
+expect the new one. A well-formed signature that does not verify is still
+`INVALID_SIGNATURE`.
+
+**`"extensions": null` is not absent.** An absent `extensions` and a
+present one are different signing inputs (section 2). Reading `null` as
+absent would let a relay add the member without breaking the signature.
+
+**Negative timestamps on the HTTP server.** The server's timestamp
+window runs on the raw JSON before the parser (section 4), and a negative
+integer is far outside it. So the server, the conformance adapter's
+window and the admission gate report `TIMESTAMP_EXPIRED`, not
+`INVALID_ENVELOPE`. `verify_envelope` has no window, so it reports
+`INVALID_ENVELOPE`.
+
+**The signer refuses what the parser rejects.** `sign_prepared_envelope*`,
+and through it `sign_envelope*`, returns `Err` for a non-object `payload`
+or a negative `timestamp` (section 2). In Python and Node,
+`sign_envelope` / `signEnvelope` raises `ValueError` or throws. The
+signature the signer writes always matches the pattern.
+
+**The signature tag is not signed.** The optional `ed25519.` / `p256.`
+prefix is part of `signature`, and `signature` is outside the signing
+input. An Ed25519 signature verifies with or without `ed25519.`, so a
+relay can add or remove that prefix without breaking verification. A
+P-256 signature needs `p256.`: untagged, it is read as Ed25519 and fails
+with `INVALID_SIGNATURE`. Do not use the `signature` string to identify
+or deduplicate envelopes. Use `message_id`.
+
+**New public functions.** `aitp_core::check_envelope_structure` checks
+the `payload`, `timestamp` and `signature` rules on a typed
+`AitpEnvelope`. `aitp_core::check_unsigned_envelope_structure` checks
+`payload` and `timestamp` only, for an envelope that is not signed yet.
+Both return `Result<(), String>`. `parse_envelope_wire` runs
+`check_envelope_structure` on every envelope it returns, and the signer
+runs `check_unsigned_envelope_structure`.
+
+The parser is still stricter than the schema in one way: `timestamp` must
+be a JSON integer that fits in `i64`. It rejects `1.0` and values above
+`i64::MAX`.
+
+## 6. `aitp-core` API changes
 
 **`envelope_signing_input` and `envelope_signing_digest` take the
 envelope.** They used to take four parameters. Each now takes one
@@ -300,7 +402,7 @@ match parse_envelope_wire(&wire) {
 `cargo-semver-checks` flags exactly these two changes on `aitp-core`
 (`function_parameter_count_changed` and `enum_variant_added`).
 
-## 6. Python and Node
+## 7. Python and Node
 
 The existing binding functions keep their signatures. 0.17 adds envelope
 signing and verification
@@ -361,9 +463,12 @@ code of the first step that fails (section 3):
 1. `UNKNOWN_VERSION`: `version` is absent or is not `aitp/0.3`.
    `aitp/0.2` is rejected the same way as `aitp/9.9`.
 2. `UNKNOWN_FIELD` for a member outside the schema and outside
-   `extensions`. `INVALID_ENVELOPE` for any other structural defect: a
-   duplicate key (RFC-AITP-0001 §5.4.5), a missing member, an
-   unregistered `message_type` or a non-v4 `message_id`.
+   `extensions`. `INVALID_ENVELOPE` for any other structural defect:
+   - a duplicate key (RFC-AITP-0001 §5.4.5);
+   - a missing member;
+   - an unregistered `message_type` or a non-v4 `message_id`;
+   - any schema rule from section 5: a non-object `payload`, a negative
+     `timestamp`, a malformed `signature`, or `"extensions": null`.
 3. `INVALID_SIGNATURE`: the signature does not verify over the v2 input
    under the expected sender's key. An envelope whose `sender.agent_id`
    is not the expected AID also fails here, because the caller does not
@@ -393,15 +498,16 @@ replay, then rate limit, then timestamp, then the checks
 - Pass `extensions` here. They are covered by the signature, so they
   cannot be added afterwards.
 - `message_id` defaults to a fresh UUID v4, and `timestamp` to now.
-- The payload must be a JSON object. A non-v4 `message_id`, an
-  unregistered `message_type` or `extensions` that are not a JSON object
-  are rejected before signing.
+- The payload must be a JSON object, and `timestamp` must not be
+  negative. A non-v4 `message_id`, an unregistered `message_type` or
+  `extensions` that are not a JSON object are also rejected before
+  signing. Python raises `ValueError`, and Node throws an `Error`.
 
 See [`sdk-python.md`](sdk-python.md#envelope-signatures-rfc-aitp-0001-54)
 and [`sdk-node.md`](sdk-node.md#envelope-signatures-rfc-aitp-0001-54) for
 runnable examples.
 
-## 7. Re-minted vectors and fixtures
+## 8. Re-minted vectors and fixtures
 
 The literal sits inside every signed artifact, so every signature
 changed. If you vendor any of these, re-vendor them from spec `bf00e75`.
@@ -436,7 +542,7 @@ Do not patch bytes by hand.
   `committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover` asserts
   that 0.17 refuses it with `SessionBundleError::VersionMismatch`.
 
-## 8. Conformance and cross-implementation checks
+## 9. Conformance and cross-implementation checks
 
 At pin `bf00e75` (102 fixtures), the rs adapter passes 79, fails 0 and
 skips 23 in the strict run (no `--feature`, default `--profile v0.2`).
@@ -456,7 +562,7 @@ to `f335f4f`, the merge of its #65, which adds `aitp/0.3`. The CI
 `xcheck` job pipes `xcheck-mint` into `scripts/xcheck-verify.py` at that
 pin.
 
-## 9. Claim strings
+## 10. Claim strings
 
 The spec renames the claim strings to "AITP v0.3 self-attestation" and
 "AITP v0.3 pinned-admission". No `aitp-rs` code emits or checks either
