@@ -7,8 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-20
+
 ### BREAKING
 
+- **0.18.0: revocation snapshot fixes.** Spec pin `597efbd` → `4bbda67`
+  ([#266](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/266)).
+  An unknown snapshot version reports `REVOCATION_SNAPSHOT_INVALID`
+  (#265), and revocation signing refuses a `jti` that is not a lowercase
+  UUID v4 (#268). The wire format is unchanged, so 0.18 interoperates
+  with 0.17 peers. See
+  [`docs/upgrading-0.18.md`](docs/upgrading-0.18.md) for who is affected
+  and how to migrate.
 - **A revocation snapshot with an unknown `version` now reports
   `REVOCATION_SNAPSHOT_INVALID`**
   ([#265](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/265)).
