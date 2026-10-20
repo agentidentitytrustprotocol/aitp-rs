@@ -42,6 +42,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `INVALID_ENVELOPE`. The Python and Node handshake entry points reject a
   non-`aitp/0.3` envelope with `unknown protocol version …`.
 
+- **HTTP handshake server receive order** (RFC-AITP-0009 §3.1,
+  [#255](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/255),
+  [#259](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/259)).
+  The hello and commit routes of `HandshakeServer` now check the replay
+  deny list, the rate limit and the timestamp window before Content-Type
+  and the envelope's version and structure. There is no API change. What
+  changes is the response:
+  - A replayed or stale envelope gets `REPLAY_DETECTED` /
+    `TIMESTAMP_EXPIRED` even when it also has an unknown version, an
+    unknown member, a bad structure or `message_type`, or the wrong
+    Content-Type.
+  - A `message_id`, `timestamp` or `sender.agent_id` that cannot be read
+    (not a UUID, not an `i64` integer, not a valid AID) skips the step
+    that needs it, and the structural check reports it.
+  - Malformed requests now count against the rate limit, and are answered
+    HTTP 429 with an empty body once the budget is spent.
+  - A malformed envelope with a readable `message_id` consumes that id.
+  - Deviation: the 256 KiB body-size limit is applied while the body is
+    read, before the §3.1 steps 1 to 3, not at step 4.
+
 ### Added
 
 - `aitp_envelope::sign_prepared_envelope` and

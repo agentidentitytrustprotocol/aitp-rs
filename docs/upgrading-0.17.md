@@ -52,7 +52,7 @@ A 0.16 peer fails against a 0.17 peer in two ways:
 | Delegation token (single-hop, and every hop of a multi-hop chain) | `ver` | `DelegationError::VersionUnknown` | `UNKNOWN_VERSION` |
 
 The Rust variants are not new. Only the value they reject has changed.
-The one new variant is `EnvelopeParseError::UnknownVersion` (section 4).
+The one new variant is `EnvelopeParseError::UnknownVersion` (section 5).
 An envelope with no `version` at all, `{}` included, is now
 `UNKNOWN_VERSION`. 0.16 reported it as `INVALID_ENVELOPE`. A JSON value
 that is not an object is still `INVALID_ENVELOPE`.
@@ -157,9 +157,96 @@ Two consequences:
   value is unknown (env-010), and `INVALID_SIGNATURE` when it is known.
 
 The spec places these three steps inside the RFC-AITP-0009 §3.1 endpoint
-order, after the replay, rate-limit and timestamp checks.
+order, after the replay, rate-limit and timestamp checks. Section 4 covers
+how the HTTP handshake server applies that order.
 
-## 4. `aitp-core` API changes
+## 4. The HTTP handshake server's receive order
+
+In 0.16, `HandshakeServer`'s `/aitp/handshake/hello` and
+`/aitp/handshake/commit` routes (`aitp-transport-http`) checked
+Content-Type and parsed and validated the envelope before they looked at
+the replay deny list, the rate limit or the timestamp window. 0.17 runs
+the RFC-AITP-0009 §3.1 order, and the RFC-AITP-0001 §5.4 envelope steps
+sit inside it
+([#255](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/255),
+[#259](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/259)).
+The first failure is reported:
+
+| Step | Check | Failure |
+|---|---|---|
+| 0 | Read the body under `DEFAULT_MAX_BODY_BYTES` (256 KiB) and `DEFAULT_BODY_READ_TIMEOUT` (5 s), then parse the JSON with the duplicate-key check. A parse failure is held until step 4. | `INVALID_ENVELOPE` for an oversized or slow body |
+| 1 | Replay deny list on `message_id` | `REPLAY_DETECTED` |
+| 2 | Rate limit, keyed on the transport source and the self-asserted `sender.agent_id` | HTTP 429, empty body |
+| 3 | Timestamp window (`DEFAULT_TIMESTAMP_TOLERANCE_SECS`, 300 s) | `TIMESTAMP_EXPIRED` |
+| 4 | Content-Type must be `application/json`, then the JSON failure held from step 0 | `INVALID_ENVELOPE` |
+| 5 | `version`, then the member set and structure (`parse_envelope_wire`), then whether `message_type` matches the route | `UNKNOWN_VERSION` / `UNKNOWN_FIELD` / `INVALID_ENVELOPE` |
+| 6 | Envelope signature, in the hello or commit handler | `INVALID_SIGNATURE` |
+
+There is no API change. `HandshakeServer::enforce_rate_limit`, the router
+and `RateLimitConfig` keep their signatures. What changes is what the two
+endpoints return.
+
+**The code reported when more than one check fails.** A replayed envelope
+now gets `REPLAY_DETECTED`, and one outside the window gets
+`TIMESTAMP_EXPIRED`, even if it also has any of these:
+
+- an unknown or absent `version`;
+- an unknown member, or a malformed structure;
+- an unregistered `message_type`, or the wrong one for the route;
+- the wrong Content-Type.
+
+0.16 reported `UNKNOWN_VERSION`, `UNKNOWN_FIELD` or `INVALID_ENVELOPE`
+for those. A test that sends a stale or replayed envelope with a second
+defect must expect the new code.
+
+**Fall-through for members that cannot be read.** Steps 1 to 3 read
+their member from the raw JSON, before any schema work. When the member
+is missing or the wrong type, the step is skipped and step 5 reports the
+problem. This follows aitp-verifier-py at `f335f4f`.
+
+- `message_id` is checked against the deny list only if it is a string
+  that parses as a UUID.
+- `timestamp` is checked against the window only if it is a JSON integer
+  that fits in `i64`. A missing, string, float or out-of-range value
+  skips step 3, and step 5 reports `INVALID_ENVELOPE`. `i64::MIN` is a
+  readable value and fails the window with `TIMESTAMP_EXPIRED`.
+- `sender.agent_id` keys the per-AID bucket only if it is a valid AID.
+  Otherwise only the transport key is rate limited.
+- A body that is not JSON, or that has a duplicate key, skips steps 1
+  and 3. It is rate limited on the transport key, then rejected with
+  `INVALID_ENVELOPE` at step 4.
+- A missing `version` is `UNKNOWN_VERSION`, as in section 3.
+
+**Malformed requests now count against the rate limit.** Every request
+whose body was read reaches step 2 before any structural check. That
+includes bodies that are not JSON, have an unknown version or are
+malformed, and envelopes sent to the wrong route. Each such request uses
+up the source's per-source budget, and the per-AID budget too when
+`sender.agent_id` is a valid AID. Once the budget is spent, the server
+answers HTTP 429 with an empty body, not an error envelope. If you sized
+`RateLimitConfig` from well-formed traffic, allow for this. A body that
+is too large or too slow to read is refused at step 0, so it does not
+count.
+
+**A malformed envelope consumes its `message_id`.** The deny list now
+records a readable `message_id` before the version and structure checks,
+so an envelope that is rejected later still uses up its id. 0.16 already
+recorded the id before the signature check, so an unauthenticated sender
+could already consume one. This gives an attacker nothing new.
+
+**Deviation: the body-size limit runs first.** RFC-AITP-0009 §3.1 puts
+the body-size bound in step 4, with Content-Type. The server applies it
+while reading the body, before steps 1 to 3, because those steps read
+members of the body and the bound has to hold during the read. The
+Content-Type check stays at step 4.
+
+Pinned-key admission (`admit_wire`) already ran in this order and is
+unchanged. The `aitp` facade and the Python and Node bindings keep no
+replay or timestamp state, so they have no §3.1 step to reorder. The
+conformance adapter's `verify_envelope` op now applies a fixture's
+`tolerance_seconds` window before `parse_envelope_wire`.
+
+## 5. `aitp-core` API changes
 
 **`envelope_signing_input` and `envelope_signing_digest` take the
 envelope.** They used to take four parameters. Each now takes one
@@ -212,7 +299,7 @@ match parse_envelope_wire(&wire) {
 `cargo-semver-checks` flags exactly these two changes on `aitp-core`
 (`function_parameter_count_changed` and `enum_variant_added`).
 
-## 5. Python and Node
+## 6. Python and Node
 
 The binding functions keep their signatures. What you can observe:
 
@@ -244,7 +331,7 @@ The binding functions keep their signatures. What you can observe:
   failed: TCT version is not supported` or `bundle verification failed:
   bundle version mismatch`.
 
-## 6. Re-minted vectors and fixtures
+## 7. Re-minted vectors and fixtures
 
 The literal sits inside every signed artifact, so every signature
 changed. If you vendor any of these, re-vendor them from spec `bf00e75`.
@@ -279,7 +366,7 @@ Do not patch bytes by hand.
   `committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover` asserts
   that 0.17 refuses it with `SessionBundleError::VersionMismatch`.
 
-## 7. Conformance and cross-implementation checks
+## 8. Conformance and cross-implementation checks
 
 At pin `bf00e75` (102 fixtures), the rs adapter passes 79, fails 0 and
 skips 23 in the strict run (no `--feature`, default `--profile v0.2`).
@@ -299,7 +386,7 @@ to `f335f4f`, the merge of its #65, which adds `aitp/0.3`. The CI
 `xcheck` job pipes `xcheck-mint` into `scripts/xcheck-verify.py` at that
 pin.
 
-## 8. Claim strings
+## 9. Claim strings
 
 The spec renames the claim strings to "AITP v0.3 self-attestation" and
 "AITP v0.3 pinned-admission". No `aitp-rs` code emits or checks either
