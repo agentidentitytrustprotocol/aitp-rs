@@ -388,7 +388,7 @@ them.
 
 ### Summary
 
-These counts are **at pin `4bbda67`** (`aitp/0.3`), the spec commit in
+These counts are **at pin `299f89a`** (`aitp/0.3`), the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
