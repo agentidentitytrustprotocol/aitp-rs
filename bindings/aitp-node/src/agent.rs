@@ -14,6 +14,7 @@ use uuid::Uuid;
 use crate::delegation::{
     build_delegation_token_json, issue_tct_for_delegatee_json, JsDelegationVerified,
 };
+use crate::envelope::{sign_envelope_js, SignEnvelopeOpts};
 use crate::oidc::JwksProvider;
 #[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
@@ -380,6 +381,22 @@ impl AitpAgent {
         ttl_secs: Option<i64>,
     ) -> Result<JsIssuedTct> {
         issue_tct_for_delegatee_json(&self.key, &verified, ttl_secs)
+    }
+
+    /// Sign an `AitpEnvelope` (RFC-AITP-0001 §5.4) from this agent and
+    /// return its JSON. `messageType` is the wire string (e.g.
+    /// `"mutual_hello"`) and `payloadJson` a JSON object; `opts` carries
+    /// the optional `extensionsJson`, `messageId` (UUID v4, default fresh)
+    /// and `timestamp` (unix seconds, default now). The counterpart of
+    /// `verifyEnvelope`.
+    #[napi]
+    pub fn sign_envelope(
+        &self,
+        message_type: String,
+        payload_json: String,
+        opts: Option<SignEnvelopeOpts>,
+    ) -> Result<String> {
+        sign_envelope_js(&self.key, &message_type, &payload_json, opts)
     }
 
     /// Sign a `RevocationList` with this agent's key. `entries` carries

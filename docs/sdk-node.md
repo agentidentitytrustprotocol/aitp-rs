@@ -272,6 +272,50 @@ to you; see
 and the spec's
 [operational guidance](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/operational-guidance.md#revocation-lookup-revocation_policymode).
 
+### Envelope signatures (RFC-AITP-0001 §5.4)
+
+```javascript
+import { verifyEnvelope } from '@agentidentitytrustprotocol/aitp';
+
+const envelope = bob.signEnvelope('mutual_hello', JSON.stringify({ hello: true }), {
+  extensionsJson: JSON.stringify({ 'com.example.trace': { id: 't-1' } }),   // optional
+});
+verifyEnvelope(envelope, bob.aid);   // pin the expected sender
+const tampered = { ...JSON.parse(envelope), message_type: 'mutual_hello_ack' };
+try {
+  verifyEnvelope(JSON.stringify(tampered), bob.aid);
+} catch (err) {
+  console.log(err.code);   // INVALID_SIGNATURE
+}
+```
+
+`signEnvelope(messageType, payloadJson, opts?)` signs an `aitp/0.3` envelope
+over signing input v2. The signature covers every member except `signature`,
+including `extensions`. `opts` takes `extensionsJson`, `messageId` (a UUID v4,
+defaulting to a fresh one) and `timestamp` (unix seconds, defaulting to now).
+
+`verifyEnvelope(envelopeJson, expectedSenderAid)` returns on success. On
+failure it throws an `Error` whose `code` is the registered spec code of the
+first failing step of the RFC-AITP-0001 §5.4 check order:
+
+1. `UNKNOWN_VERSION`: `version` is absent or is not `aitp/0.3`. `aitp/0.2`
+   is rejected exactly like `aitp/9.9`.
+2. `UNKNOWN_FIELD`: a member outside the schema and outside `extensions`.
+   `INVALID_ENVELOPE`: any other structural defect, such as a duplicate JSON
+   key (RFC-AITP-0001 §5.4.5), a missing member, an unregistered
+   `message_type` or a non-v4 `message_id`.
+3. `INVALID_SIGNATURE`: the signature does not verify under the expected
+   sender's key, or `sender.agent_id` is not `expectedSenderAid`.
+
+The key comes from `expectedSenderAid`, since every AID encodes its public
+key. An invalid `expectedSenderAid` throws with napi's generic
+`GenericFailure` code instead.
+
+The function checks only that the envelope is well formed and authentic. It
+does not check the timestamp window or deduplicate `message_id`
+(RFC-AITP-0001 §5.5). A receiving endpoint runs those checks itself, in the
+order RFC-AITP-0009 §3.1 sets out.
+
 ### OIDC identity (RFC-AITP-0002)
 
 ```javascript

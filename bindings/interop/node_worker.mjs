@@ -30,6 +30,7 @@ const verifyDelegationMultihop =
   mod.verifyDelegationMultihop ??
   mod.default?.verifyDelegationMultihop;
 const verifyManifestJson = mod.verifyManifestJson ?? mod.default?.verifyManifestJson;
+const verifyEnvelope = mod.verifyEnvelope ?? mod.default?.verifyEnvelope;
 const JwksProvider = mod.JwksProvider ?? mod.default?.JwksProvider;
 const SessionBundleBuilder =
   mod.SessionBundleBuilder ?? mod.default?.SessionBundleBuilder;
@@ -266,6 +267,25 @@ const methods = {
   verify_manifest: (p) => {
     verifyManifestJson(p.manifest);
     return { ok: true };
+  },
+
+  // ── A5 — envelope sign / verify (RFC-AITP-0001 §5.4) ──────────────
+  sign_envelope: (p) => ({
+    envelope: registry
+      .get(p.agent)
+      .signEnvelope(p.message_type, p.payload_json, {
+        extensionsJson: p.extensions_json ?? undefined,
+      }),
+  }),
+  // Returns the verification code instead of throwing, so the Python
+  // side can assert the exact RFC-AITP-0001 §5.7 code.
+  verify_envelope: (p) => {
+    try {
+      verifyEnvelope(p.envelope, p.expected_sender_aid);
+      return { code: null };
+    } catch (err) {
+      return { code: err.code };
+    }
   },
 
   // ── B1 — OIDC interop ─────────────────────────────────────────────

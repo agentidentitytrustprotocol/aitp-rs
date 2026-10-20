@@ -542,6 +542,41 @@ def test_python_manifest_verifies_on_node(node):
     aitp.verify_manifest_json(nd_manifest)
 
 
+@pytest.mark.parametrize("suite", ["ed25519", "p256"])
+def test_envelope_signatures_verify_cross_language(node, suite):
+    """An envelope signed by either binding verifies through the other's
+    verify_envelope (RFC-AITP-0001 §5.4, signing input v2), and a tampered
+    `extensions` member fails there with INVALID_SIGNATURE."""
+    payload = json.dumps({"hello": True})
+    extensions = json.dumps({"com.example.trace": {"id": "t-1"}})
+
+    py_agent = aitp.AitpAgent.generate(suite=suite)
+    py_env = py_agent.sign_envelope("mutual_hello", payload, extensions_json=extensions)
+    assert node.call(
+        "verify_envelope", envelope=py_env, expected_sender_aid=py_agent.aid
+    ) == {"code": None}
+    tampered = json.loads(py_env)
+    tampered["extensions"]["com.example.trace"]["id"] = "t-2"
+    assert node.call(
+        "verify_envelope", envelope=json.dumps(tampered), expected_sender_aid=py_agent.aid
+    ) == {"code": "INVALID_SIGNATURE"}
+
+    nd_agent, nd_aid = NodeEndpoint(node).new_agent(suite)
+    nd_env = node.call(
+        "sign_envelope",
+        agent=nd_agent,
+        message_type="mutual_hello",
+        payload_json=payload,
+        extensions_json=extensions,
+    )["envelope"]
+    aitp.verify_envelope(nd_env, nd_aid)  # raises on failure
+    tampered = json.loads(nd_env)
+    tampered["extensions"]["com.example.trace"]["id"] = "t-2"
+    with pytest.raises(aitp.EnvelopeVerificationError) as info:
+        aitp.verify_envelope(json.dumps(tampered), nd_aid)
+    assert info.value.code == "INVALID_SIGNATURE"
+
+
 # ── B1 — OIDC handshake interop ────────────────────────────────────────
 
 

@@ -97,6 +97,15 @@ export declare class AitpAgent {
    */
   issueTctForDelegatee(verified: JsDelegationVerified, ttlSecs?: number | undefined | null): JsIssuedTct
   /**
+   * Sign an `AitpEnvelope` (RFC-AITP-0001 §5.4) from this agent and
+   * return its JSON. `messageType` is the wire string (e.g.
+   * `"mutual_hello"`) and `payloadJson` a JSON object; `opts` carries
+   * the optional `extensionsJson`, `messageId` (UUID v4, default fresh)
+   * and `timestamp` (unix seconds, default now). The counterpart of
+   * `verifyEnvelope`.
+   */
+  signEnvelope(messageType: string, payloadJson: string, opts?: SignEnvelopeOpts | undefined | null): string
+  /**
    * Sign a `RevocationList` with this agent's key. `entries` carries
    * the revoked-TCT records; `expiresInSecs` defaults to 3600 s.
    * Returns the on-wire `RevocationListEnvelope` JSON.
@@ -499,6 +508,19 @@ export interface SessionOpts {
   pinnedKeys?: Array<string>
 }
 
+/** Options for `AitpAgent.signEnvelope`. */
+export interface SignEnvelopeOpts {
+  /**
+   * JSON object for the envelope's `extensions` member, covered by the
+   * signature like every other member. Omitted when absent.
+   */
+  extensionsJson?: string
+  /** UUID v4. Defaults to a fresh one. */
+  messageId?: string
+  /** Unix seconds. Defaults to now. */
+  timestamp?: number
+}
+
 /**
  * Verify a delegation compact JWS under **strict AITP v0.3**
  * (RFC-AITP-0006 single-hop). `verifierAid` is the verifier's own AID
@@ -561,6 +583,38 @@ export declare function verifyDelegation(token: string, verifierAid: string, iss
  * wins.
  */
 export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+
+/**
+ * Verify an `AitpEnvelope` JSON string sent by `expectedSenderAid`.
+ *
+ * Returns on success; on failure throws an `Error` whose **`code`** is the
+ * registered RFC-AITP-0001 §5.7 code of the first failing step of the §5.4
+ * check order:
+ *
+ * 1. `version` absent or not `aitp/0.3` → `UNKNOWN_VERSION` (no
+ *    dual-accept: `aitp/0.2` is as unknown as `aitp/9.9`);
+ * 2. a member outside the schema and outside `extensions` →
+ *    `UNKNOWN_FIELD`; any other structural defect (a duplicate key,
+ *    RFC-AITP-0001 §5.4.5, a missing member, an unregistered
+ *    `message_type`, a non-v4 `message_id`) → `INVALID_ENVELOPE`;
+ * 3. a signature that does not verify over `sig_input_v2` under the
+ *    expected sender's key → `INVALID_SIGNATURE`. An envelope whose
+ *    `sender.agent_id` is not `expectedSenderAid` fails here too: it is
+ *    not signed by the key the caller trusts.
+ *
+ * Branch on `error.code`, never on `error.message`.
+ *
+ * The key comes from `expectedSenderAid` (every AID encodes its public
+ * key), as `verifyRevocationList` takes its pinned issuer. A malformed
+ * `expectedSenderAid` is the caller's error and throws an `Error` with no
+ * verification code.
+ *
+ * Establishes **authenticity and structure only**. Replay and freshness
+ * (RFC-AITP-0001 §5.5: the timestamp window and `message_id`
+ * deduplication) are not checked; they belong to the receiving endpoint's
+ * RFC-AITP-0009 §3.1 order, which the caller owns.
+ */
+export declare function verifyEnvelope(envelopeJson: string, expectedSenderAid: string): void
 
 /**
  * Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane

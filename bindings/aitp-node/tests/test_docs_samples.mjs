@@ -43,6 +43,7 @@ import {
   revocationSigningBytes,
   verifyDelegation,
   verifyDelegationMultihop,
+  verifyEnvelope,
   verifyManifestJson,
   verifyRevocationList,
   verifySessionBundle,
@@ -216,6 +217,22 @@ function revocationLists(ns) {
   revoked.push(...JSON.parse(snapshot).revocation_list.entries.map((e) => e.jti));
   const signedBytes = revocationSigningBytes(snapshot);   // Buffer: JCS of the inner body
   return { ...ns, snapshot, signedBytes };
+}
+
+function envelopeSignatures(ns) {
+  // docs/sdk-node.md § Envelope signatures (RFC-AITP-0001 §5.4)
+  const { bob } = ns;
+  const envelope = bob.signEnvelope('mutual_hello', JSON.stringify({ hello: true }), {
+    extensionsJson: JSON.stringify({ 'com.example.trace': { id: 't-1' } }),   // optional
+  });
+  verifyEnvelope(envelope, bob.aid);   // pin the expected sender
+  const tampered = { ...JSON.parse(envelope), message_type: 'mutual_hello_ack' };
+  try {
+    verifyEnvelope(JSON.stringify(tampered), bob.aid);
+  } catch (err) {
+    console.log(err.code);   // INVALID_SIGNATURE
+  }
+  return { ...ns, envelope };
 }
 
 function oidcIdentity(ns) {
@@ -419,6 +436,12 @@ test('docs: revocation lists', () => {
   assert.equal(logs.at(-1), 'issuer_mismatch');
   assert.equal(ns.revoked.length, 1);
   assert.ok(Buffer.isBuffer(ns.signedBytes));
+});
+
+test('docs: envelope signatures', () => {
+  const [ns, logs] = captureLogs(() => envelopeSignatures(mutualHandshake()));
+  assert.deepEqual(logs, ['INVALID_SIGNATURE']);
+  assert.equal(JSON.parse(ns.envelope).sender.agent_id, ns.bob.aid);
 });
 
 test('docs: OIDC identity', () => {

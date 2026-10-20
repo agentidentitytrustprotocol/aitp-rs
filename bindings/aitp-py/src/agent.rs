@@ -15,6 +15,7 @@ use std::collections::HashSet;
 use crate::delegation::{
     build_delegation_token, issue_tct_for_delegatee_json, PyDelegationVerified,
 };
+use crate::envelope::sign_envelope_py;
 use crate::oidc::PyJwksProvider;
 #[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_py, process_renewal_request_py};
@@ -350,6 +351,33 @@ impl PyAitpAgent {
         ttl_secs: Option<i64>,
     ) -> PyResult<String> {
         issue_tct_for_delegatee_json(&self.key, verified, ttl_secs)
+    }
+
+    /// Sign an `AitpEnvelope` (RFC-AITP-0001 §5.4) from this agent and
+    /// return its JSON. `message_type` is the wire string (e.g.
+    /// `"mutual_hello"`), `payload_json` a JSON object, and
+    /// `extensions_json` an optional JSON object for the envelope's
+    /// `extensions` member — covered by the signature like every other
+    /// member. `message_id` (UUID v4) defaults to a fresh one and
+    /// `timestamp` (unix seconds) to now. The counterpart of
+    /// `aitp.verify_envelope`.
+    #[pyo3(signature = (message_type, payload_json, extensions_json = None, message_id = None, timestamp = None))]
+    fn sign_envelope(
+        &self,
+        message_type: &str,
+        payload_json: &str,
+        extensions_json: Option<&str>,
+        message_id: Option<&str>,
+        timestamp: Option<i64>,
+    ) -> PyResult<String> {
+        sign_envelope_py(
+            &self.key,
+            message_type,
+            payload_json,
+            extensions_json,
+            message_id,
+            timestamp,
+        )
     }
 
     /// Sign a `RevocationList` with this agent's key. `entries` is a list of
