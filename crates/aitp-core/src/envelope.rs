@@ -3,22 +3,27 @@
 //! Every AITP protocol message — handshake, TCT delivery, PoP exchange,
 //! errors — is wrapped in an [`AitpEnvelope`]. The envelope provides
 //! sender identity, replay protection (`message_id`, `timestamp`), and
-//! end-to-end Ed25519 signing.
+//! end-to-end signing.
 //!
-//! ## Signing input (RFC-AITP-0001 §5.4)
+//! ## Signing input (RFC-AITP-0001 §5.4, `aitp/0.3`)
 //!
-//! The envelope signature is **not** computed by JCS-canonicalizing the whole
-//! envelope. Instead:
+//! The envelope signature covers the whole envelope except `signature`,
+//! behind a domain tag:
 //!
 //! ```text
-//! payload_hash = sha256(JCS(payload))
-//! sig_input    = message_id + "|" + timestamp_string + "|" + sender.agent_id + "|" + hex(payload_hash)
-//! signature    = base64url(sign(private_key, sha256(sig_input)))
+//! sig_input_v2 = "aitp-envelope-v2" || 0x00 || JCS(envelope_without_signature)
+//! d            = sha256(sig_input_v2)
+//! signature    = base64url(SIGN_alg(private_key, d))   ; §5.4.6
 //! ```
 //!
-//! [`envelope_signing_input`] computes `sig_input` for a partially-built
-//! envelope; [`envelope_signing_digest`] returns the SHA-256 of that input —
-//! the actual 32 bytes that get fed into Ed25519.
+//! Every other member (`version`, `message_type`, `message_id`,
+//! `timestamp`, `sender`, `payload`, and `extensions` when present) is
+//! therefore sender-authenticated. [`envelope_signing_input`] computes
+//! `sig_input_v2` for an envelope (its `signature` member is ignored);
+//! [`envelope_signing_digest`] returns `d`, the 32 bytes handed to
+//! `SIGN_alg`. The `aitp/0.2` pipe-composed input
+//! (`message_id|timestamp|sender.agent_id|hex(sha256(JCS(payload)))`) is
+//! retired and no longer computed anywhere.
 
 use crate::jcs;
 use crate::unknown_field::{check_members, from_serde_error, CheckedJson};
@@ -71,17 +76,16 @@ pub struct AitpEnvelope {
     /// (`Some(ExtensionsMap::new())`) emits `"extensions":{}` — different
     /// bytes, different digest, different signature. Silently normalizing
     /// one into the other would change the signing input and break
-    /// verification against a conformant peer (RFC-AITP-0001 §5.4.1). Note
-    /// that for this particular struct the point is moot for
-    /// [`envelope_signing_input`], which never canonicalizes the whole
-    /// envelope — see the module docs — but the field is modeled the same
-    /// way as every other signed AITP object for consistency and because a
-    /// future signing-input revision must not have to fix this again.
+    /// verification against a conformant peer (RFC-AITP-0001 §5.4.1). Since
+    /// `aitp/0.3` the envelope signing input is the JCS form of the whole
+    /// envelope minus `signature` (see the module docs), so `extensions` is
+    /// authenticated and this distinction is load-bearing.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub extensions: Option<ExtensionsMap>,
 
-    /// base64url-unpadded Ed25519 signature over
-    /// `sha256(message_id|ts|sender|hex(sha256(jcs(payload))))`.
+    /// base64url-unpadded (optionally algorithm-tagged, RFC-AITP-0001
+    /// §5.4.3) signature over [`envelope_signing_digest`]: `sha256` of
+    /// `"aitp-envelope-v2" || 0x00 || JCS(envelope without signature)`.
     pub signature: String,
 }
 
@@ -202,48 +206,53 @@ impl MessageType {
     }
 }
 
-/// Compute the envelope signing input per RFC-AITP-0001 §5.4.
-///
-/// Returns the bytes that will be SHA-256'd before signing. Produced as:
+/// The domain tag that prefixes the envelope signing input
+/// (RFC-AITP-0001 §5.4): the 16 ASCII bytes `aitp-envelope-v2`. One
+/// `0x00` separator byte follows it, so `sig_input_v2` can never equal
+/// the bare JCS bytes another JCS-profile artifact signs.
+pub const ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16] = b"aitp-envelope-v2";
+
+/// Compute the envelope signing input `sig_input_v2` per RFC-AITP-0001
+/// §5.4:
 ///
 /// ```text
-/// message_id + "|" + timestamp + "|" + sender.agent_id + "|" + hex(sha256(JCS(payload)))
+/// "aitp-envelope-v2" || 0x00 || JCS(envelope_without_signature)
 /// ```
-pub fn envelope_signing_input(
-    message_id: &Uuid,
-    timestamp: Timestamp,
-    sender_aid: &Aid,
-    payload: &serde_json::Value,
-) -> Result<Vec<u8>, jcs::JcsError> {
-    use sha2::{Digest, Sha256};
-    let canonical = jcs::canonicalize(payload)?;
-    let payload_hash = Sha256::digest(&canonical);
-    let mut hex_buf = [0u8; 64];
-    hex::encode_to_slice(payload_hash, &mut hex_buf)
-        .expect("64-byte buffer fits 32-byte digest hex-encoded");
-    let payload_hex = std::str::from_utf8(&hex_buf).expect("hex output is always ASCII");
-    Ok(format!(
-        "{}|{}|{}|{}",
-        message_id,
-        timestamp.0,
-        sender_aid.as_str(),
-        payload_hex
-    )
-    .into_bytes())
+///
+/// `envelope_without_signature` is `envelope` with its `signature` member
+/// removed and every other member kept: `version`, `message_type`,
+/// `message_id`, `timestamp`, `sender`, `payload`, and `extensions` when
+/// present (absent and `{}` are different inputs). The value of
+/// `envelope.signature` is ignored, so a signer calls this on an envelope
+/// whose `signature` is still empty.
+///
+/// A verifier calls this on the envelope [`parse_envelope_wire`] returned.
+/// The typed envelope re-serializes to exactly the received members
+/// (closed member set, verbatim strings, presence-sensitive `extensions`,
+/// `payload` kept as raw JSON), so the JCS bytes are those of the received
+/// object minus `signature`.
+pub fn envelope_signing_input(envelope: &AitpEnvelope) -> Result<Vec<u8>, jcs::JcsError> {
+    let mut value = serde_json::to_value(envelope)?;
+    if let Some(object) = value.as_object_mut() {
+        object.remove("signature");
+    }
+    let canonical = jcs::canonicalize(&value)?;
+    let mut input = Vec::with_capacity(ENVELOPE_SIGNING_DOMAIN_TAG.len() + 1 + canonical.len());
+    input.extend_from_slice(ENVELOPE_SIGNING_DOMAIN_TAG);
+    input.push(0x00);
+    input.extend_from_slice(&canonical);
+    Ok(input)
 }
 
-/// Compute the 32-byte SHA-256 digest of [`envelope_signing_input`].
+/// Compute `d = sha256(sig_input_v2)` (RFC-AITP-0001 §5.4), the 32 bytes
+/// handed to `SIGN_alg` (§5.4.6), hashed exactly once.
 ///
-/// This is the value the issuer Ed25519-signs, and the value verifiers
-/// re-compute from a received envelope before checking the signature.
-pub fn envelope_signing_digest(
-    message_id: &Uuid,
-    timestamp: Timestamp,
-    sender_aid: &Aid,
-    payload: &serde_json::Value,
-) -> Result<[u8; 32], jcs::JcsError> {
+/// This is the value the sender signs, and the value a verifier
+/// re-computes from a received envelope before checking the signature.
+/// `envelope.signature` is ignored.
+pub fn envelope_signing_digest(envelope: &AitpEnvelope) -> Result<[u8; 32], jcs::JcsError> {
     use sha2::{Digest, Sha256};
-    let input = envelope_signing_input(message_id, timestamp, sender_aid, payload)?;
+    let input = envelope_signing_input(envelope)?;
     Ok(Sha256::digest(&input).into())
 }
 
@@ -431,69 +440,90 @@ mod tests {
     }
 
     #[test]
-    fn signing_input_is_identical_with_and_without_extensions() {
-        // envelope_signing_input takes explicit scalar arguments and never
-        // sees the AitpEnvelope struct or its `extensions` field, so this
-        // is necessarily a compile-time/type-level guarantee rather than a
-        // runtime one — there is no way to vary `extensions` through this
-        // function's own signature, which is what makes the invariant
-        // hold. `aitp-envelope`'s
-        // `attaching_extensions_after_signing_does_not_invalidate_the_signature`
-        // exercises the real end-to-end path instead: sign a full
-        // envelope, attach a populated `extensions` map afterward, and
-        // confirm the outer signature still verifies.
-        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let aid = sample_aid();
-        let payload = json!({"hello": true});
-
-        let mut without = sample_envelope(MessageType::MutualHello);
-        without.message_id = mid;
-        without.sender.agent_id = aid.clone();
-        without.payload = payload.clone();
-        without.extensions = None;
-
-        let mut with = without.clone();
+    fn signing_input_covers_extensions_and_distinguishes_absent_from_empty() {
+        // aitp/0.3 (RFC-AITP-0001 §5.4): `extensions` is inside the
+        // signed bytes, and absent vs `{}` are different inputs.
+        let absent = sample_envelope(MessageType::MutualHello);
+        let mut empty = absent.clone();
+        empty.extensions = Some(ExtensionsMap::new());
+        let mut populated = absent.clone();
         let mut ext = ExtensionsMap::new();
         ext.insert("com.example/debug_trace", json!({"request_id": "abc"}));
-        with.extensions = Some(ext);
+        populated.extensions = Some(ext);
 
-        let input_without =
-            envelope_signing_input(&mid, without.timestamp, &aid, &without.payload).unwrap();
-        let input_with = envelope_signing_input(&mid, with.timestamp, &aid, &with.payload).unwrap();
+        let a = envelope_signing_input(&absent).unwrap();
+        let e = envelope_signing_input(&empty).unwrap();
+        let p = envelope_signing_input(&populated).unwrap();
+        assert_ne!(a, e, "absent and empty extensions must sign differently");
+        assert_ne!(a, p);
+        assert_ne!(e, p);
+    }
+
+    #[test]
+    fn signing_input_is_domain_tagged_jcs_of_envelope_minus_signature() {
+        let env = sample_envelope(MessageType::Tct);
+        let input = envelope_signing_input(&env).unwrap();
+        assert_eq!(&input[..16], b"aitp-envelope-v2");
+        assert_eq!(input[16], 0x00);
+
+        let mut expected = serde_json::to_value(&env).unwrap();
+        expected.as_object_mut().unwrap().remove("signature");
         assert_eq!(
-            input_without, input_with,
-            "envelope_signing_input must be byte-identical regardless of `extensions`"
+            &input[17..],
+            jcs::canonicalize(&expected).unwrap().as_slice()
+        );
+        // No pipe composition survives.
+        assert!(!input.contains(&b'|'));
+    }
+
+    #[test]
+    fn signing_input_ignores_the_signature_value() {
+        let env = sample_envelope(MessageType::Tct);
+        let mut other = env.clone();
+        other.signature = String::new();
+        assert_eq!(
+            envelope_signing_input(&env).unwrap(),
+            envelope_signing_input(&other).unwrap()
         );
     }
 
     #[test]
-    fn signing_input_is_pipe_formatted() {
-        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let aid = sample_aid();
-        let input =
-            envelope_signing_input(&mid, Timestamp(1_700_000_000), &aid, &json!({})).unwrap();
-        let s = String::from_utf8(input).unwrap();
-        // Three pipes between four components.
-        assert_eq!(s.matches('|').count(), 3);
-        assert!(s.starts_with("550e8400-e29b-41d4-a716-446655440000|1700000000|"));
-        // Last component is hex of sha256("{}") which is sha256 of canonical empty obj.
-        let parts: Vec<&str> = s.split('|').collect();
-        assert_eq!(parts[3].len(), 64);
-        assert!(parts[3].chars().all(|c| c.is_ascii_hexdigit()));
+    fn signing_input_covers_every_non_signature_member() {
+        let base = sample_envelope(MessageType::Tct);
+        let d0 = envelope_signing_digest(&base).unwrap();
+        let mut variants = Vec::new();
+        let mut v = base.clone();
+        v.version = "aitp/0.2".into();
+        variants.push(("version", v));
+        let mut v = base.clone();
+        v.message_type = MessageType::Error;
+        variants.push(("message_type", v));
+        let mut v = base.clone();
+        v.message_id = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440001").unwrap();
+        variants.push(("message_id", v));
+        let mut v = base.clone();
+        v.timestamp = Timestamp(base.timestamp.0 + 1);
+        variants.push(("timestamp", v));
+        let mut v = base.clone();
+        v.sender.agent_id = Aid::from_ed25519(&[1u8; 32]);
+        variants.push(("sender", v));
+        let mut v = base.clone();
+        v.payload = json!({"x": 2});
+        variants.push(("payload", v));
+        for (member, v) in variants {
+            assert_ne!(envelope_signing_digest(&v).unwrap(), d0, "{member}");
+        }
     }
 
     #[test]
-    fn signing_digest_is_deterministic() {
-        let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
-        let aid = sample_aid();
-        let payload = json!({"foo": "bar", "n": 1});
-        let d1 = envelope_signing_digest(&mid, Timestamp(1), &aid, &payload).unwrap();
-        let d2 = envelope_signing_digest(&mid, Timestamp(1), &aid, &payload).unwrap();
-        assert_eq!(d1, d2);
+    fn signing_digest_is_deterministic_and_key_order_independent() {
+        let mut env = sample_envelope(MessageType::Tct);
+        env.payload = json!({"foo": "bar", "n": 1});
+        let d1 = envelope_signing_digest(&env).unwrap();
+        assert_eq!(d1, envelope_signing_digest(&env).unwrap());
         // Reordering JSON keys should not change the digest (JCS).
-        let payload2 = json!({"n": 1, "foo": "bar"});
-        let d3 = envelope_signing_digest(&mid, Timestamp(1), &aid, &payload2).unwrap();
-        assert_eq!(d1, d3);
+        env.payload = json!({"n": 1, "foo": "bar"});
+        assert_eq!(d1, envelope_signing_digest(&env).unwrap());
     }
 
     #[test]

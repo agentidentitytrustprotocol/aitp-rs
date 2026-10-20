@@ -47,9 +47,8 @@ fn manifest_for(key: &AitpSigningKey, hint_subject: &str) -> Manifest {
 }
 
 fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid) -> AitpEnvelope {
-    let digest = aitp_core::envelope_signing_digest(&mid, NOW, sender.aid(), &payload).unwrap();
-    AitpEnvelope {
-        version: "aitp/0.1".into(),
+    let mut envelope = AitpEnvelope {
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: MessageType::MutualHello,
         message_id: mid,
         timestamp: NOW,
@@ -58,10 +57,13 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
         },
         payload,
         extensions: None,
-        signature: sender
-            .sign_jcs(&aitp_crypto::Digest32::from(digest))
-            .into_string(),
-    }
+        signature: String::new(),
+    };
+    let digest = aitp_core::envelope_signing_digest(&envelope).unwrap();
+    envelope.signature = sender
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
+    envelope
 }
 
 #[test]

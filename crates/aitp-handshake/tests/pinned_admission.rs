@@ -672,13 +672,7 @@ async fn envelope_signature_checked_before_proof() {
     // reports the proof.
     let mut env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
     env.payload["identity"]["proof"] = other.payload["identity"]["proof"].clone();
-    let digest = aitp_core::envelope::envelope_signing_digest(
-        &env.message_id,
-        env.timestamp,
-        &env.sender.agent_id,
-        &env.payload,
-    )
-    .unwrap();
+    let digest = aitp_core::envelope::envelope_signing_digest(&env).unwrap();
     env.signature = subject_ed()
         .sign_jcs(&aitp_crypto::Digest32::from_bytes(digest))
         .into_string();

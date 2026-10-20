@@ -230,8 +230,7 @@ fn envelope_with(
     mid: Uuid,
     ts: Timestamp,
 ) -> AitpEnvelope {
-    let digest = aitp::core::envelope_signing_digest(&mid, ts, key.aid(), &payload).unwrap();
-    AitpEnvelope {
+    let mut envelope = AitpEnvelope {
         version: aitp::core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id: mid,
@@ -241,10 +240,13 @@ fn envelope_with(
         },
         payload,
         extensions: None,
-        signature: key
-            .sign_jcs(&aitp::crypto::Digest32::from(digest))
-            .into_string(),
-    }
+        signature: String::new(),
+    };
+    let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
+    envelope.signature = key
+        .sign_jcs(&aitp::crypto::Digest32::from(digest))
+        .into_string();
+    envelope
 }
 
 // ── In-process mock OIDC issuer ────────────────────────────────────────

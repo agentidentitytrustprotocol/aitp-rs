@@ -243,11 +243,8 @@ fn build_envelope(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> aitp_core::AitpEnvelope {
-    let digest =
-        aitp_core::envelope_signing_digest(&message_id, timestamp, sender.aid(), &payload).unwrap();
-    let sig = sender.sign_jcs(&aitp_crypto::Digest32::from(digest));
-    aitp_core::AitpEnvelope {
-        version: "aitp/0.1".into(),
+    let mut envelope = aitp_core::AitpEnvelope {
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type: mt,
         message_id,
         timestamp,
@@ -256,6 +253,11 @@ fn build_envelope(
         },
         payload,
         extensions: None,
-        signature: sig.into_string(),
-    }
+        signature: String::new(),
+    };
+    let digest = aitp_core::envelope_signing_digest(&envelope).unwrap();
+    envelope.signature = sender
+        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .into_string();
+    envelope
 }
