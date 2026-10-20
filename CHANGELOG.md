@@ -9,6 +9,82 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **A revocation snapshot with an unknown `version` now reports
+  `REVOCATION_SNAPSHOT_INVALID`**
+  ([#265](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/265)).
+  Spec `VERSIONING.md` (`597efbd`) gives each artifact its own
+  unknown-version code, and a snapshot's is `REVOCATION_SNAPSHOT_INVALID`.
+  0.17.0 reported `UNKNOWN_VERSION`. Two places change:
+  - The conformance adapter's `verify_revocation_snapshot` op reports
+    `REVOCATION_SNAPSHOT_INVALID`.
+  - `aitp_transport_http::RevocationCache` returns
+    `RevocationError::Malformed`, the `REVOCATION_SNAPSHOT_INVALID` case.
+    It used to return `RevocationError::SignatureInvalid(TctError::VersionUnknown)`.
+    Under `FailClosed` the snapshot is still rejected; only the variant
+    changes. A caller that matched the old variant must match `Malformed`.
+
+  `version` is still checked before the signature, so a validly signed
+  snapshot or session bundle whose `version` is changed afterwards
+  reports the version code, not a signature failure. The spec's
+  `rev-010-version-unknown` and `bundle-008-version-unknown` fixtures
+  have that shape and both pass. New unit tests pin it too. The bindings' `verify_revocation_list`
+  keeps its lowercase `version_unknown` cause code; the SDK docs now say
+  it is the spec's `REVOCATION_SNAPSHOT_INVALID`. The table in
+  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
+  corrected.
+
+- **Revocation signing refuses a non-v4 `entries[].jti`, and every
+  deserialization of `RevocationEntry` takes the strict wire form**
+  ([#268](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/268)).
+  The verifier already rejected such a list, so 0.17.0 could sign
+  snapshots nobody would accept. Four things change:
+  - `aitp_tct::revocation_signing_bytes`, and through it
+    `sign_revocation_list`, return `TctError::JtiNotV4` for an entry
+    whose `jti` is not a UUID v4 with the RFC 9562 variant. This is the
+    same check the delegation builder runs. `verify_revocation_list`
+    goes through the same function, so an envelope built in code with
+    a non-v4 `jti` is rejected too (`REVOCATION_SNAPSHOT_INVALID` in the
+    adapter).
+  - `RevocationEntry::jti` deserializes through
+    `aitp_core::ids::serde_v4`. Plain `serde_json::from_*` of a
+    `RevocationListEnvelope` now refuses an uppercase, braced, URN,
+    simple or non-v4 `jti`, as `parse_revocation_snapshot_wire` already
+    did. `parse_revocation_snapshot_wire` checks `jti` before the serde
+    step, so it still reports `JtiNotV4`. The serialized form is
+    unchanged, and so are the signing bytes.
+  - Node `AitpAgent.signRevocationList` and Python
+    `AitpAgent.sign_revocation_list` parse `jti` with the strict wire
+    parser. They used to accept any UUID version and any case, and
+    signed an uppercase input lowercased. That is why an uppercase
+    `jti` appeared to verify through `verifyRevocationList`. Verify was
+    already strict: an uppercase `jti` on the wire is `malformed`. Pass
+    `randomUUID()` / `str(uuid.uuid4())` output unchanged.
+  - The claim in [`docs/upgrading-0.15.md`](docs/upgrading-0.15.md)
+    section 2 that the revocation signing-bytes entry points apply the
+    wire parser's `jti` check now holds for the Rust function as well.
+
+### Changed
+
+- **Spec pin `597efbd` → `4bbda67`** (spec #94), which adds the core
+  fixture `rev-010-version-unknown` (`REVOCATION_SNAPSHOT_INVALID`) and
+  the draft fixture `bundle-008-version-unknown`
+  (`BUNDLE_VERSION_MISMATCH`, `experimental-session-bundle`). The vendored
+  schemas and known-answer vectors are unchanged. Conformance at the pin:
+  a strict run gives 80 pass / 0 fail / 24 skip of 104, and a run with
+  all four features gives 102 pass / 0 fail / 2 skip (see
+  [`docs/conformance.md`](docs/conformance.md)).
+- **The cross-implementation acceptance job (`xcheck`) pins
+  aitp-verifier-py at `e335348`** (its #66), up from `f335f4f`. That
+  verifier rejects a negative envelope timestamp and a malformed
+  signature as `INVALID_ENVELOPE`, and caps a session bundle's TCT
+  expiry only when a coordinator Manifest is supplied. It also reports
+  `REVOCATION_SNAPSHOT_INVALID` for an unknown snapshot version, which
+  agrees with #265.
+
+## [0.17.0] — 2026-10-20
+
+### BREAKING
+
 - **0.17.0: protocol revision `aitp/0.3`, with envelope signing input v2
   and a strict cutover from `aitp/0.2`.** Spec pin `ab214d2` → `bf00e75`
   ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/253),

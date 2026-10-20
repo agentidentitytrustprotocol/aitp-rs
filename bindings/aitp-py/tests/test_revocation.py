@@ -343,3 +343,38 @@ def test_verify_revocation_list_rejects_an_unknown_member_as_unknown_field():
     env = json.loads(text)
     env["revocation_list"]["deployment_region"] = "eu-west-1"
     assert _code_for(json.dumps(env), issuer.aid) == "unknown_field"
+
+
+# #268: signing takes the strict wire form. Before, `Uuid::parse_str`
+# accepted an uppercase jti (and signed it lowercased) and any UUID
+# version, so a v1/v7 jti produced a list verify_revocation_list rejects.
+NON_V4_OR_NON_CANONICAL = [
+    "550E8400-E29B-41D4-A716-446655440000",  # uppercase v4
+    "{550e8400-e29b-41d4-a716-446655440000}",  # braced
+    "550e8400e29b41d4a716446655440000",  # simple
+    "550e8400-e29b-11d4-a716-446655440000",  # v1
+    "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",  # v7
+    "550e8400-e29b-41d4-c716-446655440000",  # v4 nibble, wrong variant
+]
+
+
+def test_sign_revocation_list_refuses_non_v4_or_non_canonical_jti():
+    issuer = aitp.AitpAgent.generate()
+    for jti in NON_V4_OR_NON_CANONICAL:
+        try:
+            issuer.sign_revocation_list([{"jti": jti}])
+        except ValueError as exc:
+            assert "lowercase UUID v4" in str(exc), jti
+            continue
+        raise AssertionError(f"sign_revocation_list accepted {jti}")
+    # A canonical v4 still signs and verifies.
+    envelope = issuer.sign_revocation_list([{"jti": str(uuid.uuid4())}], 600)
+    assert aitp.verify_revocation_list(envelope, issuer.aid) is None
+
+
+def test_verify_revocation_list_rejects_non_v4_or_non_canonical_jti_as_malformed():
+    issuer, text = _fresh_snapshot()
+    for jti in NON_V4_OR_NON_CANONICAL:
+        env = json.loads(text)
+        env["revocation_list"]["entries"][0]["jti"] = jti
+        assert _code_for(json.dumps(env), issuer.aid) == "malformed", jti

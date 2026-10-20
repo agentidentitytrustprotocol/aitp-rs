@@ -23,7 +23,6 @@ use aitp_tct::{
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyBytes, PyDict, PyList};
-use uuid::Uuid;
 
 use crate::wire;
 
@@ -99,8 +98,13 @@ fn parse_entries(entries: &Bound<'_, PyList>, now: Timestamp) -> PyResult<Vec<Re
                 )))
             }
         };
-        let jti = Uuid::parse_str(&jti_str).map_err(|_| {
-            PyValueError::new_err(format!("entries[{i}].jti is not a valid UUID: {jti_str}"))
+        // Strict wire form (#268): lowercase hyphenated UUID v4. A lenient
+        // parse here would sign an uppercase jti in normalized form, or a
+        // non-v4 jti that `verify_revocation_list` then rejects.
+        let jti = aitp_core::ids::parse_v4(&jti_str).map_err(|e| {
+            PyValueError::new_err(format!(
+                "entries[{i}].jti is not a lowercase UUID v4: {jti_str} ({e})"
+            ))
         })?;
 
         let revoked_at = match d.get_item("revoked_at")? {

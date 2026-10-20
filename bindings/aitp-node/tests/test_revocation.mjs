@@ -275,3 +275,39 @@ test('verifyRevocationList rejects an unknown member as unknown_field', () => {
     'unknown_field',
   );
 });
+
+// #268: signing takes the strict wire form. Before, `Uuid::parse_str`
+// accepted an uppercase jti (and signed it lowercased) and any UUID
+// version, so a v1/v7 jti produced a list verifyRevocationList rejects.
+const NON_V4_OR_NON_CANONICAL = [
+  '550E8400-E29B-41D4-A716-446655440000', // uppercase v4
+  '{550e8400-e29b-41d4-a716-446655440000}', // braced
+  '550e8400e29b41d4a716446655440000', // simple
+  '550e8400-e29b-11d4-a716-446655440000', // v1
+  '0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e', // v7
+  '550e8400-e29b-41d4-c716-446655440000', // v4 nibble, wrong variant
+];
+
+test('signRevocationList refuses a non-v4 or non-canonical jti (#268)', () => {
+  const iss = issuer();
+  for (const jti of NON_V4_OR_NON_CANONICAL) {
+    assert.throws(() => iss.signRevocationList([{ jti }]), /lowercase UUID v4/, jti);
+  }
+  // A canonical v4 still signs and verifies.
+  const env = iss.signRevocationList([{ jti: randomUUID() }], 600);
+  assert.equal(verifyRevocationList(env, iss.aid), undefined);
+});
+
+test('verifyRevocationList rejects a non-v4 or non-canonical jti as malformed (#268)', () => {
+  const iss = issuer();
+  const signed = iss.signRevocationList([{ jti: randomUUID() }], 600);
+  for (const jti of NON_V4_OR_NON_CANONICAL) {
+    const env = JSON.parse(signed);
+    env.revocation_list.entries[0].jti = jti;
+    assert.equal(
+      causeOf(() => verifyRevocationList(JSON.stringify(env), iss.aid)),
+      'malformed',
+      jti,
+    );
+  }
+});

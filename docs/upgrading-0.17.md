@@ -62,7 +62,7 @@ A 0.16 peer fails against a 0.17 peer in two ways:
 |---|---|---|---|
 | Envelope | `version` | `EnvelopeParseError::UnknownVersion` (pinned admission: `AdmissionError::UnknownVersion`) | `UNKNOWN_VERSION` |
 | Agent Manifest | `version` | `ManifestError::VersionUnknown` | `MANIFEST_VERSION_UNKNOWN` |
-| Revocation snapshot | `version` | `TctError::VersionUnknown` | `UNKNOWN_VERSION` |
+| Revocation snapshot | `version` | `TctError::VersionUnknown` (`RevocationCache`: `RevocationError::Malformed`) | `REVOCATION_SNAPSHOT_INVALID` (0.17.0 reported `UNKNOWN_VERSION`; fixed by #265) |
 | Session trust bundle | `version` | `SessionBundleError::VersionMismatch` | `BUNDLE_VERSION_MISMATCH` |
 | TCT | `ver` | `TctError::VersionUnknown` | `UNKNOWN_VERSION` |
 | Grant voucher | `ver` | `TctError::VersionUnknown` | `UNKNOWN_VERSION` |
