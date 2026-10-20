@@ -38,7 +38,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AitpEnvelope {
-    /// Protocol version. MUST be `"aitp/0.2"`.
+    /// Protocol version. MUST be `"aitp/0.3"`.
     pub version: String,
 
     /// Wire-level message type.
@@ -264,7 +264,7 @@ mod tests {
 
     fn sample_envelope(mt: MessageType) -> AitpEnvelope {
         AitpEnvelope {
-            version: "aitp/0.2".into(),
+            version: "aitp/0.3".into(),
             message_type: mt,
             message_id: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
             timestamp: Timestamp(1_711_900_000),
@@ -309,7 +309,7 @@ mod tests {
     #[test]
     fn rejects_unknown_sender_field() {
         let bad = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "message_type": "tct",
             "message_id": "550e8400-e29b-41d4-a716-446655440000",
             "timestamp": 1711900000,
@@ -359,7 +359,7 @@ mod tests {
     #[test]
     fn parse_envelope_wire_reports_unknown_field_from_nested_sender() {
         let bad = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "message_type": "tct",
             "message_id": "550e8400-e29b-41d4-a716-446655440000",
             "timestamp": 1711900000,
@@ -374,7 +374,7 @@ mod tests {
     #[test]
     fn parse_envelope_wire_reports_malformed_for_non_unknown_field_errors() {
         let bad = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "message_type": "tct",
             // message_id missing entirely.
             "timestamp": 1711900000,
@@ -398,7 +398,7 @@ mod tests {
     fn a_duplicate_key_never_reaches_parse_envelope_wire() {
         let env = sample_envelope(MessageType::Tct);
         let good = serde_json::to_string(&env).unwrap();
-        let needle = "\"version\":\"aitp/0.2\",";
+        let needle = "\"version\":\"aitp/0.3\",";
         assert!(good.contains(needle), "fixture shape changed: {good}");
         let dup_bytes = good.replacen(needle, &format!("{needle}{needle}"), 1);
 

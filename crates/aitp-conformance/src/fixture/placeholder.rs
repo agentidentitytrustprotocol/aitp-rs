@@ -303,7 +303,7 @@ impl RunnerContext {
         let claims = if claims.is_object() {
             claims.clone()
         } else {
-            serde_json::json!({ "ver": "aitp/0.2" })
+            serde_json::json!({ "ver": aitp_core::PROTOCOL_VERSION })
         };
         let seed = claims
             .get("iss")
@@ -1618,7 +1618,7 @@ mod tests {
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__VALID_TCT_SIG__",
         });
@@ -1650,7 +1650,7 @@ mod tests {
         use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIG__",
         });
@@ -1681,7 +1681,7 @@ mod tests {
         // sign-then-flip-LSB recipe.
         let mut ctx = RunnerContext::new();
         let mut v = json!({
-            "version": "aitp/0.2",
+            "version": "aitp/0.3",
             "issuer": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "signature": "__TAMPERED_SIGNATURE__",
         });
@@ -1875,7 +1875,7 @@ mod tests {
         let mut v = json!({
             "self_aid": KP_001_AID,
             "envelope": {
-                "version": "aitp/0.2",
+                "version": "aitp/0.3",
                 "message_type": "mutual_hello",
                 "message_id": message_id,
                 "timestamp": ctx.now,

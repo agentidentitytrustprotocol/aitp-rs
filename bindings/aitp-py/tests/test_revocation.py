@@ -31,7 +31,7 @@ def test_sign_revocation_list_round_trips():
     env = json.loads(envelope_json)
     body = env["revocation_list"]
     assert body["issuer"] == issuer.aid
-    assert body["version"] == "aitp/0.2"
+    assert body["version"] == "aitp/0.3"
     assert len(body["entries"]) == 2
 
     jti_set = {e["jti"] for e in body["entries"]}
@@ -278,7 +278,7 @@ def test_a_wrapped_form_signature_is_rejected():
 
     now = int(time.time())
     body = {
-        "version": "aitp/0.2",
+        "version": "aitp/0.3",
         "issuer": aid,
         "published_at": now,
         "expires_at": now + 600,
@@ -332,7 +332,7 @@ def test_verify_revocation_list_rejects_a_duplicate_json_key_as_malformed():
     issuer, text = _fresh_snapshot()
     assert '"revocation_list":{' in text
     dup = text.replace(
-        '"revocation_list":{', '"revocation_list":{"version":"aitp/0.2",', 1
+        '"revocation_list":{', '"revocation_list":{"version":"aitp/0.3",', 1
     )
     assert dup != text
     assert _code_for(dup, issuer.aid) == "malformed"

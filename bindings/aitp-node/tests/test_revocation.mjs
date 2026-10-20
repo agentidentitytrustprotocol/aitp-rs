@@ -39,7 +39,7 @@ test('signRevocationList round-trips two entries', () => {
   const env = JSON.parse(envelopeJson);
   const body = env.revocation_list;
   assert.equal(body.issuer, iss.aid);
-  assert.equal(body.version, 'aitp/0.2');
+  assert.equal(body.version, 'aitp/0.3');
   assert.equal(body.entries.length, 2);
 
   const jtis = new Set(body.entries.map((e) => e.jti));
@@ -204,7 +204,7 @@ test('a wrapped-form signature is rejected', () => {
 
   const now = Math.floor(Date.now() / 1000);
   const body = {
-    version: 'aitp/0.2',
+    version: 'aitp/0.3',
     issuer: aid,
     published_at: now,
     expires_at: now + 600,
@@ -261,7 +261,7 @@ test('verifyRevocationList rejects a duplicate JSON key as malformed', () => {
   const iss = issuer();
   const text = iss.signRevocationList([{ jti: randomUUID() }], 600);
   assert.ok(text.includes('"revocation_list":{'));
-  const dup = text.replace('"revocation_list":{', '"revocation_list":{"version":"aitp/0.2",');
+  const dup = text.replace('"revocation_list":{', '"revocation_list":{"version":"aitp/0.3",');
   assert.notEqual(dup, text);
   assert.equal(codeOf(() => verifyRevocationList(dup, iss.aid)), 'malformed');
 });

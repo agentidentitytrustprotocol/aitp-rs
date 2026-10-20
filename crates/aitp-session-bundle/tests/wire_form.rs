@@ -7,7 +7,7 @@ use serde_json::json;
 
 fn valid_body() -> serde_json::Value {
     json!({
-        "version": "aitp/0.2",
+        "version": "aitp/0.3",
         "session_id": "00000000-0000-4000-8000-000000000000",
         "coordinator": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
         "issued_at": 1_700_000_000,

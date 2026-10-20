@@ -225,7 +225,7 @@ async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted()
     )
     .unwrap();
     let good = serde_json::to_string(&envelope).unwrap();
-    let needle = "\"version\":\"aitp/0.2\",";
+    let needle = "\"version\":\"aitp/0.3\",";
     assert!(good.contains(needle), "fixture shape changed: {good}");
     let dup_body = good.replacen(needle, &format!("{needle}{needle}"), 1);
 

@@ -357,7 +357,7 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
         };
 
         let manifest = Manifest {
-            version: "aitp/0.2".into(),
+            version: aitp_core::PROTOCOL_VERSION.into(),
             aid,
             display_name: self.display_name,
             identity_hint,
@@ -580,7 +580,7 @@ mod tests {
         let expires_at = Timestamp(1_711_986_400);
 
         let absent = ManifestSigningView {
-            version: "aitp/0.2",
+            version: "aitp/0.3",
             aid: &aid,
             display_name: None,
             identity_hint: &hint,

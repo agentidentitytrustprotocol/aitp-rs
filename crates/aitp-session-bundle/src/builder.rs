@@ -13,8 +13,9 @@ use aitp_tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;
 use uuid::Uuid;
 
-/// `version` constant for v0.2 bundles.
-pub const DEFAULT_BUNDLE_VERSION: &str = "aitp/0.2";
+/// `version` constant for bundles: the protocol revision
+/// ([`aitp_core::PROTOCOL_VERSION`]).
+pub const DEFAULT_BUNDLE_VERSION: &str = aitp_core::PROTOCOL_VERSION;
 
 /// Decode a participant TCT's claims without verification. Builder- and
 /// invariant-level peeks only; full verification (signature, typ, alg

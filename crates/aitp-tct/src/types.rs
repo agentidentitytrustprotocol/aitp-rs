@@ -33,7 +33,7 @@ pub struct Cnf {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct TctClaims {
-    /// Protocol version private claim. MUST be `"aitp/0.2"`.
+    /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
     /// UUID v4 unique token ID; the revocation handle (RFC-AITP-0008).
     /// Deserialization enforces the strict v4 wire form (proposal #72
@@ -90,7 +90,7 @@ pub const TCT_CLAIMS_MEMBERS: &[&str] = &[
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct GrantVoucherClaims {
-    /// Protocol version private claim. MUST be `"aitp/0.2"`.
+    /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
     /// The TCT issuer's AID. The voucher is signed by this key.
     pub iss: Aid,
@@ -180,7 +180,7 @@ mod tests {
 
     fn sample_claims_json() -> serde_json::Value {
         json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "jti": "550e8400-e29b-41d4-a716-446655440000",
             "iss": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "sub": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
@@ -229,7 +229,7 @@ mod tests {
     #[test]
     fn voucher_claims_round_trip() {
         let v = json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "iss": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
             "sub": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
             "grants": ["macp.mode.task.v1"],

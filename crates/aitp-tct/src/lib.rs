@@ -3,7 +3,7 @@
 //! A TCT is a signed, audience-bound, capability-scoped grant. Each peer
 //! holds the TCT issued by its counterpart in a Mutual Handshake.
 //!
-//! In `aitp/0.2` the TCT and its companion grant voucher are **compact
+//! In `aitp/0.3` the TCT and its companion grant voucher are **compact
 //! JWS strings** (RFC-AITP-0001 §5.4.5): signatures cover the exact
 //! transmitted bytes, so any off-the-shelf JOSE library can verify them
 //! given only the issuer public key. The revocation snapshot

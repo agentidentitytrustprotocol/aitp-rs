@@ -178,7 +178,7 @@ async fn revoked_tct_is_refused() {
     let current = tct(&key, &holder, &["demo.echo"], now, 600);
     let list = sign_revocation_list(
         RevocationList {
-            version: "aitp/0.2".into(),
+            version: "aitp/0.3".into(),
             issuer: key.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + 3600),

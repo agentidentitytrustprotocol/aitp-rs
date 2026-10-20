@@ -175,7 +175,7 @@ pub enum ErrorCode {
     /// Coordinator's outer bundle signature failed verification under
     /// the coordinator's Manifest key.
     BundleInvalidSignature,
-    /// `version` is not `"aitp/0.2"` (or a later supported version).
+    /// `version` is not `"aitp/0.3"` (or a later supported version).
     BundleVersionMismatch,
     /// Bundle `expires_at` is in the past at verification time.
     BundleExpired,

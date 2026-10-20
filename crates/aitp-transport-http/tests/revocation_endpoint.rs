@@ -44,7 +44,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let revoked_jti = Uuid::new_v4();
     let envelope = sign_revocation_list(
         RevocationList {
-            version: "aitp/0.2".into(),
+            version: "aitp/0.3".into(),
             issuer: issuer.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + 3600),
@@ -122,7 +122,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
     let now = Timestamp::now();
     let envelope = sign_revocation_list(
         RevocationList {
-            version: "aitp/0.2".into(),
+            version: "aitp/0.3".into(),
             issuer: issuer.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + 3600),
@@ -271,7 +271,7 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer.aid(), now))
         .expect("default snapshot verifies under the issuer key");
     let list = &env.revocation_list;
-    assert_eq!(list.version, "aitp/0.2");
+    assert_eq!(list.version, "aitp/0.3");
     assert_eq!(&list.issuer, issuer.aid());
     assert!(list.entries.is_empty());
     assert!(list.extensions.is_none());

@@ -1612,7 +1612,7 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     // respond with `UNKNOWN_VERSION`." A structural protocol-identity
     // check; done first so a peer on a forward version learns about the
     // mismatch before anything else.
-    if envelope.version != "aitp/0.2" {
+    if envelope.version != "aitp/0.3" {
         return Err(ResponseError::aitp(
             ErrorCode::UnknownVersion,
             format!(

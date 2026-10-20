@@ -86,7 +86,7 @@ fn tct_inspect_decodes_claims() {
         .unwrap();
     assert!(out.status.success());
     let s = stdout(&out);
-    assert!(s.contains("\"ver\": \"aitp/0.2\""), "claims JSON: {s}");
+    assert!(s.contains("\"ver\": \"aitp/0.3\""), "claims JSON: {s}");
     assert!(s.contains("\"grants\""));
 }
 

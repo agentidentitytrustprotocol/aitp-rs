@@ -26,7 +26,7 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct DelegationClaims {
-    /// Protocol version private claim. MUST be `"aitp/0.2"`.
+    /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
     /// Delegator-of-record (B for a single hop) — signs this token.
     pub iss: Aid,
@@ -114,7 +114,7 @@ mod tests {
 
     fn sample_claims_json() -> serde_json::Value {
         json!({
-            "ver": "aitp/0.2",
+            "ver": "aitp/0.3",
             "iss": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
             "sub": "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU",
             "aud": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",

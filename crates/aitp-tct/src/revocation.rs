@@ -19,7 +19,7 @@ use crate::TctError;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct RevocationList {
-    /// MUST be `"aitp/0.2"`.
+    /// MUST be `"aitp/0.3"`.
     pub version: String,
     /// The issuing peer's AID. MUST equal the `issuer` of every TCT
     /// covered by `entries`.
@@ -284,7 +284,7 @@ mod tests {
 
     fn sample_body(issuer: Aid) -> RevocationList {
         RevocationList {
-            version: "aitp/0.2".into(),
+            version: "aitp/0.3".into(),
             issuer,
             published_at: Timestamp(1_700_000_000),
             expires_at: Timestamp(1_700_003_600),

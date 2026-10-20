@@ -26,7 +26,7 @@ impl VerifyManifestContext {
 ///
 /// Verification order:
 ///
-/// 1. **Version** — `manifest.version == "aitp/0.2"`. Else
+/// 1. **Version** — `manifest.version == "aitp/0.3"`. Else
 ///    [`ManifestError::VersionUnknown`].
 /// 2. **Expiry** — `manifest.expires_at` is in the future relative to
 ///    `ctx.now`. Else [`ManifestError::Expired`].
@@ -50,7 +50,7 @@ pub fn verify_manifest(
     ctx: &VerifyManifestContext,
 ) -> Result<(), ManifestError> {
     // 1. Version check.
-    if manifest.version != "aitp/0.2" {
+    if manifest.version != aitp_core::PROTOCOL_VERSION {
         return Err(ManifestError::VersionUnknown);
     }
 

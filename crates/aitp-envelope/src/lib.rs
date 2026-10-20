@@ -112,7 +112,7 @@ fn assemble(
     signature: aitp_crypto::Signature,
 ) -> AitpEnvelope {
     AitpEnvelope {
-        version: "aitp/0.2".into(),
+        version: aitp_core::PROTOCOL_VERSION.into(),
         message_type,
         message_id,
         timestamp,
