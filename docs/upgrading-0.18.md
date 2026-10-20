@@ -30,7 +30,8 @@ of what shipped. The root [`CHANGELOG.md`](../CHANGELOG.md) has a summary.
 | run the conformance adapter or compare its codes | section 1 | Expect `REVOCATION_SNAPSHOT_INVALID` |
 | sign revocation lists with a `jti` that is uppercase, braced, a URN, unhyphenated, or not version 4 | section 2 | Pass a lowercase UUID v4 |
 | deserialize `RevocationListEnvelope` / `RevocationEntry` with serde | section 3 | Make sure stored `jti` values are lowercase UUID v4 |
-| vendor the spec's fixtures or run the conformance or xcheck jobs | section 4 | Update to spec `4bbda67` and verifier-py `e335348` |
+| vendor the spec's fixtures or run the conformance or xcheck jobs | section 4 | Update to spec `299f89a` and verifier-py `e335348` |
+| depend on the crates from crates.io | section 5 | Run `cargo update -p rustls-webpki -p webpki-roots` |
 
 If you only verify snapshots, generate `jti` values with
 `Uuid::new_v4()`, `uuid.uuid4()` or `randomUUID()`, and treat any
@@ -118,8 +119,9 @@ now would also have failed verification on the wire.
 
 ## 4. Spec pin, conformance and cross-implementation checks
 
-`tests/schemas/SPEC_VERSION` moves from `597efbd` to `4bbda67` (spec
-#94). It adds two fixtures:
+`tests/schemas/SPEC_VERSION` moves from `597efbd` to `299f89a` in two
+steps. The first step, to `4bbda67` (spec #94, in #266), adds two
+fixtures:
 
 - `rev-010-version-unknown` (core, `REVOCATION_SNAPSHOT_INVALID`);
 - `bundle-008-version-unknown` (draft, `BUNDLE_VERSION_MISMATCH`, needs
@@ -127,7 +129,13 @@ now would also have failed verification on the wire.
 
 The vendored schemas and known-answer vectors are unchanged.
 
-At pin `4bbda67` (104 fixtures), the rs adapter passes 80, fails 0 and
+The second step, to `299f89a` (spec #95 and #96, in
+[#270](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/270)),
+changes only spec docs: `VERSIONING.md`, the media-type registry and the
+implementer quickstart. These changes are not normative, and no schema,
+vector or fixture changes.
+
+At pin `299f89a` (104 fixtures), the rs adapter passes 80, fails 0 and
 skips 24 in the strict run. With all four features it passes 102, fails
 0 and skips 2. `rev-010` and `bundle-008` both pass. See
 [`conformance.md`](conformance.md).
@@ -136,3 +144,19 @@ skips 24 in the strict run. With all four features it passes 102, fails
 to `e335348`, its #66. That verifier also reports
 `REVOCATION_SNAPSHOT_INVALID` for an unknown snapshot version, so it
 agrees with section 1. The CI `xcheck` job runs against that pin.
+
+## 5. Lockfile bump for RUSTSEC-2026-0381 and RUSTSEC-2026-0382
+
+`Cargo.lock` moves to `rustls-webpki` 0.103.16 and `webpki-roots` 1.0.10
+([#275](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/275)),
+which fixes advisories RUSTSEC-2026-0381 and RUSTSEC-2026-0382. No
+manifest or code changes.
+
+A crate published to crates.io does not ship its lockfile, so this bump
+does not reach you automatically. **Migration.** If you depend on the
+`aitp-*` crates from crates.io, update the two crates in your own
+lockfile:
+
+```sh
+cargo update -p rustls-webpki -p webpki-roots
+```
