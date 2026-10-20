@@ -211,7 +211,7 @@ async fn unknown_top_level_envelope_member_returns_unknown_field() {
 /// collapsed to its last occurrence by `serde_json::Value` and accepted.
 /// Deliberately raw text (not built via `serde_json::json!`/`Value`,
 /// which cannot even represent a duplicate key) posted straight to the
-/// live HTTP surface `parse_envelope_request` guards.
+/// live HTTP surface `receive_envelope` guards.
 #[tokio::test]
 async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted() {
     let port = spawn_server().await;
@@ -241,7 +241,7 @@ async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted()
 
 /// Same defect, but nested inside the handshake payload rather than at
 /// the envelope's own top level — proving the raw-bytes guard in
-/// `parse_envelope_request` protects the WHOLE document, including
+/// `receive_envelope` protects the WHOLE document, including
 /// everything the `MUTUAL_HELLO` payload's own `check_members` call
 /// later navigates as an already-parsed `serde_json::Value`.
 #[tokio::test]
@@ -391,6 +391,136 @@ async fn version_is_checked_before_member_set_and_signature() {
     let mut known = serde_json::to_value(fresh()).unwrap();
     known["trace_id"] = "rogue".into();
     assert_error_code(post(known).await, "UNKNOWN_FIELD").await;
+}
+
+/// POST `wire` to the hello route with `content_type`.
+async fn post_hello(port: u16, content_type: &str, wire: &Value) -> reqwest::Response {
+    reqwest::Client::new()
+        .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+        .header(reqwest::header::CONTENT_TYPE, content_type)
+        .body(serde_json::to_vec(wire).unwrap())
+        .send()
+        .await
+        .unwrap()
+}
+
+/// A signed MUTUAL_HELLO as wire JSON, `age_secs` in the past.
+fn hello_wire(seed: u8, mid: Uuid, age_secs: i64) -> Value {
+    let key = AitpSigningKey::from_seed(&[seed; 32]);
+    let envelope = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        mid,
+        Timestamp(Timestamp::now().0 - age_secs),
+    )
+    .unwrap();
+    serde_json::to_value(&envelope).unwrap()
+}
+
+/// Issue #255, RFC-AITP-0009 §3.1 / RFC-AITP-0001 §5.4: the replay deny
+/// list runs before `version` and the member set, so a replayed
+/// `message_id` is `REPLAY_DETECTED` even when the copy is also
+/// malformed or carries an unknown or absent `version`.
+#[tokio::test]
+async fn replay_is_checked_before_version_and_structure() {
+    let port = spawn_server().await;
+    let mid = Uuid::new_v4();
+    let first = hello_wire(0xE0, mid, 0);
+    // Fresh: recorded, then rejected later for its empty payload.
+    let resp = post_hello(port, "application/json", &first).await;
+    assert_error_code(resp, "INVALID_ENVELOPE").await;
+
+    let mut unknown_member = first.clone();
+    unknown_member["trace_id"] = "rogue".into();
+    let mut unknown_version = first.clone();
+    unknown_version["version"] = "aitp/9.9".into();
+    let mut no_version = first.clone();
+    no_version.as_object_mut().unwrap().remove("version");
+    let mut no_signature = first.clone();
+    no_signature.as_object_mut().unwrap().remove("signature");
+    for wire in [unknown_member, unknown_version, no_version, no_signature] {
+        let resp = post_hello(port, "application/json", &wire).await;
+        assert_error_code(resp, "REPLAY_DETECTED").await;
+    }
+    // Content-Type comes after the §3.1 replay step too.
+    let resp = post_hello(port, "text/plain", &first).await;
+    assert_error_code(resp, "REPLAY_DETECTED").await;
+}
+
+/// Issue #255: the timestamp window runs before `version` and the
+/// member set, so a stale envelope is `TIMESTAMP_EXPIRED` even when it is
+/// also malformed, has an unknown or absent `version`, or arrives with
+/// the wrong Content-Type.
+#[tokio::test]
+async fn timestamp_window_is_checked_before_version_and_structure() {
+    let port = spawn_server().await;
+    let stale = || hello_wire(0xE1, Uuid::new_v4(), 7200);
+
+    let mut unknown_member = stale();
+    unknown_member["trace_id"] = "rogue".into();
+    let mut unknown_version = stale();
+    unknown_version["version"] = "aitp/9.9".into();
+    let mut no_version = stale();
+    no_version.as_object_mut().unwrap().remove("version");
+    let mut bad_type = stale();
+    bad_type["message_type"] = "not_a_type".into();
+    let mut bad_sender = stale();
+    bad_sender["sender"] = serde_json::json!({"agent_id": "nope"});
+    for wire in [
+        unknown_member,
+        unknown_version,
+        no_version,
+        bad_type,
+        bad_sender,
+    ] {
+        let resp = post_hello(port, "application/json", &wire).await;
+        assert_error_code(resp, "TIMESTAMP_EXPIRED").await;
+    }
+    let resp = post_hello(port, "text/plain", &stale()).await;
+    assert_error_code(resp, "TIMESTAMP_EXPIRED").await;
+    // `i64::MIN` is far outside the window, not an overflow.
+    let mut extreme = stale();
+    extreme["timestamp"] = i64::MIN.into();
+    let resp = post_hello(port, "application/json", &extreme).await;
+    assert_error_code(resp, "TIMESTAMP_EXPIRED").await;
+}
+
+/// Issue #255: a `timestamp` or `message_id` that cannot be read skips
+/// its §3.1 step and is reported by the RFC-AITP-0001 §5.4 steps, in
+/// their order: `UNKNOWN_VERSION` first (an absent `version` included),
+/// then `INVALID_ENVELOPE`.
+#[tokio::test]
+async fn unreadable_timestamp_or_message_id_falls_through_to_structure() {
+    let port = spawn_server().await;
+    let fresh = || hello_wire(0xE2, Uuid::new_v4(), 0);
+
+    let mut no_ts = fresh();
+    no_ts.as_object_mut().unwrap().remove("timestamp");
+    let mut string_ts = fresh();
+    string_ts["timestamp"] = "1711900000".into();
+    let mut float_ts = fresh();
+    float_ts["timestamp"] = serde_json::json!(1.5);
+    let mut bad_mid = fresh();
+    bad_mid["message_id"] = "not-a-uuid".into();
+    for wire in [&no_ts, &string_ts, &float_ts, &bad_mid] {
+        let resp = post_hello(port, "application/json", wire).await;
+        assert_error_code(resp, "INVALID_ENVELOPE").await;
+    }
+
+    let mut no_ts_no_version = fresh();
+    no_ts_no_version
+        .as_object_mut()
+        .unwrap()
+        .remove("timestamp");
+    no_ts_no_version.as_object_mut().unwrap().remove("version");
+    let resp = post_hello(port, "application/json", &no_ts_no_version).await;
+    assert_error_code(resp, "UNKNOWN_VERSION").await;
+
+    let mut no_version = fresh();
+    no_version.as_object_mut().unwrap().remove("version");
+    let resp = post_hello(port, "application/json", &no_version).await;
+    assert_error_code(resp, "UNKNOWN_VERSION").await;
 }
 
 #[tokio::test]

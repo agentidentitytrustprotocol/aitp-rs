@@ -533,6 +533,36 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     }
 
     let envelope_value = params.get("envelope").cloned().unwrap_or_default();
+    // RFC-AITP-0001 §5.5 timestamp window, when the fixture supplies
+    // `tolerance_seconds`, relative to the verifier's clock (or the
+    // fixture's explicit `now`). It runs on the raw JSON before the §5.4
+    // checks below (RFC-AITP-0009 §3.1, RFC-AITP-0001 §5.4): an envelope
+    // that is both stale and malformed, or stale with an unknown
+    // `version`, is TIMESTAMP_EXPIRED. A `timestamp` that is missing or
+    // not an integer skips the window and fails the structural step.
+    if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
+        let now = params
+            .get("now")
+            .and_then(|v| v.as_i64())
+            .map(Timestamp)
+            .unwrap_or_else(|| state.now());
+        if let Some(ts) = envelope_value
+            .get("timestamp")
+            .and_then(|v| v.as_i64())
+            .map(Timestamp)
+        {
+            if !ts.is_within_tolerance_of(now, tolerance) {
+                return err(
+                    id,
+                    "TIMESTAMP_EXPIRED",
+                    &format!("envelope timestamp outside the {tolerance}s window"),
+                );
+            }
+        }
+    }
+    // RFC-AITP-0001 §5.4 check order: `parse_envelope_wire` runs steps 1
+    // (`version`, UNKNOWN_VERSION) and 2 (member set and structure);
+    // step 3, the signature, follows.
     let envelope = match aitp_core::parse_envelope_wire(&checked(&envelope_value)) {
         Ok(e) => e,
         Err(e) => {
@@ -543,26 +573,6 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
             )
         }
     };
-    // RFC-AITP-0001 §5.4 check order: `parse_envelope_wire` has run
-    // steps 1 (`version`, UNKNOWN_VERSION) and 2 (member set and
-    // structure); step 3, the signature, follows the freshness check.
-    // RFC-AITP-0001 §5.5: when the fixture supplies `tolerance_seconds`
-    // we enforce it relative to the verifier's clock (or the fixture's
-    // explicit `now`).
-    if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
-        let now_secs = params
-            .get("now")
-            .and_then(|v| v.as_i64())
-            .unwrap_or_else(|| state.now().0);
-        let drift = (now_secs - envelope.timestamp.0).abs();
-        if drift > tolerance {
-            return err(
-                id,
-                "TIMESTAMP_EXPIRED",
-                &format!("envelope timestamp drift {drift}s exceeds {tolerance}s"),
-            );
-        }
-    }
     let pk = match AitpVerifyingKey::from_aid(&envelope.sender.agent_id) {
         Ok(p) => p,
         Err(e) => return err(id, "KEY_RESOLUTION_FAILED", &e.to_string()),
@@ -3546,6 +3556,42 @@ mod p256_readiness_tests {
         field["trace_id"] = json!("rogue");
         field["signature"] = json!("A".repeat(86));
         assert_eq!(verify_code(field), json!("UNKNOWN_FIELD"));
+    }
+
+    /// Issue #255, RFC-AITP-0009 §3.1: the timestamp window runs before
+    /// the §5.4 checks, so a stale envelope with an unknown or absent
+    /// `version` or an unknown member is TIMESTAMP_EXPIRED. An unreadable
+    /// `timestamp` skips the window and fails the structural step.
+    #[test]
+    fn adapter_timestamp_window_precedes_envelope_checks() {
+        let code = |env: Value, now: i64| {
+            let mut state = AdapterState::default();
+            let out = handle(
+                &mut state,
+                "env-window-order",
+                "verify_envelope",
+                json!({ "envelope": env, "tolerance_seconds": 300, "now": now }),
+            );
+            out["error_code"].clone()
+        };
+        // p256_signed_envelope() is stamped 1_700_000_000.
+        let stale = 1_700_000_000 + 301;
+
+        let mut ver = p256_signed_envelope();
+        ver["version"] = json!("aitp/9.9");
+        assert_eq!(code(ver, stale), json!("TIMESTAMP_EXPIRED"));
+        let mut no_ver = p256_signed_envelope();
+        no_ver.as_object_mut().unwrap().remove("version");
+        assert_eq!(code(no_ver.clone(), stale), json!("TIMESTAMP_EXPIRED"));
+        let mut field = p256_signed_envelope();
+        field["trace_id"] = json!("rogue");
+        assert_eq!(code(field, stale), json!("TIMESTAMP_EXPIRED"));
+
+        // In the window, the §5.4 order applies.
+        assert_eq!(code(no_ver, 1_700_000_000), json!("UNKNOWN_VERSION"));
+        let mut str_ts = p256_signed_envelope();
+        str_ts["timestamp"] = json!("1700000000");
+        assert_eq!(code(str_ts, stale), json!("INVALID_ENVELOPE"));
     }
 }
 

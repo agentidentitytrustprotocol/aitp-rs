@@ -1064,8 +1064,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     // No-op once running; covers a router built outside a runtime.
     HandshakeServer::<R>::ensure_session_sweeper(&state);
     let source_ip = request_source(&state, &request);
-    let envelope = parse_envelope_request(request, MessageType::MutualHello).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
+    let envelope = receive_envelope(&state, request, source_ip, MessageType::MutualHello).await?;
     // RFC-AITP-0001 §7: an unknown sibling member of the payload is a
     // reject, same as an unknown envelope member — checked before typed
     // deserialization so it is never masked by `deny_unknown_fields`'
@@ -1207,8 +1206,7 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
 ) -> Result<Response, ResponseError> {
     let headers = request.headers().clone();
     let source_ip = request_source(&state, &request);
-    let envelope = parse_envelope_request(request, MessageType::MutualCommit).await?;
-    enforce_envelope_boundary_checks(&state, &envelope, source_ip)?;
+    let envelope = receive_envelope(&state, request, source_ip, MessageType::MutualCommit).await?;
     let session_id = headers
         .get(SESSION_HEADER)
         .and_then(|v| v.to_str().ok())
@@ -1461,11 +1459,39 @@ async fn read_body_with_timeout(
     }
 }
 
-/// Read the request body, validate Content-Type, oversize, JSON parse,
-/// and message-type alignment. The boundary check returns AITP error
-/// envelopes for every failure path (RFC-AITP-0001 §6).
-async fn parse_envelope_request(
+/// Receive a handshake request and return its envelope, running the
+/// RFC-AITP-0009 §3.1 endpoint order and, inside it, the RFC-AITP-0001
+/// §5.4 envelope check order. The first failure is reported:
+///
+/// 0. Read the body under [`DEFAULT_MAX_BODY_BYTES`] and
+///    [`DEFAULT_BODY_READ_TIMEOUT`], and parse it as JSON with the
+///    duplicate-key check (RFC-AITP-0001 §5.4.5). The body-size bound of
+///    §3.1 step 4 runs here, ahead of steps 1–3, because those steps read
+///    members of the body and the bound has to hold while it is read.
+///    A JSON failure is held and reported at step 4.
+/// 1. Replay deny list on `message_id` (`REPLAY_DETECTED`).
+/// 2. Rate limiting, keyed on the transport source and the
+///    self-asserted `sender.agent_id` (HTTP 429, no error envelope).
+/// 3. Timestamp window (`TIMESTAMP_EXPIRED`).
+/// 4. Content-Type, then the held JSON failure (`INVALID_ENVELOPE`).
+/// 5. `version` (`UNKNOWN_VERSION`), then the member set and structure
+///    (`UNKNOWN_FIELD` / `INVALID_ENVELOPE`) — [`parse_envelope_wire`] —
+///    then `message_type` alignment with the route.
+///
+/// Steps 1–3 read their member straight from the parsed JSON, before
+/// any schema work. A member that is missing or the wrong type skips
+/// the step that needs it and is reported by step 5: `message_id` must
+/// be a string that parses as a UUID, `timestamp` an integer that fits
+/// in `i64`, and `sender.agent_id` a valid AID (otherwise only the
+/// transport key is rate limited). This is the rule
+/// `aitp_handshake::admission` applies to an `identity_presentation`.
+///
+/// The signature (§3.1 step 5, RFC-AITP-0001 §5.4 step 3) is checked by
+/// the message handler.
+async fn receive_envelope<R: JwksResolver + Send + Sync + 'static>(
+    state: &Arc<HandshakeState<R>>,
     request: Request,
+    source_ip: Option<std::net::IpAddr>,
     expected: MessageType,
 ) -> Result<AitpEnvelope, ResponseError> {
     let content_type = request
@@ -1474,12 +1500,6 @@ async fn parse_envelope_request(
         .and_then(|v| v.to_str().ok())
         .unwrap_or_default()
         .to_ascii_lowercase();
-    if !content_type.starts_with("application/json") {
-        return Err(ResponseError::aitp(
-            ErrorCode::InvalidEnvelope,
-            format!("expected Content-Type: application/json, got `{content_type}`"),
-        ));
-    }
     let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
     // RFC-AITP-0001 §5.4.5 / issue #140: a duplicate JSON key anywhere in
     // the body — at the envelope's own top level or nested inside
@@ -1489,15 +1509,74 @@ async fn parse_envelope_request(
     // information is unrecoverable one line down.
     // `CheckedJson::from_slice` runs that check before building the
     // `Value`, and is the only input `parse_envelope_wire` accepts.
-    let value = CheckedJson::from_slice(&body).map_err(|e| {
+    let value = CheckedJson::from_slice(&body);
+    let raw = value.as_ref().ok().map(CheckedJson::as_value);
+
+    // 1. Replay deny list (RFC-AITP-0001 §5.5). First, so a replayed
+    //    envelope is rejected with REPLAY_DETECTED without burning the
+    //    sender's rate-limit budget.
+    let message_id = raw
+        .and_then(|v| v.get("message_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| Uuid::try_parse(s).ok());
+    if let Some(mid) = &message_id {
+        check_and_record_message_id(state, mid)?;
+    }
+
+    // 2. Rate limiting (RFC-AITP-0009 §3.1). Rejection is HTTP 429 with
+    //    no AITP error envelope — the request never reached the protocol
+    //    layer.
+    //
+    //    The `sender` AID is NOT yet authenticated here (signature
+    //    verification is step 5), so an attacker can forge it. The
+    //    per-AID limit is therefore a best-effort gate; the per-IP limit
+    //    (keyed off the transport, not the payload) is the firmer of the
+    //    two and applies to every request, a body that is not JSON
+    //    included. Deployments needing an authenticated per-AID limit
+    //    must additionally throttle after signature verification.
+    let sender = raw
+        .and_then(|v| v.get("sender"))
+        .and_then(|v| v.get("agent_id"))
+        .and_then(|v| v.as_str())
+        .and_then(|s| aitp_core::Aid::parse(s).ok());
+    if let RateLimitOutcome::DenyTooManyRequests { reason } =
+        rate_limit_check(state, source_ip, sender.as_ref())
+    {
+        return Err(ResponseError::too_many_requests(reason));
+    }
+
+    // 3. Timestamp tolerance (RFC-AITP-0001 §5.5).
+    if let Some(ts) = raw
+        .and_then(|v| v.get("timestamp"))
+        .and_then(|v| v.as_i64())
+        .map(Timestamp)
+    {
+        if !ts.is_within_tolerance_of(Timestamp::now(), DEFAULT_TIMESTAMP_TOLERANCE_SECS) {
+            return Err(ResponseError::aitp(
+                ErrorCode::TimestampExpired,
+                format!(
+                    "envelope timestamp outside the {DEFAULT_TIMESTAMP_TOLERANCE_SECS}s window"
+                ),
+            ));
+        }
+    }
+
+    // 4. Content-Type, then the body's JSON.
+    if !content_type.starts_with("application/json") {
+        return Err(ResponseError::aitp(
+            ErrorCode::InvalidEnvelope,
+            format!("expected Content-Type: application/json, got `{content_type}`"),
+        ));
+    }
+    let value = value.map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
     })?;
-    // RFC-AITP-0001 §5.4 envelope check order: `version` first
-    // (`UNKNOWN_VERSION`, §7; `aitp/0.2` included — strict cutover),
-    // then the member set (`UNKNOWN_FIELD` rather than the generic
-    // `INVALID_ENVELOPE` a bare `from_value` would produce), then
-    // structure. `parse_envelope_wire` runs both steps; the signature
-    // (step 3) is checked by the message handler.
+
+    // 5. RFC-AITP-0001 §5.4 envelope check order: `version` first
+    //    (`UNKNOWN_VERSION`, §7; `aitp/0.2` included — strict cutover),
+    //    then the member set (`UNKNOWN_FIELD` rather than the generic
+    //    `INVALID_ENVELOPE` a bare `from_value` would produce), then
+    //    structure. `parse_envelope_wire` runs both.
     let envelope: AitpEnvelope = parse_envelope_wire(&value).map_err(|e| match e {
         EnvelopeParseError::UnknownVersion(v) => ResponseError::aitp(
             ErrorCode::UnknownVersion,
@@ -1597,74 +1676,6 @@ fn rate_limit_check<R: JwksResolver + Send + Sync>(
         events.entry(k).or_default().push(now);
     }
     RateLimitOutcome::Allow
-}
-
-/// Boundary checks applied to every accepted envelope. Done before
-/// payload parsing so a flood of stale, replayed, or over-quota
-/// envelopes does not exercise the downstream parser path.
-///
-/// RFC-AITP-0009 §3.1 makes the order **normative**:
-/// version → replay deny-list → rate limiting → timestamp tolerance.
-/// Replay runs before rate limiting so a captured-and-replayed envelope
-/// is rejected without consuming the sender's rate-limit slot; rate
-/// limiting runs before timestamp validation so a flood of distinct
-/// fresh envelopes is shed before any per-envelope clock comparison.
-fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
-    state: &Arc<HandshakeState<R>>,
-    envelope: &AitpEnvelope,
-    source_ip: Option<std::net::IpAddr>,
-) -> Result<(), ResponseError> {
-    // RFC-AITP-0001 §7: "Verifiers receiving an unknown `version` MUST
-    // respond with `UNKNOWN_VERSION`." `parse_envelope_wire` already
-    // refused it at the head of the §5.4 check order; kept so a typed
-    // envelope reaching this function by another path is held to the
-    // same rule.
-    if envelope.version != aitp_core::PROTOCOL_VERSION {
-        return Err(ResponseError::aitp(
-            ErrorCode::UnknownVersion,
-            format!(
-                "unsupported envelope version `{}` (this implementation accepts `{}`)",
-                envelope.version,
-                aitp_core::PROTOCOL_VERSION
-            ),
-        ));
-    }
-
-    // 1. Replay deny-list (RFC-AITP-0001 §5.5). First, so a replayed
-    //    envelope is rejected with REPLAY_DETECTED without burning the
-    //    sender AID's rate-limit budget.
-    check_and_record_message_id(state, &envelope.message_id)?;
-
-    // 2. Rate limiting (RFC-AITP-0009 §3.1). Keyed off the source IP
-    //    and the envelope `sender` AID. Rejection is HTTP 429 with no
-    //    AITP error envelope — the request never reached the protocol
-    //    layer.
-    //
-    //    Note: RFC-AITP-0009 §3.1 places rate limiting (step 2) ahead
-    //    of envelope signature verification (step 5), so the `sender`
-    //    AID is NOT yet authenticated here — an attacker can forge it.
-    //    The per-AID limit is therefore a best-effort gate; the per-IP
-    //    limit (keyed off the transport, not the payload) is the firmer
-    //    of the two. Deployments needing an authenticated per-AID limit
-    //    must additionally throttle after signature verification.
-    if let RateLimitOutcome::DenyTooManyRequests { reason } =
-        rate_limit_check(state, source_ip, Some(&envelope.sender.agent_id))
-    {
-        return Err(ResponseError::too_many_requests(reason));
-    }
-
-    // 3. Timestamp tolerance (RFC-AITP-0001 §5.5).
-    let now = Timestamp::now();
-    let drift = (envelope.timestamp.0 - now.0).abs();
-    if drift > DEFAULT_TIMESTAMP_TOLERANCE_SECS {
-        return Err(ResponseError::aitp(
-            ErrorCode::TimestampExpired,
-            format!(
-                "envelope timestamp drift {drift}s exceeds {DEFAULT_TIMESTAMP_TOLERANCE_SECS}s",
-            ),
-        ));
-    }
-    Ok(())
 }
 
 /// Whether `err` is our own signing backend failing (a local fault).
