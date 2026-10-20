@@ -159,6 +159,12 @@ pub enum RevocationError {
     /// signature check's fault: the signature was never reached. This is
     /// the `REVOCATION_SNAPSHOT_INVALID` case, the revocation-snapshot
     /// sibling of `ManifestError::Malformed` (RFC-AITP-0008 §1.5).
+    ///
+    /// [`RevocationCache`] also reports an unknown
+    /// `revocation_list.version` as this variant (issue #265): spec
+    /// VERSIONING.md makes `REVOCATION_SNAPSHOT_INVALID` a snapshot's
+    /// unknown-version code. It was previously
+    /// `SignatureInvalid(TctError::VersionUnknown)`.
     #[error("revocation snapshot is malformed: {0}")]
     Malformed(String),
     /// Our own signing backend (in-process key, KMS, HSM) failed while
@@ -427,6 +433,13 @@ impl<P: RevocationProvider> RevocationCache<P> {
                 TctError::Expired => RevocationError::Expired,
                 TctError::UnknownField(field) => RevocationError::UnknownField(field),
                 TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
+                // #265: an unknown `version` is the snapshot's schema
+                // failure (REVOCATION_SNAPSHOT_INVALID, spec VERSIONING.md),
+                // checked before the signature. Never a signature failure.
+                TctError::VersionUnknown => RevocationError::Malformed(format!(
+                    "unknown revocation snapshot version {:?}",
+                    env.revocation_list.version
+                )),
                 other => RevocationError::SignatureInvalid(other),
             },
         )?;
@@ -697,6 +710,27 @@ mod tests {
             .unwrap_err();
         assert!(
             matches!(err, RevocationError::SignatureInvalid(_)),
+            "got {err:?}"
+        );
+    }
+
+    /// rev-010-version-unknown shape (#265): sign validly, then change
+    /// only `version`, so the signature is invalid too. The version is
+    /// checked first and reported as the REVOCATION_SNAPSHOT_INVALID case
+    /// (`Malformed`), never as `SignatureInvalid`.
+    #[test]
+    fn unknown_version_is_malformed_not_signature_invalid() {
+        let key = AitpSigningKey::from_seed(&[0x5A; 32]);
+        let now = Timestamp::now();
+        let mut env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
+        env.revocation_list.version = "aitp/9.9".into();
+        let cache =
+            RevocationCache::new(FakeProvider { envelope: env }, RevocationPolicy::default());
+        let err = cache
+            .is_revoked(&Uuid::new_v4(), key.aid(), now)
+            .unwrap_err();
+        assert!(
+            matches!(err, RevocationError::Malformed(ref m) if m.contains("aitp/9.9")),
             "got {err:?}"
         );
     }

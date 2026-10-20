@@ -1534,8 +1534,16 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
 /// Like `tct_error_code`, but for a revocation *snapshot* rather than a
 /// TCT's own JWS (RFC-AITP-0008 §1.5 / registry §"Revocation codes").
 /// `tct_error_code` stays untouched and shared with real `tct-*`
-/// fixtures; this sibling overrides only the two structural/signature
-/// arms a revocation snapshot needs its own codes for.
+/// fixtures; this sibling overrides only the structural/signature arms a
+/// revocation snapshot needs its own codes for.
+///
+/// An unknown `revocation_list.version` is `REVOCATION_SNAPSHOT_INVALID`,
+/// not `UNKNOWN_VERSION` (issue #265): spec VERSIONING.md gives each
+/// artifact its own unknown-version code, and a snapshot's is its
+/// schema-failure code (the schema pins `version` to `aitp/0.3`).
+/// `verify_revocation_list` checks `version` before the signature, so a
+/// validly signed snapshot whose `version` is changed afterwards
+/// (rev-010-version-unknown) reports this code, not a signature failure.
 /// `IssuerMismatch` deliberately falls through to `TCT_SIGNATURE_INVALID`
 /// via `tct_error_code` — same treatment as `ManifestError::AidMismatch`
 /// in `manifest_error_code`, not a registry gap.
@@ -1543,7 +1551,9 @@ fn revocation_error_code(e: &aitp_tct::TctError) -> String {
     use aitp_tct::TctError::*;
     match e {
         // A non-v4 `entries[].jti` is a malformed snapshot, not a TCT.
-        ClaimsMalformed(_) | JtiNotV4(_) => "REVOCATION_SNAPSHOT_INVALID".to_string(),
+        ClaimsMalformed(_) | JtiNotV4(_) | VersionUnknown => {
+            "REVOCATION_SNAPSHOT_INVALID".to_string()
+        }
         SignatureInvalid => "REVOCATION_SNAPSHOT_SIGNATURE_INVALID".to_string(),
         other => tct_error_code(other),
     }
@@ -3873,6 +3883,13 @@ mod error_code_mapping_tests {
             "UNKNOWN_FIELD"
         );
         assert_eq!(revocation_error_code(&TctError::Revoked), "TCT_REVOKED");
+        // #265: a snapshot's unknown-version code is its schema-failure
+        // code (VERSIONING.md), unlike a TCT's `ver` (UNKNOWN_VERSION).
+        assert_eq!(
+            revocation_error_code(&TctError::VersionUnknown),
+            "REVOCATION_SNAPSHOT_INVALID"
+        );
+        assert_eq!(tct_error_code(&TctError::VersionUnknown), "UNKNOWN_VERSION");
     }
 
     #[test]
@@ -4119,6 +4136,31 @@ mod revocation_unknown_field_tests {
         let out = handle(
             &mut state,
             "man-006-like",
+            "verify_revocation_snapshot",
+            json!({
+                "snapshot": snapshot,
+                "expected_issuer": key.aid().as_str(),
+                "now": 1_700_000_100,
+            }),
+        );
+        assert_eq!(out["ok"], json!(false), "got: {out}");
+        assert_eq!(out["error_code"], json!("REVOCATION_SNAPSHOT_INVALID"));
+    }
+
+    /// rev-010-version-unknown shape (#265): a validly signed snapshot
+    /// whose `version` is changed afterwards to `aitp/9.9`. The signature
+    /// no longer verifies either, so this also pins that `version` is
+    /// checked first and reported with the snapshot's own code.
+    #[test]
+    fn verify_revocation_snapshot_unknown_version_is_snapshot_invalid() {
+        let key = issuer();
+        let mut snapshot = signed_snapshot_value(&key);
+        snapshot["revocation_list"]["version"] = json!("aitp/9.9");
+
+        let mut state = AdapterState::default();
+        let out = handle(
+            &mut state,
+            "rev-010-like",
             "verify_revocation_snapshot",
             json!({
                 "snapshot": snapshot,

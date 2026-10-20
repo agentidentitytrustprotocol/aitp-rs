@@ -9,6 +9,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **A revocation snapshot with an unknown `version` now reports
+  `REVOCATION_SNAPSHOT_INVALID`**
+  ([#265](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/265)).
+  Spec `VERSIONING.md` (`597efbd`) gives each artifact its own
+  unknown-version code, and a snapshot's is `REVOCATION_SNAPSHOT_INVALID`.
+  0.17.0 reported `UNKNOWN_VERSION`. Two places change:
+  - The conformance adapter's `verify_revocation_snapshot` op reports
+    `REVOCATION_SNAPSHOT_INVALID`.
+  - `aitp_transport_http::RevocationCache` returns
+    `RevocationError::Malformed`, the `REVOCATION_SNAPSHOT_INVALID` case.
+    It used to return `RevocationError::SignatureInvalid(TctError::VersionUnknown)`.
+    Under `FailClosed` the snapshot is still rejected; only the variant
+    changes. A caller that matched the old variant must match `Malformed`.
+
+  `version` is still checked before the signature, so a validly signed
+  snapshot or session bundle whose `version` is changed afterwards
+  reports the version code, not a signature failure (the shape of the
+  spec's coming `rev-010-version-unknown` and `bundle-008-version-unknown`
+  fixtures). New tests pin this. The bindings' `verify_revocation_list`
+  keeps its lowercase `version_unknown` cause code; the SDK docs now say
+  it is the spec's `REVOCATION_SNAPSHOT_INVALID`. The table in
+  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
+  corrected.
+
+## [0.17.0] — 2026-10-20
+
+### BREAKING
+
 - **0.17.0: protocol revision `aitp/0.3`, with envelope signing input v2
   and a strict cutover from `aitp/0.2`.** Spec pin `ab214d2` → `bf00e75`
   ([#253](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/253),

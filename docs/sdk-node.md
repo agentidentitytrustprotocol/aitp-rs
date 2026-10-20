@@ -264,6 +264,10 @@ on success. On failure it throws an `Error` whose `code` is one of
 `unknown_field` (a member outside the schema) or `malformed` (including a
 duplicate JSON key). An invalid `expectedIssuerAid` throws with napi's generic `GenericFailure`
 code instead.
+These are the binding's own lowercase cause codes, not the spec's registered
+codes. `version_unknown` (a `version` other than `aitp/0.3`, checked before
+the signature) and `malformed` are separate codes here, but
+both are the spec's `REVOCATION_SNAPSHOT_INVALID` (spec `VERSIONING.md`).
 
 The function checks only that the snapshot is authentic and has not expired.
 It does not decide whether the snapshot is fresh enough. That policy belongs

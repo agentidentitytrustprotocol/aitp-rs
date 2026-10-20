@@ -251,6 +251,14 @@ impl JsTctStore {
 }
 
 /// SHA-256 of the exact compact-JWS TCT token bytes — the cache key.
+///
+/// RFC-AITP-0001 §5.4.3 forbids raw bytes, or their hash, as an object's
+/// *identity* (replay, dedup, caching, audit), because one signed object
+/// can arrive as several byte strings. This key is not an identity: it
+/// memoizes "these exact bytes already passed signature verification", so
+/// it must cover the signature. Keying on the content without the
+/// signature would let a token with a forged signature hit the cache. A
+/// re-encoded copy of a valid token only misses and is fully verified.
 fn tct_token_key(tct_token: &str) -> [u8; 32] {
     let mut h = Sha256::new();
     h.update(tct_token.as_bytes());
