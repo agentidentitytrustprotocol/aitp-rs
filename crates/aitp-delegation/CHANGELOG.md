@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-delegation-v0.17.0...aitp-delegation-v0.18.0) - 2026-10-20
+
+### Other
+
+- release v0.18.0 ([#273](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/273))
+
 ## [0.17.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-delegation-v0.16.0...aitp-delegation-v0.17.0) - 2026-10-20
 
 ### Added
