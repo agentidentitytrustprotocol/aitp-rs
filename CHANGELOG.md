@@ -70,6 +70,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `PROTOCOL_VERSION`, a non-v4 `message_id`, and a sender that is not the
   signer.
 - `aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG` (`b"aitp-envelope-v2"`).
+- **Envelope signing and verification in the Python and Node bindings**
+  ([#256](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/256),
+  [#260](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/260)).
+  - **Verify:** Python `aitp.verify_envelope(envelope_json,
+    expected_sender_aid)` raises `aitp.EnvelopeVerificationError`, a
+    `RuntimeError` subclass, with `.code`. Node `verifyEnvelope` throws an
+    `Error` with `.code`.
+  - **Codes, in RFC-AITP-0001 §5.4 order:** `UNKNOWN_VERSION`,
+    `UNKNOWN_FIELD` / `INVALID_ENVELOPE`, then `INVALID_SIGNATURE`. A
+    sender other than the pinned AID is `INVALID_SIGNATURE`.
+  - **Scope:** callers own the replay and timestamp checks; these
+    functions do not run them.
+  - **Sign:** Python `AitpAgent.sign_envelope(message_type, payload_json,
+    extensions_json=None, message_id=None, timestamp=None)` and Node
+    `agent.signEnvelope(messageType, payloadJson, opts?)` sign over input
+    v2, `extensions` included.
 - The envelope KATs `kat-envelope-001-p256` (re-minted) and
   `kat-envelope-002-ed25519` (new, with `extensions`) are reproduced byte
   for byte, and their v1 signatures are asserted not to verify. Spec

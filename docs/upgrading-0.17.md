@@ -147,7 +147,8 @@ so the order holds in:
 - the `aitp-transport-http` server
 - the `aitp` facade's response path
 - the conformance adapter, `verify_handshake_payload` included
-- the Python and Node handshake entry points
+- the Python and Node handshake entry points, and their new
+  `verify_envelope` / `verifyEnvelope` (section 6)
 
 Two consequences:
 
@@ -301,7 +302,11 @@ match parse_envelope_wire(&wire) {
 
 ## 6. Python and Node
 
-The binding functions keep their signatures. What you can observe:
+The existing binding functions keep their signatures. 0.17 adds envelope
+signing and verification
+([#256](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/256),
+[#260](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/260)),
+covered at the end of this section. Otherwise, what you can observe:
 
 - **Everything they emit says `aitp/0.3`.** That includes
   `build_manifest()` / `buildManifest()`, `sign_revocation_list()` /
@@ -330,6 +335,71 @@ The binding functions keep their signatures. What you can observe:
   verification with the existing error, for example `TCT verification
   failed: TCT version is not supported` or `bundle verification failed:
   bundle version mismatch`.
+
+### New: envelope signing and verification
+
+In 0.16 the bindings could not check an envelope's outer signature. Only
+the Rust HTTP server and the `aitp` facade could, so a binding caller
+that received an envelope outside a session had two choices: trust it
+unverified, or rebuild the signing input by hand. 0.17 adds:
+
+| | Python (`aitp`) | Node |
+|---|---|---|
+| Verify | `aitp.verify_envelope(envelope_json, expected_sender_aid) -> None` | `verifyEnvelope(envelopeJson, expectedSenderAid): void` |
+| Verification failure | raises `aitp.EnvelopeVerificationError`, a `RuntimeError` subclass, with `.code` | throws an `Error` with `.code` |
+| Bad `expected_sender_aid` | raises `ValueError` | throws an `Error` with no verification code |
+| Sign | `AitpAgent.sign_envelope(message_type, payload_json, extensions_json=None, message_id=None, timestamp=None) -> str` | `agent.signEnvelope(messageType, payloadJson, opts?: { extensionsJson?, messageId?, timestamp? }): string` |
+
+Both functions wrap the Rust code. The parse step uses the same
+duplicate-key check and `parse_envelope_wire` as the server, and the
+signature step calls `aitp_envelope::verify_envelope_signature`, so the
+bindings cannot drift from it.
+
+**Codes, in check order.** `.code` is the registered RFC-AITP-0001 §5.7
+code of the first step that fails (section 3):
+
+1. `UNKNOWN_VERSION`: `version` is absent or is not `aitp/0.3`.
+   `aitp/0.2` is rejected the same way as `aitp/9.9`.
+2. `UNKNOWN_FIELD` for a member outside the schema and outside
+   `extensions`. `INVALID_ENVELOPE` for any other structural defect: a
+   duplicate key (RFC-AITP-0001 §5.4.5), a missing member, an
+   unregistered `message_type` or a non-v4 `message_id`.
+3. `INVALID_SIGNATURE`: the signature does not verify over the v2 input
+   under the expected sender's key. An envelope whose `sender.agent_id`
+   is not the expected AID also fails here, because the caller does not
+   trust the key it was signed with.
+
+These are the uppercase spec codes. They differ from the lowercase
+per-object codes that `verify_manifest_json` and `verify_revocation_list`
+use, such as `version_unknown`. Branch on `.code`, not on the message.
+
+**The key comes from the pinned AID.** Every AID encodes its public key,
+so `expected_sender_aid` is the key. The argument is required, as
+`expected_issuer_aid` is for `verify_revocation_list`. Using the
+envelope's own `sender.agent_id` instead would only show that the
+envelope is consistent with itself.
+
+**Callers own replay and freshness.** `verify_envelope` checks structure
+and authenticity only. It does not check the timestamp window, and it
+does not deduplicate `message_id` (RFC-AITP-0001 §5.5). A receiving
+endpoint must run those checks itself, in the RFC-AITP-0009 §3.1 order:
+replay, then rate limit, then timestamp, then the checks
+`verify_envelope` runs. Section 4 shows that order.
+
+**Signing.** `sign_envelope` / `signEnvelope` wraps
+`aitp_envelope::sign_prepared_envelope` (section 2):
+
+- It stamps `aitp/0.3` and this agent's AID as `sender.agent_id`.
+- Pass `extensions` here. They are covered by the signature, so they
+  cannot be added afterwards.
+- `message_id` defaults to a fresh UUID v4, and `timestamp` to now.
+- The payload must be a JSON object. A non-v4 `message_id`, an
+  unregistered `message_type` or `extensions` that are not a JSON object
+  are rejected before signing.
+
+See [`sdk-python.md`](sdk-python.md#envelope-signatures-rfc-aitp-0001-54)
+and [`sdk-node.md`](sdk-node.md#envelope-signatures-rfc-aitp-0001-54) for
+runnable examples.
 
 ## 7. Re-minted vectors and fixtures
 
