@@ -25,9 +25,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
   `version` is still checked before the signature, so a validly signed
   snapshot or session bundle whose `version` is changed afterwards
-  reports the version code, not a signature failure (the shape of the
-  spec's coming `rev-010-version-unknown` and `bundle-008-version-unknown`
-  fixtures). New tests pin this. The bindings' `verify_revocation_list`
+  reports the version code, not a signature failure. The spec's
+  `rev-010-version-unknown` and `bundle-008-version-unknown` fixtures
+  have that shape and both pass. New unit tests pin it too. The bindings' `verify_revocation_list`
   keeps its lowercase `version_unknown` cause code; the SDK docs now say
   it is the spec's `REVOCATION_SNAPSHOT_INVALID`. The table in
   [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
@@ -35,6 +35,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- **Spec pin `597efbd` → `4bbda67`** (spec #94), which adds the core
+  fixture `rev-010-version-unknown` (`REVOCATION_SNAPSHOT_INVALID`) and
+  the draft fixture `bundle-008-version-unknown`
+  (`BUNDLE_VERSION_MISMATCH`, `experimental-session-bundle`). The vendored
+  schemas and known-answer vectors are unchanged. Conformance at the pin:
+  a strict run gives 80 pass / 0 fail / 24 skip of 104, and a run with
+  all four features gives 102 pass / 0 fail / 2 skip (see
+  [`docs/conformance.md`](docs/conformance.md)).
 - **The cross-implementation acceptance job (`xcheck`) pins
   aitp-verifier-py at `e335348`** (its #66), up from `f335f4f`. That
   verifier rejects a negative envelope timestamp and a malformed
