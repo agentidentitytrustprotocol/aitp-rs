@@ -87,7 +87,7 @@ pub fn verify_manifest_json_py(
     now_unix_secs: Option<i64>,
 ) -> PyResult<()> {
     let manifest = wire::manifest(manifest_envelope_json).map_err(|e| match e {
-        WireError::UnknownField(_) => {
+        WireError::UnknownField(_) | WireError::UnknownVersion(_) => {
             verification_error(e.code(), format!("invalid manifest JSON: {e}"))
         }
         WireError::Malformed(_) => PyValueError::new_err(format!("invalid manifest JSON: {e}")),

@@ -715,6 +715,63 @@ async fn wire_replay_is_detected_before_structure() {
     );
 }
 
+/// RFC-AITP-0001 §5.4 envelope check order inside step 4: `version`
+/// first (UNKNOWN_VERSION, even beside an unknown member and a broken
+/// signature; `aitp/0.2` included, strict cutover), then the member set
+/// (UNKNOWN_FIELD), then the signature (INVALID_SIGNATURE).
+#[tokio::test]
+async fn wire_envelope_check_order_is_version_then_members_then_signature() {
+    let cases: [(&dyn Fn(&mut serde_json::Value), &str); 4] = [
+        (
+            &|w| {
+                w["version"] = "aitp/9.9".into();
+                w["bogus"] = true.into();
+            },
+            "UNKNOWN_VERSION",
+        ),
+        (&|w| w["version"] = "aitp/0.2".into(), "UNKNOWN_VERSION"),
+        (
+            &|w| {
+                w["bogus"] = true.into();
+                w["signature"] = "A".repeat(86).into();
+            },
+            "UNKNOWN_FIELD",
+        ),
+        (
+            &|w| w["message_type"] = "mutual_hello".into(),
+            "INVALID_ENVELOPE",
+        ),
+    ];
+    for (mutate, want) in cases {
+        let a = admission();
+        let ch = a.challenge_at(&src("c"), NOW).await.unwrap();
+        let env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
+        let mut wire = serde_json::to_value(&env).unwrap();
+        mutate(&mut wire);
+        let checked: aitp_core::CheckedJson = wire.to_string().parse().unwrap();
+        assert_eq!(
+            code(&a.admit_wire_at(&checked, &src("p"), NOW).await.unwrap_err()),
+            want
+        );
+    }
+}
+
+/// `version` is signed under the v2 input: a presentation re-labelled to
+/// another field value after signing fails its signature, not structure.
+#[tokio::test]
+async fn wire_payload_tamper_after_signing_is_invalid_signature() {
+    let a = admission();
+    let ch = a.challenge_at(&src("c"), NOW).await.unwrap();
+    let env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
+    let mut wire = serde_json::to_value(&env).unwrap();
+    wire["extensions"] = serde_json::json!({"com.example.x": 1});
+    let checked: aitp_core::CheckedJson = wire.to_string().parse().unwrap();
+    assert_eq!(
+        code(&a.admit_wire_at(&checked, &src("p"), NOW).await.unwrap_err()),
+        "INVALID_SIGNATURE"
+    );
+}
+
 /// A deny list shared by two verifiers rejects a presentation the other
 /// already admitted, and a full list is a local error, never an eviction.
 #[tokio::test]

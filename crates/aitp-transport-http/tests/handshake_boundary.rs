@@ -298,16 +298,11 @@ async fn unknown_hello_payload_sibling_member_returns_unknown_field() {
     assert_error_code(resp, "UNKNOWN_FIELD").await;
 }
 
-/// AC 3 (regression pin): version checking (RFC-AITP-0001 §5.6) happens
-/// *after* envelope parsing in `enforce_envelope_boundary_checks`, and
-/// `parse_envelope_wire`'s member-set check never inspects `version`.
-/// An envelope that is both forward-versioned AND structurally clean
-/// (every top-level member is schema-declared, payload has no unknown
-/// sibling) must still report `UNKNOWN_VERSION` — proving the new
-/// member-set check placed in `parse_envelope_request` does not shadow
-/// or run ahead of the pre-existing version check. Complements (does
-/// not replace) `unknown_envelope_version_returns_unknown_version`
-/// above, which must keep passing unchanged.
+/// AC 3 (regression pin): an envelope that is both forward-versioned AND
+/// structurally clean (every top-level member is schema-declared,
+/// payload has no unknown sibling) reports `UNKNOWN_VERSION`.
+/// Complements `unknown_envelope_version_returns_unknown_version` above
+/// and `version_is_checked_before_member_set_and_signature` below.
 #[tokio::test]
 async fn forward_version_structurally_clean_envelope_returns_unknown_version_not_unknown_field() {
     let port = spawn_server().await;
@@ -343,6 +338,59 @@ async fn forward_version_structurally_clean_envelope_returns_unknown_version_not
         .await
         .unwrap();
     assert_error_code(resp, "UNKNOWN_VERSION").await;
+}
+
+/// RFC-AITP-0001 §5.4 envelope check order over HTTP: `version` is
+/// checked before the member set and the signature (env-010), so an
+/// unknown version beside an unknown sibling member and a broken
+/// signature is `UNKNOWN_VERSION`; a correctly signed `aitp/0.2`
+/// envelope is `UNKNOWN_VERSION` too (env-011, strict cutover); with the
+/// version known, the unknown member is `UNKNOWN_FIELD`.
+#[tokio::test]
+async fn version_is_checked_before_member_set_and_signature() {
+    let port = spawn_server().await;
+    let key = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let post = |wire: serde_json::Value| async move {
+        reqwest::Client::new()
+            .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(serde_json::to_vec(&wire).unwrap())
+            .send()
+            .await
+            .unwrap()
+    };
+    let fresh = || {
+        sign_envelope_with(
+            &key,
+            MessageType::MutualHello,
+            serde_json::json!({}),
+            Uuid::new_v4(),
+            Timestamp::now(),
+        )
+        .unwrap()
+    };
+
+    let mut wire = serde_json::to_value(fresh()).unwrap();
+    wire["version"] = "aitp/9.9".into();
+    wire["trace_id"] = "rogue".into();
+    assert_error_code(post(wire).await, "UNKNOWN_VERSION").await;
+
+    // Correctly signed under the v2 input, but at the previous revision.
+    let mut prev = fresh();
+    prev.version = "aitp/0.2".into();
+    let d = aitp_core::envelope::envelope_signing_digest(&prev).unwrap();
+    prev.signature = key
+        .sign_jcs(&aitp_crypto::Digest32::from_bytes(d))
+        .into_string();
+    assert_error_code(
+        post(serde_json::to_value(&prev).unwrap()).await,
+        "UNKNOWN_VERSION",
+    )
+    .await;
+
+    let mut known = serde_json::to_value(fresh()).unwrap();
+    known["trace_id"] = "rogue".into();
+    assert_error_code(post(known).await, "UNKNOWN_FIELD").await;
 }
 
 #[tokio::test]

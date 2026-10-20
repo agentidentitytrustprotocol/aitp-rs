@@ -1492,14 +1492,20 @@ async fn parse_envelope_request(
     let value = CheckedJson::from_slice(&body).map_err(|e| {
         ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
     })?;
-    // RFC-AITP-0001 §7: reject an envelope carrying a top-level member
-    // outside the schema-declared set with `UNKNOWN_FIELD` rather than
-    // the generic `INVALID_ENVELOPE` a bare `from_value` would produce.
-    // Version checking (RFC-AITP-0001 §5.6) happens afterward in
-    // `enforce_envelope_boundary_checks`, so a structurally-clean but
-    // forward-versioned envelope still parses here and is only rejected
-    // there — `parse_envelope_wire` never inspects `version`.
+    // RFC-AITP-0001 §5.4 envelope check order: `version` first
+    // (`UNKNOWN_VERSION`, §7; `aitp/0.2` included — strict cutover),
+    // then the member set (`UNKNOWN_FIELD` rather than the generic
+    // `INVALID_ENVELOPE` a bare `from_value` would produce), then
+    // structure. `parse_envelope_wire` runs both steps; the signature
+    // (step 3) is checked by the message handler.
     let envelope: AitpEnvelope = parse_envelope_wire(&value).map_err(|e| match e {
+        EnvelopeParseError::UnknownVersion(v) => ResponseError::aitp(
+            ErrorCode::UnknownVersion,
+            format!(
+                "unsupported envelope version {v} (this implementation accepts `{}`)",
+                aitp_core::PROTOCOL_VERSION
+            ),
+        ),
         EnvelopeParseError::UnknownField(field) => {
             ResponseError::aitp(ErrorCode::UnknownField, format!("unknown field `{field}`"))
         }
@@ -1608,16 +1614,18 @@ fn enforce_envelope_boundary_checks<R: JwksResolver + Send + Sync + 'static>(
     envelope: &AitpEnvelope,
     source_ip: Option<std::net::IpAddr>,
 ) -> Result<(), ResponseError> {
-    // RFC-AITP-0001 §5.6: "Verifiers receiving an unknown `version` MUST
-    // respond with `UNKNOWN_VERSION`." A structural protocol-identity
-    // check; done first so a peer on a forward version learns about the
-    // mismatch before anything else.
-    if envelope.version != "aitp/0.3" {
+    // RFC-AITP-0001 §7: "Verifiers receiving an unknown `version` MUST
+    // respond with `UNKNOWN_VERSION`." `parse_envelope_wire` already
+    // refused it at the head of the §5.4 check order; kept so a typed
+    // envelope reaching this function by another path is held to the
+    // same rule.
+    if envelope.version != aitp_core::PROTOCOL_VERSION {
         return Err(ResponseError::aitp(
             ErrorCode::UnknownVersion,
             format!(
-                "unsupported envelope version `{}` (this implementation accepts `aitp/0.1`)",
-                envelope.version
+                "unsupported envelope version `{}` (this implementation accepts `{}`)",
+                envelope.version,
+                aitp_core::PROTOCOL_VERSION
             ),
         ));
     }

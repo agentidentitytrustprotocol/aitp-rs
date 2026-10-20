@@ -612,7 +612,8 @@ fn presentation_rate_limit_is_http_429_and_begin_fixture_resets() {
         "verify_identity_presentation",
         params.clone(),
     );
-    assert_err(&first, "p1", "INVALID_ENVELOPE");
+    // `{}` has no `version`: RFC-AITP-0001 §5.4 check order step 1.
+    assert_err(&first, "p1", "UNKNOWN_VERSION");
     let second = handle(
         &mut state,
         "p2",
@@ -627,7 +628,7 @@ fn presentation_rate_limit_is_http_429_and_begin_fixture_resets() {
     let begin = handle(&mut state, "b", "begin_fixture", json!({}));
     assert_eq!(begin["ok"], json!(true));
     let third = handle(&mut state, "p3", "verify_identity_presentation", params);
-    assert_err(&third, "p3", "INVALID_ENVELOPE");
+    assert_err(&third, "p3", "UNKNOWN_VERSION");
 }
 
 /// RFC-AITP-0002 §3.4 (spec cfd2f16): a full nonce store is reported as

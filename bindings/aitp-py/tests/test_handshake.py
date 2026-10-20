@@ -172,6 +172,23 @@ def test_verify_tct_cached_honors_revoked_jtis_on_hits():
         initiator.verify_tct_cached(tct, "demo.write", store, revoked_jtis={jti})
 
 
+def test_hello_envelope_check_order_is_version_then_members():
+    """RFC-AITP-0001 §5.4 check order: an `aitp/0.2` envelope (strict
+    cutover) is refused on its version before its unknown member; under
+    the known version the unknown member is reported."""
+    initiator, responder, _init_manifest, resp_manifest = _agents()
+    sess = initiator.new_session(pinned_keys=[responder.aid])
+    hello = json.loads(sess.build_hello(resp_manifest, ["demo.write"]))
+    assert hello["version"] == "aitp/0.3"
+    hello["trace_id"] = "rogue"
+    rsess = responder.new_responder(pinned_keys=[initiator.aid])
+    with pytest.raises(ValueError, match="unknown field `trace_id`"):
+        rsess.process_hello(json.dumps(hello))
+    hello["version"] = "aitp/0.2"
+    with pytest.raises(ValueError, match='unknown protocol version "aitp/0.2"'):
+        rsess.process_hello(json.dumps(hello))
+
+
 def test_from_seed_is_deterministic():
     a = aitp.AitpAgent.from_seed(bytes([7] * 32))
     b = aitp.AitpAgent.from_seed(bytes([7] * 32))

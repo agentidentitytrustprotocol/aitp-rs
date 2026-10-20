@@ -24,6 +24,10 @@ use aitp_tct::{parse_revocation_snapshot_wire, RevocationListEnvelope, TctError}
 /// Why wire JSON was rejected before any verification ran.
 #[derive(Debug)]
 pub enum WireError {
+    /// An envelope whose `version` is absent or not the revision this
+    /// implementation speaks (RFC-AITP-0001 §5.4 check order, step 1;
+    /// `UNKNOWN_VERSION`). Checked before the member set.
+    UnknownVersion(String),
     /// A member outside the object's declared member set
     /// (RFC-AITP-0001 §7, `UNKNOWN_FIELD`).
     UnknownField(String),
@@ -33,9 +37,11 @@ pub enum WireError {
 }
 
 impl WireError {
-    /// Stable cause code: `unknown_field` or `malformed`.
+    /// Stable cause code: `unknown_version`, `unknown_field` or
+    /// `malformed`.
     pub fn code(&self) -> &'static str {
         match self {
+            WireError::UnknownVersion(_) => "unknown_version",
             WireError::UnknownField(_) => "unknown_field",
             WireError::Malformed(_) => "malformed",
         }
@@ -45,6 +51,7 @@ impl WireError {
 impl std::fmt::Display for WireError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            WireError::UnknownVersion(v) => write!(f, "unknown protocol version {v}"),
             WireError::UnknownField(field) => write!(f, "unknown field `{field}`"),
             WireError::Malformed(msg) => f.write_str(msg),
         }
@@ -73,6 +80,7 @@ fn require_wrapper(value: &CheckedJson, key: &str) -> Result<(), WireError> {
 /// An [`AitpEnvelope`] from wire JSON.
 pub fn envelope(json: &str) -> Result<AitpEnvelope, WireError> {
     parse_envelope_wire(&checked(json)?).map_err(|e| match e {
+        EnvelopeParseError::UnknownVersion(v) => WireError::UnknownVersion(v),
         EnvelopeParseError::UnknownField(field) => WireError::UnknownField(field),
         EnvelopeParseError::Malformed(msg) => WireError::Malformed(msg),
     })

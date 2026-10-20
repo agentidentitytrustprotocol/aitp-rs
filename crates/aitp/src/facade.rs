@@ -358,6 +358,9 @@ fn interpret_aitp_envelope_response(
     let value = CheckedJson::from_slice(body)
         .map_err(|e| FacadeError::Http(format!("malformed JSON in response body: {e}")))?;
     parse_envelope_wire(&value).map_err(|e| match e {
+        EnvelopeParseError::UnknownVersion(v) => {
+            FacadeError::Http(format!("unknown protocol version {v} in response envelope"))
+        }
         EnvelopeParseError::UnknownField(field) => {
             FacadeError::Http(format!("unknown field `{field}` in response envelope"))
         }
@@ -1154,6 +1157,41 @@ mod facade_http_tests {
         )
         .unwrap();
         assert_eq!(v, serde_json::json!({"ok": true}));
+    }
+
+    /// RFC-AITP-0001 §5.4 check order on a response envelope: an
+    /// `aitp/0.2` response (strict cutover) is refused on its version
+    /// before its unknown sibling member is looked at.
+    #[test]
+    fn previous_revision_response_envelope_is_unknown_version() {
+        let key = aitp_crypto::AitpSigningKey::from_seed(&[7u8; 32]);
+        let env = sign_envelope_with(
+            &key,
+            MessageType::MutualHelloAck,
+            serde_json::json!({}),
+            uuid::Uuid::new_v4(),
+            Timestamp(1_711_900_000),
+        )
+        .unwrap();
+        let mut wire = serde_json::to_value(&env).unwrap();
+        let ok = interpret_aitp_envelope_response(
+            StatusCode::OK,
+            "application/json",
+            wire.to_string().as_bytes(),
+            MAX_RESPONSE_BYTES,
+        );
+        assert!(ok.is_ok(), "{ok:?}");
+        wire["version"] = "aitp/0.2".into();
+        wire["trace_id"] = "rogue".into();
+        match interpret_aitp_envelope_response(
+            StatusCode::OK,
+            "application/json",
+            wire.to_string().as_bytes(),
+            MAX_RESPONSE_BYTES,
+        ) {
+            Err(FacadeError::Http(m)) => assert!(m.contains("unknown protocol version"), "{m}"),
+            other => panic!("expected unknown version, got {other:?}"),
+        }
     }
 }
 

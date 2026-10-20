@@ -110,6 +110,23 @@ test('initiator rejects peer substitution', () => {
   assert.throws(() => s1.processHelloAck(malloryAck, mallorySession));
 });
 
+test('hello envelope check order is version, then member set', () => {
+  // RFC-AITP-0001 §5.4: an aitp/0.2 envelope (strict cutover) is refused
+  // on its version before its unknown member is looked at.
+  const { initiator, responder, respManifest } = agents();
+  const sess = initiator.newSession(null, { pinnedKeys: [responder.aid] });
+  const hello = JSON.parse(sess.buildHello(respManifest, ['demo.write']));
+  assert.equal(hello.version, 'aitp/0.3');
+  hello.trace_id = 'rogue';
+  const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
+  assert.throws(() => rsess.processHello(JSON.stringify(hello)), /unknown field `trace_id`/);
+  hello.version = 'aitp/0.2';
+  assert.throws(
+    () => rsess.processHello(JSON.stringify(hello)),
+    /unknown protocol version "aitp\/0\.2"/,
+  );
+});
+
 test('fromSeed is deterministic', () => {
   const seed = Buffer.alloc(32, 7);
   assert.equal(AitpAgent.fromSeed(seed).aid, AitpAgent.fromSeed(seed).aid);

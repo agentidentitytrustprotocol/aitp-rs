@@ -481,6 +481,7 @@ impl PinnedAdmission {
         self.gate(message_id.as_ref(), timestamp, source, now)
             .await?;
         let env = parse_envelope_wire(envelope).map_err(|e| match e {
+            EnvelopeParseError::UnknownVersion(v) => AdmissionError::UnknownVersion(v),
             EnvelopeParseError::UnknownField(f) => AdmissionError::UnknownField(f),
             other => AdmissionError::InvalidEnvelope(other.to_string()),
         })?;

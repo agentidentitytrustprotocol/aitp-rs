@@ -111,6 +111,12 @@ pub const AITP_ENVELOPE_MEMBERS: &[&str] = &[
 /// Error from [`parse_envelope_wire`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum EnvelopeParseError {
+    /// `version` is absent, not a string, or not the revision this
+    /// implementation speaks ([`crate::PROTOCOL_VERSION`]). Checked first
+    /// (RFC-AITP-0001 §5.4 envelope check order, §7). Carries the
+    /// offending value as JSON text, or `<absent>`.
+    #[error("unknown protocol version {0}")]
+    UnknownVersion(String),
     /// A top-level or nested member outside the schema-declared member
     /// set (RFC-AITP-0001 §7). Carries the offending field name.
     #[error("unknown field `{0}`")]
@@ -122,23 +128,37 @@ pub enum EnvelopeParseError {
 }
 
 /// Parse a raw wire-form JSON value into an [`AitpEnvelope`], enforcing
-/// RFC-AITP-0001 §7's member-set check before typed deserialization.
+/// the first two steps of the RFC-AITP-0001 §5.4 envelope check order
+/// before typed deserialization. The caller runs step 3 (the signature,
+/// `INVALID_SIGNATURE`) on the returned envelope.
 ///
 /// Takes a [`CheckedJson`], so the RFC-AITP-0001 §5.4.5 duplicate-key
 /// check has necessarily already run on the original bytes.
 ///
 /// Order of operations:
-/// 1. [`check_members`] against [`AITP_ENVELOPE_MEMBERS`] — rejects any
-///    top-level member the schema does not declare, before anything else
-///    runs.
-/// 2. `serde_json::from_value` into [`AitpEnvelope`].
-/// 3. On a residual serde error (which, now that the top-level check has
+/// 1. `version`: absent, non-string or any value other than
+///    [`crate::PROTOCOL_VERSION`] is [`EnvelopeParseError::UnknownVersion`]
+///    (`UNKNOWN_VERSION`), before the member set is looked at. A
+///    non-object value has no `version` and is `Malformed`. There is no
+///    dual-accept: `aitp/0.2` is as unknown as `aitp/9.9`.
+/// 2. [`check_members`] against [`AITP_ENVELOPE_MEMBERS`] — rejects any
+///    top-level member the schema does not declare.
+/// 3. `serde_json::from_value` into [`AitpEnvelope`].
+/// 4. On a residual serde error (which, now that the top-level check has
 ///    already passed, can only come from the nested `Sender` object's own
 ///    `deny_unknown_fields`), [`from_serde_error`] recovers the offending
 ///    field name so the caller can still report `UnknownField` rather
 ///    than a generic parse failure.
 pub fn parse_envelope_wire(value: &CheckedJson) -> Result<AitpEnvelope, EnvelopeParseError> {
     let value = value.as_value();
+    let obj = value
+        .as_object()
+        .ok_or_else(|| EnvelopeParseError::Malformed("envelope is not a JSON object".into()))?;
+    match obj.get("version") {
+        Some(serde_json::Value::String(v)) if v == crate::PROTOCOL_VERSION => {}
+        Some(other) => return Err(EnvelopeParseError::UnknownVersion(other.to_string())),
+        None => return Err(EnvelopeParseError::UnknownVersion("<absent>".into())),
+    }
     check_members("AitpEnvelope", value, AITP_ENVELOPE_MEMBERS)
         .map_err(|e| EnvelopeParseError::UnknownField(e.field))?;
     serde_json::from_value(value.clone()).map_err(|e| {
@@ -396,6 +416,49 @@ mod tests {
             matches!(err, EnvelopeParseError::Malformed(_)),
             "got: {err:?}"
         );
+    }
+
+    /// RFC-AITP-0001 §5.4 check order, step 1: an unknown, absent or
+    /// non-string `version` is `UnknownVersion`, and wins over a member
+    /// outside the set (env-010) and over a malformed body. `aitp/0.2`
+    /// is rejected like any other unknown revision (env-011, strict
+    /// cutover).
+    #[test]
+    fn parse_envelope_wire_checks_version_before_members_and_structure() {
+        let good = serde_json::to_value(sample_envelope(MessageType::Tct)).unwrap();
+        for (version, shown) in [
+            (json!("aitp/0.2"), "\"aitp/0.2\""),
+            (json!("aitp/9.9"), "\"aitp/9.9\""),
+            (json!(3), "3"),
+            (json!(null), "null"),
+        ] {
+            let mut v = good.clone();
+            v["version"] = version;
+            v["trace_id"] = json!("unknown sibling");
+            v.as_object_mut().unwrap().remove("message_id");
+            assert_eq!(
+                parse_envelope_wire(&checked(&v)).unwrap_err(),
+                EnvelopeParseError::UnknownVersion(shown.into())
+            );
+        }
+        let mut absent = good.clone();
+        absent.as_object_mut().unwrap().remove("version");
+        absent["trace_id"] = json!("unknown sibling");
+        assert_eq!(
+            parse_envelope_wire(&checked(&absent)).unwrap_err(),
+            EnvelopeParseError::UnknownVersion("<absent>".into())
+        );
+        // A known version reaches the member-set check.
+        let mut known = good.clone();
+        known["trace_id"] = json!("unknown sibling");
+        assert_eq!(
+            parse_envelope_wire(&checked(&known)).unwrap_err(),
+            EnvelopeParseError::UnknownField("trace_id".into())
+        );
+        assert!(matches!(
+            parse_envelope_wire(&checked(&json!([1, 2]))).unwrap_err(),
+            EnvelopeParseError::Malformed(_)
+        ));
     }
 
     /// RFC-AITP-0001 §5.4.5 / issues #140, #146: a `Value` cannot
