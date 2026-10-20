@@ -7,8 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.18.0] — 2026-10-20
+
 ### BREAKING
 
+- **0.18.0: revocation snapshot fixes.** Spec pin `597efbd` → `299f89a`
+  ([#266](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/266),
+  [#270](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/270)).
+  An unknown snapshot version reports `REVOCATION_SNAPSHOT_INVALID`
+  (#265), and revocation signing refuses a `jti` that is not a lowercase
+  UUID v4 (#268). The wire format is unchanged, so 0.18 interoperates
+  with 0.17 peers. See
+  [`docs/upgrading-0.18.md`](docs/upgrading-0.18.md) for who is affected
+  and how to migrate.
 - **A revocation snapshot with an unknown `version` now reports
   `REVOCATION_SNAPSHOT_INVALID`**
   ([#265](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/265)).
@@ -80,6 +91,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   expiry only when a coordinator Manifest is supplied. It also reports
   `REVOCATION_SNAPSHOT_INVALID` for an unknown snapshot version, which
   agrees with #265.
+- **Spec pin `4bbda67` → `299f89a`**
+  ([#270](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/270)),
+  spec #95 and #96. They change only spec docs (`VERSIONING.md`, the
+  media-type registry, the implementer quickstart) and are not
+  normative. No schema, vector or fixture changes, so the conformance
+  counts above still hold.
+
+### Security
+
+- **Lockfile bump for RUSTSEC-2026-0381 and RUSTSEC-2026-0382**
+  ([#275](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/275)).
+  `Cargo.lock` moves to `rustls-webpki` 0.103.16 and `webpki-roots`
+  1.0.10. This changes only the lockfile, and a published crate does not
+  ship its lockfile, so if you depend on the crates from crates.io, run
+  `cargo update -p rustls-webpki -p webpki-roots` in your own project.
 
 ## [0.17.0] — 2026-10-20
 
