@@ -13,6 +13,7 @@ mod agent;
 #[cfg(feature = "session-bundle")]
 mod bundle;
 mod delegation;
+mod envelope;
 mod helpers;
 mod manifest;
 mod oidc;
@@ -52,6 +53,10 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m.py().get_type::<manifest::ManifestVerificationError>(),
     )?;
     m.add(
+        "EnvelopeVerificationError",
+        m.py().get_type::<envelope::EnvelopeVerificationError>(),
+    )?;
+    m.add(
         "RevocationVerificationError",
         m.py().get_type::<revocation::RevocationVerificationError>(),
     )?;
@@ -61,6 +66,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
         m
     )?)?;
     m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
+    m.add_function(wrap_pyfunction!(envelope::verify_envelope_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
     #[cfg(feature = "session-bundle")]
     {

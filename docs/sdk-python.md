@@ -268,6 +268,49 @@ and the spec's
 `revocation_signing_bytes` returns the exact signed bytes, for use by an
 independent verifier or an HSM signing path.
 
+### Envelope signatures (RFC-AITP-0001 §5.4)
+
+```python
+envelope = bob.sign_envelope(
+    "mutual_hello",
+    json.dumps({"hello": True}),
+    extensions_json=json.dumps({"com.example.trace": {"id": "t-1"}}),   # optional
+)
+aitp.verify_envelope(envelope, bob.aid)   # pin the expected sender
+tampered = json.loads(envelope) | {"message_type": "mutual_hello_ack"}
+try:
+    aitp.verify_envelope(json.dumps(tampered), bob.aid)
+except aitp.EnvelopeVerificationError as err:
+    print(err.code)   # INVALID_SIGNATURE
+```
+
+`sign_envelope(message_type, payload_json, extensions_json=None,
+message_id=None, timestamp=None)` signs an `aitp/0.3` envelope over signing
+input v2. The signature covers every member except `signature`, including
+`extensions`. `message_id` defaults to a fresh UUID v4 and `timestamp` to now.
+
+`verify_envelope(envelope_json, expected_sender_aid)` returns `None` or raises
+`EnvelopeVerificationError`, a subclass of `RuntimeError`. Its `.code` is the
+registered spec code of the first failing step of the RFC-AITP-0001 §5.4
+check order:
+
+1. `UNKNOWN_VERSION`: `version` is absent or is not `aitp/0.3`. `aitp/0.2`
+   is rejected exactly like `aitp/9.9`.
+2. `UNKNOWN_FIELD`: a member outside the schema and outside `extensions`.
+   `INVALID_ENVELOPE`: any other structural defect, such as a duplicate JSON
+   key (RFC-AITP-0001 §5.4.5), a missing member, an unregistered
+   `message_type` or a non-v4 `message_id`.
+3. `INVALID_SIGNATURE`: the signature does not verify under the expected
+   sender's key, or `sender.agent_id` is not `expected_sender_aid`.
+
+The key comes from `expected_sender_aid`, since every AID encodes its public
+key. A bad `expected_sender_aid` raises `ValueError` instead.
+
+The function checks only that the envelope is well formed and authentic. It
+does not check the timestamp window or deduplicate `message_id`
+(RFC-AITP-0001 §5.5). A receiving endpoint runs those checks itself, in the
+order RFC-AITP-0009 §3.1 sets out.
+
 ### OIDC identity (RFC-AITP-0002)
 
 ```python
@@ -454,6 +497,7 @@ the field names match apart from casing (`grant_voucher` / `grantVoucher`).
 | Handshake completion | `complete()` returns a JSON string; no decoded claims | `complete()` returns an object with `tct`, `claims` and an optional `grantVoucher` |
 | Non-manifest input to manifest verification (including a duplicate key) | `ValueError` | `Error` with `code === 'malformed'` |
 | Revoked-JTI sets | `set` or `frozenset` of `str` (not a `list` or other iterable) | `Array<string>` |
+| `sign_envelope` / `signEnvelope` optional arguments | keyword arguments `extensions_json`, `message_id`, `timestamp` | an `opts` object `{ extensionsJson, messageId, timestamp }` |
 | TCT verification failure | `RuntimeError`, no `.code` | `Error` with napi's generic `code === 'GenericFailure'`, no AITP code |
 
 ## Tests + interop

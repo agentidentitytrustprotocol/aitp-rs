@@ -48,6 +48,7 @@ By default the published `.node` ships the **full** capability surface:
 
 - handshake, TCT, delegation, manifest verification and OIDC identity
 - revocation-list signing and verification
+- envelope signing and verification
 - TCT renewal, session bundles, SPKI pinning and multi-hop delegation
 
 Each capability below is a named feature, all on by default. A minimal build
@@ -118,13 +119,14 @@ compact-JWS token strings** (`header.payload.signature`).
 
 | Export                    | Feature | Notes |
 |---------------------------|:-------:|-------|
-| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signRevocationList(entries, expiresInSecs?)` |
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signEnvelope(messageType, payloadJson, opts?)` (`opts.extensionsJson`, `opts.messageId`, `opts.timestamp`), `signRevocationList(entries, expiresInSecs?)` |
 | `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
 | `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
 | `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
+| `verifyEnvelope(json, expectedSenderAid)` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Throws an `Error` with `code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-node.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
 | `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |

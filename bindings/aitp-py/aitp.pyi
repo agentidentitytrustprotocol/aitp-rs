@@ -189,6 +189,24 @@ class AitpAgent:
         string `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" |
         null}`."""
         ...
+    def sign_envelope(
+        self,
+        message_type: str,
+        payload_json: str,
+        extensions_json: Optional[str] = ...,
+        message_id: Optional[str] = ...,
+        timestamp: Optional[int] = ...,
+    ) -> str:
+        """Sign an `AitpEnvelope` from this agent (RFC-AITP-0001 §5.4,
+        `aitp/0.3` signing input v2) and return its JSON.
+
+        `message_type` is the wire string (e.g. `"mutual_hello"`),
+        `payload_json` a JSON object, `extensions_json` an optional JSON
+        object for the `extensions` member (signed like every other member).
+        `message_id` (UUID v4) defaults to a fresh one, `timestamp` (unix
+        seconds) to now. Raises `ValueError` on bad input. The counterpart
+        of `verify_envelope`."""
+        ...
     def sign_revocation_list(
         self,
         entries: list[dict],
@@ -343,6 +361,36 @@ def verify_revocation_list(
 
     Verification without a pinned expected issuer would be near-worthless —
     any key can sign a list — which is why the AID is required, not optional."""
+    ...
+
+class EnvelopeVerificationError(RuntimeError):
+    """An AITP envelope failed verification.
+
+    `code` is the registered RFC-AITP-0001 §5.7 error code of the first
+    failing step of the §5.4 check order — one of `UNKNOWN_VERSION`,
+    `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`. **Branch on
+    `code`, never on the message text.**"""
+
+    code: str
+
+def verify_envelope(envelope_json: str, expected_sender_aid: str) -> None:
+    """Verify an `AitpEnvelope` JSON string sent by `expected_sender_aid`.
+
+    Returns `None` on success; raises `EnvelopeVerificationError` with the
+    code of the first failing RFC-AITP-0001 §5.4 step: `version` absent or
+    not `aitp/0.3` → `UNKNOWN_VERSION`; a member outside the schema and
+    outside `extensions` → `UNKNOWN_FIELD`; any other structural defect
+    (duplicate key, missing member, unregistered `message_type`, non-v4
+    `message_id`) → `INVALID_ENVELOPE`; a signature that does not verify over
+    signing input v2 under the expected sender's key, or a `sender.agent_id`
+    other than `expected_sender_aid` → `INVALID_SIGNATURE`. Raises
+    `ValueError` if `expected_sender_aid` is not a valid AID.
+
+    The key comes from `expected_sender_aid` (an AID encodes its public key).
+    Establishes **authenticity and structure only**: replay and freshness
+    (RFC-AITP-0001 §5.5 — timestamp window, `message_id` deduplication) are
+    the receiving endpoint's job in the RFC-AITP-0009 §3.1 order and are not
+    checked here."""
     ...
 
 def revocation_signing_bytes(envelope_json: str) -> bytes:

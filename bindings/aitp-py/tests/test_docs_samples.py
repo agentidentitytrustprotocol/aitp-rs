@@ -233,6 +233,24 @@ def _revocation_lists(ns):
     return _ns(ns, locals())
 
 
+def _envelope_signatures(ns):
+    # docs/sdk-python.md § Envelope signatures (RFC-AITP-0001 §5.4)
+    bob = ns.bob
+    envelope = bob.sign_envelope(
+        "mutual_hello",
+        json.dumps({"hello": True}),
+        extensions_json=json.dumps({"com.example.trace": {"id": "t-1"}}),   # optional
+    )
+    aitp.verify_envelope(envelope, bob.aid)   # pin the expected sender
+    tampered = json.loads(envelope) | {"message_type": "mutual_hello_ack"}
+    try:
+        aitp.verify_envelope(json.dumps(tampered), bob.aid)
+    except aitp.EnvelopeVerificationError as err:
+        print(err.code)   # INVALID_SIGNATURE
+        caught = err
+    return _ns(ns, locals())
+
+
 def _oidc_identity(ns):
     # docs/sdk-python.md § OIDC identity (RFC-AITP-0002)
     bob, bob_manifest = ns.bob, ns.bob_manifest
@@ -441,6 +459,13 @@ def test_revocation_lists(capsys):
     assert capsys.readouterr().out.splitlines()[-1] == "issuer_mismatch"
     assert len(ns.revoked) == 1
     assert isinstance(ns.signed_bytes, bytes)
+
+
+def test_envelope_signatures(capsys):
+    ns = _envelope_signatures(_mutual_handshake())
+    assert capsys.readouterr().out.strip() == "INVALID_SIGNATURE"
+    assert isinstance(ns.caught, RuntimeError)
+    assert json.loads(ns.envelope)["sender"]["agent_id"] == ns.bob.aid
 
 
 def test_oidc_identity():

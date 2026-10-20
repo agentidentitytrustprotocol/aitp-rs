@@ -20,6 +20,7 @@ mod agent;
 #[cfg(feature = "session-bundle")]
 mod bundle;
 mod delegation;
+mod envelope;
 mod helpers;
 mod oidc;
 #[cfg(feature = "spki-pinning")]

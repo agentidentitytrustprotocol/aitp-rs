@@ -34,6 +34,7 @@ By default the published wheel ships the **full** capability surface:
 
 - handshake, TCT, delegation, manifest verification and OIDC identity
 - revocation-list signing and verification
+- envelope signing and verification
 - TCT renewal, session bundles, SPKI pinning and multi-hop delegation
 
 Each capability below is a named feature, all on by default. A minimal wheel
@@ -99,7 +100,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 
 | Type / function       | Feature | Notes |
 |-----------------------|:-------:|-------|
-| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_revocation_list(...)` |
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_envelope(message_type, payload_json, ...)`, `sign_revocation_list(...)` |
 | `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
 | `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
 | `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
@@ -108,6 +109,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `TctStore`            | default | Cache for `AitpAgent.verify_tct_cached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None)`: verifies under the key the delegator's Manifest designates |
 | `verify_manifest_json()` / `ManifestVerificationError` | default | Raises `ManifestVerificationError` with `.code`; non-manifest input raises `ValueError` |
+| `verify_envelope()` / `EnvelopeVerificationError` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Raises with `.code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-python.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
 | `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
