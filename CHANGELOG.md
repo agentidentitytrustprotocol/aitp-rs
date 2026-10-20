@@ -33,6 +33,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
   corrected.
 
+### Changed
+
+- **The cross-implementation acceptance job (`xcheck`) pins
+  aitp-verifier-py at `e335348`** (its #66), up from `f335f4f`. That
+  verifier rejects a negative envelope timestamp and a malformed
+  signature as `INVALID_ENVELOPE`, and caps a session bundle's TCT
+  expiry only when a coordinator Manifest is supplied. It also reports
+  `REVOCATION_SNAPSHOT_INVALID` for an unknown snapshot version, which
+  agrees with #265.
+
 ## [0.17.0] — 2026-10-20
 
 ### BREAKING
