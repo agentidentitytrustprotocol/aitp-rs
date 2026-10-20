@@ -46,7 +46,16 @@ fn reference_now() -> Timestamp {
     Timestamp(1_711_900_100)
 }
 
+/// The committed bytes were minted by aitp-verifier-py at the pinned
+/// `tests/AITP_VERIFIER_PY_VERSION`, which implements `aitp/0.2`. Under
+/// the strict `aitp/0.3` cutover they cannot verify (the version is
+/// signed), and they must not be hand-edited. Re-enable once
+/// aitp-verifier-py ships `aitp/0.3` and the fixture is regenerated per
+/// the sibling README; until then
+/// `committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover` pins
+/// the cutover against these same bytes.
 #[test]
+#[ignore = "fixture minted by aitp-verifier-py at aitp/0.2; regenerate once verifier-py ships aitp/0.3"]
 fn aitp_verifier_py_committed_bundle_verifies() {
     let envelope = fixture();
     // The wire envelope is `{"session_bundle": {<inner body incl.
@@ -75,6 +84,34 @@ fn aitp_verifier_py_committed_bundle_verifies() {
         }
         other => panic!("committed aitp-verifier-py bundle must verify clean, got {other:?}"),
     }
+}
+
+/// Strict cutover (spec bf00e75, `aitp/0.3`): the committed `aitp/0.2`
+/// bundle is refused on its version, before any signature work, rather
+/// than dual-accepted.
+#[test]
+fn committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover() {
+    let body = fixture()
+        .get("session_bundle")
+        .expect("envelope carries the transport-wrapped body")
+        .clone();
+    assert_eq!(
+        body["version"], "aitp/0.2",
+        "fixture regenerated: drop this test"
+    );
+    let bundle: aitp_session_bundle::SessionTrustBundle =
+        serde_json::from_value(body).expect("aitp-verifier-py-minted bundle deserializes");
+    let verifier_aid = receiving_participant_aid();
+    let ctx = VerifySessionBundleContext {
+        verifier_aid: &verifier_aid,
+        now: reference_now(),
+        revocation_check: None,
+        coordinator_key: aitp_session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+    };
+    assert!(matches!(
+        verify_session_bundle(&bundle, &ctx),
+        Err(SessionBundleError::VersionMismatch)
+    ));
 }
 
 /// The committed bundle must NOT verify when reframed into the pre-spec-fix
