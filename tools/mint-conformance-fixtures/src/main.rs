@@ -15,7 +15,7 @@
 //!
 //! Output is byte-stable for the same KAT seeds + reference clock.
 
-use aitp_core::{base64url, jcs, Aid, Timestamp};
+use aitp_core::{base64url, jcs, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use jsonwebtoken::{EncodingKey, Header};
 use serde::Serialize;

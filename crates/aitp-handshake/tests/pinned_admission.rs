@@ -721,7 +721,8 @@ async fn wire_replay_is_detected_before_structure() {
 /// (UNKNOWN_FIELD), then the signature (INVALID_SIGNATURE).
 #[tokio::test]
 async fn wire_envelope_check_order_is_version_then_members_then_signature() {
-    let cases: [(&dyn Fn(&mut serde_json::Value), &str); 4] = [
+    type Mutate<'a> = &'a dyn Fn(&mut serde_json::Value);
+    let cases: [(Mutate, &str); 4] = [
         (
             &|w| {
                 w["version"] = "aitp/9.9".into();

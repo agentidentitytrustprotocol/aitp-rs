@@ -18,6 +18,16 @@ verifies these exact committed bytes. Neither side re-mints — see
 `aitp_verifier_py_committed_bundle_verifies` and its negative twin
 `aitp_verifier_py_committed_bundle_rejects_the_sibling_shape`.
 
+**Pending regeneration (aitp/0.3).** The committed bytes were minted at
+`aitp/0.2` by the pinned `aitp-verifier-py`, which does not yet implement
+`aitp/0.3`. Under the strict cutover `aitp-rs` rejects them on `version`,
+so `aitp_verifier_py_committed_bundle_verifies` is `#[ignore]`d and
+`committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover` asserts the
+rejection instead. Once the pin moves to an `aitp/0.3` aitp-verifier-py,
+regenerate the file with the command below, re-enable the positive test
+and drop the cutover test. Do not hand-edit the `version` member: it is
+signed.
+
 Provenance is reproducible, not just asserted: running the command below
 against the two pinned commits reproduces this file byte-for-byte. If it
 ever stops doing so, the fixture is no longer what this README claims and

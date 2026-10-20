@@ -50,10 +50,12 @@ enum Command {
         /// Stop on first failure.
         #[arg(long)]
         fail_fast: bool,
-        /// Protocol version to gate on: `v0.2` (default) fails the run
-        /// when any `required_for_v0_2` fixture fails or is SKIPped
-        /// (e.g. OP_NOT_SUPPORTED); `v0.1` gates on `required_for_v0_1`
-        /// instead. Any FAIL fails the run under either profile.
+        /// Fixture gate key: `v0.2` (default) fails the run when any
+        /// `required_for_v0_2` fixture fails or is SKIPped (e.g.
+        /// OP_NOT_SUPPORTED). At `aitp/0.3` that key keeps its name and
+        /// marks the core tier, so `v0.2` is the gate for this
+        /// implementation. `v0.1` gates on `required_for_v0_1` instead.
+        /// Any FAIL fails the run under either profile.
         #[arg(long, default_value_t = Profile::V0_2)]
         profile: Profile,
     },

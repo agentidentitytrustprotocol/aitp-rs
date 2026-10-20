@@ -594,7 +594,7 @@ impl PinnedAdmission {
             .map_err(|e| AdmissionError::Identity(e.to_string()))?;
 
         // Step 7: envelope signature.
-        let digest = envelope_signing_digest(&env)
+        let digest = envelope_signing_digest(env)
             .map_err(|e| AdmissionError::InvalidEnvelope(e.to_string()))?;
         let sig = Signature::parse(&env.signature).map_err(|_| AdmissionError::InvalidSignature)?;
         key.key

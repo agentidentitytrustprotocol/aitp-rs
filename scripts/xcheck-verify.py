@@ -528,10 +528,12 @@ def main() -> int:
     print("  ok    committed revocation snapshot verified by aitp-rs")
     print("          (crates/aitp-tct spec_signed_example_snapshot_verifies,")
     print("           + its negative spec_signed_example_rejects_the_wrapped_form)")
-    print("  ok    committed session bundle (minted by aitp-verifier-py's own")
-    print("        minter) verified by aitp-rs")
-    print("          (crates/aitp-session-bundle aitp_verifier_py_committed_bundle_verifies,")
-    print("           + its negative aitp_verifier_py_committed_bundle_rejects_the_sibling_shape)")
+    print("  --    committed session bundle (minted by aitp-verifier-py's own")
+    print("        minter): the committed bytes are aitp/0.2, so under the strict")
+    print("        aitp/0.3 cutover aitp-rs rejects them on version")
+    print("          (crates/aitp-session-bundle committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover;")
+    print("           the positive aitp_verifier_py_committed_bundle_verifies is #[ignore]d")
+    print("           until the fixture is regenerated from an aitp/0.3 aitp-verifier-py)")
     print(
         "  Both are asserted by `cargo test --workspace`, not by this script -- "
         "see tests/xcheck-fixtures/session-bundle/README.md for the bundle's provenance."
