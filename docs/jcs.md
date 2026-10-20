@@ -175,9 +175,13 @@ comment reading "same convention as the revocation snapshot" is what
 turned one misread vector into two divergent artifacts: the code was
 corrected and the pointer left behind. State the rule and cite the RFC.
 
-In **AITP v0.2** JCS only governs the protocol-internal artifacts, so we
+In **AITP v0.3** JCS only governs the protocol-internal artifacts, so we
 pin the jcs-sha256 KAT for the **JCS-profile** types: Manifest,
-revocation snapshot and session bundle. Vectors for all three declare
+revocation snapshot and session bundle. The envelope is JCS-profile too:
+its signing input is `"aitp-envelope-v2" || 0x00 || JCS(envelope minus
+signature)` (RFC-AITP-0001 §5.4, `aitp_core::envelope_signing_input`),
+pinned by the spec's `signed-examples/envelope/` artifacts rather than a
+jcs-sha256 vector. Vectors for all three declare
 `signing_input: "body"`, and `crates/aitp-core/tests/kat.rs` asserts that
 declaration rather than inferring the shape — see
 [testing.md](testing.md) for why that distinction matters. The v0.1 TCT and delegation JCS

@@ -1,6 +1,6 @@
 //! TCT verification binding.
 //!
-//! In AITP v0.2 a TCT is an **opaque compact-JWS string** (`typ:
+//! Since AITP v0.2 a TCT is an **opaque compact-JWS string** (`typ:
 //! aitp-tct+jwt`), not a JSON envelope. The binding receives the token
 //! verbatim, peeks at the unverified payload to learn the issuer AID,
 //! then re-establishes the issuer key from that AID inside `verify_tct`.

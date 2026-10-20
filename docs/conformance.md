@@ -3,7 +3,7 @@
 The conformance runner exists so that AITP implementations in any language
 can be validated against the same fixtures. This page covers two things:
 the **adapter protocol and runner architecture** (how any implementation
-is driven), and the **v0.2 conformance matrix** (where `aitp-rs` stands
+is driven), and the **conformance matrix** (where `aitp-rs` stands
 today — jump to [the matrix](#v02-conformance-matrix)).
 
 ## Scope
@@ -388,20 +388,26 @@ them.
 
 ### Summary
 
-These counts are **at pin `ab214d2`**, the spec commit in
+These counts are **at pin `bf00e75`** (`aitp/0.3`), the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With all four features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` | 74 | 74 PASS | 73 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` (the `aitp/0.3` core tier) | 78 | 78 PASS | 77 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 7 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 5 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
-| **Total** | **98** | **75 pass / 0 fail / 23 skip** | **96 pass / 0 fail / 2 skip** |
+| **Total** | **102** | **79 pass / 0 fail / 23 skip** | **100 pass / 0 fail / 2 skip** |
+
+The section and gate keep their `v0.2` names on purpose. The spec keeps the
+fixture key `required_for_v0_2` for `aitp/0.3` ("the key keeps its v0.2
+name so existing runners keep working; for `aitp/0.3` it marks the core
+tier"), so the runner's default `--profile v0.2` is the `aitp/0.3` core
+gate.
 
 Why the skips look the way they do:
 
@@ -423,12 +429,12 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 75 pass / 0 fail / 23 skip at the pin. The `--profile v0.1`
+# Strict: 79 pass / 0 fail / 23 skip at the pin. The `--profile v0.1`
 # counts are the same; only the gate's required flag differs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 96 pass / 0 fail / 2 skip at the pin.
+# Opt-in (draft RFCs and extensions): 100 pass / 0 fail / 2 skip at the pin.
 # The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
@@ -473,7 +479,7 @@ is set, as explained above.
 
 | Area | Fixtures |
 |---|---|
-| Envelope and key resolution: RFC-AITP-0001, RFC-AITP-0007 | `env-001`–`env-007` |
+| Envelope and key resolution: RFC-AITP-0001, RFC-AITP-0007 | `env-001`–`env-011` (`env-007`–`env-011`: the `aitp-envelope-v2` signing input and the §5.4 check order, `aitp/0.2` strict cutover included) |
 | Manifest: RFC-AITP-0003 | `man-001`–`man-007` |
 | Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` |
 | Pinned-key P-256, tagged AIDs and descriptor shape: RFC-AITP-0002 §1, §3.1–§3.3 | `id-010`, `id-011`, `id-011b`, `id-012`, `id-017`, `id-018` |

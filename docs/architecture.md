@@ -9,8 +9,8 @@ two agents perform a Mutual Handshake, exchange signed Trust
 Context Tokens (TCTs), and then invoke each other's capabilities
 under those TCTs.
 
-This workspace tracks **AITP v0.2** (protocol version literal
-`aitp/0.2`). v0.2 signs its artifacts under two profiles: the portable
+This workspace tracks **AITP v0.3** (protocol version literal
+`aitp/0.3`). AITP signs its artifacts under two profiles: the portable
 trust artifacts (TCT, grant voucher, delegation token) are RFC 7515
 compact JWS, and the protocol-internal artifacts stay on the JCS
 embedded-signature profile. The protocol side of that split is in the
@@ -43,13 +43,13 @@ The profiles themselves (wire form, signing input, the boundary rule, the
 `alg`/`typ` pinning) are defined in
 [RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md) and explained in
 the spec's [architecture overview §2.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/architecture.md#21-two-signing-profiles)
-and the [Implementer Quickstart](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/implementer-quickstart.md#the-headline-v02-change-two-signing-profiles).
+and the [Implementer Quickstart](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/docs/implementer-quickstart.md#two-signing-profiles).
 This is where each one lives in `aitp-rs`:
 
 | Profile | Shared machinery | Artifacts and their crates |
 |---|---|---|
 | **Compact JWS** (RFC-AITP-0001 §5.4.5) | `aitp-crypto/src/jws.rs`: strict compact parsing, `alg` derived from the signer's AID, exact `typ` match (`TOKEN_ALG_MISMATCH` / `TOKEN_TYP_MISMATCH`) | TCT and grant voucher: `aitp-tct`. Delegation token: `aitp-delegation` |
-| **JCS embedded-signature** (RFC-AITP-0001 §5.4.1) | `aitp-core/src/jcs.rs` (canonicalization) + `aitp-crypto` (Ed25519 / P-256 signing); see [`jcs.md`](jcs.md) | Envelope: `aitp-envelope`. Manifest: `aitp-manifest`. Revocation snapshot: `aitp-tct/src/revocation.rs`. Session-bundle outer signature: `aitp-session-bundle`. Handshake payloads: `aitp-handshake/src/payloads.rs` |
+| **JCS embedded-signature** (RFC-AITP-0001 §5.4.1) | `aitp-core/src/jcs.rs` (canonicalization) + `aitp-crypto` (Ed25519 / P-256 signing); see [`jcs.md`](jcs.md) | Envelope: `aitp-envelope`, over the domain-tagged `aitp-envelope-v2` input (`aitp_core::envelope_signing_input`, RFC-AITP-0001 §5.4). Manifest: `aitp-manifest`. Revocation snapshot: `aitp-tct/src/revocation.rs`. Session-bundle outer signature: `aitp-session-bundle`. Handshake payloads: `aitp-handshake/src/payloads.rs` |
 
 Both profiles support Ed25519 and P-256 (ES256) in every crate above.
 
@@ -315,7 +315,7 @@ and test-only.
 
 A cross-language adapter need only implement that NDJSON protocol; the
 runner, fixtures, and assertion machinery are shared. The full wire
-protocol, the per-tier op table, and the live v0.2 fixture matrix all live in
+protocol, the per-tier op table, and the live fixture matrix all live in
 [`conformance.md`](conformance.md).
 
 ## Language bindings

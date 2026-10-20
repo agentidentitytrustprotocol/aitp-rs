@@ -1,6 +1,6 @@
 // Tiny compact-JWS helpers for the Node SDK test suite.
 //
-// In AITP v0.2 TCTs, grant vouchers, and delegations are opaque compact
+// Since AITP v0.2 TCTs, grant vouchers, and delegations are opaque compact
 // JWS strings (`header.payload.signature`, all base64url). Tests that need
 // to read a claim (e.g. `jti`) or tamper with the signature operate on
 // these helpers rather than `JSON.parse` (which no longer works — the
