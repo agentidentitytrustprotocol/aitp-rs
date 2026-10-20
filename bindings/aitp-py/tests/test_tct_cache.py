@@ -81,6 +81,44 @@ def test_tampered_bytes_miss_cache_and_are_rejected():
         initiator.verify_tct_cached(tampered, GRANT, store)
 
 
+def test_same_signing_input_with_different_signature_gets_no_cached_result():
+    """RFC-AITP-0001 §5.4.3 review (#266): the key is SHA-256 of the whole
+    compact JWS, i.e. of the signing input (header.payload) AND the
+    signature. A token with the same signing input but other signature
+    bytes never gets the cached result: it misses, is fully verified, and
+    is not cached on failure."""
+    initiator, tct = _held_tct()
+    store = aitp.TctStore(128)
+    initiator.verify_tct_cached(tct, GRANT, store)
+    assert store.len() == 1
+
+    header, payload, sig = tct.split(".")
+    flipped = ("A" if sig[0] != "A" else "B") + sig[1:]
+    for other_sig in (flipped, sig + "A", "", "AAAA"):
+        other = f"{header}.{payload}.{other_sig}"
+        assert other != tct
+        with pytest.raises(Exception):
+            initiator.verify_tct_cached(other, GRANT, store)
+        assert store.len() == 1, "a failed verification must not be cached"
+
+    # The genuine token still hits.
+    assert initiator.verify_tct_cached(tct, GRANT, store).jti == (
+        initiator.verify_tct(tct, GRANT).jti
+    )
+    assert store.len() == 1
+
+
+def test_revocation_is_checked_on_a_cache_hit():
+    initiator, tct = _held_tct()
+    store = aitp.TctStore(8)
+    jti = initiator.verify_tct_cached(tct, GRANT, store).jti
+    assert store.len() == 1
+    with pytest.raises(Exception):
+        initiator.verify_tct_cached(tct, GRANT, store, revoked_jtis={jti})
+    # Without the revocation set the cached entry still serves.
+    assert initiator.verify_tct_cached(tct, GRANT, store).jti == jti
+
+
 def test_missing_grant_rejected():
     initiator, tct = _held_tct()
     store = aitp.TctStore(128)

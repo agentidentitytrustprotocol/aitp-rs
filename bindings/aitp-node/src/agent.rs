@@ -9,7 +9,6 @@ use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, M
 use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
-use uuid::Uuid;
 
 use crate::delegation::{
     build_delegation_token_json, issue_tct_for_delegatee_json, JsDelegationVerified,
@@ -412,8 +411,12 @@ impl AitpAgent {
         let rust_entries: Vec<RevocationEntry> = entries
             .iter()
             .map(|e| {
-                let jti = Uuid::parse_str(&e.jti)
-                    .map_err(|_| Error::from_reason(format!("invalid jti uuid: {}", e.jti)))?;
+                // Strict wire form (#268): lowercase hyphenated UUID v4.
+                // A lenient parse would sign an uppercase jti in normalized
+                // form, or a non-v4 jti that verifyRevocationList rejects.
+                let jti = aitp_core::ids::parse_v4(&e.jti).map_err(|err| {
+                    Error::from_reason(format!("jti is not a lowercase UUID v4: {} ({err})", e.jti))
+                })?;
                 let revoked_at = match e.revoked_at {
                     None => now,
                     Some(v) if v.is_finite() => Timestamp(v as i64),

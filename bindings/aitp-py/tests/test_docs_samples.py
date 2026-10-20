@@ -219,7 +219,7 @@ def _revocation_lists(ns):
     import uuid
 
     snapshot = bob.sign_revocation_list(
-        [{"jti": str(uuid.uuid4()), "reason": "compromised"}],   # jti must be a UUID
+        [{"jti": str(uuid.uuid4()), "reason": "compromised"}],   # jti must be a lowercase UUID v4
         expires_in_secs=600,
     )
     aitp.verify_revocation_list(snapshot, bob.aid)   # pin the expected issuer

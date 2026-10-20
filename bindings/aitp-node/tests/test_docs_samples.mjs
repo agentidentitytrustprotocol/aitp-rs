@@ -204,7 +204,7 @@ function revocationLists(ns) {
   // docs/sdk-node.md § Revocation lists (RFC-AITP-0008)
   const { alice, bob, revoked } = ns;
   const snapshot = bob.signRevocationList(
-    [{ jti: randomUUID(), reason: 'compromised' }],   // jti must be a UUID
+    [{ jti: randomUUID(), reason: 'compromised' }],   // jti must be a lowercase UUID v4
     600,
   );
   verifyRevocationList(snapshot, bob.aid);   // pin the expected issuer

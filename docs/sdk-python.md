@@ -237,7 +237,7 @@ except aitp.ManifestVerificationError as err:
 import uuid
 
 snapshot = bob.sign_revocation_list(
-    [{"jti": str(uuid.uuid4()), "reason": "compromised"}],   # jti must be a UUID
+    [{"jti": str(uuid.uuid4()), "reason": "compromised"}],   # jti must be a lowercase UUID v4
     expires_in_secs=600,
 )
 aitp.verify_revocation_list(snapshot, bob.aid)   # pin the expected issuer
@@ -250,7 +250,8 @@ revoked |= {e["jti"] for e in json.loads(snapshot)["revocation_list"]["entries"]
 signed_bytes = aitp.revocation_signing_bytes(snapshot)   # JCS of the inner body
 ```
 
-`sign_revocation_list` entries take `jti` (a UUID string), plus optional
+`sign_revocation_list` entries take `jti` (a lowercase hyphenated UUID v4,
+as `str(uuid.uuid4())` returns; any other form raises `ValueError`), plus optional
 `revoked_at` (unix seconds, defaulting to now) and `reason`.
 
 `verify_revocation_list(envelope_json, expected_issuer_aid, now_unix_secs=None)`
@@ -258,6 +259,10 @@ returns `None` or raises `RevocationVerificationError`. Its `.code` is one of
 `signature_invalid`, `issuer_mismatch`, `version_unknown`, `expired`,
 `unknown_field` (a member outside the schema) or `malformed` (including a
 duplicate JSON key). A bad `expected_issuer_aid` raises `ValueError` instead.
+These are the binding's own lowercase cause codes, not the spec's registered
+codes. `version_unknown` (a `version` other than `aitp/0.3`, checked before
+the signature) and `malformed` are separate codes here, but
+both are the spec's `REVOCATION_SNAPSHOT_INVALID` (spec `VERSIONING.md`).
 
 The function checks only that the snapshot is authentic and has not expired.
 It does not decide whether the snapshot is fresh enough. That policy belongs

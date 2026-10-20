@@ -572,6 +572,32 @@ mod session_bundle_wire_shape {
         assert_err(&resp, "v", "MANIFEST_EXPIRED");
     }
 
+    /// `bundle-008-version-unknown`'s shape: a validly signed bundle
+    /// whose `version` is changed afterwards to `aitp/9.9`, so its
+    /// signature no longer verifies either. `version` is checked before
+    /// the signature (RFC-AITP-0010 §5 step 1), so the code is the
+    /// bundle's unknown-version code (spec VERSIONING.md), not
+    /// `BUNDLE_INVALID_SIGNATURE`.
+    #[test]
+    fn unknown_version_beats_invalid_signature() {
+        let mut state = AdapterState::default();
+        let mut body = issue_bundle(&mut state);
+        body["version"] = json!("aitp/9.9");
+
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_session_bundle",
+            json!({
+                "session_bundle": { "session_bundle": body },
+                "verifier_aid": participant().aid().to_string(),
+                "now": NOW + 100,
+                "coordinator_manifest": manifest_envelope(&coordinator(), 24 * 3600),
+            }),
+        );
+        assert_err(&resp, "v", "BUNDLE_VERSION_MISMATCH");
+    }
+
     /// #238: there is no AID-only fallback. A bundle that would verify
     /// under the coordinator's AID is still rejected without its
     /// Manifest, as KEY_RESOLUTION_FAILED (RFC-AITP-0010 §5 step 5).
