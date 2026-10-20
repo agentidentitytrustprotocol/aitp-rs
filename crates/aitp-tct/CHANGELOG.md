@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.18.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-tct-v0.17.0...aitp-tct-v0.18.0) - 2026-10-20
+
+### Fixed
+
+- *(revocation)* [**breaking**] report REVOCATION_SNAPSHOT_INVALID for unknown snapshot versions ([#265](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/265)) ([#266](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/266))
+
 ## [0.17.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-tct-v0.16.0...aitp-tct-v0.17.0) - 2026-10-20
 
 ### Added
