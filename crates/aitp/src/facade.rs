@@ -350,7 +350,7 @@ fn interpret_aitp_envelope_response(
 ) -> Result<AitpEnvelope, FacadeError> {
     validate_aitp_response_shape(status, content_type, body, max_bytes)?;
     // RFC-AITP-0001 §5.4.5 / issue #140: same rationale as the server
-    // side's `parse_envelope_request` — a duplicate key anywhere in the
+    // side's `receive_envelope` — a duplicate key anywhere in the
     // response body (top level or nested inside `payload`) must be
     // rejected against the ORIGINAL bytes, before a `Value` (which would
     // already have silently collapsed it) is ever built.

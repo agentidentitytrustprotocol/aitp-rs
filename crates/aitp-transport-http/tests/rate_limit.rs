@@ -431,6 +431,48 @@ async fn replayed_envelope_does_not_consume_rate_limit_budget() {
     assert_eq!(resp.status().as_u16(), 429);
 }
 
+/// Issue #255, RFC-AITP-0009 §3.1: rate limiting runs before schema
+/// parsing, so bodies that are not JSON, carry an unknown `version`, or
+/// are stale count against the source's budget, and once it is spent
+/// they are shed with 429 rather than answered with an error envelope.
+#[tokio::test]
+async fn malformed_and_stale_requests_consume_rate_limit_budget() {
+    let port = spawn_rate_limited_server(3).await;
+    let client = reqwest::Client::new();
+    let url = format!("http://127.0.0.1:{port}/aitp/handshake/hello");
+    let post = |body: Vec<u8>| {
+        client
+            .post(&url)
+            .header("x-forwarded-for", "8.8.8.8")
+            .header(reqwest::header::CONTENT_TYPE, "application/json")
+            .body(body)
+            .send()
+    };
+
+    let mut unknown_version = serde_json::to_value(fresh_hello_envelope()).unwrap();
+    unknown_version["version"] = "aitp/9.9".into();
+    let key = AitpSigningKey::from_seed(&[0xE2; 32]);
+    let stale = sign_envelope_with(
+        &key,
+        MessageType::MutualHello,
+        serde_json::json!({}),
+        Uuid::new_v4(),
+        Timestamp(Timestamp::now().0 - 7200),
+    )
+    .unwrap();
+    for body in [
+        b"{not json".to_vec(),
+        serde_json::to_vec(&unknown_version).unwrap(),
+        serde_json::to_vec(&stale).unwrap(),
+    ] {
+        let resp = post(body).await.unwrap();
+        assert_eq!(resp.status().as_u16(), 400, "within the limit");
+    }
+    let resp = post(b"{not json".to_vec()).await.unwrap();
+    assert_eq!(resp.status().as_u16(), 429);
+    assert!(resp.bytes().await.unwrap().is_empty());
+}
+
 #[test]
 fn allows_traffic_below_per_aid_limit_then_denies() {
     // The per-AID gate (keyed on the envelope sender) is the stronger,
