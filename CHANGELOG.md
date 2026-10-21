@@ -7,8 +7,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.19.0] — 2026-10-20
+
 ### BREAKING
 
+- **0.19.0: binding UUID handling and the adapter's revocation snapshot
+  rule.** Spec pin `299f89a` → `59407d2`
+  ([#280](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/280)
+  and this release's notes PR). The bindings sign only canonical UUID v4
+  ids and normalize `revoked_jtis`, which fixes a Python revocation
+  bypass (#272). The conformance adapter treats a discarded revocation
+  snapshot as absent and applies `revocation_policy.mode` (#271). The Rust
+  crates' API and the wire format are unchanged, so 0.19 interoperates
+  with 0.18 peers. See [`docs/upgrading-0.19.md`](docs/upgrading-0.19.md)
+  for who is affected and how to migrate.
 - **Bindings: wire-bound UUID inputs are strict, and `revoked_jtis`
   lookups normalize and fail closed**
   ([#272](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/272)).

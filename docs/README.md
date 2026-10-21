@@ -36,6 +36,7 @@ the spec's
 | Use the offline `aitp` CLI (keygen / tct / manifest) | [`../crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) |
 | Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
+| Upgrade from 0.18 to 0.19 | [`upgrading-0.19.md`](upgrading-0.19.md) |
 | Upgrade from 0.17 to 0.18 | [`upgrading-0.18.md`](upgrading-0.18.md) |
 | Upgrade from 0.16 to 0.17 | [`upgrading-0.17.md`](upgrading-0.17.md) |
 | Upgrade from 0.15 to 0.16 | [`upgrading-0.16.md`](upgrading-0.16.md) |
