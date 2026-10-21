@@ -274,6 +274,9 @@ impl PyAitpAgent {
     /// supply this** — omitting it silently honors a revoked-but-unexpired
     /// TCT (closes deferred gap F-1). A plain `set[str]` keeps the check
     /// entirely in Rust, avoiding a Python callback under the verify path.
+    /// Entries are lookup keys and are normalized: any RFC 9562 text form
+    /// (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry
+    /// that is not a UUID raises `ValueError` rather than being ignored.
     #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None))]
     fn verify_tct(
         &self,
@@ -299,7 +302,8 @@ impl PyAitpAgent {
     /// elided.
     ///
     /// `revoked_jtis` (F-1) is consulted on every call, cache hits included,
-    /// so a freshly-revoked TCT stops verifying immediately.
+    /// so a freshly-revoked TCT stops verifying immediately. It is
+    /// normalized as in `verify_tct`.
     #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None))]
     fn verify_tct_cached(
         &self,
@@ -358,8 +362,9 @@ impl PyAitpAgent {
     /// `"mutual_hello"`), `payload_json` a JSON object, and
     /// `extensions_json` an optional JSON object for the envelope's
     /// `extensions` member — covered by the signature like every other
-    /// member. `message_id` (UUID v4) defaults to a fresh one and
-    /// `timestamp` (unix seconds) to now. The counterpart of
+    /// member. `message_id` defaults to a fresh UUID v4; a supplied one
+    /// must be the lowercase hyphenated v4 wire form, and any other form
+    /// raises `ValueError`. `timestamp` (unix seconds) defaults to now. The counterpart of
     /// `aitp.verify_envelope`.
     #[pyo3(signature = (message_type, payload_json, extensions_json = None, message_id = None, timestamp = None))]
     fn sign_envelope(
@@ -417,6 +422,8 @@ impl PyAitpAgent {
     /// agent's Manifest (from `build_manifest()`, required) no longer
     /// offers are dropped, a TCT whose `jti` is in `revoked_jtis` is
     /// refused, and a replayed request (same `pop_nonce`) is refused.
+    /// `revoked_jtis` entries are normalized as in `verify_tct`; one that
+    /// is not a UUID raises `ValueError`.
     ///
     /// **Gated by the `renewal` Cargo feature.**
     #[cfg(feature = "renewal")]

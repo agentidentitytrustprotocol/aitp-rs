@@ -309,7 +309,10 @@ impl AitpAgent {
     /// strings; any TCT whose `jti` is in the list is rejected even if
     /// otherwise valid. Omit (or pass `null`) to disable the revocation
     /// gate. The caller is responsible for sourcing the revoked set (e.g.
-    /// from a `RevocationList` it fetched and verified).
+    /// from a `RevocationList` it fetched and verified). Entries are lookup
+    /// keys and are normalized: any RFC 9562 text form (uppercase, braced,
+    /// `urn:uuid:`, unhyphenated) matches. An entry that is not a UUID
+    /// throws rather than being ignored.
     #[napi]
     pub fn verify_tct(
         &self,
@@ -332,7 +335,8 @@ impl AitpAgent {
     /// verification hot path for an agent that sees the same TCT on many
     /// requests). All cheap policy checks (expiry, audience, required grant,
     /// and the optional `revokedJtis` gate) still run on every call; only the
-    /// signature check is elided.
+    /// signature check is elided. `revokedJtis` is normalized as in
+    /// `verifyTct`.
     #[napi]
     pub fn verify_tct_cached(
         &self,
@@ -385,7 +389,8 @@ impl AitpAgent {
     /// Sign an `AitpEnvelope` (RFC-AITP-0001 §5.4) from this agent and
     /// return its JSON. `messageType` is the wire string (e.g.
     /// `"mutual_hello"`) and `payloadJson` a JSON object; `opts` carries
-    /// the optional `extensionsJson`, `messageId` (UUID v4, default fresh)
+    /// the optional `extensionsJson`, `messageId` (lowercase hyphenated
+    /// UUID v4, strictly: other forms throw; default fresh)
     /// and `timestamp` (unix seconds, default now). The counterpart of
     /// `verifyEnvelope`.
     #[napi]
@@ -475,6 +480,8 @@ impl AitpAgent {
     /// agent's Manifest (from `buildManifest()`, required) no longer
     /// offers are dropped, a TCT whose `jti` is in `revokedJtis` is
     /// refused, and a replayed request (same `pop_nonce`) is refused.
+    /// `revokedJtis` entries are normalized as in `verifyTct`; one that is
+    /// not a UUID throws.
     ///
     /// Behind the `renewal` Cargo feature (on by default).
     #[napi]

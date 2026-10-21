@@ -100,7 +100,9 @@ pub struct SignEnvelopeOpts {
     /// JSON object for the envelope's `extensions` member, covered by the
     /// signature like every other member. Omitted when absent.
     pub extensions_json: Option<String>,
-    /// UUID v4. Defaults to a fresh one.
+    /// Lowercase hyphenated UUID v4 (the wire form, RFC-AITP-0001 §5.2).
+    /// Uppercase, braced, `urn:uuid:`, unhyphenated and non-v4 forms are
+    /// refused, not normalized. Defaults to a fresh one.
     pub message_id: Option<String>,
     /// Unix seconds. Defaults to now.
     pub timestamp: Option<i64>,
@@ -133,9 +135,7 @@ pub fn sign_envelope_js(
         .transpose()
         .map_err(|e| Error::from_reason(format!("invalid extensions JSON: {e}")))?;
     let message_id = match opts.message_id.as_deref() {
-        Some(s) => {
-            Uuid::parse_str(s).map_err(|e| Error::from_reason(format!("invalid uuid: {e}")))?
-        }
+        Some(s) => crate::helpers::parse_strict_v4("message_id", s).map_err(Error::from_reason)?,
         None => Uuid::new_v4(),
     };
     let envelope = AitpEnvelope {

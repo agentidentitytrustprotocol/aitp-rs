@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- **Bindings: wire-bound UUID inputs are strict, and `revoked_jtis`
+  lookups normalize and fail closed**
+  ([#272](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/272)).
+  This finishes what #268 started for revocation `entries[].jti`. Python
+  and Node behave identically, and both use `aitp_core::ids`. A binding
+  user who passed non-canonical ids is affected; the Rust crates and the
+  wire format are not. Under the pre-1.0 convention this bumps the minor
+  version. Three things change:
+  - **Strict.** Node `signEnvelope` `opts.messageId` / Python
+    `sign_envelope(message_id=)`, and `SessionBundleBuilder.sessionId()` /
+    `.session_id()`, parse with `aitp_core::ids::parse_v4`. Both values
+    are signed, and the spec schemas require the lowercase hyphenated v4
+    form. These calls used to accept uppercase, braced, `urn:uuid:` and
+    unhyphenated input and sign it lowercased, so the signed id differed
+    from the one the caller held. A bundle `session_id` of any UUID
+    version was signed too, which the bundle schema rejects. Now any
+    non-canonical form throws (Node) or raises `ValueError` (Python),
+    with `message_id is not a lowercase UUID v4: …` or
+    `session_id is not a lowercase UUID v4: …`. Pass `randomUUID()` /
+    `str(uuid.uuid4())` output unchanged.
+  - **Lenient, now in both bindings.** Each `revoked_jtis` / `revokedJtis`
+    deny list (`verifyTct` / `verify_tct`, the `Cached` variants,
+    `processRenewalRequest` / `process_renewal_request`,
+    `verifyDelegation` / `verify_delegation` and their multihop variants)
+    is a lookup key, so each entry is normalized: any RFC 9562 text form
+    matches the canonical `jti`. Node and renewal already normalized.
+    Python's TCT and delegation checks compared strings, so an uppercase
+    or braced entry never matched and the TCT it named was **accepted**.
+    That is fixed. The behaviour is now documented in the docstrings,
+    `index.d.ts`, `aitp.pyi` and both READMEs.
+  - **Fail closed on garbage.** A `revoked_jtis` entry that is not a UUID
+    at all now throws / raises `ValueError`
+    (`revoked_jtis entry is not a UUID: …`). Node's TCT and delegation
+    checks used to drop it, and Python's never matched it, so a list made
+    only of bad entries quietly turned the gate off. Renewal already
+    refused such an entry.
+
 ### Fixed
 
 - **The conformance adapter no longer ignores a revocation snapshot it

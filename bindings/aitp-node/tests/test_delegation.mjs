@@ -257,16 +257,15 @@ test('omitting revokedJtis verifies a revoked delegation', () => {
   assert.equal(verified.delegator, a.aid);
 });
 
-test('malformed jtis in the list are ignored, not treated as matches', () => {
-  // `parseRevokedSet` drops anything that is not a UUID. A list of pure
-  // garbage must therefore behave exactly like an empty one, rather than
-  // rejecting every token that comes near it.
+test('a malformed jti in the list is an error, not silently ignored', () => {
+  // `parseRevokedSet` used to drop anything that was not a UUID, so a list
+  // of pure garbage disabled the revocation gate without a word (#272). It
+  // now fails closed, matching `processRenewalRequest` and the Python SDK.
   const { a, bManifest, delegationToken } = buildVoucher();
-  const verified = verifyDelegation(delegationToken, a.aid, [bManifest], [
-    'not-a-uuid',
-    '',
-  ]);
-  assert.equal(verified.delegator, a.aid);
+  assert.throws(
+    () => verifyDelegation(delegationToken, a.aid, [bManifest], ['not-a-uuid', '']),
+    /revoked_jtis entry is not a UUID: not-a-uuid/,
+  );
 });
 
 test('revocation is consulted only after the signature checks', () => {

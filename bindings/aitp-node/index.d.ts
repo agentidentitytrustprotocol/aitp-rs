@@ -68,7 +68,10 @@ export declare class AitpAgent {
    * strings; any TCT whose `jti` is in the list is rejected even if
    * otherwise valid. Omit (or pass `null`) to disable the revocation
    * gate. The caller is responsible for sourcing the revoked set (e.g.
-   * from a `RevocationList` it fetched and verified).
+   * from a `RevocationList` it fetched and verified). Entries are lookup
+   * keys and are normalized: any RFC 9562 text form (uppercase, braced,
+   * `urn:uuid:`, unhyphenated) matches. An entry that is not a UUID
+   * throws rather than being ignored.
    */
   verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
   /**
@@ -77,7 +80,8 @@ export declare class AitpAgent {
    * verification hot path for an agent that sees the same TCT on many
    * requests). All cheap policy checks (expiry, audience, required grant,
    * and the optional `revokedJtis` gate) still run on every call; only the
-   * signature check is elided.
+   * signature check is elided. `revokedJtis` is normalized as in
+   * `verifyTct`.
    */
   verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
   /**
@@ -100,7 +104,8 @@ export declare class AitpAgent {
    * Sign an `AitpEnvelope` (RFC-AITP-0001 §5.4) from this agent and
    * return its JSON. `messageType` is the wire string (e.g.
    * `"mutual_hello"`) and `payloadJson` a JSON object; `opts` carries
-   * the optional `extensionsJson`, `messageId` (UUID v4, default fresh)
+   * the optional `extensionsJson`, `messageId` (lowercase hyphenated
+   * UUID v4, strictly: other forms throw; default fresh)
    * and `timestamp` (unix seconds, default now). The counterpart of
    * `verifyEnvelope`.
    */
@@ -129,6 +134,8 @@ export declare class AitpAgent {
    * agent's Manifest (from `buildManifest()`, required) no longer
    * offers are dropped, a TCT whose `jti` is in `revokedJtis` is
    * refused, and a replayed request (same `pop_nonce`) is refused.
+   * `revokedJtis` entries are normalized as in `verifyTct`; one that is
+   * not a UUID throws.
    *
    * Behind the `renewal` Cargo feature (on by default).
    */
@@ -204,7 +211,12 @@ export declare class JwksProvider {
 export declare class SessionBundleBuilder {
   /** Construct a builder backed by `coordinator`'s signing key. */
   constructor(coordinator: AitpAgent)
-  /** Set the session ID (UUIDv4 string). Defaults to a fresh one. */
+  /**
+   * Set the session ID. It is signed into the bundle, so it must be the
+   * lowercase hyphenated UUID v4 wire form (RFC-AITP-0010 §3); uppercase,
+   * braced, `urn:uuid:`, unhyphenated and non-v4 forms are refused, not
+   * normalized. Defaults to a fresh one.
+   */
   sessionId(uuidStr: string): this
   /** Override `issued_at` (unix seconds). Defaults to "now" at build. */
   issuedAt(unixSecs: number): this
@@ -515,7 +527,11 @@ export interface SignEnvelopeOpts {
    * signature like every other member. Omitted when absent.
    */
   extensionsJson?: string
-  /** UUID v4. Defaults to a fresh one. */
+  /**
+   * Lowercase hyphenated UUID v4 (the wire form, RFC-AITP-0001 §5.2).
+   * Uppercase, braced, `urn:uuid:`, unhyphenated and non-v4 forms are
+   * refused, not normalized. Defaults to a fresh one.
+   */
   messageId?: string
   /** Unix seconds. Defaults to now. */
   timestamp?: number
@@ -546,6 +562,9 @@ export interface SignEnvelopeOpts {
  * (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
  * SHOULD supply it.** Omitting it silently redeems a delegation whose
  * source TCT has been revoked, which step 7 states as a MUST-reject.
+ * Entries are lookup keys and are normalized: any RFC 9562 text form
+ * (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry that is
+ * not a UUID throws rather than being ignored.
  */
 export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
 
@@ -566,7 +585,7 @@ export declare function verifyDelegation(token: string, verifierAid: string, iss
  * step 7), and once for every hop's `jti`, meaning each chain entry and the
  * outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
  * invalidates every hop downstream of it — there is no partial-validity
- * model.
+ * model. Entries are normalized as in `verifyDelegation`.
  *
  * Note that §6 specifies each hop `jti` be checked against the deny list of
  * *that hop's issuer*, which one flat list cannot express, so it is applied

@@ -46,14 +46,17 @@ impl PySessionBundleBuilder {
         }
     }
 
-    /// Set the session ID (UUIDv4 string). If unset, a fresh one is
+    /// Set the session ID. It is signed into the bundle, so it must be the
+    /// lowercase hyphenated UUID v4 wire form (RFC-AITP-0010 §3);
+    /// uppercase, braced, `urn:uuid:`, unhyphenated and non-v4 forms raise
+    /// `ValueError` rather than being normalized. If unset, a fresh one is
     /// generated at `build()` time.
     fn session_id<'py>(
         mut slf: PyRefMut<'py, Self>,
         uuid_str: &str,
     ) -> PyResult<PyRefMut<'py, Self>> {
-        let id = Uuid::parse_str(uuid_str)
-            .map_err(|e| PyValueError::new_err(format!("invalid uuid: {e}")))?;
+        let id = crate::helpers::parse_strict_v4("session_id", uuid_str)
+            .map_err(PyValueError::new_err)?;
         slf.session_id = Some(id);
         Ok(slf)
     }

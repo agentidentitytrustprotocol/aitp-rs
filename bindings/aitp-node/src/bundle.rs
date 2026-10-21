@@ -59,11 +59,14 @@ impl SessionBundleBuilderJs {
         }
     }
 
-    /// Set the session ID (UUIDv4 string). Defaults to a fresh one.
+    /// Set the session ID. It is signed into the bundle, so it must be the
+    /// lowercase hyphenated UUID v4 wire form (RFC-AITP-0010 §3); uppercase,
+    /// braced, `urn:uuid:`, unhyphenated and non-v4 forms are refused, not
+    /// normalized. Defaults to a fresh one.
     #[napi]
     pub fn session_id(&mut self, uuid_str: String) -> Result<&Self> {
-        let id = Uuid::parse_str(&uuid_str)
-            .map_err(|e| Error::from_reason(format!("invalid uuid: {e}")))?;
+        let id =
+            crate::helpers::parse_strict_v4("session_id", &uuid_str).map_err(Error::from_reason)?;
         self.session_id = Some(id);
         Ok(self)
     }

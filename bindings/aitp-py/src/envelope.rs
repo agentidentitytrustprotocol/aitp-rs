@@ -118,7 +118,10 @@ pub fn verify_envelope_py(envelope_json: &str, expected_sender_aid: &str) -> PyR
 
 /// Sign an envelope with `key` (RFC-AITP-0001 §5.4) and return its JSON.
 ///
-/// `message_id` defaults to a fresh UUID v4 and `timestamp` to now.
+/// `message_id` defaults to a fresh UUID v4 and `timestamp` to now. A
+/// supplied `message_id` must be the lowercase hyphenated v4 wire form
+/// (RFC-AITP-0001 §5.2); uppercase, braced, `urn:uuid:`, unhyphenated and
+/// non-v4 forms raise `ValueError` rather than being normalized.
 pub fn sign_envelope_py(
     key: &AitpSigningKey,
     message_type: &str,
@@ -141,7 +144,7 @@ pub fn sign_envelope_py(
         .map_err(|e| PyValueError::new_err(format!("invalid extensions JSON: {e}")))?;
     let message_id = match message_id {
         Some(s) => {
-            Uuid::parse_str(s).map_err(|e| PyValueError::new_err(format!("invalid uuid: {e}")))?
+            crate::helpers::parse_strict_v4("message_id", s).map_err(PyValueError::new_err)?
         }
         None => Uuid::new_v4(),
     };

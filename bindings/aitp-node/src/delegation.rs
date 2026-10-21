@@ -79,6 +79,9 @@ pub struct JsDelegationVerified {
 /// (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
 /// SHOULD supply it.** Omitting it silently redeems a delegation whose
 /// source TCT has been revoked, which step 7 states as a MUST-reject.
+/// Entries are lookup keys and are normalized: any RFC 9562 text form
+/// (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry that is
+/// not a UUID throws rather than being ignored.
 #[napi(js_name = "verifyDelegation")]
 pub fn verify_delegation_js(
     token: String,
@@ -89,7 +92,7 @@ pub fn verify_delegation_js(
     let verifier = parse_verifier(&verifier_aid)?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
-    let revoked = parse_revoked_set(revoked_jtis);
+    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
     let root_closure = |jti: &Uuid| revoked.contains(jti);
 
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0`, so a non-empty
@@ -123,7 +126,7 @@ pub fn verify_delegation_js(
 /// step 7), and once for every hop's `jti`, meaning each chain entry and the
 /// outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
 /// invalidates every hop downstream of it — there is no partial-validity
-/// model.
+/// model. Entries are normalized as in `verifyDelegation`.
 ///
 /// Note that §6 specifies each hop `jti` be checked against the deny list of
 /// *that hop's issuer*, which one flat list cannot express, so it is applied
@@ -150,7 +153,7 @@ pub fn verify_delegation_multihop_js(
     let verifier = parse_verifier(&verifier_aid)?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
-    let revoked = parse_revoked_set(revoked_jtis);
+    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
     let root_closure = |jti: &Uuid| revoked.contains(jti);
     let hop_closure = |_issuer: &Aid, jti: &Uuid| revoked.contains(jti);
 
