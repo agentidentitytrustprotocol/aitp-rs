@@ -13,6 +13,9 @@ from typing_extensions import deprecated
 # Revoked-`jti` deny lists. The binding extracts these into a Rust
 # `HashSet<str>`, which accepts only a `set` or `frozenset` — not an
 # arbitrary `AbstractSet` (e.g. `dict.keys()`) and not a `list`.
+# Entries are lookup keys and are normalized: any RFC 9562 text form
+# (uppercase, braced, `urn:uuid:`, unhyphenated) matches the canonical
+# `jti`. An entry that is not a UUID raises `ValueError` (#272).
 RevokedJtis = Union[set[str], frozenset[str]]
 
 # ── Core handshake surface ──────────────────────────────────────────────
@@ -155,7 +158,9 @@ class AitpAgent:
         of revoked TCT `jti` strings (RFC-AITP-0008); when supplied, a TCT
         whose jti is in the set is rejected after its signature checks pass.
         Verifiers SHOULD supply it — omitting it silently honors a
-        revoked-but-unexpired TCT (F-1)."""
+        revoked-but-unexpired TCT (F-1). Entries are normalized (any RFC
+        9562 text form matches); one that is not a UUID raises
+        `ValueError`."""
         ...
     def verify_tct_cached(
         self,
@@ -203,8 +208,11 @@ class AitpAgent:
         `message_type` is the wire string (e.g. `"mutual_hello"`),
         `payload_json` a JSON object, `extensions_json` an optional JSON
         object for the `extensions` member (signed like every other member).
-        `message_id` (UUID v4) defaults to a fresh one, `timestamp` (unix
-        seconds) to now. Raises `ValueError` on bad input. The counterpart
+        `message_id` defaults to a fresh UUID v4; a supplied one must be the
+        lowercase hyphenated v4 wire form (uppercase, braced, `urn:uuid:`,
+        unhyphenated and non-v4 forms raise `ValueError`, not normalized).
+        `timestamp` (unix seconds) defaults to now. Raises `ValueError` on
+        bad input. The counterpart
         of `verify_envelope`."""
         ...
     def sign_revocation_list(
@@ -223,13 +231,15 @@ class AitpAgent:
         request_payload_json: str,
         manifest_exp_unix_secs: int,
         new_ttl_secs: int,
-        revoked_jtis: Optional[AbstractSet[str]] = None,
+        revoked_jtis: Optional[RevokedJtis] = None,
     ) -> str:
         """Issuer side. Returns a JSON object string
         `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
         Requires `build_manifest()` first: grants the Manifest no longer
         offers are dropped (none left raises). A TCT whose `jti` is in
         `revoked_jtis`, or a replayed request, raises RuntimeError.
+        `revoked_jtis` entries are normalized (any RFC 9562 text form
+        matches); one that is not a UUID raises `ValueError`.
         Behind the `renewal` feature (on by default)."""
         ...
 
@@ -257,7 +267,9 @@ def verify_delegation(
     whose `voucher.src_jti` is in the set is rejected after every signature
     check passes (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3).
     **Supply it.** Omitting it silently redeems a delegation whose source TCT
-    has been revoked — step 7 states that as a MUST-reject."""
+    has been revoked — step 7 states that as a MUST-reject. Entries are
+    normalized (any RFC 9562 text form matches); one that is not a UUID
+    raises `ValueError`."""
     ...
 
 def verify_delegation_multihop(
@@ -290,7 +302,9 @@ def verify_delegation_multihop(
     *that hop's issuer*, which one flat set cannot express — so the set is
     applied to every hop regardless of issuer. That can only reject more,
     never accept a revoked hop, but it does mean a set aggregated from
-    several issuers lets any contributor revoke any hop."""
+    several issuers lets any contributor revoke any hop.
+
+    Entries are normalized as in `verify_delegation`."""
     ...
 class ManifestVerificationError(RuntimeError):
     """A manifest envelope failed verification.
@@ -419,7 +433,12 @@ class SessionBundleBuilder:
     `session-bundle` Cargo feature (on by default)."""
 
     def __init__(self, coordinator: AitpAgent) -> None: ...
-    def session_id(self, uuid_str: str) -> "SessionBundleBuilder": ...
+    def session_id(self, uuid_str: str) -> "SessionBundleBuilder":
+        """Set the session ID. It is signed into the bundle, so it must be
+        the lowercase hyphenated UUID v4 wire form; uppercase, braced,
+        `urn:uuid:`, unhyphenated and non-v4 forms raise `ValueError`
+        rather than being normalized. Defaults to a fresh one."""
+        ...
     def issued_at(self, unix_secs: int) -> "SessionBundleBuilder": ...
     def participant(
         self, aid: str, tct_token: str

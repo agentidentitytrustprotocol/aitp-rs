@@ -13,7 +13,6 @@ use aitp_crypto::AitpSigningKey;
 use aitp_tct::{build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload};
 use napi::bindgen_prelude::*;
 use rand::TryRng;
-use std::collections::HashSet;
 use std::future::Future;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
@@ -50,7 +49,9 @@ pub(crate) fn build_renewal_request_js(
 /// `offered_grants` is the issuer Manifest's current
 /// `offered_capabilities`: grants it no longer offers are dropped, and
 /// none left refuses the renewal. `revoked_jtis` lists the issuer's
-/// revoked TCT `jti`s; a revoked TCT is refused. Each `pop_nonce` is
+/// revoked TCT `jti`s; a revoked TCT is refused. The list is a lookup key,
+/// so each entry is normalized (any RFC 9562 text form is accepted) and an
+/// entry that is not a UUID at all is refused. Each `pop_nonce` is
 /// recorded in a process-wide replay guard and a repeat is refused
 /// (RFC-AITP-0004 §8.1).
 pub(crate) fn process_renewal_request_js(
@@ -63,11 +64,8 @@ pub(crate) fn process_renewal_request_js(
 ) -> Result<JsIssuedTct> {
     let request: TctRenewalPayload = serde_json::from_str(request_payload_json)
         .map_err(|e| Error::from_reason(format!("invalid renewal payload JSON: {e}")))?;
-    let revoked = revoked_jtis
-        .iter()
-        .map(|j| Uuid::parse_str(j))
-        .collect::<std::result::Result<HashSet<Uuid>, _>>()
-        .map_err(|e| Error::from_reason(format!("invalid revoked jti: {e}")))?;
+    let revoked = crate::helpers::parse_revoked_jtis(revoked_jtis.iter().map(String::as_str))
+        .map_err(Error::from_reason)?;
     let revocation_check = move |jti: &Uuid| revoked.contains(jti);
     let ctx = RenewalContext::new(
         Timestamp(manifest_exp_unix_secs),

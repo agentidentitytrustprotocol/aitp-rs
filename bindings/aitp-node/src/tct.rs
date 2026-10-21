@@ -74,14 +74,16 @@ fn peek_tct_claims(token: &str) -> Result<TctClaims> {
 /// JS runtime per-`jti` (which is unsound under napi threading
 /// constraints), the JS caller passes the *set* of revoked `jti`s
 /// up-front. The closure returns `true` for any `jti` in the set, which
-/// `verify_tct` treats as a revoked-and-rejected TCT. Malformed `jti`
-/// strings in the list are ignored (they can never match a real UUID).
-pub(crate) fn parse_revoked_set(revoked: Option<Vec<String>>) -> HashSet<Uuid> {
-    revoked
-        .unwrap_or_default()
-        .into_iter()
-        .filter_map(|s| Uuid::parse_str(&s).ok())
-        .collect()
+/// `verify_tct` treats as a revoked-and-rejected TCT.
+///
+/// The set is a lookup key, so entries are normalized: any RFC 9562 text
+/// form (uppercase, braced, `urn:uuid:`, unhyphenated) matches the
+/// canonical `jti`. An entry that is not a UUID at all is an error rather
+/// than silently ignored, so a malformed list cannot quietly disable the
+/// revocation gate.
+pub(crate) fn parse_revoked_set(revoked: Option<&[String]>) -> Result<HashSet<Uuid>> {
+    crate::helpers::parse_revoked_jtis(revoked.unwrap_or_default().iter().map(String::as_str))
+        .map_err(Error::from_reason)
 }
 
 /// Verify a compact-JWS `tct_token`, requiring `required_grant`.
@@ -119,7 +121,7 @@ pub fn js_verify_tct(
         None => our_key.aid(),
     };
 
-    let revoked = parse_revoked_set(revoked_jtis);
+    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
     let revocation_closure = |jti: &Uuid| revoked.contains(jti);
 
     // Strict builder (aitp-tct 0.4). Behavior is preserved: revocation is
@@ -285,7 +287,7 @@ pub fn js_verify_tct_cached(
         Some(s) => s.to_string(),
         None => our_key.aid().to_string(),
     };
-    let revoked = parse_revoked_set(revoked_jtis.clone());
+    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
 
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {

@@ -147,7 +147,7 @@ valid:
 
 ```javascript
 // not executed: fragment; see docs/sdk-node.md § TCT verification for the runnable flow
-const revoked = ['11111111-2222-3333-4444-555555555555'];
+const revoked = ['11111111-2222-4333-8444-555555555555'];
 agent.verifyTct(tctToken, 'demo.write', null, revoked);  // throws if revoked
 ```
 
@@ -161,6 +161,23 @@ The set is passed up-front rather than through a JS callback invoked per
 
 If you omit the argument, the revocation gate is **off** and an unexpired but
 revoked TCT will pass. Wire `revokedJtis` in wherever revocation matters.
+
+### UUID inputs
+
+Identifiers that are signed or sent are **strict**: `signEnvelope`'s
+`opts.messageId`, `SessionBundleBuilder.sessionId()` and the `jti` of each
+`signRevocationList` entry must be the lowercase hyphenated UUID v4 wire form
+(`xxxxxxxx-xxxx-4xxx-[89ab]xxx-xxxxxxxxxxxx`). Uppercase, braced, `urn:uuid:`,
+unhyphenated and non-v4 forms throw, naming the field; they are never
+normalized, so what you pass is what goes on the wire.
+
+A `revokedJtis` list (on `verifyTct`, `verifyTctCached`,
+`processRenewalRequest`, `verifyDelegation` and `verifyDelegationMultihop`)
+is a **lenient** lookup key: each entry may be in any RFC 9562 text form and
+is normalized before matching, so `'{11111111-2222-4333-8444-555555555555}'`
+revokes the same TCT as the lowercase form. An entry that is not a UUID at
+all throws (`revoked_jtis entry is not a UUID`) rather than being ignored.
+The Python SDK behaves identically.
 
 ### OIDC identity and P-256
 

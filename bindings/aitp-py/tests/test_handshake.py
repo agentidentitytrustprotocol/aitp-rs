@@ -141,7 +141,7 @@ def test_verify_tct_honors_revoked_jtis():
     jti = _jws_jti(tct)
 
     # Empty / unrelated revocation set: still verifies.
-    ident = initiator.verify_tct(tct, "demo.write", revoked_jtis={"some-other-jti"})
+    ident = initiator.verify_tct(tct, "demo.write", revoked_jtis={"00000000-0000-4000-8000-000000000000"})
     assert ident.jti == jti
 
     # The TCT's own jti in the set: rejected.
