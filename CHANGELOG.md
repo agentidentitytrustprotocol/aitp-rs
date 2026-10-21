@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **The conformance adapter no longer ignores a revocation snapshot it
+  cannot use**
+  ([#271](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/271)).
+  Before, a snapshot supplied to `verify_tct` or `verify_delegation_token`
+  that failed signature, expiry or issuer verification was skipped, so the
+  token verified as if nothing were revoked. The adapter now follows
+  RFC-AITP-0008 §1.5 / §3.1 (0.3.1-draft): a snapshot discarded for any
+  reason (structure, unknown member, version, signature, expiry, issuer,
+  staleness) counts as absent, and `revocation_policy.mode` decides.
+  - `verify_tct`: `fail_closed` (the default) rejects with `TCT_REVOKED`,
+    `fail_open` accepts, and `soft_fail` narrows the grants to
+    `safe_grants` (`POLICY_VIOLATION` when nothing is left; fails closed
+    with no subset). A snapshot that does not parse used to report its own
+    code (for example `UNKNOWN_FIELD`); it now follows the same rule. The
+    snapshot is now checked against the TCT's issuer, not its own
+    `issuer` field.
+  - Multi-hop `verify_delegation_token` (RFC-AITP-0011 §6): a hop
+    issuer's discarded snapshot makes that issuer's hops revoked
+    (`DELEGATION_SOURCE_TCT_REVOKED`) unless the mode is `fail_open`.
+  - The verifier's own deny list (RFC-AITP-0006 §4 step 7) is local state
+    that the policy does not govern. A snapshot for it that fails
+    verification is now an error with the snapshot's code
+    (`REVOCATION_SNAPSHOT_SIGNATURE_INVALID` / `REVOCATION_SNAPSHOT_INVALID`
+    / `UNKNOWN_FIELD`). Before, only a parse failure was.
+  - A `revocation_snapshots[]` entry with no `issuer_aid`, a malformed
+    one, or no `snapshot` is `INVALID_REQUEST`. Before, it was skipped.
+
+  `verify_revocation_snapshot` still reports the snapshot's own code. The
+  library paths needed no change: `aitp_transport_http::RevocationCache`
+  already applies the fail mode to every snapshot failure. The adapter is
+  not published, so this does not change any library API or behaviour.
+
 ## [0.18.0] — 2026-10-20
 
 ### BREAKING
