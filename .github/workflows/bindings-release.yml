@@ -145,33 +145,37 @@ jobs:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
 
-  # After a real npm publish, tell the npm consumer (aitp-control-plane) to
-  # adopt the new SDK version. Its bump-aitp.yml calls aitp-ci/bump-consume,
-  # which waits for the npm CDN to serve the version, re-locks, and opens an
-  # auto-merging PR. Dependabot's weekly aitp-sdk group is the backstop.
+  # After a real npm publish, tell each npm consumer to adopt the new SDK
+  # version. Each one's bump-aitp.yml calls aitp-ci/bump-consume, which waits
+  # for the npm CDN to serve the version, re-locks, and opens a PR (auto-merging
+  # on a patch). Dependabot / a weekly schedule are the backstop.
   # Auth: the aitp-deps-bot App (short-lived installation token) — no PAT.
   dispatch:
-    name: notify aitp-control-plane (npm)
+    name: notify ${{ matrix.repo }} (npm)
     runs-on: ubuntu-latest
     needs: publish
     if: ${{ github.event_name == 'push' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [aitp-control-plane, aitp-ui-console]
     steps:
       - name: Resolve version from tag
         id: ver
         working-directory: ${{ github.workspace }}
         run: echo "version=${GITHUB_REF_NAME#aitp-node-v}" >> "$GITHUB_OUTPUT"
-      - name: Mint GitHub App token (scoped to aitp-control-plane)
+      - name: Mint GitHub App token (scoped to ${{ matrix.repo }})
         id: app
         uses: actions/create-github-app-token@v3
         with:
           app-id: ${{ secrets.AITP_BOT_APP_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
           owner: agentidentitytrustprotocol
-          repositories: aitp-control-plane
+          repositories: ${{ matrix.repo }}
       - name: Dispatch aitp-released (npm)
         uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
         with:
           token: ${{ steps.app.outputs.token }}
-          repository: agentidentitytrustprotocol/aitp-control-plane
+          repository: agentidentitytrustprotocol/${{ matrix.repo }}
           event-type: aitp-released
           client-payload: '{"version": "${{ steps.ver.outputs.version }}", "ecosystem": "npm"}'
