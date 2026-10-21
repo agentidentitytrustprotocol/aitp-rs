@@ -164,8 +164,10 @@ and treat an error as revoked:
 let hop_check = |issuer: &Aid, jti: &Uuid| cache.is_revoked(jti, issuer, now).unwrap_or(true);
 let ctx = VerifyDelegationContext::new(&verifier_aid, now)
     .with_hop_revocation_check(&hop_check);
-``` The adapter is not published, so section 3
-does not change any library API or behaviour.
+```
+
+The adapter is not published, so section 3 does not change any
+library API or behaviour.
 
 ## 4. Spec pin, conformance and cross-implementation checks
 
