@@ -388,20 +388,20 @@ them.
 
 ### Summary
 
-These counts are **at pin `299f89a`** (`aitp/0.3`), the spec commit in
+These counts are **at pin `59407d2`** (`aitp/0.3`), the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With all four features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` (the `aitp/0.3` core tier) | 79 | 79 PASS | 78 PASS, 1 SKIP (`del-007`) |
+| `core`, `required_for_v0_2: true` (the `aitp/0.3` core tier) | 82 | 82 PASS | 81 PASS, 1 SKIP (`del-007`) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 8 | SKIP | PASS |
-| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 5 | SKIP | PASS |
+| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 6 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
-| **Total** | **104** | **80 pass / 0 fail / 24 skip** | **102 pass / 0 fail / 2 skip** |
+| **Total** | **108** | **83 pass / 0 fail / 25 skip** | **106 pass / 0 fail / 2 skip** |
 
 The section and gate keep their `v0.2` names on purpose. The spec keeps the
 fixture key `required_for_v0_2` for `aitp/0.3` ("the key keeps its v0.2
@@ -413,7 +413,7 @@ Why the skips look the way they do:
 
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
-  multi-hop returns. The 24 skips are the 8 session-bundle, 5 multi-hop,
+  multi-hop returns. The 25 skips are the 8 session-bundle, 6 multi-hop,
   8 pinned-admission and 3 self-attestation fixtures. A `draft` or
   `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
@@ -429,12 +429,12 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 80 pass / 0 fail / 24 skip at the pin. The `--profile v0.1`
+# Strict: 83 pass / 0 fail / 25 skip at the pin. The `--profile v0.1`
 # counts are the same; only the gate's required flag differs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 102 pass / 0 fail / 2 skip at the pin.
+# Opt-in (draft RFCs and extensions): 106 pass / 0 fail / 2 skip at the pin.
 # The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
@@ -497,9 +497,11 @@ is set, as explained above.
 | Revocation lookup ordering: RFC-AITP-0008 §3.3 | `rev-004` |
 | Revocation snapshot unknown members: RFC-AITP-0008 §1.5, RFC-AITP-0001 §7 | `rev-005`, `rev-006` |
 | Revocation snapshot structural validation: RFC-AITP-0008 §1.5 | `rev-007`, `rev-008` |
+| A discarded snapshot is absent and `revocation_policy.mode` decides: RFC-AITP-0008 §1.5, §3.1 | `tct-022` (`fail_closed`), `tct-023` (`fail_open`) |
 | Delegation (voucher-based): RFC-AITP-0006 | `del-001`, `del-003`, `del-005`, `del-006`, `del-007`; `del-004` (v0.1 shape) |
+| The verifier's own deny list fails verification: RFC-AITP-0006 §4 step 7 | `del-008` |
 | Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-008` |
-| Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-004` |
+| Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-006` (`del-mh-006`: a discarded hop snapshot under `fail_closed`, §6) |
 
 The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md).
 
