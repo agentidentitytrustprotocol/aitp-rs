@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.19.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.18.0...aitp-v0.19.0) - 2026-10-20
+
+### Other
+
+- Lockstep release with no Rust API or behaviour change. 0.19.0 changes the Python and Node bindings: wire-bound UUIDs are strict, and `revoked_jtis` is normalized and fails closed ([#279](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/279)). It also fixes the conformance adapter ([#278](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/278)). See the root `CHANGELOG.md` and `docs/upgrading-0.19.md`.
+
 ## [0.17.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.16.0...aitp-v0.17.0) - 2026-10-20
 
 ### Added
