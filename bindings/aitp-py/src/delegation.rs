@@ -51,19 +51,24 @@ type HopRevocationClosure = Box<dyn Fn(&Aid, &Uuid) -> bool>;
 /// control plane, say — grants every contributor the power to revoke any
 /// hop. Callers needing per-issuer isolation should verify against the Rust
 /// API directly, where `hop_revocation_check` receives the issuer AID.
+///
+/// **Normalization.** The set is a lookup key, so each entry may be in any
+/// RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated) and is
+/// normalized before matching. An entry that is not a UUID raises
+/// `ValueError` rather than silently never matching.
 fn revocation_closures(
     revoked_jtis: Option<&HashSet<String>>,
-) -> (Option<RevocationClosure>, Option<HopRevocationClosure>) {
+) -> PyResult<(Option<RevocationClosure>, Option<HopRevocationClosure>)> {
     match revoked_jtis {
-        None => (None, None),
+        None => Ok((None, None)),
         Some(set) => {
-            let root_owned: HashSet<String> = set.clone();
-            let root: RevocationClosure =
-                Box::new(move |jti: &Uuid| root_owned.contains(&jti.to_string()));
-            let hop_owned: HashSet<String> = set.clone();
+            let root_owned = crate::helpers::parse_revoked_jtis(set.iter().map(String::as_str))
+                .map_err(PyValueError::new_err)?;
+            let hop_owned = root_owned.clone();
+            let root: RevocationClosure = Box::new(move |jti: &Uuid| root_owned.contains(jti));
             let hop: HopRevocationClosure =
-                Box::new(move |_issuer: &Aid, jti: &Uuid| hop_owned.contains(&jti.to_string()));
-            (Some(root), Some(hop))
+                Box::new(move |_issuer: &Aid, jti: &Uuid| hop_owned.contains(jti));
+            Ok((Some(root), Some(hop)))
         }
     }
 }
@@ -143,7 +148,9 @@ impl PyDelegationVerified {
 /// rejected after every signature check passes (RFC-AITP-0006 §4 step 7,
 /// ordered per RFC-AITP-0008 §3.3). **Verifiers SHOULD supply this**:
 /// omitting it silently redeems a delegation whose source TCT has been
-/// revoked, which step 7 states as a MUST-reject.
+/// revoked, which step 7 states as a MUST-reject. Entries are normalized
+/// (any RFC 9562 text form matches); one that is not a UUID raises
+/// `ValueError`.
 #[pyfunction]
 #[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, issuer_manifests, revoked_jtis = None))]
 pub fn verify_delegation_py(
@@ -153,7 +160,7 @@ pub fn verify_delegation_py(
     revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
-    let (root_check, _hop_check) = revocation_closures(revoked_jtis.as_ref());
+    let (root_check, _hop_check) = revocation_closures(revoked_jtis.as_ref())?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
@@ -210,7 +217,7 @@ pub fn verify_delegation_multihop_py(
     revoked_jtis: Option<HashSet<String>>,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
-    let (root_check, hop_check) = revocation_closures(revoked_jtis.as_ref());
+    let (root_check, hop_check) = revocation_closures(revoked_jtis.as_ref())?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let mut ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())

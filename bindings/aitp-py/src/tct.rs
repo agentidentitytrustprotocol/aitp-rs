@@ -67,13 +67,43 @@ fn decode_tct_claims_unverified(tct_token: &str) -> PyResult<TctClaims> {
 /// (RFC-AITP-0008). When supplied, a TCT whose `jti` is in the set is
 /// rejected *after* every signature check passes. **Verifiers SHOULD
 /// supply this** — omitting it silently honors a revoked-but-unexpired
-/// TCT.
+/// TCT. The set is a lookup key, so entries are normalized (see
+/// [`parse_revoked`]); an entry that is not a UUID raises `ValueError`.
 pub fn py_verify_tct(
     our_key: &AitpSigningKey,
     tct_token: &str,
     required_grant: &str,
     expected_audience: Option<&str>,
     revoked_jtis: Option<&HashSet<String>>,
+) -> PyResult<PyTctIdentity> {
+    let revoked = parse_revoked(revoked_jtis)?;
+    verify_tct_parsed(
+        our_key,
+        tct_token,
+        required_grant,
+        expected_audience,
+        revoked,
+    )
+}
+
+/// Normalize a caller's revoked-`jti` set: any RFC 9562 text form
+/// (uppercase, braced, `urn:uuid:`, unhyphenated) matches the canonical
+/// `jti`, and an entry that is not a UUID raises `ValueError` rather than
+/// silently never matching.
+fn parse_revoked(revoked_jtis: Option<&HashSet<String>>) -> PyResult<Option<HashSet<Uuid>>> {
+    revoked_jtis
+        .map(|set| crate::helpers::parse_revoked_jtis(set.iter().map(String::as_str)))
+        .transpose()
+        .map_err(PyValueError::new_err)
+}
+
+/// [`py_verify_tct`] after the revoked set is parsed.
+fn verify_tct_parsed(
+    our_key: &AitpSigningKey,
+    tct_token: &str,
+    required_grant: &str,
+    expected_audience: Option<&str>,
+    revoked_jtis: Option<HashSet<Uuid>>,
 ) -> PyResult<PyTctIdentity> {
     let unverified = decode_tct_claims_unverified(tct_token)?;
 
@@ -90,9 +120,8 @@ pub fn py_verify_tct(
 
     // F-1: a `jti` set captured by value so the closure is `Fn` and lives
     // entirely in Rust — no Python re-entrancy under the verify call.
-    let revocation_closure: Option<RevocationClosure> = revoked_jtis.map(|set| {
-        let owned: HashSet<String> = set.clone();
-        let f: RevocationClosure = Box::new(move |jti: &Uuid| owned.contains(&jti.to_string()));
+    let revocation_closure: Option<RevocationClosure> = revoked_jtis.map(|owned| {
+        let f: RevocationClosure = Box::new(move |jti: &Uuid| owned.contains(jti));
         f
     });
 
@@ -257,10 +286,14 @@ pub fn py_verify_tct_cached(
         None => our_key.aid().to_string(),
     };
 
+    let revoked_set = parse_revoked(revoked_jtis)?;
+
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0;
-        let revoked = revoked_jtis.is_some_and(|set| set.contains(&c.jti));
+        let revoked = revoked_set
+            .as_ref()
+            .is_some_and(|set| Uuid::parse_str(&c.jti).is_ok_and(|jti| set.contains(&jti)));
         if !revoked
             && c.audience == effective_aud
             && c.expires_at > now
@@ -276,12 +309,12 @@ pub fn py_verify_tct_cached(
     }
 
     // Slow path: full verification (signature + every policy check).
-    let identity = py_verify_tct(
+    let identity = verify_tct_parsed(
         our_key,
         tct_token,
         required_grant,
         expected_audience,
-        revoked_jtis,
+        revoked_set,
     )?;
     // Capture the TCT's own audience for future fast-path policy re-checks.
     let claims = decode_tct_claims_unverified(tct_token)?;

@@ -45,3 +45,33 @@ pub fn make_peer_config<'a>(
         now: Timestamp::now(),
     }
 }
+
+/// Parse a wire-bound UUID v4 strictly (RFC-AITP-0001 §5.2): lowercase
+/// hyphenated, version 4, RFC 9562 variant, via
+/// [`aitp_core::ids::parse_v4`]. Uppercase, braced, `urn:uuid:`,
+/// unhyphenated and non-v4 forms are refused: the value is signed or sent
+/// as given, so it must already be in wire form. The error names `field`.
+pub fn parse_strict_v4(field: &str, s: &str) -> Result<uuid::Uuid, String> {
+    aitp_core::ids::parse_v4(s)
+        .map_err(|e| format!("{field} is not a lowercase UUID v4: {s} ({e})"))
+}
+
+/// Parse a revoked-`jti` deny list into a lookup set.
+///
+/// The set is a lookup key only, never signed or sent, so it is lenient:
+/// an entry may be in any RFC 9562 text form (uppercase, braced,
+/// `urn:uuid:`, unhyphenated) and is normalized before matching. A non-v4
+/// entry is accepted but can never match, since every verified `jti` is
+/// v4. An entry that is not a UUID at all is refused rather than dropped,
+/// so a malformed list fails closed.
+pub fn parse_revoked_jtis<'a, I>(jtis: I) -> Result<std::collections::HashSet<uuid::Uuid>, String>
+where
+    I: IntoIterator<Item = &'a str>,
+{
+    jtis.into_iter()
+        .map(|s| {
+            uuid::Uuid::parse_str(s)
+                .map_err(|e| format!("revoked_jtis entry is not a UUID: {s} ({e})"))
+        })
+        .collect()
+}

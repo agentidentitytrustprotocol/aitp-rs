@@ -292,7 +292,9 @@ except aitp.EnvelopeVerificationError as err:
 `sign_envelope(message_type, payload_json, extensions_json=None,
 message_id=None, timestamp=None)` signs an `aitp/0.3` envelope over signing
 input v2. The signature covers every member except `signature`, including
-`extensions`. `message_id` defaults to a fresh UUID v4 and `timestamp` to now.
+`extensions`. `message_id` defaults to a fresh UUID v4; a supplied one must be
+lowercase hyphenated v4, and any other form raises `ValueError`. `timestamp`
+defaults to now.
 
 `verify_envelope(envelope_json, expected_sender_aid)` returns `None` or raises
 `EnvelopeVerificationError`, a subclass of `RuntimeError`. Its `.code` is the

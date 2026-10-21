@@ -7,6 +7,79 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- **Bindings: wire-bound UUID inputs are strict, and `revoked_jtis`
+  lookups normalize and fail closed**
+  ([#272](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/272)).
+  This finishes what #268 started for revocation `entries[].jti`. Python
+  and Node behave identically, and both use `aitp_core::ids`. A binding
+  user who passed non-canonical ids is affected; the Rust crates and the
+  wire format are not. Under the pre-1.0 convention this bumps the minor
+  version. Three things change:
+  - **Strict.** Node `signEnvelope` `opts.messageId` / Python
+    `sign_envelope(message_id=)`, and `SessionBundleBuilder.sessionId()` /
+    `.session_id()`, parse with `aitp_core::ids::parse_v4`. Both values
+    are signed, and the spec schemas require the lowercase hyphenated v4
+    form. These calls used to accept uppercase, braced, `urn:uuid:` and
+    unhyphenated input and sign it lowercased, so the signed id differed
+    from the one the caller held. A bundle `session_id` of any UUID
+    version was signed too, which the bundle schema rejects. Now any
+    non-canonical form throws (Node) or raises `ValueError` (Python),
+    with `message_id is not a lowercase UUID v4: …` or
+    `session_id is not a lowercase UUID v4: …`. Pass `randomUUID()` /
+    `str(uuid.uuid4())` output unchanged.
+  - **Lenient, now in both bindings.** Each `revoked_jtis` / `revokedJtis`
+    deny list (`verifyTct` / `verify_tct`, the `Cached` variants,
+    `processRenewalRequest` / `process_renewal_request`,
+    `verifyDelegation` / `verify_delegation` and their multihop variants)
+    is a lookup key, so each entry is normalized: any RFC 9562 text form
+    matches the canonical `jti`. Node and renewal already normalized.
+    Python's TCT and delegation checks compared strings, so an uppercase
+    or braced entry never matched and the TCT it named was **accepted**.
+    That is fixed. The behaviour is now documented in the docstrings,
+    `index.d.ts`, `aitp.pyi` and both READMEs.
+  - **Fail closed on garbage.** A `revoked_jtis` entry that is not a UUID
+    at all now throws / raises `ValueError`
+    (`revoked_jtis entry is not a UUID: …`). Node's TCT and delegation
+    checks used to drop it, and Python's never matched it, so a list made
+    only of bad entries quietly turned the gate off. Renewal already
+    refused such an entry.
+
+### Fixed
+
+- **The conformance adapter no longer ignores a revocation snapshot it
+  cannot use**
+  ([#271](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/271)).
+  Before, a snapshot supplied to `verify_tct` or `verify_delegation_token`
+  that failed signature, expiry or issuer verification was skipped, so the
+  token verified as if nothing were revoked. The adapter now follows
+  RFC-AITP-0008 §1.5 / §3.1 (0.3.1-draft): a snapshot discarded for any
+  reason (structure, unknown member, version, signature, expiry, issuer,
+  staleness) counts as absent, and `revocation_policy.mode` decides.
+  - `verify_tct`: `fail_closed` (the default) rejects with `TCT_REVOKED`,
+    `fail_open` accepts, and `soft_fail` narrows the grants to
+    `safe_grants` (`POLICY_VIOLATION` when nothing is left; fails closed
+    with no subset). A snapshot that does not parse used to report its own
+    code (for example `UNKNOWN_FIELD`); it now follows the same rule. The
+    snapshot is now checked against the TCT's issuer, not its own
+    `issuer` field.
+  - Multi-hop `verify_delegation_token` (RFC-AITP-0011 §6): a hop
+    issuer's discarded snapshot makes that issuer's hops revoked
+    (`DELEGATION_SOURCE_TCT_REVOKED`) unless the mode is `fail_open`.
+  - The verifier's own deny list (RFC-AITP-0006 §4 step 7) is local state
+    that the policy does not govern. A snapshot for it that fails
+    verification is now an error with the snapshot's code
+    (`REVOCATION_SNAPSHOT_SIGNATURE_INVALID` / `REVOCATION_SNAPSHOT_INVALID`
+    / `UNKNOWN_FIELD`). Before, only a parse failure was.
+  - A `revocation_snapshots[]` entry with no `issuer_aid`, a malformed
+    one, or no `snapshot` is `INVALID_REQUEST`. Before, it was skipped.
+
+  `verify_revocation_snapshot` still reports the snapshot's own code. The
+  library paths needed no change: `aitp_transport_http::RevocationCache`
+  already applies the fail mode to every snapshot failure. The adapter is
+  not published, so this does not change any library API or behaviour.
+
 ## [0.18.0] — 2026-10-20
 
 ### BREAKING

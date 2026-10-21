@@ -122,6 +122,24 @@ The Python and Node bindings differ in some return shapes and argument
 names; see
 [Python vs Node differences](../../docs/sdk-python.md#python-vs-node-differences).
 
+### UUID inputs
+
+Identifiers that are signed or sent are **strict**: `sign_envelope`'s
+`message_id`, `SessionBundleBuilder.session_id()` and the `jti` of each
+`sign_revocation_list` entry must be the lowercase hyphenated UUID v4 wire
+form (`xxxxxxxx-xxxx-4xxx-[89ab]xxx-xxxxxxxxxxxx`). Uppercase, braced,
+`urn:uuid:`, unhyphenated and non-v4 forms raise `ValueError` naming the
+field; they are never normalized, so what you pass is what goes on the wire.
+
+A `revoked_jtis` set (on `verify_tct`, `verify_tct_cached`,
+`process_renewal_request`, `verify_delegation` and
+`verify_delegation_multihop`) is a **lenient** lookup key: each entry may be
+in any RFC 9562 text form and is normalized before matching, so
+`"{11111111-2222-4333-8444-555555555555}"` revokes the same TCT as the
+lowercase form. An entry that is not a UUID at all raises `ValueError`
+(`revoked_jtis entry is not a UUID`) rather than being ignored. The Node SDK
+behaves identically.
+
 ### OIDC identity and P-256
 
 See [OIDC identity](../../docs/sdk-python.md#oidc-identity-rfc-aitp-0002) and

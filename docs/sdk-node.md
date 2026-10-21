@@ -296,8 +296,9 @@ try {
 
 `signEnvelope(messageType, payloadJson, opts?)` signs an `aitp/0.3` envelope
 over signing input v2. The signature covers every member except `signature`,
-including `extensions`. `opts` takes `extensionsJson`, `messageId` (a UUID v4,
-defaulting to a fresh one) and `timestamp` (unix seconds, defaulting to now).
+including `extensions`. `opts` takes `extensionsJson`, `messageId` (a
+lowercase hyphenated UUID v4, defaulting to a fresh one; any other form
+throws) and `timestamp` (unix seconds, defaulting to now).
 
 `verifyEnvelope(envelopeJson, expectedSenderAid)` returns on success. On
 failure it throws an `Error` whose `code` is the registered spec code of the
