@@ -45,7 +45,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     checks used to drop it, and Python's never matched it, so a list made
     only of bad entries quietly turned the gate off. Renewal already
     refused such an entry.
-||||||| dd38ac6
 
 ### Fixed
 
