@@ -693,3 +693,185 @@ fn challenge_refusal_is_a_code_and_challenge_rate_limit_is_http_429() {
     assert_eq!(limited["http_status"], json!(429));
     assert!(limited.get("error_code").is_none(), "{limited}");
 }
+
+/// RFC-AITP-0005 §10.5: `verify_tct_as_issuer` — the issuer receives
+/// back a TCT it issued, answered by one `pop_response`. The presenter
+/// AID comes from the PoP, and revocation is checked last.
+mod verify_tct_as_issuer {
+    use super::*;
+    use aitp_core::{parse_envelope_wire, Timestamp};
+    use aitp_tct::{sign_pop_response, PopChallenge};
+
+    const NOW: i64 = 1_711_900_000;
+
+    fn issuer() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xA1; 32])
+    }
+    fn holder() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xB1; 32])
+    }
+    fn stranger() -> AitpSigningKey {
+        AitpSigningKey::from_seed(&[0xC1; 32])
+    }
+
+    /// (token, jti): a TCT the issuer granted to the holder.
+    fn issued() -> (String, String) {
+        let tct = TctBuilder::new(&issuer())
+            .subject(holder().aid().clone())
+            .audience(holder().aid().clone())
+            .grants(["macp.mode.task.v1"])
+            .ttl_secs(3600)
+            .subject_pubkey(holder().verifying_key())
+            .issued_at(Timestamp(NOW - 60))
+            .build()
+            .unwrap();
+        (tct.token, tct.claims.jti.to_string())
+    }
+
+    fn challenge(jti: &str, expires_at: i64) -> PopChallenge {
+        PopChallenge {
+            tct_jti: jti.parse().unwrap(),
+            nonce: "ISIjJCUmJygpKissLS4vMA".into(),
+            expires_at: Timestamp(expires_at),
+        }
+    }
+
+    /// A `pop_response` envelope from `sender`, the PoP signed by `pop_key`.
+    fn envelope(sender: &AitpSigningKey, pop_key: &AitpSigningKey, ch: &PopChallenge) -> Value {
+        let response = sign_pop_response(ch, pop_key).unwrap();
+        let mut wire = json!({
+            "version": "aitp/0.3",
+            "message_type": "pop_response",
+            "message_id": "22222222-2222-4222-8222-222222220029",
+            "timestamp": NOW,
+            "sender": {"agent_id": sender.aid().to_string()},
+            "payload": serde_json::to_value(&response).unwrap(),
+            // Placeholder that parses; the digest excludes `signature`.
+            "signature": "A".repeat(86),
+        });
+        let parsed = parse_envelope_wire(&wire.to_string().parse().unwrap()).unwrap();
+        let digest = aitp_core::envelope_signing_digest(&parsed).unwrap();
+        let sig = sender.sign_jcs(&aitp_crypto::Digest32::from(digest));
+        wire["signature"] = json!(sig.as_str());
+        wire
+    }
+
+    fn verify(state: &mut AdapterState, token: &str, ch: &PopChallenge, env: Value) -> Value {
+        handle(state, "clock", "set_clock", json!({"now_unix_secs": NOW}));
+        handle(
+            state,
+            "v",
+            "verify_tct_as_issuer",
+            json!({
+                "self_aid": issuer().aid().to_string(),
+                "tct_token": token,
+                "outstanding_pop_challenges": [serde_json::to_value(ch).unwrap()],
+                "envelope": env,
+            }),
+        )
+    }
+
+    #[test]
+    fn holder_with_valid_pop_is_authorized() {
+        let (token, jti) = issued();
+        let ch = challenge(&jti, NOW + 30);
+        let resp = verify(
+            &mut AdapterState::default(),
+            &token,
+            &ch,
+            envelope(&holder(), &holder(), &ch),
+        );
+        assert_eq!(resp["ok"], json!(true), "{resp}");
+        assert_eq!(
+            resp["result"]["presenter_aid"],
+            json!(holder().aid().to_string())
+        );
+        assert_eq!(resp["result"]["grants"], json!(["macp.mode.task.v1"]));
+        assert_eq!(
+            resp["result"]["side_effects"]["capability_authorized"],
+            json!(true)
+        );
+    }
+
+    #[test]
+    fn token_issued_by_another_agent_is_refused() {
+        let (token, jti) = issued();
+        let ch = challenge(&jti, NOW + 30);
+        let mut state = AdapterState::default();
+        handle(
+            &mut state,
+            "clock",
+            "set_clock",
+            json!({"now_unix_secs": NOW}),
+        );
+        let resp = handle(
+            &mut state,
+            "v",
+            "verify_tct_as_issuer",
+            json!({
+                "self_aid": stranger().aid().to_string(),
+                "tct_token": token,
+                "outstanding_pop_challenges": [serde_json::to_value(&ch).unwrap()],
+                "envelope": envelope(&holder(), &holder(), &ch),
+            }),
+        );
+        assert_err(&resp, "v", "TCT_SIGNATURE_INVALID");
+    }
+
+    #[test]
+    fn pop_from_a_non_subject_is_refused() {
+        let (token, jti) = issued();
+        let ch = challenge(&jti, NOW + 30);
+        let resp = verify(
+            &mut AdapterState::default(),
+            &token,
+            &ch,
+            envelope(&stranger(), &stranger(), &ch),
+        );
+        assert_err(&resp, "v", "POP_RESPONSE_INVALID");
+    }
+
+    #[test]
+    fn no_outstanding_challenge_for_the_jti_is_refused() {
+        let (token, _) = issued();
+        let other = challenge("00000000-0000-4000-8000-000000000000", NOW + 30);
+        let resp = verify(
+            &mut AdapterState::default(),
+            &token,
+            &other,
+            envelope(&holder(), &holder(), &other),
+        );
+        assert_err(&resp, "v", "POP_RESPONSE_INVALID");
+    }
+
+    #[test]
+    fn expired_challenge_is_refused() {
+        let (token, jti) = issued();
+        let ch = challenge(&jti, NOW - 50);
+        let resp = verify(
+            &mut AdapterState::default(),
+            &token,
+            &ch,
+            envelope(&holder(), &holder(), &ch),
+        );
+        assert_err(&resp, "v", "POP_CHALLENGE_INVALID");
+    }
+
+    #[test]
+    fn revocation_is_checked_after_a_valid_pop() {
+        let (token, jti) = issued();
+        let ch = challenge(&jti, NOW + 30);
+        let mut state = AdapterState::default();
+        handle(&mut state, "rev", "revoke_tct", json!({"jti": jti}));
+        let resp = verify(&mut state, &token, &ch, envelope(&holder(), &holder(), &ch));
+        assert_err(&resp, "v", "TCT_REVOKED");
+        // A bad PoP on a revoked token still reports the PoP failure.
+        let resp = verify(
+            &mut state,
+            &token,
+            &ch,
+            envelope(&holder(), &stranger(), &ch),
+        );
+        assert_err(&resp, "v", "POP_RESPONSE_INVALID");
+    }
+}

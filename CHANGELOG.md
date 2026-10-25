@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- Spec pin `a37a767` (RFC-AITP-0005 §10.5, issuer as resource server). The conformance adapter has a new op, `verify_tct_as_issuer`. The issuer verifies a TCT it issued under its own key, with `aud` == `sub`. It takes the presenter AID only from a `pop_response` that answers an outstanding challenge for the token's `jti`, requires the envelope sender to be `sub`, and checks revocation last. Core fixtures `tct-026` to `tct-029` pass.
+
 ## [0.21.0] — 2026-10-25
 
 ### BREAKING

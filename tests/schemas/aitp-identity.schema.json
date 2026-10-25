@@ -14,69 +14,197 @@
       "type": "string",
       "enum": [
         "oidc",
-        "pinned_key"
+        "pinned_key",
+        "spiffe"
       ],
-      "description": "Identity mechanism. v0.3 supports: oidc, pinned_key"
+      "description": "Identity mechanism. v0.3 supports: oidc, pinned_key, spiffe (RFC-AITP-0002 §6; registry status Proposed)"
     },
     "issuer": {
       "type": "string",
       "format": "uri",
-      "description": "Issuer URI. Required for type=oidc; MUST be absent for type=pinned_key (RFC-AITP-0002 §1)."
+      "description": "Issuer URI. Required for type=oidc; MUST be absent for type=pinned_key and type=spiffe (RFC-AITP-0002 §1, §6.1)."
     },
     "subject": {
       "type": "string",
       "minLength": 1,
-      "description": "Agent subject identifier."
+      "description": "Agent subject identifier. For type=spiffe: the SPIFFE ID of the workload, in canonical form (lowercase scheme and trust domain) with a non-root path (RFC-AITP-0002 §6.1)."
     },
     "proof": {
       "type": "string",
       "minLength": 1,
-      "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: a JCS-profile signature per RFC-AITP-0001 §5.4.3, Ed25519 or P-256 (a p256 sender MUST use the `p256.` tag; an untagged value is Ed25519), whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor."
+      "description": "Verifiable proof. For type=oidc: a compact-serialized JWT (RFC-AITP-0002 §2). For type=pinned_key: a JCS-profile signature per RFC-AITP-0001 §5.4.3, Ed25519 or P-256 (a p256 sender MUST use the `p256.` tag; an untagged value is Ed25519), whose input binds sender AID, receiver AID, message_id, timestamp, and the handshake pop_nonce per RFC-AITP-0002 §3.1; the pop_nonce is sourced from the handshake envelope, not from this descriptor. For type=spiffe: with svid_type=jwt-svid, a compact-serialized JWT-SVID (RFC-AITP-0002 §6.3); with svid_type=x509-svid, a JCS-profile signature by the X509-SVID leaf key over the §6.4.1 input."
     },
     "public_key": {
       "type": "string",
-      "description": "base64url public key in the RFC-AITP-0001 §5.3 AID-identifier form: 43 chars for Ed25519, 44 chars (SEC1 compressed point) for P-256. Required for pinned_key; forbidden for oidc.",
+      "description": "base64url public key in the RFC-AITP-0001 §5.3 AID-identifier form: 43 chars for Ed25519, 44 chars (SEC1 compressed point) for P-256. Required for pinned_key; forbidden for oidc and spiffe.",
       "pattern": "^[A-Za-z0-9_-]{43,44}$",
       "minLength": 43
+    },
+    "svid_type": {
+      "type": "string",
+      "enum": [
+        "jwt-svid",
+        "x509-svid"
+      ],
+      "description": "SVID form carried in `proof` (RFC-AITP-0002 §6.1). Required for type=spiffe; forbidden for every other type."
+    },
+    "x5c": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "pattern": "^[A-Za-z0-9+/]+={0,2}$"
+      },
+      "description": "X509-SVID certificate chain, leaf first, each entry a standard-base64 (RFC 4648 §4, padded) DER certificate (RFC 7517 §4.7 form). Required for svid_type=x509-svid; forbidden otherwise (RFC-AITP-0002 §6.4)."
     },
     "extensions": {
       "type": "object",
       "description": "Optional extension namespace per RFC-AITP-0001 §7 and RFC-AITP-0012. Unknown keys inside `extensions` MUST be ignored; unknown fields outside it are rejected by this schema."
     }
   },
-  "if": {
-    "properties": {
-      "type": {
-        "const": "oidc"
-      }
-    }
-  },
-  "then": {
-    "required": [
-      "issuer"
-    ],
-    "not": {
-      "required": [
-        "public_key"
-      ]
-    }
-  },
-  "else": {
-    "required": [
-      "public_key"
-    ],
-    "properties": {
-      "proof": {
-        "type": "string",
-        "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
+  "allOf": [
+    {
+      "if": {
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "oidc"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "issuer"
+        ],
+        "not": {
+          "required": [
+            "public_key"
+          ]
+        },
+        "properties": {
+          "svid_type": false,
+          "x5c": false
+        }
       }
     },
-    "not": {
-      "required": [
-        "issuer"
-      ]
+    {
+      "if": {
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "pinned_key"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "public_key"
+        ],
+        "properties": {
+          "proof": {
+            "type": "string",
+            "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
+          },
+          "svid_type": false,
+          "x5c": false
+        },
+        "not": {
+          "required": [
+            "issuer"
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "const": "spiffe"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "svid_type"
+        ],
+        "properties": {
+          "subject": {
+            "type": "string",
+            "maxLength": 2048,
+            "pattern": "^spiffe://[a-z0-9._-]{1,255}(/([A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.{3,}))+$"
+          }
+        },
+        "not": {
+          "anyOf": [
+            {
+              "required": [
+                "issuer"
+              ]
+            },
+            {
+              "required": [
+                "public_key"
+              ]
+            }
+          ]
+        },
+        "allOf": [
+          {
+            "if": {
+              "required": [
+                "svid_type"
+              ],
+              "properties": {
+                "svid_type": {
+                  "const": "jwt-svid"
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "proof": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$"
+                },
+                "x5c": false
+              }
+            }
+          },
+          {
+            "if": {
+              "required": [
+                "svid_type"
+              ],
+              "properties": {
+                "svid_type": {
+                  "const": "x509-svid"
+                }
+              }
+            },
+            "then": {
+              "required": [
+                "x5c"
+              ],
+              "properties": {
+                "proof": {
+                  "type": "string",
+                  "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
+                }
+              }
+            }
+          }
+        ]
+      }
     }
-  },
+  ],
   "additionalProperties": false,
   "examples": [
     {
@@ -96,6 +224,21 @@
       "subject": "internal-worker-p256",
       "proof": "p256.X9FVRk-1kawJ_rKSXlW3ySlC2A0WfSCArxzswSPWtSRQol3VSaNYx9u-Q3kdL0SKbd51HSYlJZ_IzjU0E-wr1Q",
       "public_key": "AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR"
+    },
+    {
+      "type": "spiffe",
+      "subject": "spiffe://prod.example.com/ns/payments/sa/agent",
+      "svid_type": "jwt-svid",
+      "proof": "eyJhbGciOiJFUzI1NiIsImtpZCI6InNwaWZmZS0xIiwidHlwIjoiSldUIn0.eyJzdWIiOiJzcGlmZmU6Ly9wcm9kLmV4YW1wbGUuY29tL25zL3BheW1lbnRzL3NhL2FnZW50In0.c2ln"
+    },
+    {
+      "type": "spiffe",
+      "subject": "spiffe://prod.example.com/ns/payments/sa/agent",
+      "svid_type": "x509-svid",
+      "x5c": [
+        "MIIBszCCAVmgAwIBAgIBATAKBggqhkjOPQQDAjAA"
+      ],
+      "proof": "p256.X9FVRk-1kawJ_rKSXlW3ySlC2A0WfSCArxzswSPWtSRQol3VSaNYx9u-Q3kdL0SKbd51HSYlJZ_IzjU0E-wr1Q"
     }
   ]
 }

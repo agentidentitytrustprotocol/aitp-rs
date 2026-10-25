@@ -113,6 +113,54 @@
         "additionalProperties": false
       }
     },
+    "spiffe_bundles": {
+      "type": "array",
+      "description": "SPIFFE trust bundles, one per trust domain, for the spiffe identity type (RFC-AITP-0002 §6.2). Each entry pairs a trust domain name with that domain's SPIFFE bundle (an RFC 7517 JWK Set, SPIFFE Trust Domain and Bundle §4). Trust domain names MUST be unique across entries.",
+      "items": {
+        "type": "object",
+        "required": [
+          "trust_domain",
+          "bundle"
+        ],
+        "properties": {
+          "trust_domain": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 255,
+            "pattern": "^[a-z0-9._-]+$",
+            "description": "SPIFFE trust domain name (SPIFFE-ID §2.1): lowercase letters, digits, dots, dashes and underscores."
+          },
+          "bundle": {
+            "type": "object",
+            "required": [
+              "keys"
+            ],
+            "properties": {
+              "keys": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": [
+                    "kty"
+                  ]
+                },
+                "description": "JWKs. Entries with `use` = `x509-svid` carry one CA certificate in `x5c`; entries with `use` = `jwt-svid` carry a `kid`. Entries with a missing or unknown `use` or `kty` are ignored (SPIFFE Trust Domain and Bundle §4.2). An empty or effectively empty set makes every SVID from the trust domain invalid."
+              },
+              "spiffe_sequence": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "spiffe_refresh_hint": {
+                "type": "integer",
+                "minimum": 0
+              }
+            },
+            "description": "SPIFFE bundle (JWK Set). Members other than those named here MAY be present and are ignored."
+          }
+        },
+        "additionalProperties": false
+      }
+    },
     "key_resolution": {
       "type": "object",
       "properties": {
@@ -194,6 +242,26 @@
         "mode": "fail_closed",
         "max_staleness_secs": 300
       }
+    },
+    {
+      "spiffe_bundles": [
+        {
+          "trust_domain": "prod.example.com",
+          "bundle": {
+            "spiffe_sequence": 7,
+            "keys": [
+              {
+                "kty": "EC",
+                "use": "jwt-svid",
+                "kid": "spiffe-jwt-1",
+                "crv": "P-256",
+                "x": "f83OJ3D2xF1Bg8vub9tLe1gHMzV76e8Tus9uPHvRVEU",
+                "y": "x_FEzRu9m36HLN_tue659LNpXW6pCyStikYjKIWI5a0"
+              }
+            ]
+          }
+        }
+      ]
     }
   ]
 }
