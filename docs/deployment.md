@@ -126,6 +126,12 @@ Independent of clustering, production servers/clients should set:
   `HandshakeServer` and `run_initiator_handshake` refuse such a peer with
   `TCT_REVOKED`; set `RevocationFailMode::FailOpen` through
   `with_revocation_policy` only for a peer you accept without revocation.
+  `RevocationFailMode::FailOpenIfUnadvertised` is narrower: it accepts
+  only an issuer whose verified Manifest advertises no list, logging each
+  acceptance at info, and still refuses one whose advertised list can't
+  be fetched or verified. It suits a responder that authorises nothing
+  with the TCTs it receives, like the interop peer
+  ([interop-peer.md](interop-peer.md)).
 - **Strict TCT verification** — `TctVerifyContext::builder(...)` refuses
   to construct until the revocation and issuer-Manifest expiry-cap
   decisions are made (RFC-AITP-0005 §10.4, RFC-AITP-0008). Supply a

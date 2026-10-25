@@ -3,9 +3,10 @@
 //! Helpers for the things you reach for while building or debugging an
 //! AITP integration: generate a keypair, derive an AID, inspect/verify a
 //! TCT or a Manifest, and (with the default `http-client` feature) fetch
-//! a peer's Manifest or run a full handshake against it. The offline
-//! commands never touch the network, so they compose into scripts and
-//! CI checks.
+//! a peer's Manifest, enrol a key with an interop peer, run a full
+//! handshake, or present the TCT back to the interop peer. With the `serve` feature, `aitp serve --interop` runs the
+//! public interop peer. The offline commands never touch the network,
+//! so they compose into scripts and CI checks.
 //!
 //! ```text
 //! aitp keygen                         # new keypair → seed + AID
@@ -14,7 +15,10 @@
 //! aitp tct verify  --token <jws|->    # verify signature + claims
 //! aitp manifest verify --file <p|->   # verify a signed Manifest
 //! aitp manifest fetch <url>           # fetch + verify a peer's Manifest
-//! aitp handshake <url> --ephemeral    # handshake → print the TCT claims
+//! aitp enroll <url>                   # register our key with an interop peer
+//! aitp handshake <url> --grant <cap>  # handshake → print the TCT claims
+//! aitp echo <url>                     # handshake, then prove the TCT at /echo
+//! aitp serve --interop                # run the interop peer (`serve` feature)
 //! ```
 
 use std::io::Read;
@@ -26,7 +30,13 @@ use aitp::tct::{verify_tct, TctClaims, TctVerifyContext};
 use clap::{Parser, Subcommand, ValueEnum};
 
 #[cfg(feature = "http-client")]
+mod echo;
+#[cfg(feature = "http-client")]
+mod enrol;
+#[cfg(feature = "http-client")]
 mod net;
+#[cfg(feature = "serve")]
+mod serve;
 
 type CliResult = Result<(), Box<dyn std::error::Error>>;
 
@@ -91,7 +101,7 @@ enum Command {
         /// Capability we offer the peer; repeat for several. The
         /// handshake is mutual, so the peer also gets a TCT from us,
         /// granting what it requests that we offer, and it fails if
-        /// none overlaps.
+        /// none overlaps. Defaults to the `--grant` capabilities.
         #[arg(long = "offer", value_name = "CAP")]
         offers: Vec<String>,
         /// Pin the peer to this AID. Without it, the AID in the peer's
@@ -105,22 +115,84 @@ enum Command {
         #[command(flatten)]
         net: NetArgs,
     },
+    /// Handshake with an interop peer, requesting `aitp.interop.echo`,
+    /// then present the TCT it issues back to its `/echo` with proof of
+    /// possession of our key, and print the claims the peer verified.
+    #[cfg(feature = "http-client")]
+    Echo {
+        /// Interop peer origin.
+        url: String,
+        #[command(flatten)]
+        identity: KeyChoice,
+        /// Signature suite of a `--key` file holding a bare hex seed.
+        #[arg(long, value_enum, default_value_t = Suite::Ed25519)]
+        suite: Suite,
+        /// Pin the peer to this AID. Without it, the AID in the peer's
+        /// Manifest is trusted on first use.
+        #[arg(long)]
+        peer_aid: Option<String>,
+        #[command(flatten)]
+        net: NetArgs,
+    },
+    /// Register our key with an interop peer (`POST <url>/enroll`), so
+    /// that its handshakes accept it. Creates the default key file if
+    /// it does not exist yet.
+    #[cfg(feature = "http-client")]
+    Enroll {
+        /// Peer origin.
+        url: String,
+        /// Signing key file (default: `$AITP_KEY`, else
+        /// `~/.config/aitp/agent.key`, created if missing).
+        #[arg(long, value_name = "FILE")]
+        key: Option<String>,
+        #[command(flatten)]
+        net: NetArgs,
+    },
+    /// Run a responder. `--interop` is the only mode: the public interop
+    /// peer described in docs/interop-peer.md.
+    #[cfg(feature = "serve")]
+    Serve(serve::ServeArgs),
 }
 
-/// The identity `aitp handshake` presents: exactly one of a key file or
-/// a throwaway key.
+/// The identity `aitp handshake` presents: a key file, a throwaway key,
+/// or (neither given) the default key file.
 #[cfg(feature = "http-client")]
 #[derive(clap::Args)]
-#[group(required = true, multiple = false)]
+#[group(multiple = false)]
 struct KeyChoice {
     /// Signing key file: the output of `aitp keygen`, or a bare 32-byte
-    /// hex seed.
+    /// hex seed. Default: `$AITP_KEY`, else `~/.config/aitp/agent.key`
+    /// (the file `aitp enroll` creates).
     #[arg(long, value_name = "FILE")]
     key: Option<String>,
     /// Generate a throwaway Ed25519 key for this run. Peers that pin
     /// keys will reject it until it is enrolled.
     #[arg(long)]
     ephemeral: bool,
+}
+
+#[cfg(feature = "http-client")]
+impl KeyChoice {
+    /// The key to present: `--key`, a throwaway, or the default key file,
+    /// which must exist (`aitp enroll` creates it).
+    fn resolve(&self, suite: Suite) -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
+        match &self.key {
+            Some(path) => key_from_file(path, suite),
+            None if self.ephemeral => Ok(random_key(Suite::Ed25519)?.1),
+            None => {
+                let path = default_key_path()?;
+                if !path.exists() {
+                    return Err(format!(
+                        "no key: pass --key <FILE> or --ephemeral, or run \
+                         `aitp enroll <url>` to create {}",
+                        path.display()
+                    )
+                    .into());
+                }
+                key_from_file(&path.to_string_lossy(), suite)
+            }
+        }
+    }
 }
 
 #[cfg(feature = "http-client")]
@@ -250,23 +322,44 @@ fn run(cli: Cli) -> CliResult {
             peer_aid,
             revocation_fail_open,
             net,
-        } => {
-            let ephemeral = identity.ephemeral;
-            let key = match identity.key {
-                Some(path) => key_from_file(&path, suite)?,
-                None => random_key(Suite::Ed25519)?.1,
+        } => net::handshake(net::HandshakeArgs {
+            peer: parse_url(&url)?,
+            key: identity.resolve(suite)?,
+            ephemeral: identity.ephemeral,
+            peer_aid: peer_aid.as_deref().map(Aid::parse).transpose()?,
+            grants,
+            offers,
+            revocation_fail_open,
+            net: net.into_opts(),
+        }),
+        #[cfg(feature = "http-client")]
+        Command::Echo {
+            url,
+            identity,
+            suite,
+            peer_aid,
+            net,
+        } => net::echo(net::HandshakeArgs {
+            peer: parse_url(&url)?,
+            key: identity.resolve(suite)?,
+            ephemeral: identity.ephemeral,
+            peer_aid: peer_aid.as_deref().map(Aid::parse).transpose()?,
+            grants: vec![],
+            offers: vec![],
+            // The interop peer advertises its list; check it.
+            revocation_fail_open: false,
+            net: net.into_opts(),
+        }),
+        #[cfg(feature = "http-client")]
+        Command::Enroll { url, key, net } => {
+            let key = match key {
+                Some(path) => key_from_file(&path, Suite::Ed25519)?,
+                None => load_or_create_default_key()?,
             };
-            net::handshake(net::HandshakeArgs {
-                peer: parse_url(&url)?,
-                key,
-                ephemeral,
-                peer_aid: peer_aid.as_deref().map(Aid::parse).transpose()?,
-                grants,
-                offers,
-                revocation_fail_open,
-                net: net.into_opts(),
-            })
+            net::enroll(parse_url(&url)?, &key, net.into_opts())
         }
+        #[cfg(feature = "serve")]
+        Command::Serve(args) => serve::run(args),
     }
 }
 
@@ -388,6 +481,17 @@ fn key_from_hex_seed(
 #[cfg(feature = "http-client")]
 fn key_from_file(path: &str, suite: Suite) -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
     let text = std::fs::read_to_string(path).map_err(|e| format!("reading key {path}: {e}"))?;
+    key_from_text(&text, path, suite)
+}
+
+/// Parse `aitp keygen` output or a bare hex seed; `origin` names the
+/// source in errors.
+#[cfg(feature = "http-client")]
+fn key_from_text(
+    text: &str,
+    origin: &str,
+    suite: Suite,
+) -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
     let field = |name: &str| {
         text.lines()
             .find_map(|l| l.trim().strip_prefix(name).map(str::trim))
@@ -397,12 +501,60 @@ fn key_from_file(path: &str, suite: Suite) -> Result<AitpSigningKey, Box<dyn std
             let suite = match field("suite:") {
                 Some("ed25519") | None => Suite::Ed25519,
                 Some("p256") => Suite::P256,
-                Some(other) => return Err(format!("{path}: unknown suite {other:?}").into()),
+                Some(other) => return Err(format!("{origin}: unknown suite {other:?}").into()),
             };
             key_from_hex_seed(seed, suite)
         }
-        None => key_from_hex_seed(&text, suite),
+        None => key_from_hex_seed(text, suite),
     }
+}
+
+/// `$AITP_KEY`, else `$XDG_CONFIG_HOME/aitp/agent.key`, else
+/// `~/.config/aitp/agent.key` (`%APPDATA%\aitp\agent.key` on Windows).
+#[cfg(feature = "http-client")]
+fn default_key_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    use std::path::PathBuf;
+    let var = |name: &str| std::env::var_os(name).filter(|v| !v.is_empty());
+    if let Some(path) = var("AITP_KEY") {
+        return Ok(PathBuf::from(path));
+    }
+    let config = var("XDG_CONFIG_HOME")
+        .map(PathBuf::from)
+        .or_else(|| var("APPDATA").map(PathBuf::from))
+        .or_else(|| var("HOME").map(|h| PathBuf::from(h).join(".config")))
+        .ok_or("cannot locate a config directory; pass --key <FILE>")?;
+    Ok(config.join("aitp").join("agent.key"))
+}
+
+/// The default key, generated (Ed25519, `aitp keygen` format, mode 0600
+/// on Unix) on first use.
+#[cfg(feature = "http-client")]
+fn load_or_create_default_key() -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
+    let path = default_key_path()?;
+    if path.exists() {
+        return key_from_file(&path.to_string_lossy(), Suite::Ed25519);
+    }
+    let (seed, key) = random_key(Suite::Ed25519)?;
+    if let Some(dir) = path.parent() {
+        std::fs::create_dir_all(dir)?;
+    }
+    let contents = format!(
+        "suite: ed25519\nseed:  {}\naid:   {}\n",
+        hex::encode(seed),
+        key.aid()
+    );
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    std::io::Write::write_all(
+        &mut options
+            .open(&path)
+            .map_err(|e| format!("creating {}: {e}", path.display()))?,
+        contents.as_bytes(),
+    )?;
+    eprintln!("aitp: created key {} ({})", path.display(), key.aid());
+    Ok(key)
 }
 
 #[cfg(feature = "http-client")]

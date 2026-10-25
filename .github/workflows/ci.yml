@@ -220,6 +220,33 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - run: ./scripts/check-versions.sh
+      - run: ./scripts/check-docker-rust.sh
+
+  interop-peer-docker:
+    # RS4.2 acceptance: the interop peer's image builds and a client
+    # completes `aitp enroll` -> `aitp echo` (handshake + PoP /echo) against
+    # a local `docker run` of it.
+    name: interop peer (docker)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.90.0"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - run: cargo build --locked -p aitp-cli
+      - run: docker build -f deploy/interop-peer/Dockerfile -t aitp-interop-peer .
+      - name: Run the peer
+        run: |
+          docker run -d --name peer -p 8080:8080 \
+            -e AITP_PEER_KEY="$(target/debug/aitp keygen)" \
+            -e AITP_PUBLIC_URL=http://localhost:8080 aitp-interop-peer
+          for i in $(seq 1 30); do curl -fsS localhost:8080/status && exit 0; sleep 1; done
+          docker logs peer; exit 1
+      - name: enroll -> echo
+        run: AITP=target/debug/aitp ./scripts/interop-peer-smoke.sh http://localhost:8080
+      - if: always()
+        run: docker logs peer || true
 
   semver:
     name: cargo-semver-checks

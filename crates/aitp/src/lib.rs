@@ -87,9 +87,10 @@ pub mod core {
     pub use aitp_core::base64url;
     pub use aitp_core::nonce_store::{InMemoryNonceStore, NonceStore};
     pub use aitp_core::{
-        envelope_signing_digest, Aid, AidAlgorithm, AidParseError, AitpEnvelope, AitpError,
-        EnvelopeParseError, ErrorCode, ExtensionsMap, MessageType, RawUrl, Sender, Timestamp,
-        DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
+        envelope_signing_digest, parse_envelope_wire, Aid, AidAlgorithm, AidParseError,
+        AitpEnvelope, AitpError, CheckedJson, CheckedJsonError, EnvelopeParseError, ErrorCode,
+        ExtensionsMap, MessageType, RawUrl, Sender, Timestamp, DEFAULT_TIMESTAMP_TOLERANCE_SECS,
+        PROTOCOL_VERSION,
     };
 }
 

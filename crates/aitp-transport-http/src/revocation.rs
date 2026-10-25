@@ -202,6 +202,18 @@ pub enum RevocationFailMode {
         /// surfaces).
         safe_grants: Vec<String>,
     },
+    /// Accept the TCT only when its issuer's verified Manifest
+    /// advertises no `ListRevoked` URL at all, and log each acceptance
+    /// at `info`. An advertised list that cannot be fetched, verified or
+    /// kept fresh still fails closed, so a list that exists is never
+    /// ignored.
+    ///
+    /// For a responder that receives TCTs it never acts on, such as a
+    /// public interop peer whose initiators (a CLI, a CI job) have no
+    /// list to publish. Only [`crate::RevocationFetcher`], which sees the
+    /// Manifest, can tell the two cases apart; [`RevocationCache`] treats
+    /// this mode as [`Self::FailClosed`].
+    FailOpenIfUnadvertised,
 }
 
 impl Default for RevocationFailMode {
@@ -353,7 +365,10 @@ impl<P: RevocationProvider> RevocationCache<P> {
                 }
             }
             Err(e) => match &self.policy.fail_mode {
-                RevocationFailMode::FailClosed => Err(e),
+                // No Manifest here, so "unadvertised" cannot be shown.
+                RevocationFailMode::FailClosed | RevocationFailMode::FailOpenIfUnadvertised => {
+                    Err(e)
+                }
                 RevocationFailMode::FailOpen => Ok(RevocationOutcome::Clear),
                 RevocationFailMode::SoftFail { safe_grants } if safe_grants.is_empty() => Err(e),
                 RevocationFailMode::SoftFail { safe_grants } => {
