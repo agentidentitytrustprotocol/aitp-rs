@@ -7,7 +7,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.20.0] — 2026-10-24
+
 ### BREAKING
+
+- **0.20.0: fail-closed revocation, spec `v0.3.2-draft`, a curated
+  facade, and no DPoP or token exchange.** Revocation is `fail_closed`
+  by default in Rust and in both bindings, with `fail_open` as an
+  explicit opt-out. The spec pin is `e78ee4b` and the schema namespace is
+  `https://agentidentitytrustprotocol.io/schema/v0.3/`, a strict cutover
+  of every schema `$id` with no `aitp.dev` alias. The `aitp` facade re-exports a curated
+  surface that `crates/aitp/public-api.txt` freezes. DPoP and OAuth 2.0
+  Token Exchange are removed. There are no aliases, deprecations or
+  migration guide; each entry below says what changed and what to use
+  instead. The bindings can now advertise a revocation list URI in the
+  Manifest, which fail-closed verifiers need from every TCT issuer.
 
 - **`aitp_handshake::PeerConfig` is `#[non_exhaustive]`** (RS1.1). A
   struct literal no longer compiles outside `aitp-handshake`. Build it
