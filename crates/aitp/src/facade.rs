@@ -5,21 +5,21 @@
 //! that don't need the per-step state machine can drive a full
 //! handshake from a Manifest URL in a single call.
 
-use crate::core::{
+use aitp_core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, MessageType, Timestamp,
 };
-use crate::crypto::{AitpSigner, AitpVerifyingKey};
-use crate::handshake::{
+use aitp_crypto::{AitpSigner, AitpVerifyingKey};
+use aitp_handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
-use crate::manifest::Manifest;
-use crate::tct::VerifiedTct;
+use aitp_manifest::Manifest;
+use aitp_tct::VerifiedTct;
 #[cfg(feature = "experimental-renewal")]
-use crate::tct::{build_renewal_request, TctRenewalPayload};
-use crate::transport::{
+use aitp_tct::{build_renewal_request, TctRenewalPayload};
+use aitp_transport_http::{
     sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
     RevocationFetcher, RevocationPolicy,
 };
@@ -40,7 +40,7 @@ use uuid::Uuid;
 /// 0.14.0 removed the possession-only `UnsafeNoTrustEnforcement`
 /// variant (proposal agentidentitytrustprotocol#72, resolved
 /// 2026-10-16). Tests use [`TrustMode::PinnedKeys`] with a
-/// [`crate::handshake::StaticPinnedKeyStore`].
+/// [`aitp_handshake::StaticPinnedKeyStore`].
 pub enum TrustMode<'a> {
     /// Require all pinned-key peers to appear in this store.
     PinnedKeys(&'a dyn PinnedKeyStore),
@@ -169,8 +169,8 @@ impl JwksResolver for NoOpJwksResolver {
     fn resolve(
         &self,
         _issuer: &url::Url,
-    ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError> {
-        Err(crate::handshake::ResolveError::NetworkError(
+    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, aitp_handshake::ResolveError> {
+        Err(aitp_handshake::ResolveError::NetworkError(
             "no JWKS resolver configured (TrustMode::PinnedKeys)".into(),
         ))
     }
@@ -530,9 +530,9 @@ pub async fn run_initiator_handshake(
     //
     // No TCT arrives before MUTUAL_COMMIT_ACK, so the steps before it
     // never consult the revocation source; COMMIT_ACK gets the real one.
-    let no_tct_yet = |_: &crate::core::Aid, _: &Uuid| {
+    let no_tct_yet = |_: &aitp_core::Aid, _: &Uuid| {
         Err(HandshakeError::Tct(
-            crate::tct::TctError::RevocationUnavailable(
+            aitp_tct::TctError::RevocationUnavailable(
                 "no revocation lookup before MUTUAL_COMMIT_ACK".into(),
             ),
         ))
@@ -543,7 +543,7 @@ pub async fn run_initiator_handshake(
             config.own_manifest,
             jwks_resolver,
             pinned_key_store,
-            crate::handshake::RevocationSource::Check(&no_tct_yet),
+            aitp_handshake::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
         .with_trust_anchors(trust_anchors)
@@ -682,13 +682,13 @@ pub async fn run_initiator_handshake(
             Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let revocation_check = move |iss: &aitp_core::Aid, jti: &Uuid| prepared.decide(iss, jti);
     let cfg = PeerConfig::new(
         config.signing_key,
         config.own_manifest,
         jwks_resolver,
         pinned_key_store,
-        crate::handshake::RevocationSource::Check(&revocation_check),
+        aitp_handshake::RevocationSource::Check(&revocation_check),
         Timestamp::now(),
     )
     .with_trust_anchors(trust_anchors);
@@ -863,7 +863,7 @@ impl<'a> InitiatorConfig<'a> {
     }
 
     /// Override the revocation policy (default `fail_closed`). Pass
-    /// [`RevocationFailMode::FailOpen`](crate::transport::RevocationFailMode::FailOpen)
+    /// [`RevocationFailMode::FailOpen`](aitp_transport_http::RevocationFailMode::FailOpen)
     /// to accept a peer whose revocation status cannot be determined.
     pub fn with_revocation_policy(mut self, policy: RevocationPolicy) -> Self {
         self.revocation_policy = policy;
@@ -929,8 +929,9 @@ async fn renew_at_advertised_uri(
     issuer_manifest: &Manifest,
     allow_insecure_localhost: bool,
 ) -> Result<RenewedTct, FacadeError> {
-    let url = crate::transport::renew_uri_from_manifest(issuer_manifest, allow_insecure_localhost)
-        .ok_or(FacadeError::RenewalNotAdvertised)?;
+    let url =
+        aitp_transport_http::renew_uri_from_manifest(issuer_manifest, allow_insecure_localhost)
+            .ok_or(FacadeError::RenewalNotAdvertised)?;
     let pop_nonce = aitp_core::base64url::encode(&rand_bytes_16());
     let request: TctRenewalPayload = build_renewal_request(holder_key, current, pop_nonce)?;
 
@@ -1278,11 +1279,11 @@ mod initiator_config_knobs {
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
         let key = AitpSigningKey::from_seed(&[0x33; 32]);
-        let manifest = crate::manifest::ManifestBuilder::new(&key)
+        let manifest = aitp_manifest::ManifestBuilder::new(&key)
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
-            .identity_hint(crate::manifest::IdentityHint {
-                kind: crate::manifest::IdentityHintKind::PinnedKey,
+            .identity_hint(aitp_manifest::IdentityHint {
+                kind: aitp_manifest::IdentityHintKind::PinnedKey,
                 subject: "t".into(),
                 issuer: None,
                 public_key: Some(key.aid().identifier().to_string()),
@@ -1301,7 +1302,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
+            TrustMode::PinnedKeys(&aitp_handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },
@@ -1310,7 +1311,7 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(10));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::WarnPrivate
+            aitp_transport_http::GuardMode::WarnPrivate
         );
     }
 
@@ -1321,7 +1322,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
+            TrustMode::PinnedKeys(&aitp_handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },
@@ -1332,7 +1333,7 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(3));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::DenyPrivate
+            aitp_transport_http::GuardMode::DenyPrivate
         );
     }
 }

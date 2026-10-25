@@ -1,5 +1,9 @@
 //! Agent Manifest — the discovery primitive for A2A peers.
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! A Manifest is a signed self-description published at
 //! `/.well-known/aitp-manifest`. It carries the agent's AID, a static
 //! `identity_hint` (NOT a fresh JWT — fresh proofs are exchanged in the

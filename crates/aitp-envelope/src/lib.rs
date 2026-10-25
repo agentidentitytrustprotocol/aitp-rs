@@ -1,5 +1,9 @@
 //! AITP envelope signing and verification.
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! These helpers wrap a payload in a signed [`AitpEnvelope`] and verify
 //! an envelope's outer signature. They depend only on `aitp-core` (wire
 //! types, canonicalization) and `aitp-crypto` (signing) — no HTTP, no

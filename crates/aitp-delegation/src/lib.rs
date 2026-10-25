@@ -1,5 +1,9 @@
 //! Delegation tokens (compact JWS, `typ: aitp-delegation+jwt`).
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! Single-hop (RFC-AITP-0006) is the v0.2 default: B delegates against
 //! the grant voucher A minted alongside B's TCT, embedded verbatim in
 //! the token. Multi-hop chains (RFC-AITP-0011) are carried in optional

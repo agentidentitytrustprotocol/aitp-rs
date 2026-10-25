@@ -1,5 +1,9 @@
 //! Mutual Handshake state machine (RFC-AITP-0004).
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! Two peers exchange four messages — `MUTUAL_HELLO`, `MUTUAL_HELLO_ACK`,
 //! `MUTUAL_COMMIT`, `MUTUAL_COMMIT_ACK` — and end with each holding a
 //! peer-issued TCT.

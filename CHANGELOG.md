@@ -80,6 +80,44 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `tct-025` (explicit `fail_open`) and `rev-011` (a third-party-signed
   snapshot is discarded) pass. Totals: 86 pass / 25 skip strict and
   109 pass / 2 skip with all features, of 111.
+- **The `aitp` facade re-exports a curated surface** (RS1.5, #293).
+  `aitp::{core, crypto, tct, manifest, handshake, delegation, transport}`
+  were whole-crate aliases (`pub use aitp_tct as tct`). They are now
+  modules that name each item, frozen in `crates/aitp/public-api.txt`.
+  The CI job `aitp public API snapshot` (`make public-api-check`) fails
+  on any change that isn't regenerated with `make public-api`. Every root
+  type, trait, builder, context, verify function, error and constant a
+  consumer needs stays at the same path, e.g. `aitp::tct::verify_tct` and
+  `aitp::transport::HandshakeServer`. `aitp::crypto::jws` and
+  `aitp::core::base64url` stay as modules, `aitp::handshake::GrantPolicyFn`
+  is new, and `aitp::core::{NonceStore, InMemoryNonceStore}` move up from
+  `nonce_store`. Removed from `aitp` (use the internal crate if you must,
+  without a stability promise):
+  - Every internal-crate submodule path, e.g. `aitp::tct::verifier::*`,
+    `aitp::handshake::state_machine::*`, `aitp::core::envelope::*`,
+    `aitp::crypto::testing`, `aitp::transport::server::*`.
+  - Wire-level helpers: the `*_MEMBERS` constants,
+    `aitp::core::{envelope_signing_input, check_envelope_structure,
+    check_unsigned_envelope_structure, parse_envelope_wire,
+    ENVELOPE_SIGNING_DOMAIN_TAG, check_members, from_serde_error,
+    reject_duplicate_keys, CheckedJson, CheckedJsonError, UnknownField}`,
+    `aitp::tct::{parse_revocation_snapshot_wire, revocation_signing_bytes}`,
+    `aitp::manifest::{parse_manifest_wire,
+    check_identity_type_compatibility}`,
+    `aitp::handshake::{bootstrap_verify_peer, pinned_key_proof_input,
+    POP_NONCE_LEN}`, `aitp::delegation::compute_chain_hash` and
+    `aitp::transport::apply_safe_subset`.
+  - `aitp::transport::{SpkiHash, SpkiPinVerifier,
+    build_pinning_client_config, compute_spki_hash}`: `aitp` has no
+    `client-spki-pinning` feature, so these were only reachable by
+    feature unification.
+
+  `aitp::session_bundle` and `aitp::handshake::admission` stay whole and
+  experimental. The internal crates' rustdoc now says "no stability
+  promise; use `aitp`". The `facade_renewal` test now also requires
+  `http-server`. No in-repo consumer (examples, `aitp-cli`, e2e-llm)
+  needed a change. Downstream repos use the Python and Node bindings,
+  not the Rust facade.
 - **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
   specifies either, and both were documented as unsupported (#151).
   `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`

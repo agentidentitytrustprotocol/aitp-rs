@@ -1,0 +1,291 @@
+pub mod aitp
+pub use aitp::session_bundle
+pub mod aitp::core
+pub use aitp::core::Aid
+pub use aitp::core::AidAlgorithm
+pub use aitp::core::AidParseError
+pub use aitp::core::AitpEnvelope
+pub use aitp::core::AitpError
+pub use aitp::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS
+pub use aitp::core::EnvelopeParseError
+pub use aitp::core::ErrorCode
+pub use aitp::core::ExtensionsMap
+pub use aitp::core::InMemoryNonceStore
+pub use aitp::core::MessageType
+pub use aitp::core::NonceStore
+pub use aitp::core::PROTOCOL_VERSION
+pub use aitp::core::RawUrl
+pub use aitp::core::Sender
+pub use aitp::core::Timestamp
+pub use aitp::core::base64url
+pub use aitp::core::envelope_signing_digest
+pub mod aitp::crypto
+pub use aitp::crypto::AitpSigner
+pub use aitp::crypto::AitpSigningKey
+pub use aitp::crypto::AitpVerifyingKey
+pub use aitp::crypto::AsyncAitpSigner
+pub use aitp::crypto::BackendSignature
+pub use aitp::crypto::BlockingSigner
+pub use aitp::crypto::CryptoError
+pub use aitp::crypto::Digest32
+pub use aitp::crypto::DynAsyncAitpSigner
+pub use aitp::crypto::SignRequest
+pub use aitp::crypto::Signature
+pub use aitp::crypto::SignatureAlgorithm
+pub use aitp::crypto::SignerError
+pub use aitp::crypto::check_public_key
+pub use aitp::crypto::check_public_key_async
+pub use aitp::crypto::compute_jwk_thumbprint
+pub use aitp::crypto::compute_jwk_thumbprint_p256
+pub use aitp::crypto::jws
+pub use aitp::crypto::sign_jcs
+pub use aitp::crypto::sign_jcs_async
+pub use aitp::crypto::sign_raw
+pub use aitp::crypto::sign_raw_async
+pub mod aitp::delegation
+pub use aitp::delegation::DEFAULT_DELEGATION_TTL_SECS
+pub use aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS
+pub use aitp::delegation::DelegationBuilder
+pub use aitp::delegation::DelegationClaims
+pub use aitp::delegation::DelegationError
+pub use aitp::delegation::DelegationRevocation
+pub use aitp::delegation::HopRevocationCheck
+pub use aitp::delegation::SourceRevocationCheck
+pub use aitp::delegation::VerifiedDelegation
+pub use aitp::delegation::VerifyDelegationContext
+pub use aitp::delegation::verify_delegation
+pub mod aitp::facade
+pub enum aitp::facade::FacadeError
+pub aitp::facade::FacadeError::Handshake(aitp_handshake::error::HandshakeError)
+pub aitp::facade::FacadeError::Http(alloc::string::String)
+pub aitp::facade::FacadeError::Manifest(aitp_transport_http::client::FetchError)
+pub aitp::facade::FacadeError::ManifestVerify(aitp_manifest::error::ManifestError)
+pub aitp::facade::FacadeError::Protocol
+pub aitp::facade::FacadeError::Protocol::code: alloc::string::String
+pub aitp::facade::FacadeError::Protocol::message: alloc::string::String
+pub aitp::facade::FacadeError::Renewal(aitp_tct::error::TctError)
+pub aitp::facade::FacadeError::RenewalNotAdvertised
+pub aitp::facade::FacadeError::Serde(serde_json::error::Error)
+pub enum aitp::facade::IdentityMode<'a>
+pub aitp::facade::IdentityMode::Oidc
+pub aitp::facade::IdentityMode::Oidc::issuer: url::Url
+pub aitp::facade::IdentityMode::Oidc::proof_jwt: &'a str
+pub aitp::facade::IdentityMode::Oidc::subject: alloc::string::String
+pub aitp::facade::IdentityMode::OidcWithMintCallback
+pub aitp::facade::IdentityMode::OidcWithMintCallback::issuer: url::Url
+pub aitp::facade::IdentityMode::OidcWithMintCallback::mint: alloc::boxed::Box<aitp_handshake::state_machine::OidcMintJwtFn>
+pub aitp::facade::IdentityMode::OidcWithMintCallback::subject: alloc::string::String
+pub aitp::facade::IdentityMode::PinnedKey
+pub aitp::facade::IdentityMode::PinnedKey::subject: alloc::string::String
+pub enum aitp::facade::TrustMode<'a>
+pub aitp::facade::TrustMode::Oidc
+pub aitp::facade::TrustMode::Oidc::jwks_resolver: &'a dyn aitp_handshake::identity_oidc::JwksResolver
+pub aitp::facade::TrustMode::Oidc::trust_anchors: &'a [aitp_core::raw_url::RawUrl]
+pub aitp::facade::TrustMode::PinnedKeys(&'a dyn aitp_handshake::identity_pinned::PinnedKeyStore)
+#[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
+pub aitp::facade::InitiatorConfig::allow_insecure_localhost: bool
+pub aitp::facade::InitiatorConfig::host_guard: aitp_transport_http::net_guard::HostGuard
+pub aitp::facade::InitiatorConfig::http_timeout: core::time::Duration
+pub aitp::facade::InitiatorConfig::identity_mode: aitp::facade::IdentityMode<'a>
+pub aitp::facade::InitiatorConfig::own_manifest: &'a aitp_manifest::types::Manifest
+pub aitp::facade::InitiatorConfig::peer_origin: url::Url
+pub aitp::facade::InitiatorConfig::requested_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::facade::InitiatorConfig::revocation_policy: aitp_transport_http::revocation::RevocationPolicy
+pub aitp::facade::InitiatorConfig::signing_key: &'a dyn aitp_crypto::signer::AitpSigner
+pub aitp::facade::InitiatorConfig::trust_mode: aitp::facade::TrustMode<'a>
+impl<'a> aitp::facade::InitiatorConfig<'a>
+pub fn aitp::facade::InitiatorConfig<'a>::new(&'a dyn aitp_crypto::signer::AitpSigner, &'a aitp_manifest::types::Manifest, url::Url, aitp::facade::TrustMode<'a>, aitp::facade::IdentityMode<'a>, alloc::vec::Vec<alloc::string::String>) -> Self
+pub fn aitp::facade::InitiatorConfig<'a>::with_host_guard(self, aitp_transport_http::net_guard::HostGuard) -> Self
+pub fn aitp::facade::InitiatorConfig<'a>::with_http_timeout(self, core::time::Duration) -> Self
+pub fn aitp::facade::InitiatorConfig<'a>::with_insecure_localhost(self, bool) -> Self
+pub fn aitp::facade::InitiatorConfig<'a>::with_revocation_policy(self, aitp_transport_http::revocation::RevocationPolicy) -> Self
+pub struct aitp::facade::RenewedTct
+pub aitp::facade::RenewedTct::grant_voucher: core::option::Option<alloc::string::String>
+pub aitp::facade::RenewedTct::tct: alloc::string::String
+pub struct aitp::facade::SessionContext
+pub aitp::facade::SessionContext::grant_voucher: core::option::Option<alloc::string::String>
+pub aitp::facade::SessionContext::held_tct: aitp_tct::types::VerifiedTct
+pub aitp::facade::SessionContext::peer_aid: aitp_core::aid::Aid
+pub aitp::facade::SessionContext::peer_pubkey: aitp_crypto::keys::AitpVerifyingKey
+pub struct aitp::facade::TctStore
+impl aitp::facade::TctStore
+pub fn aitp::facade::TctStore::get(&self, &aitp_core::aid::Aid) -> core::option::Option<aitp_tct::types::VerifiedTct>
+pub fn aitp::facade::TctStore::get_voucher(&self, &aitp_core::aid::Aid) -> core::option::Option<alloc::string::String>
+pub fn aitp::facade::TctStore::insert(&self, aitp_tct::types::VerifiedTct, core::option::Option<alloc::string::String>)
+pub fn aitp::facade::TctStore::needs_refresh(&self, &aitp_core::aid::Aid, aitp_core::time::Timestamp) -> bool
+pub fn aitp::facade::TctStore::new(f64) -> Self
+pub fn aitp::facade::TctStore::peer_aids(&self) -> alloc::vec::Vec<aitp_core::aid::Aid>
+pub fn aitp::facade::TctStore::remove(&self, &aitp_core::aid::Aid)
+impl core::default::Default for aitp::facade::TctStore
+pub fn aitp::facade::TctStore::default() -> Self
+pub async fn aitp::facade::renew_tct(&dyn aitp_crypto::signer::AitpSigner, alloc::string::String, &aitp_manifest::types::Manifest) -> core::result::Result<aitp::facade::RenewedTct, aitp::facade::FacadeError>
+pub async fn aitp::facade::renew_tct_with_insecure_localhost(&dyn aitp_crypto::signer::AitpSigner, alloc::string::String, &aitp_manifest::types::Manifest) -> core::result::Result<aitp::facade::RenewedTct, aitp::facade::FacadeError>
+pub async fn aitp::facade::run_initiator_handshake(aitp::facade::InitiatorConfig<'_>) -> core::result::Result<aitp::facade::SessionContext, aitp::facade::FacadeError>
+pub mod aitp::handshake
+pub use aitp::handshake::CompletedHandshake
+pub use aitp::handshake::GrantPolicyFn
+pub use aitp::handshake::HandshakeError
+pub use aitp::handshake::HandshakeRevocationDecision
+pub use aitp::handshake::IdentityDescriptor
+pub use aitp::handshake::IdentityKind
+pub use aitp::handshake::Initiator
+pub use aitp::handshake::JwkKeyMaterial
+pub use aitp::handshake::JwkParseError
+pub use aitp::handshake::JwkPublicKey
+pub use aitp::handshake::JwksResolver
+pub use aitp::handshake::JwsAlgorithm
+pub use aitp::handshake::JwsVerifyError
+pub use aitp::handshake::MutualCommitAckPayload
+pub use aitp::handshake::MutualCommitPayload
+pub use aitp::handshake::MutualHelloAckPayload
+pub use aitp::handshake::MutualHelloPayload
+pub use aitp::handshake::NoPinnedKeys
+pub use aitp::handshake::OidcMintJwtFn
+pub use aitp::handshake::OidcVerifyContext
+pub use aitp::handshake::PeerConfig
+pub use aitp::handshake::PinnedKeyEntry
+pub use aitp::handshake::PinnedKeyEntryError
+pub use aitp::handshake::PinnedKeyStore
+pub use aitp::handshake::PinnedKeyVerifyContext
+pub use aitp::handshake::PresentedIdentity
+pub use aitp::handshake::ResolveError
+pub use aitp::handshake::Responder
+pub use aitp::handshake::RevocationCheckFn
+pub use aitp::handshake::RevocationSource
+pub use aitp::handshake::SessionId
+pub use aitp::handshake::StaticPinnedKeyStore
+pub use aitp::handshake::SubjectBinding
+pub use aitp::handshake::VerifiedPinnedKey
+pub use aitp::handshake::admission
+pub use aitp::handshake::sign_pinned_key_proof
+pub use aitp::handshake::verify_jws_signature
+pub use aitp::handshake::verify_oidc
+pub use aitp::handshake::verify_pinned_key
+pub mod aitp::manifest
+pub use aitp::manifest::DEFAULT_MANIFEST_TTL_SECS
+pub use aitp::manifest::IdentityHint
+pub use aitp::manifest::IdentityHintKind
+pub use aitp::manifest::Manifest
+pub use aitp::manifest::ManifestBuilder
+pub use aitp::manifest::ManifestEnvelope
+pub use aitp::manifest::ManifestError
+pub use aitp::manifest::ManifestPop
+pub use aitp::manifest::ManifestResolver
+pub use aitp::manifest::REVOCATION_LIST_URI_EXT
+pub use aitp::manifest::VerifyManifestContext
+pub use aitp::manifest::resolve_verified_manifest
+pub use aitp::manifest::verify_manifest
+pub mod aitp::prelude
+pub use aitp::prelude::Aid
+pub use aitp::prelude::AitpEnvelope
+pub use aitp::prelude::AitpSigner
+pub use aitp::prelude::AitpSigningKey
+pub use aitp::prelude::AitpVerifyingKey
+pub use aitp::prelude::AsyncAitpSigner
+pub use aitp::prelude::BackendSignature
+pub use aitp::prelude::BlockingSigner
+pub use aitp::prelude::DynAsyncAitpSigner
+pub use aitp::prelude::IssuedTct
+pub use aitp::prelude::Manifest
+pub use aitp::prelude::SignRequest
+pub use aitp::prelude::SignerError
+pub use aitp::prelude::TctBuilder
+pub use aitp::prelude::TctClaims
+pub use aitp::prelude::Timestamp
+pub use aitp::prelude::VerifiedTct
+pub use aitp::prelude::check_public_key
+pub use aitp::prelude::check_public_key_async
+pub use aitp::prelude::sign_jcs
+pub use aitp::prelude::sign_jcs_async
+pub use aitp::prelude::sign_raw
+pub use aitp::prelude::sign_raw_async
+pub mod aitp::tct
+pub use aitp::tct::ATTESTATION_GRANT
+pub use aitp::tct::AttestationVerifyContext
+pub use aitp::tct::AttestationVerifyContextBuilder
+pub use aitp::tct::Cnf
+pub use aitp::tct::DEFAULT_TCT_TTL_SECS
+pub use aitp::tct::GrantVoucherClaims
+pub use aitp::tct::IssuedTct
+pub use aitp::tct::PopChallenge
+pub use aitp::tct::PopResponse
+pub use aitp::tct::RenewalContext
+pub use aitp::tct::RenewalGrantPolicyFn
+pub use aitp::tct::RevocationCheckFn
+pub use aitp::tct::RevocationEntry
+pub use aitp::tct::RevocationList
+pub use aitp::tct::RevocationListEnvelope
+pub use aitp::tct::TctBuilder
+pub use aitp::tct::TctClaims
+pub use aitp::tct::TctError
+pub use aitp::tct::TctRenewalPayload
+pub use aitp::tct::TctVerifyContext
+pub use aitp::tct::TctVerifyContextBuilder
+pub use aitp::tct::TctVerifyContextError
+pub use aitp::tct::VerifiedAttestation
+pub use aitp::tct::VerifiedTct
+pub use aitp::tct::VerifyRevocationListContext
+pub use aitp::tct::build_renewal_request
+pub use aitp::tct::process_renewal_request
+pub use aitp::tct::sign_pop_response
+pub use aitp::tct::sign_revocation_list
+pub use aitp::tct::verify_attestation
+pub use aitp::tct::verify_pop_response
+pub use aitp::tct::verify_revocation_list
+pub use aitp::tct::verify_tct
+pub use aitp::tct::verify_voucher
+pub mod aitp::transport
+pub use aitp::transport::AsyncJwksResolver
+pub use aitp::transport::ClientConfig
+pub use aitp::transport::DEFAULT_MAX_REVOCATION_LIST_BYTES
+pub use aitp::transport::DEFAULT_REQUEST_BODY_LIMIT
+pub use aitp::transport::DEFAULT_REVOCATION_FETCH_TIMEOUT
+pub use aitp::transport::DEFAULT_SESSION_TTL
+pub use aitp::transport::FetchError
+pub use aitp::transport::GuardMode
+pub use aitp::transport::HandshakeServer
+pub use aitp::transport::HostGuard
+pub use aitp::transport::HostGuardError
+pub use aitp::transport::InMemoryReplayGuard
+pub use aitp::transport::JwksFetcher
+pub use aitp::transport::JwksFetcherError
+pub use aitp::transport::KeyResolutionFailMode
+pub use aitp::transport::KeyResolutionOutcome
+pub use aitp::transport::KeyResolutionPolicy
+pub use aitp::transport::KeyResolutionPolicyBuilder
+pub use aitp::transport::MAX_BUNDLE_BYTES
+pub use aitp::transport::ManifestFetcher
+pub use aitp::transport::ManifestServer
+pub use aitp::transport::PinnedIssuerKeyStore
+pub use aitp::transport::PreparedRevocation
+pub use aitp::transport::RECOMMENDED_MAX_HEADER_BYTES
+pub use aitp::transport::RENEW_URI_EXT
+pub use aitp::transport::REVOCATION_LIST_PATH
+pub use aitp::transport::REVOCATION_LIST_URI_EXT
+pub use aitp::transport::RateLimitConfig
+pub use aitp::transport::RateLimitOutcome
+pub use aitp::transport::ReplayGuard
+pub use aitp::transport::RetryPolicy
+pub use aitp::transport::RevocationCache
+pub use aitp::transport::RevocationError
+pub use aitp::transport::RevocationFailMode
+pub use aitp::transport::RevocationFetcher
+pub use aitp::transport::RevocationListProducer
+pub use aitp::transport::RevocationOutcome
+pub use aitp::transport::RevocationPolicy
+pub use aitp::transport::RevocationProvider
+pub use aitp::transport::SESSION_BUNDLE_PATH
+pub use aitp::transport::SessionBundleServer
+pub use aitp::transport::StaticPinnedIssuerKeyStore
+pub use aitp::transport::TrustedProxy
+pub use aitp::transport::TrustedProxyParseError
+pub use aitp::transport::renew_uri_from_manifest
+pub use aitp::transport::resolve_source_ip
+pub use aitp::transport::revocation_list_uri_from_manifest
+pub use aitp::transport::sign_envelope
+pub use aitp::transport::sign_envelope_async
+pub use aitp::transport::sign_envelope_with
+pub use aitp::transport::sign_envelope_with_async
+pub use aitp::transport::verify_envelope_signature
+pub use aitp::transport::with_request_body_limit
+pub use aitp::transport::with_request_body_limit_default
