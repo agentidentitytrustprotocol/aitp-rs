@@ -832,6 +832,17 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         None
     };
 
+    // `self_trust_anchors` is the receiver's OIDC `trust_anchors` when the
+    // fixture states it. When it is absent the receiver trusts exactly the
+    // runner-minted OIDC test issuer (README, "Receiver policy inputs").
+    let cfg_anchors: Vec<aitp_core::RawUrl> =
+        match params.get("self_trust_anchors").and_then(|v| v.as_array()) {
+            Some(anchors) => anchors
+                .iter()
+                .filter_map(|a| a.as_str()?.parse().ok())
+                .collect(),
+            None => vec!["https://auth.openai.com".parse().unwrap()],
+        };
     // Synthesize a minimal verifier-side Manifest. Most fields are
     // throwaway; what bootstrap_verify_peer reads out of `cfg.manifest`
     // is `aid` (audience for OIDC) and `required_peer_capabilities`.
@@ -852,8 +863,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                     .try_to_ed25519_bytes()
                     .expect("key was constructed as Ed25519, never P-256"),
             )),
-        })
-        .accept_trust_anchor("https://idp.example.com".parse().unwrap());
+        });
+    let self_manifest = cfg_anchors
+        .iter()
+        .fold(self_manifest, |m, a| m.accept_trust_anchor_raw(a.clone()));
     // RFC-AITP-0004 §5.1 step 8: an `mh-*` fixture states the receiver's
     // own `accepted_identity_types` as `self_accepted_identity_types`, and
     // the runner fills in the default `["oidc"]` when it is absent. An
@@ -919,20 +932,6 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // required. Fixtures that exercise it (e.g. id-007) supply
     // `trust_store` as a list of AID strings (Ed25519 or P-256).
     let trust_store = harness_pinned_trust(&params, &envelope.sender.agent_id);
-    // `self_trust_anchors` is the receiver's OIDC `trust_anchors` when the
-    // fixture states it (README, "Receiver policy inputs").
-    let cfg_anchors: Vec<aitp_core::RawUrl> =
-        match params.get("self_trust_anchors").and_then(|v| v.as_array()) {
-            Some(anchors) => anchors
-                .iter()
-                .filter_map(|a| a.as_str()?.parse().ok())
-                .collect(),
-            None => vec![
-                "https://auth.openai.com".parse().unwrap(),
-                "https://auth.anthropic.com".parse().unwrap(),
-                "https://idp.example.com".parse().unwrap(),
-            ],
-        };
     let mut cfg = PeerConfig::new(
         &self_key,
         &self_manifest,
