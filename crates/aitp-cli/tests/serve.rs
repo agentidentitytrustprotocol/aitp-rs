@@ -30,9 +30,14 @@ impl Drop for Peer {
 /// Start the peer on an ephemeral loopback port and wait for its
 /// `listening on` line.
 fn spawn_peer(seed: u8) -> Peer {
+    spawn_peer_with(seed, &[])
+}
+
+fn spawn_peer_with(seed: u8, extra: &[&str]) -> Peer {
     let mut child = StdCommand::cargo_bin("aitp")
         .unwrap()
         .args(["serve", "--interop", "--listen", "127.0.0.1:0"])
+        .args(extra)
         .env("AITP_PEER_KEY", format!("{seed:02x}").repeat(32))
         .env("RUST_LOG", "warn")
         .stdout(Stdio::null())
@@ -242,4 +247,36 @@ fn malformed_enrolment_is_a_400() {
     let (status, err) = post_json(&peer, "/enroll", &json!({"aid": "nope"}));
     assert_eq!(status, 400);
     assert_eq!(err["error"], "bad_request");
+}
+
+#[test]
+fn client_ip_header_from_a_trusted_proxy_keys_the_limits() {
+    // An edge like Railway's: it writes the client into X-Real-IP and
+    // appends its own, per-request, public hop to X-Forwarded-For.
+    let peer = spawn_peer_with(
+        0x56,
+        &[
+            "--trusted-proxy",
+            "127.0.0.1",
+            "--client-ip-header",
+            "x-real-ip",
+        ],
+    );
+    let challenge = |client_ip: &str, edge: u8| {
+        client()
+            .post(format!("{}/enroll/challenge", peer.origin))
+            .header("x-real-ip", client_ip)
+            .header("x-forwarded-for", format!("{client_ip}, 198.51.100.{edge}"))
+            .json(&json!({}))
+            .send()
+            .unwrap()
+            .status()
+            .as_u16()
+    };
+    // The challenge bucket is a burst of 10 per client.
+    for edge in 0..10 {
+        assert_eq!(challenge("203.0.113.7", edge), 200);
+    }
+    assert_eq!(challenge("203.0.113.7", 10), 429);
+    assert_eq!(challenge("203.0.113.8", 11), 200);
 }

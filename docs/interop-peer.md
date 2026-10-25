@@ -124,8 +124,17 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 | Request deadline | 15 s → 408 | — |
 
 A client address is the TCP peer, or the client named in
-`X-Forwarded-For` when the TCP peer is a `--trusted-proxy`. IPv6
-addresses count per /64.
+`X-Forwarded-For` when the TCP peer is a `--trusted-proxy`: the
+rightmost hop that isn't itself trusted. IPv6 addresses count per /64.
+
+Some edges append a public hop of their own that changes per request.
+Railway's edge connects from `100.64.0.0/10` and sends
+`X-Forwarded-For: <client>, <edge>` with a rotating `<edge>`, so the
+rightmost-hop rule would key limits on the edge. It also writes the
+client into `X-Real-IP`, replacing any value the client sent. Behind such
+an edge, pass `--client-ip-header x-real-ip` so the limits key on that
+header instead. The public instance runs with
+`AITP_TRUSTED_PROXIES=100.64.0.0/10` and `AITP_CLIENT_IP_HEADER=x-real-ip`.
 
 Enrolments, challenges and rate-limit state live in memory, so a restart
 or redeploy clears them: enrol again.
@@ -255,6 +264,7 @@ proxy with `--trusted-proxy` so the per-address limits see clients.
 | `--public-url <URL>` | `AITP_PUBLIC_URL` | `http://localhost:<port>`. The origin clients use; it goes into the Manifest's handshake endpoint and revocation list URL. |
 | `--key <FILE>` | `AITP_PEER_KEY_FILE`, or the key itself in `AITP_PEER_KEY` | — (required). `aitp keygen` output or a bare hex seed. |
 | `--trusted-proxy <CIDR>` | `AITP_TRUSTED_PROXIES` (comma-separated) | none |
+| `--client-ip-header <NAME>` | `AITP_CLIENT_IP_HEADER` | none. A header in which the trusted proxy writes the client address itself, overwriting any the client sent. From a trusted hop it replaces `X-Forwarded-For` for every limit. |
 | `--enrol-ttl <SECS>` | `AITP_ENROL_TTL` | `86400` |
 | `--enrol-cap <N>` | `AITP_ENROL_CAP` | `10000` |
 | `--enrol-per-ip-per-hour <N>` | `AITP_ENROL_PER_IP_PER_HOUR` | `5` |

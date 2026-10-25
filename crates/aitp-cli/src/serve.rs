@@ -15,10 +15,12 @@
 //!
 //! It requests and grants only [`ECHO_CAP`]. Plain HTTP: TLS is
 //! terminated at the platform edge, whose hop is named with
-//! `--trusted-proxy` so per-IP limits see the client address.
+//! `--trusted-proxy` so per-IP limits see the client address (and, for
+//! an edge that writes the client into one header of its own, with
+//! `--client-ip-header`).
 
 use std::collections::{HashMap, HashSet, VecDeque};
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -40,7 +42,7 @@ use aitp::transport::{
 };
 use axum::body::{to_bytes, Body, Bytes};
 use axum::extract::{ConnectInfo, Request, State};
-use axum::http::{header, HeaderMap, StatusCode};
+use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
 use axum::response::{IntoResponse, Response};
 use axum::routing::{get, post};
@@ -99,6 +101,12 @@ pub(crate) struct ServeArgs {
         value_name = "CIDR"
     )]
     trusted_proxies: Vec<TrustedProxy>,
+    /// A header in which the `--trusted-proxy` hop writes the client
+    /// address itself, overwriting any the client sent (Railway:
+    /// `x-real-ip`). From a trusted hop it replaces `X-Forwarded-For`, for
+    /// an edge whose own public hop there changes per request.
+    #[arg(long, env = "AITP_CLIENT_IP_HEADER", value_name = "NAME")]
+    client_ip_header: Option<HeaderName>,
     /// How long an enrolment lasts, in seconds.
     #[arg(long, env = "AITP_ENROL_TTL", default_value_t = 24 * 3600)]
     enrol_ttl: i64,
@@ -170,6 +178,7 @@ async fn serve(args: ServeArgs, key: Arc<AitpSigningKey>) -> CliResult {
         echo_limiter: TokenBucketLimiter::new(10, 1.0 / 6.0),
         revoked: HashSet::new(),
         trusted_proxies: args.trusted_proxies,
+        client_ip_header: args.client_ip_header,
         aitp: RwLock::new(Router::new()),
     });
     peer.rebuild(&key, &public_url)?;
@@ -210,6 +219,7 @@ struct Interop {
     /// because this peer revokes nothing.
     revoked: HashSet<Uuid>,
     trusted_proxies: Vec<TrustedProxy>,
+    client_ip_header: Option<HeaderName>,
     /// Manifest + handshake routes, rebuilt with a freshly signed
     /// Manifest by [`refresh_manifest`].
     aitp: RwLock<Router>,
@@ -292,8 +302,36 @@ fn router(peer: Arc<Interop>) -> Router {
         .route(echo::ECHO_PATH, post(echo))
         .route("/status", get(status))
         .fallback(aitp_routes)
-        .with_state(peer)
+        .with_state(Arc::clone(&peer))
+        .layer(middleware::from_fn_with_state(peer, client_ip))
         .layer(middleware::from_fn(limits))
+}
+
+/// `--client-ip-header`: from a trusted proxy, rewrite `X-Forwarded-For`
+/// to the single address in that header, so every rate limit (the
+/// handshake's included) keys on it. A request without a parseable value
+/// keeps its headers and falls back to [`resolve_source_ip`].
+async fn client_ip(State(peer): State<Arc<Interop>>, mut request: Request, next: Next) -> Response {
+    if let (Some(name), Some(ConnectInfo(addr))) = (
+        &peer.client_ip_header,
+        request
+            .extensions()
+            .get::<ConnectInfo<SocketAddr>>()
+            .copied(),
+    ) {
+        let from_proxy = peer.trusted_proxies.iter().any(|p| p.contains(addr.ip()));
+        let client = request
+            .headers()
+            .get(name)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.trim().parse::<IpAddr>().ok());
+        if let (true, Some(client)) = (from_proxy, client) {
+            if let Ok(value) = HeaderValue::from_str(&client.to_canonical().to_string()) {
+                request.headers_mut().insert("x-forwarded-for", value);
+            }
+        }
+    }
+    next.run(request).await
 }
 
 /// Body cap and deadline for every request, the AITP routes included
@@ -888,6 +926,7 @@ mod tests {
             echo_limiter: TokenBucketLimiter::new(10, 1.0),
             revoked: HashSet::new(),
             trusted_proxies: vec![],
+            client_ip_header: None,
             aitp: RwLock::new(Router::new()),
         }
     }
