@@ -175,6 +175,7 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "issue_pop_challenge" => issue_pop_challenge_op(state, id, params),
         "produce_pop_response" => produce_pop_response_op(state, id, params),
         "verify_pop_response" => verify_pop_response_op(state, id, params),
+        "verify_tct_as_issuer" => verify_tct_as_issuer_op(state, id, params),
         "authorize_capability_invocation" => authorize_capability_invocation_op(state, id, params),
         "expect_pop_challenge_issued" => expect_pop_challenge_issued_op(state, id, params),
         "withhold_pop_response" => withhold_pop_response_op(state, id, params),
@@ -240,6 +241,7 @@ fn init(id: &str) -> Value {
         "issue_pop_challenge",
         "produce_pop_response",
         "verify_pop_response",
+        "verify_tct_as_issuer",
         "authorize_capability_invocation",
         "expect_pop_challenge_issued",
         "withhold_pop_response",
@@ -3325,6 +3327,133 @@ fn verify_pop_response_op(state: &AdapterState, id: &str, params: Value) -> Valu
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &tct_error_code(&e), &e.to_string()),
     }
+}
+
+/// `verify_tct_as_issuer`: the issuer receives back a TCT it issued,
+/// with one `pop_response` envelope answering a challenge it issued
+/// (RFC-AITP-0005 §10.5, `tct-027` to `tct-029`). The presenter AID
+/// comes only from the PoP: there is no channel binding here, and no
+/// `expected_audience` input (item 5).
+fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Value {
+    let self_aid: Aid = match params
+        .get("self_aid")
+        .map(|v| serde_json::from_value(v.clone()))
+    {
+        Some(Ok(a)) => a,
+        Some(Err(e)) => return err(id, "INVALID_REQUEST", &format!("self_aid: {e}")),
+        None => return err(id, "INVALID_REQUEST", "missing 'self_aid'"),
+    };
+    let token = match params.get("tct_token").and_then(|v| v.as_str()) {
+        Some(t) => t,
+        None => return err(id, "INVALID_REQUEST", "missing 'tct_token'"),
+    };
+    let now = state.now();
+
+    // Items 1 and 2: §7.2 with the verifier as issuer and its own key.
+    // The audience is read from the issuer's side, `aud` == `sub`; item
+    // 3 then proves `sub` is the presenter, so this compares `aud` with
+    // the PoP-proven AID, never with a value the token alone vouches for.
+    // Revocation is deferred to item 6.
+    let Some(sub) = peek_token_aid_claim(token, "sub") else {
+        return err(id, "TCT_SIGNATURE_INVALID", "TCT has no decodable sub");
+    };
+    let ctx = aitp_tct::TctVerifyContext::builder(&sub, &self_aid, now)
+        .skip_manifest_expiry_cap_dangerous()
+        .accept_unchecked_revocation_dangerous()
+        .build()
+        .expect("both verify decisions are made above");
+    let claims = match aitp_tct::verify_tct(token, &ctx) {
+        Ok(v) => v.claims,
+        // An `aud` other than `sub` is the issuer-side audience failure.
+        Err(aitp_tct::TctError::AudienceMismatch) => {
+            return err(id, "TCT_SIGNATURE_INVALID", "aud differs from sub")
+        }
+        Err(e) => return err(id, &tct_error_code(&e), &e.to_string()),
+    };
+
+    // Item 3: downstream PoP over a challenge this verifier issued for
+    // the token's `jti`. No response, or any §6.2 failure, is
+    // POP_RESPONSE_INVALID; a stale or malformed challenge is
+    // POP_CHALLENGE_INVALID.
+    let Some(envelope_value) = params.get("envelope") else {
+        return err(id, "POP_RESPONSE_INVALID", "no pop_response");
+    };
+    let mut envelope = match aitp_core::parse_envelope_wire(&checked(envelope_value)) {
+        Ok(e) => e,
+        Err(e) => return err(id, "POP_RESPONSE_INVALID", &format!("envelope parse: {e}")),
+    };
+    strip_claims_companions(&mut envelope.payload);
+    if envelope.message_type != MessageType::PopResponse {
+        return err(id, "POP_RESPONSE_INVALID", "envelope is not a pop_response");
+    }
+    let envelope_verified = AitpVerifyingKey::from_aid(&envelope.sender.agent_id)
+        .ok()
+        .zip(aitp_core::envelope_signing_digest(&envelope).ok())
+        .zip(Signature::parse(&envelope.signature).ok())
+        .is_some_and(|((pk, digest), sig)| {
+            pk.verify_jcs(&aitp_crypto::Digest32::from(digest), &sig)
+                .is_ok()
+        });
+    if !envelope_verified {
+        return err(
+            id,
+            "POP_RESPONSE_INVALID",
+            "pop_response envelope signature",
+        );
+    }
+    let response: aitp_tct::PopResponse = match serde_json::from_value(envelope.payload.clone()) {
+        Ok(r) => r,
+        Err(e) => return err(id, "POP_RESPONSE_INVALID", &format!("pop_response: {e}")),
+    };
+    let mut challenge = None;
+    for entry in params
+        .get("outstanding_pop_challenges")
+        .and_then(|v| v.as_array())
+        .into_iter()
+        .flatten()
+    {
+        match serde_json::from_value::<aitp_tct::PopChallenge>(entry.clone()) {
+            Ok(c) if c.tct_jti == claims.jti => challenge = Some(c),
+            Ok(_) => {}
+            Err(e) => return err(id, "POP_CHALLENGE_INVALID", &format!("challenge: {e}")),
+        }
+    }
+    let Some(challenge) = challenge else {
+        return err(
+            id,
+            "POP_RESPONSE_INVALID",
+            &format!("no outstanding PoP challenge for jti {}", claims.jti),
+        );
+    };
+    if let Err(e) = aitp_tct::verify_pop_response(&challenge, &response, &claims, now) {
+        return err(id, &tct_error_code(&e), &e.to_string());
+    }
+
+    // Item 4: presenter AID == `sub` == `aud`. The PoP signature verified
+    // under the `sub` key, and the envelope must come from that AID too.
+    let presenter = &claims.sub;
+    if envelope.sender.agent_id != *presenter || claims.aud != *presenter {
+        return err(
+            id,
+            "POP_RESPONSE_INVALID",
+            "pop_response sender is not the TCT subject",
+        );
+    }
+
+    // Item 6: revocation against the issuer's own deny list, last.
+    if state.revoked_jtis.contains(&claims.jti.to_string()) {
+        return err(id, "TCT_REVOKED", &format!("jti {} is revoked", claims.jti));
+    }
+    json!({
+        "id": id,
+        "ok": true,
+        "result": {
+            "verified": true,
+            "presenter_aid": presenter,
+            "grants": claims.grants,
+            "side_effects": {"capability_authorized": true},
+        }
+    })
 }
 
 // ── Tier D ──────────────────────────────────────────────────────────────

@@ -82,7 +82,8 @@
             "type": "string",
             "enum": [
               "oidc",
-              "pinned_key"
+              "pinned_key",
+              "spiffe"
             ]
           },
           "uniqueItems": true,
@@ -160,9 +161,10 @@
           "type": "string",
           "enum": [
             "oidc",
-            "pinned_key"
+            "pinned_key",
+            "spiffe"
           ],
-          "description": "Identity mechanism. v0.3: oidc, pinned_key."
+          "description": "Identity mechanism. v0.3: oidc, pinned_key, spiffe (RFC-AITP-0002 \u00a76)."
         },
         "issuer": {
           "type": "string",
@@ -172,7 +174,7 @@
         "subject": {
           "type": "string",
           "minLength": 1,
-          "description": "Agent subject identifier at the issuer."
+          "description": "Agent subject identifier at the issuer. For type=spiffe: the SPIFFE ID (RFC-AITP-0002 \u00a76.1)."
         },
         "public_key": {
           "type": "string",
@@ -180,28 +182,82 @@
           "pattern": "^[A-Za-z0-9_-]{43,44}$"
         }
       },
-      "if": {
-        "properties": {
-          "type": {
-            "const": "oidc"
+      "allOf": [
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "oidc"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "issuer"
+            ],
+            "not": {
+              "required": [
+                "public_key"
+              ]
+            }
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "pinned_key"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "public_key"
+            ]
+          }
+        },
+        {
+          "if": {
+            "required": [
+              "type"
+            ],
+            "properties": {
+              "type": {
+                "const": "spiffe"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "subject": {
+                "type": "string",
+                "maxLength": 2048,
+                "pattern": "^spiffe://[a-z0-9._-]{1,255}(/([A-Za-z0-9._-]*[A-Za-z0-9_-][A-Za-z0-9._-]*|\\.{3,}))+$"
+              }
+            },
+            "not": {
+              "anyOf": [
+                {
+                  "required": [
+                    "issuer"
+                  ]
+                },
+                {
+                  "required": [
+                    "public_key"
+                  ]
+                }
+              ]
+            }
           }
         }
-      },
-      "then": {
-        "required": [
-          "issuer"
-        ],
-        "not": {
-          "required": [
-            "public_key"
-          ]
-        }
-      },
-      "else": {
-        "required": [
-          "public_key"
-        ]
-      },
+      ],
       "additionalProperties": false
     }
   },
