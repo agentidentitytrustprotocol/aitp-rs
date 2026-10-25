@@ -105,6 +105,15 @@ impl PyAitpAgent {
     ///   set to `[oidc_issuer]` so the peer's OIDC presentation against
     ///   the same issuer round-trips out of the box; pass
     ///   `accepted_trust_anchors` to override.
+    ///
+    /// `revocation_list_uri` advertises this agent's `ListRevoked` URL
+    /// under `rfc-aitp-0008.revocation_list_uri`, inside the signed
+    /// Manifest. Every agent that issues TCTs (every agent completing a
+    /// handshake) MUST advertise it (RFC-AITP-0005 §11, RFC-AITP-0008
+    /// §1.4): without it a `fail_closed` verifier that discovers lists
+    /// through the Manifest rejects this agent's TCTs as `TCT_REVOKED`.
+    /// Pass an absolute HTTPS URL, conventionally the agent's origin plus
+    /// `aitp.REVOCATION_LIST_PATH`.
     #[pyo3(signature = (
         display_name,
         handshake_endpoint,
@@ -115,6 +124,7 @@ impl PyAitpAgent {
         oidc_issuer=None,
         oidc_subject=None,
         accepted_trust_anchors=None,
+        revocation_list_uri=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn build_manifest(
@@ -128,6 +138,7 @@ impl PyAitpAgent {
         oidc_issuer: Option<&str>,
         oidc_subject: Option<&str>,
         accepted_trust_anchors: Option<Vec<String>>,
+        revocation_list_uri: Option<&str>,
     ) -> PyResult<String> {
         let endpoint: url::Url = handshake_endpoint
             .parse()
@@ -206,6 +217,12 @@ impl PyAitpAgent {
         }
         for cap in required_caps.unwrap_or_default() {
             builder = builder.require(cap);
+        }
+        if let Some(uri) = revocation_list_uri {
+            let uri: url::Url = uri.parse().map_err(|e| {
+                PyValueError::new_err(format!("invalid revocation_list_uri URL: {e}"))
+            })?;
+            builder = builder.revocation_list_uri(uri);
         }
 
         let manifest = builder

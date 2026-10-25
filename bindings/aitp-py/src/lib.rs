@@ -48,6 +48,10 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     // Typed so a caller can branch on `.code` instead of string-matching a
     // message. Without it every failure here is an untyped RuntimeError and
     // "why did this snapshot fail" is only answerable by parsing prose.
+    // The conventional path of an agent's `ListRevoked` endpoint (the
+    // Rust `HandshakeServer` serves it here). The Manifest still carries
+    // an explicit absolute URL; see `build_manifest(revocation_list_uri=)`.
+    m.add("REVOCATION_LIST_PATH", "/.well-known/aitp-revocation-list")?;
     m.add(
         "ManifestVerificationError",
         m.py().get_type::<manifest::ManifestVerificationError>(),

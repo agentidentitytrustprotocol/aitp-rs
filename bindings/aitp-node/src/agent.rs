@@ -55,6 +55,14 @@ pub struct ManifestOpts {
     /// Override the manifest's accepted_trust_anchors list. Defaults to
     /// `[oidc_issuer]` for OIDC mode and `[]` for pinned-key mode.
     pub accepted_trust_anchors: Option<Vec<String>>,
+    /// This agent's `ListRevoked` URL, advertised as
+    /// `rfc-aitp-0008.revocation_list_uri` in the signed Manifest. Every
+    /// agent that issues TCTs MUST set it (RFC-AITP-0005 §11,
+    /// RFC-AITP-0008 §1.4); without it a `fail_closed` verifier that
+    /// discovers lists through the Manifest rejects this agent's TCTs as
+    /// `TCT_REVOKED`. An absolute HTTPS URL, conventionally the origin
+    /// plus `REVOCATION_LIST_PATH`.
+    pub revocation_list_uri: Option<String>,
 }
 
 /// Options for `newSession` / `newResponder`: trust-anchor override and
@@ -252,6 +260,12 @@ impl AitpAgent {
         }
         for cap in opts.required_caps.unwrap_or_default() {
             builder = builder.require(cap);
+        }
+        if let Some(uri) = opts.revocation_list_uri {
+            let uri: url::Url = uri
+                .parse()
+                .map_err(|e| Error::from_reason(format!("invalid revocationListUri URL: {e}")))?;
+            builder = builder.revocation_list_uri(uri);
         }
 
         let manifest = builder

@@ -711,6 +711,7 @@ module.exports.TctStore = nativeBinding.TctStore
 module.exports.JsTctStore = nativeBinding.JsTctStore
 module.exports.computeAidJkt = nativeBinding.computeAidJkt
 module.exports.computeSpkiHash = nativeBinding.computeSpkiHash
+module.exports.REVOCATION_LIST_PATH = nativeBinding.REVOCATION_LIST_PATH
 module.exports.revocationSigningBytes = nativeBinding.revocationSigningBytes
 module.exports.verifyDelegation = nativeBinding.verifyDelegation
 module.exports.verifyDelegationMultihop = nativeBinding.verifyDelegationMultihop

@@ -107,7 +107,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `DelegationVerified`  | default | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf_jkt` (`cnf` is a deprecated alias that emits `DeprecationWarning`) |
 | `JwksProvider`        | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
 | `TctStore`            | default | Cache for `AitpAgent.verify_tct_cached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
-| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None)`: verifies under the key the delegator's Manifest designates |
+| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None, revocation=None)`: verifies under the key the delegator's Manifest designates |
 | `verify_manifest_json()` / `ManifestVerificationError` | default | Raises `ManifestVerificationError` with `.code`; non-manifest input raises `ValueError` |
 | `verify_envelope()` / `EnvelopeVerificationError` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Raises with `.code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-python.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
@@ -139,6 +139,14 @@ in any RFC 9562 text form and is normalized before matching, so
 lowercase form. An entry that is not a UUID at all raises `ValueError`
 (`revoked_jtis entry is not a UUID`) rather than being ignored. The Node SDK
 behaves identically.
+
+Revocation is `fail_closed` (RFC-AITP-0008 §3.1): with no `revoked_jtis`,
+every check fails with `.code` `TCT_REVOKED`. Pass `set()` when the issuer's
+list is empty, or `revocation="fail_open"` only when the deployment has no
+revocation source. As an issuer, advertise your list with
+`build_manifest(..., revocation_list_uri=...)`, which RFC-AITP-0005 §11 and
+RFC-AITP-0008 §1.4 require: an absolute HTTPS URL, conventionally your origin
+plus `aitp.REVOCATION_LIST_PATH`.
 
 ### OIDC identity and P-256
 

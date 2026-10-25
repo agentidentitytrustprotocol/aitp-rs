@@ -132,6 +132,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   `HandshakeServer::verify_dpop_request` are removed too. There is no
   replacement; a future identity-provider bridge would start from an RFC.
 
+### Added
+
+- **Bindings can advertise a revocation list URI.** Python
+  `AitpAgent.build_manifest(..., revocation_list_uri=None)` and Node
+  `buildManifest({ ..., revocationListUri })` put
+  `rfc-aitp-0008.revocation_list_uri` in the signed Manifest, as
+  RFC-AITP-0005 §11 and RFC-AITP-0008 §1.4 require of every TCT issuer.
+  Without it, a fail-closed verifier that discovers lists through the
+  Manifest rejects every binding-built issuer with `TCT_REVOKED`. An
+  invalid URL raises `ValueError` or throws. Both bindings also export
+  `REVOCATION_LIST_PATH` (`/.well-known/aitp-revocation-list`), the path
+  the Rust `HandshakeServer` serves. The Manifest still carries an
+  explicit absolute URL.
+
 ## [0.19.0] — 2026-10-20
 
 ### BREAKING
