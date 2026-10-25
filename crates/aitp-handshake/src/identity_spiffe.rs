@@ -40,9 +40,8 @@ use crate::jwk::{verify_jws_signature, JwkParseError, JwkPublicKey};
 pub const SPIFFE_X509_PROOF_DOMAIN: &[u8] = b"aitp-spiffe-x509-v1\0";
 
 /// JWT-SVID `alg` values JWT-SVID §2.1 allows. Anything else, `EdDSA`
-/// included, is rejected before key selection. Of these, the verifier
-/// can check `ES256` and `RS256` ([`verify_jws_signature`]); a JWT-SVID
-/// under any other listed algorithm fails at the signature check.
+/// included, is rejected before key selection; [`verify_jws_signature`]
+/// verifies all nine.
 const JWT_SVID_ALGS: &[&str] = &[
     "RS256", "RS384", "RS512", "ES256", "ES384", "ES512", "PS256", "PS384", "PS512",
 ];
@@ -609,7 +608,58 @@ struct Cnf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::jwk::test_signers;
+    use base64ct::{Base64UrlUnpadded, Encoding};
     use serde_json::json;
+
+    /// RFC-AITP-0002 §6.3: a JWT-SVID under each of the nine JWT-SVID
+    /// §2.1 algorithms verifies end to end against its bundle key.
+    #[test]
+    fn jwt_svid_verifies_under_every_allowed_alg() {
+        let sender = Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap();
+        let receiver =
+            Aid::parse("aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg").unwrap();
+        let subject = "spiffe://prod.example.com/ns/payments/sa/agent";
+        let (now, nonce, message_id) = (1_800_000_000, "bQ88kiChryTKduskLXSCNg", Uuid::nil());
+        let jkt = AitpVerifyingKey::from_aid(&sender)
+            .and_then(|k| k.to_jwk_thumbprint())
+            .unwrap();
+        for alg in test_signers::JWT_SVID_ALGS {
+            let (mut jwk, sign) = test_signers::signer(alg);
+            jwk["use"] = "jwt-svid".into();
+            jwk["kid"] = "k1".into();
+            let bundles = SpiffeBundleStore::from_config(
+                &json!([{"trust_domain": "prod.example.com", "bundle": {"keys": [jwk]}}]),
+            )
+            .unwrap();
+            let b64 = |v: Value| Base64UrlUnpadded::encode_string(v.to_string().as_bytes());
+            let input = format!(
+                "{}.{}",
+                b64(json!({"alg": alg.as_str(), "kid": "k1", "typ": "JWT"})),
+                b64(
+                    json!({"sub": subject, "aud": receiver.as_str(), "exp": now + 60,
+                    "iat": now, "nonce": nonce, "cnf": {"jkt": jkt}})
+                ),
+            );
+            let sig = Base64UrlUnpadded::encode_string(&sign(input.as_bytes()));
+            let identity: IdentityDescriptor = serde_json::from_value(json!({
+                "type": "spiffe", "subject": subject, "svid_type": "jwt-svid",
+                "proof": format!("{input}.{sig}"),
+            }))
+            .unwrap();
+            let ctx = SpiffeVerifyContext {
+                bundles: &bundles,
+                sender_aid: &sender,
+                receiver_aid: &receiver,
+                message_id: &message_id,
+                timestamp: Timestamp(now),
+                pop_nonce: nonce,
+                iat_tolerance_secs: 300,
+                now_unix_secs: now,
+            };
+            verify_spiffe(&identity, &ctx).unwrap_or_else(|e| panic!("{alg}: {e}"));
+        }
+    }
 
     #[test]
     fn trust_domain_of_canonical_id() {

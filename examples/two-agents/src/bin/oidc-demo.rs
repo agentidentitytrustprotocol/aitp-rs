@@ -308,7 +308,7 @@ impl MockOidcIssuer {
     fn as_jwk(&self) -> JwkPublicKey {
         JwkPublicKey {
             kid: Some(self.kid.clone()),
-            alg: JwsAlgorithm::EdDSA,
+            alg: Some(JwsAlgorithm::EdDSA),
             key: JwkKeyMaterial::Ed25519 {
                 x: self.pubkey_bytes(),
             },
