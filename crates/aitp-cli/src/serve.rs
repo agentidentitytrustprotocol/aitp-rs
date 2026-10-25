@@ -1025,15 +1025,16 @@ mod tests {
     fn own_tct_checks_issuer_audience_and_grant() {
         let peer = AitpSigningKey::from_seed(&[1; 32]);
         let holder = AitpSigningKey::from_seed(&[2; 32]);
-        let now = Timestamp::now();
         let (tct, _) = issue(&peer, &holder, &[ECHO_CAP]);
+        let (no_grant, _) = issue(&peer, &holder, &["something.else"]);
+        // After both are minted: an `iat` past `now` is not yet valid.
+        let now = Timestamp::now();
         assert!(verify_own_tct(&tct, peer.aid(), now).is_ok());
         let other = AitpSigningKey::from_seed(&[3; 32]);
         assert_eq!(
             code(verify_own_tct(&tct, other.aid(), now)),
             "TCT_SIGNATURE_INVALID"
         );
-        let (no_grant, _) = issue(&peer, &holder, &["something.else"]);
         assert_eq!(
             code(verify_own_tct(&no_grant, peer.aid(), now)),
             "POLICY_VIOLATION"
