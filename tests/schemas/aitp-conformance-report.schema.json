@@ -99,7 +99,7 @@
     "results": {
       "type": "array",
       "minItems": 1,
-      "description": "One entry per fixture in the digested set whose `status` is not `reserved` (a reserved fixture is ignored by every runner, so it never appears). Each `id` appears once. `status`, `feature` and `required_for_v0_2` are copied from the fixture so a matrix generator can group results without re-reading fixtures.",
+      "description": "One entry per fixture in the digested set whose `status` is not `reserved` (a reserved fixture is ignored by every runner, so it never appears). Each `id` appears once. `status`, `feature` and `required_for_core` are copied from the fixture so a matrix generator can group results without re-reading fixtures.",
       "items": { "$ref": "#/$defs/result" }
     },
     "totals": {
@@ -146,7 +146,7 @@
   "$defs": {
     "result": {
       "type": "object",
-      "required": ["id", "status", "feature", "required_for_v0_2", "outcome"],
+      "required": ["id", "status", "feature", "required_for_core", "outcome"],
       "additionalProperties": false,
       "properties": {
         "id": {
@@ -162,9 +162,9 @@
           "type": ["string", "null"],
           "description": "Fixture `feature`, copied (null for core)."
         },
-        "required_for_v0_2": {
+        "required_for_core": {
           "type": "boolean",
-          "description": "Fixture `required_for_v0_2`, copied: the `aitp/0.3` core-tier key (not renamed; VERSIONING.md). A core fixture with false (del-004, frozen in the v0.1 shape) is reported but gates nothing."
+          "description": "Fixture `required_for_core`, copied: the `aitp/0.3` core-tier key (not renamed; VERSIONING.md). A core fixture with false (del-004, frozen in the v0.1 shape) is reported but gates nothing."
         },
         "outcome": {
           "enum": ["pass", "fail", "skip", "excluded_by_role"],
@@ -197,7 +197,7 @@
           "else": {
             "properties": {
               "feature": { "type": "string", "minLength": 1 },
-              "required_for_v0_2": { "const": false }
+              "required_for_core": { "const": false }
             }
           }
         }
@@ -226,7 +226,7 @@
         "passed": { "type": "boolean" },
         "criteria": {
           "enum": ["core-required-all-pass", "feature-all-pass"],
-          "description": "The rule applied. core-required-all-pass: every core fixture with required_for_v0_2 true has outcome pass. feature-all-pass: the feature is in features_enabled and every extension fixture carrying it has outcome pass. \"AITP v0.3\" uses the first; each extension claim uses the second."
+          "description": "The rule applied. core-required-all-pass: every core fixture with required_for_core true has outcome pass. feature-all-pass: the feature is in features_enabled and every extension fixture carrying it has outcome pass. \"AITP v0.3\" uses the first; each extension claim uses the second."
         },
         "blocking": {
           "type": "array",
@@ -268,10 +268,10 @@
           "results": {
             "not": {
               "contains": {
-                "required": ["status", "required_for_v0_2", "outcome"],
+                "required": ["status", "required_for_core", "outcome"],
                 "properties": {
                   "status": { "const": "core" },
-                  "required_for_v0_2": { "const": true },
+                  "required_for_core": { "const": true },
                   "outcome": { "not": { "const": "pass" } }
                 }
               }

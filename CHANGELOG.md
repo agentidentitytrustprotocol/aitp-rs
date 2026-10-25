@@ -7,9 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- Spec pin `0ad4bf2` renames the fixture key `required_for_v0_2` to `required_for_core`, with no alias. The runner reads only the new key, and the conformance report's results carry `required_for_core`. `aitp-conformance run --profile v0.2` is now `--profile core` (the default); `v0.2` is rejected, and `v0.1` is unchanged.
+
 ### Added
 
-- `aitp-conformance run --report <PATH>` writes the spec's conformance report (`aitp-conformance-report.schema.json`, `report_version` "1"). It holds per-fixture results with `status`, `feature` and `required_for_v0_2`, `totals`, the listing-based `fixtures_dir_digest` and a `gates[]` entry per RFC-AITP-0001 §10 claim. A core fixture skipped because a draft feature negates it blocks the `AITP v0.3` claim. `spec.commit` comes from `--spec-commit`, then a `SPEC_VERSION` file, then a clean spec checkout; it is never guessed. The adapter init reply may now carry `repository` and `commit`; `aitp-rs-adapter` sends `repository`. CI validates the report against the schema and the spec's `check-conformance-report.py`, and uploads it as the `conformance-report` artifact. (#302)
+- `aitp-conformance run --report <PATH>` writes the spec's conformance report (`aitp-conformance-report.schema.json`, `report_version` "1"). It holds per-fixture results with `status`, `feature` and `required_for_core`, `totals`, the listing-based `fixtures_dir_digest` and a `gates[]` entry per RFC-AITP-0001 §10 claim. A core fixture skipped because a draft feature negates it blocks the `AITP v0.3` claim. `spec.commit` comes from `--spec-commit`, then a `SPEC_VERSION` file, then a clean spec checkout; it is never guessed. The adapter init reply may now carry `repository` and `commit`; `aitp-rs-adapter` sends `repository`. CI validates the report against the schema and the spec's `check-conformance-report.py`, and uploads it as the `conformance-report` artifact. (#302)
 
 ## [0.20.0] — 2026-10-24
 

@@ -18,7 +18,7 @@ use std::process::Command as Process;
 #[derive(Debug, Parser)]
 #[command(
     name = "aitp-conformance",
-    about = "AITP conformance test runner (gates on v0.2 by default; see `run --profile`)"
+    about = "AITP conformance test runner (gates on the core tier by default; see `run --profile`)"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -57,13 +57,12 @@ enum Command {
         /// Stop on first failure.
         #[arg(long)]
         fail_fast: bool,
-        /// Fixture gate key: `v0.2` (default) fails the run when any
-        /// `required_for_v0_2` fixture fails or is SKIPped (e.g.
-        /// OP_NOT_SUPPORTED). At `aitp/0.3` that key keeps its name and
-        /// marks the core tier, so `v0.2` is the gate for this
-        /// implementation. `v0.1` gates on `required_for_v0_1` instead.
-        /// Any FAIL fails the run under either profile.
-        #[arg(long, default_value_t = Profile::V0_2)]
+        /// Fixture gate key: `core` (default) fails the run when any
+        /// `required_for_core` fixture (the `aitp/0.3` core tier) fails
+        /// or is SKIPped (e.g. OP_NOT_SUPPORTED). `v0.1` gates on
+        /// `required_for_v0_1` instead. Any FAIL fails the run under
+        /// either profile.
+        #[arg(long, default_value_t = Profile::Core)]
         profile: Profile,
         #[command(flatten)]
         report: ReportArgs,
@@ -259,7 +258,7 @@ fn run(
     // because the adapter lacks the op (OP_NOT_SUPPORTED). A skip whose
     // assertion was negated by an opted-in experimental feature (e.g.
     // `del-007` under `experimental-multihop-delegation`) is exempt —
-    // that is a deliberate post-v0.2 run, not a missing capability —
+    // that is a deliberate draft-feature run, not a missing capability —
     // but is still listed so the exemption is visible.
     let gate = check_gate(profile, &fixtures, &results);
     if !gate.exempted.is_empty() {

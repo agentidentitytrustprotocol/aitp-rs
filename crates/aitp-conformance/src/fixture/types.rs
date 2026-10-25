@@ -38,12 +38,13 @@ pub struct Fixture {
     /// Always `false` when `status != Core`.
     #[serde(default = "default_required")]
     pub required_for_v0_1: bool,
-    /// Whether a v0.2 implementation MUST pass this fixture. `false`
+    /// Whether an `aitp/0.3` implementation MUST pass this fixture (the
+    /// core tier; `required_for_v0_2` before spec 0ad4bf2). `false`
     /// for v0.1-frozen fixtures (e.g. `del-004`) and every non-core
     /// fixture. Absent means required, like `required_for_v0_1`, so a
     /// fixture missing its metadata fails closed.
     #[serde(default = "default_required")]
-    pub required_for_v0_2: bool,
+    pub required_for_core: bool,
     /// Opt-in feature flag for non-core fixtures (null/None for
     /// core). Examples: `experimental-multihop-delegation`,
     /// `experimental-session-bundle`. The runner matches this

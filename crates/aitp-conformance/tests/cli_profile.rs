@@ -24,14 +24,14 @@ fn adapter_path() -> PathBuf {
 
 /// Write a corpus holding one core fixture that asks for an op the
 /// adapter does not declare, carrying the given required flags.
-fn corpus(name: &str, v0_1: bool, v0_2: bool) -> PathBuf {
+fn corpus(name: &str, v0_1: bool, core: bool) -> PathBuf {
     let dir = Path::new(env!("CARGO_TARGET_TMPDIR")).join(name);
     std::fs::create_dir_all(&dir).unwrap();
     let fixture = json!({
         "id": "skip-001",
         "status": "core",
         "required_for_v0_1": v0_1,
-        "required_for_v0_2": v0_2,
+        "required_for_core": core,
         "feature": null,
         "description": "op the adapter does not support",
         "input": {"operation": "future_op_reserved_for_v0_3"},
@@ -62,25 +62,25 @@ fn stderr(o: &Output) -> String {
 }
 
 #[test]
-fn default_profile_fails_on_skipped_v0_2_required_fixture() {
-    let dir = corpus("profile-v0_2-only", false, true);
+fn default_profile_fails_on_skipped_core_required_fixture() {
+    let dir = corpus("profile-core-only", false, true);
     let o = run(&dir, &[]);
     assert_eq!(o.status.code(), Some(1), "stderr: {}", stderr(&o));
     assert!(
-        stderr(&o).contains("v0.2 conformance gate FAILED — 1 required fixture(s)"),
+        stderr(&o).contains("core conformance gate FAILED — 1 required fixture(s)"),
         "{}",
         stderr(&o)
     );
     assert!(stderr(&o).contains("skip-001: SKIP"), "{}", stderr(&o));
 
-    // Explicit `--profile v0.2` behaves the same as the default.
-    let o = run(&dir, &["--profile", "v0.2"]);
+    // Explicit `--profile core` behaves the same as the default.
+    let o = run(&dir, &["--profile", "core"]);
     assert_eq!(o.status.code(), Some(1), "stderr: {}", stderr(&o));
 }
 
 #[test]
-fn v0_1_profile_ignores_v0_2_only_fixture() {
-    let dir = corpus("profile-v0_2-only-under-v0_1", false, true);
+fn v0_1_profile_ignores_core_only_fixture() {
+    let dir = corpus("profile-core-only-under-v0_1", false, true);
     let o = run(&dir, &["--profile", "v0.1"]);
     assert_eq!(o.status.code(), Some(0), "stderr: {}", stderr(&o));
     assert!(!stderr(&o).contains("gate FAILED"), "{}", stderr(&o));
@@ -96,7 +96,7 @@ fn v0_1_profile_fails_on_skipped_v0_1_required_fixture() {
         "{}",
         stderr(&o)
     );
-    // The same fixture is not v0.2-required, so the default run passes.
+    // The same fixture is not core-required, so the default run passes.
     let o = run(&dir, &[]);
     assert_eq!(o.status.code(), Some(0), "stderr: {}", stderr(&o));
 }

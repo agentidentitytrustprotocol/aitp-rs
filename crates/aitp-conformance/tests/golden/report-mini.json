@@ -14,7 +14,7 @@
     "version": "v0.3.2-draft",
     "protocol": "aitp/0.3"
   },
-  "fixtures_dir_digest": "sha256:2bfe0b484a8c7bb66f87421aa16e3858e71440ef1203fe3321179da73f9764a4",
+  "fixtures_dir_digest": "sha256:bed2297095d315efc9cfbe37d03d991e20ce8e22517aef93add465245b4ce594",
   "features_enabled": [
     "aitp-pinned-admission"
   ],
@@ -23,7 +23,7 @@
       "id": "core-001",
       "status": "core",
       "feature": null,
-      "required_for_v0_2": true,
+      "required_for_core": true,
       "outcome": "pass",
       "duration_ms": 0
     },
@@ -31,7 +31,7 @@
       "id": "drf-001",
       "status": "draft",
       "feature": "experimental-session-bundle",
-      "required_for_v0_2": false,
+      "required_for_core": false,
       "outcome": "skip",
       "reason": "non-core fixture (status=Draft); requires feature `experimental-session-bundle`"
     },
@@ -39,7 +39,7 @@
       "id": "ext-001",
       "status": "extension",
       "feature": "aitp-pinned-admission",
-      "required_for_v0_2": false,
+      "required_for_core": false,
       "outcome": "pass",
       "duration_ms": 0
     }

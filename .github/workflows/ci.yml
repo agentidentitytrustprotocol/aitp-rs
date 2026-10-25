@@ -440,10 +440,10 @@ jobs:
       - name: Build adapter + runner
         working-directory: aitp-rs
         run: cargo build -p aitp-rs-adapter -p aitp-conformance
-      - name: Run the core fixture corpus (strict, v0.2 gate)
+      - name: Run the core fixture corpus (strict, core gate)
         working-directory: aitp-rs
-        # No --feature: the v0.2 gate (the default --profile) fails the
-        # run if any required_for_v0_2 fixture FAILs or is SKIPped, e.g.
+        # No --feature: the core gate (the default --profile) fails the
+        # run if any required_for_core fixture FAILs or is SKIPped, e.g.
         # OP_NOT_SUPPORTED. Expected: 86 pass / 0 fail / 25 skip of 111
         # (the skips are the draft and extension fixtures; see
         # docs/conformance.md).
@@ -456,7 +456,7 @@ jobs:
         # Opt into the draft features and extensions so the bundle-*,
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
-        # fixture FAILs or a required_for_v0_2 fixture is SKIPped.
+        # fixture FAILs or a required_for_core fixture is SKIPped.
         # Expected: 109 pass / 0 fail / 2 skip of 111 fixtures (del-004
         # and del-007 are negated by multi-hop; the runner lists del-007
         # as a gate exemption; see docs/conformance.md).
