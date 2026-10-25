@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.19.0...aitp-transport-http-v0.20.0) - 2026-10-25
+
+### Added
+
+- *(aitp)* [**breaking**] curate the facade re-exports, add a public-api snapshot ([#293](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/293)) ([#323](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/323))
+- [**breaking**] fail-closed revocation by default ([#290](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/290)) ([#316](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/316))
+- *(handshake)* [**breaking**] make PeerConfig non_exhaustive with new + with_* ([#289](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/289)) ([#314](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/314))
+
+### Other
+
+- *(transport-http)* [**breaking**] delete DPoP and token exchange ([#292](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/292)) ([#295](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/295))
+
 ## [0.18.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.17.0...aitp-transport-http-v0.18.0) - 2026-10-20
 
 ### Fixed
