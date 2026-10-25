@@ -139,10 +139,15 @@ def test_expired_is_distinct_from_signature_invalid():
             offered_caps=["demo.x"],
         )
     )
-    forged["manifest"]["aid"] = aitp.AitpAgent.generate().aid
+    forged["manifest"]["display_name"] = "imposter"
+    # A swapped aid no longer matches the key behind the PoP, which is
+    # checked before the signature (RFC-AITP-0003 §5).
+    swapped = json.loads(json.dumps(forged))
+    swapped["manifest"]["aid"] = aitp.AitpAgent.generate().aid
 
     assert _code_for(stale) == "expired"
     assert _code_for(json.dumps(forged)) == "signature_invalid"
+    assert _code_for(json.dumps(swapped)) == "pop_failed"
 
 
 # ── Hardened wire parsing (aitp-rs#152) ──────────────────────────────────

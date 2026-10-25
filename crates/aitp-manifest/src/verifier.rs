@@ -64,26 +64,12 @@ pub fn verify_manifest(
     // before either check.
     let issuer_pubkey = AitpVerifyingKey::from_aid(&manifest.aid)?;
 
-    // 3. Outer signature check. Order matters: the spec
-    //    conformance fixture `mh-002` corrupts the outer signature
-    //    on a manifest whose PoP is also from a non-pinned key,
-    //    and expects `MANIFEST_SIGNATURE_INVALID` rather than
-    //    `MANIFEST_POP_FAILED` when both checks would fail. Doing
-    //    the outer-sig check first surfaces the higher-level error
-    //    that matches spec semantics — the manifest body itself
-    //    isn't trustworthy, so PoP details are moot.
-    let view = ManifestSigningView::from(manifest);
-    let canonical = manifest_signing_bytes(&view)?;
-    let digest = aitp_crypto::Digest32::sha256(&canonical);
-    let outer_sig =
-        Signature::parse(&manifest.signature).map_err(|_| ManifestError::SignatureInvalid)?;
-    issuer_pubkey
-        .verify_jcs(&digest, &outer_sig)
-        .map_err(|_| ManifestError::SignatureInvalid)?;
-
-    // 4. PoP signature check. RFC-AITP-0001 §5.4.2: the signing input
-    //    for every PoP construction is `sha256(base64url_decode(x))` —
-    //    decode the challenge to its raw bytes before hashing.
+    // 3. PoP signature check, before the outer signature
+    //    (RFC-AITP-0003 §5 steps 4 and 5): a Manifest failing both
+    //    is `MANIFEST_POP_FAILED`. RFC-AITP-0001 §5.4.2: the signing
+    //    input for every PoP construction is
+    //    `sha256(base64url_decode(x))` — decode the challenge to its
+    //    raw bytes before hashing.
     let challenge_bytes = base64url::decode_strict(&manifest.proof_of_possession.challenge)
         .map_err(|_| ManifestError::PopFailed)?;
     let pop_input = aitp_crypto::Digest32::sha256(&challenge_bytes);
@@ -92,6 +78,16 @@ pub fn verify_manifest(
     issuer_pubkey
         .verify_jcs(&pop_input, &pop_sig)
         .map_err(|_| ManifestError::PopFailed)?;
+
+    // 4. Outer signature check.
+    let view = ManifestSigningView::from(manifest);
+    let canonical = manifest_signing_bytes(&view)?;
+    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let outer_sig =
+        Signature::parse(&manifest.signature).map_err(|_| ManifestError::SignatureInvalid)?;
+    issuer_pubkey
+        .verify_jcs(&digest, &outer_sig)
+        .map_err(|_| ManifestError::SignatureInvalid)?;
 
     // 5. Identity-hint shape check.
     match manifest.identity_hint.kind {

@@ -1071,11 +1071,8 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     let mut signing_input = aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG.to_vec();
     signing_input.push(0x00);
     signing_input.extend_from_slice(&canonical);
-    // Unknown sender AIDs (e.g. mh-002's one-shot attacker key, whose
-    // seed is not published) get a syntactically valid filler signed
-    // by kp-001 — those fixtures reject on a check that runs before
-    // the envelope signature (RFC-AITP-0004 §5.1 verifies the
-    // Manifest and identity first), so the value is never verified.
+    // Unknown sender AIDs get a syntactically valid filler signed by
+    // kp-001; no fixture reaches the envelope signature with one.
     let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_seed(&[0u8; 32]));
     // The Ed25519/ES256 message is `d = sha256(sig_input_v2)`
     // (aitp_core::envelope_signing_digest), hashed once, never the raw
@@ -1086,36 +1083,40 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     )
 }
 
-/// Map a sender AID to its KAT-keypair seed. The runner only knows
-/// about the pinned KAT keypairs; envelopes signed by other keys
-/// can't be runner-substituted (caller must pre-mint).
-fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
-    match aid {
-        "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik" => Some([0u8; 32]),
-        "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg" => {
-            let mut s = [0u8; 32];
-            for (i, b) in s.iter_mut().enumerate() {
-                *b = i as u8;
-            }
-            Some(s)
-        }
-        "aid:pubkey:dqFZIESm5PURJlvKc6YE2QsFKdHfYCvjChmpJXZg0fU" => Some([0xffu8; 32]),
-        "aid:pubkey:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w" => Some([1u8; 32]),
-        _ => None,
-    }
+const KAT_KEYPAIRS: &str = include_str!("../../../../tests/schemas/known-answer/keypairs.json");
+
+/// The `keypairs.json` vector whose `aid` is `aid`.
+fn kat_vector(aid: &str) -> Option<Value> {
+    let doc: Value = serde_json::from_str(KAT_KEYPAIRS).expect("keypairs.json parses");
+    doc["vectors"]
+        .as_array()?
+        .iter()
+        .find(|v| v["aid"] == aid)
+        .cloned()
 }
 
-/// Map an AID to its pinned KAT signing key — the four Ed25519
-/// keypairs plus `kat-keypair-005-p256` (private scalar `0x05` × 32,
-/// per `known-answer/keypairs.json`).
+fn hex32(hex_str: &str) -> Option<[u8; 32]> {
+    hex::decode(hex_str).ok()?.try_into().ok()
+}
+
+/// Map an AID to its Ed25519 KAT-keypair seed, read from the pinned
+/// `known-answer/keypairs.json`: the role keys and
+/// `kat-keypair-006-attacker`, the untrusted key mh-002's attacker
+/// signs its own Manifest PoP with. Envelopes signed by any other key
+/// can't be runner-substituted (caller must pre-mint).
+fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
+    hex32(kat_vector(aid)?["seed_hex"].as_str()?)
+}
+
+/// Map an AID to its pinned KAT signing key: an Ed25519 seed, or
+/// `kat-keypair-005-p256`'s `private_scalar_hex`.
 fn kat_key_for_aid(aid: &str) -> Option<AitpSigningKey> {
-    if let Some(seed) = kat_seed_for_aid(aid) {
+    let v = kat_vector(aid)?;
+    if let Some(seed) = v["seed_hex"].as_str().and_then(hex32) {
         return Some(AitpSigningKey::from_seed(&seed));
     }
-    if aid == "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR" {
-        return AitpSigningKey::from_p256_seed(&[0x05u8; 32]).ok();
-    }
-    None
+    let scalar = v["private_scalar_hex"].as_str().and_then(hex32)?;
+    AitpSigningKey::from_p256_seed(&scalar).ok()
 }
 
 /// The spec's OIDC test-issuer keys (`known-answer/oidc-test-issuers.json`),
@@ -1279,6 +1280,18 @@ mod tests {
     /// Both seeds derive to the public keys the spec publishes beside
     /// them, so a minted JWT verifies under the published key of the
     /// issuer it claims (and the unknown issuer's under its own only).
+    #[test]
+    fn kat_keys_derive_to_their_published_aids() {
+        let doc: Value = serde_json::from_str(KAT_KEYPAIRS).unwrap();
+        for v in doc["vectors"].as_array().unwrap() {
+            let aid = v["aid"].as_str().unwrap();
+            let key = kat_key_for_aid(aid).unwrap_or_else(|| panic!("{aid}: no key"));
+            let published = aitp_core::Aid::parse(aid).unwrap();
+            let published = aitp_crypto::AitpVerifyingKey::from_aid(&published).unwrap();
+            assert!(key.verifying_key() == published, "{aid}: key mismatch");
+        }
+    }
+
     #[test]
     fn oidc_issuer_seeds_match_the_published_keys() {
         let doc: Value = serde_json::from_str(OIDC_TEST_ISSUERS).unwrap();
