@@ -191,3 +191,72 @@ def test_oidc_responder_rejects_untrusted_issuer():
     # If hello built, the responder must reject it.
     with pytest.raises(RuntimeError):
         rsess.process_hello(hello, oidc_mint_jwt=lambda _n: "")
+
+
+def _oidc_hello_to_pinned_bob(bob_accepted_identity_types):
+    """Alice (OIDC) builds a HELLO to bob (pinned_key). Returns bob's
+    responder and the HELLO."""
+    import time
+
+    issuer, provider, alice, bob, _a_manifest, _b_manifest = _agents()
+    b_manifest = bob.build_manifest(
+        display_name="bob",
+        handshake_endpoint="https://bob.example.test/aitp/handshake/",
+        offered_caps=["demo.write"],
+        accepted_identity_types=bob_accepted_identity_types,
+    )
+    a_jkt = _aid_jkt(alice.aid)
+    now = int(time.time())
+    a_mint = lambda nonce: issuer.mint(
+        sub="alice", aud=bob.aid, nonce=nonce, cnf_jkt=a_jkt, now=now
+    )
+    sess = alice.new_session(jwks=provider, pinned_keys=[bob.aid])
+    hello = sess.build_hello(b_manifest, ["demo.write"], oidc_mint_jwt=a_mint)
+    rsess = bob.new_responder(jwks=provider, trust_anchors=[ISSUER_URL])
+    return rsess, hello
+
+
+def test_pinned_responder_rejects_oidc_peer_by_default():
+    # RFC-AITP-0004 §5.1 step 8: `accepted_identity_types` defaults to the
+    # agent's own type, so a pinned-key bob refuses an OIDC peer.
+    rsess, hello = _oidc_hello_to_pinned_bob(None)
+    with pytest.raises(RuntimeError, match="does not accept identity type `oidc`") as exc:
+        rsess.process_hello(hello)
+    assert exc.value.code == "INCOMPATIBLE_IDENTITY_TYPE"
+
+
+def test_pinned_responder_accepts_listed_oidc_peer():
+    rsess, hello = _oidc_hello_to_pinned_bob(["pinned_key", "oidc"])
+    ack, _sid = rsess.process_hello(hello)
+    assert json.loads(ack)["message_type"] == "mutual_hello_ack"
+
+
+def test_empty_accepted_identity_types_rejects_every_peer():
+    rsess, hello = _oidc_hello_to_pinned_bob([])
+    with pytest.raises(RuntimeError, match="does not accept identity type") as exc:
+        rsess.process_hello(hello)
+    assert exc.value.code == "INCOMPATIBLE_IDENTITY_TYPE"
+
+
+def test_bad_identity_proof_carries_identity_failed_code():
+    # Alice's JWT names the wrong audience, so the proof (step 6) fails.
+    import time
+
+    issuer, provider, alice, bob, _a_manifest, _b_manifest = _agents()
+    b_manifest = bob.build_manifest(
+        display_name="bob",
+        handshake_endpoint="https://bob.example.test/aitp/handshake/",
+        offered_caps=["demo.write"],
+        accepted_identity_types=["pinned_key", "oidc"],
+    )
+    a_jkt = _aid_jkt(alice.aid)
+    now = int(time.time())
+    a_mint = lambda nonce: issuer.mint(
+        sub="alice", aud=alice.aid, nonce=nonce, cnf_jkt=a_jkt, now=now
+    )  # wrong audience
+    sess = alice.new_session(jwks=provider, pinned_keys=[bob.aid])
+    hello = sess.build_hello(b_manifest, ["demo.write"], oidc_mint_jwt=a_mint)
+    rsess = bob.new_responder(jwks=provider, trust_anchors=[ISSUER_URL])
+    with pytest.raises(RuntimeError) as exc:
+        rsess.process_hello(hello)
+    assert exc.value.code == "IDENTITY_FAILED"

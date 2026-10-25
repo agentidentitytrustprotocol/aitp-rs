@@ -183,12 +183,13 @@ pub fn tct_revocation_code(e: &aitp_tct::TctError) -> Option<&'static str> {
     matches!(e, Revoked | RevocationUnavailable(_)).then_some("TCT_REVOKED")
 }
 
-/// [`tct_revocation_code`] for a handshake failure.
-pub fn handshake_revocation_code(e: &aitp_handshake::HandshakeError) -> Option<&'static str> {
-    match e {
-        aitp_handshake::HandshakeError::Tct(t) => tct_revocation_code(t),
-        _ => None,
-    }
+/// The wire error code for a handshake failure (`IDENTITY_FAILED`,
+/// `INCOMPATIBLE_IDENTITY_TYPE`, `TCT_REVOKED`, ...), as the HTTP
+/// transport reports it.
+pub fn handshake_code(e: &aitp_handshake::HandshakeError) -> Option<String> {
+    serde_json::to_value(e.error_code())
+        .ok()
+        .and_then(|v| v.as_str().map(str::to_owned))
 }
 
 /// [`tct_revocation_code`] for a delegation failure (RFC-AITP-0006 §4

@@ -1665,79 +1665,7 @@ fn handshake_response_error(err: &aitp_handshake::HandshakeError) -> ResponseErr
 
 /// Map a `HandshakeError` into the closest registered AITP error code.
 fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
-    use aitp_handshake::HandshakeError as HE;
-    use aitp_tct::TctError;
-    match err {
-        HE::Identity(_) => ErrorCode::IdentityFailed,
-        // RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3: an unresolvable
-        // issuer key is retryable and gets its own code, distinct from
-        // a bad proof.
-        HE::KeyResolutionFailed { .. } => ErrorCode::KeyResolutionFailed,
-        // RFC-AITP-0005 §9: a peer-issued TCT can fail for distinct,
-        // separately-registered reasons. Collapsing every TctError to
-        // TCT_SIGNATURE_INVALID misreports a revoked or expired TCT to
-        // the peer as a signature failure.
-        HE::Tct(tct_err) => match tct_err {
-            TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
-            TctError::Expired => ErrorCode::TctExpired,
-            TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
-            _ => ErrorCode::TctSignatureInvalid,
-        },
-        // RFC-AITP-0003 §5 / issue #144: a wrapped ManifestError can fail
-        // for distinct, separately-registered reasons. Collapsing every
-        // variant to MANIFEST_SIGNATURE_INVALID misreports an expired,
-        // PoP-failed, version-mismatched, or structurally-invalid
-        // manifest as a signature failure. Mirrors the HE::Tct arm above.
-        HE::Manifest(m) => {
-            use aitp_manifest::ManifestError;
-            match m {
-                ManifestError::Expired => ErrorCode::ManifestExpired,
-                ManifestError::PopFailed => ErrorCode::ManifestPopFailed,
-                ManifestError::VersionUnknown => ErrorCode::ManifestVersionUnknown,
-                ManifestError::UnknownField(_) => ErrorCode::UnknownField,
-                ManifestError::Malformed(_) => ErrorCode::ManifestInvalid,
-                // `IncompatibleIdentityType` deliberately does not match the
-                // conformance adapter's bare `"INCOMPATIBLE_IDENTITY_TYPE"`
-                // string (`crates/aitp-rs-adapter/src/lib.rs`) — `ErrorCode`
-                // has no dedicated variant for it, so this maps to the
-                // closest registered code instead. A pre-existing registry
-                // gap, out of issue #144's scope; see the plan's Open
-                // Question 5 (`plans/manifest-revocation-error-codes.md`).
-                ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
-                // A malformed Manifest `identity_hint` is a Manifest
-                // structural rejection (RFC-AITP-0003 §3.1, `man-006` /
-                // `man-007`), matching the conformance adapter (issue #179).
-                ManifestError::IdentityHintMalformed(_) => ErrorCode::ManifestInvalid,
-                // SignatureInvalid, AidMismatch, Crypto, Canonicalization,
-                // Rng, MissingField (builder-side only, unreachable from
-                // wire parsing) — and any future #[non_exhaustive] variant.
-                _ => ErrorCode::ManifestSignatureInvalid,
-            }
-        }
-        HE::GrantOverflow => ErrorCode::GrantOverflow,
-        HE::PolicyViolation => ErrorCode::PolicyViolation,
-        HE::PopVerificationFailed => ErrorCode::PopVerificationFailed,
-        HE::NonceMismatch => ErrorCode::NonceMismatch,
-        HE::InsufficientGrants => ErrorCode::InsufficientGrants,
-        HE::IncompatibleTrustAnchors => ErrorCode::IncompatibleTrustAnchors,
-        HE::InvalidSignature => ErrorCode::InvalidSignature,
-        HE::InvalidEnvelope(_) | HE::State(_) | HE::Rng(_) | HE::Canonicalization(_) => {
-            ErrorCode::InvalidEnvelope
-        }
-        // Our own signing backend failed: a local fault, never blamed on
-        // the peer as a bad signature. `handshake_response_error` also
-        // turns it into HTTP 500.
-        HE::Crypto(aitp_crypto::CryptoError::Signer(_)) => ErrorCode::InvalidEnvelope,
-        HE::Crypto(_) => ErrorCode::InvalidSignature,
-        // RFC-AITP-0001 §7 / issue #140 Phase 7b: a dedicated core code,
-        // never left to the `_ => INVALID_ENVELOPE` catch-all below —
-        // mirrors the conformance adapter's `handshake_error_code`.
-        HE::UnknownField(_) => ErrorCode::UnknownField,
-        // `HandshakeError` is `#[non_exhaustive]`; any future variant
-        // we haven't yet mapped to a specific wire code defaults to
-        // INVALID_ENVELOPE rather than panicking.
-        _ => ErrorCode::InvalidEnvelope,
-    }
+    err.error_code()
 }
 
 /// Check the per-server message_id deny list (RFC-AITP-0001 §5.5).
@@ -1943,7 +1871,7 @@ mod tests {
             handshake_error_code(&HandshakeError::Manifest(
                 ManifestError::IncompatibleIdentityType("oidc")
             )),
-            ErrorCode::IdentityFailed,
+            ErrorCode::IncompatibleIdentityType,
         );
         // Reasons without a dedicated code still fall back to
         // MANIFEST_SIGNATURE_INVALID — the catch-all is intentional.

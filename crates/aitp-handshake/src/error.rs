@@ -87,3 +87,73 @@ pub enum HandshakeError {
     #[error("unknown field: {0}")]
     UnknownField(String),
 }
+
+impl HandshakeError {
+    /// The closest registered AITP wire error code for this failure, as
+    /// the HTTP transport and the language bindings report it.
+    pub fn error_code(&self) -> aitp_core::ErrorCode {
+        use aitp_core::ErrorCode;
+        use aitp_tct::TctError;
+        match self {
+            Self::Identity(_) => ErrorCode::IdentityFailed,
+            // RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3: an unresolvable
+            // issuer key is retryable and gets its own code, distinct from
+            // a bad proof.
+            Self::KeyResolutionFailed { .. } => ErrorCode::KeyResolutionFailed,
+            // RFC-AITP-0005 §9: a peer-issued TCT can fail for distinct,
+            // separately-registered reasons. Collapsing every TctError to
+            // TCT_SIGNATURE_INVALID misreports a revoked or expired TCT to
+            // the peer as a signature failure.
+            Self::Tct(tct_err) => match tct_err {
+                TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
+                TctError::Expired => ErrorCode::TctExpired,
+                TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
+                _ => ErrorCode::TctSignatureInvalid,
+            },
+            // RFC-AITP-0003 §5 / issue #144: a wrapped ManifestError can fail
+            // for distinct, separately-registered reasons. Collapsing every
+            // variant to MANIFEST_SIGNATURE_INVALID misreports an expired,
+            // PoP-failed, version-mismatched, or structurally-invalid
+            // manifest as a signature failure. Mirrors the Self::Tct arm above.
+            Self::Manifest(m) => {
+                use aitp_manifest::ManifestError;
+                match m {
+                    ManifestError::Expired => ErrorCode::ManifestExpired,
+                    ManifestError::PopFailed => ErrorCode::ManifestPopFailed,
+                    ManifestError::VersionUnknown => ErrorCode::ManifestVersionUnknown,
+                    ManifestError::UnknownField(_) => ErrorCode::UnknownField,
+                    ManifestError::Malformed(_) => ErrorCode::ManifestInvalid,
+                    ManifestError::IncompatibleIdentityType(_) => {
+                        ErrorCode::IncompatibleIdentityType
+                    }
+                    // A malformed Manifest `identity_hint` is a Manifest
+                    // structural rejection (RFC-AITP-0003 §3.1, `man-006` /
+                    // `man-007`), matching the conformance adapter (issue #179).
+                    ManifestError::IdentityHintMalformed(_) => ErrorCode::ManifestInvalid,
+                    // SignatureInvalid, AidMismatch, Crypto, Canonicalization,
+                    // Rng, MissingField (builder-side only, unreachable from
+                    // wire parsing) — and any future #[non_exhaustive] variant.
+                    _ => ErrorCode::ManifestSignatureInvalid,
+                }
+            }
+            Self::GrantOverflow => ErrorCode::GrantOverflow,
+            Self::PolicyViolation => ErrorCode::PolicyViolation,
+            Self::PopVerificationFailed => ErrorCode::PopVerificationFailed,
+            Self::NonceMismatch => ErrorCode::NonceMismatch,
+            Self::InsufficientGrants => ErrorCode::InsufficientGrants,
+            Self::IncompatibleTrustAnchors => ErrorCode::IncompatibleTrustAnchors,
+            Self::InvalidSignature => ErrorCode::InvalidSignature,
+            Self::InvalidEnvelope(_)
+            | Self::State(_)
+            | Self::Rng(_)
+            | Self::Canonicalization(_) => ErrorCode::InvalidEnvelope,
+            // Our own signing backend failed: a local fault, never blamed on
+            // the peer as a bad signature (`aitp-transport-http` also turns it
+            // into HTTP 500).
+            Self::Crypto(aitp_crypto::CryptoError::Signer(_)) => ErrorCode::InvalidEnvelope,
+            Self::Crypto(_) => ErrorCode::InvalidSignature,
+            // RFC-AITP-0001 §7 / issue #140 Phase 7b: a dedicated core code.
+            Self::UnknownField(_) => ErrorCode::UnknownField,
+        }
+    }
+}

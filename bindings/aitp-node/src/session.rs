@@ -26,8 +26,7 @@ use uuid::Uuid;
 use aitp_core::Aid;
 
 use crate::helpers::{
-    coded_error, handshake_revocation_code, js_revocation, make_peer_config, NoOpJwksResolver,
-    NO_TCT_STEP,
+    coded_error, handshake_code, js_revocation, make_peer_config, NoOpJwksResolver, NO_TCT_STEP,
 };
 use crate::oidc::make_oidc_minter;
 use crate::wire;
@@ -240,7 +239,7 @@ impl JsInitiatorSession {
             ts,
             requested_grants,
         )
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+        .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
         self.inner = Some(initiator);
 
         let payload =
@@ -254,6 +253,7 @@ impl JsInitiatorSession {
     #[napi]
     pub fn process_hello_ack(
         &mut self,
+        env: Env,
         hello_ack_json: String,
         _session_id: String,
     ) -> Result<String> {
@@ -281,7 +281,7 @@ impl JsInitiatorSession {
             .as_mut()
             .ok_or_else(|| Error::from_reason("call buildHello() first"))?
             .on_hello_ack(&envelope, &ack, &cfg)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+            .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         let payload =
             serde_json::to_value(&commit).map_err(|e| Error::from_reason(e.to_string()))?;
@@ -339,7 +339,7 @@ impl JsInitiatorSession {
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHelloAck() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
-            .map_err(|e| coded_error(env, handshake_revocation_code(&e), e.to_string()))?;
+            .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         Ok(JsCompletedHandshake {
             tct: completed.tct.token.clone(),
@@ -420,7 +420,7 @@ impl JsResponderSession {
             &cfg,
             requested,
         )
-        .map_err(|e| Error::from_reason(e.to_string()))?;
+        .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         let session_id = Uuid::new_v4().to_string();
         self.inner = Some(responder);
@@ -485,7 +485,7 @@ impl JsResponderSession {
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHello() first"))?
             .on_commit(&envelope, &commit, &cfg)
-            .map_err(|e| coded_error(env, handshake_revocation_code(&e), e.to_string()))?;
+            .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         let payload = serde_json::to_value(&ack).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)

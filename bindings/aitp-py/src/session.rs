@@ -31,8 +31,8 @@ use pyo3::prelude::*;
 use uuid::Uuid;
 
 use crate::helpers::{
-    binding_revocation, handshake_revocation_code, make_peer_config, runtime_error,
-    NoOpJwksResolver, NO_TCT_STEP,
+    binding_revocation, handshake_code, make_peer_config, runtime_error, NoOpJwksResolver,
+    NO_TCT_STEP,
 };
 use crate::oidc::make_oidc_minter;
 use crate::wire;
@@ -198,7 +198,7 @@ impl PyInitiatorSession {
             ts,
             requested_grants,
         )
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| runtime_error(e.to_string(), handshake_code(&e).as_deref()))?;
         self.inner = Some(initiator);
 
         let payload =
@@ -239,7 +239,7 @@ impl PyInitiatorSession {
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call build_hello() first"))?
             .on_hello_ack(&envelope, &ack, &cfg)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| runtime_error(e.to_string(), handshake_code(&e).as_deref()))?;
 
         // MUTUAL_COMMIT carries no pinned-key proof, so a fresh
         // (message_id, timestamp) is fine.
@@ -300,7 +300,7 @@ impl PyInitiatorSession {
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello_ack() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
-            .map_err(|e| runtime_error(e.to_string(), handshake_revocation_code(&e)))?;
+            .map_err(|e| runtime_error(e.to_string(), handshake_code(&e).as_deref()))?;
 
         completed_handshake_json(&completed)
     }
@@ -391,7 +391,7 @@ impl PyResponderSession {
             &cfg,
             requested,
         )
-        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+        .map_err(|e| runtime_error(e.to_string(), handshake_code(&e).as_deref()))?;
 
         let session_id = Uuid::new_v4().to_string();
         self.inner = Some(responder);
@@ -455,7 +455,7 @@ impl PyResponderSession {
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello() first"))?
             .on_commit(&envelope, &commit, &cfg)
-            .map_err(|e| runtime_error(e.to_string(), handshake_revocation_code(&e)))?;
+            .map_err(|e| runtime_error(e.to_string(), handshake_code(&e).as_deref()))?;
 
         let payload =
             serde_json::to_value(&ack).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;

@@ -78,6 +78,17 @@ jobs:
           target: ${{ matrix.target }}
           manylinux: ${{ matrix.manylinux }}
           args: --release --out dist
+      # Load the built wheel before it can publish: a release-profile
+      # binary that links but fails to dlopen (e.g. a mis-aligned
+      # LINKEDIT from stripping) must fail here, not on users' machines.
+      # The x86_64 macOS wheel is cross-built on an arm runner, so it is
+      # not loadable here.
+      - name: Smoke-import the wheel
+        if: matrix.target != 'x86_64-apple-darwin'
+        run: |
+          python3 -m venv "$RUNNER_TEMP/smoke"
+          "$RUNNER_TEMP/smoke/bin/pip" install --no-index --find-links bindings/aitp-py/dist aitp-sdk
+          "$RUNNER_TEMP/smoke/bin/python" -c "import aitp; print(aitp.__name__, 'loads')"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheel-${{ matrix.target }}
