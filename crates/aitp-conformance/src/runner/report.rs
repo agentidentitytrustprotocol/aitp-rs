@@ -99,7 +99,7 @@ pub struct ReportResult {
     /// Copied from the fixture; `null` for core.
     pub feature: Option<String>,
     /// Copied from the fixture; `false` for non-core.
-    pub required_for_v0_2: bool,
+    pub required_for_core: bool,
     /// `pass`, `fail` or `skip`.
     pub outcome: &'static str,
     /// Why the fixture did not pass.
@@ -224,7 +224,7 @@ pub fn build_report(fixtures: &[Fixture], results: &[FixtureResult], meta: Repor
             id: id.clone(),
             status,
             feature: fixture.feature.clone(),
-            required_for_v0_2: fixture.required_for_v0_2,
+            required_for_core: fixture.required_for_core,
             outcome,
             // The schema requires a non-empty reason on every non-pass.
             reason: reason.map(|r| if r.is_empty() { outcome.to_owned() } else { r }),
@@ -237,7 +237,7 @@ pub fn build_report(fixtures: &[Fixture], results: &[FixtureResult], meta: Repor
     // without draft features (docs/conformance-badge.md).
     let core_blocking: Vec<String> = entries
         .iter()
-        .filter(|r| r.status == "core" && r.required_for_v0_2 && r.outcome != "pass")
+        .filter(|r| r.status == "core" && r.required_for_core && r.outcome != "pass")
         .map(|r| r.id.clone())
         .collect();
     let mut gates = vec![Gate {
@@ -331,7 +331,7 @@ mod tests {
                 FixtureStatus::Draft => "draft",
                 FixtureStatus::Reserved => "reserved",
             },
-            "required_for_v0_2": req,
+            "required_for_core": req,
             "feature": feature,
             "description": "",
             "input": {"operation": "noop"},

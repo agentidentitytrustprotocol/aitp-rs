@@ -241,7 +241,7 @@ Three methods, the trait is intentionally simple.
 The fixture format belongs to the spec, not to this repo. Read it there:
 
 - [Fixture Format](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#fixture-format):
-  the metadata fields (`status`, `feature`, `required_for_v0_2`), the
+  the metadata fields (`status`, `feature`, `required_for_core`), the
   multi-step `sequence` form, side-effect assertions, dynamic fixtures and
   structural-rejection fixtures.
 - [Compact-JWS token placeholders](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/PLACEHOLDERS.md#compact-jws-token-placeholders-v02-portable-trust-artifacts):
@@ -260,9 +260,9 @@ How `aitp-conformance` implements those rules:
   op runs. The reference clock is the constant `REFERENCE_NOW` in that
   file.
 - `crates/aitp-conformance/src/fixture/types.rs` deserializes the
-  fixture. Its `required_for_v0_2` field (or `required_for_v0_1` under
+  fixture. Its `required_for_core` field (or `required_for_v0_1` under
   `--profile v0.1`) drives the exit-code gate; see
-  [v0.2 conformance gate](#v02-conformance-gate).
+  [core conformance gate](#core-conformance-gate).
 
 ## CLI surface
 
@@ -270,7 +270,7 @@ How `aitp-conformance` implements those rules:
 aitp-conformance run --target <CMD> [--fixtures-dir <DIR>] [--filter <PAT>] \
                      [--tag <TAG>] [--feature <NAME>]... \
                      [--output text|json|tap] [--fail-fast] \
-                     [--profile v0.2|v0.1] \
+                     [--profile core|v0.1] \
                      [--report <PATH> [--spec-commit <SHA>] [--spec-version <TAG>] \
                       [--implementation-repository <URL>] [--implementation-commit <SHA>]]
 aitp-conformance list [--fixtures-dir <DIR>] [--tag <TAG>]
@@ -281,7 +281,7 @@ aitp-conformance describe [--fixtures-dir <DIR>] <FIXTURE_ID>
 repeated. Each one opts into a draft feature (for example
 `experimental-session-bundle`), so fixtures tagged with it run instead of
 being skipped. `--profile` picks the protocol version the exit-code gate
-checks (default `v0.2`; see [v0.2 conformance gate](#v02-conformance-gate)).
+checks (default `core`; see [core conformance gate](#core-conformance-gate)).
 The flags are defined in `crates/aitp-conformance/src/main.rs`.
 
 Text output has this shape (from `crates/aitp-conformance/src/runner/output.rs`):
@@ -311,7 +311,7 @@ document; see [Conformance report](#conformance-report).
 - `spec` (`commit`, `version` and `protocol` `aitp/0.3`);
 - `fixtures_dir_digest` and the sorted `features_enabled`;
 - one `results` entry per non-reserved fixture, with `status`, `feature`
-  and `required_for_v0_2` copied from the fixture;
+  and `required_for_core` copied from the fixture;
 - `totals` by status;
 - `gates`.
 
@@ -321,7 +321,7 @@ The code is in `crates/aitp-conformance/src/runner/report.rs`.
 is enabled (`AITP v0.3 pinned-admission`, `AITP v0.3 self-attestation`):
 
 - **`AITP v0.3`** passes only when every core fixture with
-  `required_for_v0_2: true` passes.
+  `required_for_core: true` passes.
 - **An extension claim** passes only when every fixture with its feature
   passes.
 
@@ -466,26 +466,25 @@ them.
 
 ### Summary
 
-These counts are **at pin `8538bf1`** (`aitp/0.3`, spec release `v0.3.2-draft` plus the S2.1 freeze and S3.1 report schema; no fixture changes), the spec commit in
+These counts are **at pin `0ad4bf2`** (`aitp/0.3`, spec release `v0.3.2-draft` plus the S2.1 freeze, the S3.1 report schema and the `required_for_core` rename; no fixture outcome changes), the spec commit in
 [`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
 the only place in these docs where fixture counts appear. Other pages link
 here.
 
 | Tier | Fixtures | Strict run (no `--feature`) | With all four features |
 |---|---|---|---|
-| `core`, `required_for_v0_2: true` (the `aitp/0.3` core tier) | 85 | 85 PASS | 84 PASS, 1 SKIP (`del-007`) |
-| `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_v0_2: false`) | 1 | PASS | SKIP |
+| `core`, `required_for_core: true` (the `aitp/0.3` core tier) | 85 | 85 PASS | 84 PASS, 1 SKIP (`del-007`) |
+| `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | 1 | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | 8 | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 6 | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
 | **Total** | **111** | **86 pass / 0 fail / 25 skip** | **109 pass / 0 fail / 2 skip** |
 
-The section and gate keep their `v0.2` names on purpose. The spec keeps the
-fixture key `required_for_v0_2` for `aitp/0.3` ("the key keeps its v0.2
-name so existing runners keep working; for `aitp/0.3` it marks the core
-tier"), so the runner's default `--profile v0.2` is the `aitp/0.3` core
-gate.
+This section keeps its `v0.2` heading because other repositories link to
+its anchor. The fixture key is `required_for_core` (renamed from
+`required_for_v0_2` at spec `0ad4bf2`), and the runner's default
+`--profile core` gates on it.
 
 Why the skips look the way they do:
 
@@ -523,14 +522,14 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
   --feature aitp-self-attestation
 ```
 
-### v0.2 conformance gate
+### Core conformance gate
 
 `aitp-conformance run` exits non-zero in two cases:
 
 1. Any fixture fails.
 2. A fixture required by the selected profile fails or is skipped, for
    example because the adapter answers `OP_NOT_SUPPORTED`. The default
-   profile is `v0.2`, which checks **`required_for_v0_2: true`**.
+   profile is `core`, which checks **`required_for_core: true`**.
    `--profile v0.1` checks `required_for_v0_1: true` instead (at the pin,
    only `del-004`). This follows the spec's
    [Conformance runner enforcement rules](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#conformance-runner-enforcement-rules)
@@ -597,7 +596,7 @@ The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/ag
   under
   [Side-effect assertions](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/README.md#side-effect-assertions).
 - **Fixture metadata and vendored schemas follow the pin.** That covers
-  `status`, `feature`, `required_for_v0_1` and `required_for_v0_2`, and
+  `status`, `feature`, `required_for_v0_1` and `required_for_core`, and
   the schemas under `tests/schemas/`. All of them track the spec commit in
   `tests/schemas/SPEC_VERSION`. Re-run `scripts/sync-schemas.sh` (or
   `make schemas-check`) after the pin moves.

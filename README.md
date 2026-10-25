@@ -153,11 +153,11 @@ opt-in run modes, and the commands to reproduce them are in
 [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix). That
 page is the only place these docs give fixture counts.
 
-The runner's exit-code gate keys on `required_for_v0_2` by default: a
+The runner's exit-code gate keys on `required_for_core` by default: a
 required core fixture that fails, or is skipped because the adapter lacks
 its op, fails the run. `--profile v0.1` gates on `required_for_v0_1`
 instead. Details are under
-[v0.2 conformance gate](docs/conformance.md#v02-conformance-gate).
+[core conformance gate](docs/conformance.md#core-conformance-gate).
 
 ## Install
 

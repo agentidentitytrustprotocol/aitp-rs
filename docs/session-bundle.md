@@ -121,7 +121,7 @@ only when a coordinator Manifest is supplied.
   process-local, unbounded, overwrites on a repeated `session_id`, and
   performs no verification
   (`crates/aitp-transport-http/src/session_bundle_server.rs:42,162`).
-- **Draft, opt-in.** Outside the v0.2 conformance gate; the `bundle-*`
+- **Draft, opt-in.** Outside the core conformance gate; the `bundle-*`
   fixtures run only with `--feature experimental-session-bundle`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
 

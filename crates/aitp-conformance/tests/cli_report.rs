@@ -34,7 +34,7 @@ fn fixture(id: &str, status: &str, feature: Option<&str>, req: bool, op: &str) -
         "id": id,
         "status": status,
         "required_for_v0_1": false,
-        "required_for_v0_2": req,
+        "required_for_core": req,
         "feature": feature,
         "description": "report test fixture",
         "input": {"operation": op, "input": {}},

@@ -2,14 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/conformance-fixture.json",
   "title": "AITP Conformance Fixture (metadata block)",
-  "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a conformance runner relies on. Runners select fixtures by their own protocol version: a v0.2 runner runs the required_for_v0_2 set, a v0.1 runner the required_for_v0_1 set.",
+  "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a conformance runner relies on. Runners select fixtures by their own protocol version: a v0.2 runner runs the required_for_core set, a v0.1 runner the required_for_v0_1 set.",
   "type": "object",
   "required": [
     "id",
     "rfc",
     "status",
     "required_for_v0_1",
-    "required_for_v0_2",
+    "required_for_core",
     "feature"
   ],
   "properties": {
@@ -31,7 +31,7 @@
       "type": "boolean",
       "description": "Whether a v0.1 implementation MUST pass this fixture. Always false when status != 'core'. False for fixtures minted in the v0.2 JWS token shape (a v0.1 implementation cannot parse them); true only for fixtures frozen in the v0.1 shape (e.g. del-004)."
     },
-    "required_for_v0_2": {
+    "required_for_core": {
       "type": "boolean",
       "description": "Whether a v0.2 or v0.3 implementation MUST pass this fixture (the core-tier key for the current revision, aitp/0.3; not renamed). Always false when status != 'core'. False for fixtures frozen in the v0.1 token shape."
     },
@@ -98,7 +98,7 @@
         },
         "anyOf": [
           { "properties": { "required_for_v0_1": { "const": true } } },
-          { "properties": { "required_for_v0_2": { "const": true } } }
+          { "properties": { "required_for_core": { "const": true } } }
         ]
       }
     },
@@ -111,7 +111,7 @@
       "then": {
         "properties": {
           "required_for_v0_1": { "const": false },
-          "required_for_v0_2": { "const": false }
+          "required_for_core": { "const": false }
         }
       }
     }

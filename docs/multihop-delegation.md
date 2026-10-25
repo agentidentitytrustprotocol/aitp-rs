@@ -111,7 +111,7 @@ bound key from the **outer** token's `sub`
   obtaining them (RFC-AITP-0007 §1 lists the sources). Single-hop tokens
   need the delegator's Manifest from the same source (RFC-AITP-0006 §4
   step 1).
-- **Draft, opt-in.** Outside the v0.2 conformance gate; the `del-mh-*`
+- **Draft, opt-in.** Outside the core conformance gate; the `del-mh-*`
   fixtures run only with `--feature experimental-multihop-delegation`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
 
