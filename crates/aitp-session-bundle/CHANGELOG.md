@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.19.0...aitp-session-bundle-v0.20.0) - 2026-10-25
+
+### Added
+
+- *(aitp)* [**breaking**] curate the facade re-exports, add a public-api snapshot ([#293](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/293)) ([#323](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/323))
+
 ## [0.17.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-session-bundle-v0.16.0...aitp-session-bundle-v0.17.0) - 2026-10-20
 
 ### Added
