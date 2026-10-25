@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/identity.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/identity.json",
   "title": "IdentityDescriptor",
   "description": "AITP v0.3 identity binding. Connects an AID to a verifiable issuer claim.",
   "type": "object",

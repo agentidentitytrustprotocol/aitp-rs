@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/revocation-list.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/revocation-list.json",
   "title": "AitpRevocationList",
   "description": "AITP v0.3 signed revocation snapshot (JCS embedded-signature profile; its serialization is unchanged by the JWS migration, though its signing input changed in v0.2 \u2014 see `signature` below) — the response served by an issuing peer's `ListRevoked` HTTPS endpoint (RFC-AITP-0008 §1.5). Lists every TCT JTI the issuer has revoked. Cached by consuming peers per `expires_at`; an empty `entries` array is itself a meaningful signed assertion that nothing has been revoked since the last snapshot, defending against an attacker that suppresses fresher snapshots to roll back revocations.",
   "type": "object",

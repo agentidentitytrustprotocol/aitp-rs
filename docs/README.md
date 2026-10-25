@@ -38,7 +38,6 @@ the spec's
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
 | Upgrade from 0.18 to 0.19 | [`upgrading-0.19.md`](upgrading-0.19.md) |
 | Upgrade from 0.17 to 0.18 | [`upgrading-0.18.md`](upgrading-0.18.md) |
-| Upgrade from 0.16 to 0.17 | [`upgrading-0.17.md`](upgrading-0.17.md) |
 | Upgrade from 0.15 to 0.16 | [`upgrading-0.16.md`](upgrading-0.16.md) |
 | Upgrade from 0.14 to 0.15 | [`upgrading-0.15.md`](upgrading-0.15.md) |
 | Upgrade from 0.13 to 0.14 | [`upgrading-0.14.md`](upgrading-0.14.md) |

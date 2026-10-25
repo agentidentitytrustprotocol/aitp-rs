@@ -282,8 +282,8 @@ let jkt = &verified.claims.cnf.jkt;
 > **Superseded in 0.17.0:** `aitp/0.3` signs the whole envelope except
 > `signature`, so `version`, `message_type` and `extensions` are
 > sender-authenticated, and `envelope_signing_input` no longer builds the
-> pipe string below. See
-> [`upgrading-0.17.md`](upgrading-0.17.md#2-envelope-signing-input-v2).
+> pipe string below. See the 0.17.0 entry in
+> [`CHANGELOG.md`](../CHANGELOG.md).
 
 The pin in `tests/schemas/SPEC_VERSION` moves from `cfd2f16` to
 `55bafe0`

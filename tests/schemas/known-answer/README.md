@@ -92,8 +92,8 @@ whose Python reference implementation signs Ed25519 only. They were
 minted with python-ecdsa (RFC 6979 deterministic `k`, low-S) and are
 recomputed from the committed inputs by
 [`scripts/recompute-known-answer-independent.py`](../../../scripts/recompute-known-answer-independent.py),
-a maintainer tool outside CI built on python-ecdsa and a pure-Python
-RFC 8032 Ed25519. It shares no code with the Node checker.
+run by `make kat-independent` (part of `make validate` and CI) and
+built on python-ecdsa and a pure-Python RFC 8032 Ed25519. It shares no code with the Node checker.
 
 ## Off-the-shelf JOSE smoke test (v0.2)
 

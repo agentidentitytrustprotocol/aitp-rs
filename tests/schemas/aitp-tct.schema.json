@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/tct.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/tct.json",
   "title": "TrustContextTokenClaims",
   "description": "AITP v0.3 Trust Context Token — decoded JWS payload claims (RFC-AITP-0005). On the wire a TCT is an opaque compact JWS string (typ 'aitp-tct+jwt', RFC-AITP-0001 §5.4.5); this schema validates the decoded claims object. The compact-string form is pinned by the $defs/CompactJws pattern, referenced by embedding schemas.",
   "type": "object",

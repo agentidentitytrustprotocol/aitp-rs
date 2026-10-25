@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/mutual-handshake.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/mutual-handshake.json",
   "title": "MutualHandshakeMessages",
   "description": "AITP v0.3 Mutual Handshake payload schemas. Four message types: mutual_hello, mutual_hello_ack, mutual_commit, mutual_commit_ack. Commit payloads carry the peer's TCT (and optional grant voucher) as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
   "$defs": {

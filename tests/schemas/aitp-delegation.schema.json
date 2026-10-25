@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/delegation.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/delegation.json",
   "title": "DelegationTokenClaims",
   "description": "AITP v0.3 delegation token — decoded JWS payload claims (RFC-AITP-0006). On the wire a delegation token is an opaque compact JWS string (typ 'aitp-delegation+jwt') signed by the delegator-of-record (iss). It embeds the issuing peer's grant voucher verbatim as the `voucher` claim; no reconstruction is performed anywhere. Single-hop is the core default (no `chain` claim). Multi-hop chains (RFC-AITP-0011, Draft opt-in) are carried in the optional `chain` and `chain_hash` claims.",
   "type": "object",

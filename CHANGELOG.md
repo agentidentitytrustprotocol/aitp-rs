@@ -71,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     the server already serves the route), or the verifier must opt into
     `fail_open`. A pure client that serves no list is refused by a
     default server.
+- **Spec pin `deee6a9` → `e78ee4b` (`v0.3.2-draft`); schema namespace
+  is `https://agentidentitytrustprotocol.io/schema/v0.3/`** (RS1.3, #313).
+  Every vendored schema's `$id` moves off `aitp.dev`, a strict cutover
+  with no alias. The schema bodies are otherwise unchanged. A tool that
+  resolves AITP schemas by `$id` must use the new namespace. The new
+  core fixtures `tct-024` (no revocation source, default `fail_closed`),
+  `tct-025` (explicit `fail_open`) and `rev-011` (a third-party-signed
+  snapshot is discarded) pass. Totals: 86 pass / 25 skip strict and
+  109 pass / 2 skip with all features, of 111.
 - **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
   specifies either, and both were documented as unsupported (#151).
   `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`
@@ -204,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   have that shape and both pass. New unit tests pin it too. The bindings' `verify_revocation_list`
   keeps its lowercase `version_unknown` cause code; the SDK docs now say
   it is the spec's `REVOCATION_SNAPSHOT_INVALID`. The table in
-  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
+  `docs/upgrading-0.17.md` (removed in 0.20.0) section 1 is
   corrected.
 
 - **Revocation signing refuses a non-v4 `entries[].jti`, and every
@@ -281,7 +290,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   0.17 does not interoperate with 0.16 peers. It also ships the HTTP
   server receive order (#259), stricter envelope parsing (#262) and
   envelope signing and verification in the bindings (#260). See
-  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) for every change and
+  `docs/upgrading-0.17.md` (removed in 0.20.0) for every change and
   how to migrate.
 - **Strict `aitp/0.2` → `aitp/0.3` cutover.** `aitp_core::PROTOCOL_VERSION`
   is `"aitp/0.3"`, and every producer and checker uses it. An `aitp/0.2`
