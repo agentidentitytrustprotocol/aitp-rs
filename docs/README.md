@@ -34,6 +34,7 @@ the spec's
 | Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
 | Handle signing keys / plan rotation | [`key-management.md`](key-management.md) |
 | Use the `aitp` CLI (install, keygen, verify, handshake with a peer) | [`cli.md`](cli.md) |
+| Try a live handshake, or run the public interop peer | [`interop-peer.md`](interop-peer.md) |
 | Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
 | Upgrade from 0.18 to 0.19 | [`upgrading-0.19.md`](upgrading-0.19.md) |
@@ -63,6 +64,7 @@ that governs it.
 | [`transport-hardening.md`](transport-hardening.md) | `aitp-transport-http` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
 | [`deployment.md`](deployment.md) | Where state lives; multi-node/clustering (shared `ReplayGuard` vs sticky routing); production hardening checklist | RFC-AITP-0001 §5.5, RFC-AITP-0008/0009 |
 | [`key-management.md`](key-management.md) | Seed handling, in-memory hygiene, KMS/HSM reality, rotation runbook | RFC-AITP-0003 §8, RFC-AITP-0009 §3 |
+| [`interop-peer.md`](interop-peer.md) | The public interop peer (`aitp serve --interop`): key enrolment, policy, limits, `/echo`, deployment | RFC-AITP-0002 §3.2, RFC-AITP-0008 §3 |
 
 ## Protocol reference (sibling spec repo)
 

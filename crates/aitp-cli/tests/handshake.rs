@@ -157,6 +157,23 @@ async fn handshake_with_pinned_peer_aid() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
+async fn offers_default_to_the_requested_grants() {
+    let (_peer, origin) = spawn_peer(0x7a, false).await;
+    let key = key_file("default-offer");
+
+    aitp()
+        .args(["handshake", &origin, "--insecure-localhost"])
+        .args(["--grant", "demo.echo"])
+        .arg("--key")
+        .arg(&key)
+        .assert()
+        .success()
+        .stderr(predicate::str::contains(
+            "offering the requested capabilities: demo.echo",
+        ));
+}
+
+#[tokio::test(flavor = "multi_thread")]
 async fn handshake_refuses_peer_that_is_not_the_pinned_aid() {
     let (_peer, origin) = spawn_peer(0x73, false).await;
     let someone_else = AitpSigningKey::from_seed(&[0x99; 32]).aid().to_string();
@@ -266,12 +283,15 @@ async fn handshake_refuses_plain_http_without_opt_in() {
 }
 
 #[test]
-fn handshake_requires_a_key_choice() {
+fn handshake_without_a_key_or_default_key_fails() {
+    let missing = std::env::temp_dir().join(format!("aitp-cli-{}-none.key", std::process::id()));
     aitp()
         .args(["handshake", "https://peer.example"])
+        .env("AITP_KEY", &missing)
         .assert()
         .failure()
-        .stderr(predicate::str::contains("--key"));
+        .stderr(predicate::str::contains("no key: pass --key"))
+        .stderr(predicate::str::contains("aitp enroll"));
 }
 
 #[tokio::test(flavor = "multi_thread")]

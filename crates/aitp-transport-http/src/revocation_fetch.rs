@@ -39,7 +39,9 @@
 //! [`RevocationPolicy::fail_mode`] decides: `FailClosed` (the default)
 //! rejects with [`TctError::RevocationUnavailable`], which is
 //! `TCT_REVOKED` on the wire but names the reason; `FailOpen` accepts
-//! and logs a warning; `SoftFail` narrows the grants.
+//! and logs a warning; `SoftFail` narrows the grants;
+//! `FailOpenIfUnadvertised` accepts only when the Manifest advertises no
+//! URL, and otherwise fails closed.
 
 use crate::net_guard::HostGuard;
 use crate::revocation::{verify_snapshot, RevocationError, RevocationFailMode, RevocationPolicy};
@@ -50,7 +52,7 @@ use parking_lot::Mutex;
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::time::Duration;
-use tracing::{debug, warn};
+use tracing::{debug, info, warn};
 use url::Url;
 use uuid::Uuid;
 
@@ -167,6 +169,7 @@ impl RevocationFetcher {
         PreparedRevocation {
             issuer: issuer.clone(),
             status,
+            advertised: list_uri.is_some(),
             fail_mode: self.policy.fail_mode.clone(),
         }
     }
@@ -270,6 +273,8 @@ pub struct PreparedRevocation {
     issuer: Aid,
     /// The issuer's revoked `jti`s, or why they are unknown.
     status: Result<Arc<HashSet<Uuid>>, String>,
+    /// Whether the issuer's Manifest advertised a list URL.
+    advertised: bool,
     fail_mode: RevocationFailMode,
 }
 
@@ -303,14 +308,19 @@ impl PreparedRevocation {
                 warn!(%iss, %jti, %reason, "revocation unavailable; accepting under fail_open");
                 Ok(HandshakeRevocationDecision::Clear)
             }
+            RevocationFailMode::FailOpenIfUnadvertised if !self.advertised => {
+                info!(%iss, %jti, "issuer advertises no revocation list; accepting under fail_open_if_unadvertised");
+                Ok(HandshakeRevocationDecision::Clear)
+            }
             RevocationFailMode::SoftFail { safe_grants } if !safe_grants.is_empty() => {
                 warn!(%iss, %jti, %reason, "revocation unavailable; restricting grants under soft_fail");
                 Ok(HandshakeRevocationDecision::SoftFailSafeSubset {
                     safe_grants: safe_grants.clone(),
                 })
             }
-            // FailClosed, and SoftFail with no safe subset (RFC-AITP-0008
-            // §3.1: that degenerates to fail_closed).
+            // FailClosed, SoftFail with no safe subset (RFC-AITP-0008
+            // §3.1: that degenerates to fail_closed), and
+            // FailOpenIfUnadvertised for an advertised list.
             _ => Err(HandshakeError::Tct(TctError::RevocationUnavailable(reason))),
         }
     }
@@ -334,6 +344,7 @@ mod tests {
             status: status
                 .map(|v| Arc::new(v.into_iter().collect()))
                 .map_err(str::to_owned),
+            advertised: true,
             fail_mode,
         }
     }
@@ -408,6 +419,41 @@ mod tests {
             .prepare(&aid(1), None, Timestamp::now())
             .await;
         assert!(!p.is_available());
+    }
+
+    #[tokio::test]
+    async fn fail_open_if_unadvertised_accepts_only_without_a_list_uri() {
+        let fetcher = RevocationFetcher::new(RevocationPolicy {
+            fail_mode: RevocationFailMode::FailOpenIfUnadvertised,
+            ..Default::default()
+        });
+        let p = fetcher.prepare(&aid(1), None, Timestamp::now()).await;
+        assert_eq!(
+            p.decide(&aid(1), &Uuid::new_v4()).unwrap(),
+            HandshakeRevocationDecision::Clear
+        );
+        // An advertised list that cannot be obtained is not ignored.
+        let p = fetcher
+            .prepare(
+                &aid(1),
+                Some("http://issuer.example/list"),
+                Timestamp::now(),
+            )
+            .await;
+        assert!(matches!(
+            p.decide(&aid(1), &Uuid::new_v4()),
+            Err(HandshakeError::Tct(TctError::RevocationUnavailable(_)))
+        ));
+    }
+
+    #[test]
+    fn fail_open_if_unadvertised_still_honours_a_revoked_jti() {
+        let jti = Uuid::new_v4();
+        let p = prepared(Ok(vec![jti]), RevocationFailMode::FailOpenIfUnadvertised);
+        assert_eq!(
+            p.decide(&aid(1), &jti).unwrap(),
+            HandshakeRevocationDecision::Revoked
+        );
     }
 
     #[tokio::test]

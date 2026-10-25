@@ -3,7 +3,8 @@
 A command-line tool (`aitp`) for AITP: key generation, AID derivation,
 inspecting and verifying TCTs and Manifests offline, and, with the
 default `http-client` feature, fetching a peer's Manifest or running a
-full handshake against it.
+full handshake against it. With the `serve` feature, `aitp serve
+--interop` runs the public interop peer.
 
 The full guide, including the handshake options and error codes, is
 [`docs/cli.md`](../../docs/cli.md).
@@ -45,12 +46,28 @@ aitp manifest fetch <url> [--timeout <secs>] [--insecure-localhost]
     Fetch <url>/.well-known/aitp-manifest, verify it, and print the
     envelope (pipes into `manifest verify`).
 
-aitp handshake <url> (--key <file> | --ephemeral) [--grant <cap>]...
+aitp enroll <url> [--key <file>] [--timeout <secs>] [--insecure-localhost]
+    Register a key with the interop peer at <url>. Without --key, uses
+    (and on first use creates) the default key, ~/.config/aitp/agent.key.
+
+aitp handshake <url> [--key <file> | --ephemeral] [--grant <cap>]...
                [--offer <cap>]... [--peer-aid <aid>]
                [--revocation-fail-open] [--timeout <secs>]
                [--insecure-localhost]
     Run the four-message handshake as initiator and print the claims of
-    the TCT the peer issues us. A failure prints the AITP error code.
+    the TCT the peer issues us. Without
+    --key / --ephemeral, uses the default key. A failure prints the AITP
+    error code.
+
+aitp echo <url> [--key <file> | --ephemeral] [--peer-aid <aid>]
+          [--timeout <secs>] [--insecure-localhost]
+    Hello world against an interop peer: handshake for
+    aitp.interop.echo, then present the issued TCT to the peer's /echo
+    with proof of possession (RFC-AITP-0005 §10.5) and print the claims
+    it echoes.
+
+aitp serve --interop [--listen <addr>] [--public-url <url>] [--key <file>]
+    Run the public interop peer (`serve` feature; docs/interop-peer.md).
 ```
 
 `-` reads from stdin, so tokens/manifests pipe through:
@@ -77,9 +94,13 @@ aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik
 $ aitp tct inspect --token "$TCT"
 $ aitp tct verify  --token "$TCT"
 
+# Hello world against the public interop peer:
+$ aitp enroll https://interop.agentidentitytrustprotocol.io
+$ aitp echo https://interop.agentidentitytrustprotocol.io
+
 # Handshake with a peer, presenting a persistent key:
 $ aitp keygen > agent.key
-$ aitp handshake https://peer.example --key agent.key --grant demo.echo --offer demo.echo
+$ aitp handshake https://peer.example --key agent.key --grant demo.echo
 ```
 
 Commands exit non-zero on any failure (verification, malformed input, a

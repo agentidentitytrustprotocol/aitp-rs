@@ -14,7 +14,8 @@
 # see docs/deployment.md and docs/key-management.md.
 
 # ---- build stage ----
-FROM rust:1.89-bookworm AS build
+# Not below the workspace `rust-version` (scripts/check-docker-rust.sh).
+FROM rust:1.90-bookworm AS build
 WORKDIR /src
 # Copy the whole workspace (the demo depends on the path-linked crates).
 COPY . .

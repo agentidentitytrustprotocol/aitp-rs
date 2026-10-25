@@ -1,17 +1,20 @@
-//! Networked commands (`http-client` feature): `aitp handshake` and
-//! `aitp manifest fetch`.
+//! Networked commands (`http-client` feature): `aitp handshake`,
+//! `aitp manifest fetch`, `aitp enroll` and `aitp echo`.
 //!
-//! Both go through the SSRF-guarded `aitp::transport` client: TLS roots
-//! come from webpki-roots (no system trust store), redirects are
-//! refused, and `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` are honoured.
+//! The first two go through the SSRF-guarded `aitp::transport` client:
+//! TLS roots come from webpki-roots (no system trust store), redirects
+//! are refused, and `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` are
+//! honoured. `aitp enroll` and `aitp echo` talk to the interop peer's
+//! own endpoints with a plain reqwest client set up the same way (webpki
+//! roots, no redirects, HTTPS unless `--insecure-localhost`).
 
 use std::fmt;
 use std::time::Duration;
 
-use aitp::core::{base64url, Aid, ErrorCode};
+use aitp::core::{base64url, Aid, AitpEnvelope, ErrorCode};
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::{
-    run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, TrustMode,
+    run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, SessionContext, TrustMode,
 };
 use aitp::handshake::{HandshakeError, StaticPinnedKeyStore};
 use aitp::manifest::{
@@ -19,6 +22,8 @@ use aitp::manifest::{
 };
 use aitp::transport::{ManifestFetcher, RevocationFailMode, RevocationPolicy};
 
+use crate::echo::{self, ChallengeRequest, EchoRequest};
+use crate::enrol::{self, Challenge, Enrolled, ErrorBody};
 use crate::CliResult;
 
 /// The initiator runs no server, but a Manifest must name a handshake
@@ -95,12 +100,63 @@ const GRANT_HINT: &str = "the peer grants only capabilities it offers; request o
     `--grant <cap>` (`aitp manifest fetch <url>` lists them under offered_capabilities).";
 
 pub(crate) fn handshake(args: HandshakeArgs) -> CliResult {
-    runtime()?.block_on(handshake_async(args))
+    runtime()?.block_on(async {
+        let session = run_handshake(&args).await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&session.held_tct.claims)?
+        );
+        Ok(())
+    })
 }
 
-async fn handshake_async(args: HandshakeArgs) -> CliResult {
-    let peer_aid = match args.peer_aid {
-        Some(aid) => aid,
+/// Handshake with `args.peer` and present the TCT it issues us back to
+/// its `/echo`, proving possession of our key (see [`crate::echo`]).
+/// Prints the claims the peer verified.
+pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
+    args.grants = vec![echo::ECHO_CAP.into()];
+    runtime()?.block_on(async {
+        let peer = &args.peer;
+        let client = interop_client(peer, &args.net)?;
+        let session = run_handshake(&args).await?;
+        let tct = session.held_tct.token.clone();
+        let challenge: AitpEnvelope = post(
+            &client,
+            peer,
+            echo::CHALLENGE_PATH,
+            &ChallengeRequest { tct: tct.clone() },
+        )
+        .await?;
+        let response = echo::respond(
+            &args.key,
+            &session.peer_aid,
+            session.held_tct.claims.jti,
+            challenge,
+        )?;
+        let echoed: serde_json::Value = post(
+            &client,
+            peer,
+            echo::ECHO_PATH,
+            &EchoRequest {
+                tct,
+                pop_response: serde_json::to_value(response)?,
+            },
+        )
+        .await?;
+        eprintln!(
+            "aitp: {} verified our TCT and proof of possession",
+            session.peer_aid
+        );
+        println!("{}", serde_json::to_string_pretty(&echoed)?);
+        Ok(())
+    })
+}
+
+/// Run the handshake as initiator; a peer rejection becomes an error
+/// naming its AITP code, with a hint where one helps.
+async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn std::error::Error>> {
+    let peer_aid = match &args.peer_aid {
+        Some(aid) => aid.clone(),
         None => {
             // Trust on first use: the Manifest is self-signed by the AID
             // it names, so this pins whoever answers at `peer` right now.
@@ -119,17 +175,29 @@ async fn handshake_async(args: HandshakeArgs) -> CliResult {
         }
     };
     let trusted = StaticPinnedKeyStore::from_aids([&peer_aid])?;
-    let own_manifest = initiator_manifest(&args.key, &args.offers)?;
+    // The TCT we issue authorizes nothing (we run no service), so by
+    // default offer back what we ask for: interop peers request the
+    // capability they grant. Said on stderr so the default is not silent.
+    let offers = if args.offers.is_empty() && !args.grants.is_empty() {
+        eprintln!(
+            "aitp: offering the requested capabilities: {} (pass --offer to choose)",
+            args.grants.join(", ")
+        );
+        args.grants.clone()
+    } else {
+        args.offers.clone()
+    };
+    let own_manifest = initiator_manifest(&args.key, &offers)?;
 
     let mut config = InitiatorConfig::new(
         &args.key,
         &own_manifest,
-        args.peer,
+        args.peer.clone(),
         TrustMode::PinnedKeys(&trusted),
         IdentityMode::PinnedKey {
             subject: CLI_SUBJECT.into(),
         },
-        args.grants,
+        args.grants.clone(),
     )
     .with_http_timeout(args.net.timeout)
     .with_insecure_localhost(args.net.insecure_localhost);
@@ -167,11 +235,84 @@ async fn handshake_async(args: HandshakeArgs) -> CliResult {
     };
 
     eprintln!("aitp: handshake complete with {}", session.peer_aid);
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&session.held_tct.claims)?
+    Ok(session)
+}
+
+/// Register `key` with an interop peer's `/enroll` endpoint (see
+/// [`crate::enrol`]) and print the enrolment.
+pub(crate) fn enroll(peer: url::Url, key: &AitpSigningKey, net: NetOpts) -> CliResult {
+    runtime()?.block_on(enroll_async(peer, key, net))
+}
+
+async fn enroll_async(peer: url::Url, key: &AitpSigningKey, net: NetOpts) -> CliResult {
+    let client = interop_client(&peer, &net)?;
+    let challenge: Challenge = post(
+        &client,
+        &peer,
+        enrol::CHALLENGE_PATH,
+        &serde_json::json!({}),
+    )
+    .await?;
+    let request = enrol::sign_enroll(key, &challenge)?;
+    let enrolled: Enrolled = post(&client, &peer, enrol::ENROLL_PATH, &request).await?;
+    eprintln!(
+        "aitp: enrolled {} with {} until {} (unix); granted: {}",
+        enrolled.aid,
+        challenge.peer_aid,
+        enrolled.expires_at,
+        enrolled.capabilities.join(", ")
     );
+    println!("{}", serde_json::to_string_pretty(&enrolled)?);
     Ok(())
+}
+
+/// A client for the interop peer's own endpoints: HTTPS only (or
+/// loopback HTTP with `--insecure-localhost`), no redirects.
+fn interop_client(
+    peer: &url::Url,
+    net: &NetOpts,
+) -> Result<reqwest::Client, Box<dyn std::error::Error>> {
+    let local_http = peer.scheme() == "http"
+        && matches!(peer.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+    if peer.scheme() != "https" && !(local_http && net.insecure_localhost) {
+        return Err(format!(
+            "refusing {peer}: the interop endpoints require https (or http://localhost \
+             with --insecure-localhost)"
+        )
+        .into());
+    }
+    Ok(reqwest::Client::builder()
+        .timeout(net.timeout)
+        .redirect(reqwest::redirect::Policy::none())
+        .build()?)
+}
+
+/// POST `body` as JSON to `path` under `peer` and decode a 2xx reply;
+/// a non-2xx reply becomes an error naming the endpoint's code.
+async fn post<B: serde::Serialize, T: serde::de::DeserializeOwned>(
+    client: &reqwest::Client,
+    peer: &url::Url,
+    path: &str,
+    body: &B,
+) -> Result<T, Box<dyn std::error::Error>> {
+    let url = peer.join(path)?;
+    let resp = client
+        .post(url.clone())
+        .json(body)
+        .send()
+        .await
+        .map_err(|e| format!("request to {url} failed: {e}"))?;
+    let status = resp.status();
+    let bytes = resp.bytes().await?;
+    if status.is_success() {
+        return serde_json::from_slice(&bytes)
+            .map_err(|e| format!("unexpected reply from {url}: {e}").into());
+    }
+    Err(match serde_json::from_slice::<ErrorBody>(&bytes) {
+        Ok(e) => format!("{path} refused ({status}): {}: {}", e.error, e.message),
+        Err(_) => format!("{path} refused: {url} returned {status}"),
+    }
+    .into())
 }
 
 pub(crate) fn manifest_fetch(peer: url::Url, net: NetOpts) -> CliResult {

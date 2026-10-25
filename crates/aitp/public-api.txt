@@ -6,6 +6,8 @@ pub use aitp::core::AidAlgorithm
 pub use aitp::core::AidParseError
 pub use aitp::core::AitpEnvelope
 pub use aitp::core::AitpError
+pub use aitp::core::CheckedJson
+pub use aitp::core::CheckedJsonError
 pub use aitp::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS
 pub use aitp::core::EnvelopeParseError
 pub use aitp::core::ErrorCode
@@ -19,6 +21,7 @@ pub use aitp::core::Sender
 pub use aitp::core::Timestamp
 pub use aitp::core::base64url
 pub use aitp::core::envelope_signing_digest
+pub use aitp::core::parse_envelope_wire
 pub mod aitp::crypto
 pub use aitp::crypto::AitpSigner
 pub use aitp::crypto::AitpSigningKey
