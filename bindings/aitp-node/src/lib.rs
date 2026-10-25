@@ -25,6 +25,7 @@ mod helpers;
 mod oidc;
 #[cfg(feature = "spki-pinning")]
 mod pinning;
+mod pop;
 #[cfg(feature = "renewal")]
 mod renewal;
 mod revocation;

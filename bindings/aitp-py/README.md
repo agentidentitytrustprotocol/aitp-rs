@@ -100,7 +100,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 
 | Type / function       | Feature | Notes |
 |-----------------------|:-------:|-------|
-| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(...)`, `verify_tct_cached(...)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_envelope(message_type, payload_json, ...)`, `sign_revocation_list(...)` |
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(..., pop=None)`, `verify_tct_cached(..., pop=None)` (`pop=(challenge_json, response_json)`, the presented-TCT path), `new_pop_challenge(tct_token, ttl_secs=60)`, `sign_pop_response(challenge_json)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_envelope(message_type, payload_json, ...)`, `sign_revocation_list(...)` |
 | `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
 | `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
 | `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
@@ -112,6 +112,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `verify_envelope()` / `EnvelopeVerificationError` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Raises with `.code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-python.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
+| `verify_pop_response()` | default | RFC-AITP-0005 §6.2 checks only (not the TCT itself); returns the proven holder AID. Raises with `.code` `POP_CHALLENGE_INVALID` or `POP_RESPONSE_INVALID` |
 | `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
 | `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `build_renewal_request(current_tct_token)`; `process_renewal_request` returns `{"tct", "grant_voucher"}` JSON |
 | `SessionBundleBuilder`, `verify_session_bundle(json, verifier_aid, coordinator_manifest_json, ...)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinator_manifest_json` required) |

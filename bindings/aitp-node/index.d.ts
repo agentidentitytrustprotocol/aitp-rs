@@ -60,9 +60,18 @@ export declare class AitpAgent {
    *
    * `expectedAudience` defaults to `null`, which means "verify as the
    * holder" (RFC-AITP-0005 §9 receipt model — `this.aid` is used).
-   * Resource servers verifying a TCT presented by a peer should pass
-   * the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
-   * equals `sub`).
+   * Resource servers verifying a TCT presented by a peer pass
+   * `pop: { challenge, response }` (the presented-TCT path): the
+   * challenge from `newPopChallenge` and the presenter's
+   * `signPopResponse` reply. The TCT and the PoP response are verified
+   * together (RFC-AITP-0005 §6.2) and the audience is pinned to the
+   * proven holder AID (`sub`). A PoP failure throws with `code ===
+   * 'POP_CHALLENGE_INVALID'` or `'POP_RESPONSE_INVALID'`. `pop` and
+   * `expectedAudience` are mutually exclusive. If you pass
+   * `expectedAudience` instead, that AID MUST come from an authenticated
+   * source, never from the token: a verified PoP response or an
+   * equivalent channel binding. Passing the TCT's own `aud` back makes
+   * the audience check vacuous.
    *
    * `revokedJtis` (F-1) is the issuer's deny list of revoked TCT `jti`
    * strings; any TCT whose `jti` is in the list is rejected even if
@@ -75,17 +84,34 @@ export declare class AitpAgent {
    * any RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated)
    * matches. An entry that is not a UUID throws rather than being ignored.
    */
-  verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsTctIdentity
+  verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, pop?: PopExchange | undefined | null): JsTctIdentity
   /**
    * Like `verifyTct`, but consults a `TctStore` first: a byte-identical,
    * already-verified, still-valid TCT skips the signature check (the
    * verification hot path for an agent that sees the same TCT on many
    * requests). All cheap policy checks (expiry, audience, required grant,
    * and the `fail_closed` revocation gate) still run on every call; only
-   * the signature check is elided. `revokedJtis` and `revocation` behave
-   * as in `verifyTct`.
+   * the signature check is elided. `revokedJtis`, `revocation` and `pop`
+   * behave as in `verifyTct`; `pop` is checked on every call.
    */
-  verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsTctIdentity
+  verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, pop?: PopExchange | undefined | null): JsTctIdentity
+  /**
+   * Consumer side of downstream proof of possession (RFC-AITP-0005 §6):
+   * a `pop_challenge` payload JSON for the presented `tctToken`
+   * (`tct_jti`, a CSPRNG 128-bit base64url `nonce`, `expires_at`
+   * `ttlSecs` from now, default 60). Send it to the presenter, then pass
+   * it with the reply as `pop` to `verifyTct`. Accept a response to each
+   * challenge at most once: the SDK keeps no replay cache.
+   */
+  newPopChallenge(tctToken: string, ttlSecs?: number | undefined | null): string
+  /**
+   * Holder side of downstream proof of possession (RFC-AITP-0005 §6.1):
+   * sign a received `pop_challenge` payload with this agent's key over
+   * `sha256` of the decoded nonce bytes, and return the `pop_response`
+   * payload JSON. A malformed or expired challenge throws with `code ===
+   * 'POP_CHALLENGE_INVALID'`.
+   */
+  signPopResponse(challengeJson: string): string
   /**
    * Build a delegation compact-JWS token from a held **grant voucher**
    * (RFC-AITP-0006). `voucherToken` is the `grantVoucher` surfaced by
@@ -490,6 +516,17 @@ export interface ManifestOpts {
 }
 
 /**
+ * A downstream PoP exchange for `verifyTct(..., pop)`: the challenge from
+ * `newPopChallenge` and the holder's `signPopResponse` reply.
+ */
+export interface PopExchange {
+  /** The `pop_challenge` payload JSON this verifier issued. */
+  challenge: string
+  /** The holder's `pop_response` payload JSON. */
+  response: string
+}
+
+/**
  * The conventional path of an agent's `ListRevoked` endpoint (the Rust
  * `HandshakeServer` serves it here). The Manifest still carries an
  * explicit absolute URL; see `ManifestOpts.revocationListUri`.
@@ -687,6 +724,18 @@ export declare function verifyEnvelope(envelopeJson: string, expectedSenderAid: 
  * `verifyRevocationList`'s `nowUnixSecs` parameter.
  */
 export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null): void
+
+/**
+ * Verify a holder's PoP response for `tctToken` (RFC-AITP-0005 §6.2) and
+ * return the proven holder AID (the TCT's `sub`).
+ *
+ * This proves possession of the key `sub` encodes. It does **not**
+ * verify the TCT itself; `AitpAgent.verifyTct(..., pop)` does both. A
+ * malformed or stale challenge throws with `code ===
+ * 'POP_CHALLENGE_INVALID'`, any other failure with `code ===
+ * 'POP_RESPONSE_INVALID'`.
+ */
+export declare function verifyPopResponse(challengeJson: string, responseJson: string, tctToken: string): string
 
 /**
  * Verify a `RevocationListEnvelope` JSON string against a pinned issuer.

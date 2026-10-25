@@ -17,6 +17,7 @@ use crate::delegation::{
 };
 use crate::envelope::sign_envelope_py;
 use crate::oidc::PyJwksProvider;
+use crate::pop::{new_pop_challenge_py, sign_pop_response_py};
 #[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_py, process_renewal_request_py};
 use crate::revocation::sign_revocation_list_py;
@@ -280,10 +281,19 @@ impl PyAitpAgent {
     ///
     /// `expected_audience` defaults to `None`, which means "verify as the
     /// holder" (RFC-AITP-0005 §9 receipt model — `our_key.aid()` is used).
-    /// Resource servers verifying a TCT presented by a peer should pass
-    /// the TCT's own `aud` claim as `expected_audience` (in v0.2 this
-    /// equals `sub`); the signature check then proves the TCT was issued by
-    /// us, which is the real security gate for that direction.
+    /// Resource servers verifying a TCT presented by a peer pass
+    /// `pop=(challenge_json, response_json)`: the challenge from
+    /// `new_pop_challenge` and the holder's `sign_pop_response` reply. The
+    /// TCT and the PoP exchange (RFC-AITP-0005 §6.2) are verified together
+    /// and the audience is pinned to the proven holder AID (`sub`). A PoP
+    /// failure raises with `.code` `POP_CHALLENGE_INVALID` or
+    /// `POP_RESPONSE_INVALID`. `pop` excludes `expected_audience`.
+    ///
+    /// Without `pop`, a presented TCT's `expected_audience` is the
+    /// presenter's AID, and it MUST come from an authenticated source,
+    /// never from the token: a downstream PoP response verified against
+    /// the key `sub` encodes, or an equivalent channel binding. Passing the
+    /// TCT's own `aud` back makes the audience check vacuous.
     ///
     /// `revoked_jtis` is the issuer's deny list, a set/iterable of revoked
     /// TCT `jti` strings (RFC-AITP-0008): a TCT whose `jti` is in it is
@@ -297,7 +307,7 @@ impl PyAitpAgent {
     /// Entries are lookup keys and are normalized: any RFC 9562 text form
     /// (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry
     /// that is not a UUID raises `ValueError` rather than being ignored.
-    #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None, revocation=None))]
+    #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None, revocation=None, pop=None))]
     fn verify_tct(
         &self,
         tct_token: &str,
@@ -305,6 +315,7 @@ impl PyAitpAgent {
         expected_audience: Option<&str>,
         revoked_jtis: Option<HashSet<String>>,
         revocation: Option<&str>,
+        pop: Option<(String, String)>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct(
             &self.key,
@@ -313,6 +324,7 @@ impl PyAitpAgent {
             expected_audience,
             revoked_jtis.as_ref(),
             revocation,
+            pop.as_ref().map(|(c, r)| (c.as_str(), r.as_str())),
         )
     }
 
@@ -325,8 +337,10 @@ impl PyAitpAgent {
     ///
     /// `revoked_jtis` (F-1) is consulted on every call, cache hits included,
     /// so a freshly-revoked TCT stops verifying immediately. It and
-    /// `revocation` behave as in `verify_tct` (`fail_closed`).
-    #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None, revocation = None))]
+    /// `revocation` behave as in `verify_tct` (`fail_closed`), and so does
+    /// `pop`, which is checked on every call, cache hits included.
+    #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None, revocation = None, pop = None))]
+    #[allow(clippy::too_many_arguments)]
     fn verify_tct_cached(
         &self,
         tct_token: &str,
@@ -335,6 +349,7 @@ impl PyAitpAgent {
         expected_audience: Option<&str>,
         revoked_jtis: Option<HashSet<String>>,
         revocation: Option<&str>,
+        pop: Option<(String, String)>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct_cached(
             &self.key,
@@ -344,7 +359,28 @@ impl PyAitpAgent {
             expected_audience,
             revoked_jtis.as_ref(),
             revocation,
+            pop.as_ref().map(|(c, r)| (c.as_str(), r.as_str())),
         )
+    }
+
+    /// Consumer side of downstream PoP (RFC-AITP-0005 §6.1): a
+    /// `pop_challenge` payload (JSON: `tct_jti`, `nonce`, `expires_at`)
+    /// for the TCT a peer presented. The nonce is 128 CSPRNG bits; the
+    /// challenge expires `ttl_secs` from now. Keep it to verify the
+    /// response, and accept each challenge's response at most once
+    /// (RFC-AITP-0001 §5.5): the SDK does not track issued nonces.
+    #[pyo3(signature = (tct_token, ttl_secs = 60))]
+    fn new_pop_challenge(&self, tct_token: &str, ttl_secs: i64) -> PyResult<String> {
+        new_pop_challenge_py(tct_token, ttl_secs)
+    }
+
+    /// Holder side of downstream PoP (RFC-AITP-0005 §6.1): sign a received
+    /// challenge with this agent's key over `sha256` of the *decoded*
+    /// nonce bytes. Returns the `pop_response` payload JSON (`tct_jti`,
+    /// `nonce_echo`, `pop_signature`). A malformed or expired challenge
+    /// raises with `.code == "POP_CHALLENGE_INVALID"`.
+    fn sign_pop_response(&self, challenge_json: &str) -> PyResult<String> {
+        sign_pop_response_py(&self.key, challenge_json)
     }
 
     /// Build a single-hop delegation token (compact JWS) from a held grant

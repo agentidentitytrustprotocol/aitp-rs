@@ -153,8 +153,12 @@ def _tct_verification(ns):
     print(ident.peer_aid == bob.aid, ident.grants)   # True ['demo.echo']
 
     # Presented-TCT model — a resource server checking a TCT a peer presented
-    # (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-    ident = bob.verify_tct(tct_jws, "demo.echo", expected_audience=alice.aid, revoked_jtis=set())
+    # (e.g. in `X-AITP-TCT`). It challenges the presenter for proof of possession
+    # (RFC-AITP-0005 §6); verify_tct then checks the TCT and the PoP response
+    # together and pins the audience to the proven holder AID (the TCT's `sub`).
+    challenge = bob.new_pop_challenge(tct_jws)        # send to the presenter
+    response = alice.sign_pop_response(challenge)     # the presenter's reply
+    ident = bob.verify_tct(tct_jws, "demo.echo", revoked_jtis=set(), pop=(challenge, response))
 
     # Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (an empty
     # set when nothing is revoked). A revoked jti and a missing list both raise

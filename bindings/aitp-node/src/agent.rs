@@ -15,6 +15,7 @@ use crate::delegation::{
 };
 use crate::envelope::{sign_envelope_js, SignEnvelopeOpts};
 use crate::oidc::JwksProvider;
+use crate::pop::{new_pop_challenge_js, sign_pop_response_js, PopExchange};
 #[cfg(feature = "renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
 use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
@@ -315,9 +316,18 @@ impl AitpAgent {
     ///
     /// `expectedAudience` defaults to `null`, which means "verify as the
     /// holder" (RFC-AITP-0005 §9 receipt model — `this.aid` is used).
-    /// Resource servers verifying a TCT presented by a peer should pass
-    /// the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
-    /// equals `sub`).
+    /// Resource servers verifying a TCT presented by a peer pass
+    /// `pop: { challenge, response }` (the presented-TCT path): the
+    /// challenge from `newPopChallenge` and the presenter's
+    /// `signPopResponse` reply. The TCT and the PoP response are verified
+    /// together (RFC-AITP-0005 §6.2) and the audience is pinned to the
+    /// proven holder AID (`sub`). A PoP failure throws with `code ===
+    /// 'POP_CHALLENGE_INVALID'` or `'POP_RESPONSE_INVALID'`. `pop` and
+    /// `expectedAudience` are mutually exclusive. If you pass
+    /// `expectedAudience` instead, that AID MUST come from an authenticated
+    /// source, never from the token: a verified PoP response or an
+    /// equivalent channel binding. Passing the TCT's own `aud` back makes
+    /// the audience check vacuous.
     ///
     /// `revokedJtis` (F-1) is the issuer's deny list of revoked TCT `jti`
     /// strings; any TCT whose `jti` is in the list is rejected even if
@@ -330,6 +340,7 @@ impl AitpAgent {
     /// any RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated)
     /// matches. An entry that is not a UUID throws rather than being ignored.
     #[napi]
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_tct(
         &self,
         env: Env,
@@ -338,6 +349,7 @@ impl AitpAgent {
         expected_audience: Option<String>,
         revoked_jtis: Option<Vec<String>>,
         revocation: Option<String>,
+        pop: Option<PopExchange>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct(
             env,
@@ -347,6 +359,7 @@ impl AitpAgent {
             expected_audience.as_deref(),
             revoked_jtis,
             revocation,
+            pop.as_ref(),
         )
     }
 
@@ -355,8 +368,8 @@ impl AitpAgent {
     /// verification hot path for an agent that sees the same TCT on many
     /// requests). All cheap policy checks (expiry, audience, required grant,
     /// and the `fail_closed` revocation gate) still run on every call; only
-    /// the signature check is elided. `revokedJtis` and `revocation` behave
-    /// as in `verifyTct`.
+    /// the signature check is elided. `revokedJtis`, `revocation` and `pop`
+    /// behave as in `verifyTct`; `pop` is checked on every call.
     #[napi]
     #[allow(clippy::too_many_arguments)]
     pub fn verify_tct_cached(
@@ -368,6 +381,7 @@ impl AitpAgent {
         expected_audience: Option<String>,
         revoked_jtis: Option<Vec<String>>,
         revocation: Option<String>,
+        pop: Option<PopExchange>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct_cached(
             env,
@@ -378,7 +392,29 @@ impl AitpAgent {
             expected_audience.as_deref(),
             revoked_jtis,
             revocation,
+            pop.as_ref(),
         )
+    }
+
+    /// Consumer side of downstream proof of possession (RFC-AITP-0005 §6):
+    /// a `pop_challenge` payload JSON for the presented `tctToken`
+    /// (`tct_jti`, a CSPRNG 128-bit base64url `nonce`, `expires_at`
+    /// `ttlSecs` from now, default 60). Send it to the presenter, then pass
+    /// it with the reply as `pop` to `verifyTct`. Accept a response to each
+    /// challenge at most once: the SDK keeps no replay cache.
+    #[napi]
+    pub fn new_pop_challenge(&self, tct_token: String, ttl_secs: Option<i64>) -> Result<String> {
+        new_pop_challenge_js(&tct_token, ttl_secs.unwrap_or(60))
+    }
+
+    /// Holder side of downstream proof of possession (RFC-AITP-0005 §6.1):
+    /// sign a received `pop_challenge` payload with this agent's key over
+    /// `sha256` of the decoded nonce bytes, and return the `pop_response`
+    /// payload JSON. A malformed or expired challenge throws with `code ===
+    /// 'POP_CHALLENGE_INVALID'`.
+    #[napi]
+    pub fn sign_pop_response(&self, env: Env, challenge_json: String) -> Result<String> {
+        sign_pop_response_js(env, &self.key, &challenge_json)
     }
 
     /// Build a delegation compact-JWS token from a held **grant voucher**

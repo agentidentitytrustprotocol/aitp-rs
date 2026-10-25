@@ -19,6 +19,7 @@ mod manifest;
 mod oidc;
 #[cfg(feature = "spki-pinning")]
 mod pinning;
+mod pop;
 #[cfg(feature = "renewal")]
 mod renewal;
 mod revocation;
@@ -71,6 +72,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     )?)?;
     m.add_function(wrap_pyfunction!(manifest::verify_manifest_json_py, m)?)?;
     m.add_function(wrap_pyfunction!(envelope::verify_envelope_py, m)?)?;
+    m.add_function(wrap_pyfunction!(pop::verify_pop_response_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
     #[cfg(feature = "session-bundle")]
     {

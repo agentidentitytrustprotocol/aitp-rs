@@ -21,6 +21,9 @@ RevokedJtis = Union[set[str], frozenset[str]]
 # `revoked_jtis` every check fails with `.code` TCT_REVOKED (or
 # DELEGATION_SOURCE_TCT_REVOKED). "fail_open" skips revocation entirely.
 Revocation = Literal["fail_closed", "fail_open"]
+# `(challenge_json, response_json)`: a downstream PoP exchange
+# (RFC-AITP-0005 §6) for `AitpAgent.verify_tct(..., pop=...)`.
+PopExchange = tuple[str, str]
 
 REVOCATION_LIST_PATH: str
 """Conventional path of an agent's `ListRevoked` endpoint
@@ -191,8 +194,23 @@ class AitpAgent:
         expected_audience: Optional[str] = ...,
         revoked_jtis: Optional[RevokedJtis] = ...,
         revocation: Optional[Revocation] = ...,
+        pop: Optional[PopExchange] = ...,
     ) -> TctIdentity:
-        """Verify a TCT compact-JWS string. `revoked_jtis` is the issuer's
+        """Verify a TCT compact-JWS string. `expected_audience` defaults to
+        this agent's AID (holder-receipt model).
+
+        A resource server verifying a presented TCT passes
+        `pop=(challenge_json, response_json)`: the challenge from
+        `new_pop_challenge` and the holder's `sign_pop_response` reply. The
+        TCT and every RFC-AITP-0005 §6.2 step are verified together, and the
+        audience is pinned to the proven holder AID (`sub`). A PoP failure
+        raises `RuntimeError` with `.code` `POP_CHALLENGE_INVALID` or
+        `POP_RESPONSE_INVALID`. `pop` excludes `expected_audience`. Without
+        `pop`, a presented TCT's `expected_audience` MUST come from an
+        authenticated source (a verified PoP response or an equivalent channel
+        binding), never from the token's own `aud`.
+
+        `revoked_jtis` is the issuer's
         deny list of revoked TCT `jti` strings (RFC-AITP-0008): a TCT whose
         jti is in it is rejected after its signature checks pass. Revocation
         is fail_closed: without `revoked_jtis` every TCT is rejected. Both
@@ -209,10 +227,24 @@ class AitpAgent:
         expected_audience: Optional[str] = ...,
         revoked_jtis: Optional[RevokedJtis] = ...,
         revocation: Optional[Revocation] = ...,
+        pop: Optional[PopExchange] = ...,
     ) -> TctIdentity:
         """Like `verify_tct` but consults `store` first. Revocation
-        (`revoked_jtis`, fail_closed) is re-checked on every call, cache hits
-        included."""
+        (`revoked_jtis`, fail_closed) and `pop` are re-checked on every call,
+        cache hits included."""
+        ...
+    def new_pop_challenge(self, tct_token: str, ttl_secs: int = 60) -> str:
+        """Consumer side of downstream PoP (RFC-AITP-0005 §6.1): a
+        `pop_challenge` payload JSON (`tct_jti`, `nonce`, `expires_at`) for a
+        presented TCT. The nonce is 128 CSPRNG bits. Keep the challenge to
+        verify the response, and accept each challenge's response at most
+        once (RFC-AITP-0001 §5.5): the SDK keeps no nonce cache."""
+        ...
+    def sign_pop_response(self, challenge_json: str) -> str:
+        """Holder side of downstream PoP (RFC-AITP-0005 §6.1): sign a
+        received challenge over sha256 of the *decoded* nonce bytes. Returns
+        the `pop_response` payload JSON. A malformed or expired challenge
+        raises with `.code == "POP_CHALLENGE_INVALID"`."""
         ...
     def build_delegation(
         self,
@@ -464,6 +496,16 @@ def revocation_signing_bytes(envelope_json: str) -> bytes:
     HSM signing path, a debugging tool) obtains them instead of reconstructing
     the shape at the call site. Reconstructing it is exactly how signer,
     verifier and conformance fixture drifted apart before 0.5.0."""
+    ...
+
+def verify_pop_response(challenge_json: str, response_json: str, tct_token: str) -> str:
+    """Verify a downstream PoP response (RFC-AITP-0005 §6.2) and return the
+    proven holder AID (the TCT's `sub`). Checks the jti, the nonce echo, the
+    challenge expiry, the signature under the key `sub` encodes, and
+    `cnf.jkt`. A malformed or stale challenge raises `RuntimeError` with
+    `.code == "POP_CHALLENGE_INVALID"`; any other failure,
+    `.code == "POP_RESPONSE_INVALID"`. It does not verify the TCT itself:
+    use `AitpAgent.verify_tct(..., pop=...)` for that."""
     ...
 
 def compute_aid_jkt(aid: str) -> str:
