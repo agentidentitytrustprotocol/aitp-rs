@@ -142,16 +142,16 @@ def test_full_oidc_handshake():
     hello = sess.build_hello(b_manifest, ["demo.write"], oidc_mint_jwt=a_mint)
     hello_ack, sid = rsess.process_hello(hello, oidc_mint_jwt=b_mint)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, bob_completed = rsess.process_commit(commit)
-    alice_completed = sess.complete(commit_ack)
+    commit_ack, bob_completed = rsess.process_commit(commit, revoked_jtis=set())
+    alice_completed = sess.complete(commit_ack, revoked_jtis=set())
 
     # v0.2: completion is {"tct": <compact JWS>, "grant_voucher": ...}.
     alice_held = json.loads(alice_completed)["tct"]
     bob_held = json.loads(bob_completed)["tct"]
 
-    a_ident = alice.verify_tct(alice_held, "demo.write")
+    a_ident = alice.verify_tct(alice_held, "demo.write", revoked_jtis=set())
     assert a_ident.peer_aid == bob.aid
-    b_ident = bob.verify_tct(bob_held, "demo.echo")
+    b_ident = bob.verify_tct(bob_held, "demo.echo", revoked_jtis=set())
     assert b_ident.peer_aid == alice.aid
 
 

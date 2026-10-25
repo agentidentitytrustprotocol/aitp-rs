@@ -131,8 +131,12 @@ fn minted_delegation_verifies() {
         .build()
         .unwrap();
     let issuer_manifests = vec![b_manifest];
-    let ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, fixed_now())
-        .with_issuer_manifests(&issuer_manifests);
+    let ctx = aitp_delegation::VerifyDelegationContext::new(
+        &verifier_aid,
+        fixed_now(),
+        aitp_delegation::DelegationRevocation::FailOpen,
+    )
+    .with_issuer_manifests(&issuer_manifests);
     let verified =
         aitp_delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
     assert_eq!(

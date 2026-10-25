@@ -308,7 +308,7 @@ fn attestation_revocation_is_consulted() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    let revoked = |_: &Uuid| true;
+    let revoked = |_: &Uuid| Ok(true);
     let c = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation_check(&revoked)

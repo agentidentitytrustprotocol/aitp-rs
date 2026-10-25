@@ -18,10 +18,10 @@ function handshakeToCoordinator(participant, coordinator, coordManifest) {
   const hello = sess.buildHello(coordManifest, ['session.member']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
   // `complete()` yields { tct, claims, ... }; the bundle takes the
   // opaque TCT token string.
-  return sess.complete(commitAck).tct;
+  return sess.complete(commitAck, []).tct;
 }
 
 function setup() {

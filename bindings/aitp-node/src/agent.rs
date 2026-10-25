@@ -305,28 +305,34 @@ impl AitpAgent {
     /// the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
     /// equals `sub`).
     ///
-    /// `revokedJtis` (F-1) is an optional list of revoked TCT `jti`
+    /// `revokedJtis` (F-1) is the issuer's deny list of revoked TCT `jti`
     /// strings; any TCT whose `jti` is in the list is rejected even if
-    /// otherwise valid. Omit (or pass `null`) to disable the revocation
-    /// gate. The caller is responsible for sourcing the revoked set (e.g.
-    /// from a `RevocationList` it fetched and verified). Entries are lookup
-    /// keys and are normalized: any RFC 9562 text form (uppercase, braced,
-    /// `urn:uuid:`, unhyphenated) matches. An entry that is not a UUID
-    /// throws rather than being ignored.
+    /// otherwise valid. Revocation is `fail_closed`: **without `revokedJtis`
+    /// every TCT is rejected** with `code === 'TCT_REVOKED'` and a "revocation
+    /// source unavailable" message. Pass `[]` when nothing is revoked, or
+    /// `'fail_open'` as `revocation` to skip the check. The caller is
+    /// responsible for sourcing the revoked set (e.g. from a `RevocationList`
+    /// it fetched and verified). Entries are lookup keys and are normalized:
+    /// any RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated)
+    /// matches. An entry that is not a UUID throws rather than being ignored.
     #[napi]
     pub fn verify_tct(
         &self,
+        env: Env,
         tct_token: String,
         required_grant: String,
         expected_audience: Option<String>,
         revoked_jtis: Option<Vec<String>>,
+        revocation: Option<String>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct(
+            env,
             &self.key,
             &tct_token,
             &required_grant,
             expected_audience.as_deref(),
             revoked_jtis,
+            revocation,
         )
     }
 
@@ -334,25 +340,30 @@ impl AitpAgent {
     /// already-verified, still-valid TCT skips the signature check (the
     /// verification hot path for an agent that sees the same TCT on many
     /// requests). All cheap policy checks (expiry, audience, required grant,
-    /// and the optional `revokedJtis` gate) still run on every call; only the
-    /// signature check is elided. `revokedJtis` is normalized as in
-    /// `verifyTct`.
+    /// and the `fail_closed` revocation gate) still run on every call; only
+    /// the signature check is elided. `revokedJtis` and `revocation` behave
+    /// as in `verifyTct`.
     #[napi]
+    #[allow(clippy::too_many_arguments)]
     pub fn verify_tct_cached(
         &self,
+        env: Env,
         tct_token: String,
         required_grant: String,
         store: &JsTctStore,
         expected_audience: Option<String>,
         revoked_jtis: Option<Vec<String>>,
+        revocation: Option<String>,
     ) -> Result<JsTctIdentity> {
         js_verify_tct_cached(
+            env,
             &self.key,
             &tct_token,
             &required_grant,
             store,
             expected_audience.as_deref(),
             revoked_jtis,
+            revocation,
         )
     }
 

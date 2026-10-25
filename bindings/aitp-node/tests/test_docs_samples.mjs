@@ -127,8 +127,8 @@ function mutualHandshake() {
   const hello = s.buildHello(bobManifest, ['demo.echo']);
   const { ackJson, sessionId } = r.processHello(hello);
   const commit = s.processHelloAck(ackJson, sessionId);
-  const { ackJson: cack, completed: bobSide } = r.processCommit(commit);  // bobSide: what alice issued to bob
-  const held = s.complete(cack);
+  const { ackJson: cack, completed: bobSide } = r.processCommit(commit, []);  // bobSide: what alice issued to bob
+  const held = s.complete(cack, []);
   const tctJws     = held.tct;           // compact JWS issued by bob — store / present this
   const claims     = held.claims;        // decoded { iss, sub, aud, grants, iat, exp, jti }
   const voucherJws = held.grantVoucher;  // compact JWS, or undefined if bob disallowed delegation
@@ -139,20 +139,29 @@ function tctVerification(ns) {
   // docs/sdk-node.md § TCT verification (RFC-AITP-0005 §7.2)
   const { alice, bob, tctJws } = ns;
   // Holder-receipt model — the verifier's AID is the agent's own AID (default).
-  const ident = alice.verifyTct(tctJws, 'demo.echo');
+  const ident = alice.verifyTct(tctJws, 'demo.echo', undefined, []);
   console.log(ident.peerAid === bob.aid, ident.grants);   // true [ 'demo.echo' ]
 
   // Presented-TCT model — a resource server checking a TCT a peer presented
   // (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-  const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid);
+  const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid, []);
 
-  // Revocation gate: pass the revoked TCT `jti`s. Verifiers SHOULD supply it —
-  // omitting it accepts a revoked-but-unexpired TCT.
+  // Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (`[]` when
+  // nothing is revoked). A revoked jti and a missing list both throw with
+  // `code === 'TCT_REVOKED'`.
   try {
     alice.verifyTct(tctJws, 'demo.echo', null, [ident.jti]);
   } catch (err) {
-    console.log(err.message);   // TCT verification failed: TCT jti is revoked
+    console.log(err.code, err.message);   // TCT_REVOKED TCT verification failed: TCT jti is revoked
   }
+  try {
+    alice.verifyTct(tctJws, 'demo.echo');   // no list: status unavailable
+  } catch (err) {
+    console.log(err.code);   // TCT_REVOKED
+  }
+
+  // Explicit opt-out, for a deployment with no revocation source at all.
+  alice.verifyTct(tctJws, 'demo.echo', null, undefined, 'fail_open');
   return { ...ns, ident, presented };
 }
 
@@ -160,8 +169,8 @@ function cachedVerification(ns) {
   // docs/sdk-node.md § TCT verification › Cached verification (`TctStore`)
   const { alice, tctJws } = ns;
   const store = new TctStore(1024);
-  alice.verifyTctCached(tctJws, 'demo.echo', store);
-  alice.verifyTctCached(tctJws, 'demo.echo', store);   // signature check skipped
+  alice.verifyTctCached(tctJws, 'demo.echo', store, undefined, []);
+  alice.verifyTctCached(tctJws, 'demo.echo', store, undefined, []);   // signature check skipped
   console.log(store.len());   // 1
   return { ...ns, store };
 }
@@ -183,7 +192,7 @@ function delegation(ns) {
   const revoked = [];   // bob's deny list, e.g. jtis from verified revocation snapshots
   const verified = verifyDelegation(delegationJws, bob.aid, [aliceManifest], revoked);
   const { tct: carolTct, grantVoucher: carolVoucher } = bob.issueTctForDelegatee(verified);
-  console.log(carol.verifyTct(carolTct, 'demo.echo').peerAid === bob.aid);   // true
+  console.log(carol.verifyTct(carolTct, 'demo.echo', undefined, []).peerAid === bob.aid);   // true
   return { ...ns, carol, aliceManifest, delegationJws, revoked, verified, carolTct, carolVoucher };
 }
 
@@ -369,13 +378,13 @@ function readmeUsage() {
   const hello                   = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit                  = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck }   = rsess.processCommit(commit);
-  const completed                = sess.complete(commitAck);
+  const { ackJson: commitAck }   = rsess.processCommit(commit, []);
+  const completed                = sess.complete(commitAck, []);
   // completed = { tct, claims, grantVoucher? }
   // `tct` is an opaque compact-JWS string; `claims` is the decoded TCT.
 
   // Each peer now holds a TCT the other issued it.
-  const ident = initiator.verifyTct(completed.tct, 'demo.write');
+  const ident = initiator.verifyTct(completed.tct, 'demo.write', undefined, []);
   console.log(ident.peerAid, ident.grants);
 
   // `completed.grantVoucher` (when present) is what you pass to
@@ -401,10 +410,15 @@ test('docs: mutual handshake', () => {
 test('docs: TCT verification', () => {
   const [ns, logs] = captureLogs(() => tctVerification(mutualHandshake()));
   assert.equal(logs[0], 'true ["demo.echo"]');
-  assert.match(logs[1], /^TCT verification failed/);
-  // Documented: TCT failures carry napi's generic code, not an AITP one.
+  assert.equal(logs[1], 'TCT_REVOKED TCT verification failed: TCT jti is revoked');
+  assert.equal(logs[2], 'TCT_REVOKED');
+  // Documented: revocation failures carry `TCT_REVOKED`; others stay generic.
   assert.throws(
-    () => ns.alice.verifyTct(ns.tctJws, 'demo.echo', null, [ns.ident.jti]),
+    () => ns.alice.verifyTct(ns.tctJws, 'demo.echo'),
+    (e) => e.code === 'TCT_REVOKED' && /revocation source unavailable/.test(e.message),
+  );
+  assert.throws(
+    () => ns.alice.verifyTct(ns.tctJws, 'demo.not-granted', null, []),
     (e) => e instanceof Error && e.code === 'GenericFailure',
   );
   assert.equal(ns.presented.peerAid, ns.bob.aid);
@@ -447,8 +461,8 @@ test('docs: envelope signatures', () => {
 test('docs: OIDC identity', () => {
   const ns = oidcIdentity(mutualHandshake());
   const commit = ns.sess.processHelloAck(ns.oidcAck.ackJson, ns.oidcAck.sessionId);
-  const { ackJson } = ns.responder.processCommit(commit);
-  assert.equal(ns.sess.complete(ackJson).tct.split('.').length, 3);
+  const { ackJson } = ns.responder.processCommit(commit, []);
+  assert.equal(ns.sess.complete(ackJson, []).tct.split('.').length, 3);
 });
 
 test('docs: P-256 signing suite', () => {
@@ -461,8 +475,8 @@ test('docs: P-256 signing suite', () => {
   assert.equal(hint.type, 'pinned_key');
   assert.equal(hint.public_key.length, 44);
   const commit = ns.pSess.processHelloAck(ns.pAck.ackJson, ns.pAck.sessionId);
-  const { ackJson } = ns.pResp.processCommit(commit);
-  assert.equal(ns.pSess.complete(ackJson).tct.split('.').length, 3);
+  const { ackJson } = ns.pResp.processCommit(commit, []);
+  assert.equal(ns.pSess.complete(ackJson, []).tct.split('.').length, 3);
 });
 
 test('docs: TCT renewal', { skip: !HAS_RENEWAL }, () => {

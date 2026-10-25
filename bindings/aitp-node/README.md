@@ -93,13 +93,13 @@ const rsess = responder.newResponder(null, { pinnedKeys: [initiator.aid] });
 const hello                   = sess.buildHello(respManifest, ['demo.write']);
 const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
 const commit                  = sess.processHelloAck(helloAck, sessionId);
-const { ackJson: commitAck }   = rsess.processCommit(commit);
-const completed                = sess.complete(commitAck);
+const { ackJson: commitAck }   = rsess.processCommit(commit, []);
+const completed                = sess.complete(commitAck, []);
 // completed = { tct, claims, grantVoucher? }
 // `tct` is an opaque compact-JWS string; `claims` is the decoded TCT.
 
 // Each peer now holds a TCT the other issued it.
-const ident = initiator.verifyTct(completed.tct, 'demo.write');
+const ident = initiator.verifyTct(completed.tct, 'demo.write', undefined, []);
 console.log(ident.peerAid, ident.grants);
 
 // `completed.grantVoucher` (when present) is what you pass to

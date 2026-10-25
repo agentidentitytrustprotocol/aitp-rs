@@ -106,12 +106,12 @@ test('full OIDC handshake yields mutual TCTs', () => {
   const hello = sess.buildHello(bManifest, ['demo.write'], aMint);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello, bMint);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck, completed: bobHeld } = rsess.processCommit(commit);
-  const aliceHeld = sess.complete(commitAck);
+  const { ackJson: commitAck, completed: bobHeld } = rsess.processCommit(commit, []);
+  const aliceHeld = sess.complete(commitAck, []);
 
-  const aIdent = alice.verifyTct(aliceHeld.tct, 'demo.write');
+  const aIdent = alice.verifyTct(aliceHeld.tct, 'demo.write', undefined, []);
   assert.equal(aIdent.peerAid, bob.aid);
-  const bIdent = bob.verifyTct(bobHeld.tct, 'demo.echo');
+  const bIdent = bob.verifyTct(bobHeld.tct, 'demo.echo', undefined, []);
   assert.equal(bIdent.peerAid, alice.aid);
 });
 

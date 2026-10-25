@@ -138,8 +138,8 @@ def _mutual_handshake():
     hello = s.build_hello(bob_manifest, ["demo.echo"])
     ack, sid = r.process_hello(hello)
     commit   = s.process_hello_ack(ack, sid)
-    cack, bob_side_json = r.process_commit(commit)  # bob_side_json: what alice issued to bob
-    held = json.loads(s.complete(cack))             # complete() returns a JSON string
+    cack, bob_side_json = r.process_commit(commit, revoked_jtis=set())  # bob_side_json: what alice issued to bob
+    held = json.loads(s.complete(cack, revoked_jtis=set()))             # complete() returns a JSON string
     tct_jws     = held["tct"]            # compact JWS issued by bob — store / present this
     voucher_jws = held["grant_voucher"]  # compact JWS, or None if bob disallowed delegation
     return _ns(locals())
@@ -149,19 +149,31 @@ def _tct_verification(ns):
     # docs/sdk-python.md § TCT verification (RFC-AITP-0005 §7.2)
     alice, bob, tct_jws = ns.alice, ns.bob, ns.tct_jws
     # Holder-receipt model — the verifier's AID is the agent's own AID (default).
-    ident = alice.verify_tct(tct_jws, "demo.echo")
+    ident = alice.verify_tct(tct_jws, "demo.echo", revoked_jtis=set())
     print(ident.peer_aid == bob.aid, ident.grants)   # True ['demo.echo']
 
     # Presented-TCT model — a resource server checking a TCT a peer presented
     # (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-    ident = bob.verify_tct(tct_jws, "demo.echo", expected_audience=alice.aid)
+    ident = bob.verify_tct(tct_jws, "demo.echo", expected_audience=alice.aid, revoked_jtis=set())
 
-    # Revocation gate: pass the set of revoked TCT `jti`s. Verifiers SHOULD supply
-    # it — omitting it accepts a revoked-but-unexpired TCT.
+    # Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (an empty
+    # set when nothing is revoked). A revoked jti and a missing list both raise
+    # with `.code == "TCT_REVOKED"`.
     try:
         alice.verify_tct(tct_jws, "demo.echo", revoked_jtis={ident.jti})
     except RuntimeError as err:
-        print(err)   # TCT verification failed: TCT jti is revoked
+        print(err.code, err)   # TCT_REVOKED TCT verification failed: TCT jti is revoked
+    try:
+        alice.verify_tct(tct_jws, "demo.echo")   # no list: status unavailable
+    except RuntimeError as err:
+        print(err.code)   # TCT_REVOKED
+
+    # Explicit opt-out, for a deployment with no revocation source at all.
+    alice.verify_tct(tct_jws, "demo.echo", revocation="fail_open")
+    # (end of doc block) Capture the no-list failure for the assertions.
+    try:
+        alice.verify_tct(tct_jws, "demo.echo")
+    except RuntimeError as err:
         caught = err
     return _ns(ns, locals())
 
@@ -170,8 +182,8 @@ def _cached_verification(ns):
     # docs/sdk-python.md § TCT verification › Cached verification (`TctStore`)
     alice, tct_jws = ns.alice, ns.tct_jws
     store = aitp.TctStore(max_entries=1024)
-    ident = alice.verify_tct_cached(tct_jws, "demo.echo", store)
-    ident = alice.verify_tct_cached(tct_jws, "demo.echo", store)  # signature check skipped
+    ident = alice.verify_tct_cached(tct_jws, "demo.echo", store, revoked_jtis=set())
+    ident = alice.verify_tct_cached(tct_jws, "demo.echo", store, revoked_jtis=set())  # signature check skipped
     print(store.len())   # 1
     return _ns(ns, locals())
 
@@ -196,7 +208,7 @@ def _delegation(ns):
     )
     issued = json.loads(bob.issue_tct_for_delegatee(verified))  # JSON string
     carol_tct = issued["tct"]
-    print(carol.verify_tct(carol_tct, "demo.echo").peer_aid == bob.aid)   # True
+    print(carol.verify_tct(carol_tct, "demo.echo", revoked_jtis=set()).peer_aid == bob.aid)   # True
     return _ns(ns, locals())
 
 
@@ -397,11 +409,11 @@ def _readme_usage():
     hello                 = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
     commit                = sess.process_hello_ack(hello_ack, session_id)
-    commit_ack, responder_held = rsess.process_commit(commit)  # JSON: TCT the initiator issued the responder
-    held = json.loads(sess.complete(commit_ack))  # JSON string: {"tct": ..., "grant_voucher": ...}
+    commit_ack, responder_held = rsess.process_commit(commit, revoked_jtis=set())  # JSON: TCT the initiator issued the responder
+    held = json.loads(sess.complete(commit_ack, revoked_jtis=set()))  # JSON string: {"tct": ..., "grant_voucher": ...}
 
     # Each peer now holds a TCT the other issued it.
-    ident = initiator.verify_tct(held["tct"], "demo.write")
+    ident = initiator.verify_tct(held["tct"], "demo.write", revoked_jtis=set())
     print(ident.peer_aid, ident.grants)
     return _ns(locals())
 
@@ -425,8 +437,9 @@ def test_tct_verification(capsys):
     ns = _tct_verification(_mutual_handshake())
     out = capsys.readouterr().out
     assert "True ['demo.echo']" in out
-    assert "TCT verification failed" in out
-    assert not hasattr(ns.caught, "code")  # documented: no `.code` on TCT failures
+    assert "TCT_REVOKED TCT verification failed: TCT jti is revoked" in out
+    assert ns.caught.code == "TCT_REVOKED"  # documented: revocation failures carry `.code`
+    assert "revocation source unavailable" in str(ns.caught)
     assert ns.ident.peer_aid == ns.bob.aid
 
 
@@ -471,8 +484,8 @@ def test_envelope_signatures(capsys):
 def test_oidc_identity():
     ns = _oidc_identity(_mutual_handshake())
     commit = ns.sess.process_hello_ack(ns.oidc_ack, ns.oidc_sid)
-    commit_ack, _ = ns.responder.process_commit(commit)
-    assert json.loads(ns.sess.complete(commit_ack))["tct"].count(".") == 2
+    commit_ack, _ = ns.responder.process_commit(commit, revoked_jtis=set())
+    assert json.loads(ns.sess.complete(commit_ack, revoked_jtis=set()))["tct"].count(".") == 2
 
 
 def test_p256_suite():
@@ -484,8 +497,8 @@ def test_p256_suite():
     hint = json.loads(ns.erin_manifest)["manifest"]["identity_hint"]
     assert hint["type"] == "pinned_key" and len(hint["public_key"]) == 44
     commit = ns.p_sess.process_hello_ack(ns.p_ack, ns.p_sid)
-    commit_ack, _ = ns.p_resp.process_commit(commit)
-    assert json.loads(ns.p_sess.complete(commit_ack))["tct"].count(".") == 2
+    commit_ack, _ = ns.p_resp.process_commit(commit, revoked_jtis=set())
+    assert json.loads(ns.p_sess.complete(commit_ack, revoked_jtis=set()))["tct"].count(".") == 2
 
 
 @pytest.mark.skipif(not HAS_RENEWAL, reason="binding built without the renewal feature")

@@ -45,6 +45,9 @@ pub mod renew_uri;
 #[cfg(any(feature = "client", feature = "server"))]
 pub mod revocation;
 
+#[cfg(feature = "client")]
+pub mod revocation_fetch;
+
 #[cfg(feature = "server")]
 pub mod server;
 
@@ -113,4 +116,10 @@ pub use revocation::{
     apply_safe_subset, revocation_list_uri_from_manifest, RevocationCache, RevocationError,
     RevocationFailMode, RevocationOutcome, RevocationPolicy, RevocationProvider,
     REVOCATION_LIST_URI_EXT,
+};
+
+#[cfg(feature = "client")]
+pub use revocation_fetch::{
+    PreparedRevocation, RevocationFetcher, DEFAULT_MAX_REVOCATION_LIST_BYTES,
+    DEFAULT_REVOCATION_FETCH_TIMEOUT,
 };

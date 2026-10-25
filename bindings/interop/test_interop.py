@@ -142,15 +142,15 @@ class PyEndpoint:
     def process_commit(self, responder, commit):
         # v0.2: returns (commit_ack, completion_json) where completion_json is
         # `{"tct": "<compact JWS>", "grant_voucher": <string|null>}`.
-        commit_ack, completion = responder.process_commit(commit)
+        commit_ack, completion = responder.process_commit(commit, revoked_jtis=set())
         return commit_ack, json.loads(completion)
 
     def complete(self, session, commit_ack):
         # v0.2: returns the same `{"tct", "grant_voucher"}` JSON string.
-        return json.loads(session.complete(commit_ack))
+        return json.loads(session.complete(commit_ack, revoked_jtis=set()))
 
     def verify_tct(self, agent, tct, grant):
-        ident = agent.verify_tct(tct, grant)
+        ident = agent.verify_tct(tct, grant, revoked_jtis=set())
         return {
             "peer_aid": ident.peer_aid,
             "grants": list(ident.grants),
@@ -159,7 +159,7 @@ class PyEndpoint:
 
     def verify_tct_expect_error(self, agent, tct, grant):
         with pytest.raises(Exception):
-            agent.verify_tct(tct, grant)
+            agent.verify_tct(tct, grant, revoked_jtis=set())
 
 
 class NodeEndpoint:
@@ -403,7 +403,7 @@ def test_node_presented_tct_verifies_via_python_audience(node):
     # to Python's own AID. Verify via the presented-mode audience.
     hs = _handshake(initiator=nd, responder=py)
     ident = hs["resp_agent"].verify_tct(
-        hs["responder_held_tct"], PING_CAP, hs["resp_aid"]
+        hs["responder_held_tct"], PING_CAP, hs["resp_aid"], revoked_jtis=set()
     )
     assert ident.peer_aid == hs["init_aid"]
 
@@ -468,7 +468,7 @@ def test_delegation_python_issuer_node_chain(node):
     # A (Python) verifies under the key B's Manifest designates
     # (RFC-AITP-0006 §4 step 1) → mints fresh TCT for C.
     # issue_tct_for_delegatee returns a `{"tct", "grant_voucher"}` JSON string.
-    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest])
+    verified = aitp.verify_delegation(delegation_token, a.aid, [b_manifest], revoked_jtis=set())
     fresh_tct_for_c = json.loads(a.issue_tct_for_delegatee(verified))["tct"]
 
     # C (Node) verifies the fresh TCT under presented-TCT mode.
@@ -714,10 +714,10 @@ def test_oidc_python_initiator_node_responder(node):
     commit = py_sess.process_hello_ack(ack_result["hello_ack"], ack_result["session_id"])
     commit_result = node.call("process_commit", responder=node_resp_handle, commit=commit)
     # v0.2: complete() returns a `{"tct", "grant_voucher"}` JSON string.
-    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"]))["tct"]
+    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"], revoked_jtis=set()))["tct"]
 
     # Each side holds the other's TCT.
-    py_ident = py_agent.verify_tct(py_held_tct, PING_CAP)
+    py_ident = py_agent.verify_tct(py_held_tct, PING_CAP, revoked_jtis=set())
     assert py_ident.peer_aid == node_resp_aid
     nd_ident = node.call(
         "verify_tct",
@@ -981,10 +981,10 @@ def test_p256_handshake_via_oidc_python_to_node(node):
     commit = py_sess.process_hello_ack(ack_result["hello_ack"], ack_result["session_id"])
     commit_result = node.call("process_commit", responder=node_resp, commit=commit)
     # v0.2: complete() returns a `{"tct", "grant_voucher"}` JSON string.
-    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"]))["tct"]
+    py_held_tct = json.loads(py_sess.complete(commit_result["commit_ack"], revoked_jtis=set()))["tct"]
 
     # Each side holds the other's TCT under the cross-suite combination.
-    py_ident = py_agent.verify_tct(py_held_tct, PING_CAP)
+    py_ident = py_agent.verify_tct(py_held_tct, PING_CAP, revoked_jtis=set())
     assert py_ident.peer_aid == node_resp_aid
     nd_ident = node.call(
         "verify_tct",

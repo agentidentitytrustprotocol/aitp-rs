@@ -5,7 +5,8 @@
 use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey, CryptoError};
 use aitp_delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationRevocation,
+    VerifyDelegationContext,
 };
 use aitp_manifest::{Manifest, ManifestError};
 use aitp_tct::TctBuilder;
@@ -316,14 +317,34 @@ fn revoked_source_tct_rejected() {
     let voucher_claims: aitp_tct::GrantVoucherClaims = serde_json::from_slice(&payload).unwrap();
     let src = voucher_claims.src_jti;
     let token = delegate_to_c(&voucher);
-    let revoked = move |jti: &Uuid| *jti == src;
+    let revoked = move |jti: &Uuid| Ok(*jti == src);
     let a_key = a();
     let mut ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
-    ctx.revocation_check = Some(&revoked);
+    ctx.revocation = DelegationRevocation::Check(&revoked);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::SourceTctRevoked
     ));
+}
+
+/// RS1.2: a source that cannot determine status fails closed with a
+/// reason distinct from an actually revoked source TCT.
+#[test]
+fn unavailable_revocation_source_fails_closed() {
+    let token = delegate_to_c(&voucher_for_b());
+    let unavailable = |_: &Uuid| Err(DelegationError::RevocationUnavailable("no snapshot".into()));
+    let a_key = a();
+    let mut ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
+    ctx.revocation = DelegationRevocation::Check(&unavailable);
+    let err = verify_delegation(&token, &ctx).unwrap_err();
+    assert!(
+        matches!(&err, DelegationError::RevocationUnavailable(r) if r == "no snapshot"),
+        "got {err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "revocation source unavailable: no snapshot"
+    );
 }
 
 #[test]
@@ -436,7 +457,11 @@ fn no_manifest_source_rejected() {
     // MUST NOT verify the token.
     let token = delegate_to_c(&voucher_for_b());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    );
     let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
 }
@@ -462,8 +487,12 @@ fn key_not_designated_by_issuer_manifest_rejected() {
     let resolver: HashMap<Aid, Manifest> =
         HashMap::from([(b().aid().clone(), common::manifest_for(&rotated_b, NOW))]);
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_issuer_manifests(&resolver);
+    let ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_issuer_manifests(&resolver);
     let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
     assert!(matches!(cause, ManifestError::AidMismatch), "got {cause:?}");
 }

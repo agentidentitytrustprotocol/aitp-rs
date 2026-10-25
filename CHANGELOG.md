@@ -12,12 +12,65 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **`aitp_handshake::PeerConfig` is `#[non_exhaustive]`** (RS1.1). A
   struct literal no longer compiles outside `aitp-handshake`. Build it
   with `PeerConfig::new(signing_key, manifest, jwks_resolver,
-  pinned_key_store, now)` and set the optional parts with
-  `.with_trust_anchors(..)`, `.with_grant_policy(..)` and
-  `.with_revocation_check(..)`. The fields stay public, so they can still
+  pinned_key_store, revocation, now)` and set the optional parts with
+  `.with_trust_anchors(..)` and `.with_grant_policy(..)` (the
+  `revocation` argument is RS1.2, below). The fields stay public, so they can still
   be read and assigned, and the struct is now `Clone + Copy`, which
   replaces `..base` struct-update syntax. `aitp::facade::InitiatorConfig`
   was already `#[non_exhaustive]`. Doctests now pin both behaviours.
+- **Revocation is `fail_closed` by default** (RS1.2, #290,
+  RFC-AITP-0008 §3.1). A verifier that cannot determine a TCT's
+  revocation status treats it as revoked. The wire code is `TCT_REVOKED`
+  for a TCT and `DELEGATION_SOURCE_TCT_REVOKED` for a delegation, and
+  the message says "revocation source unavailable" so the case stays
+  distinguishable from a listed `jti`. `fail_open` is an explicit
+  opt-out everywhere:
+  - **`aitp-tct`.** `RevocationCheckFn` returns `Result<bool, TctError>`;
+    a hook that cannot answer returns the new
+    `TctError::RevocationUnavailable` (code `TCT_REVOKED`).
+    `TctVerifyContext::now` and `TctVerifyContext::permissive_at` are
+    removed: use `TctVerifyContext::builder(..)`, which requires
+    `.revocation_check(..)` or `.accept_unchecked_revocation_dangerous()`.
+  - **`aitp-handshake`.** `PeerConfig::new` takes a `RevocationSource`
+    (`Check(&hook)` or `FailOpen`) before `now`, and
+    `PeerConfig::with_revocation_check` is removed. `FailOpen` logs a
+    warning once per process. `Initiator` and `Responder` gain
+    `peer_aid()` and `peer_revocation_list_uri()` so a caller can fetch
+    the peer's list before verifying its TCT.
+  - **`aitp-delegation`.** `VerifyDelegationContext::new(verifier, now,
+    revocation)` takes a `DelegationRevocation` (`Check(&hook)` or
+    `FailOpen`), replacing `with_revocation_check`. The source hook
+    (`SourceRevocationCheck`) and `HopRevocationCheck` return
+    `Result<bool, DelegationError>`; the new
+    `DelegationError::RevocationUnavailable` maps to
+    `DELEGATION_SOURCE_TCT_REVOKED`. A multi-hop chain verified without a
+    hop hook is rejected with `RevocationUnavailable` unless the context
+    is `FailOpen`.
+  - **`aitp-transport-http` / `aitp` facade.** `HandshakeServer` (at
+    COMMIT) and `run_initiator_handshake` fetch the peer's advertised
+    `ListRevoked` snapshot through the new `RevocationFetcher` and
+    default to `RevocationFailMode::FailClosed`. Configure with
+    `HandshakeServer::with_revocation_policy` /
+    `with_revocation_fetcher` and `InitiatorConfig::with_revocation_policy`.
+    The `server` feature now enables `client`.
+  - **Bindings (Python and Node).** `verify_tct` / `verifyTct`,
+    `verify_tct_cached` / `verifyTctCached`, `verify_delegation` /
+    `verifyDelegation`, `verify_delegation_multihop` /
+    `verifyDelegationMultihop`, and the session `complete` and
+    `process_commit` / `processCommit` take `revoked_jtis` /
+    `revokedJtis` and a `revocation` argument (`"fail_closed"`, the
+    default, or `"fail_open"`; any other value throws). Without a list
+    every call fails closed. A supplied list is always authoritative,
+    even under `fail_open`, and `[]` means "nothing revoked": in Node an
+    empty array no longer waives the check. Revocation failures carry
+    `.code` / `code` `TCT_REVOKED` or `DELEGATION_SOURCE_TCT_REVOKED`.
+  - **Downstream.** A peer that completes a handshake with a 0.20
+    `HandshakeServer` or facade initiator must advertise a reachable
+    `rfc-aitp-0008.revocation_list_uri` in its Manifest
+    (`ManifestBuilder::revocation_list_uri(origin.join(REVOCATION_LIST_PATH)?)`;
+    the server already serves the route), or the verifier must opt into
+    `fail_open`. A pure client that serves no list is refused by a
+    default server.
 - **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
   specifies either, and both were documented as unsupported (#151).
   `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`

@@ -64,26 +64,28 @@ export declare class AitpAgent {
    * the TCT's own `aud` claim as `expectedAudience` (in v0.2 this
    * equals `sub`).
    *
-   * `revokedJtis` (F-1) is an optional list of revoked TCT `jti`
+   * `revokedJtis` (F-1) is the issuer's deny list of revoked TCT `jti`
    * strings; any TCT whose `jti` is in the list is rejected even if
-   * otherwise valid. Omit (or pass `null`) to disable the revocation
-   * gate. The caller is responsible for sourcing the revoked set (e.g.
-   * from a `RevocationList` it fetched and verified). Entries are lookup
-   * keys and are normalized: any RFC 9562 text form (uppercase, braced,
-   * `urn:uuid:`, unhyphenated) matches. An entry that is not a UUID
-   * throws rather than being ignored.
+   * otherwise valid. Revocation is `fail_closed`: **without `revokedJtis`
+   * every TCT is rejected** with `code === 'TCT_REVOKED'` and a "revocation
+   * source unavailable" message. Pass `[]` when nothing is revoked, or
+   * `'fail_open'` as `revocation` to skip the check. The caller is
+   * responsible for sourcing the revoked set (e.g. from a `RevocationList`
+   * it fetched and verified). Entries are lookup keys and are normalized:
+   * any RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated)
+   * matches. An entry that is not a UUID throws rather than being ignored.
    */
-  verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
+  verifyTct(tctToken: string, requiredGrant: string, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsTctIdentity
   /**
    * Like `verifyTct`, but consults a `TctStore` first: a byte-identical,
    * already-verified, still-valid TCT skips the signature check (the
    * verification hot path for an agent that sees the same TCT on many
    * requests). All cheap policy checks (expiry, audience, required grant,
-   * and the optional `revokedJtis` gate) still run on every call; only the
-   * signature check is elided. `revokedJtis` is normalized as in
-   * `verifyTct`.
+   * and the `fail_closed` revocation gate) still run on every call; only
+   * the signature check is elided. `revokedJtis` and `revocation` behave
+   * as in `verifyTct`.
    */
-  verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null): JsTctIdentity
+  verifyTctCached(tctToken: string, requiredGrant: string, store: JsTctStore, expectedAudience?: string | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsTctIdentity
   /**
    * Build a delegation compact-JWS token from a held **grant voucher**
    * (RFC-AITP-0006). `voucherToken` is the `grantVoucher` surfaced by
@@ -157,8 +159,13 @@ export declare class JsInitiatorSession {
    * Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the completed
    * handshake: the TCT the peer issued to us (opaque compact-JWS
    * token plus its decoded claims) and the optional grant voucher.
+   *
+   * The peer's TCT is checked against `revokedJtis`, the peer's deny
+   * list. Revocation is `fail_closed`: with no list the handshake fails
+   * with `code === 'TCT_REVOKED'`. Pass `[]` when nothing is revoked, or
+   * `'fail_open'` as `revocation` to skip the check.
    */
-  complete(commitAckJson: string): JsCompletedHandshake
+  complete(commitAckJson: string, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsCompletedHandshake
 }
 
 /** Inbound handshake session — drives the responder side. */
@@ -169,8 +176,11 @@ export declare class JsResponderSession {
    * `oidcMintJwt`: required for OIDC agents (see `JsInitiatorSession.buildHello`).
    */
   processHello(helloJson: string, oidcMintJwt?: ((arg: string) => string) | undefined | null): JsHelloAckResult
-  /** Process an incoming `MUTUAL_COMMIT` envelope. */
-  processCommit(commitJson: string): JsCommitAckResult
+  /**
+   * Process an incoming `MUTUAL_COMMIT` envelope. `revokedJtis` and
+   * `revocation` are as in `JsInitiatorSession.complete` (`fail_closed`).
+   */
+  processCommit(commitJson: string, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsCommitAckResult
 }
 
 /**
@@ -556,17 +566,18 @@ export interface SignEnvelopeOpts {
  * §5) before use; when several designate one AID the newest
  * `published_at` wins.
  *
- * `revokedJtis` is an optional list of revoked `jti` strings — the
- * verifier's own deny list. When non-empty, a token whose
- * `voucher.src_jti` is in it is rejected after every signature check passes
- * (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3). **Verifiers
- * SHOULD supply it.** Omitting it silently redeems a delegation whose
- * source TCT has been revoked, which step 7 states as a MUST-reject.
- * Entries are lookup keys and are normalized: any RFC 9562 text form
+ * `revokedJtis` is the verifier's own deny list of revoked `jti` strings.
+ * A token whose `voucher.src_jti` is in it is rejected after every
+ * signature check passes (RFC-AITP-0006 §4 step 7, ordered per
+ * RFC-AITP-0008 §3.3). Revocation is `fail_closed`: **without
+ * `revokedJtis` every token is rejected**. Both failures throw with
+ * `code === 'DELEGATION_SOURCE_TCT_REVOKED'`; a missing list says
+ * "revocation source unavailable". Pass `[]` when nothing is revoked, or
+ * `'fail_open'` as `revocation` to skip the check. Entries are lookup keys and are normalized: any RFC 9562 text form
  * (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry that is
  * not a UUID throws rather than being ignored.
  */
-export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
 
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
@@ -580,7 +591,8 @@ export declare function verifyDelegation(token: string, verifierAid: string, iss
  * recommended ceiling). Pass a smaller value for a tighter bound;
  * `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
  *
- * `revokedJtis`, when non-empty, is consulted twice — both only after every
+ * `revokedJtis` and `revocation` are as in `verifyDelegation`
+ * (`fail_closed`). The list is consulted twice — both only after every
  * signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
  * step 7), and once for every hop's `jti`, meaning each chain entry and the
  * outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
@@ -601,7 +613,7 @@ export declare function verifyDelegation(token: string, verifierAid: string, iss
  * before use; when several designate one AID the newest `published_at`
  * wins.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
 
 /**
  * Verify an `AitpEnvelope` JSON string sent by `expectedSenderAid`.

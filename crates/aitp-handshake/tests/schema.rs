@@ -97,9 +97,23 @@ fn all_four_handshake_payloads_validate_against_schema() {
     let resolver = NoOpResolver;
 
     let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
-    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let alice_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &alice_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
     let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
-    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
+    let bob_cfg = PeerConfig::new(
+        &bob,
+        &bob_manifest,
+        &resolver,
+        &bob_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
 
     // ── 1. HELLO ─────────────────────────────────────────────────────
     let hello_mid = Uuid::new_v4();

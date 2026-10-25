@@ -35,5 +35,6 @@ pub use payloads::{
 };
 pub use state_machine::{
     bootstrap_verify_peer, CompletedHandshake, HandshakeRevocationDecision, Initiator,
-    OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, SessionId,
+    OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, RevocationSource,
+    SessionId,
 };

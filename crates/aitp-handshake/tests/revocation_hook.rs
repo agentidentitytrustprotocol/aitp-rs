@@ -124,9 +124,23 @@ fn stage_through_commit() -> StagedCommit {
     let resolver = NoOpResolver;
 
     let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
-    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let alice_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &alice_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
     let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
-    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
+    let bob_cfg = PeerConfig::new(
+        &bob,
+        &bob_manifest,
+        &resolver,
+        &bob_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
 
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello_payload) = Initiator::start(
@@ -211,9 +225,9 @@ fn revoked_tct_in_mutual_commit_aborts_handshake() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -249,9 +263,9 @@ fn revocation_provider_failure_propagates() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -262,10 +276,10 @@ fn revocation_provider_failure_propagates() {
     );
 }
 
-/// Sanity: with `revocation_check: None` (the default), the hook is
-/// skipped and the handshake proceeds as it did before rc.1.
+/// The explicit `RevocationSource::FailOpen` opt-out skips the lookup and
+/// the handshake proceeds without a revocation hook.
 #[test]
-fn missing_hook_preserves_default_acceptance() {
+fn fail_open_opt_out_skips_the_hook() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let bob_cfg = PeerConfig::new(
@@ -273,6 +287,7 @@ fn missing_hook_preserves_default_acceptance() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::FailOpen,
         NOW,
     );
     let _ = staged
@@ -299,9 +314,9 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let _ = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -337,9 +352,9 @@ fn invalid_tct_signature_skips_revocation_lookup() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -375,9 +390,9 @@ fn wrong_audience_skips_revocation_lookup() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -406,9 +421,9 @@ fn expired_tct_skips_revocation_lookup() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -437,9 +452,9 @@ fn soft_fail_safe_subset_with_empty_intersection_rejects() {
         &staged.bob_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::Check(hook_ref),
         NOW,
-    )
-    .with_revocation_check(hook_ref);
+    );
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)

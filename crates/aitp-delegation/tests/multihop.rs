@@ -10,7 +10,7 @@ use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp_crypto::{jws, AitpSigningKey};
 use aitp_delegation::{
     compute_chain_hash, verify_delegation, DelegationBuilder, DelegationError,
-    VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
+    DelegationRevocation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
 use aitp_tct::TctBuilder;
@@ -115,9 +115,13 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
 }
 
 fn multihop_ctx(verifier: &aitp_core::Aid) -> VerifyDelegationContext<'_> {
-    VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-        .with_issuer_manifests(issuer_manifests())
+    VerifyDelegationContext::new(
+        verifier,
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+    .with_issuer_manifests(issuer_manifests())
 }
 
 #[test]
@@ -140,7 +144,11 @@ fn chain_rejected_without_opt_in() {
     let token = outer(&hop1());
     let a_key = a();
     // Single-hop-only context: structural rejection.
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60));
+    let ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    );
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::MultihopNotSupported
@@ -152,8 +160,12 @@ fn hop_limit_enforced_before_signatures() {
     let token = outer(&hop1());
     let a_key = a();
     // total_hops = chain(1) + 2 = 3 > max_delegation_hops 2.
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(2);
+    let ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(2);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::HopLimitExceeded
@@ -233,9 +245,13 @@ fn truncated_chain_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let full_ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(4)
-        .with_issuer_manifests(issuer_manifests());
+    let full_ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(4)
+    .with_issuer_manifests(issuer_manifests());
     verify_delegation(&outer4, &full_ctx)
         .expect("4-hop chain verifies under max_delegation_hops=4");
 
@@ -366,13 +382,31 @@ fn revoked_mid_chain_hop_rejected() {
     let b_aid = b().aid().clone();
     let h1_jti = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440011").unwrap();
     // B revokes the hop it issued (B→C): everything downstream dies.
-    let hop_revoked = move |issuer: &aitp_core::Aid, jti: &Uuid| *issuer == b_aid && *jti == h1_jti;
+    let hop_revoked =
+        move |issuer: &aitp_core::Aid, jti: &Uuid| Ok(*issuer == b_aid && *jti == h1_jti);
+    let not_revoked = |_: &Uuid| Ok(false);
     let a_key = a();
     let mut ctx = multihop_ctx(a_key.aid());
+    ctx.revocation = DelegationRevocation::Check(&not_revoked);
     ctx.hop_revocation_check = Some(&hop_revoked);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::SourceTctRevoked
+    ));
+}
+
+/// RS1.2: under `Check`, a multi-hop chain with no per-hop source fails
+/// closed rather than skipping the per-hop lookups.
+#[test]
+fn multihop_without_hop_source_fails_closed() {
+    let token = outer(&hop1());
+    let not_revoked = |_: &Uuid| Ok(false);
+    let a_key = a();
+    let mut ctx = multihop_ctx(a_key.aid());
+    ctx.revocation = DelegationRevocation::Check(&not_revoked);
+    assert!(matches!(
+        verify_delegation(&token, &ctx).unwrap_err(),
+        DelegationError::RevocationUnavailable(_)
     ));
 }
 
@@ -385,9 +419,13 @@ fn ctx_with<'a>(
     verifier: &'a Aid,
     resolver: &'a dyn aitp_manifest::ManifestResolver,
 ) -> VerifyDelegationContext<'a> {
-    VerifyDelegationContext::new(verifier, Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-        .with_issuer_manifests(resolver)
+    VerifyDelegationContext::new(
+        verifier,
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+    .with_issuer_manifests(resolver)
 }
 
 /// Unwrap a `KeyResolutionFailed` for `issuer` and return its cause.
@@ -408,8 +446,12 @@ fn key_resolution_cause(err: DelegationError, issuer: &Aid) -> ManifestError {
 fn multihop_without_manifest_source_rejected() {
     let token = outer(&hop1());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(a_key.aid(), Timestamp(NOW.0 + 60))
-        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
+    let ctx = VerifyDelegationContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
     // chain[0] is verified first; its issuer is B.
     let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err(), b().aid());
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
@@ -555,9 +597,13 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
         manifest_for(&AitpSigningKey::from_seed(&kat_002_seed), published),
         manifest_for(&AitpSigningKey::from_seed(&[0xffu8; 32]), published),
     ];
-    let ctx = VerifyDelegationContext::new(verifier.aid(), Timestamp(1_711_900_100))
-        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-        .with_issuer_manifests(&manifests);
+    let ctx = VerifyDelegationContext::new(
+        verifier.aid(),
+        Timestamp(1_711_900_100),
+        DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+    .with_issuer_manifests(&manifests);
     let verified = verify_delegation(outer_token, &ctx).expect("spec chain KAT verifies");
     assert_eq!(verified.claims.scope, vec!["macp.mode.task.v1".to_string()]);
     assert_eq!(

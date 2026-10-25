@@ -36,20 +36,20 @@ test('full handshake yields mutual TCTs', () => {
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
   const { ackJson: commitAck, completed: responderHeld } =
-    rsess.processCommit(commit);
-  const initiatorHeld = sess.complete(commitAck);
+    rsess.processCommit(commit, []);
+  const initiatorHeld = sess.complete(commitAck, []);
 
   // complete()/processCommit() now yield { tct, claims, grantVoucher? }.
   assert.equal(initiatorHeld.claims.iss, responder.aid);
   assert.equal(typeof initiatorHeld.tct, 'string');
 
   // The initiator holds a TCT issued by the responder for demo.write.
-  const ident = initiator.verifyTct(initiatorHeld.tct, 'demo.write');
+  const ident = initiator.verifyTct(initiatorHeld.tct, 'demo.write', undefined, []);
   assert.equal(ident.peerAid, responder.aid);
   assert.ok(ident.grants.includes('demo.write'));
 
   // The responder holds a TCT issued by the initiator for demo.echo.
-  const respIdent = responder.verifyTct(responderHeld.tct, 'demo.echo');
+  const respIdent = responder.verifyTct(responderHeld.tct, 'demo.echo', undefined, []);
   assert.equal(respIdent.peerAid, initiator.aid);
   assert.ok(respIdent.grants.includes('demo.echo'));
 });
@@ -62,10 +62,10 @@ test('verifyTct rejects a missing grant', () => {
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
-  const { tct } = sess.complete(commitAck);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
+  const { tct } = sess.complete(commitAck, []);
 
-  assert.throws(() => initiator.verifyTct(tct, 'demo.not-granted'));
+  assert.throws(() => initiator.verifyTct(tct, 'demo.not-granted', undefined, []));
 });
 
 test('initiator rejects peer substitution', () => {
@@ -147,17 +147,17 @@ test('verifyTct presented-TCT mode honors expectedAudience', () => {
   const hello = sess.buildHello(respManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
-  const { tct } = sess.complete(commitAck);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
+  const { tct } = sess.complete(commitAck, []);
 
   // In v0.2 the TCT's audience equals its subject (initiator.aid). A resource
   // server verifying a TCT presented by the initiator passes initiator.aid as
   // expectedAudience.
-  const presented = initiator.verifyTct(tct, 'demo.write', initiator.aid);
+  const presented = initiator.verifyTct(tct, 'demo.write', initiator.aid, []);
   assert.equal(presented.peerAid, responder.aid);
 
   // Wrong expectedAudience must reject.
-  assert.throws(() => initiator.verifyTct(tct, 'demo.write', responder.aid));
+  assert.throws(() => initiator.verifyTct(tct, 'demo.write', responder.aid, []));
 });
 
 // ── Pinned-key trust store (RFC-AITP-0002 §3.2) ─────────────────────────

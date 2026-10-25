@@ -22,6 +22,12 @@ pub enum DelegationError {
     /// deny list.
     #[error("source TCT has been revoked")]
     SourceTctRevoked,
+    /// Revocation status could not be determined and the source fails
+    /// closed (RFC-AITP-0008 §3.1). Same wire code as
+    /// [`Self::SourceTctRevoked`], but the reason says the source was
+    /// unavailable, not that the token was revoked.
+    #[error("revocation source unavailable: {0}")]
+    RevocationUnavailable(String),
     /// Outer signature did not verify.
     #[error("delegation signature is invalid")]
     InvalidSignature,

@@ -129,7 +129,7 @@ async fn kms_backend_signs_renewal() {
         .expect("KMS renewal request");
     let store = InMemoryNonceStore::new(4);
     let offered = vec!["demo.echo".to_string()];
-    let not_revoked = |_: &uuid::Uuid| false;
+    let not_revoked = |_: &uuid::Uuid| Ok(false);
     let renewal_ctx =
         RenewalContext::new(Timestamp(now.0 + 7200), &offered, &not_revoked, &store, now)
             .ttl_secs(600);

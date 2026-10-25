@@ -23,7 +23,9 @@
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{
+    verify_delegation, DelegationBuilder, DelegationRevocation, VerifyDelegationContext,
+};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
@@ -93,7 +95,8 @@ fn main() {
         .build()
         .expect("B publishes its Manifest");
     let issuer_manifests = vec![b_manifest];
-    let ctx = VerifyDelegationContext::new(a.aid(), now).with_issuer_manifests(&issuer_manifests);
+    let ctx = VerifyDelegationContext::new(a.aid(), now, DelegationRevocation::FailOpen)
+        .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
@@ -119,8 +122,8 @@ fn main() {
     // ── Negative 2: only the grantor (A) may verify ────────────────────
     // The token binds `aud == voucher issuer == A`. Anyone else verifying
     // it — here C tries — is rejected.
-    let wrong_ctx =
-        VerifyDelegationContext::new(c.aid(), now).with_issuer_manifests(&issuer_manifests);
+    let wrong_ctx = VerifyDelegationContext::new(c.aid(), now, DelegationRevocation::FailOpen)
+        .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),
         Ok(_) => panic!("only the grantor A should be able to verify this token"),

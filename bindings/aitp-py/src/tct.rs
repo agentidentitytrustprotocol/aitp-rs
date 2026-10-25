@@ -9,12 +9,11 @@ use aitp_crypto::jws::decode_payload_unverified;
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
+
+use crate::helpers::{binding_revocation, runtime_error, tct_revocation_code, BindingRevocation};
 use pyo3::prelude::*;
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
-
-/// An owned revocation-lookup closure: `true` if a `jti` is revoked.
-type RevocationClosure = Box<dyn Fn(&Uuid) -> bool>;
 
 /// The verified peer identity carried by a TCT.
 #[pyclass(name = "TctIdentity", frozen)]
@@ -63,11 +62,12 @@ fn decode_tct_claims_unverified(tct_token: &str) -> PyResult<TctClaims> {
 /// The signature check is the security gate in either mode: the TCT is
 /// verified against the key its `iss` AID encodes.
 ///
-/// `revoked_jtis` is an OPTIONAL set of revoked TCT `jti` strings
-/// (RFC-AITP-0008). When supplied, a TCT whose `jti` is in the set is
-/// rejected *after* every signature check passes. **Verifiers SHOULD
-/// supply this** — omitting it silently honors a revoked-but-unexpired
-/// TCT. The set is a lookup key, so entries are normalized (see
+/// `revoked_jtis` is the issuer's deny list, a set of revoked TCT `jti`
+/// strings (RFC-AITP-0008): a TCT whose `jti` is in it is rejected *after*
+/// every signature check passes. Revocation is `fail_closed`: without
+/// `revoked_jtis` every TCT is rejected with `code == "TCT_REVOKED"` and a
+/// "revocation source unavailable" message, unless `revocation` is
+/// `"fail_open"`. The set is a lookup key, so entries are normalized (see
 /// [`parse_revoked`]); an entry that is not a UUID raises `ValueError`.
 pub fn py_verify_tct(
     our_key: &AitpSigningKey,
@@ -75,8 +75,9 @@ pub fn py_verify_tct(
     required_grant: &str,
     expected_audience: Option<&str>,
     revoked_jtis: Option<&HashSet<String>>,
+    revocation: Option<&str>,
 ) -> PyResult<PyTctIdentity> {
-    let revoked = parse_revoked(revoked_jtis)?;
+    let revoked = parse_revoked(revoked_jtis, revocation)?;
     verify_tct_parsed(
         our_key,
         tct_token,
@@ -86,15 +87,19 @@ pub fn py_verify_tct(
     )
 }
 
-/// Normalize a caller's revoked-`jti` set: any RFC 9562 text form
-/// (uppercase, braced, `urn:uuid:`, unhyphenated) matches the canonical
-/// `jti`, and an entry that is not a UUID raises `ValueError` rather than
-/// silently never matching.
-fn parse_revoked(revoked_jtis: Option<&HashSet<String>>) -> PyResult<Option<HashSet<Uuid>>> {
-    revoked_jtis
-        .map(|set| crate::helpers::parse_revoked_jtis(set.iter().map(String::as_str)))
-        .transpose()
-        .map_err(PyValueError::new_err)
+/// Parse a caller's revoked-`jti` set and `revocation` mode. Entries in
+/// any RFC 9562 text form (uppercase, braced, `urn:uuid:`, unhyphenated)
+/// match the canonical `jti`, and an entry that is not a UUID raises
+/// `ValueError` rather than silently never matching.
+fn parse_revoked(
+    revoked_jtis: Option<&HashSet<String>>,
+    revocation: Option<&str>,
+) -> PyResult<BindingRevocation> {
+    binding_revocation(
+        revoked_jtis.map(|s| s.iter().map(String::as_str)),
+        revocation,
+    )
+    .map_err(PyValueError::new_err)
 }
 
 /// [`py_verify_tct`] after the revoked set is parsed.
@@ -103,7 +108,7 @@ fn verify_tct_parsed(
     tct_token: &str,
     required_grant: &str,
     expected_audience: Option<&str>,
-    revoked_jtis: Option<HashSet<Uuid>>,
+    revocation: BindingRevocation,
 ) -> PyResult<PyTctIdentity> {
     let unverified = decode_tct_claims_unverified(tct_token)?;
 
@@ -118,30 +123,30 @@ fn verify_tct_parsed(
         None => our_key.aid(),
     };
 
-    // F-1: a `jti` set captured by value so the closure is `Fn` and lives
-    // entirely in Rust — no Python re-entrancy under the verify call.
-    let revocation_closure: Option<RevocationClosure> = revoked_jtis.map(|owned| {
-        let f: RevocationClosure = Box::new(move |jti: &Uuid| owned.contains(jti));
-        f
-    });
-
-    // Strict builder (aitp-tct 0.4). Behavior is preserved: revocation is
-    // consulted only when the caller supplied `revoked_jtis`, otherwise
-    // explicitly waived. The issuer-Manifest expiry cap is still waived
-    // here — threading an `issuer_manifest_expires_at` parameter through
-    // the SDK surface is the remaining half of F-1.
+    // The deny list lives entirely in Rust — no Python re-entrancy under
+    // the verify call. Only the explicit `fail_open` opt-out waives the
+    // check; no list under `fail_closed` reports the status unavailable.
+    // The issuer-Manifest expiry cap is still waived here — threading an
+    // `issuer_manifest_expires_at` parameter through the SDK surface is
+    // the remaining half of F-1.
+    let revocation_check = |jti: &Uuid| revocation.tct_status(jti);
     let builder = TctVerifyContext::builder(aud_ref, &unverified.iss, Timestamp::now())
         .skip_manifest_expiry_cap_dangerous();
-    let builder = match revocation_closure.as_deref() {
-        Some(b) => builder.revocation_check(b as &dyn Fn(&Uuid) -> bool),
-        None => builder.accept_unchecked_revocation_dangerous(),
+    let builder = if revocation.is_fail_open() {
+        builder.accept_unchecked_revocation_dangerous()
+    } else {
+        builder.revocation_check(&revocation_check)
     };
     let ctx = builder
         .build()
         .map_err(|e| PyRuntimeError::new_err(format!("verify context: {e}")))?;
 
-    let verified = verify_tct(tct_token, &ctx)
-        .map_err(|e| PyRuntimeError::new_err(format!("TCT verification failed: {e}")))?;
+    let verified = verify_tct(tct_token, &ctx).map_err(|e| {
+        runtime_error(
+            format!("TCT verification failed: {e}"),
+            tct_revocation_code(&e),
+        )
+    })?;
     let claims = verified.claims;
 
     if !claims.grants.iter().any(|g| g == required_grant) {
@@ -279,6 +284,7 @@ pub fn py_verify_tct_cached(
     store: &PyTctStore,
     expected_audience: Option<&str>,
     revoked_jtis: Option<&HashSet<String>>,
+    revocation: Option<&str>,
 ) -> PyResult<PyTctIdentity> {
     let key = tct_token_key(tct_token);
     let effective_aud: String = match expected_audience {
@@ -286,15 +292,17 @@ pub fn py_verify_tct_cached(
         None => our_key.aid().to_string(),
     };
 
-    let revoked_set = parse_revoked(revoked_jtis)?;
+    let revocation_mode = parse_revoked(revoked_jtis, revocation)?;
 
-    // Fast path: exact bytes verified before AND policy still holds.
+    // Fast path: exact bytes verified before AND policy still holds. The
+    // revocation status is re-checked on every hit; an unavailable status
+    // (no list under `fail_closed`) falls through to the slow path, which
+    // rejects with the coded error.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0;
-        let revoked = revoked_set
-            .as_ref()
-            .is_some_and(|set| Uuid::parse_str(&c.jti).is_ok_and(|jti| set.contains(&jti)));
-        if !revoked
+        let cleared = Uuid::parse_str(&c.jti)
+            .is_ok_and(|jti| matches!(revocation_mode.tct_status(&jti), Ok(false)));
+        if cleared
             && c.audience == effective_aud
             && c.expires_at > now
             && c.grants.iter().any(|g| g == required_grant)
@@ -314,7 +322,7 @@ pub fn py_verify_tct_cached(
         tct_token,
         required_grant,
         expected_audience,
-        revoked_set,
+        revocation_mode,
     )?;
     // Capture the TCT's own audience for future fast-path policy re-checks.
     let claims = decode_tct_claims_unverified(tct_token)?;

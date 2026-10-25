@@ -204,6 +204,13 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
     }
 }
 
+/// Revocation source for the handshake ops. The conformance harness
+/// supplies revocation status only to `verify_tct` (tct-024/025); its
+/// handshake fixtures and cross-impl peers carry no `ListRevoked` input,
+/// so the handshake ops run `fail_open` explicitly.
+const HARNESS_REVOCATION: aitp_handshake::RevocationSource<'static> =
+    aitp_handshake::RevocationSource::FailOpen;
+
 fn init(id: &str) -> Value {
     let supported_ops = vec![
         "init",
@@ -875,6 +882,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         &self_manifest,
         &resolver,
         &trust_store,
+        HARNESS_REVOCATION,
         envelope.timestamp,
     )
     .with_trust_anchors(&cfg_anchors);
@@ -1411,7 +1419,26 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
     // Set when the supplied snapshot was discarded: the issuer's
     // revocation status is then unknown and `snapshot_mode` decides.
     let mut snapshot_mode: Option<SnapshotPolicyMode> = None;
+    // Why the issuer's revocation status is unknown, for the
+    // `RevocationUnavailable` detail (tct-024: it must read differently
+    // from a listed `jti`, though both are TCT_REVOKED).
+    let mut absent_reason = String::new();
     if let Some(list) = params.get("issuer_revocation_list") {
+        // tct-024 / tct-025: `available: false` says no snapshot can be
+        // obtained for `issuer`. Absent, so the policy decides, and with
+        // no mode named the default `fail_closed` applies.
+        if list.get("available").and_then(|v| v.as_bool()) == Some(false) {
+            let policy = match snapshot_policy(&params, Some(list)) {
+                Ok(p) => p,
+                Err(msg) => return err(id, "INVALID_REQUEST", &msg),
+            };
+            let named = list
+                .get("issuer")
+                .and_then(|v| v.as_str())
+                .unwrap_or(issuer.as_str());
+            absent_reason = format!("no revocation snapshot available for issuer {named}");
+            snapshot_mode = Some(policy.mode);
+        }
         if let Some(jtis) = list.get("revoked_jtis").and_then(|v| v.as_array()) {
             for j in jtis {
                 if let Some(s) = j.as_str() {
@@ -1438,7 +1465,10 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
                         revoked_jtis.insert(entry.jti.to_string());
                     }
                 }
-                Err(_reason) => snapshot_mode = Some(policy.mode),
+                Err((_code, reason)) => {
+                    absent_reason = format!("revocation snapshot discarded: {reason}");
+                    snapshot_mode = Some(policy.mode);
+                }
             }
         }
     }
@@ -1451,7 +1481,12 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
     let lookup_called = Cell::new(false);
     let check = |jti: &Uuid| {
         lookup_called.set(true);
-        absent_is_revoked || revoked_jtis.contains(&jti.to_string())
+        if absent_is_revoked {
+            return Err(aitp_tct::TctError::RevocationUnavailable(
+                absent_reason.clone(),
+            ));
+        }
+        Ok(revoked_jtis.contains(&jti.to_string()))
     };
     // Honor the spec's `issuer_manifest.expires_at` field
     // (RFC-AITP-0005 §10.4). tct-005 supplies this via
@@ -1526,7 +1561,7 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         NotAttestation | AttestationStatementMissing(_) => "TCT_SIGNATURE_INVALID",
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
-        Revoked => "TCT_REVOKED",
+        Revoked | RevocationUnavailable(_) => "TCT_REVOKED",
         EmptyGrants => "INVALID_ENVELOPE",
         GrantWhitespace(_) => "INVALID_ENVELOPE",
         CnfMalformed => "INVALID_ENVELOPE",
@@ -1935,21 +1970,14 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         .filter_map(|s| Uuid::parse_str(s).ok())
         .chain(deny_lists.get(&verifier_aid).into_iter().flatten().copied())
         .collect();
-    let revocation_check_closure = |jti: &Uuid| own_denied.contains(jti);
+    // An empty deny list is an explicit "nothing revoked" here: the
+    // harness supplied every snapshot it has, and absent hop issuers are
+    // already folded into `absent_issuers` by policy.
+    let revocation_check_closure = |jti: &Uuid| Ok(own_denied.contains(jti));
     let hop_revocation_closure = |issuer: &Aid, jti: &Uuid| {
-        absent_issuers.contains(issuer) || deny_lists.get(issuer).is_some_and(|s| s.contains(jti))
+        Ok(absent_issuers.contains(issuer)
+            || deny_lists.get(issuer).is_some_and(|s| s.contains(jti)))
     };
-    let revocation_check: Option<&dyn Fn(&Uuid) -> bool> = if own_denied.is_empty() {
-        None
-    } else {
-        Some(&revocation_check_closure)
-    };
-    let hop_revocation_check: Option<aitp_delegation::verifier::HopRevocationCheck<'_>> =
-        if deny_lists.is_empty() && absent_issuers.is_empty() {
-            None
-        } else {
-            Some(&hop_revocation_closure)
-        };
 
     // Multi-hop opt-in. Per RFC-AITP-0006 §4 the v0.2 default MUST
     // reject any chain-bearing token; the runner enables RFC-0011
@@ -1965,15 +1993,14 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         Ok(m) => m,
         Err((code, msg)) => return err(id, &code, &msg),
     };
-    let mut ctx = aitp_delegation::VerifyDelegationContext::new(&verifier_aid, now)
-        .with_max_delegation_hops(max_delegation_hops)
-        .with_issuer_manifests(&issuer_manifests);
-    if let Some(check) = revocation_check {
-        ctx = ctx.with_revocation_check(check);
-    }
-    if let Some(check) = hop_revocation_check {
-        ctx = ctx.with_hop_revocation_check(check);
-    }
+    let ctx = aitp_delegation::VerifyDelegationContext::new(
+        &verifier_aid,
+        now,
+        aitp_delegation::DelegationRevocation::Check(&revocation_check_closure),
+    )
+    .with_max_delegation_hops(max_delegation_hops)
+    .with_issuer_manifests(&issuer_manifests)
+    .with_hop_revocation_check(&hop_revocation_closure);
     match aitp_delegation::verify_delegation(&token, &ctx) {
         Ok(v) => json!({
             "id": id,
@@ -2018,7 +2045,7 @@ fn delegation_error_code(e: &aitp_delegation::DelegationError) -> String {
         InvalidSignature => "DELEGATION_INVALID_SIGNATURE",
         ScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
         InvalidVoucher => "DELEGATION_INVALID_VOUCHER",
-        SourceTctRevoked => "DELEGATION_SOURCE_TCT_REVOKED",
+        SourceTctRevoked | RevocationUnavailable(_) => "DELEGATION_SOURCE_TCT_REVOKED",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
@@ -2603,7 +2630,7 @@ fn start_initiator(
     let mid = Uuid::new_v4();
     let ts = state.now();
     let resolver = NoOpJwks;
-    let cfg = PeerConfig::new(&key, &manifest, &resolver, &trusted, ts);
+    let cfg = PeerConfig::new(&key, &manifest, &resolver, &trusted, HARNESS_REVOCATION, ts);
     let (init_state, hello_payload) =
         match Initiator::start(&cfg, identity, &peer_aid, &mid, ts, requested_grants) {
             Ok(p) => p,
@@ -2724,7 +2751,14 @@ fn initiator_step(
     // Wiring the peer's manifest here would silently break TCT
     // verification on COMMIT_ACK.
     let resolver = NoOpJwks;
-    let cfg = PeerConfig::new(&key, &my_manifest, &resolver, &trusted, state.now());
+    let cfg = PeerConfig::new(
+        &key,
+        &my_manifest,
+        &resolver,
+        &trusted,
+        HARNESS_REVOCATION,
+        state.now(),
+    );
     match envelope.message_type {
         MessageType::MutualHelloAck => {
             let ack_payload: MutualHelloAckPayload =
@@ -2825,7 +2859,14 @@ fn responder_first_hello(
     let trusted =
         trusted.unwrap_or_else(|| harness_pinned_trust(&Value::Null, &hello_payload.manifest.aid));
     let resolver = NoOpJwks;
-    let cfg = PeerConfig::new(&key, &my_manifest, &resolver, &trusted, state.now());
+    let cfg = PeerConfig::new(
+        &key,
+        &my_manifest,
+        &resolver,
+        &trusted,
+        HARNESS_REVOCATION,
+        state.now(),
+    );
     let identity = PresentedIdentity::PinnedKey {
         subject: my_manifest
             .display_name
@@ -2904,6 +2945,7 @@ fn responder_step(
         &my_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        HARNESS_REVOCATION,
         state.now(),
     );
     let (ack_payload, held_tct) = match responder.on_commit(&envelope, &commit_payload, &cfg) {

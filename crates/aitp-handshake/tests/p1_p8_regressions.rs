@@ -274,7 +274,14 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
     let store = StaticPinnedKeyStore::new([receiver.verifying_key()]);
 
     let resolver = NoOpResolver;
-    let cfg = PeerConfig::new(&receiver, &receiver_manifest, &resolver, &store, ts);
+    let cfg = PeerConfig::new(
+        &receiver,
+        &receiver_manifest,
+        &resolver,
+        &store,
+        aitp_handshake::RevocationSource::FailOpen,
+        ts,
+    );
 
     let proof = sign_pinned_key_proof(
         &untrusted_sender,
@@ -372,6 +379,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         &receiver_manifest,
         &resolver,
         &aitp_handshake::NoPinnedKeys,
+        aitp_handshake::RevocationSource::FailOpen,
         ts,
     )
     .with_trust_anchors(&cfg_anchors);
@@ -422,6 +430,7 @@ fn p7_grant_policy_filters_intersection() {
         &issuer_manifest,
         &resolver,
         &cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
         Timestamp::now(),
     )
     .with_grant_policy(policy_ref);

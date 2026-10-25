@@ -81,10 +81,10 @@ for (const [initSuite, respSuite] of [
     const hello = sess.buildHello(respManifest, ['demo.write']);
     const { ackJson, sessionId } = rsess.processHello(hello);
     const commit = sess.processHelloAck(ackJson, sessionId);
-    const { ackJson: commitAck, completed: respDone } = rsess.processCommit(commit);
-    const initDone = sess.complete(commitAck);
-    assert.equal(initiator.verifyTct(initDone.tct, 'demo.write').peerAid, responder.aid);
-    assert.equal(responder.verifyTct(respDone.tct, 'demo.echo').peerAid, initiator.aid);
+    const { ackJson: commitAck, completed: respDone } = rsess.processCommit(commit, []);
+    const initDone = sess.complete(commitAck, []);
+    assert.equal(initiator.verifyTct(initDone.tct, 'demo.write', undefined, []).peerAid, responder.aid);
+    assert.equal(responder.verifyTct(respDone.tct, 'demo.echo', undefined, []).peerAid, initiator.aid);
   });
 }
 

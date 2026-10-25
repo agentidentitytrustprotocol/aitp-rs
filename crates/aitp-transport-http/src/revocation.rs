@@ -419,39 +419,7 @@ impl<P: RevocationProvider> RevocationCache<P> {
             .as_ref()
             .ok_or(RevocationError::NoSnapshotFailClosed)?;
         let env = provider.fetch(issuer)?;
-        // Verify signature + expiry. `TctError::UnknownField` and
-        // `TctError::ClaimsMalformed` each get their own arm rather than
-        // falling into the `other` catch-all below: a provider that parses
-        // the raw wire form via `aitp_tct::parse_revocation_snapshot_wire`
-        // (as it MUST, to honor RFC-AITP-0001 §7's member-set check on a
-        // live fetch) surfaces a structurally-rejected snapshot as one of
-        // these two errors, and collapsing either into `SignatureInvalid`
-        // here would misreport a structural rejection — whose signature was
-        // never reached — as a cryptographic one.
-        verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer, now)).map_err(
-            |e| match e {
-                TctError::Expired => RevocationError::Expired,
-                TctError::UnknownField(field) => RevocationError::UnknownField(field),
-                TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
-                // #265: an unknown `version` is the snapshot's schema
-                // failure (REVOCATION_SNAPSHOT_INVALID, spec VERSIONING.md),
-                // checked before the signature. Never a signature failure.
-                TctError::VersionUnknown => RevocationError::Malformed(format!(
-                    "unknown revocation snapshot version {:?}",
-                    env.revocation_list.version
-                )),
-                other => RevocationError::SignatureInvalid(other),
-            },
-        )?;
-        // Apply max-staleness.
-        let age = now.0.saturating_sub(env.revocation_list.published_at.0);
-        if age > self.policy.max_staleness_secs as i64 {
-            crate::obs::revocation_cache("stale");
-            return Err(RevocationError::Stale {
-                published_at: env.revocation_list.published_at,
-                max_staleness_secs: self.policy.max_staleness_secs,
-            });
-        }
+        verify_snapshot(&env, issuer, now, self.policy.max_staleness_secs)?;
         crate::obs::revocation_cache("refresh");
         self.store(issuer.clone(), env.clone(), now);
         Ok(env)
@@ -484,6 +452,52 @@ impl<P: RevocationProvider> RevocationCache<P> {
             },
         );
     }
+}
+
+/// Verify a fetched snapshot for `issuer` at `now`: signature, expiry and
+/// structure (RFC-AITP-0008 §1.5), then `max_staleness_secs` (§3.2).
+/// Shared by [`RevocationCache`] and the async
+/// [`crate::revocation_fetch::RevocationFetcher`].
+pub(crate) fn verify_snapshot(
+    env: &RevocationListEnvelope,
+    issuer: &Aid,
+    now: Timestamp,
+    max_staleness_secs: u64,
+) -> Result<(), RevocationError> {
+    // Verify signature + expiry. `TctError::UnknownField` and
+    // `TctError::ClaimsMalformed` each get their own arm rather than
+    // falling into the `other` catch-all below: a provider that parses
+    // the raw wire form via `aitp_tct::parse_revocation_snapshot_wire`
+    // (as it MUST, to honor RFC-AITP-0001 §7's member-set check on a
+    // live fetch) surfaces a structurally-rejected snapshot as one of
+    // these two errors, and collapsing either into `SignatureInvalid`
+    // here would misreport a structural rejection — whose signature was
+    // never reached — as a cryptographic one.
+    verify_revocation_list(env, &VerifyRevocationListContext::new(issuer, now)).map_err(
+        |e| match e {
+            TctError::Expired => RevocationError::Expired,
+            TctError::UnknownField(field) => RevocationError::UnknownField(field),
+            TctError::ClaimsMalformed(msg) => RevocationError::Malformed(msg),
+            // #265: an unknown `version` is the snapshot's schema
+            // failure (REVOCATION_SNAPSHOT_INVALID, spec VERSIONING.md),
+            // checked before the signature. Never a signature failure.
+            TctError::VersionUnknown => RevocationError::Malformed(format!(
+                "unknown revocation snapshot version {:?}",
+                env.revocation_list.version
+            )),
+            other => RevocationError::SignatureInvalid(other),
+        },
+    )?;
+    // Apply max-staleness.
+    let age = now.0.saturating_sub(env.revocation_list.published_at.0);
+    if age > max_staleness_secs as i64 {
+        crate::obs::revocation_cache("stale");
+        return Err(RevocationError::Stale {
+            published_at: env.revocation_list.published_at,
+            max_staleness_secs,
+        });
+    }
+    Ok(())
 }
 
 /// Manifest extension key (RFC-AITP-0012 namespace) carrying the

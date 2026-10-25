@@ -168,7 +168,7 @@ const methods = {
     // The held TCT and grant voucher are opaque compact-JWS strings.
     const { ackJson, completed } = registry
       .get(p.responder)
-      .processCommit(p.commit);
+      .processCommit(p.commit, p.revoked_jtis ?? []);
     return {
       commit_ack: ackJson,
       tct: completed.tct,
@@ -178,7 +178,7 @@ const methods = {
 
   complete: (p) => {
     // v0.2: complete returns JsCompletedHandshake { tct, claims, grantVoucher? }.
-    const completed = registry.get(p.session).complete(p.commit_ack);
+    const completed = registry.get(p.session).complete(p.commit_ack, p.revoked_jtis ?? []);
     return {
       tct: completed.tct,
       grant_voucher: completed.grantVoucher ?? null,
@@ -186,14 +186,15 @@ const methods = {
   },
 
   verify_tct: (p) => {
-    // v0.2: tct is a compact-JWS string; revoked_jtis is an optional gate.
+    // v0.2: tct is a compact-JWS string. Revocation is fail_closed, so the
+    // harness defaults to an empty deny list (nothing revoked).
     const ident = registry
       .get(p.agent)
       .verifyTct(
         p.tct,
         p.required_grant,
         p.expected_audience ?? undefined,
-        p.revoked_jtis ?? undefined,
+        p.revoked_jtis ?? [],
       );
     return {
       peer_aid: ident.peerAid,
@@ -221,8 +222,14 @@ const methods = {
     const hops = p.max_hops ?? 0;
     const v =
       hops > 0
-        ? verifyDelegationMultihop(p.token, p.verifier_aid, p.issuer_manifests ?? [], hops)
-        : verifyDelegation(p.token, p.verifier_aid, p.issuer_manifests ?? []);
+        ? verifyDelegationMultihop(
+            p.token,
+            p.verifier_aid,
+            p.issuer_manifests ?? [],
+            hops,
+            p.revoked_jtis ?? [],
+          )
+        : verifyDelegation(p.token, p.verifier_aid, p.issuer_manifests ?? [], p.revoked_jtis ?? []);
     return {
       delegator: v.delegator,
       delegatee: v.delegatee,

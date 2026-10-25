@@ -62,7 +62,9 @@ pub fn process_renewal_request_py(
         .map_err(|e| PyValueError::new_err(format!("invalid renewal payload JSON: {e}")))?;
     let revoked = crate::helpers::parse_revoked_jtis(revoked_jtis.iter().map(String::as_str))
         .map_err(PyValueError::new_err)?;
-    let revocation_check = move |jti: &Uuid| revoked.contains(jti);
+    // The issuer's own list is authoritative, so an empty one is "nothing
+    // revoked", never "unavailable".
+    let revocation_check = move |jti: &Uuid| Ok(revoked.contains(jti));
     let ctx = RenewalContext::new(
         Timestamp(manifest_exp_unix_secs),
         offered_grants,

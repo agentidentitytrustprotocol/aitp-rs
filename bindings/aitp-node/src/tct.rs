@@ -5,18 +5,19 @@
 //! verbatim, peeks at the unverified payload to learn the issuer AID,
 //! then re-establishes the issuer key from that AID inside `verify_tct`.
 
-use std::collections::HashSet;
-
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::jws::decode_payload_unverified;
 use aitp_crypto::AitpSigningKey;
 use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
 use napi::bindgen_prelude::*;
+use napi::Env;
 use napi_derive::napi;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Mutex;
 use uuid::Uuid;
+
+use crate::helpers::{coded_error, tct_revocation_code, BindingRevocation};
 
 /// The verified peer identity carried by a TCT.
 #[napi(object)]
@@ -67,23 +68,23 @@ fn peek_tct_claims(token: &str) -> Result<TctClaims> {
         .map_err(|e| Error::from_reason(format!("invalid TCT claims: {e}")))
 }
 
-/// Build the `TctVerifyContext.revocation_check` closure from a list of
-/// revoked `jti` strings supplied by the JS caller.
+/// Parse the JS caller's `revokedJtis` and `revocation` arguments.
 ///
 /// **F-1 (SDK revocation callback).** Rather than calling back into the
 /// JS runtime per-`jti` (which is unsound under napi threading
 /// constraints), the JS caller passes the *set* of revoked `jti`s
-/// up-front. The closure returns `true` for any `jti` in the set, which
-/// `verify_tct` treats as a revoked-and-rejected TCT.
+/// up-front.
 ///
 /// The set is a lookup key, so entries are normalized: any RFC 9562 text
 /// form (uppercase, braced, `urn:uuid:`, unhyphenated) matches the
 /// canonical `jti`. An entry that is not a UUID at all is an error rather
 /// than silently ignored, so a malformed list cannot quietly disable the
 /// revocation gate.
-pub(crate) fn parse_revoked_set(revoked: Option<&[String]>) -> Result<HashSet<Uuid>> {
-    crate::helpers::parse_revoked_jtis(revoked.unwrap_or_default().iter().map(String::as_str))
-        .map_err(Error::from_reason)
+fn parse_revocation(
+    revoked: Option<&[String]>,
+    revocation: Option<&str>,
+) -> Result<BindingRevocation> {
+    crate::helpers::js_revocation(revoked, revocation)
 }
 
 /// Verify a compact-JWS `tct_token`, requiring `required_grant`.
@@ -95,19 +96,43 @@ pub(crate) fn parse_revoked_set(revoked: Option<&[String]>) -> Result<HashSet<Uu
 /// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used
 ///   by resource servers verifying a TCT a peer presents in `X-AITP-TCT`.
 ///
-/// `revoked_jtis` is an optional list of revoked TCT `jti` strings (F-1):
-/// any TCT whose `jti` is in the set is rejected even if otherwise valid
-/// and unexpired. `None`/omitted disables the revocation gate.
+/// `revoked_jtis` is the issuer's deny list of revoked TCT `jti` strings
+/// (F-1): any TCT whose `jti` is in it is rejected even if otherwise valid
+/// and unexpired. Revocation is `fail_closed`: with no list every TCT is
+/// rejected as status-unavailable, unless `revocation` is `"fail_open"`.
+/// Both rejections throw with `code === 'TCT_REVOKED'`.
 ///
 /// The signature check is the security gate in either mode: the TCT is
 /// verified against the issuer AID's pubkey, which is re-derived from the
 /// (now-trusted, post-verification) `iss` claim.
 pub fn js_verify_tct(
+    env: Env,
     our_key: &AitpSigningKey,
     tct_token: &str,
     required_grant: &str,
     expected_audience: Option<&str>,
     revoked_jtis: Option<Vec<String>>,
+    revocation: Option<String>,
+) -> Result<JsTctIdentity> {
+    let revocation = parse_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
+    verify_tct_with(
+        env,
+        our_key,
+        tct_token,
+        required_grant,
+        expected_audience,
+        &revocation,
+    )
+}
+
+/// [`js_verify_tct`] with the revocation arguments already parsed.
+fn verify_tct_with(
+    env: Env,
+    our_key: &AitpSigningKey,
+    tct_token: &str,
+    required_grant: &str,
+    expected_audience: Option<&str>,
+    revocation: &BindingRevocation,
 ) -> Result<JsTctIdentity> {
     let peek = peek_tct_claims(tct_token)?;
 
@@ -121,27 +146,30 @@ pub fn js_verify_tct(
         None => our_key.aid(),
     };
 
-    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
-    let revocation_closure = |jti: &Uuid| revoked.contains(jti);
-
-    // Strict builder (aitp-tct 0.4). Behavior is preserved: revocation is
-    // consulted only when the caller supplied a non-empty `revokedJtis`
-    // set, otherwise explicitly waived. The issuer-Manifest expiry cap is
-    // still waived here — threading an `issuerManifestExpiresAt` parameter
-    // through the SDK surface is the remaining half of F-1.
+    // Only the explicit `fail_open` opt-out waives the check; no list
+    // under `fail_closed` reports the status unavailable. The
+    // issuer-Manifest expiry cap is still waived here — threading an
+    // `issuerManifestExpiresAt` parameter through the SDK surface is the
+    // remaining half of F-1.
+    let revocation_check = |jti: &Uuid| revocation.tct_status(jti);
     let builder = TctVerifyContext::builder(aud_ref, &peek.iss, Timestamp::now())
         .skip_manifest_expiry_cap_dangerous();
-    let builder = if revoked.is_empty() {
+    let builder = if revocation.is_fail_open() {
         builder.accept_unchecked_revocation_dangerous()
     } else {
-        builder.revocation_check(&revocation_closure)
+        builder.revocation_check(&revocation_check)
     };
     let ctx = builder
         .build()
         .map_err(|e| Error::from_reason(format!("verify context: {e}")))?;
 
-    let verified = verify_tct(tct_token, &ctx)
-        .map_err(|e| Error::from_reason(format!("TCT verification failed: {e}")))?;
+    let verified = verify_tct(tct_token, &ctx).map_err(|e| {
+        coded_error(
+            env,
+            tct_revocation_code(&e),
+            format!("TCT verification failed: {e}"),
+        )
+    })?;
     let claims = &verified.claims;
 
     if !claims.grants.iter().any(|g| g == required_grant) {
@@ -271,31 +299,34 @@ fn tct_token_key(tct_token: &str) -> [u8; 32] {
 /// byte-identical, already-verified, still-valid TCT this skips the signature
 /// check. See [`JsTctStore`] for the safety argument.
 ///
-/// `revoked_jtis` (F-1) is applied on **both** the fast and slow paths: a
-/// cache hit whose `jti` is in the revoked set is rejected and falls through
-/// to a full re-verification (which then also fails the revocation gate).
+/// Revocation (F-1, `fail_closed`) is applied on **both** the fast and slow
+/// paths: a cache hit whose `jti` is revoked, or whose status is
+/// unavailable, falls through to a full re-verification, which then fails
+/// the revocation gate with its coded error.
+#[allow(clippy::too_many_arguments)]
 pub fn js_verify_tct_cached(
+    env: Env,
     our_key: &AitpSigningKey,
     tct_token: &str,
     required_grant: &str,
     store: &JsTctStore,
     expected_audience: Option<&str>,
     revoked_jtis: Option<Vec<String>>,
+    revocation: Option<String>,
 ) -> Result<JsTctIdentity> {
     let key = tct_token_key(tct_token);
     let effective_aud: String = match expected_audience {
         Some(s) => s.to_string(),
         None => our_key.aid().to_string(),
     };
-    let revoked = parse_revoked_set(revoked_jtis.as_deref())?;
+    let revocation = parse_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
 
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0 as f64;
-        let jti_revoked = Uuid::parse_str(&c.jti)
-            .map(|u| revoked.contains(&u))
-            .unwrap_or(false);
-        if !jti_revoked
+        let cleared =
+            Uuid::parse_str(&c.jti).is_ok_and(|u| matches!(revocation.tct_status(&u), Ok(false)));
+        if cleared
             && c.audience == effective_aud
             && c.expires_at > now
             && c.grants.iter().any(|g| g == required_grant)
@@ -311,12 +342,13 @@ pub fn js_verify_tct_cached(
 
     // Slow path: full verification (signature + every policy check, incl.
     // the F-1 revocation gate).
-    let identity = js_verify_tct(
+    let identity = verify_tct_with(
+        env,
         our_key,
         tct_token,
         required_grant,
         expected_audience,
-        revoked_jtis,
+        &revocation,
     )?;
     // Capture the TCT's own audience for future fast-path policy re-checks.
     // The `aud` claim is read from the now-verified token's payload.

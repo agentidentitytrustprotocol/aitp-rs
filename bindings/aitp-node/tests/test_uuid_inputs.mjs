@@ -65,8 +65,8 @@ function handshake(initiator, responder, respManifest, requested) {
   const hello = sess.buildHello(respManifest, requested);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
-  return sess.complete(commitAck);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
+  return sess.complete(commitAck, []);
 }
 
 // ── Strict: envelope messageId ─────────────────────────────────────────
@@ -133,7 +133,7 @@ for (const label of ['lowercase', ...SPELLINGS]) {
   test(`verifyTctCached: ${label} revoked jti matches on a cache hit`, () => {
     const { initiator, tct, jti } = held;
     const store = new TctStore(4);
-    assert.equal(initiator.verifyTctCached(tct, GRANT, store).jti, jti);
+    assert.equal(initiator.verifyTctCached(tct, GRANT, store, undefined, []).jti, jti);
     assert.equal(store.len(), 1);
     assert.throws(
       () => initiator.verifyTctCached(tct, GRANT, store, null, [respell(jti, label)]),
@@ -158,7 +158,7 @@ test('verifyTct: malformed revoked jti is rejected', () => {
 test('verifyTctCached: malformed revoked jti is rejected', () => {
   const { initiator, tct } = held;
   const store = new TctStore(4);
-  initiator.verifyTctCached(tct, GRANT, store);
+  initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.throws(
     () => initiator.verifyTctCached(tct, GRANT, store, null, ['not-a-uuid']),
     /revoked_jtis entry is not a UUID/,
@@ -189,7 +189,7 @@ test('processRenewalRequest: malformed revoked jti is rejected', { skip: !HAS_RE
   assert.throws(() => renew(['not-a-uuid']), /revoked_jtis entry is not a UUID/);
 });
 
-// ── Lenient: revokedJtis on verifyDelegation(Multihop) ─────────────────
+// ── Lenient: revokedJtis on verifyDelegation(Multihop, undefined, undefined, []) ─────────────────
 
 function buildDelegation() {
   const { agent: a, manifest: aManifest } = peer('A', 9821, [GRANT]);

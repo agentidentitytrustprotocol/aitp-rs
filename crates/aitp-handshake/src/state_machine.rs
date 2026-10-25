@@ -45,7 +45,7 @@ pub type SessionId = Uuid;
 ///     jwks_resolver: resolver,
 ///     pinned_key_store: &NoPinnedKeys,
 ///     grant_policy: None,
-///     revocation_check: None,
+///     revocation: aitp_handshake::RevocationSource::FailOpen,
 ///     now: aitp_core::Timestamp(0),
 /// }
 /// # }
@@ -78,34 +78,19 @@ pub struct PeerConfig<'a> {
     /// TCT — typically used to derive identity-based capability
     /// restrictions. `None` means policy-allow-all (the default).
     pub grant_policy: Option<&'a GrantPolicyFn>,
-    /// Optional revocation check for peer-issued TCTs received during
-    /// the Mutual Handshake. Called with `(issuer_aid, jti)` for the
-    /// TCT inside MUTUAL_HELLO_ACK and MUTUAL_COMMIT_ACK.
-    ///
-    /// Return values:
-    /// - `Ok(false)` — not revoked, accept the TCT.
-    /// - `Ok(true)` — revoked, handshake fails with
-    ///   [`aitp_tct::TctError::Revoked`].
-    /// - `Err(_)` — propagated as-is (use this to surface fail-closed
-    ///   policy when the revocation source is unreachable; map your
-    ///   provider-level error into a `HandshakeError` variant of your
-    ///   choice — typically `HandshakeError::Tct(TctError::Revoked)`
-    ///   for fail-closed).
-    ///
-    /// `None` (the default) skips the revocation check — appropriate
-    /// for short-lived test or in-process scenarios but NOT for
-    /// production. The high-level facade in `aitp::facade` and the
-    /// HTTP transport's `RevocationCache` are intended to back this
-    /// hook in production deployments.
-    pub revocation_check: Option<&'a RevocationCheckFn>,
+    /// How the peer-issued TCT received in MUTUAL_COMMIT /
+    /// MUTUAL_COMMIT_ACK is checked for revocation (RFC-AITP-0008).
+    /// Required by [`PeerConfig::new`]; see [`RevocationSource`].
+    pub revocation: RevocationSource<'a>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
 }
 
 impl<'a> PeerConfig<'a> {
     /// Construct a config from its required parts. It starts with no
-    /// trust anchors, no grant policy and no revocation check; set them
-    /// with the `with_*` methods.
+    /// trust anchors and no grant policy; set them with the `with_*`
+    /// methods. The revocation decision is required: there is no
+    /// default that skips it.
     ///
     /// ```
     /// # use aitp_handshake::{PeerConfig, StaticPinnedKeyStore, JwksResolver};
@@ -117,8 +102,15 @@ impl<'a> PeerConfig<'a> {
     /// #     now: aitp_core::Timestamp,
     /// # ) {
     /// let trusted = StaticPinnedKeyStore::new([peer.verifying_key()]);
-    /// let cfg = PeerConfig::new(key, manifest, resolver, &trusted, now)
-    ///     .with_trust_anchors(&[]);
+    /// let cfg = PeerConfig::new(
+    ///     key,
+    ///     manifest,
+    ///     resolver,
+    ///     &trusted,
+    ///     aitp_handshake::RevocationSource::FailOpen,
+    ///     now,
+    /// )
+    /// .with_trust_anchors(&[]);
     /// # let _ = cfg;
     /// # }
     /// ```
@@ -127,6 +119,7 @@ impl<'a> PeerConfig<'a> {
         manifest: &'a Manifest,
         jwks_resolver: &'a dyn JwksResolver,
         pinned_key_store: &'a dyn PinnedKeyStore,
+        revocation: RevocationSource<'a>,
         now: Timestamp,
     ) -> Self {
         Self {
@@ -136,7 +129,7 @@ impl<'a> PeerConfig<'a> {
             jwks_resolver,
             pinned_key_store,
             grant_policy: None,
-            revocation_check: None,
+            revocation,
             now,
         }
     }
@@ -153,13 +146,48 @@ impl<'a> PeerConfig<'a> {
         self.grant_policy = Some(grant_policy);
         self
     }
+}
 
-    /// Set the revocation hook (default: none). See
-    /// [`PeerConfig::revocation_check`].
-    pub fn with_revocation_check(mut self, revocation_check: &'a RevocationCheckFn) -> Self {
-        self.revocation_check = Some(revocation_check);
-        self
+/// Where a [`PeerConfig`] gets revocation status for the peer-issued
+/// TCT (RFC-AITP-0008).
+///
+/// There is deliberately no `Default`: a verifier with no revocation
+/// source silently accepts revoked-but-unexpired TCTs, so the caller
+/// names one of the two choices.
+#[derive(Clone, Copy)]
+pub enum RevocationSource<'a> {
+    /// Consult this hook after the TCT verifies. A hook that cannot
+    /// determine the status under `fail_closed` (the RFC-AITP-0008 §3.1
+    /// default) returns
+    /// `Err(HandshakeError::Tct(TctError::RevocationUnavailable(_)))`.
+    /// `aitp_transport_http::revocation` builds such hooks from the
+    /// peer's advertised `ListRevoked` endpoint.
+    Check(&'a RevocationCheckFn),
+    /// No revocation source: accept the TCT without any lookup, the
+    /// `fail_open` mode with the source always unavailable. A revoked
+    /// but unexpired TCT is accepted. A warning is logged once per
+    /// process. Tests and in-process demos only.
+    FailOpen,
+}
+
+impl std::fmt::Debug for RevocationSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Check(_) => f.write_str("RevocationSource::Check(..)"),
+            Self::FailOpen => f.write_str("RevocationSource::FailOpen"),
+        }
     }
+}
+
+/// Logs the [`RevocationSource::FailOpen`] warning at most once.
+fn warn_fail_open_once() {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    WARNED.call_once(|| {
+        tracing::warn!(
+            "PeerConfig uses RevocationSource::FailOpen: peer-issued TCTs are \
+             accepted without a revocation check (RFC-AITP-0008 fail_open)"
+        );
+    });
 }
 
 /// Outcome of a handshake-time revocation check (RFC-AITP-0008).
@@ -719,7 +747,14 @@ fn verify_received_tct(
     // `verify_tct` has succeeded under the handshake-pinned issuer AID,
     // so a hook keyed off the issuer cannot be steered by an attacker.
     let mut safe_subset: Option<Vec<String>> = None;
-    if let Some(check) = cfg.revocation_check {
+    let check = match cfg.revocation {
+        RevocationSource::Check(check) => Some(check),
+        RevocationSource::FailOpen => {
+            warn_fail_open_once();
+            None
+        }
+    };
+    if let Some(check) = check {
         match check(&claims.iss, &claims.jti)? {
             HandshakeRevocationDecision::Clear => {}
             HandshakeRevocationDecision::Revoked => {
@@ -803,12 +838,51 @@ enum InitiatorState {
         // HELLO_ACK. Used on COMMIT_ACK to reject a peer-issued TCT that
         // grants more than the peer advertises (GRANT_OVERFLOW).
         peer_offered_capabilities: Vec<String>,
+        // The peer Manifest's advertised `ListRevoked` URL, if any
+        // (RFC-AITP-0008 §1.4). See `peer_revocation_list_uri`.
+        peer_revocation_list_uri: Option<String>,
     },
     Done,
     Failed,
 }
 
+/// The `rfc-aitp-0008.revocation_list_uri` extension of a Manifest, as
+/// a raw string. The transport validates it (HTTPS only) before use.
+fn revocation_list_uri(manifest: &Manifest) -> Option<String> {
+    manifest
+        .extensions
+        .as_ref()?
+        .get(aitp_manifest::REVOCATION_LIST_URI_EXT)?
+        .as_str()
+        .map(str::to_owned)
+}
+
 impl Initiator {
+    /// The `ListRevoked` URL the peer's Manifest advertises
+    /// (RFC-AITP-0008 §1.4), available after [`Self::on_hello_ack`]
+    /// verifies that Manifest. A caller that fetches revocation
+    /// asynchronously reads it here to prepare the
+    /// [`RevocationSource`] for [`Self::on_commit_ack`]. `None` before
+    /// HELLO_ACK, after completion, or when the Manifest has none.
+    pub fn peer_revocation_list_uri(&self) -> Option<&str> {
+        match &self.state {
+            InitiatorState::AwaitingCommitAck {
+                peer_revocation_list_uri,
+                ..
+            } => peer_revocation_list_uri.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The peer AID authenticated by [`Self::on_hello_ack`]; the issuer
+    /// of the TCT [`Self::on_commit_ack`] will verify.
+    pub fn peer_aid(&self) -> Option<&Aid> {
+        match &self.state {
+            InitiatorState::AwaitingCommitAck { peer_aid, .. } => Some(peer_aid),
+            _ => None,
+        }
+    }
+
     /// Begin a new handshake. Returns the session and the
     /// `MutualHelloPayload` to wrap in an envelope and POST.
     ///
@@ -939,6 +1013,7 @@ impl Initiator {
             peer_pubkey,
             peer_manifest_expires_at: ack.manifest.expires_at,
             peer_offered_capabilities: ack.manifest.offered_capabilities.clone(),
+            peer_revocation_list_uri: revocation_list_uri(&ack.manifest),
         };
         Ok(commit)
     }
@@ -1034,12 +1109,39 @@ enum ResponderState {
         // Used on COMMIT to reject a peer-issued TCT that grants more
         // than the peer advertises (GRANT_OVERFLOW).
         peer_offered_capabilities: Vec<String>,
+        // The peer Manifest's advertised `ListRevoked` URL, if any.
+        peer_revocation_list_uri: Option<String>,
     },
     Done,
     Failed,
 }
 
 impl Responder {
+    /// The `ListRevoked` URL the initiator's Manifest advertises
+    /// (RFC-AITP-0008 §1.4), available after [`Self::on_hello`]
+    /// verifies that Manifest. A server that fetches revocation
+    /// asynchronously reads it here to prepare the
+    /// [`RevocationSource`] for [`Self::on_commit`]. `None` after
+    /// completion or when the Manifest has none.
+    pub fn peer_revocation_list_uri(&self) -> Option<&str> {
+        match &self.state {
+            ResponderState::AwaitingCommit {
+                peer_revocation_list_uri,
+                ..
+            } => peer_revocation_list_uri.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The initiator AID authenticated by [`Self::on_hello`]; the
+    /// issuer of the TCT [`Self::on_commit`] will verify.
+    pub fn peer_aid(&self) -> Option<&Aid> {
+        match &self.state {
+            ResponderState::AwaitingCommit { peer_aid, .. } => Some(peer_aid),
+            _ => None,
+        }
+    }
+
     /// Process MUTUAL_HELLO; return (responder, MUTUAL_HELLO_ACK payload).
     pub fn on_hello(
         envelope: &AitpEnvelope,
@@ -1094,6 +1196,7 @@ impl Responder {
                     peer_identity: hello.identity.clone(),
                     peer_manifest_expires_at: hello.manifest.expires_at,
                     peer_offered_capabilities: hello.manifest.offered_capabilities.clone(),
+                    peer_revocation_list_uri: revocation_list_uri(&hello.manifest),
                 },
             },
             ack,

@@ -127,14 +127,16 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
   `experimental-session-bundle` Cargo feature, and in-band TCT renewal
   (RFC-0013, Planned) behind `experimental-renewal`, both on the `aitp`
   facade. The language SDKs ship these features **on by default**.
-- **Revocation checking is the verifier's obligation.** `verify_tct`
-  consults revocation only when a revocation source is configured; the
-  SDKs accept a caller-supplied revoked-`jti` set. A revoked but
-  unexpired TCT is accepted if no source is wired. The
-  strict `TctVerifyContext::builder()` makes the revocation and
-  manifest-expiry-cap decisions **explicit** (opting out requires a named
-  `*_dangerous` waiver); the permissive `permissive_at()` constructor
-  preserves the older accept-if-unwired behavior.
+- **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
+  revocation status for a TCT treats it as revoked (`TCT_REVOKED`). The
+  `HandshakeServer` and `run_initiator_handshake` fetch the peer's
+  advertised `ListRevoked` snapshot, so a peer whose Manifest carries no
+  reachable `rfc-aitp-0008.revocation_list_uri` is refused unless the
+  verifier sets `RevocationFailMode::FailOpen`. `TctVerifyContext::builder()`
+  will not build until a revocation hook is given or the
+  `accept_unchecked_revocation_dangerous()` waiver is named. The SDKs
+  take a caller-supplied revoked-`jti` list (`[]` means nothing is
+  revoked), and omitting it fails closed unless `revocation="fail_open"`.
 - **JWKS resolution from a current-thread runtime.** The synchronous
   `JwksResolver::resolve` sync→async bridge uses `block_in_place`,
   which requires a multi-thread tokio runtime; on a current-thread

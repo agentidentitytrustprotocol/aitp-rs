@@ -305,6 +305,11 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// builder can configure a server whose `Arc<HandshakeState>` is
     /// already shared.
     pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
+    /// Revocation lookups for the initiator-issued TCT at COMMIT
+    /// (RFC-AITP-0008), against the `ListRevoked` URL the initiator's
+    /// Manifest advertises. Defaults to `fail_closed`; see
+    /// [`HandshakeServer::with_revocation_policy`].
+    revocation_fetcher: Mutex<Arc<crate::revocation_fetch::RevocationFetcher>>,
 }
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
@@ -424,6 +429,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
+                revocation_fetcher: Mutex::new(Arc::new(
+                    crate::revocation_fetch::RevocationFetcher::default(),
+                )),
             }),
             revocation_producer: None,
             #[cfg(feature = "experimental-renewal")]
@@ -577,6 +585,30 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
+    /// Set how the initiator-issued TCT's revocation status is checked
+    /// at COMMIT (RFC-AITP-0008). The default is `fail_closed`: an
+    /// initiator whose Manifest advertises no reachable, valid
+    /// `ListRevoked` snapshot ([`crate::REVOCATION_LIST_URI_EXT`]) is
+    /// rejected with `TCT_REVOKED`. Pass
+    /// [`RevocationFailMode::FailOpen`](crate::RevocationFailMode::FailOpen)
+    /// to opt out.
+    pub fn with_revocation_policy(self, policy: crate::RevocationPolicy) -> Self {
+        self.with_revocation_fetcher(Arc::new(crate::revocation_fetch::RevocationFetcher::new(
+            policy,
+        )))
+    }
+
+    /// Replace the revocation fetcher, e.g. to change its
+    /// [`HostGuard`](crate::HostGuard) or timeout. Its policy replaces
+    /// any set by [`Self::with_revocation_policy`].
+    pub fn with_revocation_fetcher(
+        self,
+        fetcher: Arc<crate::revocation_fetch::RevocationFetcher>,
+    ) -> Self {
+        *self.state.revocation_fetcher.lock() = fetcher;
+        self
+    }
+
     /// Replace the envelope replay-detection store (RFC-AITP-0001 §5.5).
     /// The default is per-process in-memory; a **clustered** deployment
     /// MUST supply a shared [`ReplayGuard`](crate::replay_store::ReplayGuard)
@@ -648,8 +680,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
             );
         }
         let source = match self.revocation_producer {
-            Some(producer) => RevocationSource::Producer(producer),
-            None => RevocationSource::SignedEmpty(SignedEmptySnapshot::new(Arc::clone(
+            Some(producer) => ListSource::Producer(producer),
+            None => ListSource::SignedEmpty(SignedEmptySnapshot::new(Arc::clone(
                 &self.state.signing_key,
             ))),
         };
@@ -783,7 +815,7 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
                 .collect()
         })
         .unwrap_or_default();
-    let revocation_check = move |jti: &Uuid| revoked.contains(jti);
+    let revocation_check = move |jti: &Uuid| Ok(revoked.contains(jti));
     let now = Timestamp::now();
     let mut ctx = RenewalContext::new(
         state.manifest.expires_at,
@@ -852,7 +884,7 @@ fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
         | TctError::Crypto(CryptoError::JwsMalformed(_)) => ErrorCode::InvalidEnvelope,
         TctError::UnknownField(_) => ErrorCode::UnknownField,
         TctError::VersionUnknown => ErrorCode::UnknownVersion,
-        TctError::Revoked => ErrorCode::TctRevoked,
+        TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
         TctError::Expired => ErrorCode::TctExpired,
         TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
         TctError::PopFailed => ErrorCode::PopResponseInvalid,
@@ -867,7 +899,7 @@ fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
 }
 
 /// Where the `ListRevoked` route gets its snapshot.
-enum RevocationSource {
+enum ListSource {
     /// Operator-supplied deny list.
     Producer(Arc<dyn RevocationListProducer>),
     /// Default: an empty snapshot signed by the issuer key.
@@ -911,7 +943,7 @@ impl SignedEmptySnapshot {
     }
 }
 
-fn revocation_router(source: RevocationSource) -> Router {
+fn revocation_router(source: ListSource) -> Router {
     let source = Arc::new(source);
     Router::new().route(
         REVOCATION_LIST_PATH,
@@ -919,8 +951,8 @@ fn revocation_router(source: RevocationSource) -> Router {
             let source = source.clone();
             async move {
                 match &*source {
-                    RevocationSource::Producer(p) => Json(p.current()).into_response(),
-                    RevocationSource::SignedEmpty(d) => match d.current() {
+                    ListSource::Producer(p) => Json(p.current()).into_response(),
+                    ListSource::SignedEmpty(d) => match d.current() {
                         Ok(env) => Json(env).into_response(),
                         // Local signing-backend fault: there is no
                         // snapshot to serve. Consumers see the issuer as
@@ -1004,11 +1036,21 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
+    // No TCT is exchanged at HELLO, so the revocation source is never
+    // consulted here; the COMMIT handler supplies the real lookup.
+    let no_tct_at_hello = |_: &aitp_core::Aid, _: &Uuid| {
+        Err(HandshakeError::Tct(
+            aitp_tct::TctError::RevocationUnavailable(
+                "no revocation lookup at MUTUAL_HELLO".into(),
+            ),
+        ))
+    };
     let cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
+        aitp_handshake::RevocationSource::Check(&no_tct_at_hello),
         aitp_core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
@@ -1164,11 +1206,30 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
+    // RFC-AITP-0008: fetch the initiator's revocation snapshot before the
+    // sync `on_commit`. The issuer and URL come from the Manifest that
+    // HELLO already bound to the initiator's key, never from the
+    // unverified TCT (§3.3).
+    let peer_aid = entry
+        .responder
+        .peer_aid()
+        .cloned()
+        .ok_or_else(ResponseError::server_error)?;
+    let list_uri = entry
+        .responder
+        .peer_revocation_list_uri()
+        .map(str::to_owned);
+    let fetcher = state.revocation_fetcher.lock().clone();
+    let prepared = fetcher
+        .prepare(&peer_aid, list_uri.as_deref(), aitp_core::Timestamp::now())
+        .await;
+    let revocation_check = move |iss: &aitp_core::Aid, jti: &Uuid| prepared.decide(iss, jti);
     let cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
+        aitp_handshake::RevocationSource::Check(&revocation_check),
         aitp_core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
@@ -1614,7 +1675,7 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
         // TCT_SIGNATURE_INVALID misreports a revoked or expired TCT to
         // the peer as a signature failure.
         HE::Tct(tct_err) => match tct_err {
-            TctError::Revoked => ErrorCode::TctRevoked,
+            TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
             TctError::Expired => ErrorCode::TctExpired,
             TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
             _ => ErrorCode::TctSignatureInvalid,

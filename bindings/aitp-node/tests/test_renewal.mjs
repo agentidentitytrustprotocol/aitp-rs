@@ -32,10 +32,10 @@ function issuedPair() {
   const hello = sess.buildHello(aManifest, ['demo.write']);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
   // `complete()` yields { tct, claims, grantVoucher? }; the renewal API
   // takes the opaque TCT token string.
-  const bHeld = sess.complete(commitAck).tct;
+  const bHeld = sess.complete(commitAck, []).tct;
   return { a, b, bHeld };
 }
 

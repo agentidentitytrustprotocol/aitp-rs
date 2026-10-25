@@ -331,7 +331,7 @@ fn revoked_rejected() {
     let subject = subject_key();
     let issued = issue_at(now);
     let target = issued.claims.jti;
-    let revoked = move |jti: &Uuid| *jti == target;
+    let revoked = move |jti: &Uuid| Ok(*jti == target);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
         .revocation_check(&revoked)
         .skip_manifest_expiry_cap_dangerous()
@@ -341,6 +341,33 @@ fn revoked_rejected() {
         verify_tct(&issued.token, &ctx).unwrap_err(),
         TctError::Revoked
     ));
+}
+
+/// tct-024: an unknown revocation status is its own error, distinct in
+/// its detail from a listed `jti`, and still only reached after the
+/// signature verifies.
+#[test]
+fn revocation_unavailable_is_distinct_from_revoked() {
+    let now = Timestamp(1_700_000_000);
+    let issuer = issuer_key();
+    let subject = subject_key();
+    let issued = issue_at(now);
+    let unavailable = |_: &Uuid| {
+        Err(TctError::RevocationUnavailable(
+            "no snapshot for issuer".into(),
+        ))
+    };
+    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
+        .revocation_check(&unavailable)
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
+    let err = verify_tct(&issued.token, &ctx).unwrap_err();
+    assert!(matches!(err, TctError::RevocationUnavailable(_)));
+    assert_eq!(
+        err.to_string(),
+        "revocation source unavailable: no snapshot for issuer"
+    );
 }
 
 #[test]

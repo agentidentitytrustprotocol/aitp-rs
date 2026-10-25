@@ -18,7 +18,7 @@ use aitp::facade::{
 };
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::transport::{HandshakeServer, ManifestServer};
+use aitp::transport::{HandshakeServer, ManifestServer, RevocationFailMode, RevocationPolicy};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -31,7 +31,20 @@ impl JwksResolver for NoOpResolver {
 }
 
 fn manifest_for(key: &AitpSigningKey, name: &str, handshake_endpoint: &str) -> Manifest {
-    ManifestBuilder::new(key)
+    manifest_with_revocation(key, name, handshake_endpoint, None)
+}
+
+fn manifest_with_revocation(
+    key: &AitpSigningKey,
+    name: &str,
+    handshake_endpoint: &str,
+    revocation_list_uri: Option<String>,
+) -> Manifest {
+    let mut builder = ManifestBuilder::new(key);
+    if let Some(uri) = revocation_list_uri {
+        builder = builder.revocation_list_uri(uri.parse().unwrap());
+    }
+    builder
         .display_name(name)
         .handshake_endpoint(handshake_endpoint.parse().unwrap())
         .identity_hint(IdentityHint {
@@ -53,13 +66,29 @@ fn manifest_for(key: &AitpSigningKey, name: &str, handshake_endpoint: &str) -> M
 /// Spawn Bob's server (Manifest + handshake routes). `pin_initiator`
 /// controls the pinned-key store: `None` accepts any peer; `Some(false)`
 /// installs an empty store that rejects the (untrusted) initiator.
+/// Bob advertises the revocation list his `HandshakeServer` serves; he
+/// runs `fail_open` because Alice, who runs no server, publishes none.
 async fn spawn_bob(seed: u8, reject_initiator: bool) -> (AitpSigningKey, url::Url) {
+    spawn_bob_with(seed, reject_initiator, true).await
+}
+
+async fn spawn_bob_with(
+    seed: u8,
+    reject_initiator: bool,
+    advertise_revocation: bool,
+) -> (AitpSigningKey, url::Url) {
     let bob = AitpSigningKey::from_seed(&[seed; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     // Trailing slash: the facade resolves routes via endpoint.join("hello").
     let endpoint = format!("http://localhost:{port}/aitp/handshake/");
-    let manifest = manifest_for(&bob, "bob", &endpoint);
+    let list_uri = advertise_revocation.then(|| {
+        format!(
+            "http://localhost:{port}{}",
+            aitp::transport::REVOCATION_LIST_PATH
+        )
+    });
+    let manifest = manifest_with_revocation(&bob, "bob", &endpoint, list_uri);
 
     let bob_server_key = AitpSigningKey::from_seed(&[seed; 32]); // same identity
     let mut handshake = HandshakeServer::new(
@@ -68,7 +97,11 @@ async fn spawn_bob(seed: u8, reject_initiator: bool) -> (AitpSigningKey, url::Ur
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-    );
+    )
+    .with_revocation_policy(RevocationPolicy {
+        fail_mode: RevocationFailMode::FailOpen,
+        ..Default::default()
+    });
     if reject_initiator {
         // Empty pinned store ⇒ no pinned-key peer is trusted ⇒ reject.
         handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::default()));
@@ -131,6 +164,52 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
             .any(|g| g == "demo.echo"),
         "held TCT carries the requested grant"
     );
+}
+
+/// RS1.2: the facade's default revocation policy is `fail_closed`, so a
+/// peer whose Manifest advertises no revocation list is refused after
+/// COMMIT_ACK with `RevocationUnavailable` (`TCT_REVOKED` on the wire),
+/// distinct from a revoked TCT. `fail_open` admits the same peer.
+#[tokio::test]
+async fn facade_fails_closed_without_peer_revocation_list() {
+    let (bob, bob_origin) = spawn_bob_with(0x77, false, false).await;
+
+    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
+    let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let config = || {
+        InitiatorConfig::new(
+            &alice,
+            &alice_manifest,
+            bob_origin.clone(),
+            TrustMode::PinnedKeys(&trusted),
+            IdentityMode::PinnedKey {
+                subject: "alice".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_insecure_localhost(true)
+    };
+
+    let err = run_initiator_handshake(config())
+        .await
+        .expect_err("no revocation list under fail_closed must be refused");
+    assert!(
+        matches!(
+            err,
+            FacadeError::Handshake(aitp::handshake::HandshakeError::Tct(
+                aitp::tct::TctError::RevocationUnavailable(_)
+            ))
+        ),
+        "got {err:?}"
+    );
+
+    run_initiator_handshake(config().with_revocation_policy(RevocationPolicy {
+        fail_mode: RevocationFailMode::FailOpen,
+        ..Default::default()
+    }))
+    .await
+    .expect("fail_open admits the peer");
 }
 
 #[tokio::test]
