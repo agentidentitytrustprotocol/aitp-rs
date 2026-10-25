@@ -208,9 +208,14 @@ pub enum RevocationFailMode {
     /// kept fresh still fails closed, so a list that exists is never
     /// ignored.
     ///
-    /// For a responder that receives TCTs it never acts on, such as a
-    /// public interop peer whose initiators (a CLI, a CI job) have no
-    /// list to publish. Only [`crate::RevocationFetcher`], which sees the
+    /// **Only for TCTs the deployment never uses to authorise anything.**
+    /// A TCT accepted this way has had no revocation check, so it must
+    /// gate no action, grant or data. The example is the interop peer
+    /// (`aitp serve --interop`): its initiators (a CLI, a CI job) publish
+    /// no list, and it discards the TCT they issue it. A service that
+    /// acts on received TCTs keeps the default, [`Self::FailClosed`].
+    ///
+    /// Only [`crate::RevocationFetcher`], which sees the
     /// Manifest, can tell the two cases apart; [`RevocationCache`] treats
     /// this mode as [`Self::FailClosed`].
     FailOpenIfUnadvertised,
