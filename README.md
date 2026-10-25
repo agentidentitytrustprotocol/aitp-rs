@@ -15,6 +15,23 @@ Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 > pin, and what they do and do not prove, are in
 > [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix).
 
+## Hello world
+
+Install the CLI, enroll a key with the public
+[interop peer](docs/interop-peer.md) and complete a real handshake with
+it. `aitp echo` hands back the TCT the peer issued, with proof of
+possession:
+
+```bash readme-smoke
+cargo install aitp-cli
+aitp enroll https://interop.agentidentitytrustprotocol.io
+aitp echo https://interop.agentidentitytrustprotocol.io
+```
+
+[`readme-smoke`](.github/workflows/readme-smoke.yml) runs this block
+daily, as written, against the public peer. On every pull request it runs
+the same block against a peer built from the checkout. [cli.md](docs/cli.md) covers the other commands.
+
 ## What is AITP?
 
 AITP (Agent Identity & Trust Protocol) lets two agents establish mutual

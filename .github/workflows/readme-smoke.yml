@@ -1,0 +1,99 @@
+name: readme-smoke
+
+# Runs the README's hello world block (the ```bash readme-smoke fence;
+# scripts/extract-readme-block.sh), so it can't rot:
+#   - local: on every pull request and push to main, against an interop
+#     peer built from the checkout, with `cargo install aitp-cli` pointed at
+#     crates/aitp-cli. Blocking: a broken command or flag fails it.
+#   - live: daily (and on workflow_dispatch), verbatim against the public
+#     peer with aitp-cli from crates.io. Never blocks a PR. A failure opens
+#     (or comments on) a single issue labelled `readme-smoke`, and the next
+#     pass closes it.
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: readme-smoke-${{ github.ref }}-${{ github.event_name }}
+  cancel-in-progress: true
+
+jobs:
+  local:
+    name: README hello world (local peer)
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-latest
+    env:
+      CARGO_TARGET_DIR: ${{ github.workspace }}/target
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.90.0"
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - run: cargo build --locked -p aitp-cli --features serve
+      - name: Run the peer
+        run: |
+          AITP_PEER_KEY="$(target/debug/aitp keygen)" target/debug/aitp serve --interop \
+            --listen 127.0.0.1:8080 --public-url http://localhost:8080 2> peer.log &
+          for _ in $(seq 1 30); do curl -fsS localhost:8080/status && exit 0; sleep 1; done
+          cat peer.log; exit 1
+      - name: The README block
+        run: scripts/extract-readme-block.sh --local http://localhost:8080 | bash
+      - if: always()
+        run: cat peer.log || true
+
+  live:
+    name: README hello world (public peer)
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: stable
+      - name: The README block
+        id: block
+        # Timed from `cargo install` to the printed claims: the spec's
+        # hello world promises under five minutes on a clean machine.
+        run: |
+          start=$(date +%s)
+          scripts/extract-readme-block.sh | bash
+          echo "::notice title=README hello world::$(( $(date +%s) - start ))s from cargo install to verified echo ($(nproc) vCPU)"
+      - name: Open or update the readme-smoke issue
+        if: failure() && steps.block.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          gh label create readme-smoke --color d93f0b \
+            --description "The README hello world failed against the public interop peer" 2>/dev/null || true
+          issue="$(gh issue list --label readme-smoke --state open --json number --jq '.[0].number // empty')"
+          if [ -n "$issue" ]; then
+            gh issue comment "$issue" --body "Still failing: $RUN_URL"
+          else
+            gh issue create --label readme-smoke \
+              --title "README hello world fails against the public interop peer" \
+              --body "The README's hello world block failed against https://interop.agentidentitytrustprotocol.io: $RUN_URL
+
+          Check the peer first (\`curl https://interop.agentidentitytrustprotocol.io/status\`, docs/interop-peer.md), then the latest aitp-cli on crates.io. The next passing run closes this issue."
+          fi
+      - name: Close the readme-smoke issue
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          for issue in $(gh issue list --label readme-smoke --state open --json number --jq '.[].number'); do
+            gh issue close "$issue" --comment "Passing again: $RUN_URL"
+          done
