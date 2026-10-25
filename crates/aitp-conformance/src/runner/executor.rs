@@ -242,6 +242,7 @@ impl<A: Adapter> Runner<A> {
         let outcome = match &fixture.input.variant {
             FixtureInputVariant::Single(params) => {
                 let mut params = params.clone();
+                apply_receiver_policy_default(&fixture.id, &mut params);
                 self.ctx.substitute(&mut params);
                 self.run_single(&params, fixture.expected.as_ref())
             }
@@ -409,6 +410,24 @@ impl<A: Adapter> Runner<A> {
     }
 }
 
+/// An `mh-*` `verify_handshake_payload` fixture runs RFC-AITP-0004 §5.1
+/// through step 8, so the receiver's `accepted_identity_types` is the
+/// stated `self_accepted_identity_types` or, when absent, the default
+/// `["oidc"]`; the runner adds no types of its own. An `id-*` fixture
+/// stops at step 6 and gets no policy (README, "Receiver policy inputs").
+fn apply_receiver_policy_default(fixture_id: &str, params: &mut serde_json::Value) {
+    if !fixture_id.starts_with("mh-") {
+        return;
+    }
+    let Some(map) = params.as_object_mut() else {
+        return;
+    };
+    if map.get("operation").and_then(|v| v.as_str()) == Some("verify_handshake_payload") {
+        map.entry("self_accepted_identity_types")
+            .or_insert_with(|| serde_json::json!(["oidc"]));
+    }
+}
+
 /// Replace each `__ISSUED_NONCE_<n>__` string (1-based) whose nonce
 /// has been captured. One not yet captured is left for the placeholder
 /// pass, which records it as unminted.
@@ -568,6 +587,27 @@ fn negated_by_feature(error_code: &str) -> Option<&'static str> {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn receiver_policy_default_applies_to_mh_payload_fixtures_only() {
+        let mut absent = json!({"operation": "verify_handshake_payload"});
+        apply_receiver_policy_default("mh-011", &mut absent);
+        assert_eq!(absent["self_accepted_identity_types"], json!(["oidc"]));
+
+        let mut stated = json!({
+            "operation": "verify_handshake_payload",
+            "self_accepted_identity_types": ["pinned_key"],
+        });
+        apply_receiver_policy_default("mh-012", &mut stated);
+        assert_eq!(
+            stated["self_accepted_identity_types"],
+            json!(["pinned_key"])
+        );
+
+        let mut id_fixture = json!({"operation": "verify_handshake_payload"});
+        apply_receiver_policy_default("id-017", &mut id_fixture);
+        assert!(id_fixture.get("self_accepted_identity_types").is_none());
+    }
 
     fn expected(v: serde_json::Value) -> FixtureExpected {
         serde_json::from_value(v).unwrap()

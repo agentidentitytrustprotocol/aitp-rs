@@ -45,7 +45,7 @@ pub use payloads::{
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 pub use state_machine::{
-    bootstrap_verify_peer, CompletedHandshake, HandshakeRevocationDecision, Initiator,
-    OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, RevocationSource,
-    SessionId,
+    apply_peer_policy, bootstrap_verify_peer, CompletedHandshake, HandshakeRevocationDecision,
+    Initiator, OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder, RevocationCheckFn,
+    RevocationSource, SessionId,
 };

@@ -853,13 +853,31 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                     .expect("key was constructed as Ed25519, never P-256"),
             )),
         })
-        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
-        .accept_identity_type("oidc");
-    let self_manifest = if spiffe_enabled {
-        self_manifest.accept_identity_type("spiffe")
-    } else {
-        self_manifest
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap());
+    // RFC-AITP-0004 §5.1 step 8: an `mh-*` fixture states the receiver's
+    // own `accepted_identity_types` as `self_accepted_identity_types`, and
+    // the runner fills in the default `["oidc"]` when it is absent. An
+    // `id-*` fixture stops at step 6 and states none, so the verifier
+    // accepts every type it supports (PLACEHOLDERS.md `id-*` row).
+    let self_manifest = match params
+        .get("self_accepted_identity_types")
+        .and_then(|v| v.as_array())
+    {
+        Some(types) if types.is_empty() => self_manifest.accept_no_identity_types(),
+        Some(types) => types
+            .iter()
+            .filter_map(|t| t.as_str())
+            .fold(self_manifest, |b, t| b.accept_identity_type(t)),
+        None => {
+            let b = self_manifest
+                .accept_identity_type("pinned_key")
+                .accept_identity_type("oidc");
+            if spiffe_enabled {
+                b.accept_identity_type("spiffe")
+            } else {
+                b
+            }
+        }
     };
     let self_manifest = match self_manifest
         .ttl_secs(3600)
@@ -901,11 +919,20 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // required. Fixtures that exercise it (e.g. id-007) supply
     // `trust_store` as a list of AID strings (Ed25519 or P-256).
     let trust_store = harness_pinned_trust(&params, &envelope.sender.agent_id);
-    let cfg_anchors: Vec<aitp_core::RawUrl> = vec![
-        "https://auth.openai.com".parse().unwrap(),
-        "https://auth.anthropic.com".parse().unwrap(),
-        "https://idp.example.com".parse().unwrap(),
-    ];
+    // `self_trust_anchors` is the receiver's OIDC `trust_anchors` when the
+    // fixture states it (README, "Receiver policy inputs").
+    let cfg_anchors: Vec<aitp_core::RawUrl> =
+        match params.get("self_trust_anchors").and_then(|v| v.as_array()) {
+            Some(anchors) => anchors
+                .iter()
+                .filter_map(|a| a.as_str()?.parse().ok())
+                .collect(),
+            None => vec![
+                "https://auth.openai.com".parse().unwrap(),
+                "https://auth.anthropic.com".parse().unwrap(),
+                "https://idp.example.com".parse().unwrap(),
+            ],
+        };
     let mut cfg = PeerConfig::new(
         &self_key,
         &self_manifest,
@@ -925,13 +952,16 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
         MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
-    use aitp_handshake::state_machine::bootstrap_verify_peer;
+    use aitp_handshake::state_machine::{apply_peer_policy, bootstrap_verify_peer};
     use aitp_handshake::HandshakeError;
 
     let hello_family = matches!(
         envelope.message_type,
         MessageType::MutualHello | MessageType::MutualHelloAck
     );
+    // The identity a HELLO-family peer presented, for the step 8 policy
+    // check once the envelope signature (step 7) passes.
+    let mut peer_identity = None;
     let result = match envelope.message_type {
         MessageType::MutualHello => {
             if let Err(e) = check_members(
@@ -959,8 +989,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                     }
                 }
             };
-            bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
-                .map(|_| ())
+            let r = bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
+                .map(|_| ());
+            peer_identity = Some(p.identity);
+            r
         }
         MessageType::MutualHelloAck => {
             if let Err(e) = check_members(
@@ -1003,8 +1035,10 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                     );
                 }
             }
-            bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
-                .map(|_| ())
+            let r = bootstrap_verify_peer(&envelope, &p.manifest, &p.identity, &p.pop_nonce, &cfg)
+                .map(|_| ());
+            peer_identity = Some(p.identity);
+            r
         }
         MessageType::MutualCommitAck | MessageType::MutualCommit => {
             // RFC-AITP-0004 §5.1 step 7-8: verify the peer-issued
@@ -1081,6 +1115,12 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     if result.is_ok() && hello_family {
         if let Err(e) = verify_envelope_sig(&envelope) {
             return err(id, "INVALID_SIGNATURE", &format!("envelope: {e}"));
+        }
+        // RFC-AITP-0004 §5.1 step 8 / §5.2, after steps 6 and 7.
+        if let Some(identity) = &peer_identity {
+            if let Err(e) = apply_peer_policy(identity, &cfg) {
+                return err(id, &handshake_error_code(&e), &e.to_string());
+            }
         }
     }
     match result {

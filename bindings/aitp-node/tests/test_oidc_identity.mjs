@@ -166,7 +166,10 @@ function oidcHelloToPinnedBob(bobAcceptedIdentityTypes) {
 // agent's own type, so a pinned-key bob refuses an OIDC peer.
 test('pinned responder rejects an OIDC peer by default', () => {
   const { rsess, hello } = oidcHelloToPinnedBob(undefined);
-  assert.throws(() => rsess.processHello(hello), /does not accept identity type `oidc`/);
+  assert.throws(() => rsess.processHello(hello), {
+    code: 'INCOMPATIBLE_IDENTITY_TYPE',
+    message: /does not accept identity type `oidc`/,
+  });
 });
 
 test('pinned responder accepts a listed OIDC peer', () => {
@@ -177,5 +180,27 @@ test('pinned responder accepts a listed OIDC peer', () => {
 
 test('empty acceptedIdentityTypes rejects every peer', () => {
   const { rsess, hello } = oidcHelloToPinnedBob([]);
-  assert.throws(() => rsess.processHello(hello), /does not accept identity type/);
+  assert.throws(() => rsess.processHello(hello), {
+    code: 'INCOMPATIBLE_IDENTITY_TYPE',
+    message: /does not accept identity type/,
+  });
+});
+
+test('a bad identity proof carries code IDENTITY_FAILED', () => {
+  const { issuer, provider, alice, bob } = setup();
+  const bManifest = bob.buildManifest({
+    displayName: 'bob',
+    handshakeEndpoint: 'https://bob.example.test/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+    acceptedIdentityTypes: ['pinned_key', 'oidc'],
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const aJkt = aidJkt(alice.aid);
+  // Alice's JWT names the wrong audience, so the proof (step 6) fails.
+  const aMint = (nonce) =>
+    issuer.mint({ sub: 'alice', aud: alice.aid, nonce, cnfJkt: aJkt, now });
+  const sess = alice.newSession(provider, { pinnedKeys: [bob.aid] });
+  const hello = sess.buildHello(bManifest, ['demo.write'], aMint);
+  const rsess = bob.newResponder(provider, { trustAnchors: [ISSUER_URL] });
+  assert.throws(() => rsess.processHello(hello), { code: 'IDENTITY_FAILED' });
 });
