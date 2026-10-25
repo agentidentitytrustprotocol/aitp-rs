@@ -2,7 +2,7 @@
 //! `rfc-aitp-0005.renew_uri` and never probes a guessed path
 //! (RFC-AITP-0004 §8.1, issue #196).
 
-#![cfg(feature = "experimental-renewal")]
+#![cfg(all(feature = "experimental-renewal", feature = "http-server"))]
 
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;

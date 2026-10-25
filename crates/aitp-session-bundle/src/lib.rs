@@ -1,5 +1,9 @@
 //! Session Trust Bundle (RFC-AITP-0010).
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! In a multi-agent session of N participants, requiring O(N²) bilateral
 //! Mutual Handshakes is unscalable. The Session Trust Bundle is a signed
 //! artifact a coordinator constructs from N coordinator↔participant

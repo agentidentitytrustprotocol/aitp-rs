@@ -1,5 +1,9 @@
 //! HTTP client and server bindings for AITP.
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! Feature-gated. Enable `client` for outbound Manifest fetches and JWKS
 //! resolution; enable `server` for serving Manifests and accepting
 //! incoming handshakes.

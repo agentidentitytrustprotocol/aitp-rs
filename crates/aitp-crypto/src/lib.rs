@@ -1,6 +1,10 @@
 //! Ed25519 / P-256 signing keys, verifying keys, JWK thumbprints, and
 //! the compact-JWS profile for portable trust artifacts
 //! (RFC-AITP-0001 §5.4.5).
+//!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]

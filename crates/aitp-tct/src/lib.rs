@@ -1,5 +1,9 @@
 //! Trust Context Token (TCT) — the canonical output of AITP.
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! A TCT is a signed, audience-bound, capability-scoped grant. Each peer
 //! holds the TCT issued by its counterpart in a Mutual Handshake.
 //!

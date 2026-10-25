@@ -1,5 +1,9 @@
 //! Core types and primitives for the Agent Identity & Trust Protocol (AITP).
 //!
+//! **No stability promise.** This crate is published so the AITP bindings
+//! and tools can build on it; its API can change in any release. Depend
+//! on the [`aitp`](https://docs.rs/aitp) facade crate instead.
+//!
 //! This crate is pure — no I/O, no crypto, no transport. It defines:
 //!
 //! - The [`Aid`] newtype: a validated AITP Agent Identifier.
