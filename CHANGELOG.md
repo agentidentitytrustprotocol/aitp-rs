@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.21.0] — 2026-10-25
+
 ### BREAKING
 
 - Spec pin `0ad4bf2` renames the fixture key `required_for_v0_2` to `required_for_core`, with no alias. The runner reads only the new key, and the conformance report's results carry `required_for_core`. `aitp-conformance run --profile v0.2` is now `--profile core` (the default); `v0.2` is rejected, and `v0.1` is unchanged.
