@@ -615,9 +615,8 @@ jobs:
       # any FAIL; the comparison below is the gate, so it runs either way.
       - name: Run the fixtures against both adapters
         working-directory: aitp-rs
-        env:
-          # The verifier reads the KAT keys from the spec checkout.
-          AITP_SPEC: ${{ github.workspace }}/spec
+        # No AITP_SPEC: both adapters carry the KAT keys they need, so this
+        # also proves the PyPI install works on its own.
         run: |
           for t in rs:./target/debug/aitp-rs-adapter py:../vpy-adapter; do
             ./target/debug/aitp-conformance run \
@@ -628,16 +627,13 @@ jobs:
               --output tap > /dev/null || true
           done
       # Gate: the verifier passes the AITP v0.3 core claim and agrees with
-      # aitp-rs on every fixture. A known divergence must still diverge, so
-      # the list only shrinks.
-      #   del-004: verifier-py 0.1.1 raises KeyError 'self_aid' on the
-      #            frozen v0.1 multi-hop token instead of rejecting it with
-      #            DELEGATION_MULTIHOP_NOT_SUPPORTED (not required_for_core).
+      # aitp-rs on every fixture. A divergence the verifier cannot fix yet
+      # goes in as `--known-divergence <id>` with a comment citing the bug;
+      # an entry that stops diverging fails the job, so the list only
+      # shrinks. There are none.
       - name: aitp-verifier-py agrees with aitp-rs
         working-directory: aitp-rs
-        run: >-
-          python3 scripts/xcheck-compare-reports.py rs-report.json py-report.json
-          --known-divergence del-004
+        run: python3 scripts/xcheck-compare-reports.py rs-report.json py-report.json
       - name: Upload the verifier's conformance report
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
