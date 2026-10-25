@@ -34,9 +34,9 @@ jobs:
     steps:
       - name: Mint GitHub App token
         id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          client-id: ${{ vars.AITP_BOT_CLIENT_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
 
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4

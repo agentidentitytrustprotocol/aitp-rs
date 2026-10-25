@@ -5,4 +5,4 @@ permissions:
   pull-requests: write
 jobs:
   call:
-    uses: agentidentitytrustprotocol/aitp-ci/.github/workflows/auto-merge.yml@v1
+    uses: agentidentitytrustprotocol/aitp-ci/.github/workflows/auto-merge.yml@d9443b907a64a475794c204019b8f55d4751a68b # v1

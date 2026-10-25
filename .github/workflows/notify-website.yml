@@ -13,7 +13,7 @@ on:
   workflow_dispatch:
 
 # The dispatch authenticates via a short-lived aitp-deps-bot App token
-# (org secrets AITP_BOT_APP_ID / AITP_BOT_PRIVATE_KEY) — no PAT.
+# (org variable AITP_BOT_CLIENT_ID, org secret AITP_BOT_PRIVATE_KEY) — no PAT.
 permissions:
   contents: read
 
@@ -23,9 +23,9 @@ jobs:
     steps:
       - name: Mint GitHub App token (scoped to aitp-website)
         id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          client-id: ${{ vars.AITP_BOT_CLIENT_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
           owner: agentidentitytrustprotocol
           repositories: aitp-website
