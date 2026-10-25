@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/aitp-conformance-fixture.schema.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/conformance-fixture.json",
   "title": "AITP Conformance Fixture (metadata block)",
   "description": "Validates the leading metadata block every fixture under schemas/conformance/ MUST carry. Scenario content (`input`, `expected`, `tags`, etc.) is fixture-shape-specific and is not validated here; this schema enforces only the metadata contract that a conformance runner relies on. Runners select fixtures by their own protocol version: a v0.2 runner runs the required_for_v0_2 set, a v0.1 runner the required_for_v0_1 set.",
   "type": "object",

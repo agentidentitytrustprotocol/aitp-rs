@@ -425,7 +425,7 @@ jobs:
         working-directory: aitp-rs
         # No --feature: the v0.2 gate (the default --profile) fails the
         # run if any required_for_v0_2 fixture FAILs or is SKIPped, e.g.
-        # OP_NOT_SUPPORTED. Expected: 80 pass / 0 fail / 24 skip of 104
+        # OP_NOT_SUPPORTED. Expected: 86 pass / 0 fail / 25 skip of 111
         # (the skips are the draft and extension fixtures; see
         # docs/conformance.md).
         run: |
@@ -438,7 +438,7 @@ jobs:
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
         # fixture FAILs or a required_for_v0_2 fixture is SKIPped.
-        # Expected: 102 pass / 0 fail / 2 skip of 104 fixtures (del-004
+        # Expected: 109 pass / 0 fail / 2 skip of 111 fixtures (del-004
         # and del-007 are negated by multi-hop; the runner lists del-007
         # as a gate exemption; see docs/conformance.md).
         run: |

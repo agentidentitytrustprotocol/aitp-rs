@@ -71,6 +71,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     the server already serves the route), or the verifier must opt into
     `fail_open`. A pure client that serves no list is refused by a
     default server.
+- **Spec pin `deee6a9` → `e78ee4b` (`v0.3.2-draft`); schema namespace
+  is `https://agentidentitytrustprotocol.io/schema/v0.3/`** (RS1.3, #313).
+  Every vendored schema's `$id` moves off `aitp.dev`, a strict cutover
+  with no alias. The schema bodies are otherwise unchanged. A tool that
+  resolves AITP schemas by `$id` must use the new namespace. The new
+  core fixtures `tct-024` (no revocation source, default `fail_closed`),
+  `tct-025` (explicit `fail_open`) and `rev-011` (a third-party-signed
+  snapshot is discarded) pass. Totals: 86 pass / 25 skip strict and
+  109 pass / 2 skip with all features, of 111.
 - **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
   specifies either, and both were documented as unsupported (#151).
   `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`

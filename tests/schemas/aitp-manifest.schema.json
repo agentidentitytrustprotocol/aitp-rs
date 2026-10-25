@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/manifest.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/manifest.json",
   "title": "AgentManifest",
   "description": "AITP v0.3 Agent Manifest \u2014 the signed self-description published by every AITP agent. Enables peer agents to discover handshake endpoints, verify identity, and screen trust anchors before initiating a Mutual Handshake (RFC-AITP-0004).",
   "type": "object",

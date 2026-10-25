@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://aitp.dev/schema/v0.3/trust-anchors.json",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/trust-anchors.json",
   "title": "TrustAnchorsConfig",
   "description": "AITP v0.3 trust anchor and pinned key configuration.",
   "type": "object",
