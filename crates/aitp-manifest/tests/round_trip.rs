@@ -511,3 +511,41 @@ fn manifest_without_revocation_list_uri_still_verifies() {
     assert!(m.extensions.is_none());
     verify_manifest(&m, &VerifyManifestContext { now }).expect("absent key is not a reject");
 }
+
+/// RFC-AITP-0014 §4.1: the registered `rfc-aitp-0014.a2a_interfaces`
+/// extension key passes strict wire parsing and verifies under the
+/// signature like any other extension member.
+#[test]
+fn a2a_interfaces_extension_key_is_accepted() {
+    let now = Timestamp(1_700_000_000);
+    let key = alice_key();
+    let m = ManifestBuilder::new(&key)
+        .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
+        .identity_hint(IdentityHint {
+            kind: IdentityHintKind::Oidc,
+            subject: "alice".into(),
+            issuer: Some("https://idp.example.com".parse().unwrap()),
+            public_key: None,
+        })
+        .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+        .offer("demo.echo")
+        .extension(
+            "rfc-aitp-0014.a2a_interfaces",
+            serde_json::json!(["https://alice.example.com/a2a/v1"]),
+        )
+        .published_at(now)
+        .ttl_secs(3600)
+        .build()
+        .expect("builder produces a manifest");
+    let wire = serde_json::to_string(&m).unwrap();
+    let parsed =
+        parse_manifest_wire(&wire.parse().unwrap()).expect("strict parse accepts the a2a key");
+    verify_manifest(&parsed, &VerifyManifestContext { now }).expect("manifest verifies");
+    assert_eq!(
+        parsed
+            .extensions
+            .as_ref()
+            .and_then(|e| e.get("rfc-aitp-0014.a2a_interfaces")),
+        Some(&serde_json::json!(["https://alice.example.com/a2a/v1"]))
+    );
+}
