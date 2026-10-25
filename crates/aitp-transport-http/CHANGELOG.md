@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.20.0...aitp-transport-http-v0.21.0) - 2026-10-25
+
+### Fixed
+
+- split PoP error codes; flag the CLI's unauthenticated audience default ([#334](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/334))
+
 ## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.19.0...aitp-transport-http-v0.20.0) - 2026-10-25
 
 ### Added
