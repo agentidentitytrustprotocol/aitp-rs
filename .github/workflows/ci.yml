@@ -649,6 +649,8 @@ jobs:
   # It is unpublished, so it is pinned by commit SHA in
   # tests/AITP_VERIFIER_TS_VERSION and built from that checkout; its adapter
   # also reads the OIDC test-issuer keys from the checkout's vendor/spec.
+  # A required check, like `xcheck` (DECISIONS.md D3); bump-verifier-ts.yml
+  # opens the PR that moves the pin.
   xcheck-ts:
     name: cross-impl acceptance (aitp-verifier-ts)
     needs: changes

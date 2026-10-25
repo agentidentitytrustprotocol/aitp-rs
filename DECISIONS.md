@@ -200,3 +200,13 @@ the same suites as local `cargo test`, so an earlier push would not have surface
 sooner. No actual cost materialized from accumulating.
 **Verdict:** confirmed as-is.
 **Status:** CONFIRMED (2026-08-30).
+
+## D12 — The `aitp-verifier-ts` cross-implementation job is a required check too (2026-10-25, RS4.3).
+`cross-impl acceptance (aitp-verifier-ts)` (`xcheck-ts`, #379) went onto `main`'s branch
+protection after it passed on its own PR, on the same terms as D3.
+**Consequence (accepted):** merges also depend on a GitHub checkout of `aitp-verifier-ts`
+and an `npm ci` (dev dependencies only; the package has no runtime ones). The verifier is
+pinned by commit SHA in `tests/AITP_VERIFIER_TS_VERSION` because it is not on npm yet;
+`bump-verifier-ts.yml` opens a held PR weekly when its `main` moves. Once a v0.1.x
+release is published, the pin can move to the release.
+**Status:** CONFIRMED (2026-10-25).

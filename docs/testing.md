@@ -264,9 +264,13 @@ build` on Node 22. The job then:
 
 The adapter reads the OIDC test-issuer keys from the checkout's
 `vendor/spec/`, so it runs from a clone, not an installed package. Both
-reports are uploaded as the `xcheck-ts-report` artifact. Nothing bumps the
-pin automatically yet; bumping it takes a PR. To run it locally from a
-sibling checkout:
+reports are uploaded as the `xcheck-ts-report` artifact. Like `xcheck`, the
+job is a required check on `main`. `.github/workflows/bump-verifier-ts.yml`
+keeps the pin current the same way `bump-verifier-py.yml` does: every Monday
+(and on demand, with `dry-run`) it opens one held PR on
+`deps/verifier-ts-<sha>` when `aitp-verifier-ts` `main` is ahead of the pin.
+The pin stays a commit SHA until the verifier is published to npm. To run it
+locally from a sibling checkout:
 
 ```bash
 (cd ../aitp-verifier-ts && git checkout "$(cat ../aitp-rs/tests/AITP_VERIFIER_TS_VERSION)" && npm ci && npm run build)

@@ -1,0 +1,158 @@
+name: bump-verifier-ts
+# Keep the TypeScript cross-implementation gate current (RS4.3). ci.yml's
+# `xcheck-ts` job builds aitp-verifier-ts from the commit pinned in
+# tests/AITP_VERIFIER_TS_VERSION. The verifier is not on npm yet, so the pin
+# is a commit SHA; once a v0.1.x release is published this can move to a
+# release pin like aitp-verifier-ts's PyPI requirement.
+#
+# A copy of bump-verifier-py.yml with the names changed: weekly (and on
+# demand) it compares the pin with aitp-verifier-ts `main` and, when main is
+# ahead, opens ONE PR on `deps/verifier-ts-<sha12>` bumping the pin, so that
+# PR's xcheck-ts job runs against the new verifier. It uses the same
+# aitp-deps-bot App token (a GITHUB_TOKEN push would not trigger CI), never
+# auto-merges, does nothing if the branch for main's HEAD already exists,
+# and closes superseded deps/verifier-ts-* PRs.
+# This workflow is informational: it is not, and should not be made, a
+# required check.
+on:
+  schedule:
+    - cron: "51 5 * * 1"   # 05:51 UTC every Monday
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: 'Log what would happen; push, open and close nothing'
+        type: boolean
+        required: false
+        default: false
+
+# Reads of the public verifier repo use GITHUB_TOKEN; every write (push, PR
+# open/close, branch delete) goes through the App token.
+permissions:
+  contents: read
+
+concurrency:
+  group: bump-verifier-ts
+  cancel-in-progress: false
+
+env:
+  VTS_REPO: agentidentitytrustprotocol/aitp-verifier-ts
+  PIN_FILE: tests/AITP_VERIFIER_TS_VERSION
+  BRANCH_PREFIX: deps/verifier-ts-
+
+jobs:
+  bump:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App token
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AITP_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+
+      # Always bump against the default branch, whatever ref dispatched us.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          token: ${{ steps.app.outputs.token }}
+
+      - name: Compare pin with aitp-verifier-ts main
+        id: v
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          CUR=$(grep -oE '[0-9a-f]{40}' "$PIN_FILE" | head -1 || true)
+          [ -n "$CUR" ] || { echo "::error::no 40-hex SHA in $PIN_FILE"; exit 1; }
+          HEAD=$(gh api "repos/$VTS_REPO/commits/main" --jq .sha)
+          # base=pin, head=main: "ahead" means main has commits the pin lacks;
+          # "diverged" means the pin is not on main at all (still drift).
+          CMP=$(gh api "repos/$VTS_REPO/compare/$CUR...$HEAD" --jq '"\(.status) \(.ahead_by)"')
+          read -r STATUS AHEAD <<< "$CMP"
+          {
+            echo "cur=$CUR"
+            echo "head=$HEAD"
+            echo "short=${HEAD:0:7}"
+            echo "branch=$BRANCH_PREFIX${HEAD:0:12}"
+            echo "ahead=$AHEAD"
+            case "$STATUS" in ahead|diverged) echo "drift=true" ;; *) echo "drift=false" ;; esac
+          } >> "$GITHUB_OUTPUT"
+          echo "pin ${CUR:0:7} vs $VTS_REPO main ${HEAD:0:7}: $STATUS ($AHEAD commit(s) ahead)"
+          if [ "$STATUS" = "ahead" ] || [ "$STATUS" = "diverged" ]; then
+            # shellcheck disable=SC2016 # backticks are Markdown, not a subshell
+            gh api "repos/$VTS_REPO/compare/$CUR...$HEAD" \
+              --jq '.commits[] | "- [`\(.sha[0:7])`](\(.html_url)) \(.commit.message | split("\n")[0])"' > "$RUNNER_TEMP/commits.md"
+          fi
+
+      - name: Open the bump PR and close superseded ones
+        env:
+          GH_TOKEN: ${{ steps.app.outputs.token }}
+          DRY_RUN: ${{ inputs.dry-run || false }}
+          BASE: ${{ github.event.repository.default_branch }}
+          DRIFT: ${{ steps.v.outputs.drift }}
+          CUR: ${{ steps.v.outputs.cur }}
+          HEAD: ${{ steps.v.outputs.head }}
+          SHORT: ${{ steps.v.outputs.short }}
+          BR: ${{ steps.v.outputs.branch }}
+          AHEAD: ${{ steps.v.outputs.ahead }}
+        run: |
+          set -euo pipefail
+          act() { if [ "$DRY_RUN" = "true" ]; then echo "[dry-run] $*"; else "$@"; fi; }
+
+          # Open same-repo bump PRs other than the one for the current HEAD.
+          stale_prs() {
+            gh pr list --state open --base "$BASE" --limit 100 \
+              --json number,headRefName,isCrossRepository \
+              --jq ".[] | select(.isCrossRepository | not)
+                        | select(.headRefName | startswith(\"$BRANCH_PREFIX\"))
+                        | select(.headRefName != \"$BR\") | .number"
+          }
+
+          if [ "$DRIFT" != "true" ]; then
+            echo "Pin is current with $VTS_REPO main."
+            # Any still-open bump PR now points at an older verifier.
+            for n in $(stale_prs); do
+              act gh pr close "$n" --delete-branch \
+                --comment "Superseded: \`$PIN_FILE\` already pins $VTS_REPO main (\`$SHORT\`)."
+            done
+            exit 0
+          fi
+
+          if git ls-remote --exit-code --heads origin "$BR" >/dev/null 2>&1; then
+            # Already proposed (open PR, or a human closed it). Do not reopen
+            # or duplicate; a newer verifier commit yields a new branch.
+            echo "::notice::$BR already exists; nothing to do."
+            exit 0
+          fi
+
+          printf '%s\n' "$HEAD" > "$PIN_FILE"
+          git config user.name 'aitp-deps-bot[bot]'
+          git config user.email '${{ steps.app.outputs.app-slug }}[bot]@users.noreply.github.com'
+          git checkout -b "$BR"
+          git add "$PIN_FILE"
+          git commit -m "chore(deps): bump aitp-verifier-ts pin to $SHORT"
+          act git push -u origin "$BR"
+
+          {
+            echo "Bumps \`$PIN_FILE\` (\`${CUR:0:7}\` → \`$SHORT\`), $AHEAD commit(s) on [$VTS_REPO](https://github.com/$VTS_REPO) main:"
+            echo
+            cat "$RUNNER_TEMP/commits.md"
+            echo
+            echo "The **cross-impl acceptance (aitp-verifier-ts)** job on this PR runs against the new verifier commit — **review the result and merge deliberately**; the pin exists so upstream changes never silently alter CI. Opened by \`.github/workflows/bump-verifier-ts.yml\` (RS4.3)."
+          } > "$RUNNER_TEMP/body.md"
+
+          if [ "$DRY_RUN" = "true" ]; then
+            echo "[dry-run] gh pr create --base $BASE --head $BR"; cat "$RUNNER_TEMP/body.md"
+            NEW="(new)"
+          else
+            URL=$(gh pr create --base "$BASE" --head "$BR" \
+              --title "chore(deps): adopt aitp-verifier-ts @ $SHORT" \
+              --body-file "$RUNNER_TEMP/body.md")
+            echo "Opened $URL"
+            NEW="#${URL##*/}"
+          fi
+
+          for n in $(stale_prs); do
+            act gh pr close "$n" --delete-branch \
+              --comment "Superseded by $NEW (aitp-verifier-ts @ \`$SHORT\`)."
+          done
