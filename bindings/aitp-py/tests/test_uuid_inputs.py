@@ -90,8 +90,8 @@ def _bundle_builder():
     hello = sess.build_hello(coord_manifest, ["session.member"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    tct = json.loads(sess.complete(commit_ack))["tct"]
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    tct = json.loads(sess.complete(commit_ack, revoked_jtis=set()))["tct"]
     return aitp.SessionBundleBuilder(coord).participant(member.aid, tct)
 
 
@@ -132,8 +132,8 @@ def _held_tct():
     hello = sess.build_hello(responder_manifest, [GRANT])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    completed = json.loads(sess.complete(commit_ack))
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    completed = json.loads(sess.complete(commit_ack, revoked_jtis=set()))
     return responder, initiator, completed["tct"], completed.get("grant_voucher")
 
 
@@ -171,7 +171,7 @@ def test_verify_tct_malformed_revoked_jti_is_rejected(held):
 def test_verify_tct_cached_revoked_jti_is_normalized_on_a_hit(held, label):
     initiator, tct, jti = held
     store = aitp.TctStore(4)
-    assert initiator.verify_tct_cached(tct, GRANT, store).jti == jti
+    assert initiator.verify_tct_cached(tct, GRANT, store, revoked_jtis=set()).jti == jti
     assert store.len() == 1
     with pytest.raises(RuntimeError, match="revoked"):
         initiator.verify_tct_cached(
@@ -182,7 +182,7 @@ def test_verify_tct_cached_revoked_jti_is_normalized_on_a_hit(held, label):
 def test_verify_tct_cached_malformed_revoked_jti_is_rejected(held):
     initiator, tct, _jti = held
     store = aitp.TctStore(4)
-    initiator.verify_tct_cached(tct, GRANT, store)
+    initiator.verify_tct_cached(tct, GRANT, store, revoked_jtis=set())
     with pytest.raises(ValueError, match="revoked_jtis entry is not a UUID"):
         initiator.verify_tct_cached(tct, GRANT, store, revoked_jtis={"not-a-uuid"})
 
@@ -258,8 +258,8 @@ def delegation():
     hello = bsess.build_hello(a_manifest, [PING_CAP])
     hello_ack, sid = arsess.process_hello(hello)
     commit = bsess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = arsess.process_commit(commit)
-    voucher = json.loads(bsess.complete(commit_ack))["grant_voucher"]
+    commit_ack, _ = arsess.process_commit(commit, revoked_jtis=set())
+    voucher = json.loads(bsess.complete(commit_ack, revoked_jtis=set()))["grant_voucher"]
     token = b.build_delegation(voucher, c.aid, [PING_CAP])
     src_jti = _claims(_claims(token)["voucher"])["src_jti"]
     return a, token, b_manifest, src_jti

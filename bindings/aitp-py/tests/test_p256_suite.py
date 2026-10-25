@@ -32,8 +32,8 @@ def _handshake(init_suite, resp_suite):
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, resp_done = rsess.process_commit(commit)
-    init_done = sess.complete(commit_ack)
+    commit_ack, resp_done = rsess.process_commit(commit, revoked_jtis=set())
+    init_done = sess.complete(commit_ack, revoked_jtis=set())
     return initiator, responder, json.loads(init_done), json.loads(resp_done)
 
 
@@ -54,8 +54,8 @@ def test_p256_pinned_key_manifest_carries_compressed_point():
 )
 def test_p256_pinned_key_handshake(init_suite, resp_suite):
     initiator, responder, init_done, resp_done = _handshake(init_suite, resp_suite)
-    assert initiator.verify_tct(init_done["tct"], "demo.write").peer_aid == responder.aid
-    assert responder.verify_tct(resp_done["tct"], "demo.echo").peer_aid == initiator.aid
+    assert initiator.verify_tct(init_done["tct"], "demo.write", revoked_jtis=set()).peer_aid == responder.aid
+    assert responder.verify_tct(resp_done["tct"], "demo.echo", revoked_jtis=set()).peer_aid == initiator.aid
 
 
 def test_p256_pinned_initiator_rejected_without_pinned_keys():

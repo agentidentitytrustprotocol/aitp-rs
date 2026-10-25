@@ -14,7 +14,9 @@ use aitp::core::Aid;
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{Manifest, ManifestEnvelope};
-use aitp::transport::{with_request_body_limit_default, HandshakeServer};
+use aitp::transport::{
+    with_request_body_limit_default, HandshakeServer, RevocationFailMode, RevocationPolicy,
+};
 use aitp_example_two_agents::{build_demo_manifest, expand_seed, verify_echo_tct};
 use axum::{
     body::Bytes,
@@ -101,7 +103,17 @@ async fn main() {
         NoOpResolver,
         vec!["demo.echo".into()],
     )
-    .with_pinned_key_store(Arc::new(pinned));
+    .with_pinned_key_store(Arc::new(pinned))
+    // Revocation is fail_closed by default (RFC-AITP-0008 §3.1): the
+    // initiator's Manifest must advertise a reachable `ListRevoked`
+    // snapshot. agent-a is a pure client that serves nothing at the URL
+    // it advertises, so the demo opts out explicitly. agent-a itself
+    // keeps the default and checks our list. A deployment should not
+    // opt out.
+    .with_revocation_policy(RevocationPolicy {
+        fail_mode: RevocationFailMode::FailOpen,
+        ..RevocationPolicy::default()
+    });
 
     let app = server.router().merge(
         Router::new()

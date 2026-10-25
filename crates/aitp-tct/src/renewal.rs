@@ -86,9 +86,10 @@ pub struct RenewalContext<'a> {
     /// grants are the presented TCT's grants intersected with these, so
     /// a capability the issuer has withdrawn does not carry over.
     pub offered_grants: &'a [String],
-    /// Revocation lookup over the issuer's own deny list (`true` means
-    /// revoked). A revoked TCT is refused with [`TctError::Revoked`].
-    pub revocation_check: &'a (dyn Fn(&Uuid) -> bool + Send + Sync),
+    /// Revocation lookup over the issuer's own deny list (`Ok(true)`
+    /// means revoked, see [`crate::RevocationCheckFn`]). A revoked TCT
+    /// is refused with [`TctError::Revoked`].
+    pub revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
     /// Replay guard: every accepted `pop_nonce` is recorded here until
     /// the presented TCT's `exp`, and a nonce already present is refused
     /// with [`TctError::RenewalReplayed`]. Share one store across
@@ -114,7 +115,7 @@ impl<'a> RenewalContext<'a> {
     pub fn new(
         manifest_expires_at: Timestamp,
         offered_grants: &'a [String],
-        revocation_check: &'a (dyn Fn(&Uuid) -> bool + Send + Sync),
+        revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
         nonce_store: &'a dyn NonceStore,
         now: Timestamp,
     ) -> Self {
@@ -319,8 +320,8 @@ mod tests {
         GRANTS.iter().map(|s| s.to_string()).collect()
     }
 
-    fn not_revoked(_: &Uuid) -> bool {
-        false
+    fn not_revoked(_: &Uuid) -> Result<bool, TctError> {
+        Ok(false)
     }
 
     fn issue(
@@ -626,7 +627,7 @@ mod tests {
         let now = Timestamp(1_700_000_000);
         let original = issue(&issuer, &holder, now, 600);
         let revoked_jti = original.claims.jti;
-        let revoked = move |j: &Uuid| *j == revoked_jti;
+        let revoked = move |j: &Uuid| Ok(*j == revoked_jti);
         let request =
             build_renewal_request(&holder, original.token, base64url::encode(&[0xaa; 16])).unwrap();
         let store = InMemoryNonceStore::new(16);

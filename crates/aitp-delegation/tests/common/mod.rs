@@ -7,7 +7,7 @@
 
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::AitpSigner;
-use aitp_delegation::VerifyDelegationContext;
+use aitp_delegation::{DelegationRevocation, VerifyDelegationContext};
 use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestResolver};
 
 /// `key`'s published Manifest: published at `published_at`, valid for
@@ -35,5 +35,6 @@ pub fn verify_ctx<'a>(
     now: Timestamp,
     manifests: &'a dyn ManifestResolver,
 ) -> VerifyDelegationContext<'a> {
-    VerifyDelegationContext::new(verifier, now).with_issuer_manifests(manifests)
+    VerifyDelegationContext::new(verifier, now, DelegationRevocation::FailOpen)
+        .with_issuer_manifests(manifests)
 }

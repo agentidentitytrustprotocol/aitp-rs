@@ -67,6 +67,7 @@ fn insert_session<R: JwksResolver + Send + Sync + 'static>(state: &HandshakeStat
         &alice_manifest,
         &resolver,
         &pinned,
+        aitp_handshake::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let mid = Uuid::new_v4();
@@ -97,6 +98,7 @@ fn insert_session<R: JwksResolver + Send + Sync + 'static>(state: &HandshakeStat
         &state.manifest,
         &state.jwks_resolver,
         &*store,
+        aitp_handshake::RevocationSource::FailOpen,
         Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);

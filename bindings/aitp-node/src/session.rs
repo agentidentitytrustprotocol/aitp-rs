@@ -12,7 +12,7 @@ use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    MutualHelloPayload, PresentedIdentity, Responder, RevocationSource, StaticPinnedKeyStore,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
@@ -23,7 +23,12 @@ use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
 
-use crate::helpers::{make_peer_config, NoOpJwksResolver};
+use aitp_core::Aid;
+
+use crate::helpers::{
+    coded_error, handshake_revocation_code, js_revocation, make_peer_config, NoOpJwksResolver,
+    NO_TCT_STEP,
+};
 use crate::oidc::make_oidc_minter;
 use crate::wire;
 
@@ -223,6 +228,7 @@ impl JsInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
 
@@ -268,6 +274,7 @@ impl JsInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let commit = self
             .inner
@@ -286,8 +293,19 @@ impl JsInitiatorSession {
     /// Step 3 — process `MUTUAL_COMMIT_ACK`. Returns the completed
     /// handshake: the TCT the peer issued to us (opaque compact-JWS
     /// token plus its decoded claims) and the optional grant voucher.
+    ///
+    /// The peer's TCT is checked against `revokedJtis`, the peer's deny
+    /// list. Revocation is `fail_closed`: with no list the handshake fails
+    /// with `code === 'TCT_REVOKED'`. Pass `[]` when nothing is revoked, or
+    /// `'fail_open'` as `revocation` to skip the check.
     #[napi]
-    pub fn complete(&mut self, commit_ack_json: String) -> Result<JsCompletedHandshake> {
+    pub fn complete(
+        &mut self,
+        env: Env,
+        commit_ack_json: String,
+        revoked_jtis: Option<Vec<String>>,
+        revocation: Option<String>,
+    ) -> Result<JsCompletedHandshake> {
         let envelope: AitpEnvelope = wire::envelope(&commit_ack_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualCommitAckPayload = wire::check_payload(
@@ -298,6 +316,15 @@ impl JsInitiatorSession {
         .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
         .map_err(|e| Error::from_reason(format!("invalid commit_ack payload: {e}")))?;
 
+        let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
+        let fail_open = deny.is_fail_open();
+        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
+        let source = if fail_open {
+            RevocationSource::FailOpen
+        } else {
+            RevocationSource::Check(&check)
+        };
+
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -305,13 +332,14 @@ impl JsInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            source,
         );
         let completed = self
             .inner
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHelloAck() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+            .map_err(|e| coded_error(env, handshake_revocation_code(&e), e.to_string()))?;
 
         Ok(JsCompletedHandshake {
             tct: completed.tct.token.clone(),
@@ -378,6 +406,7 @@ impl JsResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
         let requested = hello.manifest.offered_capabilities.clone();
@@ -413,9 +442,16 @@ impl JsResponderSession {
         })
     }
 
-    /// Process an incoming `MUTUAL_COMMIT` envelope.
+    /// Process an incoming `MUTUAL_COMMIT` envelope. `revokedJtis` and
+    /// `revocation` are as in `JsInitiatorSession.complete` (`fail_closed`).
     #[napi]
-    pub fn process_commit(&mut self, commit_json: String) -> Result<JsCommitAckResult> {
+    pub fn process_commit(
+        &mut self,
+        env: Env,
+        commit_json: String,
+        revoked_jtis: Option<Vec<String>>,
+        revocation: Option<String>,
+    ) -> Result<JsCommitAckResult> {
         let envelope: AitpEnvelope = wire::envelope(&commit_json)
             .map_err(|e| Error::from_reason(format!("invalid envelope JSON: {e}")))?;
         let commit: MutualCommitPayload = wire::check_payload(
@@ -426,6 +462,15 @@ impl JsResponderSession {
         .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
         .map_err(|e| Error::from_reason(format!("invalid commit payload: {e}")))?;
 
+        let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
+        let fail_open = deny.is_fail_open();
+        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
+        let source = if fail_open {
+            RevocationSource::FailOpen
+        } else {
+            RevocationSource::Check(&check)
+        };
+
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -433,13 +478,14 @@ impl JsResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            source,
         );
         let (ack, completed) = self
             .inner
             .as_mut()
             .ok_or_else(|| Error::from_reason("call processHello() first"))?
             .on_commit(&envelope, &commit, &cfg)
-            .map_err(|e| Error::from_reason(e.to_string()))?;
+            .map_err(|e| coded_error(env, handshake_revocation_code(&e), e.to_string()))?;
 
         let payload = serde_json::to_value(&ack).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)

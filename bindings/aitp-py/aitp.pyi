@@ -17,6 +17,10 @@ from typing_extensions import deprecated
 # (uppercase, braced, `urn:uuid:`, unhyphenated) matches the canonical
 # `jti`. An entry that is not a UUID raises `ValueError` (#272).
 RevokedJtis = Union[set[str], frozenset[str]]
+# Revocation policy (RFC-AITP-0008 §3.1). `None` means "fail_closed": with no
+# `revoked_jtis` every check fails with `.code` TCT_REVOKED (or
+# DELEGATION_SOURCE_TCT_REVOKED). "fail_open" skips revocation entirely.
+Revocation = Literal["fail_closed", "fail_open"]
 
 # ── Core handshake surface ──────────────────────────────────────────────
 
@@ -64,10 +68,20 @@ class InitiatorSession:
         oidc_mint_jwt: Optional[Callable[[str], str]] = ...,
     ) -> str: ...
     def process_hello_ack(self, hello_ack_json: str, session_id: str) -> str: ...
-    def complete(self, commit_ack_json: str) -> str:
+    def complete(
+        self,
+        commit_ack_json: str,
+        revoked_jtis: Optional[RevokedJtis] = ...,
+        revocation: Optional[Revocation] = ...,
+    ) -> str:
         """Returns a JSON object string
         `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`:
-        the TCT the peer issued to us plus the companion grant voucher."""
+        the TCT the peer issued to us plus the companion grant voucher.
+
+        The peer's TCT is checked against `revoked_jtis` (the peer's deny
+        list). Revocation is fail_closed: with no list the handshake fails
+        with `.code == "TCT_REVOKED"`. Pass an empty set when nothing is
+        revoked, or `revocation="fail_open"` to skip the check."""
         ...
 
 class ResponderSession:
@@ -78,12 +92,18 @@ class ResponderSession:
         hello_json: str,
         oidc_mint_jwt: Optional[Callable[[str], str]] = ...,
     ) -> tuple[str, str]: ...
-    def process_commit(self, commit_json: str) -> tuple[str, str]:
+    def process_commit(
+        self,
+        commit_json: str,
+        revoked_jtis: Optional[RevokedJtis] = ...,
+        revocation: Optional[Revocation] = ...,
+    ) -> tuple[str, str]:
         """Returns `(commit_ack_json, completed_json)` where `completed_json`
         is `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`
         — the TCT the initiator issued to us (the responder) plus its
         companion grant voucher. The TCT we issued to the initiator travels
-        inside `commit_ack_json`."""
+        inside `commit_ack_json`. `revoked_jtis` and `revocation` are as in
+        `InitiatorSession.complete` (fail_closed)."""
         ...
 
 # ── OIDC identity (RFC-AITP-0002) ───────────────────────────────────────
@@ -153,14 +173,16 @@ class AitpAgent:
         required_grant: str,
         expected_audience: Optional[str] = ...,
         revoked_jtis: Optional[RevokedJtis] = ...,
+        revocation: Optional[Revocation] = ...,
     ) -> TctIdentity:
-        """Verify a TCT compact-JWS string. `revoked_jtis` is an OPTIONAL set
-        of revoked TCT `jti` strings (RFC-AITP-0008); when supplied, a TCT
-        whose jti is in the set is rejected after its signature checks pass.
-        Verifiers SHOULD supply it — omitting it silently honors a
-        revoked-but-unexpired TCT (F-1). Entries are normalized (any RFC
-        9562 text form matches); one that is not a UUID raises
-        `ValueError`."""
+        """Verify a TCT compact-JWS string. `revoked_jtis` is the issuer's
+        deny list of revoked TCT `jti` strings (RFC-AITP-0008): a TCT whose
+        jti is in it is rejected after its signature checks pass. Revocation
+        is fail_closed: without `revoked_jtis` every TCT is rejected. Both
+        failures raise `RuntimeError` with `.code == "TCT_REVOKED"`. Pass an
+        empty set when nothing is revoked, or `revocation="fail_open"` to
+        skip the check. Entries are normalized (any RFC 9562 text form
+        matches); one that is not a UUID raises `ValueError`."""
         ...
     def verify_tct_cached(
         self,
@@ -169,9 +191,11 @@ class AitpAgent:
         store: TctStore,
         expected_audience: Optional[str] = ...,
         revoked_jtis: Optional[RevokedJtis] = ...,
+        revocation: Optional[Revocation] = ...,
     ) -> TctIdentity:
-        """Like `verify_tct` but consults `store` first. `revoked_jtis` (F-1)
-        is re-checked on every call, cache hits included."""
+        """Like `verify_tct` but consults `store` first. Revocation
+        (`revoked_jtis`, fail_closed) is re-checked on every call, cache hits
+        included."""
         ...
     def build_delegation(
         self,
@@ -250,6 +274,7 @@ def verify_delegation(
     verifier_aid: str,
     issuer_manifests: Sequence[str],
     revoked_jtis: Optional[RevokedJtis] = None,
+    revocation: Optional[Revocation] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.3
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
@@ -263,13 +288,15 @@ def verify_delegation(
     step 1); an issuer with no valid Manifest in the list fails with
     `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
 
-    `revoked_jtis` is the verifier's own deny list. When supplied, a token
-    whose `voucher.src_jti` is in the set is rejected after every signature
-    check passes (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3).
-    **Supply it.** Omitting it silently redeems a delegation whose source TCT
-    has been revoked — step 7 states that as a MUST-reject. Entries are
-    normalized (any RFC 9562 text form matches); one that is not a UUID
-    raises `ValueError`."""
+    `revoked_jtis` is the verifier's own deny list. A token whose
+    `voucher.src_jti` is in the set is rejected after every signature check
+    passes (RFC-AITP-0006 §4 step 7, ordered per RFC-AITP-0008 §3.3).
+    Revocation is fail_closed: **without `revoked_jtis` every token is
+    rejected**. Both failures raise `RuntimeError` with
+    `.code == "DELEGATION_SOURCE_TCT_REVOKED"`. Pass an empty set when
+    nothing is revoked, or `revocation="fail_open"` to skip the check.
+    Entries are normalized (any RFC 9562 text form matches); one that is not
+    a UUID raises `ValueError`."""
     ...
 
 def verify_delegation_multihop(
@@ -278,6 +305,7 @@ def verify_delegation_multihop(
     issuer_manifests: Sequence[str],
     max_delegation_hops: int = 3,
     revoked_jtis: Optional[RevokedJtis] = None,
+    revocation: Optional[Revocation] = None,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
     multi-hop chains up to `max_delegation_hops` total hops. Present by default (the
@@ -291,7 +319,8 @@ def verify_delegation_multihop(
     step 1); a hop whose issuer has no valid Manifest in the list fails
     with `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
 
-    `revoked_jtis`, when supplied, is consulted twice — both only after every
+    `revoked_jtis` and `revocation` are as in `verify_delegation`
+    (fail_closed). The list is consulted twice — both only after every
     signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
     step 7), and once for every hop's `jti`, meaning each chain entry and the
     outer token (RFC-AITP-0011 §6). Both are MUST-rejects. A revoked hop

@@ -65,8 +65,8 @@ const r = bob.newResponder(null, { pinnedKeys: [alice.aid] });
 const hello = s.buildHello(bobManifest, ['demo.echo']);
 const { ackJson, sessionId } = r.processHello(hello);
 const commit = s.processHelloAck(ackJson, sessionId);
-const { ackJson: cack, completed: bobSide } = r.processCommit(commit);  // bobSide: what alice issued to bob
-const held = s.complete(cack);
+const { ackJson: cack, completed: bobSide } = r.processCommit(commit, []);  // bobSide: what alice issued to bob
+const held = s.complete(cack, []);
 const tctJws     = held.tct;           // compact JWS issued by bob — store / present this
 const claims     = held.claims;        // decoded { iss, sub, aud, grants, iat, exp, jti }
 const voucherJws = held.grantVoucher;  // compact JWS, or undefined if bob disallowed delegation
@@ -115,26 +115,41 @@ explains what a verifier checks and why.
 
 ```javascript
 // Holder-receipt model — the verifier's AID is the agent's own AID (default).
-const ident = alice.verifyTct(tctJws, 'demo.echo');
+const ident = alice.verifyTct(tctJws, 'demo.echo', undefined, []);
 console.log(ident.peerAid === bob.aid, ident.grants);   // true [ 'demo.echo' ]
 
 // Presented-TCT model — a resource server checking a TCT a peer presented
 // (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid);
+const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid, []);
 
-// Revocation gate: pass the revoked TCT `jti`s. Verifiers SHOULD supply it —
-// omitting it accepts a revoked-but-unexpired TCT.
+// Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (`[]` when
+// nothing is revoked). A revoked jti and a missing list both throw with
+// `code === 'TCT_REVOKED'`.
 try {
   alice.verifyTct(tctJws, 'demo.echo', null, [ident.jti]);
 } catch (err) {
-  console.log(err.message);   // TCT verification failed: TCT jti is revoked
+  console.log(err.code, err.message);   // TCT_REVOKED TCT verification failed: TCT jti is revoked
 }
+try {
+  alice.verifyTct(tctJws, 'demo.echo');   // no list: status unavailable
+} catch (err) {
+  console.log(err.code);   // TCT_REVOKED
+}
+
+// Explicit opt-out, for a deployment with no revocation source at all.
+alice.verifyTct(tctJws, 'demo.echo', null, undefined, 'fail_open');
 ```
 
-A failed verification throws an `Error`. Its `code` is napi's generic
-`GenericFailure`, not an AITP error code. The Rust core does have
-`ErrorCode::TctRevoked` and the other TCT codes, but the binding exposes them
-only in the message text. Do not branch on that text.
+Revocation is `fail_closed` (RFC-AITP-0008 §3.1): without `revokedJtis`
+every TCT is rejected, because an unknown revocation status counts as
+revoked. Pass `'fail_open'` as the `revocation` argument only when the
+deployment has no revocation source; any other value throws.
+
+A revocation failure (a listed `jti`, or no list under `fail_closed`) throws
+an `Error` whose `code` is `'TCT_REVOKED'`. Every other failed verification
+throws an `Error` whose `code` is napi's generic `GenericFailure`; the Rust
+core's other TCT codes appear only in the message text, so do not branch on
+that text.
 
 #### Cached verification (`TctStore`)
 
@@ -145,8 +160,8 @@ same TCT on many requests:
 import { TctStore } from '@agentidentitytrustprotocol/aitp';
 
 const store = new TctStore(1024);
-alice.verifyTctCached(tctJws, 'demo.echo', store);
-alice.verifyTctCached(tctJws, 'demo.echo', store);   // signature check skipped
+alice.verifyTctCached(tctJws, 'demo.echo', store, undefined, []);
+alice.verifyTctCached(tctJws, 'demo.echo', store, undefined, []);   // signature check skipped
 console.log(store.len());   // 1
 ```
 
@@ -191,7 +206,7 @@ const delegationJws = alice.buildDelegation(voucherJws, carol.aid, ['demo.echo']
 const revoked = [];   // bob's deny list, e.g. jtis from verified revocation snapshots
 const verified = verifyDelegation(delegationJws, bob.aid, [aliceManifest], revoked);
 const { tct: carolTct, grantVoucher: carolVoucher } = bob.issueTctForDelegatee(verified);
-console.log(carol.verifyTct(carolTct, 'demo.echo').peerAid === bob.aid);   // true
+console.log(carol.verifyTct(carolTct, 'demo.echo', undefined, []).peerAid === bob.aid);   // true
 ```
 
 The signature is `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`.

@@ -20,4 +20,7 @@ pub mod verifier;
 pub use builder::{compute_chain_hash, DelegationBuilder, DEFAULT_DELEGATION_TTL_SECS};
 pub use error::DelegationError;
 pub use types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
-pub use verifier::{verify_delegation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS};
+pub use verifier::{
+    verify_delegation, DelegationRevocation, HopRevocationCheck, SourceRevocationCheck,
+    VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
+};

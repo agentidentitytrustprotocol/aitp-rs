@@ -26,7 +26,7 @@ fuzz_target!(|data: &[u8]| {
     let verifier = AitpSigningKey::from_ed25519_seed(&[3u8; 32]).aid().clone();
     let token = String::from_utf8_lossy(token_bytes);
 
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now())
+    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), aitp_delegation::DelegationRevocation::FailOpen)
         .with_max_delegation_hops(max_delegation_hops);
     let _ = verify_delegation(&token, &ctx);
 });

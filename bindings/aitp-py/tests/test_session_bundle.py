@@ -32,8 +32,8 @@ def _handshake_to_coordinator(participant, coordinator, coord_manifest_json):
     hello = sess.build_hello(coord_manifest_json, ["session.member"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    return json.loads(sess.complete(commit_ack))["tct"]
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    return json.loads(sess.complete(commit_ack, revoked_jtis=set()))["tct"]
 
 
 def test_session_bundle_round_trip():

@@ -81,11 +81,11 @@ rsess = responder.new_responder(pinned_keys=[initiator.aid])
 hello                 = sess.build_hello(resp_manifest, ["demo.write"])
 hello_ack, session_id = rsess.process_hello(hello)
 commit                = sess.process_hello_ack(hello_ack, session_id)
-commit_ack, responder_held = rsess.process_commit(commit)  # JSON: TCT the initiator issued the responder
-held = json.loads(sess.complete(commit_ack))  # JSON string: {"tct": ..., "grant_voucher": ...}
+commit_ack, responder_held = rsess.process_commit(commit, revoked_jtis=set())  # JSON: TCT the initiator issued the responder
+held = json.loads(sess.complete(commit_ack, revoked_jtis=set()))  # JSON string: {"tct": ..., "grant_voucher": ...}
 
 # Each peer now holds a TCT the other issued it.
-ident = initiator.verify_tct(held["tct"], "demo.write")
+ident = initiator.verify_tct(held["tct"], "demo.write", revoked_jtis=set())
 print(ident.peer_aid, ident.grants)
 ```
 

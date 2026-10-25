@@ -70,7 +70,12 @@ async fn commit_after_session_ttl_is_rejected() {
     )
     .with_pinned_key_store(std::sync::Arc::new(
         aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-    ));
+    ))
+    // Session TTL is under test, not revocation: opt out of fail_closed.
+    .with_revocation_policy(aitp_transport_http::RevocationPolicy {
+        fail_mode: aitp_transport_http::RevocationFailMode::FailOpen,
+        ..Default::default()
+    });
     let app = server.router();
 
     let server_task = tokio::spawn(async move {
@@ -86,6 +91,7 @@ async fn commit_after_session_ttl_is_rejected() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();
@@ -193,7 +199,12 @@ async fn fresh_session_within_ttl_is_accepted() {
     )
     .with_pinned_key_store(std::sync::Arc::new(
         aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-    ));
+    ))
+    // Session TTL is under test, not revocation: opt out of fail_closed.
+    .with_revocation_policy(aitp_transport_http::RevocationPolicy {
+        fail_mode: aitp_transport_http::RevocationFailMode::FailOpen,
+        ..Default::default()
+    });
     let app = server.router();
 
     let server_task = tokio::spawn(async move {
@@ -208,6 +219,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();

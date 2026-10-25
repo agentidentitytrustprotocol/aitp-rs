@@ -13,15 +13,16 @@
 //! `oidc_mint_jwt` callable that mints the JWT with the handshake-
 //! generated nonce.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
-use aitp_core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
+use aitp_core::{Aid, AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp_crypto::AitpSigningKey;
 use aitp_envelope::{sign_envelope, sign_envelope_with};
 use aitp_handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
-    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, RevocationSource,
+    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp_manifest::{IdentityHintKind, Manifest};
@@ -29,7 +30,10 @@ use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
 
-use crate::helpers::{make_peer_config, NoOpJwksResolver};
+use crate::helpers::{
+    binding_revocation, handshake_revocation_code, make_peer_config, runtime_error,
+    NoOpJwksResolver, NO_TCT_STEP,
+};
 use crate::oidc::make_oidc_minter;
 use crate::wire;
 
@@ -182,6 +186,7 @@ impl PyInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
 
@@ -227,6 +232,7 @@ impl PyInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let commit = self
             .inner
@@ -248,7 +254,19 @@ impl PyInitiatorSession {
     /// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`:
     /// the TCT the peer issued to us, plus the companion grant voucher
     /// (when issued — the voucher is what lets us later mint delegations).
-    fn complete(&mut self, commit_ack_json: &str) -> PyResult<String> {
+    ///
+    /// `revoked_jtis` is the peer's (the TCT issuer's) revocation deny list
+    /// (RFC-AITP-0008). Without it the step fails closed: the peer's TCT is
+    /// rejected with `RuntimeError.code == "TCT_REVOKED"` and a "revocation
+    /// source unavailable" message. Pass `revocation="fail_open"` to skip the
+    /// check instead.
+    #[pyo3(signature = (commit_ack_json, revoked_jtis = None, revocation = None))]
+    fn complete(
+        &mut self,
+        commit_ack_json: &str,
+        revoked_jtis: Option<HashSet<String>>,
+        revocation: Option<&str>,
+    ) -> PyResult<String> {
         let envelope: AitpEnvelope = wire::envelope(commit_ack_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let ack: MutualCommitAckPayload = wire::check_payload(
@@ -259,6 +277,15 @@ impl PyInitiatorSession {
         .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
         .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
 
+        let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
+        let fail_open = deny.is_fail_open();
+        // `RevocationCheckFn` is `'static`, so the closure owns the list.
+        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
+        let source = if fail_open {
+            RevocationSource::FailOpen
+        } else {
+            RevocationSource::Check(&check)
+        };
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -266,13 +293,14 @@ impl PyInitiatorSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            source,
         );
         let completed = self
             .inner
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello_ack() first"))?
             .on_commit_ack(&envelope, &ack, &cfg)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| runtime_error(e.to_string(), handshake_revocation_code(&e)))?;
 
         completed_handshake_json(&completed)
     }
@@ -347,6 +375,7 @@ impl PyResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            NO_TCT_STEP,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
         // Mutual handshake: the responder must also receive a TCT, so it
@@ -383,7 +412,16 @@ impl PyResponderSession {
     }
 
     /// Process an incoming `MUTUAL_COMMIT` envelope.
-    fn process_commit(&mut self, commit_json: &str) -> PyResult<(String, String)> {
+    ///
+    /// `revoked_jtis` / `revocation` as in `InitiatorSession.complete`: the
+    /// initiator's TCT fails closed without the initiator's deny list.
+    #[pyo3(signature = (commit_json, revoked_jtis = None, revocation = None))]
+    fn process_commit(
+        &mut self,
+        commit_json: &str,
+        revoked_jtis: Option<HashSet<String>>,
+        revocation: Option<&str>,
+    ) -> PyResult<(String, String)> {
         let envelope: AitpEnvelope = wire::envelope(commit_json)
             .map_err(|e| PyValueError::new_err(format!("invalid envelope JSON: {e}")))?;
         let commit: MutualCommitPayload = wire::check_payload(
@@ -394,6 +432,15 @@ impl PyResponderSession {
         .and_then(|()| serde_json::from_value(envelope.payload.clone()).map_err(wire::from_serde))
         .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
 
+        let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
+        let fail_open = deny.is_fail_open();
+        // `RevocationCheckFn` is `'static`, so the closure owns the list.
+        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
+        let source = if fail_open {
+            RevocationSource::FailOpen
+        } else {
+            RevocationSource::Check(&check)
+        };
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -401,13 +448,14 @@ impl PyResponderSession {
             jwks.as_ref(),
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
+            source,
         );
         let (ack, completed) = self
             .inner
             .as_mut()
             .ok_or_else(|| PyRuntimeError::new_err("call process_hello() first"))?
             .on_commit(&envelope, &commit, &cfg)
-            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
+            .map_err(|e| runtime_error(e.to_string(), handshake_revocation_code(&e)))?;
 
         let payload =
             serde_json::to_value(&ack).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
@@ -418,4 +466,16 @@ impl PyResponderSession {
         let completed_json = completed_handshake_json(&completed)?;
         Ok((ack_json, completed_json))
     }
+}
+
+/// Parse a commit step's deny list and `revocation` mode.
+fn handshake_revocation(
+    revoked_jtis: Option<&HashSet<String>>,
+    revocation: Option<&str>,
+) -> PyResult<crate::helpers::BindingRevocation> {
+    binding_revocation(
+        revoked_jtis.map(|s| s.iter().map(String::as_str)),
+        revocation,
+    )
+    .map_err(PyValueError::new_err)
 }

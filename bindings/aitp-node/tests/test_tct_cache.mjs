@@ -29,8 +29,8 @@ function heldTct() {
   const hello = sess.buildHello(respManifest, [GRANT]);
   const { ackJson: helloAck, sessionId } = rsess.processHello(hello);
   const commit = sess.processHelloAck(helloAck, sessionId);
-  const { ackJson: commitAck } = rsess.processCommit(commit);
-  const { tct } = sess.complete(commitAck);
+  const { ackJson: commitAck } = rsess.processCommit(commit, []);
+  const { tct } = sess.complete(commitAck, []);
   return { initiator, tct };
 }
 
@@ -39,15 +39,15 @@ test('cached verify matches cold verify and populates', () => {
   const store = new TctStore(128);
   assert.equal(store.len(), 0);
 
-  const cold = initiator.verifyTct(tct, GRANT);
-  const warm = initiator.verifyTctCached(tct, GRANT, store);
+  const cold = initiator.verifyTct(tct, GRANT, undefined, []);
+  const warm = initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.equal(warm.peerAid, cold.peerAid);
   assert.deepEqual(warm.grants, cold.grants);
   assert.equal(warm.jti, cold.jti);
   assert.equal(store.len(), 1);
 
   // A cache hit returns the same identity.
-  const again = initiator.verifyTctCached(tct, GRANT, store);
+  const again = initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.equal(again.jti, cold.jti);
   assert.equal(store.len(), 1);
 });
@@ -58,11 +58,11 @@ test('tampered bytes miss the cache and are rejected', () => {
   // fails.
   const { initiator, tct } = heldTct();
   const store = new TctStore(128);
-  initiator.verifyTctCached(tct, GRANT, store);
+  initiator.verifyTctCached(tct, GRANT, store, undefined, []);
 
   const tampered = tamperJwsSignature(tct);
 
-  assert.throws(() => initiator.verifyTctCached(tampered, GRANT, store));
+  assert.throws(() => initiator.verifyTctCached(tampered, GRANT, store, undefined, []));
 });
 
 // RFC-AITP-0001 §5.4.3 review (#266): the key is SHA-256 of the whole
@@ -73,45 +73,45 @@ test('tampered bytes miss the cache and are rejected', () => {
 test('same signing input with a different signature gets no cached result', () => {
   const { initiator, tct } = heldTct();
   const store = new TctStore(128);
-  initiator.verifyTctCached(tct, GRANT, store);
+  initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.equal(store.len(), 1);
 
   const [h, p, s] = tct.split('.');
   for (const sig of [tamperJwsSignature(tct).split('.')[2], s + 'A', '', 'AAAA']) {
     const other = `${h}.${p}.${sig}`;
     assert.notEqual(other, tct);
-    assert.throws(() => initiator.verifyTctCached(other, GRANT, store), sig);
+    assert.throws(() => initiator.verifyTctCached(other, GRANT, store, undefined, []), sig);
     assert.equal(store.len(), 1, 'a failed verification must not be cached');
   }
   // The genuine token still hits.
-  assert.equal(initiator.verifyTctCached(tct, GRANT, store).jti, initiator.verifyTct(tct, GRANT).jti);
+  assert.equal(initiator.verifyTctCached(tct, GRANT, store, undefined, []).jti, initiator.verifyTct(tct, GRANT, undefined, []).jti);
   assert.equal(store.len(), 1);
 });
 
 test('revocation is checked on a cache hit', () => {
   const { initiator, tct } = heldTct();
   const store = new TctStore(8);
-  const { jti } = initiator.verifyTctCached(tct, GRANT, store);
+  const { jti } = initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.equal(store.len(), 1);
   assert.throws(() => initiator.verifyTctCached(tct, GRANT, store, undefined, [jti]));
   // Without the revocation set the cached entry still serves.
-  assert.equal(initiator.verifyTctCached(tct, GRANT, store).jti, jti);
+  assert.equal(initiator.verifyTctCached(tct, GRANT, store, undefined, []).jti, jti);
 });
 
 test('missing grant rejected even with a warm cache', () => {
   const { initiator, tct } = heldTct();
   const store = new TctStore(128);
-  initiator.verifyTctCached(tct, GRANT, store);
-  assert.throws(() => initiator.verifyTctCached(tct, 'demo.not-granted', store));
+  initiator.verifyTctCached(tct, GRANT, store, undefined, []);
+  assert.throws(() => initiator.verifyTctCached(tct, 'demo.not-granted', store, undefined, []));
 });
 
 test('eviction respects maxEntries', () => {
   const store = new TctStore(1);
   const a = heldTct();
   const b = heldTct();
-  a.initiator.verifyTctCached(a.tct, GRANT, store);
+  a.initiator.verifyTctCached(a.tct, GRANT, store, undefined, []);
   assert.equal(store.len(), 1);
-  b.initiator.verifyTctCached(b.tct, GRANT, store);
+  b.initiator.verifyTctCached(b.tct, GRANT, store, undefined, []);
   assert.equal(store.len(), 1);
 });
 
@@ -122,7 +122,7 @@ test('maxEntries=0 throws', () => {
 test('clear empties the cache', () => {
   const { initiator, tct } = heldTct();
   const store = new TctStore(128);
-  initiator.verifyTctCached(tct, GRANT, store);
+  initiator.verifyTctCached(tct, GRANT, store, undefined, []);
   assert.equal(store.len(), 1);
   store.clear();
   assert.equal(store.len(), 0);

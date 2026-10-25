@@ -63,8 +63,8 @@ r = bob.new_responder(pinned_keys=[alice.aid])
 hello = s.build_hello(bob_manifest, ["demo.echo"])
 ack, sid = r.process_hello(hello)
 commit   = s.process_hello_ack(ack, sid)
-cack, bob_side_json = r.process_commit(commit)  # bob_side_json: what alice issued to bob
-held = json.loads(s.complete(cack))             # complete() returns a JSON string
+cack, bob_side_json = r.process_commit(commit, revoked_jtis=set())  # bob_side_json: what alice issued to bob
+held = json.loads(s.complete(cack, revoked_jtis=set()))             # complete() returns a JSON string
 tct_jws     = held["tct"]            # compact JWS issued by bob — store / present this
 voucher_jws = held["grant_voucher"]  # compact JWS, or None if bob disallowed delegation
 ```
@@ -117,26 +117,40 @@ explains what a verifier checks and why.
 
 ```python
 # Holder-receipt model — the verifier's AID is the agent's own AID (default).
-ident = alice.verify_tct(tct_jws, "demo.echo")
+ident = alice.verify_tct(tct_jws, "demo.echo", revoked_jtis=set())
 print(ident.peer_aid == bob.aid, ident.grants)   # True ['demo.echo']
 
 # Presented-TCT model — a resource server checking a TCT a peer presented
 # (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-ident = bob.verify_tct(tct_jws, "demo.echo", expected_audience=alice.aid)
+ident = bob.verify_tct(tct_jws, "demo.echo", expected_audience=alice.aid, revoked_jtis=set())
 
-# Revocation gate: pass the set of revoked TCT `jti`s. Verifiers SHOULD supply
-# it — omitting it accepts a revoked-but-unexpired TCT.
+# Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (an empty
+# set when nothing is revoked). A revoked jti and a missing list both raise
+# with `.code == "TCT_REVOKED"`.
 try:
     alice.verify_tct(tct_jws, "demo.echo", revoked_jtis={ident.jti})
 except RuntimeError as err:
-    print(err)   # TCT verification failed: TCT jti is revoked
+    print(err.code, err)   # TCT_REVOKED TCT verification failed: TCT jti is revoked
+try:
+    alice.verify_tct(tct_jws, "demo.echo")   # no list: status unavailable
+except RuntimeError as err:
+    print(err.code)   # TCT_REVOKED
+
+# Explicit opt-out, for a deployment with no revocation source at all.
+alice.verify_tct(tct_jws, "demo.echo", revocation="fail_open")
 ```
 
-A failed verification raises a plain `RuntimeError` with no `.code`
-attribute. Malformed input, such as a token that is not a compact JWS or a bad
-`expected_audience` AID, raises `ValueError` instead. The Rust core does have
-`ErrorCode::TctRevoked` and the other TCT codes, but the binding exposes them
-only in the message text. Do not branch on that text.
+Revocation is `fail_closed` (RFC-AITP-0008 §3.1): without `revoked_jtis`
+every TCT is rejected, because an unknown revocation status counts as
+revoked. Pass `revocation="fail_open"` only when the deployment has no
+revocation source; any other `revocation` value raises `ValueError`.
+
+A revocation failure (a listed `jti`, or no list under `fail_closed`) raises a
+`RuntimeError` whose `.code` is `"TCT_REVOKED"`. Every other failed
+verification raises a plain `RuntimeError` with no `.code` attribute; the
+Rust core's other TCT codes appear only in the message text, so do not branch
+on that text. Malformed input, such as a token that is not a compact JWS or a
+bad `expected_audience` AID, raises `ValueError` instead.
 
 #### Cached verification (`TctStore`)
 
@@ -145,14 +159,15 @@ the signature check on repeat sightings:
 
 ```python
 store = aitp.TctStore(max_entries=1024)
-ident = alice.verify_tct_cached(tct_jws, "demo.echo", store)
-ident = alice.verify_tct_cached(tct_jws, "demo.echo", store)  # signature check skipped
+ident = alice.verify_tct_cached(tct_jws, "demo.echo", store, revoked_jtis=set())
+ident = alice.verify_tct_cached(tct_jws, "demo.echo", store, revoked_jtis=set())  # signature check skipped
 print(store.len())   # 1
 ```
 
 The cache key is the SHA-256 of the exact token bytes, so only a
 byte-identical token can hit. Expiry, audience, required grant and
-`revoked_jtis` are re-checked on every call, including cache hits.
+revocation (`revoked_jtis`, `fail_closed`) are re-checked on every call,
+including cache hits.
 
 #### Verifying without this SDK
 
@@ -192,7 +207,7 @@ verified = aitp.verify_delegation(
 )
 issued = json.loads(bob.issue_tct_for_delegatee(verified))  # JSON string
 carol_tct = issued["tct"]
-print(carol.verify_tct(carol_tct, "demo.echo").peer_aid == bob.aid)   # True
+print(carol.verify_tct(carol_tct, "demo.echo", revoked_jtis=set()).peer_aid == bob.aid)   # True
 ```
 
 The signature is `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`.
@@ -505,7 +520,7 @@ the field names match apart from casing (`grant_voucher` / `grantVoucher`).
 | Non-manifest input to manifest verification (including a duplicate key) | `ValueError` | `Error` with `code === 'malformed'` |
 | Revoked-JTI sets | `set` or `frozenset` of `str` (not a `list` or other iterable) | `Array<string>` |
 | `sign_envelope` / `signEnvelope` optional arguments | keyword arguments `extensions_json`, `message_id`, `timestamp` | an `opts` object `{ extensionsJson, messageId, timestamp }` |
-| TCT verification failure | `RuntimeError`, no `.code` | `Error` with napi's generic `code === 'GenericFailure'`, no AITP code |
+| TCT verification failure | `RuntimeError`; `.code == "TCT_REVOKED"` on revocation failures, otherwise no `.code` | `Error`; `code === 'TCT_REVOKED'` on revocation failures, otherwise napi's generic `'GenericFailure'` |
 
 ## Tests + interop
 

@@ -44,7 +44,7 @@ pub use types::{
 };
 pub use verifier::{
     verify_attestation, verify_tct, verify_voucher, AttestationVerifyContext,
-    AttestationVerifyContextBuilder, TctVerifyContext, TctVerifyContextBuilder,
+    AttestationVerifyContextBuilder, RevocationCheckFn, TctVerifyContext, TctVerifyContextBuilder,
     TctVerifyContextError, VerifiedAttestation,
 };
 

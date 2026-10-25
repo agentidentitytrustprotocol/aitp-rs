@@ -21,6 +21,7 @@ use crate::tct::VerifiedTct;
 use crate::tct::{build_renewal_request, TctRenewalPayload};
 use crate::transport::{
     sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
+    RevocationFetcher, RevocationPolicy,
 };
 use std::time::Duration;
 use uuid::Uuid;
@@ -526,12 +527,23 @@ pub async fn run_initiator_handshake(
     // peer's clock by the time COMMIT_ACK arrives — the peer-issued TCT's
     // `issued_at` then lands strictly after our stale `now` and the
     // verifier rejects an otherwise-valid TCT as `Tct(Expired)`.
+    //
+    // No TCT arrives before MUTUAL_COMMIT_ACK, so the steps before it
+    // never consult the revocation source; COMMIT_ACK gets the real one.
+    let no_tct_yet = |_: &crate::core::Aid, _: &Uuid| {
+        Err(HandshakeError::Tct(
+            crate::tct::TctError::RevocationUnavailable(
+                "no revocation lookup before MUTUAL_COMMIT_ACK".into(),
+            ),
+        ))
+    };
     let make_cfg = || {
         PeerConfig::new(
             config.signing_key,
             config.own_manifest,
             jwks_resolver,
             pinned_key_store,
+            crate::handshake::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
         .with_trust_anchors(trust_anchors)
@@ -657,7 +669,29 @@ pub async fn run_initiator_handshake(
                 FacadeError::Serde(e)
             }
         })?;
-    let cfg = make_cfg();
+    // RFC-AITP-0008: fetch the peer's revocation snapshot from the URL
+    // its handshake-bound Manifest advertises, then check the peer's TCT
+    // against it under `config.revocation_policy` (fail_closed default).
+    let fetcher = RevocationFetcher::new(config.revocation_policy.clone())
+        .with_host_guard(config.host_guard.clone())
+        .with_insecure_localhost(config.allow_insecure_localhost);
+    let prepared = fetcher
+        .prepare(
+            &peer_manifest.aid,
+            initiator.peer_revocation_list_uri(),
+            Timestamp::now(),
+        )
+        .await;
+    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let cfg = PeerConfig::new(
+        config.signing_key,
+        config.own_manifest,
+        jwks_resolver,
+        pinned_key_store,
+        crate::handshake::RevocationSource::Check(&revocation_check),
+        Timestamp::now(),
+    )
+    .with_trust_anchors(trust_anchors);
     let completed = initiator.on_commit_ack(&commit_ack_envelope, &commit_ack, &cfg)?;
 
     Ok(SessionContext {
@@ -698,6 +732,7 @@ pub async fn run_initiator_handshake(
 ///     http_timeout: Duration::from_secs(10),
 ///     host_guard: HostGuard::default(),
 ///     allow_insecure_localhost: false,
+///     revocation_policy: Default::default(),
 /// }
 /// # }
 /// ```
@@ -741,6 +776,12 @@ pub struct InitiatorConfig<'a> {
     /// [`InitiatorConfig::with_insecure_localhost`]. See
     /// [`ManifestFetcher::with_insecure_localhost`].
     pub allow_insecure_localhost: bool,
+    /// How the peer-issued TCT's revocation status is checked
+    /// (RFC-AITP-0008). Default `fail_closed`: a peer whose Manifest
+    /// advertises no reachable, valid `ListRevoked` snapshot is refused
+    /// with `TctError::RevocationUnavailable`. Override with
+    /// [`InitiatorConfig::with_revocation_policy`].
+    pub revocation_policy: RevocationPolicy,
 }
 
 impl<'a> InitiatorConfig<'a> {
@@ -796,6 +837,7 @@ impl<'a> InitiatorConfig<'a> {
             http_timeout: Duration::from_secs(10),
             host_guard: HostGuard::default(),
             allow_insecure_localhost: false,
+            revocation_policy: RevocationPolicy::default(),
         }
     }
 
@@ -817,6 +859,14 @@ impl<'a> InitiatorConfig<'a> {
     /// §4.1 requires HTTPS for the Manifest endpoint.
     pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
         self.allow_insecure_localhost = allow;
+        self
+    }
+
+    /// Override the revocation policy (default `fail_closed`). Pass
+    /// [`RevocationFailMode::FailOpen`](crate::transport::RevocationFailMode::FailOpen)
+    /// to accept a peer whose revocation status cannot be determined.
+    pub fn with_revocation_policy(mut self, policy: RevocationPolicy) -> Self {
+        self.revocation_policy = policy;
         self
     }
 }

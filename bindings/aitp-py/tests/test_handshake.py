@@ -36,8 +36,8 @@ def test_full_handshake_yields_mutual_tcts():
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, session_id)
-    commit_ack, responder_completed = rsess.process_commit(commit)
-    initiator_completed = sess.complete(commit_ack)
+    commit_ack, responder_completed = rsess.process_commit(commit, revoked_jtis=set())
+    initiator_completed = sess.complete(commit_ack, revoked_jtis=set())
 
     # v0.2: completion returns {"tct": <compact JWS>, "grant_voucher": ...}.
     init_done = json.loads(initiator_completed)
@@ -48,12 +48,12 @@ def test_full_handshake_yields_mutual_tcts():
     assert resp_done["grant_voucher"] is not None
 
     # The initiator holds a TCT issued by the responder for demo.write.
-    ident = initiator.verify_tct(init_done["tct"], "demo.write")
+    ident = initiator.verify_tct(init_done["tct"], "demo.write", revoked_jtis=set())
     assert ident.peer_aid == responder.aid
     assert "demo.write" in ident.grants
 
     # The responder holds a TCT issued by the initiator for demo.echo.
-    resp_ident = responder.verify_tct(resp_done["tct"], "demo.echo")
+    resp_ident = responder.verify_tct(resp_done["tct"], "demo.echo", revoked_jtis=set())
     assert resp_ident.peer_aid == initiator.aid
     assert "demo.echo" in resp_ident.grants
 
@@ -66,11 +66,11 @@ def test_verify_tct_rejects_missing_grant():
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, session_id = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, session_id)
-    commit_ack, _ = rsess.process_commit(commit)
-    completed = json.loads(sess.complete(commit_ack))
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    completed = json.loads(sess.complete(commit_ack, revoked_jtis=set()))
 
     with pytest.raises(Exception):
-        initiator.verify_tct(completed["tct"], "demo.not-granted")
+        initiator.verify_tct(completed["tct"], "demo.not-granted", revoked_jtis=set())
 
 
 def test_initiator_rejects_peer_substitution():
@@ -136,8 +136,8 @@ def test_verify_tct_honors_revoked_jtis():
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    tct = json.loads(sess.complete(commit_ack))["tct"]
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    tct = json.loads(sess.complete(commit_ack, revoked_jtis=set()))["tct"]
     jti = _jws_jti(tct)
 
     # Empty / unrelated revocation set: still verifies.
@@ -159,13 +159,13 @@ def test_verify_tct_cached_honors_revoked_jtis_on_hits():
     hello = sess.build_hello(resp_manifest, ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    tct = json.loads(sess.complete(commit_ack))["tct"]
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    tct = json.loads(sess.complete(commit_ack, revoked_jtis=set()))["tct"]
     jti = _jws_jti(tct)
 
     store = aitp.TctStore(8)
     # Warm the cache (no revocation).
-    initiator.verify_tct_cached(tct, "demo.write", store)
+    initiator.verify_tct_cached(tct, "demo.write", store, revoked_jtis=set())
     # Now revoke: even though the signature is cached, the cache hit must
     # honor the revocation set.
     with pytest.raises(Exception):

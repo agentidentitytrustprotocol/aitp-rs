@@ -78,9 +78,23 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
     let resolver = NoOpResolver;
 
     let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
-    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let alice_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &alice_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
     let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
-    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
+    let bob_cfg = PeerConfig::new(
+        &bob,
+        &bob_manifest,
+        &resolver,
+        &bob_cfg_pinned,
+        aitp_handshake::RevocationSource::FailOpen,
+        NOW,
+    );
 
     let hello_mid = Uuid::new_v4();
     let (_alice_init, hello_payload) = Initiator::start(

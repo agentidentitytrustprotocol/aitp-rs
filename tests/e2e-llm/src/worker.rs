@@ -36,7 +36,9 @@ use aitp::tct::{
     sign_revocation_list, verify_tct, RevocationEntry, RevocationList, RevocationListEnvelope,
     TctClaims, TctVerifyContext,
 };
-use aitp::transport::{HandshakeServer, RevocationListProducer};
+use aitp::transport::{
+    HandshakeServer, RevocationFailMode, RevocationListProducer, RevocationPolicy,
+};
 use aitp_example_two_agents::build_demo_manifest;
 use axum::{
     extract::State,
@@ -203,7 +205,15 @@ pub async fn spawn(
     .with_pinned_key_store(Arc::new(
         StaticPinnedKeyStore::from_aids(trusted)
             .map_err(|e| anyhow::anyhow!("trusted AID is not a pinnable key: {e}"))?,
-    ));
+    ))
+    // Revocation is fail_closed by default (RFC-AITP-0008 §3.1). The
+    // planner is a pure client that serves nothing at the list URL it
+    // advertises, so the worker opts out explicitly; the planner keeps
+    // the default and checks the worker's list.
+    .with_revocation_policy(RevocationPolicy {
+        fail_mode: RevocationFailMode::FailOpen,
+        ..RevocationPolicy::default()
+    });
 
     let app = server.router().merge(
         Router::new()
@@ -323,7 +333,8 @@ fn verify_work_tct(
     // Snapshot the revoked set once so the closure below borrows an
     // owned value rather than holding the mutex across verification.
     let revoked: HashSet<Uuid> = revocations.revoked.lock().iter().map(|e| e.jti).collect();
-    let is_revoked = |jti: &Uuid| revoked.contains(jti);
+    // The worker's own list is authoritative for TCTs it issued.
+    let is_revoked = |jti: &Uuid| Ok(revoked.contains(jti));
 
     // Holder receipt: subject == audience == caller.
     let ctx = TctVerifyContext::builder(&peeked.sub, worker_aid, Timestamp::now())

@@ -63,6 +63,7 @@ fn main() {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
+        aitp::handshake::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -71,6 +72,7 @@ fn main() {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
+        aitp::handshake::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);

@@ -14,7 +14,7 @@ homepage.workspace = true
 [features]
 default = []
 client = ["dep:reqwest", "dep:tokio"]
-server = ["dep:axum", "dep:tokio", "source-ip"]
+server = ["client", "dep:axum", "dep:tokio", "source-ip"]
 # `resolve_source_ip` and `TrustedProxy` (RFC-AITP-0009 §3.1) on their
 # own, depending only on `http` 1.x, for services on another HTTP stack.
 source-ip = ["dep:http"]

@@ -34,6 +34,13 @@ pub enum TctError {
     /// `jti` appears in the issuer's deny list.
     #[error("TCT jti is revoked")]
     Revoked,
+    /// The issuer's revocation status could not be determined (no
+    /// revocation source, endpoint unreachable, or snapshot discarded
+    /// per RFC-AITP-0008 §1.5) and the policy is `fail_closed`. Same
+    /// `TCT_REVOKED` wire code as [`Self::Revoked`] (RFC-AITP-0008
+    /// §3.1), but the detail says the `jti` was not found on a list.
+    #[error("revocation source unavailable: {0}")]
+    RevocationUnavailable(String),
     /// `grants` is empty (forbidden by RFC-AITP-0004 §4.1).
     #[error("TCT grants must be non-empty")]
     EmptyGrants,

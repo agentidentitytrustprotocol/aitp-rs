@@ -10,6 +10,7 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::transport::REVOCATION_LIST_PATH;
 
 /// Build a pinned-key Manifest for an agent listening on `port`.
 ///
@@ -40,6 +41,13 @@ pub fn build_demo_manifest(
             public_key: Some(pubkey_b64),
         })
         .accept_identity_type("pinned_key")
+        // Every TCT issuer MUST advertise its `ListRevoked` URL
+        // (RFC-AITP-0008 §1.4); `HandshakeServer` serves it at this path.
+        .revocation_list_uri(
+            format!("http://localhost:{port}{REVOCATION_LIST_PATH}")
+                .parse()
+                .unwrap(),
+        )
         .ttl_secs(3600);
     for cap in offered {
         builder = builder.offer(*cap);

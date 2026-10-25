@@ -122,12 +122,15 @@ Independent of clustering, production servers/clients should set:
   `RevocationCache::for_issuer_manifest` polls the advertised URL. A
   Manifest without the key is still accepted: revocation for that issuer
   is treated as unavailable and the configured `RevocationFailMode`
-  applies (RFC-AITP-0008 §3).
-- **Strict TCT verification** — build `TctVerifyContext` via
-  `::builder(...)` and supply a revocation source and the issuer-Manifest
-  expiry cap, rather than the permissive `::now()` / `::permissive_at()`
-  shortcuts. The builder refuses to construct until both decisions are
-  made (RFC-AITP-0005 §10.4, RFC-AITP-0008).
+  applies (RFC-AITP-0008 §3). The default is `fail_closed`, so
+  `HandshakeServer` and `run_initiator_handshake` refuse such a peer with
+  `TCT_REVOKED`; set `RevocationFailMode::FailOpen` through
+  `with_revocation_policy` only for a peer you accept without revocation.
+- **Strict TCT verification** — `TctVerifyContext::builder(...)` refuses
+  to construct until the revocation and issuer-Manifest expiry-cap
+  decisions are made (RFC-AITP-0005 §10.4, RFC-AITP-0008). Supply a
+  revocation hook and the cap; a hook that cannot answer returns
+  `TctError::RevocationUnavailable` (wire code `TCT_REVOKED`).
 - **Rate limiting** — on by default since 0.14, at the RFC-AITP-0009 §3.1
   recommended 30 requests per source and 10 per sender AID per 60 s
   (`RateLimitConfig::default()`). The source is the socket peer, so serve

@@ -268,22 +268,26 @@ impl PyAitpAgent {
     /// equals `sub`); the signature check then proves the TCT was issued by
     /// us, which is the real security gate for that direction.
     ///
-    /// `revoked_jtis` is an OPTIONAL set/iterable of revoked TCT `jti`
-    /// strings (RFC-AITP-0008). When supplied, a TCT whose `jti` is in the
-    /// set is rejected after its signature checks pass. **Verifiers SHOULD
-    /// supply this** — omitting it silently honors a revoked-but-unexpired
-    /// TCT (closes deferred gap F-1). A plain `set[str]` keeps the check
-    /// entirely in Rust, avoiding a Python callback under the verify path.
+    /// `revoked_jtis` is the issuer's deny list, a set/iterable of revoked
+    /// TCT `jti` strings (RFC-AITP-0008): a TCT whose `jti` is in it is
+    /// rejected after its signature checks pass. Revocation is
+    /// `fail_closed`: **without `revoked_jtis` every TCT is rejected** with
+    /// `RuntimeError.code == "TCT_REVOKED"` and a "revocation source
+    /// unavailable" message. Pass an empty set when nothing is revoked, or
+    /// `revocation="fail_open"` to skip the check. A plain `set[str]` keeps
+    /// the check entirely in Rust, avoiding a Python callback under the
+    /// verify path.
     /// Entries are lookup keys and are normalized: any RFC 9562 text form
     /// (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry
     /// that is not a UUID raises `ValueError` rather than being ignored.
-    #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None))]
+    #[pyo3(signature = (tct_token, required_grant, expected_audience=None, revoked_jtis=None, revocation=None))]
     fn verify_tct(
         &self,
         tct_token: &str,
         required_grant: &str,
         expected_audience: Option<&str>,
         revoked_jtis: Option<HashSet<String>>,
+        revocation: Option<&str>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct(
             &self.key,
@@ -291,6 +295,7 @@ impl PyAitpAgent {
             required_grant,
             expected_audience,
             revoked_jtis.as_ref(),
+            revocation,
         )
     }
 
@@ -302,9 +307,9 @@ impl PyAitpAgent {
     /// elided.
     ///
     /// `revoked_jtis` (F-1) is consulted on every call, cache hits included,
-    /// so a freshly-revoked TCT stops verifying immediately. It is
-    /// normalized as in `verify_tct`.
-    #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None))]
+    /// so a freshly-revoked TCT stops verifying immediately. It and
+    /// `revocation` behave as in `verify_tct` (`fail_closed`).
+    #[pyo3(signature = (tct_token, required_grant, store, expected_audience = None, revoked_jtis = None, revocation = None))]
     fn verify_tct_cached(
         &self,
         tct_token: &str,
@@ -312,6 +317,7 @@ impl PyAitpAgent {
         store: &PyTctStore,
         expected_audience: Option<&str>,
         revoked_jtis: Option<HashSet<String>>,
+        revocation: Option<&str>,
     ) -> PyResult<PyTctIdentity> {
         py_verify_tct_cached(
             &self.key,
@@ -320,6 +326,7 @@ impl PyAitpAgent {
             store,
             expected_audience,
             revoked_jtis.as_ref(),
+            revocation,
         )
     }
 

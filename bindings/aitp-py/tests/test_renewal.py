@@ -56,8 +56,8 @@ def _issued_pair():
     hello = sess.build_hello(json.dumps(a_manifest), ["demo.write"])
     hello_ack, sid = rsess.process_hello(hello)
     commit = sess.process_hello_ack(hello_ack, sid)
-    commit_ack, _ = rsess.process_commit(commit)
-    b_held = json.loads(sess.complete(commit_ack))["tct"]
+    commit_ack, _ = rsess.process_commit(commit, revoked_jtis=set())
+    b_held = json.loads(sess.complete(commit_ack, revoked_jtis=set()))["tct"]
     return a, b, b_held
 
 

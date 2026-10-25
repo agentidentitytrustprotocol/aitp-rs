@@ -102,7 +102,7 @@ pub fn verify_manifest_json(
 /// would be parsing `error.message`. `Env::throw_error` sets the property
 /// directly; returning `Status::PendingException` tells napi an exception is
 /// already queued so it does not throw a second one over the top.
-fn throw_with_code(env: Env, code: &str, message: String) -> Error {
+pub(crate) fn throw_with_code(env: Env, code: &str, message: String) -> Error {
     match env.throw_error(&message, Some(code)) {
         Ok(()) => Error::new(Status::PendingException, message),
         Err(e) => e,
