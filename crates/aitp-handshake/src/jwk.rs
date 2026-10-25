@@ -63,7 +63,9 @@ impl JwsAlgorithm {
     }
 
     /// Whether this algorithm can be used with `key`'s type: EdDSA with
-    /// Ed25519, each ES* with its own curve, RS* and PS* with RSA.
+    /// Ed25519, each ES* with its own curve, RS* and PS* with RSA
+    /// (RFC-AITP-0002 §6.3 "Key match"). A JWT-SVID additionally never
+    /// takes EdDSA; `identity_spiffe` rejects it before key selection.
     pub fn fits(&self, key: &JwkKeyMaterial) -> bool {
         matches!(
             (self, key),
