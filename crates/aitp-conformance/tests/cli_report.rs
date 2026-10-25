@@ -161,7 +161,10 @@ fn golden_report_on_mini_corpus() {
         std::fs::create_dir_all(golden.parent().unwrap()).unwrap();
         std::fs::write(&golden, &actual).unwrap();
     }
-    let expected = std::fs::read_to_string(&golden).expect("golden file; run with UPDATE_GOLDEN=1");
+    // A Windows checkout may turn the golden's line endings into CRLF.
+    let expected = std::fs::read_to_string(&golden)
+        .expect("golden file; run with UPDATE_GOLDEN=1")
+        .replace("\r\n", "\n");
     assert_eq!(actual, expected, "report differs from {}", golden.display());
 }
 
