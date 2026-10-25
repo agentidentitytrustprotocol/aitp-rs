@@ -67,6 +67,11 @@ impl Adapter for InProcessRustAdapter {
                 .and_then(|v| v.as_str())
                 .unwrap_or(env!("CARGO_PKG_VERSION"))
                 .to_string(),
+            repository: result
+                .get("repository")
+                .and_then(|v| v.as_str())
+                .map(str::to_string),
+            commit: None,
             supported_ops,
             supported_features,
         })

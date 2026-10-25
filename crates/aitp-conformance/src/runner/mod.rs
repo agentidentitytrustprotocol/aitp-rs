@@ -3,6 +3,7 @@
 mod executor;
 mod gate;
 mod output;
+pub mod report;
 
 pub use executor::{FixtureResult, Runner};
 pub use gate::{check_gate, GateReport, Profile};

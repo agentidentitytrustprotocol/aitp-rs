@@ -109,6 +109,7 @@ adapter returns one.
   "result": {
     "implementation": "aitp-rs",
     "version": "<the adapter crate's version>",
+    "repository": "https://github.com/agentidentitytrustprotocol/aitp-rs",
     "supported_ops": ["verify_tct", "verify_grant_voucher", "verify_manifest", ...],
     "supported_features": ["pinned_key_identity", "oidc_identity"]
   }
@@ -118,6 +119,11 @@ adapter returns one.
 `aitp-rs-adapter` reports its own crate version
 (`env!("CARGO_PKG_VERSION")` in `crates/aitp-rs-adapter/src/lib.rs`), so
 the value tracks the workspace release.
+
+`implementation`, `version`, `repository` and `commit` are copied into a
+[conformance report](#conformance-report). Each one is optional in the
+reply: `implementation` and `version` default to `"unknown"`, and a report
+needs `repository` from the reply or `--implementation-repository`.
 
 The runner uses `supported_ops` and `supported_features` to skip fixtures
 the adapter cannot handle. A partial implementation declares only what it
@@ -264,7 +270,9 @@ How `aitp-conformance` implements those rules:
 aitp-conformance run --target <CMD> [--fixtures-dir <DIR>] [--filter <PAT>] \
                      [--tag <TAG>] [--feature <NAME>]... \
                      [--output text|json|tap] [--fail-fast] \
-                     [--profile v0.2|v0.1]
+                     [--profile v0.2|v0.1] \
+                     [--report <PATH> [--spec-commit <SHA>] [--spec-version <TAG>] \
+                      [--implementation-repository <URL>] [--implementation-commit <SHA>]]
 aitp-conformance list [--fixtures-dir <DIR>] [--tag <TAG>]
 aitp-conformance describe [--fixtures-dir <DIR>] <FIXTURE_ID>
 ```
@@ -289,7 +297,77 @@ Summary: <p> passed, <f> failed, <s> skipped of <N> fixtures
 ```
 
 `--output tap` prints TAP 13. `--output json` prints a JSON array with one
-object per fixture.
+object per fixture. `--report` additionally writes the spec's report
+document; see [Conformance report](#conformance-report).
+
+### Conformance report
+
+`--report <PATH>` writes a report valid against the spec's
+`aitp-conformance-report.schema.json` (`report_version` `"1"`, vendored at
+`tests/schemas/aitp-conformance-report.schema.json`). The spec's
+`docs/conformance-badge.md` defines it. It holds:
+
+- `implementation` and `runner`;
+- `spec` (`commit`, `version` and `protocol` `aitp/0.3`);
+- `fixtures_dir_digest` and the sorted `features_enabled`;
+- one `results` entry per non-reserved fixture, with `status`, `feature`
+  and `required_for_v0_2` copied from the fixture;
+- `totals` by status;
+- `gates`.
+
+The code is in `crates/aitp-conformance/src/runner/report.rs`.
+
+`gates` evaluates `"AITP v0.3"`, plus each extension claim whose feature
+is enabled (`AITP v0.3 pinned-admission`, `AITP v0.3 self-attestation`):
+
+- **`AITP v0.3`** passes only when every core fixture with
+  `required_for_v0_2: true` passes.
+- **An extension claim** passes only when every fixture with its feature
+  passes.
+
+Unlike the exit-code gate below, a core fixture skipped because an enabled
+draft feature negates it still blocks `AITP v0.3`. Make the core claim
+from a run without draft features. Draft fixtures gate no claim.
+
+The report's sources:
+
+- **`spec.commit`** is never guessed. It is `--spec-commit`, else the first
+  `SPEC_VERSION` file in or above `--fixtures-dir`, else `HEAD` of a clean
+  checkout of the spec repository whose `schemas/conformance` is
+  `--fixtures-dir`. Otherwise the run fails before it starts.
+- **`spec.version`** is `--spec-version`, else
+  `git describe --tags --match 'v[0-9]*'` of that commit in a spec
+  checkout.
+- **`fixtures_dir_digest`** is `sha256:` plus the SHA-256 of the
+  `sha256sum`-format listing of the top-level `*.json` files, sorted by
+  name in byte order. It equals
+  `cd <dir> && LC_ALL=C sha256sum -- *.json | sha256sum`.
+
+A report covers the whole corpus, so `--report` refuses `--filter`, `--tag`
+and `--fail-fast`. The exit code is unaffected: it reports run health (the
+gate below), and the claims live only in `gates`.
+
+The `conformance` CI job writes a report from a run with the two extension
+features and no draft features. It checks the report three ways:
+
+1. against the schema;
+2. that every gate passed;
+3. with the spec's
+   `scripts/check-conformance-report.py --fixtures-dir`, which recomputes
+   the totals, the gates and the digest.
+
+The job uploads the report as the `conformance-report` artifact. To
+reproduce it locally:
+
+```bash
+./target/debug/aitp-conformance run \
+  --target ./target/debug/aitp-rs-adapter \
+  --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
+  --feature aitp-pinned-admission --feature aitp-self-attestation \
+  --report conformance-report.json
+python3 ../agentidentitytrustprotocol/scripts/check-conformance-report.py \
+  conformance-report.json --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
+```
 
 ## Why not gRPC for the adapter protocol
 
@@ -467,8 +545,9 @@ allowlist: every other required fixture must pass.
 
 The gate is `check_gate` in `crates/aitp-conformance/src/runner/gate.rs`,
 called from `run()` in `crates/aitp-conformance/src/main.rs`. The
-`conformance` CI job runs the corpus twice under the default profile:
-strict, and with all four features.
+`conformance` CI job runs the corpus under the default profile strict and
+with all four features, then writes the [report](#conformance-report) from
+a run with the two extensions.
 
 ### Fixtures by area
 

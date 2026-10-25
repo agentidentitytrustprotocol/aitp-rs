@@ -1,0 +1,80 @@
+{
+  "report_version": "1",
+  "implementation": {
+    "name": "aitp-rs",
+    "version": "<version>",
+    "repository": "https://github.com/agentidentitytrustprotocol/aitp-rs"
+  },
+  "runner": {
+    "name": "aitp-conformance",
+    "version": "<version>"
+  },
+  "spec": {
+    "commit": "8538bf1603d29db699d6f017184ee85922c60eba",
+    "version": "v0.3.2-draft",
+    "protocol": "aitp/0.3"
+  },
+  "fixtures_dir_digest": "sha256:2bfe0b484a8c7bb66f87421aa16e3858e71440ef1203fe3321179da73f9764a4",
+  "features_enabled": [
+    "aitp-pinned-admission"
+  ],
+  "results": [
+    {
+      "id": "core-001",
+      "status": "core",
+      "feature": null,
+      "required_for_v0_2": true,
+      "outcome": "pass",
+      "duration_ms": 0
+    },
+    {
+      "id": "drf-001",
+      "status": "draft",
+      "feature": "experimental-session-bundle",
+      "required_for_v0_2": false,
+      "outcome": "skip",
+      "reason": "non-core fixture (status=Draft); requires feature `experimental-session-bundle`"
+    },
+    {
+      "id": "ext-001",
+      "status": "extension",
+      "feature": "aitp-pinned-admission",
+      "required_for_v0_2": false,
+      "outcome": "pass",
+      "duration_ms": 0
+    }
+  ],
+  "totals": {
+    "core": {
+      "pass": 1,
+      "fail": 0,
+      "skip": 0,
+      "excluded_by_role": 0
+    },
+    "extension": {
+      "pass": 1,
+      "fail": 0,
+      "skip": 0,
+      "excluded_by_role": 0
+    },
+    "draft": {
+      "pass": 0,
+      "fail": 0,
+      "skip": 1,
+      "excluded_by_role": 0
+    }
+  },
+  "gates": [
+    {
+      "name": "AITP v0.3",
+      "passed": true,
+      "criteria": "core-required-all-pass"
+    },
+    {
+      "name": "AITP v0.3 pinned-admission",
+      "passed": true,
+      "criteria": "feature-all-pass"
+    }
+  ],
+  "generated_at": "<generated_at>"
+}

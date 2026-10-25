@@ -260,6 +260,7 @@ fn init(id: &str) -> Value {
         "result": {
             "implementation": "aitp-rs",
             "version": env!("CARGO_PKG_VERSION"),
+            "repository": env!("CARGO_PKG_REPOSITORY"),
             "supported_ops": supported_ops,
             "supported_features": supported_features
         }
