@@ -1,0 +1,91 @@
+# Stability policy
+
+This file says which parts of aitp-rs carry a compatibility promise, what
+that promise is, and how CI enforces it.
+
+## The `aitp` crate follows semver
+
+The [`aitp`](crates/aitp) facade is the supported way to use this
+implementation. Its stable surface consists of:
+
+- every item frozen in [`crates/aitp/public-api.txt`](crates/aitp/public-api.txt);
+- the `http-client`, `http-server` and `all` features.
+
+It is outside the experimental modules listed below. That surface has
+followed [semver](https://semver.org/) since 0.20.
+
+While aitp-rs is pre-1.0:
+
+| Change to the stable surface | Release |
+|---|---|
+| Breaking: an item removed, renamed or changed incompatibly, a variant added to an exhaustive enum, a stricter bound | next **minor** (0.x → 0.x+1) |
+| Additive or a fix | next **patch** |
+
+At 1.0 the usual rules take over, with breaking changes in a major release.
+
+All published crates ship in lockstep at one shared version, so a breaking
+change anywhere in the stable surface bumps the minor digit of every crate.
+Every breaking release lists its breaks under `### BREAKING` in
+[`CHANGELOG.md`](CHANGELOG.md).
+
+A change that brings behaviour into line with the AITP RFCs is a fix, not a
+break, even when an application can observe it. Examples include the order
+of verification steps and which error code a defect gets. Such a change can
+ship in any release, with a `### Fixed` entry. The protocol version (`aitp/0.3`)
+is set by the spec, not by this crate's version.
+
+## No promise
+
+- **Internal crates.** These are `aitp-core`, `aitp-crypto`, `aitp-tct`,
+  `aitp-manifest`, `aitp-handshake`, `aitp-delegation`, `aitp-envelope`,
+  `aitp-session-bundle` and `aitp-transport-http`. They are published so the
+  bindings and tools can build on them. Their APIs can change in any release,
+  including a patch. Depend on `aitp` instead.
+- **Experimental modules of `aitp`.** These are `session_bundle` (feature
+  `experimental-session-bundle`), `handshake::identity_spiffe`
+  (`experimental-spiffe-identity`), `handshake::admission`
+  (`pinned-admission`), and `facade::renew_tct` and
+  `TctStore::needs_refresh` (`experimental-renewal`).
+  Any feature named `experimental-*` belongs here. They track Draft or
+  Proposed spec text and can change or disappear in any release.
+- **`aitp-unstable`.** The name is reserved for an opt-in crate of
+  pre-release surface. Anything published under it carries no promise.
+- **`aitp-cli`.** The CLI's flags and output are documented in
+  [`docs/cli.md`](docs/cli.md), but they are not covered by this policy.
+- **`aitp-conformance` and `aitp-rs-adapter`.** These are test tooling and
+  are not published.
+
+## MSRV
+
+The minimum supported Rust version is the workspace `rust-version` in
+[`Cargo.toml`](Cargo.toml). CI builds and tests on it (the `test (… / <MSRV>)`
+leg and `cargo-msrv`).
+
+- An MSRV bump happens only in a minor release, never in a patch, and is
+  listed in the CHANGELOG.
+- The MSRV is raised only when a dependency or a needed language feature
+  forces it. [`CONTRIBUTING.md`](CONTRIBUTING.md) lists every file that moves
+  with it.
+
+## Enforcement
+
+- **`cargo-semver-checks` is a required check**
+  ([`semver.yml`](.github/workflows/semver.yml)). It compares each pull
+  request with its base commit.
+  - On `aitp` it is **blocking**: a breaking change to the facade, built
+    with the stable features `http-client` and `http-server`, fails the
+    check.
+  - On the internal crates it is **advisory**: breaks are reported in the
+    log and never fail the check.
+- **Approving an intentional break.** Add the `semver-break-approved` label
+  to the pull request. The blocking step is then skipped. Instead the job
+  requires at least one entry under `### BREAKING` in the `[Unreleased]`
+  section of `CHANGELOG.md`, checked by
+  [`scripts/check-breaking-entry.sh`](scripts/check-breaking-entry.sh).
+  The release that ships the break bumps the minor digit.
+- **`aitp public API snapshot`** fails on any change to the facade surface,
+  additive ones included, until `crates/aitp/public-api.txt` is regenerated
+  with `make public-api`. Every surface change is therefore visible in the
+  diff under review.
+
+Security fixes are covered separately, in [`SECURITY.md`](SECURITY.md).

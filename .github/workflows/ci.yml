@@ -10,17 +10,8 @@ env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-D warnings"
   RUST_BACKTRACE: short
-  # Workspace-only crates that aren't published. Excluded from
-  # semver-checks (they don't ship to crates.io) and from
-  # tarpaulin's coverage denominator (the mint-* binaries inflate
-  # the line count without contributing tests). Single source of
-  # truth so the two jobs can't drift.
-  #
-  # Note: aitp-conformance is in PUBLISH_EXCLUDE because its
-  # subprocess-driven entry point isn't part of the published
-  # surface, but it IS in the coverage scope because its
-  # integration tests exercise other crates' public APIs.
-  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
+  # Excluded from tarpaulin's coverage denominator (the mint-* binaries
+  # inflate the line count without contributing tests).
   COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents aitp-cli"
 
 permissions:
@@ -37,9 +28,10 @@ jobs:
   # same gating `xcheck`/`e2e-llm-build` already use safely as required
   # checks (a job skipped via `if:` reports "skipped", which satisfies a
   # required status check; it's a job that never runs at all — e.g. a
-  # typo'd name — that deadlocks branch protection). `test`/`coverage`/
-  # `semver` are not conditionally skipped at all — they always run — so
-  # there's no skip semantics to reason about for those three.
+  # typo'd name — that deadlocks branch protection). `test`/`coverage`
+  # are not conditionally skipped at all — they always run — so there's
+  # no skip semantics to reason about for those two. `cargo-semver-checks`
+  # lives in semver.yml.
   changes:
     name: detect changes
     runs-on: ubuntu-latest
@@ -247,37 +239,6 @@ jobs:
         run: AITP=target/debug/aitp ./scripts/interop-peer-smoke.sh http://localhost:8080
       - if: always()
         run: docker logs peer || true
-
-  semver:
-    name: cargo-semver-checks
-    runs-on: ubuntu-latest
-    # Skip on the release branch / first commit (no prior tag to compare).
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-        with:
-          fetch-depth: 0
-      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
-        with:
-          toolchain: stable
-      - uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
-        with:
-          # Use the PR base commit SHA (not the ref name). With only the
-          # PR head checked out, `main` doesn't exist as a local ref —
-          # cargo-semver-checks fails to resolve `main^{tree}`. The SHA
-          # is unambiguous and present after `fetch-depth: 0`.
-          baseline-rev: ${{ github.event.pull_request.base.sha }}
-          # Skip the workspace-only crates that aren't published, plus
-          # any crate that lacks a released baseline to compare against
-          # (semver-checks needs a prior crates.io version; brand-new
-          # publishes have none).
-          # `aitp-envelope` and `aitp-session-bundle` are published crates
-          # with no crates.io baseline yet, so they stay out of
-          # PUBLISH_EXCLUDE_CRATES but are appended inline here; drop each
-          # one once its first version is released and can be compared to.
-          # `aitp-cli` is published but binary-only: there is no library
-          # API for semver-checks to compare, so it stays excluded.
-          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope,aitp-session-bundle,aitp-cli
 
   public-api:
     name: aitp public API snapshot

@@ -60,9 +60,10 @@ msrv:
 	@command -v cargo-msrv >/dev/null || { echo "cargo-msrv missing: (cd /tmp && cargo install --locked cargo-msrv)"; exit 1; }
 	cargo msrv verify --manifest-path crates/aitp/Cargo.toml
 
+# The blocking half of semver.yml; the internal crates are advisory there.
 semver:
 	@command -v cargo-semver-checks >/dev/null || { echo "cargo-semver-checks missing: cargo install --locked cargo-semver-checks"; exit 1; }
-	cargo semver-checks
+	cargo semver-checks --package aitp
 
 # The curated `aitp` surface (RS1.5). `public-api` regenerates the
 # snapshot after an intended change; `public-api-check` fails on drift (CI
