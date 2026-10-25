@@ -249,33 +249,6 @@ pub enum RateLimitOutcome {
     },
 }
 
-/// Configures DPoP enforcement for protected endpoints surfaced via
-/// [`HandshakeServer`] (RFC 9449). Off by default — the handshake
-/// endpoints themselves are not DPoP-protected. Operators wiring up a
-/// session-bundle or other DPoP-bound endpoint (RFC-AITP-0010 §X)
-/// install a policy via [`HandshakeServer::with_dpop_policy`] and gate
-/// requests with [`HandshakeServer::verify_dpop_request`].
-#[derive(Clone, Debug)]
-pub struct DpopPolicy {
-    /// When `true`, requests routed through
-    /// [`HandshakeServer::verify_dpop_request`] MUST carry an
-    /// `Authorization: DPoP <token>` and a `DPoP` proof header.
-    pub required: bool,
-    /// Permitted absolute drift (seconds) between the proof's `iat`
-    /// and the server clock (RFC 9449 §4.3). Common production
-    /// default: 60.
-    pub iat_tolerance_secs: i64,
-}
-
-impl Default for DpopPolicy {
-    fn default() -> Self {
-        Self {
-            required: false,
-            iat_tolerance_secs: 60,
-        }
-    }
-}
-
 struct HandshakeState<R: JwksResolver + Send + Sync> {
     signing_key: Arc<dyn AitpSigner>,
     manifest: Manifest,
@@ -313,18 +286,6 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// already-`Arc`'d server; the guard itself is cheap to clone.
     replay_guard: Mutex<Arc<dyn crate::replay_store::ReplayGuard>>,
     replay_window: Duration,
-    /// Optional DPoP enforcement policy. Off by default; when set,
-    /// protected endpoints (operator-mounted) MUST present a valid
-    /// DPoP proof via [`HandshakeServer::verify_dpop_request`].
-    /// Stored under interior mutability so [`HandshakeServer::
-    /// with_dpop_policy`] can be called on a built server without
-    /// reconstructing the Arc.
-    dpop_policy: Mutex<Option<DpopPolicy>>,
-    /// Shared DPoP `jti` replay cache. Always allocated even when
-    /// `dpop_policy` is `None` so that callers can opportunistically
-    /// validate DPoP-bound requests in middleware without re-creating
-    /// the cache.
-    dpop_replay_cache: Arc<crate::dpop::DpopReplayCache>,
     /// Optional rate-limit configuration. Off by default; operators
     /// replace via [`HandshakeServer::with_rate_limit`]. Enforcement
     /// is per-key sliding 60s windows backed by `rate_limit_events`.
@@ -460,8 +421,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 sweeper_started: std::sync::atomic::AtomicBool::new(false),
                 replay_guard: Mutex::new(Arc::new(crate::replay_store::InMemoryReplayGuard::new())),
                 replay_window,
-                dpop_policy: Mutex::new(None),
-                dpop_replay_cache: Arc::new(crate::dpop::DpopReplayCache::default()),
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
@@ -586,18 +545,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
-    /// Attach a DPoP enforcement policy. The handshake endpoints
-    /// themselves are not DPoP-protected, but operators mounting
-    /// additional DPoP-bound routes (e.g. session bundles) can use
-    /// [`Self::verify_dpop_request`] from middleware or per-route
-    /// handlers to enforce the policy. Pre-rc.2 the server allocated
-    /// a `DpopReplayCache` but never consulted it; this method gives
-    /// callers a way to opt into RFC 9449 §4.3 enforcement.
-    pub fn with_dpop_policy(self, policy: DpopPolicy) -> Self {
-        *self.state.dpop_policy.lock() = Some(policy);
-        self
-    }
-
     /// Replace the rate-limit configuration (RFC-AITP-0009 §3.1). The
     /// default is [`RateLimitConfig::default`]. The per-key sliding
     /// window is 60 seconds; entries older than that are evicted on
@@ -634,11 +581,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// The default is per-process in-memory; a **clustered** deployment
     /// MUST supply a shared [`ReplayGuard`](crate::replay_store::ReplayGuard)
     /// (e.g. Redis) or use sticky routing, otherwise a message replayed
-    /// to a second instance is accepted. To share one backend across
-    /// both the envelope and DPoP replay checks, construct the DPoP
-    /// cache with the same guard via
-    /// [`DpopReplayCache::with_guard`](crate::dpop::DpopReplayCache::with_guard).
-    /// See [`crate::replay_store`] for the clustering contract.
+    /// to a second instance is accepted. See [`crate::replay_store`] for the clustering contract.
     pub fn with_replay_guard(self, guard: Arc<dyn crate::replay_store::ReplayGuard>) -> Self {
         *self.state.replay_guard.lock() = guard;
         self
@@ -666,56 +609,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         peer_aid: Option<&aitp_core::Aid>,
     ) -> RateLimitOutcome {
         rate_limit_check(&self.state, client_ip, peer_aid)
-    }
-
-    /// Verify a DPoP-bound request against the configured policy.
-    /// Returns `Err` with the appropriate [`crate::dpop::DpopError`]
-    /// mapped to HTTP 401 if the policy is `required` and the request
-    /// is missing or invalid headers. When policy is not configured or
-    /// `required == false` and headers are absent, returns `Ok(None)`.
-    pub fn verify_dpop_request(
-        &self,
-        request: &Request,
-        expected_jkt: &str,
-        expected_method: &str,
-        expected_url: &str,
-    ) -> Result<Option<crate::dpop::DpopProof>, crate::dpop::DpopError> {
-        let policy = self.state.dpop_policy.lock().clone().unwrap_or_default();
-        let authz = request
-            .headers()
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default();
-        let dpop_hdr = request
-            .headers()
-            .get("dpop")
-            .and_then(|v| v.to_str().ok())
-            .unwrap_or_default();
-        if authz.is_empty() || dpop_hdr.is_empty() {
-            if policy.required {
-                return Err(crate::dpop::DpopError::MalformedHeader);
-            }
-            return Ok(None);
-        }
-        let parsed = crate::dpop::DpopHeader::parse(authz, dpop_hdr)?;
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_secs() as i64)
-            .unwrap_or(0);
-        let proof = crate::dpop::verify_dpop_proof_full(
-            &parsed,
-            &crate::dpop::DpopVerifyContext {
-                expected_method,
-                expected_url,
-                expected_jkt,
-                expected_access_token: Some(parsed.access_token.as_bytes()),
-                replay_cache: &self.state.dpop_replay_cache,
-                iat_tolerance_secs: policy.iat_tolerance_secs,
-                now_unix_secs: now,
-                expected_nonce: None,
-            },
-        )?;
-        Ok(Some(proof))
     }
 
     /// The axum router for this handshake server.

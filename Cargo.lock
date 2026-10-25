@@ -276,7 +276,6 @@ dependencies = [
  "aitp-tct",
  "axum",
  "chrono",
- "ed25519-dalek",
  "http",
  "jsonwebtoken",
  "metrics",

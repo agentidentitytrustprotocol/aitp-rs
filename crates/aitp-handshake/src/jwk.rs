@@ -16,11 +16,10 @@ use aitp_core::base64url;
 use aitp_crypto::{AitpVerifyingKey, CryptoError};
 use std::str::FromStr;
 
-/// Supported JWS signature algorithms for OIDC ID tokens and DPoP
-/// proofs.
+/// Supported JWS signature algorithms for OIDC ID tokens.
 ///
 /// Deliberately a closed set of three: these are the only algorithms
-/// [`verify_jws_signature`] knows how to verify. A JWKS or DPoP proof
+/// [`verify_jws_signature`] knows how to verify. A JWKS
 /// advertising anything else is rejected during parsing
 /// ([`JwkPublicKey::from_jwk_json`]), not silently accepted here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -99,7 +98,7 @@ pub enum JwkKeyMaterial {
 /// material with no dependency on any JOSE library's types.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct JwkPublicKey {
-    /// Key identifier matching the JWT/DPoP-proof header `kid`.
+    /// Key identifier matching the JWT header `kid`.
     pub kid: Option<String>,
     /// Algorithm (`EdDSA`, `ES256`, `RS256`).
     pub alg: JwsAlgorithm,
@@ -138,7 +137,7 @@ impl JwkPublicKey {
     ///
     /// This is the single shared parser consolidating what used to be
     /// hand-rolled, duplicated JWK parsing in `aitp-transport-http`
-    /// (JWKS fetch, DPoP proof verification) and both language
+    /// (JWKS fetch) and both language
     /// bindings.
     ///
     /// Does **not** apply any key-strength policy (e.g. an RSA modulus
@@ -211,7 +210,7 @@ fn to_array<const N: usize>(bytes: &[u8], what: &str) -> Result<[u8; N], JwkPars
     Ok(arr)
 }
 
-/// Errors verifying a JWS/DPoP signature against a [`JwkPublicKey`].
+/// Errors verifying a JWS signature against a [`JwkPublicKey`].
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum JwsVerifyError {
@@ -249,8 +248,8 @@ pub enum JwsVerifyError {
 ///   `verify_raw_jose` (dalek `verify_strict`, rejecting non-canonical
 ///   signatures).
 /// - ES256 — `AitpVerifyingKey::from_p256_affine` + `verify_raw_jose`.
-///   High-S is accepted. This verifies third-party JOSE (IdP ID tokens,
-///   DPoP proofs) per RFC 7515/7518; RFC-AITP-0001 §5.4.7 low-S covers
+///   High-S is accepted. This verifies third-party JOSE (IdP ID tokens)
+///   per RFC 7515/7518; RFC-AITP-0001 §5.4.7 low-S covers
 ///   AITP signing inputs only. The token bytes are therefore
 ///   malleable, so replay caches key on the bound nonce or `jti`, never
 ///   on the raw token.
@@ -274,7 +273,7 @@ pub fn verify_jws_signature(
         });
     }
     match &key.key {
-        // Third-party JOSE (IdP ID tokens, DPoP proofs): RFC 7515/7518,
+        // Third-party JOSE (IdP ID tokens): RFC 7515/7518,
         // not RFC-AITP-0001 §5.4.7, so high-S is accepted.
         JwkKeyMaterial::Ed25519 { x } => {
             let vk = AitpVerifyingKey::from_bytes(x)?;
@@ -403,7 +402,7 @@ mod tests {
         assert!(verify_jws_signature(&jwk, "EdDSA", &signing_input, &bad_sig).is_err());
     }
 
-    /// A third-party JOSE token (an IdP ID token, a DPoP proof) is
+    /// A third-party JOSE token (an IdP ID token) is
     /// verified per RFC 7515/7518. §5.4.7 low-S is scoped to AITP
     /// signing inputs, so a high-S ES256 signature from an IdP verifies
     /// here, while the AITP JWS path (`verify_raw`) still rejects it.

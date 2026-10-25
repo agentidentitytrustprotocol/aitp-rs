@@ -30,7 +30,7 @@
 //! deployment supports very large lists.
 //!
 //! Headers should typically not exceed 8 KiB; AITP itself adds at
-//! most a handful of small headers (`DPoP`, `Authorization`,
+//! most a handful of small headers (`Authorization`,
 //! `If-None-Match`). Cap at 16 KiB and rely on the body limit for
 //! the bulk of request size.
 

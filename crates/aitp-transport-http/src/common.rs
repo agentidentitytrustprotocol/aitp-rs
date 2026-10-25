@@ -86,7 +86,7 @@ pub fn verify_envelope_signature(
 }
 
 /// Minimum accepted RSA modulus size, in bits, for third-party
-/// (OIDC / DPoP) verification keys. 2048 bits is the floor NIST
+/// (OIDC) verification keys. 2048 bits is the floor NIST
 /// SP 800-131A and every mainstream IdP have required for years;
 /// anything smaller is a weak-key acceptance bug.
 pub const MIN_RSA_MODULUS_BITS: usize = 2048;
