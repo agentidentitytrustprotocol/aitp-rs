@@ -21,11 +21,11 @@ case "$origin" in
   http://localhost*|http://127.0.0.1*|http://\[::1\]*) insecure=(--insecure-localhost) ;;
 esac
 
-"$aitp" enroll "$origin" "${insecure[@]}" > "$work/enrolled.json"
+"$aitp" enroll "$origin" ${insecure[@]+"${insecure[@]}"} > "$work/enrolled.json"
 aid="$(sed -n 's/.*"aid": *"\([^"]*\)".*/\1/p' "$work/enrolled.json" | head -1)"
 [ -n "$aid" ] || { echo "enroll printed no aid" >&2; cat "$work/enrolled.json" >&2; exit 1; }
 
-"$aitp" echo "$origin" "${insecure[@]}" > "$work/echo.json"
+"$aitp" echo "$origin" ${insecure[@]+"${insecure[@]}"} > "$work/echo.json"
 grep -q "\"sub\": *\"$aid\"" "$work/echo.json" \
   || { echo "echo did not return our AID" >&2; cat "$work/echo.json" >&2; exit 1; }
 echo "ok: $aid enrolled, handshook and echoed at $origin"

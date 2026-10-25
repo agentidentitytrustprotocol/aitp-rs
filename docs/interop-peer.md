@@ -271,5 +271,38 @@ proxy with `--trusted-proxy` so the per-address limits see clients.
 
 The peer's key is its identity: its AID is what clients see, and a new
 key is a new peer. Keep it in a secret store and pass it through
-`AITP_PEER_KEY`. The deployment of the public instance is in
-[`deploy/interop-peer/`](../deploy/interop-peer/).
+`AITP_PEER_KEY`.
+
+## The public instance
+
+The public instance runs on Railway (project `aitp-interop-peer`,
+service `interop-peer`), built from
+[`deploy/interop-peer/Dockerfile`](../deploy/interop-peer/Dockerfile).
+Its key is in Doppler (`aitp-interop-peer/prd`, `AITP_PEER_KEY`), and its
+AID is `aid:pubkey:En0RjMZMZQyo9jvanvetTAbyp4F7WR5pII2-xU_hHdc`.
+[`deploy/interop-peer/deploy.sh`](../deploy/interop-peer/deploy.sh)
+does every change, and on its own only prints the plan:
+
+| Command | What it does |
+|---|---|
+| `deploy.sh` | Prints the ref, variables, peer AID and live state. Changes nothing. |
+| `deploy.sh --apply [--ref R]` | Pipes the key from Doppler into Railway and sets the other variables. Then it deploys `R` (default `origin/main`) from a clean worktree, waits for `/status` to show the peer AID, and runs [`scripts/interop-peer-smoke.sh`](../scripts/interop-peer-smoke.sh) against the public URL. |
+| `deploy.sh --previous` | Redeploys the deployment before the latest one. |
+| `deploy.sh --rollback` | Removes the live deployment, so the peer is offline, and prints the DNS record to delete. `--apply` or `--previous` brings it back. |
+
+`--environment staging` runs any of these against the `staging`
+environment instead. It is served only at its Railway domain, and is
+where `--previous` and `--rollback` were tested. Leave it offline when
+you're done.
+
+```mermaid
+flowchart LR
+    client["client"] -->|"TLS<br/>interop.agentidentitytrustprotocol.io"| edge["Railway edge<br/>100.64.0.0/10"]
+    edge -->|"plain HTTP<br/>X-Real-IP: client"| peer["aitp serve --interop"]
+    doppler[("Doppler<br/>AITP_PEER_KEY")] -.->|"deploy.sh --apply"| peer
+```
+
+DNS for `agentidentitytrustprotocol.io` is hosted at Squarespace, which
+has no API. `interop` is a CNAME to the target Railway gives the custom
+domain. `deploy.sh` prints that record whenever it is missing, so adding
+or deleting it is the one manual step.
