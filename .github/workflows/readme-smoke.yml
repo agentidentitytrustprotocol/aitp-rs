@@ -64,7 +64,12 @@ jobs:
           toolchain: stable
       - name: The README block
         id: block
-        run: scripts/extract-readme-block.sh | bash
+        # Timed from `cargo install` to the printed claims: the spec's
+        # hello world promises under five minutes on a clean machine.
+        run: |
+          start=$(date +%s)
+          scripts/extract-readme-block.sh | bash
+          echo "::notice title=README hello world::$(( $(date +%s) - start ))s from cargo install to verified echo ($(nproc) vCPU)"
       - name: Open or update the readme-smoke issue
         if: failure() && steps.block.outcome == 'failure'
         env:
