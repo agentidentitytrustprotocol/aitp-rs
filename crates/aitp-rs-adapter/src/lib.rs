@@ -1338,7 +1338,7 @@ impl JwksResolver for OidcTestIssuerResolver {
         };
         Ok(vec![JwkPublicKey {
             kid: None,
-            alg: JwsAlgorithm::EdDSA,
+            alg: Some(JwsAlgorithm::EdDSA),
             key: JwkKeyMaterial::Ed25519 { x },
         }])
     }

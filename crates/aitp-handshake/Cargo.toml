@@ -23,12 +23,14 @@ uuid = { workspace = true }
 url = { workspace = true }
 rand = { workspace = true }
 sha2 = { workspace = true }
-# RS256 (RSA) JWS verification for OIDC ID tokens — see the
-# `verify_jws_signature` doc comment in `src/jwk.rs`. Already in the
+# RSA (RS*/PS*) and ES384 JWS verification for OIDC ID tokens and
+# JWT-SVIDs — see the `verify_jws_signature` doc comment in `src/jwk.rs`. Already in the
 # dependency tree transitively via `rustls`; declared directly here
 # (rather than relying on the transitive pull) so this crate's use of
 # it is explicit and pinned by the workspace.
 ring = { workspace = true }
+# ES512 (P-521) JWS verification, which `ring` lacks.
+p521 = { workspace = true }
 metrics = { workspace = true, optional = true }
 # SPIFFE identity (`experimental-spiffe-identity`): X509-SVID path
 # validation (webpki, ring backend), leaf inspection (x509-parser) and

@@ -62,6 +62,9 @@ p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std",
 # return for P-256, so `aitp_crypto::signer` can convert it to the JOSE
 # `R || S` form. Feature unification turns it on for p256's own ecdsa.
 ecdsa = { version = "0.17", default-features = false, features = ["der"] }
+# ES512 (ECDSA on P-521) JWS verification for JWT-SVIDs and OIDC ID
+# tokens; `ring` has no P-521 (aitp-handshake `jwk.rs`).
+p521 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 base64ct = { version = "1.6", features = ["std"] }
 uuid = { version = "1.7", features = ["v4", "serde"] }
 sha2 = "0.11"

@@ -107,6 +107,7 @@ dependencies = [
  "aitp-manifest",
  "aitp-tct",
  "base64ct",
+ "p521",
  "rand",
  "ring",
  "rustls-pki-types",
@@ -1107,6 +1108,20 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c9239b2dbc807adbbe147e8cf72ea7450c3a0aabe62cb8e75ff4ec22e1f72a"
 dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primefield",
+ "primeorder",
+ "sha2",
+]
+
+[[package]]
+name = "p521"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ad64cc32c2dc466317c12ee5853e61f159f9eab1fe7efade0395dc2e7b43449"
+dependencies = [
+ "base16ct",
  "ecdsa",
  "elliptic-curve",
  "primefield",

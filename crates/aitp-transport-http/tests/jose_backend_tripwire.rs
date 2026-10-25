@@ -139,7 +139,7 @@ fn jose_backend_verifies_eddsa() {
         .expect("fixture pubkey is 32 base64url-encoded bytes");
     let key = JwkPublicKey {
         kid: None,
-        alg: JwsAlgorithm::EdDSA,
+        alg: Some(JwsAlgorithm::EdDSA),
         key: JwkKeyMaterial::Ed25519 { x: pubkey },
     };
     assert_backend_live(
@@ -157,7 +157,7 @@ fn jose_backend_verifies_es256() {
     let y = aitp_core::base64url::decode_strict_exact::<32>(ES256_Y).expect("fixture y");
     let key = JwkPublicKey {
         kid: None,
-        alg: JwsAlgorithm::ES256,
+        alg: Some(JwsAlgorithm::ES256),
         key: JwkKeyMaterial::P256 { x, y },
     };
     let jsonwebtoken_key =
@@ -177,7 +177,7 @@ fn jose_backend_verifies_rs256() {
     let e = aitp_core::base64url::decode_strict(RS256_E).expect("fixture e");
     let key = JwkPublicKey {
         kid: None,
-        alg: JwsAlgorithm::RS256,
+        alg: Some(JwsAlgorithm::RS256),
         key: JwkKeyMaterial::Rsa { n, e },
     };
     let jsonwebtoken_key =

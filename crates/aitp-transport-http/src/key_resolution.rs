@@ -613,7 +613,7 @@ mod tests {
     fn fake_jwk() -> JwkPublicKey {
         JwkPublicKey {
             kid: Some("k1".into()),
-            alg: JwsAlgorithm::EdDSA,
+            alg: Some(JwsAlgorithm::EdDSA),
             key: JwkKeyMaterial::Ed25519 { x: [0u8; 32] },
         }
     }

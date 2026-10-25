@@ -7,16 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- `aitp-handshake` (re-exported as `aitp::handshake`): `JwkPublicKey.alg` is now `Option<JwsAlgorithm>`. It holds the JWK's own `alg` member, which pins the key to that algorithm (RFC 7517 §4.4); `None` allows any algorithm that fits the key type (`JwsAlgorithm::fits`). `from_jwk_json` used to ignore the member. It now rejects an `alg` that does not fit the key type. `JwsAlgorithm` gains `ES384`, `ES512`, `RS384`, `RS512`, `PS256`, `PS384` and `PS512`, and `JwkKeyMaterial` gains `P384` and `P521`. `JwsVerifyError::AlgMismatch` keeps only the `header` field.
+
 ### Added
 
 - `deploy/interop-peer/deploy.sh` deploys the public interop peer to Railway. It has four modes: `--dry-run` (the default), `--apply [--ref R]`, `--previous` and `--rollback`, and each takes `--environment`. The peer key is piped from Doppler and never printed. While the custom domain lacks its CNAME or the `_railway-verify` TXT record, the script prints the missing record. The peer is live at `https://interop.agentidentitytrustprotocol.io`; see `docs/interop-peer.md`.
 - Spec pin `ddec9f1`. The conformance runner and `aitp-rs-adapter` load the OIDC test-issuer keys from the spec's `known-answer/oidc-test-issuers.json` (`kat-oidc-issuer-001`, `kat-oidc-issuer-002-unknown`), vendored at the pin, instead of private seed constants. A test checks that each seed derives to its published public key, and another that the adapter resolves only the trusted key.
 - The README has a hello world that CI executes (`readme-smoke.yml`). On every pull request it runs against a peer built from the checkout, as the required check `README hello world (local peer)`. A daily job runs it against the public peer, reports the time from `cargo install` to verified echo, and keeps one `readme-smoke` issue open while that job fails.
+- Spec pin `3a78a8f`, which adds the RFC-AITP-0002 §6.3 "Key match" rule that the JWT-SVID fix below implements. No schema changes.
 - A fuzz target, `svid_verify`, feeds arbitrary descriptors, JWT-SVIDs and X.509 leaf DER to `verify_spiffe` (feature `experimental-spiffe-identity`). The target holds a bundle with a JWT-SVID key and an X.509 CA, so the input gets past the bundle lookup into the parsers.
 - `STABILITY.md` states the compatibility policy. The `aitp` facade follows semver, and while pre-1.0 a breaking change bumps the minor digit. MSRV bumps happen only in a minor release. The internal crates, the `experimental-*` features and `aitp-unstable` carry no promise. `cargo-semver-checks` now has its own workflow, `semver.yml`. On `aitp` it blocks and on the internal crates it is advisory. A `semver-break-approved` label lets an intentional break through, provided `[Unreleased]` has a `### BREAKING` entry.
 
 ### Fixed
 
+- The JWT-SVID verifier accepts all nine `alg` values RFC-AITP-0002 §6.3 lists: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`, `PS256`, `PS384` and `PS512`. Before this fix, only `ES256` and `RS256` verified; the other seven passed the allow-list and then failed the signature check. `verify_jws_signature` now dispatches RSA PKCS#1 v1.5 and PSS and ES384 through `ring`, and ES512 through RustCrypto `p521`. OIDC ID tokens use the same verifier, so they also verify under these algorithms.
 - `aitp-conformance` no longer sends `*_claims` minting companions to the implementation under test. Before this fix they survived in envelope payloads (`envelope.payload.tct_claims`) and session-bundle participants, so a strict verifier rejected `mh-006`..`mh-008`, `mh-success-001` and five `bundle-*` fixtures with `UNKNOWN_FIELD`. Every op request is now stripped at every depth before it is sent, and CI walks every request the whole pinned corpus produces to keep it that way.
 
 ### Fixed
