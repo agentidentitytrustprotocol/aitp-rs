@@ -107,26 +107,11 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
     });
     let policy_ref: &GrantPolicyFn = &*policy_box;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: Some(policy_ref),
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW)
+        .with_grant_policy(policy_ref);
 
     // Reset capture for this test.
     TEST_CAPTURE.with(|c| *c.borrow_mut() = None);

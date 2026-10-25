@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### BREAKING
 
+- **`aitp_handshake::PeerConfig` is `#[non_exhaustive]`** (RS1.1). A
+  struct literal no longer compiles outside `aitp-handshake`. Build it
+  with `PeerConfig::new(signing_key, manifest, jwks_resolver,
+  pinned_key_store, now)` and set the optional parts with
+  `.with_trust_anchors(..)`, `.with_grant_policy(..)` and
+  `.with_revocation_check(..)`. The fields stay public, so they can still
+  be read and assigned, and the struct is now `Clone + Copy`, which
+  replaces `..base` struct-update syntax. `aitp::facade::InitiatorConfig`
+  was already `#[non_exhaustive]`. Doctests now pin both behaviours.
 - **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
   specifies either, and both were documented as unsupported (#151).
   `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`

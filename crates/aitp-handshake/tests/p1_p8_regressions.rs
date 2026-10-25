@@ -274,16 +274,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
     let store = StaticPinnedKeyStore::new([receiver.verifying_key()]);
 
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &receiver,
-        manifest: &receiver_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &store,
-        grant_policy: None,
-        revocation_check: None,
-        now: ts,
-    };
+    let cfg = PeerConfig::new(&receiver, &receiver_manifest, &resolver, &store, ts);
 
     let proof = sign_pinned_key_proof(
         &untrusted_sender,
@@ -375,16 +366,15 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
 
     let receiver_manifest = manifest_for(&receiver, "receiver");
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &receiver,
-        manifest: &receiver_manifest,
-        trust_anchors: &["https://idp.example.com".parse().unwrap()],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: ts,
-    };
+    let cfg_anchors: Vec<aitp_core::RawUrl> = vec!["https://idp.example.com".parse().unwrap()];
+    let cfg = PeerConfig::new(
+        &receiver,
+        &receiver_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        ts,
+    )
+    .with_trust_anchors(&cfg_anchors);
     let envelope = AitpEnvelope {
         version: "aitp/0.1".into(),
         message_type: MessageType::MutualHello,
@@ -426,16 +416,15 @@ fn p7_grant_policy_filters_intersection() {
             .collect()
     });
     let policy_ref: &GrantPolicyFn = &*policy_box;
-    let cfg = PeerConfig {
-        signing_key: &issuer,
-        manifest: &issuer_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([peer.verifying_key()]),
-        grant_policy: Some(policy_ref),
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([peer.verifying_key()]);
+    let cfg = PeerConfig::new(
+        &issuer,
+        &issuer_manifest,
+        &resolver,
+        &cfg_pinned,
+        Timestamp::now(),
+    )
+    .with_grant_policy(policy_ref);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let (_initiator, payload) = Initiator::start(

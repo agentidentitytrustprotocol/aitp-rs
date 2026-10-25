@@ -119,15 +119,14 @@ async fn run_pinned_handshake(alice: AitpSigningKey, make_bob: impl Fn() -> Aitp
     // verifier rejects it as `Tct(Expired)`.
     let resolver = NoOpResolver;
     let alice_trusts = StaticPinnedKeyStore::new([bob.verifying_key()]);
-    let make_cfg = || PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &alice_trusts,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
+    let make_cfg = || {
+        PeerConfig::new(
+            &alice,
+            &alice_manifest,
+            &resolver,
+            &alice_trusts,
+            Timestamp::now(),
+        )
     };
     let cfg = make_cfg();
     let hello_mid = Uuid::new_v4();
@@ -256,16 +255,14 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &cfg_pinned,
+        Timestamp::now(),
+    );
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (_initiator, hello_payload) = Initiator::start(

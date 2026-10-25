@@ -26,6 +26,32 @@ pub use crate::identity_pinned::{NoPinnedKeys, PinnedKeyStore, StaticPinnedKeySt
 pub type SessionId = Uuid;
 
 /// Configuration shared by Initiator and Responder.
+///
+/// Construct with [`PeerConfig::new`] and set the optional parts with the
+/// `with_*` methods. The struct is `#[non_exhaustive]`, so a struct
+/// literal does not compile outside this crate:
+///
+/// ```compile_fail
+/// # use aitp_handshake::{PeerConfig, NoPinnedKeys, JwksResolver};
+/// # fn demo<'a>(
+/// #     key: &'a aitp_crypto::AitpSigningKey,
+/// #     manifest: &'a aitp_manifest::Manifest,
+/// #     resolver: &'a dyn JwksResolver,
+/// # ) -> PeerConfig<'a> {
+/// PeerConfig {
+///     signing_key: key,
+///     manifest,
+///     trust_anchors: &[],
+///     jwks_resolver: resolver,
+///     pinned_key_store: &NoPinnedKeys,
+///     grant_policy: None,
+///     revocation_check: None,
+///     now: aitp_core::Timestamp(0),
+/// }
+/// # }
+/// ```
+#[derive(Clone, Copy)]
+#[non_exhaustive]
 pub struct PeerConfig<'a> {
     /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
     /// key, KMS, HSM); a backend failure surfaces as
@@ -74,6 +100,66 @@ pub struct PeerConfig<'a> {
     pub revocation_check: Option<&'a RevocationCheckFn>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
+}
+
+impl<'a> PeerConfig<'a> {
+    /// Construct a config from its required parts. It starts with no
+    /// trust anchors, no grant policy and no revocation check; set them
+    /// with the `with_*` methods.
+    ///
+    /// ```
+    /// # use aitp_handshake::{PeerConfig, StaticPinnedKeyStore, JwksResolver};
+    /// # fn demo(
+    /// #     key: &aitp_crypto::AitpSigningKey,
+    /// #     manifest: &aitp_manifest::Manifest,
+    /// #     resolver: &dyn JwksResolver,
+    /// #     peer: &aitp_crypto::AitpSigningKey,
+    /// #     now: aitp_core::Timestamp,
+    /// # ) {
+    /// let trusted = StaticPinnedKeyStore::new([peer.verifying_key()]);
+    /// let cfg = PeerConfig::new(key, manifest, resolver, &trusted, now)
+    ///     .with_trust_anchors(&[]);
+    /// # let _ = cfg;
+    /// # }
+    /// ```
+    pub fn new(
+        signing_key: &'a dyn AitpSigner,
+        manifest: &'a Manifest,
+        jwks_resolver: &'a dyn JwksResolver,
+        pinned_key_store: &'a dyn PinnedKeyStore,
+        now: Timestamp,
+    ) -> Self {
+        Self {
+            signing_key,
+            manifest,
+            trust_anchors: &[],
+            jwks_resolver,
+            pinned_key_store,
+            grant_policy: None,
+            revocation_check: None,
+            now,
+        }
+    }
+
+    /// Set the accepted OIDC issuers (default: none).
+    pub fn with_trust_anchors(mut self, trust_anchors: &'a [aitp_core::RawUrl]) -> Self {
+        self.trust_anchors = trust_anchors;
+        self
+    }
+
+    /// Set the grant-policy hook (default: allow all). See
+    /// [`PeerConfig::grant_policy`].
+    pub fn with_grant_policy(mut self, grant_policy: &'a GrantPolicyFn) -> Self {
+        self.grant_policy = Some(grant_policy);
+        self
+    }
+
+    /// Set the revocation hook (default: none). See
+    /// [`PeerConfig::revocation_check`].
+    pub fn with_revocation_check(mut self, revocation_check: &'a RevocationCheckFn) -> Self {
+        self.revocation_check = Some(revocation_check);
+        self
+    }
 }
 
 /// Outcome of a handshake-time revocation check (RFC-AITP-0008).

@@ -62,16 +62,13 @@ fn insert_session<R: JwksResolver + Send + Sync + 'static>(state: &HandshakeStat
     let pinned =
         StaticPinnedKeyStore::new([AitpSigningKey::from_seed(&[0x72; 32]).verifying_key()]);
     let resolver = NoOpResolver;
-    let init_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &pinned,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let init_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &pinned,
+        Timestamp::now(),
+    );
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let (_initiator, hello) = Initiator::start(
@@ -95,16 +92,14 @@ fn insert_session<R: JwksResolver + Send + Sync + 'static>(state: &HandshakeStat
     .unwrap();
 
     let store = state.pinned_key_store.lock().clone();
-    let resp_cfg = PeerConfig {
-        signing_key: &*state.signing_key,
-        manifest: &state.manifest,
-        trust_anchors: &state.trust_anchors,
-        jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: &*store,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let resp_cfg = PeerConfig::new(
+        &*state.signing_key,
+        &state.manifest,
+        &state.jwks_resolver,
+        &*store,
+        Timestamp::now(),
+    )
+    .with_trust_anchors(&state.trust_anchors);
     let (responder, _ack) = Responder::on_hello(
         &envelope,
         &hello,

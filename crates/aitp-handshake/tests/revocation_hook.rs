@@ -123,26 +123,10 @@ fn stage_through_commit() -> StagedCommit {
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
 
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello_payload) = Initiator::start(
@@ -222,16 +206,14 @@ fn revoked_tct_in_mutual_commit_aborts_handshake() {
     });
     let hook_ref: &RevocationCheckFn = &*hook;
 
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -262,16 +244,14 @@ fn revocation_provider_failure_propagates() {
     });
     let hook_ref: &RevocationCheckFn = &*hook;
 
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -288,16 +268,13 @@ fn revocation_provider_failure_propagates() {
 fn missing_hook_preserves_default_acceptance() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    );
     let _ = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -317,16 +294,14 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         })
     });
     let hook_ref: &RevocationCheckFn = &*hook;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let _ = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -357,16 +332,14 @@ fn invalid_tct_signature_skips_revocation_lookup() {
         panic!("revocation hook called before TCT signature verification");
     });
     let hook_ref: &RevocationCheckFn = &*hook;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -397,16 +370,14 @@ fn wrong_audience_skips_revocation_lookup() {
         panic!("revocation hook called for a TCT with the wrong audience");
     });
     let hook_ref: &RevocationCheckFn = &*hook;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -430,16 +401,14 @@ fn expired_tct_skips_revocation_lookup() {
         panic!("revocation hook called for an expired TCT");
     });
     let hook_ref: &RevocationCheckFn = &*hook;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
@@ -463,16 +432,14 @@ fn soft_fail_safe_subset_with_empty_intersection_rejects() {
         })
     });
     let hook_ref: &RevocationCheckFn = &*hook;
-    let bob_cfg = PeerConfig {
-        signing_key: &staged.bob,
-        manifest: &staged.bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: Some(hook_ref),
-        now: NOW,
-    };
+    let bob_cfg = PeerConfig::new(
+        &staged.bob,
+        &staged.bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_revocation_check(hook_ref);
     let err = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)

@@ -58,26 +58,22 @@ fn main() {
     // ── Drive the handshake ────────────────────────────────────────────
     let resolver = issuer.as_resolver();
     let trust_anchors = vec![aitp::core::RawUrl::from(issuer_url.clone())];
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp::handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp::handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &aitp::handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
+    let bob_cfg = PeerConfig::new(
+        &bob,
+        &bob_manifest,
+        &resolver,
+        &aitp::handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
 
     // HELLO (Alice → Bob). Initiator::start picks its own pop_nonce;
     // we mint the JWT *after* learning the nonce and overwrite the

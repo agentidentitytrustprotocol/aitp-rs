@@ -96,26 +96,10 @@ fn all_four_handshake_payloads_validate_against_schema() {
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
 
     // ── 1. HELLO ─────────────────────────────────────────────────────
     let hello_mid = Uuid::new_v4();

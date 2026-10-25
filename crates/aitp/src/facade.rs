@@ -526,15 +526,15 @@ pub async fn run_initiator_handshake(
     // peer's clock by the time COMMIT_ACK arrives — the peer-issued TCT's
     // `issued_at` then lands strictly after our stale `now` and the
     // verifier rejects an otherwise-valid TCT as `Tct(Expired)`.
-    let make_cfg = || PeerConfig {
-        signing_key: config.signing_key,
-        manifest: config.own_manifest,
-        trust_anchors,
-        jwks_resolver,
-        pinned_key_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
+    let make_cfg = || {
+        PeerConfig::new(
+            config.signing_key,
+            config.own_manifest,
+            jwks_resolver,
+            pinned_key_store,
+            Timestamp::now(),
+        )
+        .with_trust_anchors(trust_anchors)
     };
     let cfg = make_cfg();
 
@@ -676,7 +676,31 @@ pub async fn run_initiator_handshake(
 ///
 /// Construct with [`InitiatorConfig::new`] and adjust the optional knobs
 /// with the `with_*` methods; the struct is `#[non_exhaustive]` so future
-/// knobs can be added without breaking callers.
+/// knobs can be added without breaking callers. A struct literal does not
+/// compile outside this crate:
+///
+/// ```compile_fail
+/// # use std::time::Duration;
+/// # use aitp::facade::{InitiatorConfig, TrustMode, IdentityMode};
+/// # use aitp::transport::HostGuard;
+/// # fn demo<'a>(
+/// #     key: &'a aitp::crypto::AitpSigningKey,
+/// #     manifest: &'a aitp::manifest::Manifest,
+/// #     trusted: &'a aitp::handshake::StaticPinnedKeyStore,
+/// # ) -> InitiatorConfig<'a> {
+/// InitiatorConfig {
+///     signing_key: key,
+///     own_manifest: manifest,
+///     peer_origin: "https://peer.example".parse().unwrap(),
+///     trust_mode: TrustMode::PinnedKeys(trusted),
+///     identity_mode: IdentityMode::PinnedKey { subject: "alice".into() },
+///     requested_grants: vec![],
+///     http_timeout: Duration::from_secs(10),
+///     host_guard: HostGuard::default(),
+///     allow_insecure_localhost: false,
+/// }
+/// # }
+/// ```
 #[non_exhaustive]
 pub struct InitiatorConfig<'a> {
     /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
