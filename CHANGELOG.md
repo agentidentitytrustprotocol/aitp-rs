@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Added
 
+- `deploy/interop-peer/deploy.sh` deploys the public interop peer to Railway. It has four modes: `--dry-run` (the default), `--apply [--ref R]`, `--previous` and `--rollback`, and each takes `--environment`. The peer key is piped from Doppler and never printed. While the custom domain lacks its CNAME or the `_railway-verify` TXT record, the script prints the missing record. The peer is live at `https://interop.agentidentitytrustprotocol.io`; see `docs/interop-peer.md`.
+- The README has a hello world that CI executes (`readme-smoke.yml`). On every pull request it runs against a peer built from the checkout, as the required check `README hello world (local peer)`. A daily job runs it against the public peer, reports the time from `cargo install` to verified echo, and keeps one `readme-smoke` issue open while that job fails.
+
+## [0.23.0] — 2026-10-25
+
+### BREAKING
+
+- `aitp-transport-http`: `RevocationFailMode` has a new variant, `FailOpenIfUnadvertised`, so an exhaustive `match` on it must add an arm. With it, `RevocationFetcher` accepts a TCT whose issuer's verified Manifest advertises no `ListRevoked` URL, and logs each such acceptance at info. A list that is advertised but can't be fetched, verified or kept fresh still fails closed, and `RevocationCache` treats the mode as `FailClosed`. Use it only for TCTs that authorise nothing, such as the ones the interop peer receives from initiators and discards.
+
+### Added
+
+- `aitp serve --interop` (the CLI's `serve` feature) runs a public pinned-key AITP responder. It serves its Manifest, the handshake and its own empty revocation list. `/enroll/challenge` and `/enroll` register a key into `pinned_keys` (RFC-AITP-0002 §3.2) with a 24 h TTL, a 10k cap and per-IP token buckets, and grant only `aitp.interop.echo`. `/echo/challenge` and `/echo` check a presented TCT the way an issuer acting as resource server does (RFC-AITP-0005 §10.5). Each challenge is a signed `pop_challenge` bound to the token's `jti` and is consumed by any answer, and revocation is checked last. `--trusted-proxies` and `--client-ip-header` make the rate limits key on the real client behind an edge such as Railway's, which writes it into `X-Real-IP`. See `docs/interop-peer.md`. `deploy/interop-peer` holds the container image, and `scripts/interop-peer-smoke.sh` holds the smoke test.
+- `aitp enroll <url>` registers the agent's key with an interop peer, and `aitp echo <url>` handshakes, then proves possession of the TCT and prints the verified claims. `enroll` creates a default key at `$XDG_CONFIG_HOME/aitp/agent.key` (else `~/.config/aitp/agent.key`). `echo` uses that key, as does `handshake` when `--key` is omitted.
+- The `aitp` facade re-exports `parse_envelope_wire` and `CheckedJson`.
+- A fuzz target, `interop_enroll`, covers the enrolment request parser.
 - `aitp-cli` is published to crates.io (`cargo install aitp-cli`; the binary is `aitp`) and versioned in lockstep with the library crates. Each `aitp-cli-v*` GitHub Release carries prebuilt binaries for Linux x86_64 and arm64, macOS arm64 and x86_64, and Windows x86_64, each with a `.sha256`. CI installs the crate in a clean `rust:1.90-slim` container and runs `aitp --version`.
 - `aitp handshake <url> (--key <file> | --ephemeral) [--grant <cap>]... [--offer <cap>]... [--peer-aid <aid>]` runs the Mutual Handshake as initiator over HTTP and prints the verified claims of the TCT the peer issues, as JSON on stdout. Without `--peer-aid` the peer's Manifest AID is trusted on first use, with a note on stderr. Revocation is `fail_closed` unless `--revocation-fail-open` is given. A failure exits 1 and starts its stderr line with the AITP error code when it has one, e.g. `aitp: error: IDENTITY_FAILED: …`. A peer's `IDENTITY_FAILED` against an `--ephemeral` key adds a hint to enrol a persistent key; a `POLICY_VIOLATION` adds a hint about `--grant` or `--offer`.
 - `aitp manifest fetch <url>` fetches and verifies a peer's Manifest and prints the envelope, which pipes into `aitp manifest verify`.
