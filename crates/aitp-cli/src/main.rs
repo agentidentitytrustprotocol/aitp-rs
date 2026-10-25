@@ -86,7 +86,9 @@ enum TctCommand {
         /// claimed issuer's key).
         #[arg(long)]
         issuer: Option<String>,
-        /// Expected audience AID. Defaults to the token's own `aud` claim.
+        /// Expected audience AID. Defaults to the token's own `aud` claim,
+        /// which checks nothing: the output then says the audience was not
+        /// authenticated.
         #[arg(long)]
         audience: Option<String>,
         /// Evaluate expiry/freshness at this Unix time (seconds) instead
@@ -183,6 +185,7 @@ fn tct_verify(
         Some(s) => Aid::parse(&s)?,
         None => claimed.iss.clone(),
     };
+    let audience_given = audience.is_some();
     let audience = match audience {
         Some(s) => Aid::parse(&s)?,
         None => claimed.aud.clone(),
@@ -198,6 +201,11 @@ fn tct_verify(
         .expect("both decisions are made");
     let verified = verify_tct(token, &ctx)?;
     println!("OK: TCT verifies under issuer {issuer}");
+    if !audience_given {
+        // An inspection default, not a check: a server must take the
+        // presenter's AID from an authenticated source (RFC-AITP-0005 §6).
+        println!("audience taken from the token (not authenticated): {audience}");
+    }
     println!("{}", serde_json::to_string_pretty(&verified.claims)?);
     Ok(())
 }

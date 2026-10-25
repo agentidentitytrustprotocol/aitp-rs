@@ -110,6 +110,8 @@ fn tct_verify_ok_at_valid_time() {
         String::from_utf8_lossy(&out.stderr)
     );
     assert!(stdout(&out).contains("OK: TCT verifies"));
+    // No --audience: the default comes from the token and checks nothing.
+    assert!(stdout(&out).contains("audience taken from the token (not authenticated)"));
 }
 
 #[test]

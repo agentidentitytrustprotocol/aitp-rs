@@ -887,7 +887,10 @@ fn renewal_error_code(err: &aitp_tct::TctError) -> ErrorCode {
         TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
         TctError::Expired => ErrorCode::TctExpired,
         TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
-        TctError::PopFailed => ErrorCode::PopResponseInvalid,
+        TctError::PopChallengeExpired => ErrorCode::PopChallengeInvalid,
+        TctError::PopFailed | TctError::PopNonceMismatch | TctError::PopJtiMismatch => {
+            ErrorCode::PopResponseInvalid
+        }
         TctError::RenewalGrantsWithdrawn => ErrorCode::PolicyViolation,
         TctError::AudienceMismatch => ErrorCode::AudienceMismatch,
         TctError::Crypto(CryptoError::AlgMismatch(_)) => ErrorCode::TokenAlgMismatch,
