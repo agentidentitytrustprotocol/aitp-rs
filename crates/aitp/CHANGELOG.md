@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.23.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.22.0...aitp-v0.23.0) - 2026-10-25
+
+### Added
+
+- *(cli,transport-http)* [**breaking**] interop peer `aitp serve --interop` with key enrolment and PoP `/echo` (RS4.2) ([#354](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/354))
+
 ## [0.22.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.21.0...aitp-v0.22.0) - 2026-10-25
 
 ### Added
