@@ -17,6 +17,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - **Downstream proof of possession in both bindings (RFC-AITP-0005 §6).** `AitpAgent.new_pop_challenge` / `newPopChallenge` issues a `pop_challenge` with a CSPRNG 128-bit nonce. `AitpAgent.sign_pop_response` / `signPopResponse` signs it with the holder's key. `verify_pop_response` / `verifyPopResponse` runs every §6.2 step and returns the proven holder AID. `verify_tct` and `verify_tct_cached` take `pop=(challenge, response)` (Node: `pop: { challenge, response }`), which verifies the TCT and the PoP response together and pins the audience to the TCT's `sub`. It excludes `expected_audience` and is now the documented presented-TCT path. Failures carry `.code` `POP_CHALLENGE_INVALID` (malformed or stale challenge) or `POP_RESPONSE_INVALID`. Nonce single use (RFC-AITP-0001 §5.5) stays with the caller. The `expected_audience` docs now say the presenter's AID must come from an authenticated source, never from the token's own `aud`. (agentidentitytrustprotocol#120)
 
+### Fixed
+
+- PoP failures now carry the RFC-AITP-0005 §6.2 code split. A stale challenge (`TctError::PopChallengeExpired`) or an unparseable challenge is `POP_CHALLENGE_INVALID`. A nonce, jti or signature failure, or an unparseable response, is `POP_RESPONSE_INVALID`. This applies in `aitp-rs-adapter` and in `aitp-transport-http`'s error mapping, which previously reported the non-signature PoP failures as `TCT_SIGNATURE_INVALID`.
+- `aitp tct verify` without `--audience` now prints `audience taken from the token (not authenticated)`. The default is an inspection convenience, not an audience check.
+
 ## [0.20.0] — 2026-10-24
 
 ### BREAKING

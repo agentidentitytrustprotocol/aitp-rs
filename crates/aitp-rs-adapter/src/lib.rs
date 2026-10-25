@@ -1569,9 +1569,10 @@ fn tct_error_code(e: &aitp_tct::TctError) -> String {
         ClaimsMalformed(_) => "INVALID_ENVELOPE",
         MissingField(_) => "INVALID_ENVELOPE",
         Canonicalization(_) => "INTERNAL_ERROR",
-        PopNonceMismatch | PopFailed | PopChallengeExpired | PopJtiMismatch => {
-            "POP_RESPONSE_INVALID"
-        }
+        // RFC-AITP-0005 §6.2: a stale challenge is the challenge's fault;
+        // every other PoP failure is the response's.
+        PopChallengeExpired => "POP_CHALLENGE_INVALID",
+        PopNonceMismatch | PopFailed | PopJtiMismatch => "POP_RESPONSE_INVALID",
         Crypto(c) => return crypto_error_code(c, "TCT_SIGNATURE_INVALID"),
         // RFC-AITP-0001 §7 / issue #140: a JSON member outside the
         // artifact's declared member set (revocation snapshot envelope or
@@ -3204,7 +3205,13 @@ fn produce_pop_response_op(state: &mut AdapterState, id: &str, params: Value) ->
     let challenge: aitp_tct::PopChallenge = match params.get("challenge") {
         Some(v) => match serde_json::from_value(v.clone()) {
             Ok(c) => c,
-            Err(e) => return err(id, "INVALID_ENVELOPE", &format!("challenge parse: {e}")),
+            Err(e) => {
+                return err(
+                    id,
+                    "POP_CHALLENGE_INVALID",
+                    &format!("challenge parse: {e}"),
+                )
+            }
         },
         None => {
             // Fallback: look up by tct_jti from state.
@@ -3285,7 +3292,7 @@ fn verify_pop_response_op(state: &AdapterState, id: &str, params: Value) -> Valu
     let response: aitp_tct::PopResponse =
         match serde_json::from_value(params.get("response").cloned().unwrap_or_default()) {
             Ok(r) => r,
-            Err(e) => return err(id, "INVALID_ENVELOPE", &format!("response parse: {e}")),
+            Err(e) => return err(id, "POP_RESPONSE_INVALID", &format!("response parse: {e}")),
         };
     let tct = match tct_claims_from_params(&params) {
         Ok(t) => t,
@@ -3294,7 +3301,13 @@ fn verify_pop_response_op(state: &AdapterState, id: &str, params: Value) -> Valu
     let challenge: aitp_tct::PopChallenge = if let Some(v) = params.get("challenge") {
         match serde_json::from_value(v.clone()) {
             Ok(c) => c,
-            Err(e) => return err(id, "INVALID_ENVELOPE", &format!("challenge parse: {e}")),
+            Err(e) => {
+                return err(
+                    id,
+                    "POP_CHALLENGE_INVALID",
+                    &format!("challenge parse: {e}"),
+                )
+            }
         }
     } else {
         match state.pop_challenges.get(&tct.jti.to_string()) {
@@ -3878,12 +3891,19 @@ mod error_code_mapping_tests {
         assert_eq!(tct_error_code(&TctError::Revoked), "TCT_REVOKED");
         // cnf/grant shape problems collapse to INVALID_ENVELOPE.
         assert_eq!(tct_error_code(&TctError::CnfMalformed), "INVALID_ENVELOPE");
-        // All four PoP failure modes share one wire code.
-        assert_eq!(tct_error_code(&TctError::PopFailed), "POP_RESPONSE_INVALID");
+        // A stale challenge is POP_CHALLENGE_INVALID; every other PoP
+        // failure is POP_RESPONSE_INVALID (RFC-AITP-0005 §6.2).
         assert_eq!(
             tct_error_code(&TctError::PopChallengeExpired),
-            "POP_RESPONSE_INVALID"
+            "POP_CHALLENGE_INVALID"
         );
+        for e in [
+            TctError::PopFailed,
+            TctError::PopNonceMismatch,
+            TctError::PopJtiMismatch,
+        ] {
+            assert_eq!(tct_error_code(&e), "POP_RESPONSE_INVALID");
+        }
     }
 
     /// RFC-AITP-0001 §7 / issue #140 Phase 6a (AC6): `voucher_error_code`
