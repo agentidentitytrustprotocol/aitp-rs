@@ -21,10 +21,14 @@ aitp-tct = { path = "../crates/aitp-tct" }
 aitp-delegation = { path = "../crates/aitp-delegation" }
 serde_json = "1.0"
 # interop_enroll compiles aitp-cli's enrol.rs, which uses the facade.
-aitp = { path = "../crates/aitp", default-features = false, features = ["experimental-spiffe-identity"] }
+aitp = { path = "../crates/aitp", default-features = false, features = ["experimental-spiffe-identity", "experimental-session-bundle", "pinned-admission"] }
+# handshake_payload_decode uses the payload member lists, which the facade
+# does not re-export.
+aitp-handshake = { path = "../crates/aitp-handshake" }
 base64 = "0.22"
 uuid = "1"
 serde = { version = "1.0", features = ["derive"] }
+url = "2"
 
 [[bin]]
 name = "envelope_parse"
@@ -94,6 +98,34 @@ bench = false
 [[bin]]
 name = "svid_verify"
 path = "fuzz_targets/svid_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "handshake_payload_decode"
+path = "fuzz_targets/handshake_payload_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "oidc_verify"
+path = "fuzz_targets/oidc_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "session_bundle_verify"
+path = "fuzz_targets/session_bundle_verify.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pinned_admission"
+path = "fuzz_targets/pinned_admission.rs"
 test = false
 doc = false
 bench = false
