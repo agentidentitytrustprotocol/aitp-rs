@@ -812,10 +812,30 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     };
     let self_key = AitpSigningKey::from_seed(&self_seed);
 
+    // RFC-AITP-0002 §6.2: a `spiffe` fixture's
+    // `trust_anchors_config.spiffe_bundles` is the verifier's whole
+    // bundle store. The verifier accepts `spiffe` only with the
+    // feature on (§6.6; PLACEHOLDERS.md `id-*` row).
+    let spiffe_enabled = state.has_feature("experimental-spiffe-identity");
+    let spiffe_store = if spiffe_enabled {
+        match params
+            .get("trust_anchors_config")
+            .and_then(|c| c.get("spiffe_bundles"))
+        {
+            Some(bundles) => match aitp_handshake::SpiffeBundleStore::from_config(bundles) {
+                Ok(store) => Some(store),
+                Err(e) => return err(id, "IDENTITY_FAILED", &format!("spiffe_bundles: {e}")),
+            },
+            None => None,
+        }
+    } else {
+        None
+    };
+
     // Synthesize a minimal verifier-side Manifest. Most fields are
     // throwaway; what bootstrap_verify_peer reads out of `cfg.manifest`
     // is `aid` (audience for OIDC) and `required_peer_capabilities`.
-    let self_manifest = match ManifestBuilder::new(&self_key)
+    let self_manifest = ManifestBuilder::new(&self_key)
         .display_name("conformance-verifier")
         .handshake_endpoint(
             "https://verifier.example.com/aitp/handshake"
@@ -835,7 +855,13 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         })
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
-        .accept_identity_type("oidc")
+        .accept_identity_type("oidc");
+    let self_manifest = if spiffe_enabled {
+        self_manifest.accept_identity_type("spiffe")
+    } else {
+        self_manifest
+    };
+    let self_manifest = match self_manifest
         .ttl_secs(3600)
         .published_at(state.now())
         .build()
@@ -880,7 +906,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         "https://auth.anthropic.com".parse().unwrap(),
         "https://idp.example.com".parse().unwrap(),
     ];
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         &self_key,
         &self_manifest,
         &resolver,
@@ -889,6 +915,9 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         envelope.timestamp,
     )
     .with_trust_anchors(&cfg_anchors);
+    if let Some(store) = &spiffe_store {
+        cfg = cfg.with_spiffe_bundles(store);
+    }
 
     use aitp_core::{check_members, from_serde_error};
     use aitp_handshake::payloads::{
@@ -5432,6 +5461,8 @@ mod oidc_test_issuer_tests {
             proof: jwt,
             public_key: None,
             extensions: None,
+            svid_type: None,
+            x5c: None,
         };
         let anchors: Vec<aitp_core::RawUrl> = vec![OIDC_TEST_ISSUER.parse().unwrap()];
         let resolver = OidcTestIssuerResolver;

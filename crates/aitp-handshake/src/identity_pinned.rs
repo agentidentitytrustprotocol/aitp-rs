@@ -62,6 +62,26 @@ pub fn pinned_key_proof_input(
     timestamp: Timestamp,
     pop_nonce: &str,
 ) -> Result<Vec<u8>, HandshakeError> {
+    handshake_proof_input(
+        PINNED_KEY_PROOF_DOMAIN,
+        sender_aid,
+        receiver_aid,
+        message_id,
+        timestamp,
+        pop_nonce,
+    )
+}
+
+/// The RFC-AITP-0002 §3.1 field layout behind `domain`. Shared with the
+/// X509-SVID proof (§6.4.1), which differs only in its domain prefix.
+pub(crate) fn handshake_proof_input(
+    domain: &[u8],
+    sender_aid: &Aid,
+    receiver_aid: &Aid,
+    message_id: &Uuid,
+    timestamp: Timestamp,
+    pop_nonce: &str,
+) -> Result<Vec<u8>, HandshakeError> {
     let pop_nonce_bytes = base64url::decode_strict(pop_nonce)
         .map_err(|_| HandshakeError::Identity("pop_nonce is not valid base64url".into()))?;
     if pop_nonce_bytes.len() != POP_NONCE_LEN {
@@ -72,7 +92,7 @@ pub fn pinned_key_proof_input(
     }
     let ts_ascii = timestamp.0.to_string();
     let mut input = Vec::with_capacity(
-        PINNED_KEY_PROOF_DOMAIN.len()
+        domain.len()
             + sender_aid.as_str().len()
             + 1
             + receiver_aid.as_str().len()
@@ -83,7 +103,7 @@ pub fn pinned_key_proof_input(
             + 1
             + pop_nonce_bytes.len(),
     );
-    input.extend_from_slice(PINNED_KEY_PROOF_DOMAIN);
+    input.extend_from_slice(domain);
     input.extend_from_slice(sender_aid.as_str().as_bytes());
     input.push(0);
     input.extend_from_slice(receiver_aid.as_str().as_bytes());
@@ -644,6 +664,8 @@ mod tests {
             proof,
             public_key: Some(base64url::encode(&signer.verifying_key().to_compressed())),
             extensions: None,
+            svid_type: None,
+            x5c: None,
         }
     }
 
@@ -825,6 +847,8 @@ mod tests {
             proof: legacy_proof,
             public_key: Some(base64url::encode(&key.verifying_key().to_compressed())),
             extensions: None,
+            svid_type: None,
+            x5c: None,
         };
         let err = verify_pinned_key(
             &desc,
@@ -1153,6 +1177,8 @@ mod tests {
             proof: v["signature"].as_str().unwrap().into(),
             public_key: Some(sender.identifier().to_string()),
             extensions: None,
+            svid_type: None,
+            x5c: None,
         };
         let store = StaticPinnedKeyStore::from_aids([&sender]).unwrap();
         let got = verify_pinned_key(&desc, &c, &store).expect("KAT proof verifies");

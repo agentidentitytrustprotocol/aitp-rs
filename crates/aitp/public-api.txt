@@ -155,8 +155,10 @@ pub use aitp::handshake::RevocationSource
 pub use aitp::handshake::SessionId
 pub use aitp::handshake::StaticPinnedKeyStore
 pub use aitp::handshake::SubjectBinding
+pub use aitp::handshake::SvidType
 pub use aitp::handshake::VerifiedPinnedKey
 pub use aitp::handshake::admission
+pub use aitp::handshake::identity_spiffe
 pub use aitp::handshake::sign_pinned_key_proof
 pub use aitp::handshake::verify_jws_signature
 pub use aitp::handshake::verify_oidc
