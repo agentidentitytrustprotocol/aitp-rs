@@ -38,7 +38,7 @@ Code truth:
 - `crates/aitp-rs-adapter` — NDJSON adapter (`src/lib.rs`)
 - `crates/aitp-cli` — `aitp keygen/tct/manifest/aid`
 - `bindings/aitp-py` (`aitp.pyi`, `src/*.rs`, `tests/`), `bindings/aitp-node` (`index.d.ts`, `src/*.rs`, `tests/`), `bindings/interop` (`test_interop.py`, stock JOSE scripts)
-- `tools/mint-conformance-fixtures`, `tools/mint-signed-examples` (xcheck), `tests/schemas/` (vendored; `SPEC_VERSION`), `tests/xcheck-fixtures`, `tests/AITP_VERIFIER_PY_VERSION`
+- `tools/mint-conformance-fixtures`, `tools/mint-signed-examples` (xcheck), `tests/schemas/` (vendored; `SPEC_VERSION`), `tests/xcheck-fixtures`, `tests/AITP_VERIFIER_PY_VERSION`, `tests/AITP_VERIFIER_TS_VERSION`
 - `Makefile` (`ci`, `check-versions`, `schemas-check`), `scripts/`, `.github/workflows/ci.yml` (conformance expectations ~420, xcheck 430, e2e 509), `.gitignore:69` (`plans/` ignored)
 
 Siblings (link targets, read-only): `../agentidentitytrustprotocol/{rfcs,docs,registries,schemas/conformance}`, `../aitp-verifier-py`, `../aitp-playground/docs/aitp-integration.md` (inbound anchors), `../aitp-website/scripts/sync-content.sh` (republishes SDK pages), `../aitp-docs/kb`.

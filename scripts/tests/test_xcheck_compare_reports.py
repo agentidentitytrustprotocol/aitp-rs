@@ -49,6 +49,12 @@ class Compare(unittest.TestCase):
         problems = mod.compare(report(env_001="pass", env_002="pass"), report(env_001="pass"), set())
         self.assertEqual(problems, ["env-002: aitp-rs pass, aitp-verifier-py absent"])
 
+    def test_messages_name_the_verifier(self):
+        problems = mod.compare(report(env_001="pass"), report(gate=False, env_001="fail"), set(),
+                               "aitp-verifier-ts")
+        self.assertTrue(problems[0].startswith("aitp-verifier-ts: "))
+        self.assertEqual(problems[1], "env-001: aitp-rs pass, aitp-verifier-ts fail")
+
 
 if __name__ == "__main__":
     unittest.main()
