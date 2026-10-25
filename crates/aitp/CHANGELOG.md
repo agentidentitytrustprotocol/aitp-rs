@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.21.0...aitp-v0.22.0) - 2026-10-25
+
+### Added
+
+- *(handshake)* experimental SPIFFE identity verifier (RFC-AITP-0002 §6) ([#343](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/343))
+
 ## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.19.0...aitp-v0.20.0) - 2026-10-25
 
 ### Added

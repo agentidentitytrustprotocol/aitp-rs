@@ -39,8 +39,8 @@ time = "0.3"
 p256 = { workspace = true }
 base64ct = { workspace = true }
 
-aitp-core = { path = "../aitp-core", version = "=0.21.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "=0.21.0" }
+aitp-core = { path = "../aitp-core", version = "=0.22.0" }
+aitp-crypto = { path = "../aitp-crypto", version = "=0.22.0" }
 # Pure path dep (no version pin): aitp-rs-adapter is publish = false, so a
 # `version = "=x.y.z"` pin makes release-plz's release-pr `cargo update` try to
 # resolve it from crates.io — where it doesn't exist — and fail. aitp-conformance
@@ -53,4 +53,4 @@ aitp-rs-adapter = { path = "../aitp-rs-adapter", optional = true }
 jsonschema = { version = "0.58", default-features = false }
 sha2 = { workspace = true }
 hex = { workspace = true }
-aitp-tct = { path = "../aitp-tct", version = "=0.21.0" }
+aitp-tct = { path = "../aitp-tct", version = "=0.22.0" }

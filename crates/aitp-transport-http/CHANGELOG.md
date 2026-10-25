@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.21.0...aitp-transport-http-v0.22.0) - 2026-10-25
+
+### Added
+
+- *(handshake)* [**breaking**] enforce accepted_identity_types for every identity type (RFC-AITP-0004 §5.1 step 8) ([#344](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/344))
+
 ## [0.21.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-transport-http-v0.20.0...aitp-transport-http-v0.21.0) - 2026-10-25
 
 ### Fixed
