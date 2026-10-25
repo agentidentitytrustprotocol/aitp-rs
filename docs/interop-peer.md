@@ -304,5 +304,7 @@ flowchart LR
 
 DNS for `agentidentitytrustprotocol.io` is hosted at Squarespace, which
 has no API. `interop` is a CNAME to the target Railway gives the custom
-domain. `deploy.sh` prints that record whenever it is missing, so adding
-or deleting it is the one manual step.
+domain, and `_railway-verify.interop` is a TXT record that proves
+ownership: Railway issues the TLS certificate only after it sees it.
+`deploy.sh` prints either record while it is missing, so adding (or
+deleting) them is the one manual step.

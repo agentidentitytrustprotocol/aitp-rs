@@ -19,8 +19,9 @@
 #
 # DNS: in production, interop.agentidentitytrustprotocol.io is a CNAME at
 # the domain's DNS host (Squarespace, which has no API) to the target
-# Railway gives the custom domain. The script prints that record when it
-# is missing, and the one to delete on --rollback.
+# Railway gives the custom domain, plus a _railway-verify TXT record that
+# proves ownership before Railway issues the certificate. The script prints
+# either record while it is missing, and the CNAME to delete on --rollback.
 
 # Railway GraphQL queries are single-quoted on purpose.
 # shellcheck disable=SC2016
@@ -61,14 +62,15 @@ railway_api() {
 
 # The service's domains in $environment, as JSON.
 domains() {
-  railway_api 'query($p: String!){project(id: $p){environments{edges{node{name serviceInstances{edges{node{serviceName domains{serviceDomains{domain} customDomains{domain status{dnsRecords{requiredValue}}}}}}}}}}}}' \
+  railway_api 'query($p: String!){project(id: $p){environments{edges{node{name serviceInstances{edges{node{serviceName domains{serviceDomains{domain} customDomains{domain status{verified verificationDnsHost verificationToken dnsRecords{requiredValue}}}}}}}}}}}}' \
     "$(jq -nc --arg p "$PROJECT_ID" '{p: $p}')" |
     jq -c --arg e "$environment" --arg s "$SERVICE" \
       '.data.project.environments.edges[].node | select(.name == $e)
        | .serviceInstances.edges[].node | select(.serviceName == $s) | .domains'
 }
 railway_domain() { domains | jq -r '.serviceDomains[0].domain // empty'; }
-cname_target() { domains | jq -r --arg d "$DOMAIN" '.customDomains[] | select(.domain == $d) | .status.dnsRecords[0].requiredValue'; }
+custom_domain() { domains | jq -c --arg d "$DOMAIN" '.customDomains[] | select(.domain == $d) | .status'; }
+cname_target() { custom_domain | jq -r '.dnsRecords[0].requiredValue'; }
 
 # The peer AID the Doppler key gives, without printing the key.
 expected_aid() {
@@ -108,6 +110,14 @@ dns_note() {
   [ "$environment" = production ] || return 0
   if [ -z "$(dig +short CNAME "$DOMAIN")" ]; then
     say "DNS: $DOMAIN does not resolve yet. At the DNS host add: CNAME ${DOMAIN%%.*} -> $(cname_target)"
+    return 1
+  fi
+  # Railway issues the certificate only once a TXT record proves ownership.
+  local status
+  status="$(custom_domain)"
+  if [ "$(jq -r '.verified' <<<"$status")" != true ]; then
+    say "DNS: Railway has not verified $DOMAIN, so it has no certificate yet. At the DNS host add:" \
+      "TXT $(jq -r '.verificationDnsHost' <<<"$status") \"$(jq -r '.verificationToken' <<<"$status")\""
     return 1
   fi
 }
@@ -153,7 +163,9 @@ apply)
   (cd "$work/src" && railway up --ci --service "$SERVICE" --project "$PROJECT_ID" --environment "$environment")
   wait_for_aid "$host" "$want" || { say "the peer did not come up as $want; see: railway logs"; exit 1; }
   say "live: https://$host $(live "$host")"
-  if dns_note; then
+  if ! command -v "${AITP:-aitp}" >/dev/null; then
+    say "smoke: skipped, no aitp on PATH (cargo install aitp-cli, or set AITP)"
+  elif dns_note; then
     AITP="${AITP:-aitp}" "$repo/scripts/interop-peer-smoke.sh" "$(public_url "$host")"
   fi
   ;;
