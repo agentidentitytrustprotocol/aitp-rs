@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.21.0...aitp-crypto-v0.22.0) - 2026-10-25
+
+### Other
+
+- *(spec)* adopt AITP spec @ a37a767; adapter verify_tct_as_issuer ([#340](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/340))
+
 ## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-crypto-v0.19.0...aitp-crypto-v0.20.0) - 2026-10-25
 
 ### Added

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.22.0] — 2026-10-25
+
 ### BREAKING
 
 - `IdentityDescriptor` has two new public fields, `svid_type: Option<SvidType>` and `x5c: Option<Vec<String>>` (RFC-AITP-0002 §6.1). A struct literal must now set both, `None` for `oidc` and `pinned_key`. `bootstrap_verify_peer` rejects an `oidc` or `pinned_key` descriptor that carries either with `IDENTITY_FAILED`.
