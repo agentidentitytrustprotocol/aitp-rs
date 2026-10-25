@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.21.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-tct-v0.20.0...aitp-tct-v0.21.0) - 2026-10-25
+
+### Other
+
+- release v0.21.0 ([#339](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/339))
+
 ## [0.20.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-tct-v0.19.0...aitp-tct-v0.20.0) - 2026-10-25
 
 ### Added
