@@ -31,6 +31,7 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 tracing = { workspace = true }
 hex = { workspace = true }
+chrono = { workspace = true }
 
 aitp-core = { path = "../aitp-core", version = "=0.20.0" }
 aitp-crypto = { path = "../aitp-crypto", version = "=0.20.0" }
@@ -42,4 +43,8 @@ aitp-crypto = { path = "../aitp-crypto", version = "=0.20.0" }
 aitp-rs-adapter = { path = "../aitp-rs-adapter", optional = true }
 
 [dev-dependencies]
+# Validates `--report` output against the vendored spec schema.
+jsonschema = { version = "0.58", default-features = false }
+sha2 = { workspace = true }
+hex = { workspace = true }
 aitp-tct = { path = "../aitp-tct", version = "=0.20.0" }

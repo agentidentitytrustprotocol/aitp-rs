@@ -25,14 +25,27 @@ pub trait Adapter {
 /// Adapter capability declaration (returned from `init`).
 #[derive(Debug, Clone, Deserialize)]
 pub struct AdapterInfo {
-    /// Human-readable implementation name.
+    /// Human-readable implementation name; `"unknown"` when the init
+    /// reply omits it.
+    #[serde(default = "unknown")]
     pub implementation: String,
-    /// Implementation version.
+    /// Implementation version; `"unknown"` when the init reply omits it.
+    #[serde(default = "unknown")]
     pub version: String,
+    /// Public source repository URL, copied into a `--report`.
+    #[serde(default)]
+    pub repository: Option<String>,
+    /// Full SHA of the source under test, copied into a `--report`.
+    #[serde(default)]
+    pub commit: Option<String>,
     /// Set of operation names this adapter supports.
     pub supported_ops: HashSet<String>,
     /// Set of optional features this adapter supports.
     pub supported_features: HashSet<String>,
+}
+
+fn unknown() -> String {
+    "unknown".to_owned()
 }
 
 /// Result of one operation.
