@@ -1063,7 +1063,7 @@ impl TctStore {
 
     /// Snapshot of every stored peer AID (e.g. for a periodic refresh
     /// scan).
-    pub fn peer_aids(&self) -> Vec<aitp_core::Aid> {
+    pub fn peer_aids_renamed_for_rs21_test(&self) -> Vec<aitp_core::Aid> {
         self.inner.read().keys().cloned().collect()
     }
 }
