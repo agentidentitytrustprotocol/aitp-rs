@@ -466,20 +466,28 @@ them.
 
 ### Summary
 
-These counts are **at pin `0ad4bf2`** (`aitp/0.3`, spec release `v0.3.2-draft` plus the S2.1 freeze, the S3.1 report schema and the `required_for_core` rename; no fixture outcome changes), the spec commit in
-[`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). They are
-the only place in these docs where fixture counts appear. Other pages link
-here.
+The table holds at the spec commit in
+[`tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION). It
+records outcomes per tier, not fixture counts, so it does not go stale
+when the spec adds a fixture. For the counts, see the `conformance` CI
+job, which derives them from the runner on every run. The job's step
+summary shows the report's `totals` and `gates`, and the
+`conformance-report` artifact is the full
+[report](#conformance-report). Other pages link here instead of quoting
+numbers.
 
-| Tier | Fixtures | Strict run (no `--feature`) | With all four features |
-|---|---|---|---|
-| `core`, `required_for_core: true` (the `aitp/0.3` core tier) | 85 | 85 PASS | 84 PASS, 1 SKIP (`del-007`) |
-| `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | 1 | PASS | SKIP |
-| `draft`: session bundle (`experimental-session-bundle`) | 8 | SKIP | PASS |
-| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | 6 | SKIP | PASS |
-| `extension`: pinned-key admission (`aitp-pinned-admission`) | 8 | SKIP | PASS |
-| `extension`: self-attestation (`aitp-self-attestation`) | 3 | SKIP | PASS |
-| **Total** | **111** | **86 pass / 0 fail / 25 skip** | **109 pass / 0 fail / 2 skip** |
+| Tier | Strict run (no `--feature`) | With all four features |
+|---|---|---|
+| `core`, `required_for_core: true` (the `aitp/0.3` core tier) | all PASS | all PASS except `del-007` (SKIP) |
+| `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | PASS | SKIP |
+| `draft`: session bundle (`experimental-session-bundle`) | SKIP | PASS |
+| `draft`: multi-hop delegation (`experimental-multihop-delegation`) | SKIP | PASS |
+| `extension`: pinned-key admission (`aitp-pinned-admission`) | SKIP | PASS |
+| `extension`: self-attestation (`aitp-self-attestation`) | SKIP | PASS |
+
+No fixture fails in either run. The report run (both extensions, no draft
+features) passes all three claims: `AITP v0.3`, `AITP v0.3 pinned-admission`
+and `AITP v0.3 self-attestation`.
 
 This section keeps its `v0.2` heading because other repositories link to
 its anchor. The fixture key is `required_for_core` (renamed from
@@ -490,8 +498,8 @@ Why the skips look the way they do:
 
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
-  multi-hop returns. The 25 skips are the 8 session-bundle, 6 multi-hop,
-  8 pinned-admission and 3 self-attestation fixtures. A `draft` or
+  multi-hop returns. The skips are the session-bundle, multi-hop,
+  pinned-admission and self-attestation fixtures: a `draft` or
   `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
   `del-007` both expect `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Turning the
@@ -506,13 +514,14 @@ the pinned commit:
 
 ```bash
 cargo build -p aitp-rs-adapter -p aitp-conformance
-# Strict: 86 pass / 0 fail / 25 skip at the pin. The `--profile v0.1`
-# counts are the same; only the gate's required flag differs.
+# Strict: no failures; the draft and extension fixtures skip. The
+# `--profile v0.1` outcomes are the same; only the gate's required flag
+# differs.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance
-# Opt-in (draft RFCs and extensions): 109 pass / 0 fail / 2 skip at the pin.
-# The `conformance` CI job runs both of these.
+# Opt-in (draft RFCs and extensions): no failures; del-004 and del-007
+# skip. The `conformance` CI job runs both of these.
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \

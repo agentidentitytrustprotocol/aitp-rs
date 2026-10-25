@@ -444,9 +444,9 @@ jobs:
         working-directory: aitp-rs
         # No --feature: the core gate (the default --profile) fails the
         # run if any required_for_core fixture FAILs or is SKIPped, e.g.
-        # OP_NOT_SUPPORTED. Expected: 86 pass / 0 fail / 25 skip of 111
-        # (the skips are the draft and extension fixtures; see
-        # docs/conformance.md).
+        # OP_NOT_SUPPORTED. Expected skips: the draft and extension
+        # fixtures (docs/conformance.md). The counts are in the report
+        # step's summary below.
         run: |
           ./target/debug/aitp-conformance run \
             --target ./target/debug/aitp-rs-adapter \
@@ -457,9 +457,9 @@ jobs:
         # multihop, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
         # fixture FAILs or a required_for_core fixture is SKIPped.
-        # Expected: 109 pass / 0 fail / 2 skip of 111 fixtures (del-004
-        # and del-007 are negated by multi-hop; the runner lists del-007
-        # as a gate exemption; see docs/conformance.md).
+        # Expected skips: del-004 and del-007, negated by multi-hop (the
+        # runner lists del-007 as a gate exemption; see
+        # docs/conformance.md).
         run: |
           ./target/debug/aitp-conformance run \
             --target ./target/debug/aitp-rs-adapter \
@@ -492,7 +492,7 @@ jobs:
         run: |
           python -m pip install --quiet jsonschema==4.23.0
           python - <<'PY'
-          import json, sys
+          import json, os, sys
           from jsonschema import Draft202012Validator
           schema = json.load(open("tests/schemas/aitp-conformance-report.schema.json"))
           report = json.load(open("conformance-report.json"))
@@ -501,6 +501,16 @@ jobs:
               print(f"::error::{e.json_path}: {e.message}")
           gates = {g["name"]: g["passed"] for g in report["gates"]}
           print("gates:", gates)
+          # The fixture counts, derived from the run (docs quote none).
+          with open(os.environ["GITHUB_STEP_SUMMARY"], "a") as out:
+              spec = report["spec"]
+              out.write(f"### Conformance report (spec {spec['commit'][:7]}, {spec['version']})\n\n")
+              out.write("| Tier | pass | fail | skip |\n|---|---|---|---|\n")
+              for tier, t in report["totals"].items():
+                  out.write(f"| {tier} | {t['pass']} | {t['fail']} | {t['skip']} |\n")
+              out.write("\n| Claim | Passed | Blocking |\n|---|---|---|\n")
+              for g in report["gates"]:
+                  out.write(f"| {g['name']} | {g['passed']} | {', '.join(g.get('blocking', []))} |\n")
           if errors or not all(gates.values()):
               sys.exit(1)
           PY
