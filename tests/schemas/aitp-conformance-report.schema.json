@@ -1,0 +1,346 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/conformance-report.json",
+  "title": "AITP Conformance Report",
+  "description": "The machine-readable result of running one implementation against the conformance fixtures in schemas/conformance/ at one spec commit. Not a wire artifact: no peer sends or verifies it. A report is trusted because it can be reproduced (the spec commit, the fixture digest and an optional public CI run URL), not because it is signed. The runner interface stays implementation-defined; this is the output format every runner MUST be able to emit. Badge criteria per RFC-AITP-0001 §10 claim string are in docs/conformance-badge.md; scripts/check-conformance-report.py recomputes `totals` and every gate from `results`.",
+  "type": "object",
+  "required": [
+    "report_version",
+    "implementation",
+    "spec",
+    "fixtures_dir_digest",
+    "features_enabled",
+    "results",
+    "totals",
+    "gates",
+    "generated_at"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "report_version": {
+      "const": "1",
+      "description": "Report format version. MUST be \"1\". It versions this document's shape, independently of the protocol revision (`spec.protocol`); a breaking change to the shape takes a new value."
+    },
+    "implementation": {
+      "type": "object",
+      "description": "The implementation under test (the adapter's `init` result names it; the runner copies it here).",
+      "required": ["name", "version", "repository"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Implementation name, e.g. aitp-rs or aitp-verifier-py."
+        },
+        "version": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The released version tested, e.g. 0.20.0. An unreleased build uses its commit (short or full SHA)."
+        },
+        "repository": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Public source repository URL."
+        },
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Optional. Full lowercase SHA of the implementation source tested."
+        }
+      }
+    },
+    "runner": {
+      "type": "object",
+      "description": "Optional. The conformance runner that produced the report when it is not the implementation itself, e.g. aitp-conformance driving a non-Rust adapter.",
+      "required": ["name", "version"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "version": { "type": "string", "minLength": 1 }
+      }
+    },
+    "spec": {
+      "type": "object",
+      "description": "The spec the fixtures came from. Every badge shows `commit`, `version` and the report date.",
+      "required": ["commit", "version", "protocol"],
+      "additionalProperties": false,
+      "properties": {
+        "commit": {
+          "type": "string",
+          "pattern": "^[0-9a-f]{40}$",
+          "description": "Full lowercase SHA of the agentidentitytrustprotocol commit whose schemas/conformance/ was run (the consumer's spec pin, CONTRIBUTING.md \"Consuming the spec\")."
+        },
+        "version": {
+          "type": "string",
+          "pattern": "^v[0-9]+\\.[0-9]+\\.[0-9]+(-[0-9A-Za-z.-]+)?$",
+          "description": "The newest spec release tag at or before `commit`, e.g. v0.3.2-draft."
+        },
+        "protocol": {
+          "const": "aitp/0.3",
+          "description": "Protocol revision the fixtures test. MUST be \"aitp/0.3\"; it is the \"v0.3\" in every claim string."
+        }
+      }
+    },
+    "fixtures_dir_digest": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$",
+      "description": "Ties the report to the exact fixture set. `sha256:` followed by the lowercase hex SHA-256 of the sha256sum-format listing of every top-level `*.json` file in schemas/conformance/: one line `<lowercase hex sha256 of the file bytes><two spaces><file name>\\n` per file, sorted by file name in byte order. Equal to `cd schemas/conformance && LC_ALL=C sha256sum -- *.json | sha256sum` (or `shasum -a 256`). `python3 scripts/check-conformance-report.py --digest schemas/conformance` prints it."
+    },
+    "features_enabled": {
+      "type": "array",
+      "uniqueItems": true,
+      "description": "The fixture `feature` flags the run opted into (the runner's `--feature` set). An extension or draft fixture whose feature is not listed MUST be reported as `skip`.",
+      "items": {
+        "type": "string",
+        "pattern": "^[a-z0-9][a-z0-9-]*$"
+      }
+    },
+    "results": {
+      "type": "array",
+      "minItems": 1,
+      "description": "One entry per fixture in the digested set whose `status` is not `reserved` (a reserved fixture is ignored by every runner, so it never appears). Each `id` appears once. `status`, `feature` and `required_for_v0_2` are copied from the fixture so a matrix generator can group results without re-reading fixtures.",
+      "items": { "$ref": "#/$defs/result" }
+    },
+    "totals": {
+      "type": "object",
+      "description": "Result counts by fixture `status`, then by `outcome`. Each MUST equal the count over `results`.",
+      "required": ["core", "extension", "draft"],
+      "additionalProperties": false,
+      "properties": {
+        "core": { "$ref": "#/$defs/outcome_counts" },
+        "extension": { "$ref": "#/$defs/outcome_counts" },
+        "draft": { "$ref": "#/$defs/outcome_counts" }
+      }
+    },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "contains": {
+        "required": ["name"],
+        "properties": { "name": { "const": "AITP v0.3" } }
+      },
+      "description": "One entry per RFC-AITP-0001 §10 claim the runner evaluated. Each claim is gated on its own fixture set (docs/conformance-badge.md). A runner MUST evaluate \"AITP v0.3\" and every extension claim whose feature is in `features_enabled`. `passed` MUST be what the criteria compute from `results`; the schema enforces the failing direction (a gate cannot pass over a blocking result).",
+      "items": { "$ref": "#/$defs/gate" }
+    },
+    "generated_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$",
+      "description": "RFC 3339 UTC timestamp (trailing Z) when the run finished. The badge date."
+    },
+    "provenance": {
+      "type": "object",
+      "description": "Optional. Where the run can be inspected and reproduced.",
+      "additionalProperties": false,
+      "properties": {
+        "ci_run_url": {
+          "type": "string",
+          "format": "uri",
+          "pattern": "^https://",
+          "description": "Public CI run that produced this report."
+        }
+      }
+    }
+  },
+  "$defs": {
+    "result": {
+      "type": "object",
+      "required": ["id", "status", "feature", "required_for_v0_2", "outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Fixture `id`."
+        },
+        "status": {
+          "enum": ["core", "extension", "draft"],
+          "description": "Fixture `status`, copied."
+        },
+        "feature": {
+          "type": ["string", "null"],
+          "description": "Fixture `feature`, copied (null for core)."
+        },
+        "required_for_v0_2": {
+          "type": "boolean",
+          "description": "Fixture `required_for_v0_2`, copied: the `aitp/0.3` core-tier key (not renamed; VERSIONING.md). A core fixture with false (del-004, frozen in the v0.1 shape) is reported but gates nothing."
+        },
+        "outcome": {
+          "enum": ["pass", "fail", "skip", "excluded_by_role"],
+          "description": "pass: the observed outcome and error code matched `expected`. fail: they did not, or the adapter errored. skip: not executed (feature not enabled, operation not supported, a side effect not instrumented, or an assertion an enabled draft feature negates). excluded_by_role: the implementation does not play the role the fixture tests (for example, it never verifies a grant-context TCT); it blocks only the \"AITP v0.3\" core claim, never an extension claim."
+        },
+        "error_code": {
+          "type": "string",
+          "pattern": "^[A-Z][A-Z0-9_]*$",
+          "description": "Optional. The error code the implementation actually returned, when it returned one."
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Why the outcome is not pass. REQUIRED unless `outcome` is pass."
+        },
+        "duration_ms": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Optional. Wall time for the fixture, in milliseconds."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "outcome": { "not": { "const": "pass" } } } },
+          "then": { "required": ["reason"] }
+        },
+        {
+          "if": { "properties": { "status": { "const": "core" } } },
+          "then": { "properties": { "feature": { "const": null } } },
+          "else": {
+            "properties": {
+              "feature": { "type": "string", "minLength": 1 },
+              "required_for_v0_2": { "const": false }
+            }
+          }
+        }
+      ]
+    },
+    "outcome_counts": {
+      "type": "object",
+      "required": ["pass", "fail", "skip", "excluded_by_role"],
+      "additionalProperties": false,
+      "properties": {
+        "pass": { "type": "integer", "minimum": 0 },
+        "fail": { "type": "integer", "minimum": 0 },
+        "skip": { "type": "integer", "minimum": 0 },
+        "excluded_by_role": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "gate": {
+      "type": "object",
+      "required": ["name", "passed", "criteria"],
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "enum": ["AITP v0.3", "AITP v0.3 pinned-admission", "AITP v0.3 self-attestation"],
+          "description": "The RFC-AITP-0001 §10 claim string, verbatim. No other claim or profile name exists (DECISIONS.md 2026-10-08)."
+        },
+        "passed": { "type": "boolean" },
+        "criteria": {
+          "enum": ["core-required-all-pass", "feature-all-pass"],
+          "description": "The rule applied. core-required-all-pass: every core fixture with required_for_v0_2 true has outcome pass. feature-all-pass: the feature is in features_enabled and every extension fixture carrying it has outcome pass. \"AITP v0.3\" uses the first; each extension claim uses the second."
+        },
+        "blocking": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "minLength": 1 },
+          "description": "Fixture ids that failed the criteria, in `results` order. REQUIRED and non-empty when `passed` is false; empty or absent when it is true."
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "name": { "const": "AITP v0.3" } } },
+          "then": { "properties": { "criteria": { "const": "core-required-all-pass" } } },
+          "else": { "properties": { "criteria": { "const": "feature-all-pass" } } }
+        },
+        {
+          "if": { "properties": { "passed": { "const": true } } },
+          "then": { "properties": { "blocking": { "maxItems": 0 } } },
+          "else": { "required": ["blocking"], "properties": { "blocking": { "minItems": 1 } } }
+        }
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "An \"AITP v0.3\" gate that passed rules out any non-pass required core result: a skip (including OP_NOT_SUPPORTED), a fail or a role exclusion.",
+      "if": {
+        "required": ["gates"],
+        "properties": {
+          "gates": {
+            "contains": {
+              "required": ["name", "passed"],
+              "properties": { "name": { "const": "AITP v0.3" }, "passed": { "const": true } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "results": {
+            "not": {
+              "contains": {
+                "required": ["status", "required_for_v0_2", "outcome"],
+                "properties": {
+                  "status": { "const": "core" },
+                  "required_for_v0_2": { "const": true },
+                  "outcome": { "not": { "const": "pass" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "A passed pinned-admission claim needs the feature enabled and no non-pass result carrying it.",
+      "if": {
+        "required": ["gates"],
+        "properties": {
+          "gates": {
+            "contains": {
+              "required": ["name", "passed"],
+              "properties": { "name": { "const": "AITP v0.3 pinned-admission" }, "passed": { "const": true } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "features_enabled": { "contains": { "const": "aitp-pinned-admission" } },
+          "results": {
+            "contains": { "required": ["feature"], "properties": { "feature": { "const": "aitp-pinned-admission" } } },
+            "not": {
+              "contains": {
+                "required": ["feature", "outcome"],
+                "properties": {
+                  "feature": { "const": "aitp-pinned-admission" },
+                  "outcome": { "not": { "const": "pass" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "$comment": "A passed self-attestation claim needs the feature enabled and no non-pass result carrying it.",
+      "if": {
+        "required": ["gates"],
+        "properties": {
+          "gates": {
+            "contains": {
+              "required": ["name", "passed"],
+              "properties": { "name": { "const": "AITP v0.3 self-attestation" }, "passed": { "const": true } }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "features_enabled": { "contains": { "const": "aitp-self-attestation" } },
+          "results": {
+            "contains": { "required": ["feature"], "properties": { "feature": { "const": "aitp-self-attestation" } } },
+            "not": {
+              "contains": {
+                "required": ["feature", "outcome"],
+                "properties": {
+                  "feature": { "const": "aitp-self-attestation" },
+                  "outcome": { "not": { "const": "pass" } }
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  ]
+}
