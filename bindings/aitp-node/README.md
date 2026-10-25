@@ -119,12 +119,12 @@ compact-JWS token strings** (`header.payload.signature`).
 
 | Export                    | Feature | Notes |
 |---------------------------|:-------:|-------|
-| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)`, `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signEnvelope(messageType, payloadJson, opts?)` (`opts.extensionsJson`, `opts.messageId`, `opts.timestamp`), `signRevocationList(entries, expiresInSecs?)` |
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)` (`opts.revocationListUri`), `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?, revocation?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?, revocation?)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signEnvelope(messageType, payloadJson, opts?)` (`opts.extensionsJson`, `opts.messageId`, `opts.timestamp`), `signRevocationList(entries, expiresInSecs?)` |
 | `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
-| `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
+| `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?, revocation?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
 | `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
 | `verifyEnvelope(json, expectedSenderAid)` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Throws an `Error` with `code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-node.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
@@ -133,15 +133,16 @@ compact-JWS token strings** (`header.payload.signature`).
 | `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` → `{ tct, grantVoucher? }` |
 | `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
-| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
 `verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
 the issuer.
 
 ### Revocation
 
-`verifyTct` and `verifyTctCached` take an optional final `revokedJtis`
-argument, an array of revoked TCT `jti` strings. A TCT whose `jti` is in the
+`verifyTct` and `verifyTctCached` take a `revokedJtis` argument, an array of
+revoked TCT `jti` strings, and an optional final `revocation` argument
+(`'fail_closed'`, the default, or `'fail_open'`). A TCT whose `jti` is in the
 array is rejected, even if its signature, audience and expiry are otherwise
 valid:
 
@@ -159,8 +160,15 @@ revocation snapshot you fetched and checked with `verifyRevocationList`
 The set is passed up-front rather than through a JS callback invoked per
 `jti`, so that it stays sound under napi threading constraints.
 
-If you omit the argument, the revocation gate is **off** and an unexpired but
-revoked TCT will pass. Wire `revokedJtis` in wherever revocation matters.
+Revocation is `fail_closed` (RFC-AITP-0008 §3.1): if you omit `revokedJtis`,
+every TCT is rejected with `code` `'TCT_REVOKED'`, because an unknown status
+counts as revoked. Pass `[]` when the issuer's list is empty, or
+`'fail_open'` only when the deployment has no revocation source.
+
+As an issuer, advertise your list: `buildManifest({ ..., revocationListUri })`
+puts `rfc-aitp-0008.revocation_list_uri` in your signed Manifest, as
+RFC-AITP-0005 §11 and RFC-AITP-0008 §1.4 require. Use an absolute HTTPS URL,
+conventionally your origin plus `REVOCATION_LIST_PATH`.
 
 ### UUID inputs
 

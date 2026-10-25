@@ -22,7 +22,13 @@ RevokedJtis = Union[set[str], frozenset[str]]
 # DELEGATION_SOURCE_TCT_REVOKED). "fail_open" skips revocation entirely.
 Revocation = Literal["fail_closed", "fail_open"]
 
+REVOCATION_LIST_PATH: str
+"""Conventional path of an agent's `ListRevoked` endpoint
+(`/.well-known/aitp-revocation-list`). The Manifest still carries an
+explicit absolute URL: `build_manifest(revocation_list_uri=...)`."""
+
 # ── Core handshake surface ──────────────────────────────────────────────
+
 
 class TctIdentity:
     """Verified peer identity carried by a TCT."""
@@ -141,7 +147,18 @@ class AitpAgent:
         oidc_issuer: Optional[str] = ...,
         oidc_subject: Optional[str] = ...,
         accepted_trust_anchors: Optional[list[str]] = ...,
-    ) -> str: ...
+        revocation_list_uri: Optional[str] = None,
+    ) -> str:
+        """Build and sign this agent's Manifest; returns the envelope JSON.
+
+        `revocation_list_uri` advertises this agent's `ListRevoked` URL as
+        `rfc-aitp-0008.revocation_list_uri` in the signed Manifest. Every
+        agent that issues TCTs MUST set it (RFC-AITP-0005 §11,
+        RFC-AITP-0008 §1.4): without it a `fail_closed` verifier that
+        discovers lists through the Manifest rejects this agent's TCTs as
+        `TCT_REVOKED`. Pass an absolute HTTPS URL, conventionally the
+        agent's origin plus `REVOCATION_LIST_PATH`."""
+        ...
     def new_session(
         self,
         jwks: Optional[JwksProvider] = ...,

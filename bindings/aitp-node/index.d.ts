@@ -477,7 +477,24 @@ export interface ManifestOpts {
    * `[oidc_issuer]` for OIDC mode and `[]` for pinned-key mode.
    */
   acceptedTrustAnchors?: Array<string>
+  /**
+   * This agent's `ListRevoked` URL, advertised as
+   * `rfc-aitp-0008.revocation_list_uri` in the signed Manifest. Every
+   * agent that issues TCTs MUST set it (RFC-AITP-0005 §11,
+   * RFC-AITP-0008 §1.4); without it a `fail_closed` verifier that
+   * discovers lists through the Manifest rejects this agent's TCTs as
+   * `TCT_REVOKED`. An absolute HTTPS URL, conventionally the origin
+   * plus `REVOCATION_LIST_PATH`.
+   */
+  revocationListUri?: string
 }
+
+/**
+ * The conventional path of an agent's `ListRevoked` endpoint (the Rust
+ * `HandshakeServer` serves it here). The Manifest still carries an
+ * explicit absolute URL; see `ManifestOpts.revocationListUri`.
+ */
+export const REVOCATION_LIST_PATH: string
 
 /**
  * Input shape for `signRevocationList`. Field names map to spec

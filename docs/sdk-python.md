@@ -145,6 +145,23 @@ every TCT is rejected, because an unknown revocation status counts as
 revoked. Pass `revocation="fail_open"` only when the deployment has no
 revocation source; any other `revocation` value raises `ValueError`.
 
+The issuer side of the same rule: every agent that issues TCTs MUST advertise
+its `ListRevoked` URL in its signed Manifest (RFC-AITP-0005 §11,
+RFC-AITP-0008 §1.4). Pass `revocation_list_uri` to `build_manifest`,
+conventionally your origin plus `aitp.REVOCATION_LIST_PATH`
+(`/.well-known/aitp-revocation-list`). Without it, a `fail_closed` verifier
+that discovers lists through the Manifest rejects your TCTs as `TCT_REVOKED`.
+
+```python
+# not executed: fragment
+agent.build_manifest(
+    display_name="alice",
+    handshake_endpoint="https://alice.example/aitp/handshake/",
+    offered_caps=["demo.echo"],
+    revocation_list_uri="https://alice.example" + aitp.REVOCATION_LIST_PATH,
+)
+```
+
 A revocation failure (a listed `jti`, or no list under `fail_closed`) raises a
 `RuntimeError` whose `.code` is `"TCT_REVOKED"`. Every other failed
 verification raises a plain `RuntimeError` with no `.code` attribute; the

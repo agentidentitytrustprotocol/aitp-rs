@@ -57,6 +57,12 @@ fn manifest_verification_cause(err: &ManifestError) -> &'static str {
     }
 }
 
+/// The conventional path of an agent's `ListRevoked` endpoint (the Rust
+/// `HandshakeServer` serves it here). The Manifest still carries an
+/// explicit absolute URL; see `ManifestOpts.revocationListUri`.
+#[napi]
+pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
+
 /// Verify a `ManifestEnvelope` JSON string. Used by the AITP Control Plane
 /// during agent enrollment, and by any consumer reading an AID or endpoint
 /// out of a peer's manifest.
