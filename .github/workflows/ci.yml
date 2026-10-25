@@ -586,6 +586,67 @@ jobs:
         run: |
           cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
             | python3 scripts/xcheck-verify.py
+      # RS3.2: the verifier's own conformance adapter, through our runner,
+      # on the fixtures the `conformance` job runs. It comes from PyPI at
+      # the exact version in tests/xcheck-verifier-requirements.txt, in its
+      # own venv so it never mixes with the pinned checkout above.
+      - name: Read pinned spec commit
+        id: spec
+        run: echo "sha=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Checkout spec at pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          repository: agentidentitytrustprotocol/agentidentitytrustprotocol
+          path: spec
+          ref: ${{ steps.spec.outputs.sha }}
+          # The reports' spec.version is `git describe` of the pin.
+          fetch-depth: 0
+      - name: Install the verifier's adapter from PyPI
+        run: |
+          python -m venv vpy
+          vpy/bin/pip install --quiet -r aitp-rs/tests/xcheck-verifier-requirements.txt
+          printf '#!/bin/sh\nexec "%s/vpy/bin/python" -m aitp_verifier.adapter\n' \
+            "$GITHUB_WORKSPACE" > vpy-adapter
+          chmod +x vpy-adapter
+      - name: Build adapter + runner
+        working-directory: aitp-rs
+        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+      # Core profile, no features, for both. The runner exits non-zero on
+      # any FAIL; the comparison below is the gate, so it runs either way.
+      - name: Run the fixtures against both adapters
+        working-directory: aitp-rs
+        env:
+          # The verifier reads the KAT keys from the spec checkout.
+          AITP_SPEC: ${{ github.workspace }}/spec
+        run: |
+          for t in rs:./target/debug/aitp-rs-adapter py:../vpy-adapter; do
+            ./target/debug/aitp-conformance run \
+              --target "${t#*:}" \
+              --fixtures-dir ../spec/schemas/conformance \
+              --spec-commit "${{ steps.spec.outputs.sha }}" \
+              --report "${t%%:*}-report.json" \
+              --output tap > /dev/null || true
+          done
+      # Gate: the verifier passes the AITP v0.3 core claim and agrees with
+      # aitp-rs on every fixture. A known divergence must still diverge, so
+      # the list only shrinks.
+      #   del-004: verifier-py 0.1.1 raises KeyError 'self_aid' on the
+      #            frozen v0.1 multi-hop token instead of rejecting it with
+      #            DELEGATION_MULTIHOP_NOT_SUPPORTED (not required_for_core).
+      - name: aitp-verifier-py agrees with aitp-rs
+        working-directory: aitp-rs
+        run: >-
+          python3 scripts/xcheck-compare-reports.py rs-report.json py-report.json
+          --known-divergence del-004
+      - name: Upload the verifier's conformance report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xcheck-py-report
+          path: |
+            aitp-rs/py-report.json
+            aitp-rs/rs-report.json
+          if-no-files-found: error
 
   wasm:
     name: wasm portability check

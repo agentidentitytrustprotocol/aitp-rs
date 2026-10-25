@@ -1,0 +1,4 @@
+# aitp-verifier-py, from PyPI, that ci.yml's xcheck job drives through
+# aitp-conformance (RS3.2). Pinned exactly: a verifier release must not change
+# this repo's CI on its own, so a bump is a PR here.
+aitp-verifier==0.1.1
