@@ -908,7 +908,7 @@ fn is_jws_placeholder(s: &str) -> bool {
 /// Strip every `*_claims` companion key, recursively — companions are
 /// minting inputs and MUST NOT appear in wire bytes (PLACEHOLDERS.md
 /// claims-sibling convention, step 2).
-fn strip_claims_companions(value: &mut Value) {
+pub(crate) fn strip_claims_companions(value: &mut Value) {
     match value {
         Value::Array(items) => {
             for item in items {

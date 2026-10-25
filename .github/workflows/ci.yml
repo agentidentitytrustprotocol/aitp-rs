@@ -483,6 +483,15 @@ jobs:
       - name: Build adapter + runner
         working-directory: aitp-rs
         run: cargo build -p aitp-rs-adapter -p aitp-conformance
+      - name: No minting companion reaches the adapter (whole corpus)
+        working-directory: aitp-rs
+        # Walks every op request the runner sends, at every depth, for
+        # every pinned fixture, and fails on any `*_claims` key.
+        env:
+          AITP_CONFORMANCE_FIXTURES: ${{ github.workspace }}/spec/schemas/conformance
+        run: >-
+          cargo test -p aitp-conformance --test runner_integration
+          claims_companions_never_reach_the_adapter -- --nocapture
       - name: Run the core fixture corpus (strict, core gate)
         working-directory: aitp-rs
         # No --feature: the core gate (the default --profile) fails the
