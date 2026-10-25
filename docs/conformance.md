@@ -437,7 +437,9 @@ Two things close that gap, and conformance is neither:
    pinned by `tests/AITP_VERIFIER_PY_VERSION` (kept current by the weekly
    `bump-verifier-py` workflow, which opens a bump PR when the verifier's
    `main` moves), verifies those exact bytes
-   through `scripts/xcheck-verify.py`. The reverse direction is covered by
+   through `scripts/xcheck-verify.py`. The `xcheck-ts` job does the same
+   with [`aitp-verifier-ts`](https://github.com/agentidentitytrustprotocol/aitp-verifier-ts),
+   pinned by `tests/AITP_VERIFIER_TS_VERSION`. The reverse direction is covered by
    the committed bytes in `tests/xcheck-fixtures/`. See
    [testing.md](testing.md#cross-implementation-acceptance-xcheck).
 
