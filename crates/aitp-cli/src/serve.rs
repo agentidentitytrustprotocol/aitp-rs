@@ -21,6 +21,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
+use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
@@ -40,7 +41,7 @@ use aitp::transport::{
     resolve_source_ip, sign_envelope, verify_envelope_signature, HandshakeServer, ManifestServer,
     RateLimitConfig, RevocationFailMode, RevocationPolicy, TrustedProxy, REVOCATION_LIST_PATH,
 };
-use axum::body::{to_bytes, Body, Bytes};
+use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::{ConnectInfo, Request, State};
 use axum::http::{header, HeaderMap, HeaderName, HeaderValue, StatusCode};
 use axum::middleware::{self, Next};
@@ -61,6 +62,12 @@ use crate::CliResult;
 const PEER_NAME: &str = "AITP interop peer";
 /// Request body cap for every route.
 const BODY_LIMIT: usize = 64 * 1024;
+/// How much of an over-cap body is read and discarded before the 413 goes
+/// out. Closing a socket with unread request bytes makes the kernel send a
+/// RST, which can destroy the 413 before the client reads it (RFC 9112
+/// §9.6), so the rest is drained first, up to this bound. A larger body is
+/// refused without draining.
+const DRAIN_LIMIT: usize = 1024 * 1024;
 /// Whole-request deadline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an enrolment or echo challenge is accepted.
@@ -342,12 +349,12 @@ async fn limits(request: Request, next: Next) -> Response {
         .get(header::CONTENT_LENGTH)
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.parse::<usize>().ok());
-    if declared.is_some_and(|n| n > BODY_LIMIT) {
+    if declared.is_some_and(|n| n > DRAIN_LIMIT) {
         return too_large();
     }
     let (parts, body) = request.into_parts();
     let work = async move {
-        let Ok(bytes) = to_bytes(body, BODY_LIMIT).await else {
+        let Some(bytes) = read_capped(body).await else {
             return too_large();
         };
         next.run(Request::from_parts(parts, Body::from(bytes)))
@@ -357,6 +364,26 @@ async fn limits(request: Request, next: Next) -> Response {
         Ok(response) => response,
         Err(_) => StatusCode::REQUEST_TIMEOUT.into_response(),
     }
+}
+
+/// The body, or `None` if it is over [`BODY_LIMIT`] or fails to read. An
+/// over-cap body is read to its end and discarded, up to [`DRAIN_LIMIT`].
+async fn read_capped(mut body: Body) -> Option<Bytes> {
+    let mut kept = Vec::new();
+    let mut seen = 0usize;
+    while let Some(frame) = std::future::poll_fn(|cx| Pin::new(&mut body).poll_frame(cx)).await {
+        let Ok(data) = frame.ok()?.into_data() else {
+            continue;
+        };
+        seen += data.len();
+        if seen > DRAIN_LIMIT {
+            return None;
+        }
+        if seen <= BODY_LIMIT {
+            kept.extend_from_slice(&data);
+        }
+    }
+    (seen <= BODY_LIMIT).then(|| kept.into())
 }
 
 fn too_large() -> Response {
