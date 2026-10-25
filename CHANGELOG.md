@@ -18,6 +18,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 - `aitp-conformance` no longer sends `*_claims` minting companions to the implementation under test. Before this fix they survived in envelope payloads (`envelope.payload.tct_claims`) and session-bundle participants, so a strict verifier rejected `mh-006`..`mh-008`, `mh-success-001` and five `bundle-*` fixtures with `UNKNOWN_FIELD`. Every op request is now stripped at every depth before it is sent, and CI walks every request the whole pinned corpus produces to keep it that way.
 
+### Fixed
+
+- `aitp-manifest`: `verify_manifest` now verifies the proof of possession before the Manifest signature, in RFC-AITP-0003 §5 order (steps 4 and 5). A Manifest that fails both checks is now rejected with `MANIFEST_POP_FAILED`; before this fix it got `MANIFEST_SIGNATURE_INVALID`. The old order was only there because `mh-002`'s attacker PoP was never validly signed. The conformance runner now loads every KAT signing key from `known-answer/keypairs.json`, including `kat-keypair-006-attacker`, so mh-002's PoP verifies and the fixture reaches the signature check it targets.
+
 ## [0.23.0] — 2026-10-25
 
 ### BREAKING

@@ -123,12 +123,8 @@ fn builder_pop_uses_decoded_challenge() {
 
 /// Legacy guard. Replace the PoP signature with one signed under the
 /// pre-rc.1 buggy convention (hash the ASCII bytes of the encoded
-/// challenge). Either the outer-signature check (which now runs
-/// first after the rc.4-era reorder so `mh-002`'s
-/// MANIFEST_SIGNATURE_INVALID expectation is preserved) or the
-/// PoP check itself rejects the manifest. The exact error code is
-/// implementation-defined; what matters is that the legacy PoP
-/// convention does NOT verify.
+/// challenge). The PoP check, which runs before the outer signature
+/// (RFC-AITP-0003 §5), rejects it.
 #[test]
 fn legacy_ascii_bytes_pop_is_rejected() {
     let key = AitpSigningKey::from_seed(&[2u8; 32]);
@@ -166,10 +162,7 @@ fn legacy_ascii_bytes_pop_is_rejected() {
     )
     .expect_err("legacy ASCII-bytes PoP must be rejected");
     assert!(
-        matches!(
-            err,
-            ManifestError::PopFailed | ManifestError::SignatureInvalid
-        ),
-        "expected PopFailed or SignatureInvalid, got {err:?}"
+        matches!(err, ManifestError::PopFailed),
+        "expected PopFailed, got {err:?}"
     );
 }

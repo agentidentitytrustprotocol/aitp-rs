@@ -61,21 +61,9 @@ fn tampered_pop_signature_fails() {
     s.push(if last == 'A' { 'B' } else { 'A' });
     m.proof_of_possession.signature = s;
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
-    // Either error is acceptable: tampering the PoP signature also
-    // invalidates the outer signature (the outer covers the whole
-    // body including `proof_of_possession.signature`). The verifier
-    // checks the outer signature first (rc.4 ordering — see
-    // `mh-002` conformance), so SignatureInvalid is the typical
-    // observable. Accept either to keep this test robust to the
-    // outer/PoP check ordering.
-    assert!(
-        matches!(
-            err,
-            ManifestError::PopFailed | ManifestError::SignatureInvalid
-        ),
-        "got: {:?}",
-        err
-    );
+    // Tampering the PoP signature also invalidates the outer
+    // signature, which covers it; PoP is checked first.
+    assert!(matches!(err, ManifestError::PopFailed), "got: {err:?}");
 }
 
 #[test]
@@ -92,19 +80,8 @@ fn tampered_pop_challenge_fails() {
     m.proof_of_possession.challenge = String::from_utf8(chars).unwrap();
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
     // Tampering the challenge invalidates BOTH the pop_signature
-    // and the outer signature. The rc.4-era verifier checks the
-    // outer signature first (so `mh-002` reports
-    // MANIFEST_SIGNATURE_INVALID), hence SignatureInvalid is the
-    // typical observable here; accept either to keep the test
-    // robust to ordering changes.
-    assert!(
-        matches!(
-            err,
-            ManifestError::PopFailed | ManifestError::SignatureInvalid
-        ),
-        "got: {:?}",
-        err
-    );
+    // and the outer signature; PoP is checked first.
+    assert!(matches!(err, ManifestError::PopFailed), "got: {err:?}");
 }
 
 #[test]
@@ -217,13 +194,12 @@ fn builder_rejects_pinned_without_pubkey() {
 }
 
 #[test]
-fn pop_corruption_surfaces_as_signature_invalid_not_pop_failed() {
+fn pop_corruption_surfaces_as_pop_failed_not_signature_invalid() {
     // `proof_of_possession` is part of the outer-signed view, so
     // corrupting only the PoP signature (without re-signing) breaks the
-    // OUTER signature too. The verifier checks the outer signature before
-    // the PoP (rc.4 ordering, conformance `mh-002`), so this MUST surface
-    // as `SignatureInvalid`, never `PopFailed`. This locks the ordering
-    // that the looser `tampered_pop_signature_fails` test leaves open.
+    // OUTER signature too. RFC-AITP-0003 §5 verifies PoP (step 4) before
+    // the signature (step 5), so this MUST surface as `PopFailed`, never
+    // `SignatureInvalid`.
     let now = Timestamp(1_700_000_000);
     let mut m = build_alice_manifest_at(now);
     // Replace the PoP signature with a different, well-formed Ed25519
@@ -235,8 +211,8 @@ fn pop_corruption_surfaces_as_signature_invalid_not_pop_failed() {
         .into_string();
     let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
     assert!(
-        matches!(err, ManifestError::SignatureInvalid),
-        "PoP corruption must surface as SignatureInvalid (outer-sig-first), got: {err:?}"
+        matches!(err, ManifestError::PopFailed),
+        "PoP corruption must surface as PopFailed (PoP before signature), got: {err:?}"
     );
 }
 
