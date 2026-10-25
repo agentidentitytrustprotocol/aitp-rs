@@ -21,16 +21,15 @@ Everything below is a consequence of that rule.
 | Layer / state | Stateful? | Multi-node story |
 |---|---|---|
 | `aitp-core`, `aitp-crypto`, `aitp-tct`, `aitp-delegation`, `aitp-handshake`, `aitp-manifest`, `aitp-envelope` | **No** | Pure functions. Verify/sign take inputs and return outputs; revocation is a caller-supplied callback. Run as many instances as you like — nothing to share. |
-| **Replay deny-list** (envelope `message_id`, DPoP `jti`) | Yes | **Supply a shared [`ReplayGuard`](../crates/aitp-transport-http/src/replay_store.rs) or use sticky routing.** This is the one place per-node in-memory state silently weakens a guarantee at scale — see below. |
+| **Replay deny-list** (envelope `message_id`) | Yes | **Supply a shared [`ReplayGuard`](../crates/aitp-transport-http/src/replay_store.rs) or use sticky routing.** This is the one place per-node in-memory state silently weakens a guarantee at scale — see below. |
 | **In-flight handshake sessions** | Yes | **Use sticky routing.** A handshake is a ~tens-of-ms, 4-message conversation holding live state; it is not a shared-store problem. The built-in `max_sessions` cap and session TTL, plus an opt-in sweeper, bound per-node memory. See below. |
 | Manifest cache, OIDC discovery cache, JWKS (positive + negative) cache, revocation-snapshot cache | Yes (caches) | **Nothing to do.** All are re-fetchable and TTL-bounded. A cache miss just re-fetches; there is no correctness impact from not sharing them, so they are deliberately in-memory and not pluggable. |
 | Facade `TctStore` (held TCTs) | Yes | Client-side convenience your code already owns — hold/replace it as you see fit. |
 
 ## Replay detection — the one that matters at scale
 
-AITP rejects replays by remembering a one-time value for a freshness
-window: envelope `message_id`s (RFC-AITP-0001 §5.5) and DPoP `jti`s
-(RFC 9449). The default store is **per-process**:
+AITP rejects replays by remembering each envelope `message_id` for a
+freshness window (RFC-AITP-0001 §5.5). The default store is **per-process**:
 
 ```
                  ┌── node A ──┐        client replays the same
@@ -53,9 +52,7 @@ holds the record. Two fixes:
 
    ```rust
    let guard: Arc<dyn ReplayGuard> = Arc::new(MyRedisReplayGuard::new(pool));
-   let server = HandshakeServer::new(/* … */).with_replay_guard(guard.clone());
-   // Share the SAME guard with DPoP so both replay checks hit one backend:
-   let dpop_cache = DpopReplayCache::with_guard(guard, Duration::from_secs(300));
+   let server = HandshakeServer::new(/* … */).with_replay_guard(guard);
    ```
 
    `aitp-rs` ships only the trait and the in-memory default; the storage

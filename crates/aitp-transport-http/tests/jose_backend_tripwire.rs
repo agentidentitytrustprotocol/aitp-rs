@@ -12,12 +12,9 @@
 //! fixtures proves the three algorithms are wired up correctly, not
 //! just that the types line up.
 //!
-//! Two places in this workspace dispatch to `verify_jws_signature`,
-//! and between them they reach three algorithms:
-//!
-//! * `aitp_transport_http::dpop` — EdDSA, ES256, RS256.
-//! * `aitp_handshake::identity_oidc` — whatever the OIDC provider's
-//!   JWKS advertises, which in practice is overwhelmingly RS256.
+//! `aitp_handshake::identity_oidc` dispatches to `verify_jws_signature`
+//! with whatever algorithm the OIDC provider's JWKS advertises — in
+//! practice overwhelmingly RS256, but EdDSA and ES256 are reachable.
 //!
 //! The rest of the suite only ever exercises the **EdDSA** path (the
 //! mock OIDC issuer and the JWS differential-oracle KATs are both

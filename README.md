@@ -63,7 +63,7 @@ aitp-rs/
 | Crate                 | Status        | Notes                                                  |
 |-----------------------|---------------|--------------------------------------------------------|
 | `aitp-core`           | ✅ complete   | AID, JCS, base64url, timestamps, envelope, error codes. |
-| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256 (canonical **low-S**, high-S rejected), compact-JWS profile (`jws.rs`), JWK thumbprint. No RSA code: the RSA-2048 floor lives in `aitp-handshake` (OIDC JWK, `jwk.rs`) and `aitp-transport-http` (DPoP, `dpop.rs`). |
+| `aitp-crypto`         | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256 (canonical **low-S**, high-S rejected), compact-JWS profile (`jws.rs`), JWK thumbprint. No RSA code: the RSA-2048 floor lives in `aitp-handshake` (OIDC JWK, `jwk.rs`) and `aitp-transport-http` (JWKS fetch, `common.rs`). |
 | `aitp-envelope`       | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp-transport-http`. |
 | `aitp-manifest`       | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp-tct`            | ✅ complete   | Builder + verifier + downstream PoP + renewal; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |

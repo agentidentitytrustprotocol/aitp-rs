@@ -24,14 +24,8 @@ pub mod retry;
 #[cfg(feature = "client")]
 pub mod client_config;
 
-#[cfg(feature = "client")]
-pub mod token_exchange;
-
 #[cfg(feature = "client-spki-pinning")]
 pub mod tls_pinning;
-
-#[cfg(any(feature = "client", feature = "server"))]
-pub mod dpop;
 
 #[cfg(feature = "client")]
 pub mod key_resolution;
@@ -75,21 +69,8 @@ pub use retry::RetryPolicy;
 #[cfg(feature = "client")]
 pub use client_config::ClientConfig;
 
-#[cfg(feature = "client")]
-pub use token_exchange::{
-    exchange_token, ClientAuthentication, SubjectCredential, TokenExchangeError,
-    TokenExchangeRequest, TokenExchangeResponse, CLIENT_ASSERTION_TYPE_JWT_BEARER,
-    REQUESTED_TYPE_ACCESS_TOKEN, SUBJECT_TYPE_ID_TOKEN, SUBJECT_TYPE_JWT, SUBJECT_TYPE_SAML2,
-    TOKEN_EXCHANGE_GRANT_TYPE,
-};
-
 #[cfg(feature = "client-spki-pinning")]
 pub use tls_pinning::{build_pinning_client_config, compute_spki_hash, SpkiHash, SpkiPinVerifier};
-
-#[cfg(any(feature = "client", feature = "server"))]
-pub use dpop::{
-    verify_dpop_proof_full, DpopError, DpopHeader, DpopProof, DpopReplayCache, DpopVerifyContext,
-};
 
 #[cfg(feature = "client")]
 pub use key_resolution::{
@@ -99,8 +80,8 @@ pub use key_resolution::{
 
 #[cfg(feature = "server")]
 pub use server::{
-    DpopPolicy, HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome,
-    RevocationListProducer, DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
+    HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome, RevocationListProducer,
+    DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
 };
 
 #[cfg(feature = "source-ip")]

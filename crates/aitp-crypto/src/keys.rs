@@ -207,7 +207,7 @@ impl AitpSigningKey {
     ///
     /// This is the entry point for framings that are not the AITP
     /// `Digest32` construction: the compact-JWS profile (RFC-AITP-0001
-    /// §5.4.5), DPoP proofs, and application-defined records such as
+    /// §5.4.5) and application-defined records such as
     /// admission tickets. Ed25519 is PureEdDSA over `message` (RFC 8032).
     /// P-256 is JOSE ES256: ECDSA over `SHA-256(message)` (one hash),
     /// RFC 6979 nonce, low-S, `R || S` (RFC 7518 §3.4).
@@ -337,7 +337,7 @@ impl AitpVerifyingKey {
     }
 
     /// Construct a P-256 verifier from separate big-endian affine
-    /// coordinates (`x`, `y`) — the encoding used by DPoP/JWKS `EC`
+    /// coordinates (`x`, `y`) — the encoding used by JWKS `EC`
     /// JWKs (RFC 7518 §6.2.1.2/§6.2.1.3), as opposed to
     /// [`Self::from_compressed`]'s SEC1-compressed single-field form.
     ///
@@ -402,7 +402,7 @@ impl AitpVerifyingKey {
     }
 
     /// Verify a raw 64-byte JOSE signature from a **third party**: an
-    /// IdP's OIDC ID token, or a DPoP proof (RFC 7515/7518). It is
+    /// IdP's OIDC ID token (RFC 7515/7518). It is
     /// [`Self::verify_raw`] without the high-S rejection. RFC-AITP-0001
     /// §5.4.7 low-S is scoped to AITP signing inputs, and a verifier
     /// MUST NOT reject an IdP token for high-S alone. `R`/`S` of zero or
@@ -1122,7 +1122,7 @@ mod tests {
 
     #[test]
     fn from_p256_affine_round_trips_against_to_compressed() {
-        // Derive (x, y) affine coordinates the same way DPoP/JWKS carry
+        // Derive (x, y) affine coordinates the same way JWKS carry
         // them, then check `from_p256_affine` produces a verifier that
         // agrees with the SEC1-compressed path already covered above.
         let key = AitpSigningKey::generate_p256();

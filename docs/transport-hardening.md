@@ -26,25 +26,15 @@
 | `client.rs` | `ManifestFetcher` (HTTPS-only Manifest fetch, expiry-bounded per-AID cache, optional retry) and `JwksFetcher` | 0003 / 0007 | done | Cache honors `published_at`/`expires_at`; no HTTP validators (`ETag`/`If-None-Match`). Retry defaults to `RetryPolicy::none()`. `http://localhost` / `127.0.0.1` accepted only after `with_insecure_localhost(true)`; the default is `false`. JWKS network resolution follows RFC-AITP-0007 §2.3: OIDC discovery first, `/.well-known/aitp-keys` only when discovery is not validly exposed. |
 | `client_config.rs` | Connection-pool + TLS knobs per fetcher | — | done | Rustdoc example for pool sizing (`with_pool_max_idle_per_host`). |
 | `net_guard.rs` | SSRF `HostGuard` on peer-derived fetches (Manifest, JWKS/discovery/`aitp-keys`, facade handshake/renew): redirect-block, resolved-address classification (link-local/metadata always denied; private ranges per mode), DNS-rebind-safe address pinning | 0009 | done | `HostGuard::default()` is `GuardMode::WarnPrivate`; internet-facing deployments call `.with_host_guard(HostGuard::strict())` (`GuardMode::DenyPrivate`). `HostGuard::permissive()` (`GuardMode::AllowAll`) for air-gapped/test networks. |
-| `replay_store.rs` | Pluggable `ReplayGuard` (`InMemoryReplayGuard` default) for envelope `message_id` / DPoP `jti` dedup | 0001 §5.5 / RFC 9449 | done | `check_and_record(key, ttl)` maps to Redis `SET NX EX`; supply a shared backend for clustered deployments (`HandshakeServer::with_replay_guard`, `DpopReplayCache::with_guard`). |
+| `replay_store.rs` | Pluggable `ReplayGuard` (`InMemoryReplayGuard` default) for envelope `message_id` dedup | 0001 §5.5 | done | `check_and_record(key, ttl)` maps to Redis `SET NX EX`; supply a shared backend for clustered deployments (`HandshakeServer::with_replay_guard`). |
 | `key_resolution.rs` | `KeyResolutionPolicy`: cache → pinned issuer store → network (`JwksFetcher::resolve`), with fail modes | 0007 | done | The sync `JwksResolver::resolve` bridges to the network only on a **multi-thread** Tokio runtime; on a current-thread runtime it returns `ResolveError::NetworkError` — use `AsyncJwksResolver::resolve_async` (e.g. to pre-warm the cache) or the pinned store. `SoftFail` fails closed on `resolve()`; degraded state only via `resolve_outcome()`. |
-| `dpop.rs` | DPoP (RFC 9449) proof generation + verification, replay cache | RFC 9449 (no AITP RFC) | done | Wired into token exchange via `TokenExchangeRequest::with_dpop_proof`. See *Support status* below. |
 | `retry.rs` | Exponential backoff + jitter for idempotent outbound reads | — | done | Jitter strategy + max-attempts are configurable; keep retries to idempotent GETs only. |
 | `revocation.rs` | `RevocationCache` + `RevocationProvider`, per-issuer cache, fail modes; `EmptyRevocationProvider` for tests/dev | 0008 | done | Snapshot member-set and shape failures surface as `RevocationError::UnknownField` / `Malformed` (the `REVOCATION_SNAPSHOT_INVALID` case, RFC-AITP-0008 §1.5; an unknown `version` is `Malformed` too, #265), distinct from `SignatureInvalid`. Keep `RevocationFailMode` default = fail-closed. |
 | `server.rs` | `ManifestServer` + `HandshakeServer` (hello/commit; renewal at the advertised `renew_uri` with `experimental-renewal`), `RevocationListProducer` | 0003 / 0004 / 0009 | done | Hello/commit run replay → rate limit → timestamp (RFC-AITP-0009 §3.1). Manifest structural failures map to `MANIFEST_INVALID`; unknown members to `UNKNOWN_FIELD`. Rate limiting is on by default at the RFC-AITP-0009 §3.1 values; `DEFAULT_MAX_SESSIONS` is the §3.1 1 000; `router()` starts a background session sweeper (`without_session_sweeper()` opts out). **Open:** the body cap is above the §3.1 recommendation (see [deployment](deployment.md#known-limitations)). The renew route is rate limited and replay-guarded, re-checks revocation and grants, and maps each failure to its own code (see [tct-renewal](tct-renewal.md#server-handshakeserver)). Producer must never mint a fresh empty list on backing-store failure. |
 | `server_limits.rs` | Request body-size cap (axum-level) + header recommendations | 0009 | done | Document how the cap composes with `axum::DefaultBodyLimit`. |
 | `tls_pinning.rs` | SHA-256 SPKI pinning for outbound HTTPS | RFC 7469 | done | Behind `client-spki-pinning` (off by default — avoids pulling a rustls `CryptoProvider`). Rustdoc covers `compute_spki_hash` and a `reqwest` integration example. |
-| `token_exchange.rs` | OAuth 2.0 Token Exchange (RFC 8693): bootstrap OIDC identity from mTLS/SAML/JWT | RFC 8693 (no AITP RFC) | done | DPoP-bound exchange (`with_dpop_proof`) and the JWT → AID `cnf.jkt` binding test (`exchanged_token_binds_to_agent_aid_via_cnf_jkt`) landed in `da40242`. Composition with `KeyResolutionPolicy` for the resulting identity is not separately tested. See *Support status*. |
 | `session_bundle_server.rs` | Session Trust Bundle HTTP transport (§4.3.1) — in-memory store, no verification | 0010 (Draft, opt-in) | tested | Behind `experimental-session-bundle`. Unknown body member → `UNKNOWN_FIELD`; wrapper defect or bare (unwrapped) body → `SESSION_BUNDLE_INVALID`. Advertise the route with `aitp_session_bundle::advertise_bundle_uri` and `SessionBundleServer::bundle_uri` (see [session-bundle](session-bundle.md)). |
 | `obs.rs` | Low-cardinality counters at trust-decision points | — | done | Behind `metrics`; metric names in [deployment](deployment.md#transport-hardening-you-should-turn-on). |
-
-## Support status of DPoP and token exchange
-
-No AITP RFC specifies DPoP (RFC 9449) or OAuth 2.0 Token Exchange
-(RFC 8693). `dpop.rs` and `token_exchange.rs` carry no conformance fixtures
-and no RFC-AITP-0009 threat-model entry; treat them as an unsupported
-convenience layer outside the protocol
-([#151](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/151)).
 
 ## Cross-cutting acceptance criteria
 
@@ -59,8 +49,5 @@ convenience layer outside the protocol
 
 ## Open items (rolled up)
 
-The four items previously listed here (DPoP-bound token exchange, the
-JWT → AID mapping test, a no-op revocation provider, rustdoc examples for
-`tls_pinning` and `client_config`) were closed by `da40242`. The items added since have closed too; nothing
-is open now.
+Nothing is open now.
 

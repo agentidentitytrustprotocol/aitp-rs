@@ -606,7 +606,7 @@ pub fn sign_jcs(signer: &dyn AitpSigner, d: &Digest32) -> Result<Signature, Sign
 
 /// Sign raw `message` bytes with any backend: PureEdDSA for Ed25519,
 /// ES256 (one SHA-256, low-S, `R || S`) for P-256. The public raw-sign
-/// entry point for compact JWS, DPoP and application framings; see
+/// entry point for compact JWS and application framings; see
 /// [`AitpSigningKey::sign_raw`] for the domain-separation duty.
 ///
 /// For Ed25519 the whole message goes to the backend, so

@@ -87,8 +87,8 @@ rustls-pki-types = "1.10"
 # X.509 parser for extracting SubjectPublicKeyInfo bytes when pinning.
 x509-parser = "0.18"
 
-# RS256 (RSA) JWS signature verification for OIDC ID tokens and DPoP
-# proofs (`aitp_handshake::verify_jws_signature`), replacing the RS256
+# RS256 (RSA) JWS signature verification for OIDC ID tokens
+# (`aitp_handshake::verify_jws_signature`), replacing the RS256
 # support `jsonwebtoken` used to provide (issue #99). `ring`'s
 # `RsaPublicKeyComponents::verify` with `RSA_PKCS1_2048_8192_SHA256` is
 # the same verification code path `jsonwebtoken` 9's RS256 backend used
@@ -99,7 +99,7 @@ x509-parser = "0.18"
 # introduce a duplicate.
 ring = "0.17"
 
-# OIDC / DPoP JOSE helper — issue #99 resolution: `jsonwebtoken` is now a
+# OIDC JOSE helper — issue #99 resolution: `jsonwebtoken` is now a
 # **dev-only** dependency, used solely as a differential test oracle
 # (see `crates/aitp-transport-http/tests/jose_backend_tripwire.rs` and
 # `crates/aitp-crypto`'s JWS KATs). No runtime crate in this workspace

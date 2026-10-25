@@ -112,7 +112,7 @@ aitp                       facade: re-exports the protocol crates + async
 │                          (RFC-0010, optional: experimental-session-bundle)
 └── aitp-transport-http    ManifestServer + HandshakeServer (axum) +
                            ManifestFetcher + JwksFetcher (reqwest),
-                           RSA-2048 floor on DPoP keys
+                           RSA-2048 floor on JWKS keys
 
 aitp-envelope              sign_envelope + verify_envelope_signature —
                            sync, no I/O; used by aitp-transport-http and

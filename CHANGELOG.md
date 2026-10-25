@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- **DPoP and OAuth 2.0 Token Exchange are removed** (RS1.4). No AITP RFC
+  specifies either, and both were documented as unsupported (#151).
+  `aitp_transport_http::dpop` and `aitp_transport_http::token_exchange`
+  are gone, along with every root re-export: `verify_dpop_proof_full`,
+  `DpopError`, `DpopHeader`, `DpopProof`, `DpopReplayCache`,
+  `DpopVerifyContext`, `exchange_token`, `ClientAuthentication`,
+  `SubjectCredential`, `TokenExchangeError`, `TokenExchangeRequest`,
+  `TokenExchangeResponse` and the `CLIENT_ASSERTION_TYPE_JWT_BEARER`,
+  `REQUESTED_TYPE_ACCESS_TOKEN`, `SUBJECT_TYPE_*` and
+  `TOKEN_EXCHANGE_GRANT_TYPE` constants. `DpopPolicy`,
+  `HandshakeServer::with_dpop_policy` and
+  `HandshakeServer::verify_dpop_request` are removed too. There is no
+  replacement; a future identity-provider bridge would start from an RFC.
+
 ## [0.19.0] — 2026-10-20
 
 ### BREAKING

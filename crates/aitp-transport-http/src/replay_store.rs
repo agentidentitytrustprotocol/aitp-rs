@@ -1,8 +1,7 @@
 //! Pluggable replay-detection store for one-time identifiers.
 //!
-//! Two AITP mechanisms reject replays by remembering a one-time value
-//! for the length of a freshness window: envelope `message_id`s
-//! (RFC-AITP-0001 §5.5) and DPoP `jti`s (RFC 9449). "Remembering" is the
+//! AITP rejects replayed envelopes by remembering each `message_id`
+//! for the length of a freshness window (RFC-AITP-0001 §5.5). "Remembering" is the
 //! only stateful thing the server layer does that carries a *security*
 //! guarantee — so it is the one piece worth making the caller's to own.
 //!
