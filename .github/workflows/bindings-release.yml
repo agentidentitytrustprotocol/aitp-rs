@@ -152,11 +152,18 @@ jobs:
           files: bindings/aitp-node/artifacts/*.node
           fail_on_unmatched_files: true
 
-  # After a real npm publish, tell each npm consumer to adopt the new SDK
-  # version. Each one's bump-aitp.yml calls aitp-ci/bump-consume, which waits
-  # for the npm CDN to serve the version, re-locks, and opens a PR (auto-merging
-  # on a patch). Dependabot / a weekly schedule are the backstop.
-  # Auth: the aitp-deps-bot App (short-lived installation token) — no PAT.
+  # After a real npm publish, tell each consumer of the release:
+  #   aitp-control-plane, aitp-ui-console: their bump-aitp.yml calls
+  #     aitp-ci/bump-consume, which waits for the npm CDN to serve the
+  #     version, re-locks, and opens a PR (auto-merging on a patch).
+  #     Dependabot / a weekly schedule are the backstop.
+  #   aitp-verifier-ts: its bump-aitp-rs.yml moves AITP_RS_COMMIT (the
+  #     aitp-rs commit whose conformance runner its CI builds) to the
+  #     `aitp-v<version>` tag, which lockstep releases put on the same commit
+  #     as `aitp-node-v<version>`, and opens a PR held for review. A daily
+  #     schedule is the backstop.
+  # Auth: the aitp-deps-bot App (short-lived installation token, scoped to
+  # the one target repo) — no PAT.
   dispatch:
     name: notify ${{ matrix.repo }} (npm)
     runs-on: ubuntu-latest
@@ -165,7 +172,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        repo: [aitp-control-plane, aitp-ui-console]
+        repo: [aitp-control-plane, aitp-ui-console, aitp-verifier-ts]
     steps:
       - name: Resolve version from tag
         id: ver
