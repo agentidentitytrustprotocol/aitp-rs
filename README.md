@@ -187,6 +187,8 @@ pip install aitp-sdk                              # Python SDK (PyPI)
 The `aitp` crate is the facade re-exporting the protocol surface. The
 HTTP **client** ships by default; add the server when you need it
 (`cargo add aitp --features http-server`, or `--features all`).
+Only `aitp` carries a semver promise; the internal crates do not (see
+[`STABILITY.md`](STABILITY.md)).
 The `aitp` CLI installs with `cargo install aitp-cli` (prebuilt binaries
 are on each `aitp-cli-v*` GitHub Release). `aitp handshake <url>` runs a
 full handshake against a peer and prints the TCT it issues you; see

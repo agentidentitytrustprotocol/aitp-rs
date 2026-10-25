@@ -4,14 +4,14 @@
 
 | Version | Supported |
 |---|---|
-| Latest released minor line (0.13.x at the time of writing; the workspace version is in `Cargo.toml`) | ✅ Active security fixes |
+| The latest released minor line | ✅ Active security fixes |
 | Earlier minor lines | ❌ Not patched — upgrade to the latest minor |
 
 All published crates ship in lockstep at one shared version, so "the
 latest minor line" means the same thing for every crate. While the project
-is pre-1.0, a breaking change bumps the minor digit (for example 0.12 →
-0.13), and security fixes ship as a patch release on the latest minor line
-only. Releases are listed on the
+is pre-1.0, a breaking change bumps the minor digit (see
+[`STABILITY.md`](STABILITY.md)), and security fixes ship as a patch release
+on the latest minor line only. Releases are listed on the
 [GitHub releases page](https://github.com/agentidentitytrustprotocol/aitp-rs/releases).
 
 Language SDKs (`@agentidentitytrustprotocol/aitp` on npm, `aitp-sdk` on
