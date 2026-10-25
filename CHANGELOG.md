@@ -7,7 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- `IdentityDescriptor` has two new public fields, `svid_type: Option<SvidType>` and `x5c: Option<Vec<String>>` (RFC-AITP-0002 §6.1). A struct literal must now set both, `None` for `oidc` and `pinned_key`. `bootstrap_verify_peer` rejects an `oidc` or `pinned_key` descriptor that carries either with `IDENTITY_FAILED`.
+
 ### Added
+
+- **Experimental SPIFFE identity (RFC-AITP-0002 §6), behind the `experimental-spiffe-identity` feature** of `aitp-handshake` (and of the `aitp` facade). `spiffe` is at registry status Proposed and OQ-7 is open, so the API can change in any release. New: `IdentityKind::Spiffe`, `IdentityHintKind::Spiffe` (`issuer` and `public_key` must be absent), `SvidType`, and the `identity_spiffe` module with `SpiffeBundleStore`, `verify_spiffe` and `spiffe_x509_proof_input`. `PeerConfig::with_spiffe_bundles` supplies the verifier's bundle store, keyed by trust domain; a duplicate or non-canonical trust domain is a configuration error.
+  - The subject must be a canonical SPIFFE ID with a workload path. Its trust domain picks the one bundle used. The descriptor, trust domain, bundle and key-`use` checks all run before any signature is verified (§6.5).
+  - A JWT-SVID must carry `kid`, which selects exactly one `jwt-svid` key. Its header may hold only `alg`, `kid` and `typ`. `EdDSA`, `none` and `HS*` are rejected; `ES256` and `RS256` are verifiable. It needs a single `aud` equal to the verifier's AID, an unexpired `exp`, `iat` within 300 s, `nonce` equal to `pop_nonce`, and `cnf.jkt` equal to the sender AID's thumbprint.
+  - An X509-SVID chain is path-validated (RFC 5280, rustls-webpki) against that trust domain's `x509-svid` CAs only, with intermediates only from `x5c[1..]` and no revocation. The leaf needs exactly one URI SAN equal to the subject byte for byte, must not be a CA, needs `digitalSignature` without `keyCertSign` or `cRLSign`, and must have an Ed25519 or P-256 key. The §6.4.1 proof must verify under the leaf key.
+  - Every failure is `IDENTITY_FAILED`. A verifier whose own Manifest does not list `spiffe` in `accepted_identity_types`, or that is built without the feature, rejects a `spiffe` peer with `INCOMPATIBLE_IDENTITY_TYPE` (RFC-AITP-0004 §5.1 step 8, §6.6).
+- The conformance adapter accepts `spiffe` and loads `trust_anchors_config.spiffe_bundles` when the runner enables `experimental-spiffe-identity`. The runner mints the SPIFFE test authorities, JWT-SVIDs, X509-SVID leaves and §6.4.1 proofs. Draft fixtures `id-024` to `id-030` pass, CI's opt-in conformance run enables the feature, and a test pins `kat-spiffe-x509-proof-001`.
 
 - Spec pin `a37a767` (RFC-AITP-0005 §10.5, issuer as resource server). The conformance adapter has a new op, `verify_tct_as_issuer`. The issuer verifies a TCT it issued under its own key, with `aud` == `sub`. It takes the presenter AID only from a `pop_response` that answers an outstanding challenge for the token's `jti`, requires the envelope sender to be `sub`, and checks revocation last. Core fixtures `tct-026` to `tct-029` pass.
 

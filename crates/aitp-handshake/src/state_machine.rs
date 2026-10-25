@@ -82,6 +82,11 @@ pub struct PeerConfig<'a> {
     /// MUTUAL_COMMIT_ACK is checked for revocation (RFC-AITP-0008).
     /// Required by [`PeerConfig::new`]; see [`RevocationSource`].
     pub revocation: RevocationSource<'a>,
+    /// Local SPIFFE bundle store (RFC-AITP-0002 §6.2). `None` is an empty
+    /// store: a `spiffe` peer fails with `IDENTITY_FAILED` even when
+    /// `manifest.accepted_identity_types` lists `spiffe`.
+    #[cfg(feature = "experimental-spiffe-identity")]
+    pub spiffe_bundles: Option<&'a crate::identity_spiffe::SpiffeBundleStore>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
 }
@@ -130,6 +135,8 @@ impl<'a> PeerConfig<'a> {
             pinned_key_store,
             grant_policy: None,
             revocation,
+            #[cfg(feature = "experimental-spiffe-identity")]
+            spiffe_bundles: None,
             now,
         }
     }
@@ -137,6 +144,17 @@ impl<'a> PeerConfig<'a> {
     /// Set the accepted OIDC issuers (default: none).
     pub fn with_trust_anchors(mut self, trust_anchors: &'a [aitp_core::RawUrl]) -> Self {
         self.trust_anchors = trust_anchors;
+        self
+    }
+
+    /// Set the SPIFFE bundle store (default: none). See
+    /// [`PeerConfig::spiffe_bundles`].
+    #[cfg(feature = "experimental-spiffe-identity")]
+    pub fn with_spiffe_bundles(
+        mut self,
+        bundles: &'a crate::identity_spiffe::SpiffeBundleStore,
+    ) -> Self {
+        self.spiffe_bundles = Some(bundles);
         self
     }
 
@@ -446,6 +464,8 @@ impl PresentedIdentity {
                     proof,
                     public_key: Some(base64url::encode(&pk_bytes)),
                     extensions: None,
+                    svid_type: None,
+                    x5c: None,
                 })
             }
             Self::Oidc {
@@ -469,6 +489,8 @@ impl PresentedIdentity {
                     proof: proof_jwt.clone(),
                     public_key: None,
                     extensions: None,
+                    svid_type: None,
+                    x5c: None,
                 })
             }
             Self::OidcMinter {
@@ -486,6 +508,8 @@ impl PresentedIdentity {
                     proof,
                     public_key: None,
                     extensions: None,
+                    svid_type: None,
+                    x5c: None,
                 })
             }
         }
@@ -531,6 +555,7 @@ pub fn bootstrap_verify_peer(
     let expected_kind = match payload_manifest.identity_hint.kind {
         aitp_manifest::IdentityHintKind::Oidc => IdentityKind::Oidc,
         aitp_manifest::IdentityHintKind::PinnedKey => IdentityKind::PinnedKey,
+        aitp_manifest::IdentityHintKind::Spiffe => IdentityKind::Spiffe,
         // `IdentityHintKind` is `#[non_exhaustive]`; if a future
         // variant lands without a matching `IdentityKind` mapping,
         // fail closed so we never silently accept an unrecognized
@@ -545,6 +570,15 @@ pub fn bootstrap_verify_peer(
         return Err(HandshakeError::Identity(
             "identity.type does not match manifest.identity_hint.type".into(),
         ));
+    }
+    // RFC-AITP-0002 §6.1: `svid_type` and `x5c` belong to `spiffe` only.
+    if payload_identity.kind != IdentityKind::Spiffe
+        && (payload_identity.svid_type.is_some() || payload_identity.x5c.is_some())
+    {
+        return Err(HandshakeError::Identity(format!(
+            "{} descriptor must not carry svid_type or x5c",
+            payload_identity.kind.as_str()
+        )));
     }
     match payload_identity.kind {
         IdentityKind::Oidc => {
@@ -582,6 +616,42 @@ pub fn bootstrap_verify_peer(
                 cfg.pinned_key_store,
             )?;
             return Ok(verified.key);
+        }
+        IdentityKind::Spiffe => {
+            // RFC-AITP-0002 §6.6 / RFC-AITP-0004 §5.1 step 8: a verifier
+            // that does not list `spiffe` in its own
+            // `accepted_identity_types` (absent means `["oidc"]`), or
+            // that is built without SPIFFE support, rejects the type.
+            let accepted = cfg
+                .manifest
+                .accepted_identity_types
+                .as_deref()
+                .is_some_and(|types| types.iter().any(|t| t == "spiffe"));
+            if !accepted || !cfg!(feature = "experimental-spiffe-identity") {
+                return Err(
+                    aitp_manifest::ManifestError::IncompatibleIdentityType("spiffe").into(),
+                );
+            }
+            #[cfg(feature = "experimental-spiffe-identity")]
+            {
+                use crate::identity_spiffe::{
+                    verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext,
+                };
+                let empty = SpiffeBundleStore::new();
+                verify_spiffe(
+                    payload_identity,
+                    &SpiffeVerifyContext {
+                        bundles: cfg.spiffe_bundles.unwrap_or(&empty),
+                        sender_aid: &payload_manifest.aid,
+                        receiver_aid: &cfg.manifest.aid,
+                        message_id: &envelope.message_id,
+                        timestamp: envelope.timestamp,
+                        pop_nonce: payload_pop_nonce,
+                        iat_tolerance_secs: 300,
+                        now_unix_secs: cfg.now.0,
+                    },
+                )?;
+            }
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)

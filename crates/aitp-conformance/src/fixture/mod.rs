@@ -2,6 +2,7 @@
 
 mod loader;
 mod placeholder;
+mod spiffe;
 mod types;
 
 pub use loader::FixtureLoader;

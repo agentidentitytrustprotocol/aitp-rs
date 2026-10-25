@@ -202,6 +202,8 @@ mod tests {
             proof: "A".repeat(86),
             public_key: Some("A".repeat(43)),
             extensions: None,
+            svid_type: None,
+            x5c: None,
         }
     }
 

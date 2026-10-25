@@ -30,6 +30,13 @@ sha2 = { workspace = true }
 # it is explicit and pinned by the workspace.
 ring = { workspace = true }
 metrics = { workspace = true, optional = true }
+# SPIFFE identity (`experimental-spiffe-identity`): X509-SVID path
+# validation (webpki, ring backend), leaf inspection (x509-parser) and
+# standard-base64 `x5c` decoding.
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["std", "ring"], optional = true }
+rustls-pki-types = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
+base64ct = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -42,6 +49,15 @@ pinned-admission = []
 # facade (zero-cost with no recorder installed). Only emits anything
 # with `pinned-admission` on. `aitp-transport-http/metrics` enables it.
 metrics = ["dep:metrics", "aitp-core/metrics"]
+# SPIFFE identity verification (RFC-AITP-0002 §6). Experimental:
+# `spiffe` is at registry status Proposed and RFC-0002 OQ-7 is open, so
+# its API and behaviour can change in any release.
+experimental-spiffe-identity = [
+    "dep:webpki",
+    "dep:rustls-pki-types",
+    "dep:x509-parser",
+    "dep:base64ct",
+]
 
 [dev-dependencies]
 # `aitp_crypto::testing::MockKmsSigner` for the KMS-backend tests.
@@ -55,4 +71,4 @@ tokio = { workspace = true }
 metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
 
 [package.metadata.docs.rs]
-features = ["pinned-admission"]
+features = ["pinned-admission", "experimental-spiffe-identity"]

@@ -106,6 +106,8 @@ fn descriptor(proof: String) -> IdentityDescriptor {
         proof,
         public_key: None,
         extensions: None,
+        svid_type: None,
+        x5c: None,
     }
 }
 

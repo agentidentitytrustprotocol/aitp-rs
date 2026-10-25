@@ -138,6 +138,8 @@ pub mod manifest {
 pub mod handshake {
     #[cfg(feature = "pinned-admission")]
     pub use aitp_handshake::admission;
+    #[cfg(feature = "experimental-spiffe-identity")]
+    pub use aitp_handshake::identity_spiffe;
     pub use aitp_handshake::state_machine::GrantPolicyFn;
     pub use aitp_handshake::{
         sign_pinned_key_proof, verify_jws_signature, verify_oidc, verify_pinned_key,
@@ -147,7 +149,7 @@ pub mod handshake {
         MutualHelloAckPayload, MutualHelloPayload, NoPinnedKeys, OidcMintJwtFn, OidcVerifyContext,
         PeerConfig, PinnedKeyEntry, PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext,
         PresentedIdentity, ResolveError, Responder, RevocationCheckFn, RevocationSource, SessionId,
-        StaticPinnedKeyStore, SubjectBinding, VerifiedPinnedKey,
+        StaticPinnedKeyStore, SubjectBinding, SvidType, VerifiedPinnedKey,
     };
 }
 

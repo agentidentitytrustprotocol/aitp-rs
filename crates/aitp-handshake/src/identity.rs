@@ -4,10 +4,12 @@
 //!
 //! ```json
 //! {
-//!   "type":       "oidc" | "pinned_key",
+//!   "type":       "oidc" | "pinned_key" | "spiffe",
 //!   "issuer":     "...",      // required when type=oidc
 //!   "subject":    "...",
-//!   "proof":      "...",      // JWT for oidc; base64url sig for pinned_key
+//!   "svid_type":  "...",      // required when type=spiffe
+//!   "proof":      "...",      // JWT (oidc, jwt-svid) or base64url sig
+//!   "x5c":        ["..."],    // required when svid_type=x509-svid
 //!   "public_key": "...",      // required when type=pinned_key
 //!   "extensions": { ... }     // optional (RFC-AITP-0002 §1)
 //! }
@@ -27,17 +29,26 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct IdentityDescriptor {
-    /// Identity mechanism: `oidc` or `pinned_key`.
+    /// Identity mechanism: `oidc`, `pinned_key` or `spiffe`.
     #[serde(rename = "type")]
     pub kind: IdentityKind,
     /// OIDC issuer URI (required when type=oidc). [`RawUrl`] so the
     /// canonical-form bytes match what the issuer signed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub issuer: Option<RawUrl>,
-    /// Agent subject identifier.
+    /// Agent subject identifier (a SPIFFE ID when type=spiffe).
     pub subject: String,
-    /// JWT (oidc) or base64url signature (pinned_key).
+    /// SVID form (required when type=spiffe, RFC-AITP-0002 §6.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub svid_type: Option<SvidType>,
+    /// JWT (oidc, jwt-svid) or base64url signature (pinned_key,
+    /// x509-svid).
     pub proof: String,
+    /// X509-SVID certificate chain, leaf first, each entry a DER
+    /// certificate in standard padded base64 (required when
+    /// `svid_type` is `x509-svid`, RFC-AITP-0002 §6.1).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x5c: Option<Vec<String>>,
     /// Pinned 32-byte raw public key, base64url-unpadded (required when
     /// type=pinned_key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -63,6 +74,35 @@ pub enum IdentityKind {
     Oidc,
     /// Pinned Ed25519 public key.
     PinnedKey,
+    /// SPIFFE workload identity (RFC-AITP-0002 §6, registry status
+    /// Proposed). Verified only with the `experimental-spiffe-identity`
+    /// feature.
+    Spiffe,
+}
+
+impl IdentityKind {
+    /// The RFC-AITP-0002 wire name (`oidc`, `pinned_key`, `spiffe`), as
+    /// listed in a Manifest's `accepted_identity_types`.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Oidc => "oidc",
+            Self::PinnedKey => "pinned_key",
+            Self::Spiffe => "spiffe",
+        }
+    }
+}
+
+/// SPIFFE SVID form of a `spiffe` descriptor (RFC-AITP-0002 §6.1).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum SvidType {
+    /// `proof` is a JWT-SVID (RFC-AITP-0002 §6.3).
+    #[serde(rename = "jwt-svid")]
+    JwtSvid,
+    /// `proof` is a signature by the X509-SVID key and `x5c` carries
+    /// the chain (RFC-AITP-0002 §6.4).
+    #[serde(rename = "x509-svid")]
+    X509Svid,
 }
 
 #[cfg(test)]
@@ -96,6 +136,27 @@ mod tests {
         assert_eq!(i.kind, IdentityKind::PinnedKey);
         assert!(i.public_key.is_some());
         assert!(i.issuer.is_none());
+    }
+
+    #[test]
+    fn round_trip_spiffe_x509() {
+        let v = json!({
+            "type": "spiffe",
+            "subject": "spiffe://prod.example.com/ns/payments/sa/agent",
+            "svid_type": "x509-svid",
+            "proof": "sig",
+            "x5c": ["MIIB"]
+        });
+        let i: IdentityDescriptor = serde_json::from_value(v.clone()).unwrap();
+        assert_eq!(i.kind, IdentityKind::Spiffe);
+        assert_eq!(i.svid_type, Some(SvidType::X509Svid));
+        assert_eq!(serde_json::to_value(&i).unwrap(), v);
+    }
+
+    #[test]
+    fn rejects_unknown_svid_type() {
+        let v = json!({"type": "spiffe", "subject": "x", "svid_type": "cwt-svid", "proof": "y"});
+        assert!(serde_json::from_value::<IdentityDescriptor>(v).is_err());
     }
 
     #[test]

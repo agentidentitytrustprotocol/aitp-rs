@@ -163,6 +163,14 @@ impl RunnerContext {
         // (the envelope `timestamp` may be `__NOW__`) and before JCS
         // signatures (the proof sits inside the signed envelope).
         self.substitute_pinned_proofs(value);
+        // RFC-AITP-0002 §6 SPIFFE authorities, SVIDs and X509-SVID
+        // proofs: after scalars, before JCS signatures, like the
+        // pinned-key proofs.
+        let self_aid = value
+            .get("self_aid")
+            .and_then(|v| v.as_str())
+            .map(String::from);
+        super::spiffe::substitute(value, self_aid.as_deref(), self.now);
         self.substitute_signatures(value);
     }
 
@@ -640,6 +648,7 @@ impl RunnerContext {
             || s == "__ANY_CHAIN_HASH__"
             || JwtVariant::from_placeholder(s).is_some()
             || is_pinned_proof_placeholder(s)
+            || super::spiffe::is_spiffe_placeholder(s)
         {
             return None;
         }
@@ -762,8 +771,28 @@ fn pinned_proof_input(
     timestamp: i64,
     pop_nonce: &str,
 ) -> Option<Vec<u8>> {
+    handshake_proof_input(
+        b"aitp-pinned-key-v1\0",
+        sender,
+        receiver,
+        message_id,
+        timestamp,
+        pop_nonce,
+    )
+}
+
+/// The §3.1 field encoding behind `domain`: shared by the pinned-key
+/// input and the §6.4.1 X509-SVID input.
+pub(super) fn handshake_proof_input(
+    domain: &[u8],
+    sender: &str,
+    receiver: &str,
+    message_id: &str,
+    timestamp: i64,
+    pop_nonce: &str,
+) -> Option<Vec<u8>> {
     let nonce = base64url::decode_strict(pop_nonce).ok()?;
-    let mut out = b"aitp-pinned-key-v1\0".to_vec();
+    let mut out = domain.to_vec();
     for field in [sender, receiver, message_id, &timestamp.to_string()] {
         out.extend_from_slice(field.as_bytes());
         out.push(0);

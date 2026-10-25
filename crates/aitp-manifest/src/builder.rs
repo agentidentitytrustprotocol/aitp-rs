@@ -409,6 +409,19 @@ fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
                 ));
             }
         }
+        IdentityHintKind::Spiffe => {
+            // RFC-AITP-0002 §6.6: `type` and `subject` only.
+            if hint.issuer.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `issuer`",
+                ));
+            }
+            if hint.public_key.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `public_key`",
+                ));
+            }
+        }
     }
     Ok(())
 }

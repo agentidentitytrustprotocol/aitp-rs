@@ -114,6 +114,19 @@ pub fn verify_manifest(
                 ));
             }
         }
+        IdentityHintKind::Spiffe => {
+            // RFC-AITP-0002 §6.6: `type` and `subject` only.
+            if manifest.identity_hint.issuer.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `issuer`",
+                ));
+            }
+            if manifest.identity_hint.public_key.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `public_key`",
+                ));
+            }
+        }
     }
 
     Ok(())

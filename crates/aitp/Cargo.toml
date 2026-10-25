@@ -31,6 +31,9 @@ experimental-session-bundle = [
 # One-way pinned-key admission (RFC-AITP-0002 §3.4, OPTIONAL profile).
 # Enables `aitp::handshake::admission`.
 pinned-admission = ["aitp-handshake/pinned-admission"]
+# SPIFFE identity (RFC-AITP-0002 §6; `spiffe` is registry status
+# Proposed). Experimental: enables `aitp::handshake::identity_spiffe`.
+experimental-spiffe-identity = ["aitp-handshake/experimental-spiffe-identity"]
 all = ["http-client", "http-server"]
 
 [dependencies]

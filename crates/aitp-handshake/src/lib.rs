@@ -17,17 +17,24 @@ pub mod error;
 pub mod identity;
 pub mod identity_oidc;
 pub mod identity_pinned;
+#[cfg(feature = "experimental-spiffe-identity")]
+pub mod identity_spiffe;
 pub mod jwk;
 pub mod payloads;
 pub mod state_machine;
 
 pub use error::HandshakeError;
-pub use identity::{IdentityDescriptor, IdentityKind};
+pub use identity::{IdentityDescriptor, IdentityKind, SvidType};
 pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyEntry,
     PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, StaticPinnedKeyStore,
     SubjectBinding, VerifiedPinnedKey, POP_NONCE_LEN,
+};
+#[cfg(feature = "experimental-spiffe-identity")]
+pub use identity_spiffe::{
+    spiffe_x509_proof_input, verify_spiffe, SpiffeBundle, SpiffeBundleStore, SpiffeConfigError,
+    SpiffeVerifyContext, SPIFFE_X509_PROOF_DOMAIN,
 };
 pub use jwk::{
     verify_jws_signature, JwkKeyMaterial, JwkParseError, JwkPublicKey, JwsAlgorithm, JwsVerifyError,

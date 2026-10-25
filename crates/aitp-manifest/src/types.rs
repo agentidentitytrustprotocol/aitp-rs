@@ -169,6 +169,9 @@ pub enum IdentityHintKind {
     Oidc,
     /// Pinned Ed25519 public key.
     PinnedKey,
+    /// SPIFFE workload identity (RFC-AITP-0002 §6, registry status
+    /// Proposed). Carries only `subject`, the SPIFFE ID.
+    Spiffe,
 }
 
 /// Manifest PoP block (RFC-AITP-0003 §3.1).

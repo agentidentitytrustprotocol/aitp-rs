@@ -476,12 +476,13 @@ summary shows the report's `totals` and `gates`, and the
 [report](#conformance-report). Other pages link here instead of quoting
 numbers.
 
-| Tier | Strict run (no `--feature`) | With all four features |
+| Tier | Strict run (no `--feature`) | With all five features |
 |---|---|---|
 | `core`, `required_for_core: true` (the `aitp/0.3` core tier) | all PASS | all PASS except `del-007` (SKIP) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | SKIP | PASS |
+| `draft`: SPIFFE identity (`experimental-spiffe-identity`) | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | SKIP | PASS |
 
@@ -527,6 +528,7 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
   --feature experimental-multihop-delegation \
   --feature experimental-session-bundle \
+  --feature experimental-spiffe-identity \
   --feature aitp-pinned-admission \
   --feature aitp-self-attestation
 ```
@@ -547,14 +549,14 @@ cargo build -p aitp-rs-adapter -p aitp-conformance
 A feature-negation skip does not count, because the run opted into a
 feature that contradicts the fixture's assertion (see the multi-hop note
 above). The runner lists each such exemption on stderr, so it is never
-silent. With all four features at the pin that is `del-007` under the
+silent. With all five features at the pin that is `del-007` under the
 default profile, and `del-004` under `--profile v0.1`. There is no other
 allowlist: every other required fixture must pass.
 
 The gate is `check_gate` in `crates/aitp-conformance/src/runner/gate.rs`,
 called from `run()` in `crates/aitp-conformance/src/main.rs`. The
 `conformance` CI job runs the corpus under the default profile strict and
-with all four features, then writes the [report](#conformance-report) from
+with all five features, then writes the [report](#conformance-report) from
 a run with the two extensions.
 
 ### Fixtures by area
@@ -591,6 +593,7 @@ is set, as explained above.
 | The verifier's own deny list fails verification: RFC-AITP-0006 §4 step 7 | `del-008` |
 | Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-008` |
 | Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-006` (`del-mh-006`: a discarded hop snapshot under `fail_closed`, §6) |
+| SPIFFE identity (draft, `experimental-spiffe-identity`): RFC-AITP-0002 §6 | `id-024` (JWT-SVID), `id-025` (X509-SVID); rejected: `id-026` (no bundle for the subject's trust domain), `id-027` (nonce), `id-028` (expired), `id-029` (`aud`), `id-030` (two URI SANs) |
 
 The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md).
 

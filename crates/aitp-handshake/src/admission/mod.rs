@@ -726,6 +726,8 @@ impl Draft {
                 proof: proof.into_string(),
                 public_key: Some(base64url::encode(&self.sender.pubkey_compressed_bytes())),
                 extensions: None,
+                svid_type: None,
+                x5c: None,
             },
             pop_nonce: self.pop_nonce.clone(),
         })
