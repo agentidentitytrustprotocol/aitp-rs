@@ -1283,14 +1283,36 @@ fn verify_commit_ack_stateless(
     Ok(verified)
 }
 
-/// The one OIDC issuer the conformance corpus mints real JWTs for
-/// (issue #144 Phase 5). Duplicated from
-/// `crates/aitp-conformance/src/fixture/placeholder.rs`'s
-/// `OIDC_TEST_ISSUER_SEED` — no shared module between the two crates
-/// for the default subprocess build (same duplication pattern as
-/// `kat_seed_for_aid` above). Keep the two seeds in sync.
-const OIDC_TEST_ISSUER: &str = "https://auth.openai.com";
-const OIDC_TEST_ISSUER_SEED: [u8; 32] = [0x4Fu8; 32];
+/// The spec's OIDC test-issuer keys (`known-answer/oidc-test-issuers.json`),
+/// vendored at the pinned spec commit. The runner (`aitp-conformance`)
+/// signs the corpus's JWTs with keys from the same file.
+const OIDC_TEST_ISSUERS: &str =
+    include_str!("../../../tests/schemas/known-answer/oidc-test-issuers.json");
+
+/// The trusted test issuer (kat-oidc-issuer-001, `role: "trusted"`):
+/// its issuer URL and Ed25519 seed. The untrusted vector is never read.
+fn oidc_test_issuer() -> (String, [u8; 32]) {
+    let doc: serde_json::Value =
+        serde_json::from_str(OIDC_TEST_ISSUERS).expect("oidc-test-issuers.json parses");
+    let v = doc["vectors"]
+        .as_array()
+        .and_then(|v| v.iter().find(|v| v["id"] == "kat-oidc-issuer-001"))
+        .expect("oidc-test-issuers.json has kat-oidc-issuer-001");
+    assert_eq!(
+        v["role"], "trusted",
+        "kat-oidc-issuer-001 must be the trusted issuer"
+    );
+    let issuer = v["issuer"]
+        .as_str()
+        .expect("kat-oidc-issuer-001 has an issuer")
+        .to_owned();
+    let seed = v["seed_hex"]
+        .as_str()
+        .and_then(|h| hex::decode(h).ok())
+        .and_then(|b| b.try_into().ok())
+        .expect("kat-oidc-issuer-001: seed_hex is 32 bytes of hex");
+    (issuer, seed)
+}
 
 /// Resolves the single OIDC test issuer's JWK for
 /// `verify_handshake_payload_op`; every other issuer stays untrusted
@@ -1302,14 +1324,15 @@ impl JwksResolver for OidcTestIssuerResolver {
     fn resolve(&self, issuer: &url::Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         // Compare parsed `Url`s, not raw strings: `Url::parse` adds a
         // trailing slash to a bare-domain URL, so a string compare
-        // against `OIDC_TEST_ISSUER` would silently never match.
-        let Ok(test_issuer) = url::Url::parse(OIDC_TEST_ISSUER) else {
+        // against the issuer string would silently never match.
+        let (test_issuer, seed) = oidc_test_issuer();
+        let Ok(test_issuer) = url::Url::parse(&test_issuer) else {
             return Ok(vec![]);
         };
         if issuer != &test_issuer {
             return Ok(vec![]);
         }
-        let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        let key = AitpSigningKey::from_seed(&seed);
         let Some(x) = key.verifying_key().try_to_ed25519_bytes() else {
             return Ok(vec![]);
         };
@@ -5453,12 +5476,12 @@ mod oidc_test_issuer_tests {
     //! Issue #144 Phase 5, acceptance criterion 3: `OidcTestIssuerResolver`
     //! (the real resolver `verify_handshake_payload_op` now uses in place
     //! of `NoOpResolver`) must actually resolve a key that makes
-    //! `verify_oidc` accept a JWT from `OIDC_TEST_ISSUER` — proven here at
+    //! `verify_oidc` accept a JWT from the test issuer — proven here at
     //! the `verify_oidc` layer directly, independent of the full
     //! MUTUAL_HELLO envelope/fixture machinery
     //! (`crates/aitp-conformance/src/fixture/placeholder.rs`'s
-    //! `mint_oidc_jwt` mints the same shape via the duplicated
-    //! `OIDC_TEST_ISSUER_SEED`, exercised end-to-end by the `id-009`
+    //! `mint_oidc_jwt` mints the same shape with the same
+    //! `oidc-test-issuers.json` key, exercised end-to-end by the `id-009`
     //! conformance fixture instead).
     use super::*;
     use aitp_handshake::{verify_oidc, IdentityDescriptor, IdentityKind, OidcVerifyContext};
@@ -5471,10 +5494,11 @@ mod oidc_test_issuer_tests {
     /// function was: header/payload/sig, no `kid` (the resolver returns
     /// exactly one candidate key).
     fn mint_test_issuer_jwt(sub: &str, aud: &Aid, nonce: &str, cnf_jkt: &str, now: i64) -> String {
-        let key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        let (issuer, seed) = oidc_test_issuer();
+        let key = AitpSigningKey::from_seed(&seed);
         let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
         let claims = json!({
-            "iss": OIDC_TEST_ISSUER,
+            "iss": issuer,
             "sub": sub,
             "aud": aud.as_str(),
             "iat": now,
@@ -5487,6 +5511,43 @@ mod oidc_test_issuer_tests {
         let signing_input = format!("{header_b64}.{payload_b64}");
         let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
         format!("{signing_input}.{sig}")
+    }
+
+    /// The resolver trusts exactly kat-oidc-issuer-001's published key,
+    /// for its issuer only, and never kat-oidc-issuer-002-unknown's.
+    #[test]
+    fn resolver_returns_only_the_trusted_kat_key() {
+        let doc: serde_json::Value = serde_json::from_str(OIDC_TEST_ISSUERS).unwrap();
+        let vector = |id: &str| {
+            doc["vectors"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .find(|v| v["id"] == id)
+                .unwrap()
+                .clone()
+        };
+        let pubkey = |v: &serde_json::Value| {
+            base64url::decode_strict(v["pubkey_b64url"].as_str().unwrap()).unwrap()
+        };
+        let trusted = vector("kat-oidc-issuer-001");
+        let untrusted = vector("kat-oidc-issuer-002-unknown");
+
+        let issuer: url::Url = trusted["issuer"].as_str().unwrap().parse().unwrap();
+        let keys = OidcTestIssuerResolver.resolve(&issuer).unwrap();
+        assert_eq!(keys.len(), 1);
+        let JwkKeyMaterial::Ed25519 { x } = &keys[0].key else {
+            panic!("not Ed25519")
+        };
+        assert_eq!(
+            x.to_vec(),
+            pubkey(&trusted),
+            "resolved key is not the published one"
+        );
+        assert_ne!(x.to_vec(), pubkey(&untrusted));
+
+        let other: url::Url = "https://idp.example.com".parse().unwrap();
+        assert!(OidcTestIssuerResolver.resolve(&other).unwrap().is_empty());
     }
 
     #[test]
@@ -5505,7 +5566,7 @@ mod oidc_test_issuer_tests {
 
         let descriptor = IdentityDescriptor {
             kind: IdentityKind::Oidc,
-            issuer: Some(OIDC_TEST_ISSUER.parse().unwrap()),
+            issuer: Some(oidc_test_issuer().0.parse().unwrap()),
             subject: "agent-under-test".into(),
             proof: jwt,
             public_key: None,
@@ -5513,7 +5574,7 @@ mod oidc_test_issuer_tests {
             svid_type: None,
             x5c: None,
         };
-        let anchors: Vec<aitp_core::RawUrl> = vec![OIDC_TEST_ISSUER.parse().unwrap()];
+        let anchors: Vec<aitp_core::RawUrl> = vec![oidc_test_issuer().0.parse().unwrap()];
         let resolver = OidcTestIssuerResolver;
         let ctx = OidcVerifyContext {
             expected_audience: audience_key.aid(),
