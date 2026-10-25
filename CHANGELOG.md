@@ -7,6 +7,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### Added
+
+- `aitp-cli` is published to crates.io (`cargo install aitp-cli`; the binary is `aitp`) and versioned in lockstep with the library crates. Each `aitp-cli-v*` GitHub Release carries prebuilt binaries for Linux x86_64 and arm64, macOS arm64 and x86_64, and Windows x86_64, each with a `.sha256`. CI installs the crate in a clean `rust:1.90-slim` container and runs `aitp --version`.
+- `aitp handshake <url> (--key <file> | --ephemeral) [--grant <cap>]... [--offer <cap>]... [--peer-aid <aid>]` runs the Mutual Handshake as initiator over HTTP and prints the verified claims of the TCT the peer issues, as JSON on stdout. Without `--peer-aid` the peer's Manifest AID is trusted on first use, with a note on stderr. Revocation is `fail_closed` unless `--revocation-fail-open` is given. A failure exits 1 and starts its stderr line with the AITP error code when it has one, e.g. `aitp: error: IDENTITY_FAILED: …`. A peer's `IDENTITY_FAILED` against an `--ephemeral` key adds a hint to enrol a persistent key; a `POLICY_VIOLATION` adds a hint about `--grant` or `--offer`.
+- `aitp manifest fetch <url>` fetches and verifies a peer's Manifest and prints the envelope, which pipes into `aitp manifest verify`.
+- Both run behind the CLI's new `http-client` feature (on by default): rustls with `webpki-roots`, and `HTTPS_PROXY` / `NO_PROXY` honoured. `--no-default-features` builds the offline commands only. See `docs/cli.md`.
+
 ## [0.22.0] — 2026-10-25
 
 ### BREAKING

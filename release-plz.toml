@@ -3,7 +3,9 @@
 # These crates are part of the Cargo workspace but must NOT be published
 # to crates.io — they mirror the CI `PUBLISH_EXCLUDE_CRATES` list in
 # .github/workflows/ci.yml. The conformance runner + adapter are internal
-# test harnesses and the mint-* tools and the example are binaries. Keep
+# test harnesses and the mint-* tools and the example are binaries.
+# (`aitp-cli` is a binary too, but it IS published, so `cargo install
+# aitp-cli` works; it rides the lockstep `version_group` below.) Keep
 # this list and ci.yml's in sync.
 #
 # NOTE: aitp-session-bundle is a draft RFC surface but it IS published —
@@ -95,8 +97,7 @@ publish = false
 
 [[package]]
 name = "aitp-cli"
-release = false
-publish = false
+version_group = "aitp"
 
 [[package]]
 name = "aitp-rs-adapter"

@@ -33,7 +33,7 @@ the spec's
 | Track HTTP-transport hardening | [`transport-hardening.md`](transport-hardening.md) |
 | Deploy to production / run multi-node | [`deployment.md`](deployment.md) |
 | Handle signing keys / plan rotation | [`key-management.md`](key-management.md) |
-| Use the offline `aitp` CLI (keygen / tct / manifest) | [`../crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) |
+| Use the `aitp` CLI (install, keygen, verify, handshake with a peer) | [`cli.md`](cli.md) |
 | Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
 | Upgrade from 0.18 to 0.19 | [`upgrading-0.19.md`](upgrading-0.19.md) |

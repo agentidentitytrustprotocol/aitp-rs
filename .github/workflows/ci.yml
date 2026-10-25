@@ -20,7 +20,7 @@ env:
   # subprocess-driven entry point isn't part of the published
   # surface, but it IS in the coverage scope because its
   # integration tests exercise other crates' public APIs.
-  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-cli,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
+  PUBLISH_EXCLUDE_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures"
   COVERAGE_EXCLUDE_CRATES: "mint-signed-examples mint-conformance-fixtures aitp-example-two-agents aitp-cli"
 
 permissions:
@@ -200,6 +200,20 @@ jobs:
   # workspace version and every inter-crate path pin must match it, so a
   # release can never ship a subset of crates at a divergent version. Pure
   # shell — no toolchain needed.
+  cli-install:
+    # RS4.1 acceptance: `cargo install aitp-cli && aitp --version` on a
+    # clean container. Installs from the checkout (the crates.io install
+    # of each release is checked by cli-release.yml), with the MSRV
+    # toolchain and the default features, i.e. the HTTP stack.
+    name: cargo install aitp-cli (clean container)
+    runs-on: ubuntu-latest
+    container: rust:1.90-slim
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - run: cargo install --locked --path crates/aitp-cli
+      - run: aitp --version
+      - run: aitp handshake --help
+
   versions:
     name: lockstep versions
     runs-on: ubuntu-latest
@@ -234,7 +248,9 @@ jobs:
           # with no crates.io baseline yet, so they stay out of
           # PUBLISH_EXCLUDE_CRATES but are appended inline here; drop each
           # one once its first version is released and can be compared to.
-          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope,aitp-session-bundle
+          # `aitp-cli` is published but binary-only: there is no library
+          # API for semver-checks to compare, so it stays excluded.
+          exclude: ${{ env.PUBLISH_EXCLUDE_CRATES }},aitp-envelope,aitp-session-bundle,aitp-cli
 
   public-api:
     name: aitp public API snapshot
