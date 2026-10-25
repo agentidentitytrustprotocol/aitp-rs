@@ -7,7 +7,7 @@ use aitp_core::Aid;
 use aitp_core::Timestamp;
 use aitp_crypto::jws::decode_payload_unverified;
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
+use aitp_tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 
 use crate::helpers::{binding_revocation, runtime_error, tct_revocation_code, BindingRevocation};
@@ -39,25 +39,70 @@ pub struct PyTctIdentity {
 /// (the AID encodes the pubkey), so a confused/forged `iss` cannot steer
 /// key resolution — a token whose signature does not match the key its
 /// own `iss` AID encodes is rejected.
-fn decode_tct_claims_unverified(tct_token: &str) -> PyResult<TctClaims> {
+pub(crate) fn decode_tct_claims_unverified(tct_token: &str) -> PyResult<TctClaims> {
     let payload = decode_payload_unverified(tct_token)
         .map_err(|e| PyValueError::new_err(format!("malformed TCT compact JWS: {e}")))?;
     serde_json::from_slice::<TctClaims>(&payload)
         .map_err(|e| PyValueError::new_err(format!("invalid TCT claims: {e}")))
 }
 
+/// A caller's `pop=(challenge_json, response_json)` argument, parsed.
+pub type PopArg<'a> = Option<(&'a str, &'a str)>;
+
+/// Resolve the audience for a verify call. With `pop`, the audience is
+/// the TCT's `sub`: the PoP response must then prove possession of that
+/// key, so the audience is never taken on the token's word alone.
+/// `pop` and `expected_audience` are mutually exclusive.
+fn pop_audience(
+    tct_token: &str,
+    expected_audience: Option<&str>,
+    pop: PopArg<'_>,
+) -> PyResult<Option<(String, PopChallenge, PopResponse)>> {
+    let Some((challenge_json, response_json)) = pop else {
+        return Ok(None);
+    };
+    if expected_audience.is_some() {
+        return Err(PyValueError::new_err(
+            "pass either expected_audience or pop, not both: pop pins the audience to the proven holder AID",
+        ));
+    }
+    let challenge = crate::pop::parse_challenge(challenge_json)?;
+    let response = crate::pop::parse_response(response_json)?;
+    let sub = decode_tct_claims_unverified(tct_token)?.sub.to_string();
+    Ok(Some((sub, challenge, response)))
+}
+
+/// After the TCT bytes passed signature verification, check the PoP
+/// response against its (now trusted) claims.
+fn finish_pop(tct_token: &str, pop: Option<(String, PopChallenge, PopResponse)>) -> PyResult<()> {
+    if let Some((_, challenge, response)) = pop {
+        let claims = decode_tct_claims_unverified(tct_token)?;
+        crate::pop::verify_against(&challenge, &response, &claims)?;
+    }
+    Ok(())
+}
+
 /// Verify `tct_token` (a compact-JWS string), requiring `required_grant`
 /// to be present in its grants.
 ///
-/// The audience check is controlled by `expected_audience`:
+/// `pop=(challenge_json, response_json)` is the **presented-TCT** path: a
+/// downstream PoP exchange (RFC-AITP-0005 §6) proves the presenter holds
+/// the key `sub` encodes, and the audience is pinned to that proven AID.
+/// The TCT checks run first, then every §6.2 step; a PoP failure raises
+/// with `code` `POP_CHALLENGE_INVALID` or `POP_RESPONSE_INVALID`. It is
+/// mutually exclusive with `expected_audience`.
+///
+/// Otherwise the audience check is controlled by `expected_audience`:
 /// - `None` (default): use `our_key.aid()` — the **holder-receipt** model
 ///   from RFC-AITP-0005 §9, where the holder verifies a TCT it received as
 ///   its own receipt.
 /// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used
 ///   by resource servers verifying a TCT a peer presents in
-///   `X-AITP-TCT`. The caller is responsible for asserting the
-///   presenter's AID (typically by reading the TCT's own `aud`
-///   claim, which in v0.2 must equal `sub`).
+///   `X-AITP-TCT`. The caller MUST take the presenter's AID from an
+///   authenticated source, never from the token: a downstream PoP
+///   response (RFC-AITP-0005 §6.1/§6.2) whose `pop_signature` verifies
+///   against the key `sub` encodes, or an equivalent channel binding.
+///   Passing the TCT's own `aud` back makes the audience check vacuous.
 ///
 /// The signature check is the security gate in either mode: the TCT is
 /// verified against the key its `iss` AID encodes.
@@ -76,15 +121,20 @@ pub fn py_verify_tct(
     expected_audience: Option<&str>,
     revoked_jtis: Option<&HashSet<String>>,
     revocation: Option<&str>,
+    pop: PopArg<'_>,
 ) -> PyResult<PyTctIdentity> {
     let revoked = parse_revoked(revoked_jtis, revocation)?;
-    verify_tct_parsed(
+    let pop = pop_audience(tct_token, expected_audience, pop)?;
+    let identity = verify_tct_parsed(
         our_key,
         tct_token,
         required_grant,
-        expected_audience,
+        pop.as_ref()
+            .map_or(expected_audience, |p| Some(p.0.as_str())),
         revoked,
-    )
+    )?;
+    finish_pop(tct_token, pop)?;
+    Ok(identity)
 }
 
 /// Parse a caller's revoked-`jti` set and `revocation` mode. Entries in
@@ -276,8 +326,38 @@ fn tct_token_key(tct_token: &str) -> [u8; 32] {
 ///
 /// `revoked_jtis` (F-1) is consulted on **every** call — including cache
 /// hits — so a freshly-revoked TCT stops verifying immediately even if its
-/// signature was cached.
+/// signature was cached. `pop` behaves as in [`py_verify_tct`] and is
+/// checked on every call: a challenge is single use, so it is never cached.
+#[allow(clippy::too_many_arguments)]
 pub fn py_verify_tct_cached(
+    our_key: &AitpSigningKey,
+    tct_token: &str,
+    required_grant: &str,
+    store: &PyTctStore,
+    expected_audience: Option<&str>,
+    revoked_jtis: Option<&HashSet<String>>,
+    revocation: Option<&str>,
+    pop: PopArg<'_>,
+) -> PyResult<PyTctIdentity> {
+    let pop = pop_audience(tct_token, expected_audience, pop)?;
+    let expected_audience = pop
+        .as_ref()
+        .map_or(expected_audience, |p| Some(p.0.as_str()));
+    let identity = verify_tct_cached_inner(
+        our_key,
+        tct_token,
+        required_grant,
+        store,
+        expected_audience,
+        revoked_jtis,
+        revocation,
+    )?;
+    finish_pop(tct_token, pop)?;
+    Ok(identity)
+}
+
+/// [`py_verify_tct_cached`] without the PoP step.
+fn verify_tct_cached_inner(
     our_key: &AitpSigningKey,
     tct_token: &str,
     required_grant: &str,

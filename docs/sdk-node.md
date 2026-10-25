@@ -119,8 +119,12 @@ const ident = alice.verifyTct(tctJws, 'demo.echo', undefined, []);
 console.log(ident.peerAid === bob.aid, ident.grants);   // true [ 'demo.echo' ]
 
 // Presented-TCT model — a resource server checking a TCT a peer presented
-// (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid, []);
+// (e.g. in `X-AITP-TCT`). It challenges the presenter for proof of possession
+// (RFC-AITP-0005 §6); verifyTct then checks the TCT and the PoP response
+// together and pins the audience to the proven holder AID (the TCT's `sub`).
+const challenge = bob.newPopChallenge(tctJws);        // send to the presenter
+const response = alice.signPopResponse(challenge);    // the presenter's reply
+const presented = bob.verifyTct(tctJws, 'demo.echo', null, [], undefined, { challenge, response });
 
 // Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (`[]` when
 // nothing is revoked). A revoked jti and a missing list both throw with
@@ -163,10 +167,38 @@ agent.buildManifest({
 ```
 
 A revocation failure (a listed `jti`, or no list under `fail_closed`) throws
-an `Error` whose `code` is `'TCT_REVOKED'`. Every other failed verification
+an `Error` whose `code` is `'TCT_REVOKED'`. A PoP failure throws one whose
+`code` is `'POP_CHALLENGE_INVALID'` (a malformed or stale challenge) or
+`'POP_RESPONSE_INVALID'` (any other RFC-AITP-0005 §6.2 step). Every other failed verification
 throws an `Error` whose `code` is napi's generic `GenericFailure`; the Rust
 core's other TCT codes appear only in the message text, so do not branch on
 that text.
+
+#### Downstream proof of possession
+
+Verify a TCT a peer presents with `pop: { challenge, response }`, as in the
+presented-TCT example above. That is the only way the SDK checks that the
+presenter holds the key the TCT is bound to
+([RFC-AITP-0005 §6](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md#6-binding-proof-of-possession)).
+`pop` and `expectedAudience` are mutually exclusive. If you pass
+`expectedAudience` instead, the presenter's AID must come from an
+authenticated source, such as a verified PoP response or an equivalent
+channel binding (mTLS with a bound client certificate). Never take it from
+the token's own `aud`: that makes the audience check vacuous.
+
+- `AitpAgent.newPopChallenge(tctToken, ttlSecs?)` is the consumer side
+  (`ttlSecs` defaults to 60). It returns a `pop_challenge` payload
+  (`tct_jti`, a 128-bit CSPRNG `nonce`, `expires_at`).
+- `AitpAgent.signPopResponse(challengeJson)` is the holder side. It signs
+  `sha256` of the decoded nonce bytes and returns the `pop_response` payload.
+- `verifyPopResponse(challengeJson, responseJson, tctToken)` runs only the
+  §6.2 checks and returns the proven holder AID. It does not verify the TCT
+  itself.
+
+The JSON values are envelope payloads: wrap them with `signEnvelope` for the
+wire. Replay protection stays with the caller (RFC-AITP-0001 §5.5): the SDK
+keeps no record of issued challenges. Accept a response to each challenge at
+most once.
 
 #### Cached verification (`TctStore`)
 

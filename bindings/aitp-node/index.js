@@ -717,5 +717,6 @@ module.exports.verifyDelegation = nativeBinding.verifyDelegation
 module.exports.verifyDelegationMultihop = nativeBinding.verifyDelegationMultihop
 module.exports.verifyEnvelope = nativeBinding.verifyEnvelope
 module.exports.verifyManifestJson = nativeBinding.verifyManifestJson
+module.exports.verifyPopResponse = nativeBinding.verifyPopResponse
 module.exports.verifyRevocationList = nativeBinding.verifyRevocationList
 module.exports.verifySessionBundle = nativeBinding.verifySessionBundle

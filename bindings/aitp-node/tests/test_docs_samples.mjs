@@ -143,8 +143,12 @@ function tctVerification(ns) {
   console.log(ident.peerAid === bob.aid, ident.grants);   // true [ 'demo.echo' ]
 
   // Presented-TCT model — a resource server checking a TCT a peer presented
-  // (e.g. in `X-AITP-TCT`). The expected audience is the TCT's subject (aud == sub).
-  const presented = bob.verifyTct(tctJws, 'demo.echo', alice.aid, []);
+  // (e.g. in `X-AITP-TCT`). It challenges the presenter for proof of possession
+  // (RFC-AITP-0005 §6); verifyTct then checks the TCT and the PoP response
+  // together and pins the audience to the proven holder AID (the TCT's `sub`).
+  const challenge = bob.newPopChallenge(tctJws);        // send to the presenter
+  const response = alice.signPopResponse(challenge);    // the presenter's reply
+  const presented = bob.verifyTct(tctJws, 'demo.echo', null, [], undefined, { challenge, response });
 
   // Revocation is fail_closed: pass the issuer's revoked TCT `jti`s (`[]` when
   // nothing is revoked). A revoked jti and a missing list both throw with

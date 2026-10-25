@@ -8,7 +8,7 @@
 use aitp_core::{Aid, Timestamp};
 use aitp_crypto::jws::decode_payload_unverified;
 use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_tct, TctClaims, TctVerifyContext};
+use aitp_tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -18,6 +18,7 @@ use std::sync::Mutex;
 use uuid::Uuid;
 
 use crate::helpers::{coded_error, tct_revocation_code, BindingRevocation};
+use crate::pop::PopExchange;
 
 /// The verified peer identity carried by a TCT.
 #[napi(object)]
@@ -61,7 +62,7 @@ impl From<aitp_tct::IssuedTct> for JsIssuedTct {
 /// use it to learn the issuer AID (`iss`) so `verify_tct` can
 /// re-establish the verifying key; every field is then re-validated by
 /// `verify_tct` under that key.
-fn peek_tct_claims(token: &str) -> Result<TctClaims> {
+pub(crate) fn peek_tct_claims(token: &str) -> Result<TctClaims> {
     let payload = decode_payload_unverified(token)
         .map_err(|e| Error::from_reason(format!("invalid TCT (not a compact JWS): {e}")))?;
     serde_json::from_slice::<TctClaims>(&payload)
@@ -87,14 +88,56 @@ fn parse_revocation(
     crate::helpers::js_revocation(revoked, revocation)
 }
 
+/// A parsed `pop` argument: the proven-holder candidate (the TCT's `sub`)
+/// plus the challenge and response to check once the TCT verifies.
+type ParsedPop = (String, PopChallenge, PopResponse);
+
+/// Resolve the audience for a verify call. With `pop`, the audience is
+/// the TCT's `sub`, and [`finish_pop`] later proves the presenter holds
+/// its key. `pop` and `expected_audience` are mutually exclusive.
+fn pop_audience(
+    env: Env,
+    tct_token: &str,
+    expected_audience: Option<&str>,
+    pop: Option<&PopExchange>,
+) -> Result<Option<ParsedPop>> {
+    let Some(pop) = pop else {
+        return Ok(None);
+    };
+    if expected_audience.is_some() {
+        return Err(Error::new(
+            Status::InvalidArg,
+            "pass either expectedAudience or pop, not both: pop pins the audience to the proven holder AID",
+        ));
+    }
+    let challenge = crate::pop::parse_challenge(env, &pop.challenge)?;
+    let response = crate::pop::parse_response(env, &pop.response)?;
+    let sub = peek_tct_claims(tct_token)?.sub.to_string();
+    Ok(Some((sub, challenge, response)))
+}
+
+/// Run the RFC-AITP-0005 §6.2 checks against the now-verified TCT.
+fn finish_pop(env: Env, tct_token: &str, pop: Option<ParsedPop>) -> Result<()> {
+    if let Some((_, challenge, response)) = pop {
+        let claims = peek_tct_claims(tct_token)?;
+        crate::pop::verify_against(env, &challenge, &response, &claims)?;
+    }
+    Ok(())
+}
+
 /// Verify a compact-JWS `tct_token`, requiring `required_grant`.
 ///
 /// The audience check is controlled by `expected_audience`:
 /// - `None`: use `our_key.aid()` — the **holder-receipt** model from
 ///   RFC-AITP-0005 §9, where the holder verifies a TCT it received as its
 ///   own receipt.
-/// - `Some(aid)`: use the supplied AID — the **presented-TCT** model used
-///   by resource servers verifying a TCT a peer presents in `X-AITP-TCT`.
+/// - `Some(aid)`: use the supplied AID. The caller must have authenticated
+///   that AID itself; see `pop` for the presented-TCT path.
+///
+/// `pop` is the **presented-TCT** model used by resource servers verifying
+/// a TCT a peer presents in `X-AITP-TCT`: the audience is pinned to the
+/// TCT's `sub`, and after the TCT verifies the PoP response must pass every
+/// RFC-AITP-0005 §6.2 check against it. It excludes `expected_audience`.
 ///
 /// `revoked_jtis` is the issuer's deny list of revoked TCT `jti` strings
 /// (F-1): any TCT whose `jti` is in it is rejected even if otherwise valid
@@ -105,6 +148,7 @@ fn parse_revocation(
 /// The signature check is the security gate in either mode: the TCT is
 /// verified against the issuer AID's pubkey, which is re-derived from the
 /// (now-trusted, post-verification) `iss` claim.
+#[allow(clippy::too_many_arguments)]
 pub fn js_verify_tct(
     env: Env,
     our_key: &AitpSigningKey,
@@ -113,16 +157,24 @@ pub fn js_verify_tct(
     expected_audience: Option<&str>,
     revoked_jtis: Option<Vec<String>>,
     revocation: Option<String>,
+    pop: Option<&PopExchange>,
 ) -> Result<JsTctIdentity> {
+    let pop = pop_audience(env, tct_token, expected_audience, pop)?;
+    let expected_audience = pop
+        .as_ref()
+        .map(|(sub, ..)| sub.as_str())
+        .or(expected_audience);
     let revocation = parse_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-    verify_tct_with(
+    let identity = verify_tct_with(
         env,
         our_key,
         tct_token,
         required_grant,
         expected_audience,
         &revocation,
-    )
+    )?;
+    finish_pop(env, tct_token, pop)?;
+    Ok(identity)
 }
 
 /// [`js_verify_tct`] with the revocation arguments already parsed.
@@ -303,8 +355,43 @@ fn tct_token_key(tct_token: &str) -> [u8; 32] {
 /// paths: a cache hit whose `jti` is revoked, or whose status is
 /// unavailable, falls through to a full re-verification, which then fails
 /// the revocation gate with its coded error.
+///
+/// `pop` behaves as in [`js_verify_tct`] and is checked on every call,
+/// whether or not the signature was cached.
 #[allow(clippy::too_many_arguments)]
 pub fn js_verify_tct_cached(
+    env: Env,
+    our_key: &AitpSigningKey,
+    tct_token: &str,
+    required_grant: &str,
+    store: &JsTctStore,
+    expected_audience: Option<&str>,
+    revoked_jtis: Option<Vec<String>>,
+    revocation: Option<String>,
+    pop: Option<&PopExchange>,
+) -> Result<JsTctIdentity> {
+    let pop = pop_audience(env, tct_token, expected_audience, pop)?;
+    let expected_audience = pop
+        .as_ref()
+        .map(|(sub, ..)| sub.as_str())
+        .or(expected_audience);
+    let identity = verify_tct_cached_inner(
+        env,
+        our_key,
+        tct_token,
+        required_grant,
+        store,
+        expected_audience,
+        revoked_jtis,
+        revocation,
+    )?;
+    finish_pop(env, tct_token, pop)?;
+    Ok(identity)
+}
+
+/// [`js_verify_tct_cached`] without the PoP step.
+#[allow(clippy::too_many_arguments)]
+fn verify_tct_cached_inner(
     env: Env,
     our_key: &AitpSigningKey,
     tct_token: &str,
