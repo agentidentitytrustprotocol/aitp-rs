@@ -64,6 +64,9 @@ pub struct ManifestOpts {
     /// `TCT_REVOKED`. An absolute HTTPS URL, conventionally the origin
     /// plus `REVOCATION_LIST_PATH`.
     pub revocation_list_uri: Option<String>,
+    /// Peer identity types this agent accepts (RFC-AITP-0004 §5.1 step 8).
+    /// Defaults to `[identityType]`; `[]` accepts nothing.
+    pub accepted_identity_types: Option<Vec<String>>,
 }
 
 /// Options for `newSession` / `newResponder`: trust-anchor override and
@@ -239,8 +242,14 @@ impl AitpAgent {
             .display_name(&opts.display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .accept_identity_type(accepted_type)
             .ttl_secs(opts.ttl_secs.unwrap_or(3600) as i64);
+        builder = match opts.accepted_identity_types {
+            None => builder.accept_identity_type(accepted_type),
+            Some(types) if types.is_empty() => builder.accept_no_identity_types(),
+            Some(types) => types
+                .into_iter()
+                .fold(builder, |b, t| b.accept_identity_type(t)),
+        };
 
         let anchors: Vec<url::Url> = match opts.accepted_trust_anchors {
             Some(list) => list

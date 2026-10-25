@@ -580,6 +580,11 @@ pub fn bootstrap_verify_peer(
             payload_identity.kind.as_str()
         )));
     }
+    // RFC-AITP-0004 §5.1 step 8 / §5.2: the peer's identity type MUST
+    // appear in our own `accepted_identity_types` (absent means
+    // `["oidc"]`). Checked before the proof so an unaccepted type never
+    // triggers a JWKS fetch or a trust-store lookup.
+    aitp_manifest::check_identity_type_compatibility(cfg.manifest, payload_identity.kind.as_str())?;
     match payload_identity.kind {
         IdentityKind::Oidc => {
             let issuer = payload_identity
@@ -618,16 +623,9 @@ pub fn bootstrap_verify_peer(
             return Ok(verified.key);
         }
         IdentityKind::Spiffe => {
-            // RFC-AITP-0002 §6.6 / RFC-AITP-0004 §5.1 step 8: a verifier
-            // that does not list `spiffe` in its own
-            // `accepted_identity_types` (absent means `["oidc"]`), or
-            // that is built without SPIFFE support, rejects the type.
-            let accepted = cfg
-                .manifest
-                .accepted_identity_types
-                .as_deref()
-                .is_some_and(|types| types.iter().any(|t| t == "spiffe"));
-            if !accepted || !cfg!(feature = "experimental-spiffe-identity") {
+            // RFC-AITP-0002 §6.6: a verifier built without SPIFFE support
+            // rejects the type even when its manifest lists it.
+            if !cfg!(feature = "experimental-spiffe-identity") {
                 return Err(
                     aitp_manifest::ManifestError::IncompatibleIdentityType("spiffe").into(),
                 );

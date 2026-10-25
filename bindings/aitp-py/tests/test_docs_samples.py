@@ -280,6 +280,7 @@ def _oidc_identity(ns):
         handshake_endpoint="https://dave.example/aitp/handshake/",
         offered_caps=["demo.write"],
         identity_type="oidc", oidc_issuer="https://idp.example/", oidc_subject="dave",
+        accepted_identity_types=["oidc", "pinned_key"],   # bob presents a pinned key
     )
 
     def mint(pop_nonce: str) -> str:
@@ -287,6 +288,14 @@ def _oidc_identity(ns):
         return my_idp.mint_jwt(sub="dave", aud=bob.aid, nonce=pop_nonce,
                                cnf_jkt=aitp.compute_aid_jkt(dave.aid))
 
+    # Each side must list the other's identity type (RFC-AITP-0004 §5.1 step 8),
+    # so bob re-publishes a manifest that accepts OIDC peers too.
+    bob_manifest = bob.build_manifest(
+        display_name="bob",
+        handshake_endpoint="https://bob.example/aitp/handshake/",
+        offered_caps=["demo.echo"],
+        accepted_identity_types=["pinned_key", "oidc"],
+    )
     sess = dave.new_session(jwks=jwks, pinned_keys=[bob.aid])   # bob answers with a pinned key
     oidc_hello = sess.build_hello(bob_manifest, ["demo.echo"], oidc_mint_jwt=mint)
 

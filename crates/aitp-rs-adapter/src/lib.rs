@@ -2214,6 +2214,16 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
     if let Some(name) = params.get("display_name").and_then(|v| v.as_str()) {
         b = b.display_name(name);
     }
+    // Absent leaves the field off the Manifest, which means `["oidc"]`
+    // (RFC-AITP-0003 §3.2).
+    if let Some(types) = params
+        .get("accepted_identity_types")
+        .and_then(|v| v.as_array())
+    {
+        for ty in types.iter().filter_map(|t| t.as_str()) {
+            b = b.accept_identity_type(ty);
+        }
+    }
     let manifest = match b.build() {
         Ok(m) => m,
         Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),

@@ -109,6 +109,9 @@ pub enum ErrorCode {
     KeyResolutionFailed,
     /// Peer's identity issuer is not in this peer's trust anchors.
     IncompatibleTrustAnchors,
+    /// Peer's identity type is not in this peer's
+    /// `accepted_identity_types` (RFC-AITP-0004 §5.1 step 8).
+    IncompatibleIdentityType,
 
     // ── Mutual handshake ────────────────────────────────────────────────
     /// PoP signature in MUTUAL_COMMIT/_ACK did not verify.
@@ -290,6 +293,10 @@ mod tests {
                 ErrorCode::IncompatibleTrustAnchors,
                 "INCOMPATIBLE_TRUST_ANCHORS",
             ),
+            (
+                ErrorCode::IncompatibleIdentityType,
+                "INCOMPATIBLE_IDENTITY_TYPE",
+            ),
             (ErrorCode::PopVerificationFailed, "POP_VERIFICATION_FAILED"),
             (ErrorCode::NonceMismatch, "NONCE_MISMATCH"),
             (ErrorCode::PopChallengeInvalid, "POP_CHALLENGE_INVALID"),
@@ -408,6 +415,7 @@ mod tests {
                 | ErrorCode::PolicyViolation
                 | ErrorCode::KeyResolutionFailed
                 | ErrorCode::IncompatibleTrustAnchors
+                | ErrorCode::IncompatibleIdentityType
                 | ErrorCode::PopVerificationFailed
                 | ErrorCode::NonceMismatch
                 | ErrorCode::AudienceMismatch
@@ -460,7 +468,7 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            54,
+            55,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
     }

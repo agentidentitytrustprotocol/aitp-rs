@@ -126,6 +126,7 @@ impl PyAitpAgent {
         oidc_subject=None,
         accepted_trust_anchors=None,
         revocation_list_uri=None,
+        accepted_identity_types=None,
     ))]
     #[allow(clippy::too_many_arguments)]
     fn build_manifest(
@@ -140,6 +141,7 @@ impl PyAitpAgent {
         oidc_subject: Option<&str>,
         accepted_trust_anchors: Option<Vec<String>>,
         revocation_list_uri: Option<&str>,
+        accepted_identity_types: Option<Vec<String>>,
     ) -> PyResult<String> {
         let endpoint: url::Url = handshake_endpoint
             .parse()
@@ -196,8 +198,16 @@ impl PyAitpAgent {
             .display_name(display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .accept_identity_type(accepted_type)
             .ttl_secs(ttl_secs.unwrap_or(3600));
+        // The peer identity types this agent accepts (RFC-AITP-0004 §5.1
+        // step 8). Defaults to its own type; `[]` accepts nothing.
+        builder = match accepted_identity_types {
+            None => builder.accept_identity_type(accepted_type),
+            Some(types) if types.is_empty() => builder.accept_no_identity_types(),
+            Some(types) => types
+                .into_iter()
+                .fold(builder, |b, t| b.accept_identity_type(t)),
+        };
 
         let anchors: Vec<url::Url> = match accepted_trust_anchors {
             Some(list) => list

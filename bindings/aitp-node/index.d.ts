@@ -513,6 +513,11 @@ export interface ManifestOpts {
    * plus `REVOCATION_LIST_PATH`.
    */
   revocationListUri?: string
+  /**
+   * Peer identity types this agent accepts (RFC-AITP-0004 §5.1 step 8).
+   * Defaults to `[identityType]`; `[]` accepts nothing.
+   */
+  acceptedIdentityTypes?: Array<string>
 }
 
 /**

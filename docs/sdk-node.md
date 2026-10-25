@@ -401,14 +401,23 @@ dave.buildManifest({
   identityType: 'oidc',
   oidcIssuer: 'https://idp.example/',
   oidcSubject: 'dave',
+  acceptedIdentityTypes: ['oidc', 'pinned_key'],   // bob presents a pinned key
 });
 
 // Synchronous callback: return a fresh JWT bound to this handshake and dave's key.
 const mint = (popNonce) =>
   myIdp.mintJwtSync({ sub: 'dave', aud: bob.aid, nonce: popNonce, cnfJkt: computeAidJkt(dave.aid) });
 
+// Each side must list the other's identity type (RFC-AITP-0004 §5.1 step 8),
+// so bob re-publishes a manifest that accepts OIDC peers too.
+const bobOidcManifest = bob.buildManifest({
+  displayName: 'bob',
+  handshakeEndpoint: 'https://bob.example/aitp/handshake/',
+  offeredCaps: ['demo.echo'],
+  acceptedIdentityTypes: ['pinned_key', 'oidc'],
+});
 const sess = dave.newSession(jwks, { pinnedKeys: [bob.aid] });   // bob answers with a pinned key
-const oidcHello = sess.buildHello(bobManifest, ['demo.echo'], mint);
+const oidcHello = sess.buildHello(bobOidcManifest, ['demo.echo'], mint);
 
 // bob's manifest accepts no OIDC issuer by default, so his responder must
 // trust the IdP explicitly.

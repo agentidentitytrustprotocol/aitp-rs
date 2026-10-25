@@ -151,8 +151,15 @@ class AitpAgent:
         oidc_subject: Optional[str] = ...,
         accepted_trust_anchors: Optional[list[str]] = ...,
         revocation_list_uri: Optional[str] = None,
+        accepted_identity_types: Optional[list[str]] = None,
     ) -> str:
         """Build and sign this agent's Manifest; returns the envelope JSON.
+
+        `accepted_identity_types` lists the peer identity types this agent
+        accepts (RFC-AITP-0004 §5.1 step 8): a peer presenting any other
+        type fails with `INCOMPATIBLE_IDENTITY_TYPE`. It defaults to
+        `[identity_type]`, so a pinned-key agent talking to an OIDC peer
+        must pass `["pinned_key", "oidc"]`. `[]` accepts nothing.
 
         `revocation_list_uri` advertises this agent's `ListRevoked` URL as
         `rfc-aitp-0008.revocation_list_uri` in the signed Manifest. Every

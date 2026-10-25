@@ -141,3 +141,41 @@ test('mintJwt callback Ref unrefs cleanly on early error', () => {
   assert.equal(called, false, 'mint callback should not have run');
   // If we reach this line without a panic, the Ref was unref'd cleanly.
 });
+
+// Alice (OIDC) builds a HELLO to bob (pinned_key); returns bob's responder
+// and the HELLO.
+function oidcHelloToPinnedBob(bobAcceptedIdentityTypes) {
+  const { issuer, provider, alice, bob } = setup();
+  const bManifest = bob.buildManifest({
+    displayName: 'bob',
+    handshakeEndpoint: 'https://bob.example.test/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+    acceptedIdentityTypes: bobAcceptedIdentityTypes,
+  });
+  const now = Math.floor(Date.now() / 1000);
+  const aJkt = aidJkt(alice.aid);
+  const aMint = (nonce) =>
+    issuer.mint({ sub: 'alice', aud: bob.aid, nonce, cnfJkt: aJkt, now });
+  const sess = alice.newSession(provider, { pinnedKeys: [bob.aid] });
+  const hello = sess.buildHello(bManifest, ['demo.write'], aMint);
+  const rsess = bob.newResponder(provider, { trustAnchors: [ISSUER_URL] });
+  return { rsess, hello };
+}
+
+// RFC-AITP-0004 §5.1 step 8: `acceptedIdentityTypes` defaults to the
+// agent's own type, so a pinned-key bob refuses an OIDC peer.
+test('pinned responder rejects an OIDC peer by default', () => {
+  const { rsess, hello } = oidcHelloToPinnedBob(undefined);
+  assert.throws(() => rsess.processHello(hello), /does not accept identity type `oidc`/);
+});
+
+test('pinned responder accepts a listed OIDC peer', () => {
+  const { rsess, hello } = oidcHelloToPinnedBob(['pinned_key', 'oidc']);
+  const { ackJson } = rsess.processHello(hello);
+  assert.equal(JSON.parse(ackJson).message_type, 'mutual_hello_ack');
+});
+
+test('empty acceptedIdentityTypes rejects every peer', () => {
+  const { rsess, hello } = oidcHelloToPinnedBob([]);
+  assert.throws(() => rsess.processHello(hello), /does not accept identity type/);
+});

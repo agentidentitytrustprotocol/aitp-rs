@@ -1696,14 +1696,7 @@ fn handshake_error_code(err: &aitp_handshake::HandshakeError) -> ErrorCode {
                 ManifestError::VersionUnknown => ErrorCode::ManifestVersionUnknown,
                 ManifestError::UnknownField(_) => ErrorCode::UnknownField,
                 ManifestError::Malformed(_) => ErrorCode::ManifestInvalid,
-                // `IncompatibleIdentityType` deliberately does not match the
-                // conformance adapter's bare `"INCOMPATIBLE_IDENTITY_TYPE"`
-                // string (`crates/aitp-rs-adapter/src/lib.rs`) — `ErrorCode`
-                // has no dedicated variant for it, so this maps to the
-                // closest registered code instead. A pre-existing registry
-                // gap, out of issue #144's scope; see the plan's Open
-                // Question 5 (`plans/manifest-revocation-error-codes.md`).
-                ManifestError::IncompatibleIdentityType(_) => ErrorCode::IdentityFailed,
+                ManifestError::IncompatibleIdentityType(_) => ErrorCode::IncompatibleIdentityType,
                 // A malformed Manifest `identity_hint` is a Manifest
                 // structural rejection (RFC-AITP-0003 §3.1, `man-006` /
                 // `man-007`), matching the conformance adapter (issue #179).
@@ -1943,7 +1936,7 @@ mod tests {
             handshake_error_code(&HandshakeError::Manifest(
                 ManifestError::IncompatibleIdentityType("oidc")
             )),
-            ErrorCode::IdentityFailed,
+            ErrorCode::IncompatibleIdentityType,
         );
         // Reasons without a dedicated code still fall back to
         // MANIFEST_SIGNATURE_INVALID — the catch-all is intentional.
