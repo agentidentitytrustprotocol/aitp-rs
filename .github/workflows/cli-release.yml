@@ -1,0 +1,187 @@
+name: cli-release
+
+# Prebuilt `aitp` binaries for each `aitp-cli` release, plus a check that
+# the crates.io release installs.
+#
+# release-plz publishes `aitp-cli` to crates.io with the rest of the
+# lockstep family, tags it `aitp-cli-v<X.Y.Z>` and creates the GitHub
+# Release for that tag (with the aitp-deps-bot App token, so the tag push
+# triggers this workflow). This workflow then:
+#   - builds `aitp` for each target below, runs `aitp --version` where the
+#     runner can execute it, and attaches `aitp-<X.Y.Z>-<target>.tar.gz`
+#     (`.zip` on Windows) plus a `.sha256` to that Release;
+#   - runs `cargo install aitp-cli --version <X.Y.Z> --locked` in a clean
+#     `rust` container and checks `aitp --version` reports the release.
+#
+# workflow_dispatch with `dry_run: true` (the default) builds only and
+# skips the upload and the crates.io install.
+
+on:
+  push:
+    tags:
+      - 'aitp-cli-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'aitp-cli version to build (e.g. 0.23.0); the tag aitp-cli-v<version> must exist unless dry_run'
+        required: true
+      dry_run:
+        description: 'Build only; skip the GitHub Release upload and the crates.io install check'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  version:
+    name: resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      publish: ${{ steps.v.outputs.publish }}
+    steps:
+      - id: v
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            version="${GITHUB_REF_NAME#aitp-cli-v}"
+            publish=true
+          else
+            version="$INPUT_VERSION"
+            if [ "$DRY_RUN" = true ]; then publish=false; else publish=true; fi
+          fi
+          case "$version" in
+            [0-9]*.[0-9]*.[0-9]*) ;;
+            *) echo "::error::not a version: $version"; exit 1 ;;
+          esac
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "publish=$publish" >> "$GITHUB_OUTPUT"
+
+  build:
+    name: build ${{ matrix.target }}
+    needs: version
+    runs-on: ${{ matrix.host }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-gnu
+            host: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host: ubuntu-24.04-arm  # native arm64
+          - target: aarch64-apple-darwin
+            host: macos-latest
+          - target: x86_64-apple-darwin
+            host: macos-latest      # cross arm -> x86; cannot run here
+          - target: x86_64-pc-windows-msvc
+            host: windows-latest
+    steps:
+      # A publishing dispatch builds the release tag; a push builds the
+      # pushed tag; a dry run builds the ref it was dispatched from.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          ref: ${{ (github.event_name == 'workflow_dispatch' && needs.version.outputs.publish == 'true') && format('refs/tags/aitp-cli-v{0}', needs.version.outputs.version) || github.ref }}
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        with:
+          toolchain: "1.90.0"        # match rust-toolchain.toml
+          targets: ${{ matrix.target }}
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          key: cli-${{ matrix.target }}
+      - name: Build
+        shell: bash
+        run: cargo build --release --locked -p aitp-cli --target ${{ matrix.target }}
+      # Run the binary before it ships: one that links but fails to load
+      # must fail here, not on users' machines.
+      - name: Smoke-run the binary
+        if: matrix.target != 'x86_64-apple-darwin'
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          PUBLISH: ${{ needs.version.outputs.publish }}
+        run: |
+          out="$(target/${{ matrix.target }}/release/aitp --version)"
+          echo "$out"
+          # A dry run may build a branch whose version differs from the input.
+          if [ "$PUBLISH" = true ] && [ "$out" != "aitp $VERSION" ]; then
+            echo "::error::expected 'aitp $VERSION'"; exit 1
+          fi
+      - name: Package
+        shell: bash
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+          TARGET: ${{ matrix.target }}
+        run: |
+          name="aitp-$VERSION-$TARGET"
+          mkdir -p "dist/$name"
+          cp LICENSE* crates/aitp-cli/README.md "dist/$name/"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp "target/$TARGET/release/aitp.exe" "dist/$name/"
+            (cd dist && 7z a -tzip "$name.zip" "$name" >/dev/null)
+            archive="$name.zip"
+          else
+            cp "target/$TARGET/release/aitp" "dist/$name/"
+            tar -C dist -czf "dist/$name.tar.gz" "$name"
+            archive="$name.tar.gz"
+          fi
+          (cd dist && if command -v sha256sum >/dev/null; then sha256sum "$archive"; else shasum -a 256 "$archive"; fi > "$archive.sha256")
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: aitp-cli-${{ matrix.target }}
+          path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+
+  upload:
+    name: attach binaries to the GitHub Release
+    needs: [version, build]
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          path: dist
+          pattern: aitp-cli-*
+          merge-multiple: true
+      - name: Upload
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: aitp-cli-v${{ needs.version.outputs.version }}
+        run: |
+          ls -la dist
+          # release-plz creates the Release when it pushes the tag; create
+          # it here only if that step was skipped.
+          gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1 \
+            || gh release create "$TAG" -R "$GITHUB_REPOSITORY" --verify-tag --title "$TAG" --notes ""
+          gh release upload "$TAG" dist/* -R "$GITHUB_REPOSITORY" --clobber
+
+  install-check:
+    name: cargo install aitp-cli (clean container)
+    needs: version
+    if: needs.version.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    container: rust:1.90-slim
+    steps:
+      - name: Install from crates.io
+        env:
+          VERSION: ${{ needs.version.outputs.version }}
+        run: |
+          # The crates.io index can lag the publish by a minute or two.
+          for i in 1 2 3 4 5 6 7 8 9 10; do
+            cargo install aitp-cli --version "$VERSION" --locked && break
+            [ "$i" = 10 ] && exit 1
+            echo "retrying in 30s ($i/10)"; sleep 30
+          done
+          out="$(aitp --version)"
+          echo "$out"
+          [ "$out" = "aitp $VERSION" ] || { echo "::error::expected 'aitp $VERSION'"; exit 1; }

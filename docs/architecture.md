@@ -118,7 +118,8 @@ aitp-envelope              sign_envelope + verify_envelope_signature —
                            sync, no I/O; used by aitp-transport-http and
                            the language bindings, not a facade dependency
 aitp-cli                   `aitp` binary — offline keygen / aid /
-                           tct inspect+verify / manifest verify
+                           tct inspect+verify / manifest verify;
+                           manifest fetch + handshake (http-client)
 aitp-conformance           runner + Adapter trait + SubprocessAdapter
                            + InProcessRustAdapter
 aitp-rs-adapter            subprocess conformance adapter, Tier A/B/C/D

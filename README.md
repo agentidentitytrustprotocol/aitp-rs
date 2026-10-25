@@ -42,7 +42,7 @@ aitp-rs/
 │   ├── aitp-session-bundle/ Session Trust Bundle (RFC-0010, opt-in)
 │   ├── aitp-transport-http/ HTTP client/server (feature-gated, async)
 │   ├── aitp/                facade: re-exports + async handshake/renewal helpers
-│   ├── aitp-cli/            `aitp` command-line tool (keygen, tct/manifest verify)
+│   ├── aitp-cli/            `aitp` command-line tool (keygen, verify, handshake)
 │   ├── aitp-conformance/    conformance test runner with adapter trait
 │   └── aitp-rs-adapter/     canonical Rust adapter for conformance testing
 ├── bindings/                language SDKs — excluded from the Cargo workspace
@@ -72,7 +72,7 @@ aitp-rs/
 | `aitp-session-bundle` | ✅ opt-in | Session Trust Bundle (RFC-0010): builder + verifier; gated behind `experimental-session-bundle`. |
 | `aitp-transport-http` | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 §2.3 branch), handshake server (AITP error envelopes), revocation endpoint. SSRF `HostGuard` on peer fetches, pluggable `ReplayGuard`, optional `metrics` feature. |
 | `aitp` (facade)       | ✅ complete   | Re-exports + async `run_initiator_handshake` + `TctStore` (+ `renew_tct` behind `experimental-renewal`); `InitiatorConfig` with `with_http_timeout` / `with_host_guard`. |
-| `aitp-cli`            | ✅ complete   | Offline `aitp` binary: `keygen`, `aid`, `tct inspect`/`verify`, `manifest verify`. Stdin-friendly, non-zero exit on failure. See [`crates/aitp-cli/README.md`](crates/aitp-cli/README.md). |
+| `aitp-cli`            | ✅ complete   | `aitp` binary (`cargo install aitp-cli`): offline `keygen`, `aid`, `tct inspect`/`verify`, `manifest verify`, plus `manifest fetch` and `handshake <url>` against a live peer. Stdin-friendly, non-zero exit with the AITP error code on failure. See [`docs/cli.md`](docs/cli.md). |
 | `aitp-conformance`    | ✅ Tier A     | Subprocess adapter, fixture loader, runner. |
 | `aitp-rs-adapter`     | ✅ Tier A–D   | All conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). Results: [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix). |
 
@@ -170,9 +170,10 @@ pip install aitp-sdk                              # Python SDK (PyPI)
 The `aitp` crate is the facade re-exporting the protocol surface. The
 HTTP **client** ships by default; add the server when you need it
 (`cargo add aitp --features http-server`, or `--features all`).
-The offline `aitp` CLI ships in-repo and is not yet published to
-crates.io — build it with `cargo build -p aitp-cli` (see
-[`crates/aitp-cli/README.md`](crates/aitp-cli/README.md)).
+The `aitp` CLI installs with `cargo install aitp-cli` (prebuilt binaries
+are on each `aitp-cli-v*` GitHub Release). `aitp handshake <url>` runs a
+full handshake against a peer and prints the TCT it issues you; see
+[`docs/cli.md`](docs/cli.md).
 
 ## Quick start
 
@@ -231,7 +232,7 @@ Highlights:
 - [`docs/sdk-python.md`](docs/sdk-python.md) · [`docs/sdk-node.md`](docs/sdk-node.md) — SDK feature guides
 - [`docs/transport-hardening.md`](docs/transport-hardening.md) — HTTP-transport hardening register
 - [`docs/deployment.md`](docs/deployment.md) · [`docs/key-management.md`](docs/key-management.md) — running in production: where state lives, clustering, and signing-key handling
-- [`crates/aitp-cli/README.md`](crates/aitp-cli/README.md) — the offline `aitp` CLI
+- [`docs/cli.md`](docs/cli.md) — the `aitp` CLI: install, `handshake`, `manifest fetch`, error codes
 
 The protocol itself is defined **normatively** by the
 [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs);

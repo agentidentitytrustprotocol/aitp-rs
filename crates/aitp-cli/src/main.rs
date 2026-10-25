@@ -1,9 +1,11 @@
 //! `aitp` — a small command-line tool for AITP.
 //!
-//! Offline helpers for the things you reach for while building or
-//! debugging an AITP integration: generate a keypair, derive an AID,
-//! and inspect/verify a TCT or a Manifest. Everything here is offline —
-//! no network — so it composes into scripts and CI checks.
+//! Helpers for the things you reach for while building or debugging an
+//! AITP integration: generate a keypair, derive an AID, inspect/verify a
+//! TCT or a Manifest, and (with the default `http-client` feature) fetch
+//! a peer's Manifest or run a full handshake against it. The offline
+//! commands never touch the network, so they compose into scripts and
+//! CI checks.
 //!
 //! ```text
 //! aitp keygen                         # new keypair → seed + AID
@@ -11,6 +13,8 @@
 //! aitp tct inspect --token <jws|->    # decode claims (no verification)
 //! aitp tct verify  --token <jws|->    # verify signature + claims
 //! aitp manifest verify --file <p|->   # verify a signed Manifest
+//! aitp manifest fetch <url>           # fetch + verify a peer's Manifest
+//! aitp handshake <url> --ephemeral    # handshake → print the TCT claims
 //! ```
 
 use std::io::Read;
@@ -21,13 +25,16 @@ use aitp::manifest::{verify_manifest, ManifestEnvelope, VerifyManifestContext};
 use aitp::tct::{verify_tct, TctClaims, TctVerifyContext};
 use clap::{Parser, Subcommand, ValueEnum};
 
+#[cfg(feature = "http-client")]
+mod net;
+
 type CliResult = Result<(), Box<dyn std::error::Error>>;
 
 #[derive(Parser)]
 #[command(
     name = "aitp",
     version,
-    about = "AITP command-line tool: keys, TCTs, and Manifests (offline)"
+    about = "AITP command-line tool: keys, TCTs, Manifests, and handshakes"
 )]
 struct Cli {
     #[command(subcommand)]
@@ -65,6 +72,77 @@ enum Command {
         #[command(subcommand)]
         command: ManifestCommand,
     },
+    /// Run the four-message handshake as initiator against a peer and
+    /// print the claims of the TCT it issues us.
+    #[cfg(feature = "http-client")]
+    Handshake {
+        /// Peer origin; its Manifest is fetched from
+        /// `<url>/.well-known/aitp-manifest`.
+        url: String,
+        #[command(flatten)]
+        identity: KeyChoice,
+        /// Signature suite of a `--key` file holding a bare hex seed (a
+        /// file written by `aitp keygen` names its own suite).
+        #[arg(long, value_enum, default_value_t = Suite::Ed25519)]
+        suite: Suite,
+        /// Capability to request; repeat for several.
+        #[arg(long = "grant", value_name = "CAP")]
+        grants: Vec<String>,
+        /// Capability we offer the peer; repeat for several. The
+        /// handshake is mutual, so the peer also gets a TCT from us,
+        /// granting what it requests that we offer, and it fails if
+        /// none overlaps.
+        #[arg(long = "offer", value_name = "CAP")]
+        offers: Vec<String>,
+        /// Pin the peer to this AID. Without it, the AID in the peer's
+        /// Manifest is trusted on first use.
+        #[arg(long)]
+        peer_aid: Option<String>,
+        /// Accept a peer whose revocation status cannot be determined
+        /// (default: refuse it, RFC-AITP-0008 fail_closed).
+        #[arg(long)]
+        revocation_fail_open: bool,
+        #[command(flatten)]
+        net: NetArgs,
+    },
+}
+
+/// The identity `aitp handshake` presents: exactly one of a key file or
+/// a throwaway key.
+#[cfg(feature = "http-client")]
+#[derive(clap::Args)]
+#[group(required = true, multiple = false)]
+struct KeyChoice {
+    /// Signing key file: the output of `aitp keygen`, or a bare 32-byte
+    /// hex seed.
+    #[arg(long, value_name = "FILE")]
+    key: Option<String>,
+    /// Generate a throwaway Ed25519 key for this run. Peers that pin
+    /// keys will reject it until it is enrolled.
+    #[arg(long)]
+    ephemeral: bool,
+}
+
+#[cfg(feature = "http-client")]
+#[derive(clap::Args)]
+struct NetArgs {
+    /// Per-request HTTP timeout, in seconds.
+    #[arg(long, default_value_t = 10, value_name = "SECS")]
+    timeout: u64,
+    /// Allow a plain `http://localhost` / `http://127.0.0.1` peer (local
+    /// development only; RFC-AITP-0003 §4.1 requires HTTPS).
+    #[arg(long)]
+    insecure_localhost: bool,
+}
+
+#[cfg(feature = "http-client")]
+impl NetArgs {
+    fn into_opts(self) -> net::NetOpts {
+        net::NetOpts {
+            timeout: std::time::Duration::from_secs(self.timeout),
+            insecure_localhost: self.insecure_localhost,
+        }
+    }
 }
 
 #[derive(Subcommand)]
@@ -112,6 +190,15 @@ enum ManifestCommand {
         #[arg(long)]
         at: Option<i64>,
     },
+    /// Fetch a peer's Manifest from `<url>/.well-known/aitp-manifest`,
+    /// verify it, and print the envelope (pipes into `manifest verify`).
+    #[cfg(feature = "http-client")]
+    Fetch {
+        /// Peer origin.
+        url: String,
+        #[command(flatten)]
+        net: NetArgs,
+    },
 }
 
 #[derive(Copy, Clone, ValueEnum)]
@@ -148,7 +235,38 @@ fn run(cli: Cli) -> CliResult {
             ManifestCommand::Verify { file, at } => {
                 manifest_verify(&read_file_or_stdin(&file)?, at)
             }
+            #[cfg(feature = "http-client")]
+            ManifestCommand::Fetch { url, net } => {
+                net::manifest_fetch(parse_url(&url)?, net.into_opts())
+            }
         },
+        #[cfg(feature = "http-client")]
+        Command::Handshake {
+            url,
+            identity,
+            suite,
+            grants,
+            offers,
+            peer_aid,
+            revocation_fail_open,
+            net,
+        } => {
+            let ephemeral = identity.ephemeral;
+            let key = match identity.key {
+                Some(path) => key_from_file(&path, suite)?,
+                None => random_key(Suite::Ed25519)?.1,
+            };
+            net::handshake(net::HandshakeArgs {
+                peer: parse_url(&url)?,
+                key,
+                ephemeral,
+                peer_aid: peer_aid.as_deref().map(Aid::parse).transpose()?,
+                grants,
+                offers,
+                revocation_fail_open,
+                net: net.into_opts(),
+            })
+        }
     }
 }
 
@@ -263,6 +381,33 @@ fn key_from_hex_seed(
 ) -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
     let seed = parse_seed(hex_str)?;
     build_key(&seed, suite)
+}
+
+/// Load a signing key from a file holding either `aitp keygen` output
+/// (`suite:` / `seed:` lines) or a bare hex seed in `suite`.
+#[cfg(feature = "http-client")]
+fn key_from_file(path: &str, suite: Suite) -> Result<AitpSigningKey, Box<dyn std::error::Error>> {
+    let text = std::fs::read_to_string(path).map_err(|e| format!("reading key {path}: {e}"))?;
+    let field = |name: &str| {
+        text.lines()
+            .find_map(|l| l.trim().strip_prefix(name).map(str::trim))
+    };
+    match field("seed:") {
+        Some(seed) => {
+            let suite = match field("suite:") {
+                Some("ed25519") | None => Suite::Ed25519,
+                Some("p256") => Suite::P256,
+                Some(other) => return Err(format!("{path}: unknown suite {other:?}").into()),
+            };
+            key_from_hex_seed(seed, suite)
+        }
+        None => key_from_hex_seed(&text, suite),
+    }
+}
+
+#[cfg(feature = "http-client")]
+fn parse_url(s: &str) -> Result<url::Url, Box<dyn std::error::Error>> {
+    url::Url::parse(s).map_err(|e| format!("invalid URL {s:?}: {e}").into())
 }
 
 fn random_key(suite: Suite) -> Result<([u8; 32], AitpSigningKey), Box<dyn std::error::Error>> {
