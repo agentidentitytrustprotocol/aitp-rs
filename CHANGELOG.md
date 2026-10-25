@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+### BREAKING
+
+- Test only: `TctStore::peer_aids` renamed (RS2.1 gate acceptance).
+
 ### Added
 
 - `deploy/interop-peer/deploy.sh` deploys the public interop peer to Railway. It has four modes: `--dry-run` (the default), `--apply [--ref R]`, `--previous` and `--rollback`, and each takes `--environment`. The peer key is piped from Doppler and never printed. While the custom domain lacks its CNAME or the `_railway-verify` TXT record, the script prints the missing record. The peer is live at `https://interop.agentidentitytrustprotocol.io`; see `docs/interop-peer.md`.
