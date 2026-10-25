@@ -1004,16 +1004,14 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
-    let cfg = PeerConfig {
-        signing_key: &*state.signing_key,
-        manifest: &state.manifest,
-        trust_anchors: &state.trust_anchors,
-        jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: &*pinned_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: aitp_core::Timestamp::now(),
-    };
+    let cfg = PeerConfig::new(
+        &*state.signing_key,
+        &state.manifest,
+        &state.jwks_resolver,
+        &*pinned_store,
+        aitp_core::Timestamp::now(),
+    )
+    .with_trust_anchors(&state.trust_anchors);
     // Server uses pinned-key identity by default (the demo). Production
     // deployments wanting OIDC should construct PresentedIdentity::Oidc
     // outside and use a custom server. The public key is materialized
@@ -1166,16 +1164,14 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
-    let cfg = PeerConfig {
-        signing_key: &*state.signing_key,
-        manifest: &state.manifest,
-        trust_anchors: &state.trust_anchors,
-        jwks_resolver: &state.jwks_resolver,
-        pinned_key_store: &*pinned_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: aitp_core::Timestamp::now(),
-    };
+    let cfg = PeerConfig::new(
+        &*state.signing_key,
+        &state.manifest,
+        &state.jwks_resolver,
+        &*pinned_store,
+        aitp_core::Timestamp::now(),
+    )
+    .with_trust_anchors(&state.trust_anchors);
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)

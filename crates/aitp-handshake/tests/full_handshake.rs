@@ -85,26 +85,10 @@ fn full_pinned_key_handshake() {
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
 
     // ── HELLO ────────────────────────────────────────────────────────
     let hello_mid = Uuid::new_v4();
@@ -214,26 +198,10 @@ fn peer_substitution_aborts() {
     let mallory_manifest = manifest_for(&mallory, "mallory");
     let resolver = NoOpResolver;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
 
     // Alice intends to authenticate Bob and sends a HELLO bound to him.
     let hello_mid = Uuid::new_v4();
@@ -335,26 +303,10 @@ fn grant_overflow_aborts() {
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
 
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello_payload) = Initiator::start(
@@ -448,26 +400,10 @@ fn nonce_mismatch_aborts() {
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello_payload) = Initiator::start(
         &alice_cfg,
@@ -524,26 +460,10 @@ fn insufficient_grants_aborts() {
     alice_manifest.required_peer_capabilities = Some(vec!["super.power".into()]);
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_cfg_pinned, NOW);
+    let bob_cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_cfg_pinned, NOW);
     // Note: alice_manifest now no longer matches the inline manifest's
     // signature (we mutated it after building). Re-sign by rebuilding.
     let alice_manifest = ManifestBuilder::new(&alice)
@@ -567,11 +487,9 @@ fn insufficient_grants_aborts() {
         .published_at(NOW)
         .build()
         .unwrap();
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        ..alice_cfg
-    };
+    let mut alice_cfg = alice_cfg;
+    alice_cfg.signing_key = &alice;
+    alice_cfg.manifest = &alice_manifest;
 
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello_payload) = Initiator::start(

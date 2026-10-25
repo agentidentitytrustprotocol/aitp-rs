@@ -103,26 +103,22 @@ fn full_oidc_handshake_in_process() {
     let bob_jwt = issuer.mint_aitp_jwt("bob", alice.aid().as_str(), &bob_pop, &bob_jkt, NOW.0);
 
     let trust_anchors = vec![aitp_core::RawUrl::from(issuer_url.clone())];
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
+    let bob_cfg = PeerConfig::new(
+        &bob,
+        &bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
 
     // ── HELLO ────────────────────────────────────────────────────────
     let hello_mid = Uuid::new_v4();
@@ -263,26 +259,22 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         .unwrap();
 
     let trust_anchors = vec![aitp_core::RawUrl::from(issuer_url.clone())];
-    let alice_cfg = PeerConfig {
-        signing_key: alice,
-        manifest: &alice_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: bob,
-        manifest: &bob_manifest,
-        trust_anchors: &trust_anchors,
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg = PeerConfig::new(
+        alice,
+        &alice_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
+    let bob_cfg = PeerConfig::new(
+        bob,
+        &bob_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        NOW,
+    )
+    .with_trust_anchors(&trust_anchors);
 
     // ── HELLO (Alice mints via callback) ─────────────────────────────
     // Record the nonce the callback observes so we can assert the state

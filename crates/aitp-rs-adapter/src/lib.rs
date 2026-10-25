@@ -865,20 +865,19 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // required. Fixtures that exercise it (e.g. id-007) supply
     // `trust_store` as a list of AID strings (Ed25519 or P-256).
     let trust_store = harness_pinned_trust(&params, &envelope.sender.agent_id);
-    let cfg = PeerConfig {
-        signing_key: &self_key,
-        manifest: &self_manifest,
-        trust_anchors: &[
-            "https://auth.openai.com".parse().unwrap(),
-            "https://auth.anthropic.com".parse().unwrap(),
-            "https://idp.example.com".parse().unwrap(),
-        ],
-        jwks_resolver: &resolver,
-        pinned_key_store: &trust_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: envelope.timestamp,
-    };
+    let cfg_anchors: Vec<aitp_core::RawUrl> = vec![
+        "https://auth.openai.com".parse().unwrap(),
+        "https://auth.anthropic.com".parse().unwrap(),
+        "https://idp.example.com".parse().unwrap(),
+    ];
+    let cfg = PeerConfig::new(
+        &self_key,
+        &self_manifest,
+        &resolver,
+        &trust_store,
+        envelope.timestamp,
+    )
+    .with_trust_anchors(&cfg_anchors);
 
     use aitp_core::{check_members, from_serde_error};
     use aitp_handshake::payloads::{
@@ -2604,16 +2603,7 @@ fn start_initiator(
     let mid = Uuid::new_v4();
     let ts = state.now();
     let resolver = NoOpJwks;
-    let cfg = PeerConfig {
-        signing_key: &key,
-        manifest: &manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &trusted,
-        grant_policy: None,
-        revocation_check: None,
-        now: ts,
-    };
+    let cfg = PeerConfig::new(&key, &manifest, &resolver, &trusted, ts);
     let (init_state, hello_payload) =
         match Initiator::start(&cfg, identity, &peer_aid, &mid, ts, requested_grants) {
             Ok(p) => p,
@@ -2734,16 +2724,7 @@ fn initiator_step(
     // Wiring the peer's manifest here would silently break TCT
     // verification on COMMIT_ACK.
     let resolver = NoOpJwks;
-    let cfg = PeerConfig {
-        signing_key: &key,
-        manifest: &my_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &trusted,
-        grant_policy: None,
-        revocation_check: None,
-        now: state.now(),
-    };
+    let cfg = PeerConfig::new(&key, &my_manifest, &resolver, &trusted, state.now());
     match envelope.message_type {
         MessageType::MutualHelloAck => {
             let ack_payload: MutualHelloAckPayload =
@@ -2844,16 +2825,7 @@ fn responder_first_hello(
     let trusted =
         trusted.unwrap_or_else(|| harness_pinned_trust(&Value::Null, &hello_payload.manifest.aid));
     let resolver = NoOpJwks;
-    let cfg = PeerConfig {
-        signing_key: &key,
-        manifest: &my_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &trusted,
-        grant_policy: None,
-        revocation_check: None,
-        now: state.now(),
-    };
+    let cfg = PeerConfig::new(&key, &my_manifest, &resolver, &trusted, state.now());
     let identity = PresentedIdentity::PinnedKey {
         subject: my_manifest
             .display_name
@@ -2927,16 +2899,13 @@ fn responder_step(
             Err(e) => return err(id, "INVALID_ENVELOPE", &format!("commit: {e}")),
         };
     let resolver = NoOpJwks;
-    let cfg = PeerConfig {
-        signing_key: &key,
-        manifest: &my_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: state.now(),
-    };
+    let cfg = PeerConfig::new(
+        &key,
+        &my_manifest,
+        &resolver,
+        &aitp_handshake::NoPinnedKeys,
+        state.now(),
+    );
     let (ack_payload, held_tct) = match responder.on_commit(&envelope, &commit_payload, &cfg) {
         Ok(r) => r,
         Err(e) => return err(id, "HANDSHAKE_FAILED", &e.to_string()),

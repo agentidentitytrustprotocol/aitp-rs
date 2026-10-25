@@ -34,16 +34,8 @@ pub fn make_peer_config<'a>(
     trust_anchors: &'a [RawUrl],
     pinned_keys: &'a dyn PinnedKeyStore,
 ) -> PeerConfig<'a> {
-    PeerConfig {
-        signing_key: key,
-        manifest,
-        trust_anchors,
-        jwks_resolver: jwks,
-        pinned_key_store: pinned_keys,
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    }
+    PeerConfig::new(key, manifest, jwks, pinned_keys, Timestamp::now())
+        .with_trust_anchors(trust_anchors)
 }
 
 /// Parse a wire-bound UUID v4 strictly (RFC-AITP-0001 §5.2): lowercase

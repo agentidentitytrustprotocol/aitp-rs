@@ -80,16 +80,14 @@ async fn commit_after_session_ttl_is_rejected() {
 
     // 1. Alice sends a valid HELLO and gets a session_id back.
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &cfg_pinned,
+        Timestamp::now(),
+    );
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(
@@ -204,16 +202,14 @@ async fn fresh_session_within_ttl_is_accepted() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]),
-        grant_policy: None,
-        revocation_check: None,
-        now: Timestamp::now(),
-    };
+    let cfg_pinned = aitp_handshake::StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let cfg = PeerConfig::new(
+        &alice,
+        &alice_manifest,
+        &resolver,
+        &cfg_pinned,
+        Timestamp::now(),
+    );
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(

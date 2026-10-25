@@ -84,26 +84,8 @@ fn pinned_handshake_with_kms_backed_initiator() {
     let alice_store = StaticPinnedKeyStore::new([bob.verifying_key()]);
     let bob_store = StaticPinnedKeyStore::new([vk(&alice)]);
 
-    let alice_cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &alice_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
-    let bob_cfg = PeerConfig {
-        signing_key: &bob,
-        manifest: &bob_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &bob_store,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let alice_cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &alice_store, NOW);
+    let bob_cfg = PeerConfig::new(&bob, &bob_manifest, &resolver, &bob_store, NOW);
 
     let hello_mid = Uuid::new_v4();
     let (mut alice_init, hello) = Initiator::start(
@@ -180,16 +162,7 @@ fn kms_backend_with_wrong_key_fails_locally_at_hello() {
         MockKmsSigner::new(good).sign_with(AitpSigningKey::from_p256_seed(&[0xA4; 32]).unwrap());
     let bob = AitpSigningKey::from_seed(&[0xB4; 32]);
     let resolver = NoOpResolver;
-    let cfg = PeerConfig {
-        signing_key: &alice,
-        manifest: &alice_manifest,
-        trust_anchors: &[],
-        jwks_resolver: &resolver,
-        pinned_key_store: &NoPinnedKeys,
-        grant_policy: None,
-        revocation_check: None,
-        now: NOW,
-    };
+    let cfg = PeerConfig::new(&alice, &alice_manifest, &resolver, &NoPinnedKeys, NOW);
     let err = match Initiator::start(
         &cfg,
         PresentedIdentity::PinnedKey {
