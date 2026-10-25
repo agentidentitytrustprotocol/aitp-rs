@@ -213,7 +213,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   have that shape and both pass. New unit tests pin it too. The bindings' `verify_revocation_list`
   keeps its lowercase `version_unknown` cause code; the SDK docs now say
   it is the spec's `REVOCATION_SNAPSHOT_INVALID`. The table in
-  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) section 1 is
+  `docs/upgrading-0.17.md` (removed in 0.20.0) section 1 is
   corrected.
 
 - **Revocation signing refuses a non-v4 `entries[].jti`, and every
@@ -290,7 +290,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   0.17 does not interoperate with 0.16 peers. It also ships the HTTP
   server receive order (#259), stricter envelope parsing (#262) and
   envelope signing and verification in the bindings (#260). See
-  [`docs/upgrading-0.17.md`](docs/upgrading-0.17.md) for every change and
+  `docs/upgrading-0.17.md` (removed in 0.20.0) for every change and
   how to migrate.
 - **Strict `aitp/0.2` → `aitp/0.3` cutover.** `aitp_core::PROTOCOL_VERSION`
   is `"aitp/0.3"`, and every producer and checker uses it. An `aitp/0.2`
