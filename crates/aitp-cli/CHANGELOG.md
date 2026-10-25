@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.22.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-cli-v0.22.0...aitp-cli-v0.22.1) - 2026-10-25
+
+### Other
+
+- *(aitp-cli)* release v0.22.0 ([#352](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/352))
+
 ## [0.22.0](https://github.com/agentidentitytrustprotocol/aitp-rs/releases/tag/aitp-cli-v0.22.0) - 2026-10-25
 
 First crates.io release of the `aitp` command-line tool, versioned in
