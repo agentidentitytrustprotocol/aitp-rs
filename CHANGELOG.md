@@ -13,6 +13,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Spec pin `ddec9f1`. The conformance runner and `aitp-rs-adapter` load the OIDC test-issuer keys from the spec's `known-answer/oidc-test-issuers.json` (`kat-oidc-issuer-001`, `kat-oidc-issuer-002-unknown`), vendored at the pin, instead of private seed constants. A test checks that each seed derives to its published public key, and another that the adapter resolves only the trusted key.
 - The README has a hello world that CI executes (`readme-smoke.yml`). On every pull request it runs against a peer built from the checkout, as the required check `README hello world (local peer)`. A daily job runs it against the public peer, reports the time from `cargo install` to verified echo, and keeps one `readme-smoke` issue open while that job fails.
 
+### Fixed
+
+- `aitp-conformance` no longer sends `*_claims` minting companions to the implementation under test. Before this fix they survived in envelope payloads (`envelope.payload.tct_claims`) and session-bundle participants, so a strict verifier rejected `mh-006`..`mh-008`, `mh-success-001` and five `bundle-*` fixtures with `UNKNOWN_FIELD`. Every op request is now stripped at every depth before it is sent, and CI walks every request the whole pinned corpus produces to keep it that way.
+
 ## [0.23.0] — 2026-10-25
 
 ### BREAKING

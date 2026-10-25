@@ -729,3 +729,183 @@ fn responder_full_handshake_via_two_adapter_processes() {
     assert_eq!(alice_holds["tct_claims"]["iss"], json!(bob_kp["aid"]));
     assert_eq!(alice_holds["tct_claims"]["sub"], json!(alice_kp["aid"]));
 }
+
+/// Records every op request on its way to the real adapter.
+struct Recording<A> {
+    inner: A,
+    requests: std::rc::Rc<std::cell::RefCell<Vec<(String, Value)>>>,
+}
+
+impl<A: Adapter> Adapter for Recording<A> {
+    fn init(
+        &mut self,
+    ) -> Result<aitp_conformance::adapter::AdapterInfo, aitp_conformance::adapter::AdapterError>
+    {
+        self.inner.init()
+    }
+    fn execute(
+        &mut self,
+        op: &str,
+        params: Value,
+    ) -> Result<aitp_conformance::adapter::OpResult, aitp_conformance::adapter::AdapterError> {
+        self.requests
+            .borrow_mut()
+            .push((op.to_string(), params.clone()));
+        self.inner.execute(op, params)
+    }
+    fn shutdown(&mut self) -> Result<(), aitp_conformance::adapter::AdapterError> {
+        self.inner.shutdown()
+    }
+}
+
+type Requests = std::rc::Rc<std::cell::RefCell<Vec<(String, Value)>>>;
+
+fn recording_runner() -> (Runner<Recording<SubprocessAdapter>>, Requests) {
+    let inner =
+        SubprocessAdapter::spawn(adapter_path().to_str().unwrap(), &[]).expect("spawn adapter");
+    let requests = Requests::default();
+    let adapter = Recording {
+        inner,
+        requests: requests.clone(),
+    };
+    (Runner::new(adapter), requests)
+}
+
+/// JSON paths of every `*_claims` key in `v`, at any depth.
+fn companion_paths(v: &Value, path: &str, out: &mut Vec<String>) {
+    match v {
+        Value::Object(map) => {
+            for (k, child) in map {
+                let p = format!("{path}.{k}");
+                if k.ends_with("_claims") {
+                    out.push(p.clone());
+                }
+                companion_paths(child, &p, out);
+            }
+        }
+        Value::Array(items) => {
+            for (i, child) in items.iter().enumerate() {
+                companion_paths(child, &format!("{path}[{i}]"), out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn assert_no_companions(requests: &Requests, context: &str) {
+    let mut found = Vec::new();
+    for (op, params) in requests.borrow().iter() {
+        companion_paths(params, op, &mut found);
+    }
+    assert!(
+        found.is_empty(),
+        "{context}: companions reached the adapter: {found:?}"
+    );
+}
+
+/// No `*_claims` minting companion reaches the adapter, at any depth:
+/// not in an envelope payload, a session-bundle participant, a
+/// sequence step (or the context merged into it), or a precondition.
+#[test]
+fn claims_companions_never_reach_the_adapter() {
+    let tct_claims = json!({
+        "ver": "aitp/0.3",
+        "jti": "660e8400-e29b-41d4-a716-446655440106",
+        "iss": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+        "sub": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+        "aud": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+        "iat": 1711900000,
+        "exp": 1711903600,
+        "grants": ["macp.mode.task.v1"],
+        "cnf": { "jkt": "9ZP03Nu8GrXPAUkbKNxHOKBzxPX83SShgFkRNK-f2lw" }
+    });
+    let fixtures = [
+        json!({
+            "id": "companions-envelope-and-bundle",
+            "description": "companions in an envelope payload and bundle participants",
+            "preconditions": { "verify_jcs": { "input": {}, "x_claims": {} } },
+            "input": {
+                "operation": "verify_jcs",
+                "tct": "__JWS_TCT__",
+                "tct_claims": tct_claims,
+                "envelope": { "payload": { "tct": "__JWS_TCT__", "tct_claims": tct_claims } },
+                "session_bundle": {
+                    "participants": [{ "tct": "__JWS_TCT__", "tct_claims": tct_claims }]
+                },
+                "input": {}
+            },
+            "expected": { "outcome": "success" }
+        }),
+        json!({
+            "id": "companions-sequence",
+            "description": "companions in sequence context and steps",
+            "input": {
+                "operation": "verify_jcs",
+                "tct_token": "__JWS_TCT__",
+                "tct_token_claims": tct_claims,
+                "sequence": [{
+                    "step": 1,
+                    "input": {},
+                    "chain": ["__JWS_TCT__"],
+                    "chain_claims": [tct_claims],
+                    "expected": { "outcome": "success" }
+                }]
+            },
+            "expected": { "outcome": "success" }
+        }),
+    ];
+    for f in fixtures {
+        let f: Fixture = serde_json::from_value(f).expect("fixture parses");
+        let (mut runner, requests) = recording_runner();
+        runner.run(&f);
+        assert!(
+            requests.borrow().iter().any(|(op, _)| op == "verify_jcs"),
+            "{}: the op never ran",
+            f.id
+        );
+        assert_no_companions(&requests, &f.id);
+    }
+}
+
+/// The same check over the whole spec corpus, every feature on, when
+/// `AITP_CONFORMANCE_FIXTURES` names its directory (CI's `conformance`
+/// job sets it to the pinned spec checkout).
+#[test]
+fn claims_companions_never_reach_the_adapter_across_the_corpus() {
+    let Some(dir) = std::env::var_os("AITP_CONFORMANCE_FIXTURES") else {
+        eprintln!("AITP_CONFORMANCE_FIXTURES unset; skipping the corpus walk");
+        return;
+    };
+    let fixtures = aitp_conformance::fixture::FixtureLoader::load_dir(std::path::Path::new(&dir))
+        .expect("load the fixture corpus");
+    let with_companions = fixtures
+        .iter()
+        .filter(|f| {
+            let mut found = Vec::new();
+            companion_paths(
+                &serde_json::to_value(&f.input).unwrap_or_default(),
+                "",
+                &mut found,
+            );
+            !found.is_empty()
+        })
+        .count();
+    assert!(
+        with_companions > 0,
+        "no fixture in {dir:?} has a companion to strip"
+    );
+    for f in &fixtures {
+        let (runner, requests) = recording_runner();
+        let mut runner = [
+            "experimental-multihop-delegation",
+            "experimental-session-bundle",
+            "experimental-spiffe-identity",
+            "aitp-pinned-admission",
+            "aitp-self-attestation",
+        ]
+        .into_iter()
+        .fold(runner, |r, feature| r.with_feature(feature));
+        runner.run(f);
+        assert_no_companions(&requests, &f.id);
+    }
+}

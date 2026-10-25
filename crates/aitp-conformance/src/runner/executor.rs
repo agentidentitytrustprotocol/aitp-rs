@@ -299,12 +299,26 @@ impl<A: Adapter> Runner<A> {
         }
     }
 
+    /// Send one op request to the adapter. Every request goes through
+    /// here, so none carries a `*_claims` minting companion at any
+    /// depth (PLACEHOLDERS.md: companions are minting inputs, never
+    /// wire bytes, and runners ignore them at the `input` level). A
+    /// strict verifier would rightly answer `UNKNOWN_FIELD` to one.
+    fn execute(
+        &mut self,
+        op: &str,
+        mut params: serde_json::Value,
+    ) -> Result<OpResult, crate::adapter::AdapterError> {
+        crate::fixture::strip_claims_companions(&mut params);
+        self.adapter.execute(op, params)
+    }
+
     fn apply_preconditions(&mut self, preconditions: &serde_json::Value) -> Result<(), String> {
         let Some(map) = preconditions.as_object() else {
             return Ok(());
         };
         for (op, params) in map {
-            match self.adapter.execute(op, params.clone()) {
+            match self.execute(op, params.clone()) {
                 Ok(OpResult::Ok { ok, .. }) if ok => continue,
                 Ok(OpResult::Ok { .. }) => {
                     return Err(format!("precondition {op} returned ok=false"))
@@ -333,7 +347,7 @@ impl<A: Adapter> Runner<A> {
         if let Some(map) = op_params.as_object_mut() {
             map.remove("operation");
         }
-        let result = self.adapter.execute(op, op_params).map_err(|e| match e {
+        let result = self.execute(op, op_params).map_err(|e| match e {
             crate::adapter::AdapterError::OpNotSupported(_) => {
                 StepError::Skip(format!("adapter does not support op {op}"))
             }
@@ -386,7 +400,7 @@ impl<A: Adapter> Runner<A> {
             if let Some(map) = params.as_object_mut() {
                 map.remove("operation");
             }
-            let result = self.adapter.execute(op, params).map_err(|e| match e {
+            let result = self.execute(op, params).map_err(|e| match e {
                 crate::adapter::AdapterError::OpNotSupported(_) => {
                     StepError::Skip(format!("adapter does not support op {op}"))
                 }
