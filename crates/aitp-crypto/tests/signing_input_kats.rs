@@ -148,6 +148,49 @@ fn ed25519_tagged_pinned_key_proof_003() {
         .is_err());
 }
 
+/// The §6.4.1 input of `v`'s tuple under `domain`: NUL-separated
+/// sender, receiver, message_id, decimal timestamp, then the decoded
+/// nonce bytes.
+fn spiffe_proof_input(v: &Value, domain: &str) -> Vec<u8> {
+    let mut input = format!("{domain}\0");
+    for field in ["sender_aid", "receiver_aid", "message_id"] {
+        input.push_str(v[field].as_str().unwrap());
+        input.push('\0');
+    }
+    input.push_str(&format!("{}\0", v["timestamp"].as_i64().unwrap()));
+    let mut bytes = input.into_bytes();
+    bytes.extend(Base64UrlUnpadded::decode_vec(v["pop_nonce"].as_str().unwrap()).unwrap());
+    bytes
+}
+
+#[test]
+fn spiffe_x509_proof_001() {
+    let v = vector("kat-spiffe-x509-proof-001");
+    let input = spiffe_proof_input(&v, "aitp-spiffe-x509-v1");
+    assert_eq!(hex::encode(&input), v["proof_input_hex"].as_str().unwrap());
+    assert_eq!(
+        input.len() as u64,
+        v["proof_input_len_bytes"].as_u64().unwrap()
+    );
+    let d = Digest32::sha256(&input);
+    assert_eq!(d, digest_of(&v));
+    let s = sig(&v, "signature_b64url");
+    // The leaf key (kat-keypair-003) signs, single hash.
+    let leaf = AitpSigningKey::from_ed25519_seed(&[0xff; 32]);
+    assert_eq!(leaf.aid().as_str(), v["signer_aid"].as_str().unwrap());
+    assert_eq!(leaf.sign_jcs(&d).as_str(), s.as_str());
+    leaf.verifying_key().verify_jcs(&d, &s).unwrap();
+    // Not under the sender AID's key: the leaf key is not the AID key.
+    let sender = Aid::parse(v["sender_aid"].as_str().unwrap()).unwrap();
+    assert!(AitpVerifyingKey::from_aid(&sender)
+        .unwrap()
+        .verify_jcs(&d, &s)
+        .is_err());
+    // Domain separation: not over the §3.1 pinned-key input of the tuple.
+    let pinned = Digest32::sha256(&spiffe_proof_input(&v, "aitp-pinned-key-v1"));
+    assert!(leaf.verifying_key().verify_jcs(&pinned, &s).is_err());
+}
+
 #[test]
 fn manifest_pop_002_p256() {
     let v = vector("kat-manifest-pop-002-p256");

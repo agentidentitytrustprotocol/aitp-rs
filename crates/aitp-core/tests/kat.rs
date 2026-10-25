@@ -70,6 +70,9 @@ const NON_CANONICAL_VECTORS: &[&str] = &[
     // `aitp-crypto/tests/signing_input_kats.rs`.
     "kat-pinned-key-proof-002-p256",
     "kat-pinned-key-proof-003-tagged-ed25519",
+    // X509-SVID proof-input vector (RFC-AITP-0002 §6.4.1); checked in
+    // `aitp-crypto/tests/signing_input_kats.rs`.
+    "kat-spiffe-x509-proof-001",
 ];
 
 /// Members every canonical-form vector must carry. Absence is a failure,
