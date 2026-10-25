@@ -217,6 +217,36 @@ supersedes, and does nothing if the branch for the current `main` already
 exists. The PR is never auto-merged, and the workflow is not a required
 check.
 
+### The verifier's adapter through `aitp-conformance`
+
+The same job also runs the conformance fixtures through `aitp-conformance`
+twice, against `aitp-rs-adapter` and against the verifier's own adapter,
+`python -m aitp_verifier.adapter`. That adapter is the first non-Rust one
+through the runner. It is installed from PyPI at the exact version in
+`tests/xcheck-verifier-requirements.txt`, so bumping it takes a PR.
+`scripts/xcheck-compare-reports.py` then gates the job on two conditions:
+
+- the verifier passes the `AITP v0.3` core claim;
+- every fixture has the same outcome under both adapters.
+
+The exception is the `--known-divergence` list in `ci.yml`, where each entry
+cites the verifier bug it covers. An entry that stops diverging also fails
+the job, so the list can only shrink. Both reports are uploaded as the
+`xcheck-py-report` artifact. To run it locally:
+
+```bash
+python3.11 -m venv vpy && vpy/bin/pip install -r tests/xcheck-verifier-requirements.txt
+printf '#!/bin/sh\nexec %s/vpy/bin/python -m aitp_verifier.adapter\n' "$PWD" > vpy-adapter && chmod +x vpy-adapter
+cargo build -p aitp-rs-adapter -p aitp-conformance
+export AITP_SPEC=../agentidentitytrustprotocol   # the verifier reads the KAT keys from here
+for t in rs:./target/debug/aitp-rs-adapter py:./vpy-adapter; do
+  ./target/debug/aitp-conformance run --target "${t#*:}" \
+    --fixtures-dir "$AITP_SPEC/schemas/conformance" \
+    --report "${t%%:*}-report.json" --output tap > /dev/null
+done
+python3 scripts/xcheck-compare-reports.py rs-report.json py-report.json --known-divergence del-004
+```
+
 ## Minting tools
 
 - `tools/mint-signed-examples` (binary `mint-signed-examples`) mints the
