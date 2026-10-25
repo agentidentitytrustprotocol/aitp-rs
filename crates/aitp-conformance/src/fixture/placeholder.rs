@@ -1118,18 +1118,35 @@ fn kat_key_for_aid(aid: &str) -> Option<AitpSigningKey> {
     None
 }
 
-/// Fixed Ed25519 seed for the one OIDC conformance test issuer
-/// (`"https://auth.openai.com"`, the only issuer any `__VALID_JWT__`
-/// fixture uses today). Not an AID-keyed KAT seed like
-/// `kat_seed_for_aid` above — this is an external OIDC provider's key,
-/// unrelated to any AITP peer's own signing key. Duplicated in
-/// `crates/aitp-rs-adapter/src/lib.rs`'s OIDC test-issuer resolver (no
-/// shared module between the two crates for the default subprocess
-/// build — see `PROGRESS.md`'s Conformance harness architecture
-/// section); keep the two seeds in sync if either changes. If a future
-/// fixture needs a second real-JWT issuer, this single constant should
-/// become a small issuer→seed map rather than being duplicated again.
-const OIDC_TEST_ISSUER_SEED: [u8; 32] = [0x4Fu8; 32];
+/// The spec's OIDC test-issuer keys (`known-answer/oidc-test-issuers.json`),
+/// vendored at the pinned spec commit; CI's `spec-schemas` job keeps the
+/// copy byte-identical to the spec. `aitp-rs-adapter` reads the same
+/// file, so the key the runner signs with and the key the adapter trusts
+/// cannot drift.
+const OIDC_TEST_ISSUERS: &str =
+    include_str!("../../../../tests/schemas/known-answer/oidc-test-issuers.json");
+
+/// The Ed25519 seed of the `oidc-test-issuers.json` vector `id`.
+fn oidc_issuer_seed(id: &str) -> [u8; 32] {
+    let doc: Value =
+        serde_json::from_str(OIDC_TEST_ISSUERS).expect("oidc-test-issuers.json parses");
+    let hex_seed = doc["vectors"]
+        .as_array()
+        .and_then(|v| v.iter().find(|v| v["id"] == id))
+        .and_then(|v| v["seed_hex"].as_str())
+        .unwrap_or_else(|| panic!("oidc-test-issuers.json has no seed for {id}"));
+    hex::decode(hex_seed)
+        .ok()
+        .and_then(|b| b.try_into().ok())
+        .unwrap_or_else(|| panic!("{id}: seed_hex is not 32 bytes of hex"))
+}
+
+/// Seed of kat-oidc-issuer-001, the trusted test issuer
+/// (`https://auth.openai.com`): it signs `__VALID_JWT__` and every OIDC
+/// `__JWT_*__` negative.
+fn oidc_test_issuer_seed() -> [u8; 32] {
+    oidc_issuer_seed("kat-oidc-issuer-001")
+}
 
 /// `aud` fallback for a minted `__VALID_JWT__` when the fixture omits
 /// `self_aid` at its root — mirrors
@@ -1187,9 +1204,11 @@ impl JwtVariant {
 /// kat-keypair-004, which is no fixture's `self_aid`.
 const JWT_OTHER_PEER_AUD: &str = "aid:pubkey:iojj3XQJ8ZX9UtstPLpdcspnCb8dlBIb83SIAbQPb1w";
 
-/// Signing seed for `__VALID_JWT_FROM_UNKNOWN_ISSUER__`; deliberately
-/// not [`OIDC_TEST_ISSUER_SEED`].
-const OIDC_UNKNOWN_ISSUER_SEED: [u8; 32] = [0x55u8; 32];
+/// Seed of kat-oidc-issuer-002-unknown, which signs
+/// `__VALID_JWT_FROM_UNKNOWN_ISSUER__`; no resolver may trust it.
+fn oidc_unknown_issuer_seed() -> [u8; 32] {
+    oidc_issuer_seed("kat-oidc-issuer-002-unknown")
+}
 
 #[allow(clippy::too_many_arguments)]
 fn mint_oidc_jwt(
@@ -1202,8 +1221,8 @@ fn mint_oidc_jwt(
     variant: JwtVariant,
 ) -> String {
     let seed = match variant {
-        JwtVariant::UnknownIssuer => OIDC_UNKNOWN_ISSUER_SEED,
-        _ => OIDC_TEST_ISSUER_SEED,
+        JwtVariant::UnknownIssuer => oidc_unknown_issuer_seed(),
+        _ => oidc_test_issuer_seed(),
     };
     let key = AitpSigningKey::from_seed(&seed);
     let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
@@ -1255,6 +1274,25 @@ mod tests {
             .find(|v| v["id"] == id)
             .unwrap()
             .clone()
+    }
+
+    /// Both seeds derive to the public keys the spec publishes beside
+    /// them, so a minted JWT verifies under the published key of the
+    /// issuer it claims (and the unknown issuer's under its own only).
+    #[test]
+    fn oidc_issuer_seeds_match_the_published_keys() {
+        let doc: Value = serde_json::from_str(OIDC_TEST_ISSUERS).unwrap();
+        for v in doc["vectors"].as_array().unwrap() {
+            let id = v["id"].as_str().unwrap();
+            let key = AitpSigningKey::from_seed(&oidc_issuer_seed(id));
+            let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
+            assert_eq!(
+                base64url::encode(&x),
+                v["pubkey_b64url"].as_str().unwrap(),
+                "{id}"
+            );
+        }
+        assert_ne!(oidc_test_issuer_seed(), oidc_unknown_issuer_seed());
     }
 
     #[test]
@@ -1426,31 +1464,31 @@ mod tests {
         };
         let valid = mint("__VALID_JWT__");
         let base = jwt_claims(&valid);
-        assert!(jwt_verifies_under(&valid, OIDC_TEST_ISSUER_SEED));
+        assert!(jwt_verifies_under(&valid, oidc_test_issuer_seed()));
 
         let t = mint("__JWT_MISSING_AUD_CLAIM__");
         let mut want = base.clone();
         want.as_object_mut().unwrap().remove("aud");
         assert_eq!(jwt_claims(&t), want);
-        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+        assert!(jwt_verifies_under(&t, oidc_test_issuer_seed()));
 
         let t = mint("__JWT_AUD_TARGETS_DIFFERENT_PEER__");
         let mut want = base.clone();
         want["aud"] = json!(JWT_OTHER_PEER_AUD);
         assert_ne!(JWT_OTHER_PEER_AUD, SELF_AID);
         assert_eq!(jwt_claims(&t), want);
-        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+        assert!(jwt_verifies_under(&t, oidc_test_issuer_seed()));
 
         let t = mint("__JWT_MISSING_CNF_JKT_CLAIM__");
         let mut want = base.clone();
         want.as_object_mut().unwrap().remove("cnf");
         assert_eq!(jwt_claims(&t), want);
-        assert!(jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+        assert!(jwt_verifies_under(&t, oidc_test_issuer_seed()));
 
         let t = mint("__VALID_JWT_FROM_UNKNOWN_ISSUER__");
         assert_eq!(jwt_claims(&t), base);
-        assert!(jwt_verifies_under(&t, OIDC_UNKNOWN_ISSUER_SEED));
-        assert!(!jwt_verifies_under(&t, OIDC_TEST_ISSUER_SEED));
+        assert!(jwt_verifies_under(&t, oidc_unknown_issuer_seed()));
+        assert!(!jwt_verifies_under(&t, oidc_test_issuer_seed()));
     }
 
     /// The PoP negatives are real signatures by the right key over the
@@ -1809,7 +1847,7 @@ mod tests {
         // `aitp-rs-adapter` resolves for `OIDC_TEST_ISSUER`).
         let signing_input = format!("{}.{}", segments[0], segments[1]);
         let sig = aitp_crypto::Signature::parse(segments[2]).unwrap();
-        let issuer_key = AitpSigningKey::from_seed(&OIDC_TEST_ISSUER_SEED);
+        let issuer_key = AitpSigningKey::from_seed(&oidc_test_issuer_seed());
         issuer_key
             .verifying_key()
             .verify_raw(
