@@ -166,9 +166,9 @@ jobs:
         run: echo "version=${GITHUB_REF_NAME#aitp-node-v}" >> "$GITHUB_OUTPUT"
       - name: Mint GitHub App token (scoped to ${{ matrix.repo }})
         id: app
-        uses: actions/create-github-app-token@v3
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
         with:
-          app-id: ${{ secrets.AITP_BOT_APP_ID }}
+          client-id: ${{ vars.AITP_BOT_CLIENT_ID }}
           private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
           owner: agentidentitytrustprotocol
           repositories: ${{ matrix.repo }}
