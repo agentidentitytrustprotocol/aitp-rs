@@ -1,10 +1,10 @@
 name: fuzz
 
-# Nightly fuzz runs on every target in `fuzz/` — the three parser
-# targets plus the five verify-path targets (R4). Each target gets a
-# 120s budget — enough to catch crashes on randomly mutated input
-# without holding up the runner. Crashes are uploaded as artifacts;
-# corpus deltas are committed back via a follow-up PR. A shorter PR
+# Nightly fuzz runs on every target in `fuzz/` (fuzz/README.md lists
+# them). Each target gets a 5-minute budget, starting from a corpus
+# seeded from the conformance fixtures at the pinned spec commit. A
+# crash uploads its reproducer as an artifact and files an issue (one
+# open issue per target; later crashes comment on it). A shorter PR
 # gate lives in `fuzz-pr.yml`.
 
 on:
@@ -15,7 +15,7 @@ on:
       duration_seconds:
         description: "Per-target run duration (seconds)"
         required: false
-        default: "120"
+        default: "300"
 
 env:
   CARGO_TERM_COLOR: always
@@ -28,6 +28,9 @@ jobs:
   fuzz:
     name: fuzz / ${{ matrix.target }}
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     strategy:
       fail-fast: false
       matrix:
@@ -42,8 +45,23 @@ jobs:
           - revocation_verify
           - interop_enroll
           - svid_verify
+          - handshake_payload_decode
+          - oidc_verify
+          - session_bundle_verify
+          - pinned_admission
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - name: Read pinned spec commit
+        id: pin
+        run: echo "sha=$(cat tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Checkout spec at pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          repository: agentidentitytrustprotocol/agentidentitytrustprotocol
+          path: spec
+          ref: ${{ steps.pin.outputs.sha }}
+      - name: Seed corpora from the conformance fixtures
+        run: python3 scripts/fuzz-seed-corpus.py spec fuzz/corpus
       - name: Install nightly toolchain
         uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (nightly)
         with:
@@ -62,12 +80,15 @@ jobs:
       - name: Run fuzz target
         working-directory: fuzz
         env:
-          DURATION: ${{ github.event.inputs.duration_seconds || '120' }}
+          DURATION: ${{ github.event.inputs.duration_seconds || '300' }}
+        # -max_len bounds input size so a large input cannot OOM the
+        # runner; every target's real input is well under 64 KiB.
         run: |
           set -euo pipefail
-          cargo +nightly fuzz run ${{ matrix.target }} \
+          mkdir -p corpus/${{ matrix.target }}
+          cargo +nightly fuzz run ${{ matrix.target }} corpus/${{ matrix.target }} \
             --release \
-            -- -max_total_time=${DURATION} -timeout=10
+            -- -max_total_time="${DURATION}" -timeout=10 -max_len=65536
       - name: Upload crashes
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
@@ -76,6 +97,28 @@ jobs:
           path: |
             fuzz/artifacts/${{ matrix.target }}/**
           if-no-files-found: ignore
+      - name: File an issue for the crash
+        if: failure() && github.event_name == 'schedule'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TARGET: ${{ matrix.target }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          title="fuzz: ${TARGET} failed in the nightly run"
+          body="The nightly fuzz run of \`${TARGET}\` failed: ${RUN_URL}
+
+          The reproducer is the \`crashes-${TARGET}\` artifact of that run. Reproduce with
+          \`cargo +nightly fuzz run ${TARGET} <file>\` (fuzz/README.md)."
+          gh label create fuzz-crash --color B60205 \
+            --description "Found by the nightly fuzz run" 2>/dev/null || true
+          existing=$(gh issue list --state open --label fuzz-crash --search "in:title \"${title}\"" \
+            --json number,title -q ".[] | select(.title == \"${title}\") | .number" | head -1)
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$title" --label fuzz-crash --body "$body"
+          fi
       - name: Upload corpus delta
         if: success()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

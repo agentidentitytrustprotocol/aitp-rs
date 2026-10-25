@@ -124,22 +124,21 @@ where a single example can't cover the input space:
 
 ## Fuzzing
 
-Eight libFuzzer targets under `fuzz/fuzz_targets/` cover every point
-where an untrusted byte stream first meets a parser or verifier:
-
-`envelope_parse`, `manifest_parse`, `delegation_parse`,
-`delegation_verify`, `jws_verify`, `tct_verify`, `jcs_canonicalize`,
-`revocation_verify`.
+Fourteen libFuzzer targets under `fuzz/fuzz_targets/` cover every point
+where an untrusted byte stream first meets a parser or verifier.
+[`fuzz/README.md`](../fuzz/README.md) lists them and covers seeding,
+reproducing crashes and adding a target.
 
 ```bash
 cd fuzz
 cargo +nightly fuzz run tct_verify -- -max_total_time=60
 ```
 
-CI runs a short per-target gate on changed targets
-(`.github/workflows/fuzz-pr.yml`) and a longer nightly sweep across all
-eight (`fuzz.yml`). The `fuzz/corpus/` directory is git-ignored; the
-nightly job uploads corpus deltas as build artifacts.
+CI runs a 30 s gate per target on pull requests
+(`.github/workflows/fuzz-pr.yml`) and a 5-minute nightly sweep
+(`fuzz.yml`) seeded from the spec fixtures, which files an issue on a
+crash. The `fuzz/corpus/` directory is git-ignored; the nightly job
+uploads corpus deltas as build artifacts.
 
 ## Miri
 

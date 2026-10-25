@@ -38,6 +38,10 @@ jobs:
           - revocation_verify
           - interop_enroll
           - svid_verify
+          - handshake_payload_decode
+          - oidc_verify
+          - session_bundle_verify
+          - pinned_admission
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: Install nightly toolchain
@@ -61,7 +65,7 @@ jobs:
           set -euo pipefail
           cargo +nightly fuzz run ${{ matrix.target }} \
             --release \
-            -- -max_total_time=30 -timeout=10
+            -- -max_total_time=30 -timeout=10 -max_len=65536
       - name: Upload crash reproducer
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
