@@ -10,7 +10,7 @@
 //! # Stable surface
 //!
 //! Each module below re-exports a curated list of items by name, frozen in
-//! `crates/aitp/public-api.txt` and checked in CI:
+//! `crates/aitp/public-api.stable.txt` and checked in CI:
 //!
 //! - [`core`]: AIDs, envelopes, timestamps, error codes, nonce stores.
 //! - [`crypto`]: signing keys, the signer traits, digests, compact JWS.
@@ -79,8 +79,8 @@
 // The curated, stable surface. Each module lists
 // its items by name: the internal crates are public on crates.io but carry
 // no stability promise, so nothing reaches `aitp` by glob. Adding or
-// removing an item here changes `public-api.txt`; regenerate it with
-// `make public-api` (CI runs `make public-api-check`).
+// removing an item here changes `public-api.stable.txt`; regenerate it
+// with `make public-api` (CI runs `make public-api-check`).
 
 /// Identifiers, envelopes, timestamps and error codes (RFC-AITP-0001).
 pub mod core {

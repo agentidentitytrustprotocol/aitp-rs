@@ -22,9 +22,9 @@
 
 [workspace]
 # Run cargo-semver-checks inside release-plz when computing the release
-# PR. Unlike the advisory `semver` job in ci.yml (if:pull_request only),
-# this runs where the version bumps actually happen, so an API break that
-# rides an unmarked commit blocks the release PR instead of only warning.
+# PR, so its version math sees API breaks too. The blocking gate is
+# semver.yml on every pull request (STABILITY.md); this is the second
+# look, where the version bumps actually happen.
 semver_check = true
 
 # Label the release PRs release-plz opens.
