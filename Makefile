@@ -65,18 +65,18 @@ semver:
 	@command -v cargo-semver-checks >/dev/null || { echo "cargo-semver-checks missing: cargo install --locked cargo-semver-checks"; exit 1; }
 	cargo semver-checks --package aitp
 
-# The curated `aitp` surface (RS1.5). `public-api` regenerates the
-# snapshot after an intended change; `public-api-check` fails on drift (CI
-# runs it). cargo-public-api reads rustdoc JSON, so it needs the pinned
-# nightly below.
+# The curated `aitp` surface (RS1.5, RS-RC1). `public-api` regenerates
+# crates/aitp/public-api.{stable,experimental}.txt after an intended
+# change; `public-api-check` fails on drift (CI runs it). cargo-public-api
+# reads rustdoc JSON, so it needs the pinned nightly below.
 PUBLIC_API_NIGHTLY ?= nightly-2026-05-05
+export PUBLIC_API_NIGHTLY
 public-api:
-	cargo +$(PUBLIC_API_NIGHTLY) public-api -p aitp --all-features -sss > crates/aitp/public-api.txt
+	python3 scripts/public-api.py generate
 
 public-api-check:
 	@command -v cargo-public-api >/dev/null || { echo "cargo-public-api missing: cargo install --locked cargo-public-api@0.52.0"; exit 1; }
-	cargo +$(PUBLIC_API_NIGHTLY) public-api -p aitp --all-features -sss > $${TMPDIR:-/tmp}/aitp-public-api.txt
-	@diff -u crates/aitp/public-api.txt $${TMPDIR:-/tmp}/aitp-public-api.txt || { echo "the aitp public API changed: review the diff, then run 'make public-api'"; exit 1; }
+	python3 scripts/public-api.py check
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a

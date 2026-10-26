@@ -57,3 +57,30 @@ jobs:
         with:
           baseline-rev: ${{ github.event.pull_request.base.sha }}
           exclude: ${{ env.UNCHECKED_CRATES }},aitp
+      # Blocking. cargo-semver-checks can't see inside a type the facade
+      # re-exports from an internal crate, so the stable signature
+      # snapshot (scripts/public-api.py) is generated for the PR head and
+      # compared with the one committed at the base. The head is generated
+      # here, not read from the PR, so a PR that skips `make public-api`
+      # is still checked.
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (nightly)
+        if: env.BREAK_APPROVED != 'true'
+        with:
+          toolchain: nightly-2026-05-05
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        if: env.BREAK_APPROVED != 'true'
+      - name: Install cargo-public-api
+        if: env.BREAK_APPROVED != 'true'
+        run: cargo +nightly-2026-05-05 install --locked cargo-public-api@0.52.0
+      - name: aitp stable signature snapshot (blocking)
+        if: env.BREAK_APPROVED != 'true'
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: |
+          if ! git show "$BASE:crates/aitp/public-api.stable.txt" > "$RUNNER_TEMP/base.txt" 2>/dev/null; then
+            echo "::notice::the base commit has no stable snapshot yet; nothing to compare"
+            exit 0
+          fi
+          mkdir -p "$RUNNER_TEMP/head"
+          python3 scripts/public-api.py generate --out-dir "$RUNNER_TEMP/head"
+          python3 scripts/public-api.py breaks "$RUNNER_TEMP/base.txt" "$RUNNER_TEMP/head/public-api.stable.txt"
