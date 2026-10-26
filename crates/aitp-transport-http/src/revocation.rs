@@ -272,7 +272,7 @@ pub struct RevocationPolicy {
     /// In-memory cache TTL for an already-verified snapshot. Default
     /// 60s — keeps verification cheap for back-to-back handshakes
     /// without hiding a fresh issuer push for too long.
-    pub cache_ttl_secs: u64,
+    pub cache_ttl_secs: u32,
 }
 
 impl Default for RevocationPolicy {
