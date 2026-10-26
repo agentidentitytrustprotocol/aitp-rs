@@ -164,7 +164,10 @@ def resolved_features(facade_features: list[str]) -> dict[str, list[str]]:
         pkg, _, feats = line.partition("|")
         name = pkg.split(" ")[0]
         if name.startswith("aitp-") and name != FACADE:
-            out[name.replace("-", "_")] = sorted(f for f in feats.replace(" (*)", "").split(",") if f)
+            # `(*)` marks a package already listed; its spacing varies by
+            # cargo version.
+            feats = feats.replace("(*)", "")
+            out[name.replace("-", "_")] = sorted(f.strip() for f in feats.split(",") if f.strip())
     return out
 
 
