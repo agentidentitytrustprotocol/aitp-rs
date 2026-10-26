@@ -68,7 +68,10 @@ INTERNAL_PATH = re.compile(r"\baitp_[a-z_]+(?:::[A-Za-z0-9_]+)*")
 
 
 def run(cmd: list[str]) -> str:
-    res = subprocess.run(cmd, capture_output=True, text=True)
+    # CI sets CARGO_TERM_COLOR=always, which colours cargo tree's `(*)`
+    # marker into the feature list.
+    env = {**os.environ, "CARGO_TERM_COLOR": "never"}
+    res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if res.returncode != 0:
         sys.stderr.write(res.stderr)
         sys.exit(f"failed: {' '.join(cmd)}")
@@ -147,7 +150,8 @@ def is_defining(line: str) -> bool:
 
 
 def snapshot(package: str, features: list[str]) -> list[str]:
-    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "-p", package, "-sss", "--no-default-features"]
+    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "--color=never", "-p", package, "-sss",
+           "--no-default-features"]
     if features:
         cmd += ["--features", ",".join(features)]
     return [l for l in run(cmd).splitlines() if l.strip()]
