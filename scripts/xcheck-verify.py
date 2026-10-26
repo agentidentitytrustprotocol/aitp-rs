@@ -264,6 +264,7 @@ def check_p256(minted: dict, now: int) -> bool:
                 "self_aid": p["participant_aid"],
                 "now": now + 100,
                 "session_bundle": p["session_bundle"],
+                "coordinator_manifest": p["manifest"],
                 "operation": "verify_session_bundle",
             }
         ),
@@ -439,6 +440,9 @@ def main() -> int:
                 "self_aid": minted["verifier_aid"],
                 "now": now + 100,
                 "session_bundle": minted["session_bundle"],
+                # RFC-AITP-0010 §5 step 5: the coordinator's key comes from its
+                # Manifest; without one the bundle is KEY_RESOLUTION_FAILED.
+                "coordinator_manifest": minted["manifest_no_extensions"],
                 "operation": "verify_session_bundle",
             }
         ),

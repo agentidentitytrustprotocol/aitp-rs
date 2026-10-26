@@ -120,7 +120,7 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 | `POST /echo/challenge` and `POST /echo` per client address | Together, a burst of 10, then one every 6 s | — |
 | Outstanding challenges | 10 000 enrolment and 10 000 echo | — |
 | Handshake requests | RFC-AITP-0009 §3.1 defaults: 30 per source and 10 per sender AID per 60 s | — |
-| Request body | 64 KiB, every route → 413 | — |
+| Request body | 64 KiB, every route → 413. The peer reads and discards the rest of an over-limit body, up to 1 MiB, before it answers, so the 413 reaches the client and the connection stays open. A declared `Content-Length` over 1 MiB is refused without reading the body. | — |
 | Request deadline | 15 s → 408 | — |
 
 A client address is the TCP peer, or the client named in

@@ -4,9 +4,11 @@
 
 #![cfg(feature = "serve")]
 
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Read, Write};
+use std::net::TcpStream;
 use std::path::PathBuf;
 use std::process::{Child, Command as StdCommand, Stdio};
+use std::time::Duration;
 
 use aitp::core::base64url;
 use aitp::crypto::{AitpSigningKey, Digest32};
@@ -197,6 +199,75 @@ fn oversized_bodies_get_413() {
         .send()
         .unwrap();
     assert_eq!(resp.status().as_u16(), 413);
+}
+
+/// Reads one response (head plus a Content-Length body) off a raw
+/// connection and returns its status.
+fn read_status(conn: &mut BufReader<TcpStream>) -> u16 {
+    let mut status = String::new();
+    conn.read_line(&mut status).unwrap();
+    let mut len = 0;
+    loop {
+        let mut line = String::new();
+        conn.read_line(&mut line).unwrap();
+        if line == "\r\n" {
+            break;
+        }
+        if let Some((name, value)) = line.split_once(':') {
+            if name.eq_ignore_ascii_case("content-length") {
+                len = value.trim().parse().unwrap();
+            }
+        }
+    }
+    conn.read_exact(&mut vec![0; len]).unwrap();
+    status.split(' ').nth(1).unwrap().parse().unwrap()
+}
+
+/// #380: the 413 goes out after the rest of the body is read, not over
+/// unread bytes. Closing a socket with unread request data makes the kernel
+/// reset it, which can destroy the 413 before the client reads it. Since
+/// the body is drained, the connection stays usable for the next request.
+#[test]
+fn oversized_body_is_drained_before_the_413() {
+    let peer = spawn_peer(13);
+    let addr = peer.origin.trim_start_matches("http://");
+    let stream = TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut conn = BufReader::new(stream);
+    let chunk = vec![b'a'; 8 * 1024];
+    let mut request =
+        b"POST /enroll HTTP/1.1\r\nhost: peer\r\ntransfer-encoding: chunked\r\n\r\n".to_vec();
+    for _ in 0..10 {
+        request.extend_from_slice(format!("{:x}\r\n", chunk.len()).as_bytes());
+        request.extend_from_slice(&chunk);
+        request.extend_from_slice(b"\r\n");
+    }
+    request.extend_from_slice(b"0\r\n\r\n");
+    conn.get_mut().write_all(&request).unwrap();
+    assert_eq!(read_status(&mut conn), 413);
+
+    conn.get_mut()
+        .write_all(b"GET /status HTTP/1.1\r\nhost: peer\r\n\r\n")
+        .unwrap();
+    assert_eq!(read_status(&mut conn), 200);
+}
+
+/// A declared length past the drain bound is refused from the headers alone.
+#[test]
+fn huge_declared_body_is_refused_without_reading_it() {
+    let peer = spawn_peer(14);
+    let addr = peer.origin.trim_start_matches("http://");
+    let stream = TcpStream::connect(addr).unwrap();
+    stream
+        .set_read_timeout(Some(Duration::from_secs(10)))
+        .unwrap();
+    let mut conn = BufReader::new(stream);
+    conn.get_mut()
+        .write_all(b"POST /enroll HTTP/1.1\r\nhost: peer\r\ncontent-length: 2000000\r\n\r\n")
+        .unwrap();
+    assert_eq!(read_status(&mut conn), 413);
 }
 
 #[test]

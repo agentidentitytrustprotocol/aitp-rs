@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `aitp serve --interop` now reads and discards the rest of an over-limit request body (up to 1 MiB) before it sends the 413. It used to answer over unread bytes and then close the socket, and the resulting TCP reset could destroy the 413 before the client read it (RFC 9112 §9.6). That also made the `oversized_bodies_get_413` test flaky ([#380](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/380)). A declared `Content-Length` over 1 MiB is still refused straight from the headers.
 - The JWT-SVID verifier accepts all nine `alg` values RFC-AITP-0002 §6.3 lists: `RS256`, `RS384`, `RS512`, `ES256`, `ES384`, `ES512`, `PS256`, `PS384` and `PS512`. Before this fix, only `ES256` and `RS256` verified; the other seven passed the allow-list and then failed the signature check. `verify_jws_signature` now dispatches RSA PKCS#1 v1.5 and PSS and ES384 through `ring`, and ES512 through RustCrypto `p521`. OIDC ID tokens use the same verifier, so they also verify under these algorithms.
 - `aitp-conformance` no longer sends `*_claims` minting companions to the implementation under test. Before this fix they survived in envelope payloads (`envelope.payload.tct_claims`) and session-bundle participants, so a strict verifier rejected `mh-006`..`mh-008`, `mh-success-001` and five `bundle-*` fixtures with `UNKNOWN_FIELD`. Every op request is now stripped at every depth before it is sent, and CI walks every request the whole pinned corpus produces to keep it that way.
 
