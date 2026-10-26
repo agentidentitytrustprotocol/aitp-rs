@@ -115,7 +115,7 @@ pub mod tct {
         TctRenewalPayload,
     };
     pub use aitp_tct::{
-        sign_pop_response, sign_revocation_list, verify_attestation, verify_pop_response,
+        sign_pop_response, sign_revocation_list, verify_attestation,
         verify_revocation_list, verify_tct, verify_voucher, AttestationVerifyContext,
         AttestationVerifyContextBuilder, Cnf, GrantVoucherClaims, IssuedTct, PopChallenge,
         PopResponse, RevocationCheckFn, RevocationEntry, RevocationList, RevocationListEnvelope,
