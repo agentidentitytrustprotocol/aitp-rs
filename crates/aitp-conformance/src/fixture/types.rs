@@ -13,7 +13,7 @@ pub enum FixtureStatus {
     /// RFC-AITP-0011 multi-hop). v0.1 runners SKIP unless the
     /// implementation opts into the matching `feature`.
     Draft,
-    /// Optional extension (e.g. RFC-AITP-0004 §8.1 renewal).
+    /// Optional extension (e.g. RFC-AITP-0013 renewal).
     Extension,
     /// Reserved for future spec work; no implementation is
     /// expected to handle the fixture yet.
@@ -194,4 +194,17 @@ pub struct FixtureExpected {
     /// mismatch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub side_effects: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `renew_tct` success (RFC-AITP-0013): each listed claim of the
+    /// renewed TCT, decoded from the response envelope the adapter
+    /// returns, must equal the value given here.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renewed_tct_claims: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `renew_tct` success: whether the renewed TCT's `jti` differs from
+    /// the presented one's.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub renewed_jti_differs: Option<bool>,
+    /// `renew_tct` success: the response envelope's `message_type`,
+    /// `sender` (its `agent_id`) and `pop_nonce_echo` (a payload member).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response: Option<serde_json::Map<String, serde_json::Value>>,
 }

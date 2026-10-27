@@ -462,7 +462,7 @@ These ship in the default wheel. A `--no-default-features` build drops all of
 them; add back by named Cargo feature: `renewal`, `session-bundle`,
 `spki-pinning`, `multihop-delegation`.
 
-### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `renewal`)
+### TCT renewal (RFC-AITP-0013, feature `renewal`)
 
 ```python
 import time
@@ -481,8 +481,7 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
   0.15 the compiled keyword was `current_tct_envelope_json`, which disagreed
   with the stub
   ([#199](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/199)).
-- **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
-  extension is non-normative.
+- **Status:** RFC-AITP-0013 is *Draft*.
 - **Policy re-evaluation (since 0.15).** The issuer must have called
   `build_manifest()`; grants its Manifest no longer offers are dropped
   (none left raises). Pass the issuer's revoked TCT `jti`s as

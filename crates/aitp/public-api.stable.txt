@@ -1283,6 +1283,7 @@ pub aitp::tct::TctError::RenewalGrantsWithdrawn
 pub aitp::tct::TctError::RenewalNonceMalformed(alloc::string::String)
 pub aitp::tct::TctError::RenewalNonceStore(aitp::core::nonce_store::NonceStoreError)
 pub aitp::tct::TctError::RenewalReplayed
+pub aitp::tct::TctError::RenewalRequestMalformed(alloc::string::String)
 pub aitp::tct::TctError::RevocationUnavailable(alloc::string::String)
 pub aitp::tct::TctError::Revoked
 pub aitp::tct::TctError::SelfIssued
@@ -1328,6 +1329,7 @@ pub aitp::tct::error::TctError::RenewalGrantsWithdrawn
 pub aitp::tct::error::TctError::RenewalNonceMalformed(alloc::string::String)
 pub aitp::tct::error::TctError::RenewalNonceStore(aitp::core::nonce_store::NonceStoreError)
 pub aitp::tct::error::TctError::RenewalReplayed
+pub aitp::tct::error::TctError::RenewalRequestMalformed(alloc::string::String)
 pub aitp::tct::error::TctError::RevocationUnavailable(alloc::string::String)
 pub aitp::tct::error::TctError::Revoked
 pub aitp::tct::error::TctError::SelfIssued

@@ -347,7 +347,7 @@ impl<A: Adapter> Runner<A> {
         if let Some(map) = op_params.as_object_mut() {
             map.remove("operation");
         }
-        let result = self.execute(op, op_params).map_err(|e| match e {
+        let result = self.execute(op, op_params.clone()).map_err(|e| match e {
             crate::adapter::AdapterError::OpNotSupported(_) => {
                 StepError::Skip(format!("adapter does not support op {op}"))
             }
@@ -355,6 +355,7 @@ impl<A: Adapter> Runner<A> {
         })?;
         if let Some(expected) = expected {
             assert_outcome(&result, expected)?;
+            assert_renewal(&result, expected, &op_params)?;
         }
         Ok(())
     }
@@ -400,7 +401,7 @@ impl<A: Adapter> Runner<A> {
             if let Some(map) = params.as_object_mut() {
                 map.remove("operation");
             }
-            let result = self.execute(op, params).map_err(|e| match e {
+            let result = self.execute(op, params.clone()).map_err(|e| match e {
                 crate::adapter::AdapterError::OpNotSupported(_) => {
                     StepError::Skip(format!("adapter does not support op {op}"))
                 }
@@ -419,6 +420,7 @@ impl<A: Adapter> Runner<A> {
                 }
             }
             assert_outcome(&result, &step.expected).map_err(|e| e.in_step(step.step))?;
+            assert_renewal(&result, &step.expected, &params).map_err(|e| e.in_step(step.step))?;
         }
         Ok(())
     }
@@ -565,6 +567,79 @@ fn assert_side_effects(actual: &OpResult, expected: &FixtureExpected) -> Result<
     Ok(())
 }
 
+/// Assert a `renew_tct` success (RFC-AITP-0013 §6) against
+/// `expected.renewed_tct_claims`, `renewed_jti_differs` and `response`.
+/// The runner reads them from the response envelope the adapter returns
+/// as `result.response_envelope`, not from anything the adapter decoded.
+/// A fixture that expects them from an adapter that returns no envelope
+/// fails.
+fn assert_renewal(
+    actual: &OpResult,
+    expected: &FixtureExpected,
+    params: &serde_json::Value,
+) -> Result<(), StepError> {
+    if expected.renewed_tct_claims.is_none()
+        && expected.renewed_jti_differs.is_none()
+        && expected.response.is_none()
+    {
+        return Ok(());
+    }
+    let OpResult::Ok { result, .. } = actual else {
+        return Ok(()); // assert_outcome already failed a non-success
+    };
+    let envelope = result.get("response_envelope").ok_or_else(|| {
+        StepError::Fail("renewal succeeded without result.response_envelope".into())
+    })?;
+    let payload = &envelope["payload"];
+    let renewed = payload["tct"]
+        .as_str()
+        .and_then(jws_claims)
+        .ok_or_else(|| StepError::Fail("response payload.tct is not a decodable JWS".into()))?;
+    if let Some(want) = &expected.renewed_tct_claims {
+        for (claim, want_val) in want {
+            if renewed.get(claim) != Some(want_val) {
+                return Err(StepError::Fail(format!(
+                    "renewed TCT `{claim}`: expected {want_val}, got {}",
+                    renewed.get(claim).unwrap_or(&serde_json::Value::Null)
+                )));
+            }
+        }
+    }
+    if let Some(want) = expected.renewed_jti_differs {
+        let current = params["renewal_request"]["current_tct"]
+            .as_str()
+            .and_then(jws_claims)
+            .ok_or_else(|| StepError::Fail("renewal_request.current_tct is not a JWS".into()))?;
+        if (current.get("jti") != renewed.get("jti")) != want {
+            return Err(StepError::Fail(format!(
+                "renewed jti differs: expected {want}, renewed jti {}",
+                renewed.get("jti").unwrap_or(&serde_json::Value::Null)
+            )));
+        }
+    }
+    if let Some(want) = &expected.response {
+        for (key, want_val) in want {
+            let got = match key.as_str() {
+                "message_type" => &envelope["message_type"],
+                "sender" => &envelope["sender"]["agent_id"],
+                other => &payload[other],
+            };
+            if got != want_val {
+                return Err(StepError::Fail(format!(
+                    "response `{key}`: expected {want_val}, got {got}"
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// The payload of a compact JWS, decoded without verification.
+fn jws_claims(token: &str) -> Option<serde_json::Value> {
+    let bytes = aitp::crypto::jws::decode_payload_unverified(token).ok()?;
+    serde_json::from_slice(&bytes).ok()
+}
+
 #[derive(Debug)]
 enum StepError {
     Fail(String),
@@ -592,7 +667,6 @@ fn negated_by_feature(error_code: &str) -> Option<&'static str> {
     match error_code {
         "DELEGATION_MULTIHOP_NOT_SUPPORTED" => Some("experimental-multihop-delegation"),
         "BUNDLE_NOT_SUPPORTED" => Some("experimental-session-bundle"),
-        "TCT_RENEWAL_NOT_SUPPORTED" => Some("experimental-renewal"),
         _ => None,
     }
 }
@@ -625,6 +699,43 @@ mod tests {
 
     fn expected(v: serde_json::Value) -> FixtureExpected {
         serde_json::from_value(v).unwrap()
+    }
+
+    /// A compact JWS whose payload is `claims` (header and signature
+    /// are not read by `assert_renewal`).
+    fn jws(claims: serde_json::Value) -> String {
+        format!(
+            "e30.{}.AA",
+            aitp::core::base64url::encode(claims.to_string().as_bytes())
+        )
+    }
+
+    #[test]
+    fn renewal_assertions_read_the_response_envelope() {
+        let want = expected(json!({
+            "outcome": "success",
+            "renewed_tct_claims": {"exp": 100},
+            "renewed_jti_differs": true,
+            "response": {"message_type": "tct", "sender": "aid:x", "pop_nonce_echo": "n"},
+        }));
+        let params = json!({"renewal_request": {"current_tct": jws(json!({"jti": "a"}))}});
+        let ok = |exp: i64, jti: &str, echo: &str| OpResult::Ok {
+            ok: true,
+            result: json!({"response_envelope": {
+                "message_type": "tct",
+                "sender": {"agent_id": "aid:x"},
+                "payload": {"tct": jws(json!({"jti": jti, "exp": exp})), "pop_nonce_echo": echo},
+            }}),
+        };
+        assert!(assert_renewal(&ok(100, "b", "n"), &want, &params).is_ok());
+        assert!(assert_renewal(&ok(101, "b", "n"), &want, &params).is_err());
+        assert!(assert_renewal(&ok(100, "a", "n"), &want, &params).is_err());
+        assert!(assert_renewal(&ok(100, "b", "m"), &want, &params).is_err());
+        let bare = OpResult::Ok {
+            ok: true,
+            result: json!({}),
+        };
+        assert!(assert_renewal(&bare, &want, &params).is_err());
     }
 
     fn err(code: &str, http_status: Option<u16>) -> OpResult {

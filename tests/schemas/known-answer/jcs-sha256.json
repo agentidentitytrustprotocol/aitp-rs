@@ -198,6 +198,7 @@
     },
     {
       "id": "kat-multihop-chain-001",
+      "draft": true,
       "rfc_refs": [
         "RFC-AITP-0011 §5"
       ],
@@ -215,6 +216,7 @@
     },
     {
       "id": "kat-multihop-truncation-001",
+      "draft": true,
       "rfc_refs": [
         "RFC-AITP-0011 §5"
       ],
@@ -226,6 +228,7 @@
     },
     {
       "id": "kat-session-bundle-001",
+      "draft": true,
       "signing_input": "body",
       "rfc_refs": [
         "RFC-AITP-0010 §3",
@@ -250,6 +253,46 @@
       "sha256_hex": "b0e7a9e50cd88037992c19eded7cf7282a36d200c491f9d42e4bc9d623fe8bf0",
       "sha256_b64url": "sOep5QzYgDeZLBnt7Xz3KCo20gDEkfnULkvJ1iP-i_A",
       "coordinator_signature_b64url": "Bi3qnf2aSxg3Fyrv-T0XBX4xxUMchHLMfRI1C1rdQioRaTmL_B4X_t1nt7iDHUb9ePeFIi8fMQAWGdB8mPoDAw"
+    },
+    {
+      "id": "kat-renewal-pop-001",
+      "draft": true,
+      "rfc_refs": [
+        "RFC-AITP-0013 §3.1"
+      ],
+      "$comment": "RFC-AITP-0013 §3.1 renewal PoP input (Draft). issuer_aid and current_tct_jti are the iss and jti claims of the committed TCT signed-examples/tct/kat-keypair-001-issues-002.json; pop_nonce is the 16 ASCII bytes `aitp-renewal-kat`, base64url-encoded. renewal_pop_input = \"aitp-renewal-pop-v1\\0\" || issuer_aid || \"\\0\" || current_tct_jti || \"\\0\" || base64url-decoded pop_nonce. The signer is kat-keypair-002, the TCT's sub; the Ed25519 signature is over sha256(renewal_pop_input) and verifies untagged and as `ed25519.<sig>`. It MUST NOT verify when pop_nonce enters the input as its base64url string rather than its decoded bytes, nor over the input built with the `aid:pubkey:ed25519:` spelling of issuer_aid.",
+      "source_tct": "signed-examples/tct/kat-keypair-001-issues-002.json",
+      "issuer_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "current_tct_jti": "550e8400-e29b-41d4-a716-446655440000",
+      "pop_nonce": "YWl0cC1yZW5ld2FsLWthdA",
+      "input_hex": "616974702d72656e6577616c2d706f702d7631006169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b0035353065383430302d653239622d343164342d613731362d34343636353534343030303000616974702d72656e6577616c2d6b6174",
+      "input_len_bytes": 128,
+      "sha256_hex": "280201affcdc83c27150e63d6955da118b7fcc97ee02650a844864467d797ba7",
+      "sha256_b64url": "KAIBr_zcg8JxUOY9aVXaEYt_zJfuAmUKhEhkRn15e6c",
+      "signing_keypair_id": "kat-keypair-002",
+      "signer_aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+      "signature_b64url": "t5g8neQjcjgjNo80uzOPEwqFAxBGIc8NsIszAMq-zzfmyzBUqEoXpk_kElquxwn3gK4S5BPsShCf9-RM99dbAg"
+    },
+    {
+      "id": "kat-renewal-pop-002-p256",
+      "draft": true,
+      "rfc_refs": [
+        "RFC-AITP-0013 §3.1",
+        "RFC-AITP-0001 §5.4.6"
+      ],
+      "$comment": "P-256 sibling of kat-renewal-pop-001 (RFC-AITP-0013 §3.1, Draft): the same (issuer_aid, current_tct_jti, pop_nonce) and the same renewal_pop_input, signed by kat-keypair-005-p256. ECDSA P-256 under the RFC-AITP-0001 §5.4.6 single-hash rule (e = sha256(renewal_pop_input)), RFC 6979 deterministic k, low-S, in the `p256.` tagged form a p256 holder MUST emit. `double_hash_signature_MUST_NOT_verify` is a real signature with e = sha256(sha256(renewal_pop_input)) and MUST NOT verify; the untagged form MUST be rejected as an algorithm mismatch.",
+      "issuer_aid": "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik",
+      "current_tct_jti": "550e8400-e29b-41d4-a716-446655440000",
+      "pop_nonce": "YWl0cC1yZW5ld2FsLWthdA",
+      "input_hex": "616974702d72656e6577616c2d706f702d7631006169643a7075626b65793a4f326f6e764d3632704331696f366a514b6d384e6332557946586364346b4f6d4f7342496f59745a32696b0035353065383430302d653239622d343164342d613731362d34343636353534343030303000616974702d72656e6577616c2d6b6174",
+      "input_len_bytes": 128,
+      "sha256_hex": "280201affcdc83c27150e63d6955da118b7fcc97ee02650a844864467d797ba7",
+      "sha256_b64url": "KAIBr_zcg8JxUOY9aVXaEYt_zJfuAmUKhEhkRn15e6c",
+      "signing_keypair_id": "kat-keypair-005-p256",
+      "signer_aid": "aid:pubkey:p256:AweBDql0zqV3PmO4l_N-O-mgnnpf6blxpE0QZawqOpMR",
+      "signature_b64url": "wWVQQ3m7SjCTyRxBIjmRro8UYewP9Bbj431bBrItdHMSsnSiCleA5q30OFZkhTXpqqI5VOtNPSzeNLT_Jd7zhQ",
+      "signature": "p256.wWVQQ3m7SjCTyRxBIjmRro8UYewP9Bbj431bBrItdHMSsnSiCleA5q30OFZkhTXpqqI5VOtNPSzeNLT_Jd7zhQ",
+      "double_hash_signature_MUST_NOT_verify": "p256.t70iEhyjPzVMK2vuskj9ypOZ7Ffmt3zFt_yIrZWv2B4wBCyZNflwwMhr9qyFaZRIUVV7unHCLg_b-FJt53tedA"
     },
     {
       "id": "kat-derived-uuid-001",

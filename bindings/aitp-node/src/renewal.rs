@@ -55,7 +55,7 @@ pub(crate) fn build_renewal_request_js(
 /// so each entry is normalized (any RFC 9562 text form is accepted) and an
 /// entry that is not a UUID at all is refused. Each `pop_nonce` is
 /// recorded in a process-wide replay guard and a repeat is refused
-/// (RFC-AITP-0004 §8.1).
+/// (RFC-AITP-0013).
 pub(crate) fn process_renewal_request_js(
     issuer_key: &AitpSigningKey,
     request_payload_json: &str,

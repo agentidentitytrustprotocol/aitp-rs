@@ -16,9 +16,14 @@ use crate::handshake::{
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
 use crate::manifest::Manifest;
+#[cfg(feature = "experimental-renewal")]
+pub use crate::tct::RenewedTct;
 use crate::tct::VerifiedTct;
 #[cfg(feature = "experimental-renewal")]
-use crate::tct::{build_renewal_request, TctRenewalPayload};
+use crate::tct::{
+    build_renewal_request, verify_renewal_response, RenewalResponseContext, RenewalResponseError,
+    TctRenewalPayload,
+};
 use crate::transport::{
     sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
     RevocationFetcher, RevocationPolicy,
@@ -238,10 +243,15 @@ pub enum FacadeError {
     ManifestVerify(#[from] crate::manifest::ManifestError),
     /// The issuer's Manifest advertises no usable
     /// `rfc-aitp-0005.renew_uri`, so it does not offer renewal. Run a
-    /// full Mutual Handshake instead; RFC-AITP-0004 §8.1 forbids probing
+    /// full Mutual Handshake instead; RFC-AITP-0013 §2 forbids probing
     /// a guessed renewal path.
     #[error("issuer Manifest advertises no rfc-aitp-0005.renew_uri; run a full handshake")]
     RenewalNotAdvertised,
+    /// The issuer's renewal response failed RFC-AITP-0013 §6.1, or the
+    /// issuer refused the renewal ([`RenewalResponseError::Refused`]).
+    #[cfg(feature = "experimental-renewal")]
+    #[error("renewal response: {0}")]
+    RenewalResponse(#[from] RenewalResponseError),
 }
 
 /// Maximum size of a handshake or renewal response body the facade
@@ -264,7 +274,7 @@ struct AitpErrorBody {
 }
 
 /// Shared status / Content-Type / size validation for an AITP JSON
-/// response, common to [`interpret_aitp_response`] and
+/// response, common to the test-only `interpret_aitp_response` and
 /// [`interpret_aitp_envelope_response`]. Returns once the body is known
 /// to be a 2xx JSON response worth attempting to deserialize.
 ///
@@ -311,22 +321,12 @@ fn validate_aitp_response_shape(
     Ok(())
 }
 
-/// Interpret an HTTP response's status, Content-Type and body for an
-/// AITP JSON endpoint. Factored out of [`read_aitp_json_response`] so
-/// the status / content-type / size / parse logic is unit-testable
-/// without an HTTP round trip.
-///
-/// See [`validate_aitp_response_shape`] for the shared prelude; on a 2xx
-/// JSON response this does a plain `serde_json::from_slice::<T>` — used
-/// for response bodies that are *not* an [`AitpEnvelope`] (e.g. the TCT
-/// renewal endpoint's `RenewedTct`), where there is no member-set check
-/// to route through. See [`interpret_aitp_envelope_response`] for the
-/// envelope-typed counterpart.
-///
-/// Only reachable in production code via the `experimental-renewal`
-/// gated [`renew_tct`]; kept available otherwise so the unit tests below
-/// can exercise it directly without an HTTP round trip.
-#[cfg(any(test, feature = "experimental-renewal"))]
+/// Interpret an HTTP response's status, Content-Type and body as a
+/// plain AITP JSON body: [`validate_aitp_response_shape`], then
+/// `serde_json::from_slice::<T>`. Test-only: it exercises the shared
+/// prelude without an HTTP round trip. See
+/// [`interpret_aitp_envelope_response`] for the production path.
+#[cfg(test)]
 fn interpret_aitp_response<T: serde::de::DeserializeOwned>(
     status: reqwest::StatusCode,
     content_type: &str,
@@ -376,8 +376,8 @@ fn interpret_aitp_envelope_response(
 }
 
 /// Drain a `reqwest::Response` body under a hard size cap, returning the
-/// status, Content-Type header and raw bytes for [`interpret_aitp_response`]
-/// / [`interpret_aitp_envelope_response`] to validate and parse.
+/// status, Content-Type header and raw bytes for
+/// [`interpret_aitp_envelope_response`] to validate and parse.
 ///
 /// A `Content-Length` declaring more than `max_bytes` is rejected before a
 /// single byte is read, and the streaming read aborts the moment the
@@ -422,25 +422,8 @@ async fn read_aitp_response_body(
     Ok((status, content_type, body))
 }
 
-/// Read and validate an AITP JSON response: status, Content-Type and
-/// size are checked before the body is deserialized. A peer's AITP
-/// error envelope is surfaced as [`FacadeError::Protocol`]; every other
-/// failure is [`FacadeError::Http`]. See [`interpret_aitp_response`].
-///
-/// Used for response bodies that are not an [`AitpEnvelope`] (e.g. the
-/// TCT renewal endpoint's `RenewedTct`). See
-/// [`read_aitp_envelope_response`] for the envelope-typed counterpart.
-#[cfg(feature = "experimental-renewal")]
-async fn read_aitp_json_response<T: serde::de::DeserializeOwned>(
-    resp: reqwest::Response,
-    max_bytes: usize,
-) -> Result<T, FacadeError> {
-    let (status, content_type, body) = read_aitp_response_body(resp, max_bytes).await?;
-    interpret_aitp_response(status, &content_type, &body, max_bytes)
-}
-
-/// Same contract as [`read_aitp_json_response`], specialized to
-/// [`AitpEnvelope`] via [`interpret_aitp_envelope_response`] so an
+/// Read and validate an AITP envelope response: status, Content-Type
+/// and size are checked by [`interpret_aitp_envelope_response`] so an
 /// unknown top-level member in a peer's handshake response is reported
 /// as `UNKNOWN_FIELD` rather than a bare malformed-JSON error.
 async fn read_aitp_envelope_response(
@@ -875,21 +858,8 @@ impl<'a> InitiatorConfig<'a> {
     }
 }
 
-/// Result of a TCT renewal: the fresh TCT compact JWS and its
-/// companion grant voucher.
-#[cfg(feature = "experimental-renewal")]
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct RenewedTct {
-    /// Fresh TCT compact JWS (new `jti`, fresh `exp`).
-    pub tct: String,
-    /// Fresh companion grant voucher, when the issuer's policy allows
-    /// delegation.
-    #[serde(default)]
-    pub grant_voucher: Option<String>,
-}
-
 /// Send a TCT renewal request to the endpoint the issuer advertises in
-/// its Manifest as `rfc-aitp-0005.renew_uri` (RFC-AITP-0004 §8.1).
+/// its Manifest as `rfc-aitp-0005.renew_uri` (RFC-AITP-0013 §2).
 /// Gated behind the `experimental-renewal` Cargo feature.
 ///
 /// `current` is the currently-held TCT compact JWS; `issuer_manifest`
@@ -898,9 +868,11 @@ pub struct RenewedTct {
 /// here; see [`renew_tct_with_insecure_localhost`] for local development.
 /// When the Manifest advertises no usable `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
 /// without sending anything: run a full handshake instead (no guessed
-/// path is ever probed). Returns the freshly-issued [`RenewedTct`]. The
-/// caller SHOULD verify the new token with [`crate::tct::verify_tct`]
-/// before storing it.
+/// path is ever probed). The issuer's answer is checked with
+/// [`crate::tct::verify_renewal_response`] (RFC-AITP-0013 §6.1) before
+/// the renewed TCT is returned; a refusal is
+/// [`FacadeError::RenewalResponse`] carrying
+/// [`RenewalResponseError::Refused`].
 ///
 /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
 /// failure returns `FacadeError::Renewal(TctError::Crypto(CryptoError::Signer(_)))`.
@@ -947,8 +919,25 @@ async fn renew_at_advertised_uri(
         .send()
         .await
         .map_err(|e| FacadeError::Http(e.to_string()))?;
-    let renewed: RenewedTct = read_aitp_json_response(renew_resp, MAX_RESPONSE_BYTES).await?;
-    Ok(renewed)
+    // RFC-AITP-0013 §6: the holder decides from the envelope, whatever
+    // the HTTP status.
+    let (_, _, body) = read_aitp_response_body(renew_resp, MAX_RESPONSE_BYTES).await?;
+    let value = CheckedJson::from_slice(&body)
+        .map_err(|e| FacadeError::Http(format!("malformed JSON in renewal response: {e}")))?;
+    let envelope = parse_envelope_wire(&value).map_err(|e| {
+        FacadeError::RenewalResponse(match e {
+            EnvelopeParseError::UnknownField(field) => RenewalResponseError::UnknownField(field),
+            other => RenewalResponseError::InvalidEnvelope(other.to_string()),
+        })
+    })?;
+    let ctx = RenewalResponseContext::new(
+        holder_key.aid(),
+        &request.current_tct,
+        &request.pop_nonce,
+        Timestamp::now(),
+    )
+    .issuer_manifest_expires_at(issuer_manifest.expires_at);
+    Ok(verify_renewal_response(&envelope, &ctx)?)
 }
 
 #[cfg(feature = "experimental-renewal")]

@@ -1,6 +1,6 @@
 //! `aitp::facade::renew_tct` renews only at the issuer's advertised
 //! `rfc-aitp-0005.renew_uri` and never probes a guessed path
-//! (RFC-AITP-0004 §8.1, issue #196).
+//! (RFC-AITP-0013, issue #196).
 
 #![cfg(all(feature = "experimental-renewal", feature = "http-server"))]
 
@@ -76,7 +76,10 @@ async fn renews_at_the_advertised_uri() {
     let renewed = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
         .expect("renewal at the advertised URI");
-    assert!(!renewed.tct.is_empty());
+    // The response was a signed `tct` envelope from the issuer whose
+    // renewed TCT is addressed to the holder (RFC-AITP-0013 §6.1).
+    assert_eq!(&renewed.tct.claims.sub, holder.aid());
+    assert_eq!(&renewed.tct.claims.iss, issuer.aid());
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.
@@ -147,4 +150,47 @@ async fn no_renew_uri_means_no_request() {
         "got {err:?}"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 0, "no guessed path probed");
+}
+
+/// An issuer refusal arrives as a signed `error` envelope with a 4xx
+/// status; the facade surfaces its code (RFC-AITP-0013 §6.1).
+#[tokio::test]
+async fn refusal_is_surfaced_with_its_code() {
+    use aitp::core::ErrorCode;
+    use aitp::tct::RenewalResponseError;
+
+    let issuer = AitpSigningKey::from_seed(&[0x64; 32]);
+    let holder = AitpSigningKey::from_seed(&[0x65; 32]);
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));
+    let server = HandshakeServer::new(
+        AitpSigningKey::from_seed(&[0x64; 32]),
+        m.clone(),
+        vec![],
+        NoOpResolver,
+        vec!["demo.echo".into()],
+    );
+    tokio::spawn(async move { server.serve(listener).await.ok() });
+
+    // A TCT carrying only a grant the Manifest no longer offers.
+    let withdrawn = TctBuilder::new(&issuer)
+        .subject(holder.aid().clone())
+        .audience(holder.aid().clone())
+        .grants(["legacy.cap"])
+        .ttl_secs(600)
+        .subject_pubkey(holder.verifying_key())
+        .issued_at(Timestamp::now())
+        .build()
+        .unwrap()
+        .token;
+    let err = renew_tct_with_insecure_localhost(&holder, withdrawn, &m)
+        .await
+        .unwrap_err();
+    match err {
+        FacadeError::RenewalResponse(RenewalResponseError::Refused { code, .. }) => {
+            assert_eq!(code, ErrorCode::PolicyViolation)
+        }
+        other => panic!("got {other:?}"),
+    }
 }

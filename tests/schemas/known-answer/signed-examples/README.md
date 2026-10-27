@@ -52,6 +52,10 @@ pinned artifact as vector `kat-session-bundle-001` in
 [`../jcs-sha256.json`](../jcs-sha256.json) (922 canonical bytes,
 `sha256_hex` starting `b0e7a9e5…`) — restated here as a full, standalone,
 schema-validating artifact rather than a replacement for that vector.
+Both belong to RFC-AITP-0010, a Draft RFC, so both carry `"draft": true`
+and sit outside the frozen known-answer set until that RFC reaches
+Release Candidate ([`../README.md` § Draft vectors](../README.md#draft-vectors)).
+The schema check strips the `draft` member with the other companions.
 
 ## Layout
 

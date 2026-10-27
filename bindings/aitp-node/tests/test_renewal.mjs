@@ -78,7 +78,7 @@ test('replayed renewal request rejected', { skip: !HAS_RENEWAL }, () => {
   const req = b.buildRenewalRequest(bHeld);
   const now = Math.floor(Date.now() / 1000);
   a.processRenewalRequest(req, now + 86_400, 3600);
-  // Same pop_nonce again: refused (RFC-AITP-0004 §8.1).
+  // Same pop_nonce again: refused (RFC-AITP-0013).
   assert.throws(() => a.processRenewalRequest(req, now + 86_400, 3600), /replay/);
 });
 

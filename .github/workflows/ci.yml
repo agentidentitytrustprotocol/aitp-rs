@@ -492,7 +492,7 @@ jobs:
       - name: Run the full fixture corpus against the Rust adapter
         working-directory: aitp-rs
         # Opt into the draft features and extensions so the bundle-*,
-        # multihop, spiffe, pinned-admission and self-attestation fixtures run
+        # multihop, spiffe, ren-*, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
         # fixture FAILs or a required_for_core fixture is SKIPped.
         # Expected skips: del-004 and del-007, negated by multi-hop (the
@@ -506,7 +506,8 @@ jobs:
             --feature experimental-session-bundle \
             --feature experimental-spiffe-identity \
             --feature aitp-pinned-admission \
-            --feature aitp-self-attestation
+            --feature aitp-self-attestation \
+            --feature experimental-renewal
       - name: Write the conformance report (core + extension claims)
         working-directory: aitp-rs
         # No draft features: a core fixture negated by one (del-007

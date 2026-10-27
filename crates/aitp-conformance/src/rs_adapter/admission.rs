@@ -31,7 +31,7 @@ pub(crate) struct AdmissionHarness {
 
 /// Drive a future that never waits: every store the harness builds is
 /// in memory, so each future is ready on its first poll.
-fn ready<F: Future>(fut: F) -> F::Output {
+pub(super) fn ready<F: Future>(fut: F) -> F::Output {
     let mut fut = std::pin::pin!(fut);
     let mut cx = std::task::Context::from_waker(std::task::Waker::noop());
     match fut.as_mut().poll(&mut cx) {

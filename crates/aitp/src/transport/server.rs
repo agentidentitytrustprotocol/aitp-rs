@@ -16,7 +16,8 @@ use crate::manifest::{Manifest, ManifestEnvelope};
 use crate::tct::RevocationListEnvelope;
 #[cfg(feature = "experimental-renewal")]
 use crate::tct::{
-    process_renewal_request, RenewalContext, RenewalGrantPolicyFn, TctRenewalPayload,
+    parse_renewal_request, process_renewal_request, renewal_error_code, renewal_error_envelope,
+    renewal_response_envelope, RenewalContext, RenewalGrantPolicyFn,
 };
 use crate::transport::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::transport::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
@@ -237,7 +238,7 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     renewal: RenewalConfig,
 }
 
-/// Issuer-side renewal settings (RFC-AITP-0004 §8.1).
+/// Issuer-side renewal settings (RFC-AITP-0013).
 #[cfg(feature = "experimental-renewal")]
 #[derive(Clone)]
 struct RenewalConfig {
@@ -555,7 +556,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// Replace the renewal replay guard (default: a process-local
     /// [`InMemoryNonceStore`]). Every accepted renewal `pop_nonce` is
     /// recorded here until the presented TCT expires, and a repeat is
-    /// refused with `REPLAY_DETECTED` (RFC-AITP-0004 §8.1). Behind a
+    /// refused with `REPLAY_DETECTED` (RFC-AITP-0013). Behind a
     /// load balancer, share one store across replicas.
     #[cfg(feature = "experimental-renewal")]
     pub fn with_renewal_nonce_store(mut self, store: Arc<dyn NonceStore>) -> Self {
@@ -801,8 +802,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ///
     /// With `experimental-renewal`, the renewal route is mounted only
     /// when this server's Manifest advertises
-    /// `rfc-aitp-0005.renew_uri`, at that URL's path (RFC-AITP-0004
-    /// §8.1: renewal is opt-in and peers never probe a guessed path).
+    /// `rfc-aitp-0005.renew_uri`, at that URL's path (RFC-AITP-0013
+    /// §2: renewal is opt-in and peers never probe a guessed path).
     ///
     /// Also starts the background session sweeper
     /// ([`DEFAULT_SESSION_SWEEP_INTERVAL`] unless changed with
@@ -862,7 +863,7 @@ struct RenewalRouteState<R: JwksResolver + Send + Sync + 'static> {
 
 /// The renewal route, mounted at the path of the Manifest's
 /// `rfc-aitp-0005.renew_uri`, or `None` when the Manifest does not
-/// advertise one (RFC-AITP-0004 §8.1).
+/// advertise one (RFC-AITP-0013).
 #[cfg(feature = "experimental-renewal")]
 fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
     state: &Arc<HandshakeState<R>>,
@@ -902,23 +903,21 @@ fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
     )
 }
 
-/// `POST <renew_uri path>` accepts a [`TctRenewalPayload`] and returns
-/// a fresh `{"tct": "<compact JWS>", "grant_voucher": …}` body.
-/// Gated behind the `experimental-renewal` Cargo feature
-/// (RFC-AITP-0004 §8.1).
+/// `POST <renew_uri path>` accepts a renewal request (RFC-AITP-0013 §3)
+/// and answers with a signed `tct` envelope carrying the renewed TCT
+/// (§6), or a signed `error` envelope refusing it. Gated behind the
+/// `experimental-renewal` Cargo feature.
 ///
 /// Each request is rate limited per source like the handshake routes
-/// (RFC-AITP-0009 §3.1), the presented TCT is checked against this
-/// server's revocation list and Manifest, its `pop_nonce` goes through
-/// the replay guard, and grants are re-evaluated against the Manifest's
-/// current `offered_capabilities` (see
-/// [`crate::tct::process_renewal_request`]).
+/// (RFC-AITP-0009 §3.1); a rate-limited request gets an empty 429.
+/// Everything else runs [`crate::tct::process_renewal_request`] against
+/// this server's revocation list, Manifest and replay guard.
 #[cfg(feature = "experimental-renewal")]
 #[instrument(level = "debug", skip(route_state, request))]
 async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     State(route_state): State<Arc<RenewalRouteState<R>>>,
     request: Request,
-) -> Result<Response, ResponseError> {
+) -> Response {
     let state = &route_state.handshake;
     // Rate limit before any parsing (RFC-AITP-0009 §3.1). The body names
     // no authenticated AID yet, so only the transport key applies.
@@ -926,8 +925,9 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     if let RateLimitOutcome::DenyTooManyRequests { reason } =
         rate_limit_check(state, source_ip, None)
     {
-        return Err(ResponseError::too_many_requests(reason));
+        return ResponseError::too_many_requests(reason).into_response();
     }
+    let signer = &*state.signing_key;
     let content_type = request
         .headers()
         .get(header::CONTENT_TYPE)
@@ -935,26 +935,22 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
         .unwrap_or_default()
         .to_ascii_lowercase();
     if !content_type.starts_with("application/json") {
-        return Err(ResponseError::aitp(
-            ErrorCode::InvalidEnvelope,
-            "expected Content-Type: application/json".into(),
-        ));
+        return renewal_refusal(
+            signer,
+            StatusCode::BAD_REQUEST,
+            ErrorCode::PopResponseInvalid,
+            "expected Content-Type: application/json",
+            false,
+        );
     }
-    let body = read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await?;
-    // `TctRenewalPayload` is `#[serde(deny_unknown_fields)]` with no
-    // `extensions` slot of its own (RFC-AITP-0013 defines no such
-    // member), so there is no separate member-set check to run first —
-    // `from_serde_error` recovers the offending name directly from the
-    // residual serde error, the same degradation path
-    // `crate::tct::renewal::process_renewal_request` uses for the nested
-    // `TctClaims` object.
-    let payload: TctRenewalPayload = serde_json::from_slice(&body).map_err(|e| {
-        if let Some(field) = from_serde_error(&e) {
-            ResponseError::aitp(ErrorCode::UnknownField, format!("unknown field `{field}`"))
-        } else {
-            ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
-        }
-    })?;
+    let body = match read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await {
+        Ok(body) => body,
+        Err(e) => return renewal_refusal(signer, e.status, e.code, &e.message, false),
+    };
+    let payload = match parse_renewal_request(&body) {
+        Ok(p) => p,
+        Err(e) => return renewal_failure(signer, &e),
+    };
     // Our own revocation list, read fresh for each request.
     let revoked: std::collections::HashSet<Uuid> = route_state
         .revocation_producer
@@ -980,77 +976,75 @@ async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
     if let Some(policy) = route_state.config.grant_policy.as_deref() {
         ctx = ctx.grant_policy(policy);
     }
-    let renewed = process_renewal_request(&payload, &*state.signing_key, &ctx)
-        .await
-        .map_err(|e| renewal_response_error(&e))?;
-    #[derive(serde::Serialize)]
-    struct RenewalResponse {
-        tct: String,
-        #[serde(skip_serializing_if = "Option::is_none")]
-        grant_voucher: Option<String>,
+    let renewed = match process_renewal_request(&payload, signer, &ctx).await {
+        Ok(r) => r,
+        Err(e) => return renewal_failure(signer, &e),
+    };
+    match renewal_response_envelope(signer, &renewed, &payload.pop_nonce, Uuid::new_v4(), now) {
+        Ok(envelope) => Json(envelope).into_response(),
+        // Signing the response failed: a local fault, not the holder's.
+        Err(e) => ResponseError::local_signer_failure(&e).into_response(),
     }
-    Ok(Json(RenewalResponse {
-        tct: renewed.token,
-        grant_voucher: renewed.voucher,
-    })
-    .into_response())
 }
 
-/// Map a renewal failure to the response: our own signer or nonce store
-/// failing is a local 5xx, never blamed on the holder; everything else
-/// is a 400 with [`renewal_error_code`].
+/// The refusal for a renewal failure: our own signer or nonce store
+/// failing is a local, retryable 5xx (RFC-AITP-0013 §5), never blamed
+/// on the holder; everything else is a 400 with
+/// [`renewal_error_code`].
 #[cfg(feature = "experimental-renewal")]
-fn renewal_response_error(err: &crate::tct::TctError) -> ResponseError {
+fn renewal_failure(signer: &dyn AitpSigner, err: &crate::tct::TctError) -> Response {
     match err {
-        e if tct_signer_failure(e) => ResponseError::local_signer_failure(e),
+        e if tct_signer_failure(e) => ResponseError::local_signer_failure(e).into_response(),
         crate::tct::TctError::RenewalNonceStore(store_err) => {
             let status = match store_err {
                 NonceStoreError::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
                 _ => StatusCode::INTERNAL_SERVER_ERROR,
             };
-            ResponseError {
+            renewal_refusal(
+                signer,
                 status,
-                code: ErrorCode::InvalidEnvelope,
-                message: format!("internal error: renewal replay guard: {store_err}"),
-                emit_envelope: true,
-            }
+                ErrorCode::InvalidEnvelope,
+                &format!("internal error: renewal replay guard: {store_err}"),
+                true,
+            )
         }
-        e => ResponseError::aitp(renewal_error_code(e), e.to_string()),
+        e => renewal_refusal(
+            signer,
+            StatusCode::BAD_REQUEST,
+            renewal_error_code(e),
+            &e.to_string(),
+            false,
+        ),
     }
 }
 
-/// Map a renewal `TctError` to its registered AITP error code
-/// (RFC-AITP-0001 §5.4.3), one code per failure class rather than the
-/// blanket `TCT_SIGNATURE_INVALID` used before #196.
+/// A signed `error` envelope refusing a renewal (RFC-AITP-0013 §6),
+/// with `status`.
 #[cfg(feature = "experimental-renewal")]
-fn renewal_error_code(err: &crate::tct::TctError) -> ErrorCode {
-    use crate::crypto::CryptoError;
-    use crate::tct::TctError;
-    match err {
-        TctError::RenewalReplayed => ErrorCode::ReplayDetected,
-        TctError::RenewalNonceMalformed(_)
-        | TctError::ClaimsMalformed(_)
-        | TctError::MissingField(_)
-        | TctError::CnfMalformed
-        | TctError::EmptyGrants
-        | TctError::GrantWhitespace(_)
-        | TctError::Crypto(CryptoError::JwsMalformed(_)) => ErrorCode::InvalidEnvelope,
-        TctError::UnknownField(_) => ErrorCode::UnknownField,
-        TctError::VersionUnknown => ErrorCode::UnknownVersion,
-        TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
-        TctError::Expired => ErrorCode::TctExpired,
-        TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
-        TctError::PopChallengeExpired => ErrorCode::PopChallengeInvalid,
-        TctError::PopFailed | TctError::PopNonceMismatch | TctError::PopJtiMismatch => {
-            ErrorCode::PopResponseInvalid
-        }
-        TctError::RenewalGrantsWithdrawn => ErrorCode::PolicyViolation,
-        TctError::AudienceMismatch => ErrorCode::AudienceMismatch,
-        TctError::Crypto(CryptoError::AlgMismatch(_)) => ErrorCode::TokenAlgMismatch,
-        TctError::Crypto(CryptoError::TypMismatch { .. }) => ErrorCode::TokenTypMismatch,
-        // Signature, issuer pin (a TCT this issuer did not sign), jti,
-        // self-issued / attestation marker: the token is not one of ours.
-        _ => ErrorCode::TctSignatureInvalid,
+fn renewal_refusal(
+    signer: &dyn AitpSigner,
+    status: StatusCode,
+    code: ErrorCode,
+    reason: &str,
+    retryable: bool,
+) -> Response {
+    warn!(
+        target: "aitp.error.envelope",
+        code = ?code,
+        status = status.as_u16(),
+        message = %reason,
+        "AITP renewal error envelope returned"
+    );
+    match renewal_error_envelope(
+        signer,
+        code,
+        reason,
+        retryable,
+        Uuid::new_v4(),
+        Timestamp::now(),
+    ) {
+        Ok(envelope) => (status, Json(envelope)).into_response(),
+        Err(e) => ResponseError::local_signer_failure(&e).into_response(),
     }
 }
 

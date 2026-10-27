@@ -1,6 +1,6 @@
 //! Single-use nonce storage, shared by pinned-key admission (proposal
 //! agentidentitytrustprotocol#72 Item 7d, `aitp::handshake`) and the TCT
-//! renewal replay guard (RFC-AITP-0004 §8.1, `aitp::tct`).
+//! renewal replay guard (RFC-AITP-0013, `aitp::tct`).
 //!
 //! Lives here, in the lowest crate both depend on; `crate::handshake::admission`
 //! re-exports every item under its 0.14 path.
@@ -24,7 +24,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Length in bytes of a [`Nonce`]: 16, the `pop_nonce` length of
-/// RFC-AITP-0002 §3.1 and of the renewal request (RFC-AITP-0004 §8.1,
+/// RFC-AITP-0002 §3.1 and of the renewal request (RFC-AITP-0013,
 /// 22 unpadded base64url characters).
 pub const NONCE_LEN: usize = 16;
 

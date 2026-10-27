@@ -50,7 +50,7 @@ pub fn build_renewal_request_py(
 /// so each entry is normalized (any RFC 9562 text form is accepted) and an
 /// entry that is not a UUID at all is refused. Each `pop_nonce` is
 /// recorded in a process-wide replay guard and a repeat is refused
-/// (RFC-AITP-0004 §8.1). Returns a JSON object
+/// (RFC-AITP-0013). Returns a JSON object
 /// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
 pub fn process_renewal_request_py(
     issuer_key: &AitpSigningKey,

@@ -31,7 +31,7 @@ metrics = ["dep:metrics"]
 # Test helpers: `crypto::testing` (mock KMS signers, the P-256 high-S
 # twin). Never enable it in production builds.
 test-util = []
-# In-band TCT renewal (RFC-AITP-0004 §8.1). Experimental: enables
+# In-band TCT renewal (RFC-AITP-0013). Experimental: enables
 # `tct::{build_renewal_request, process_renewal_request, ..}` and
 # `facade::renew_tct`.
 experimental-renewal = []

@@ -480,7 +480,7 @@ impl PyAitpAgent {
     /// issuer's manifest window; `new_ttl_secs` is the requested
     /// lifetime (capped by the bound).
     ///
-    /// Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+    /// Renewal re-evaluates policy (RFC-AITP-0013): grants this
     /// agent's Manifest (from `build_manifest()`, required) no longer
     /// offers are dropped, a TCT whose `jti` is in `revoked_jtis` is
     /// refused, and a replayed request (same `pop_nonce`) is refused.

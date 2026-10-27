@@ -374,7 +374,7 @@ bindings and runs that suite.
 - [`session-bundle.md`](session-bundle.md),
   [`multihop-delegation.md`](multihop-delegation.md),
   [`tct-renewal.md`](tct-renewal.md) — the opt-in extensions (RFC-0010 and
-  RFC-0011 are Draft, RFC-0013 is Planned)
+  RFC-0011 and RFC-0013 are Draft)
 - [`sdk-python.md`](sdk-python.md) / [`sdk-node.md`](sdk-node.md) and
   [`transport-hardening.md`](transport-hardening.md) — SDK guides and the
   HTTP-transport hardening register

@@ -102,6 +102,11 @@ release. Its live operation list is `supported_ops` in `init()` in
   from the first step's `self_aid`, `trust_store`,
   `max_outstanding_nonces`, `presentation_rate_limit` and
   `outstanding_challenges`. `begin_fixture` drops it.
+- `renew_tct` acts as the issuer `self_aid` (a KAT keypair) and returns
+  the signed response envelope as `result.response_envelope`; the runner
+  checks `expected.renewed_tct_claims`, `renewed_jti_differs` and
+  `response` against it. Its replay guard lives for one fixture;
+  `begin_fixture` drops it.
 
 ### Inside the runner
 
@@ -366,13 +371,14 @@ summary shows the report's `totals` and `gates`, and the
 [report](#conformance-report). Other pages link here instead of quoting
 numbers.
 
-| Tier | Strict run (no `--feature`) | With all five features |
+| Tier | Strict run (no `--feature`) | With all six features |
 |---|---|---|
 | `core`, `required_for_core: true` (the `aitp/0.3` core tier) | all PASS | all PASS except `del-007` (SKIP) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | PASS | SKIP |
 | `draft`: session bundle (`experimental-session-bundle`) | SKIP | PASS |
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | SKIP | PASS |
 | `draft`: SPIFFE identity (`experimental-spiffe-identity`) | SKIP | PASS |
+| `draft`: TCT renewal (`experimental-renewal`) | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | SKIP | PASS |
 
@@ -390,7 +396,7 @@ Why the skips look the way they do:
 - **Strict run.** `del-004` runs and passes. It expects
   `DELEGATION_MULTIHOP_NOT_SUPPORTED`, and that is what a runtime without
   multi-hop returns. The skips are the session-bundle, multi-hop,
-  pinned-admission and self-attestation fixtures: a `draft` or
+  SPIFFE, renewal, pinned-admission and self-attestation fixtures: a `draft` or
   `extension` fixture is skipped unless its `feature` has been enabled.
 - **With `--feature experimental-multihop-delegation`.** `del-004` and
   `del-007` both expect `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Turning the
@@ -420,7 +426,8 @@ cargo build -p aitp-conformance   # builds aitp-conformance and aitp-rs-adapter
   --feature experimental-session-bundle \
   --feature experimental-spiffe-identity \
   --feature aitp-pinned-admission \
-  --feature aitp-self-attestation
+  --feature aitp-self-attestation \
+  --feature experimental-renewal
 ```
 
 ### Core conformance gate

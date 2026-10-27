@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://agentidentitytrustprotocol.io/schema/v0.3/tct-renewal.json",
+  "title": "TctRenewalMessages",
+  "description": "AITP v0.3 TCT renewal (RFC-AITP-0013, Draft, opt-in). Two shapes: the renewal request, a bare JSON object POSTed to the issuer's rfc-aitp-0005.renew_uri (RFC-AITP-0013 §3), and the payload of the issuer's `tct` response envelope (RFC-AITP-0013 §6). TCTs and vouchers are opaque compact JWS strings (RFC-AITP-0001 §5.4.5).",
+  "anyOf": [
+    {
+      "title": "RenewalRequest (POST body to renew_uri)",
+      "$ref": "#/$defs/RenewalRequest"
+    },
+    {
+      "title": "RenewalResponsePayload (payload of the message_type=tct response envelope)",
+      "$ref": "#/$defs/RenewalResponsePayload"
+    }
+  ],
+  "$defs": {
+    "CompactJws": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+\\.[A-Za-z0-9_-]+$",
+      "description": "RFC 7515 compact JWS: exactly three non-empty unpadded-base64url segments. Embedded verbatim as an opaque string."
+    },
+    "PopNonce": {
+      "type": "string",
+      "minLength": 22,
+      "description": "16 random bytes as 22 unpadded base64url characters (RFC-AITP-0001 §5.4.2).",
+      "pattern": "^[A-Za-z0-9_-]{22}$"
+    },
+    "RenewalPopSignature": {
+      "type": "string",
+      "minLength": 1,
+      "description": "base64url(sign(holder_key, sha256(renewal_pop_input))), renewal_pop_input per RFC-AITP-0013 §3.1. MAY carry an algorithm tag prefix; a p256 holder MUST (RFC-AITP-0001 §5.4.3).",
+      "pattern": "^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$"
+    },
+    "RenewalRequest": {
+      "type": "object",
+      "required": [
+        "current_tct",
+        "pop_nonce",
+        "pop_signature"
+      ],
+      "properties": {
+        "current_tct": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "The TCT being renewed, verbatim, typ 'aitp-tct+jwt'. Decoded claims validate against aitp-tct.schema.json."
+        },
+        "pop_nonce": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "Fresh holder-chosen nonce, new for every request."
+        },
+        "pop_signature": {
+          "$ref": "#/$defs/RenewalPopSignature",
+          "description": "Renewal PoP by the key encoded in the current TCT's sub."
+        }
+      },
+      "additionalProperties": false
+    },
+    "RenewalResponsePayload": {
+      "type": "object",
+      "required": [
+        "tct",
+        "pop_nonce_echo"
+      ],
+      "properties": {
+        "tct": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "The renewed TCT, typ 'aitp-tct+jwt'. Decoded claims validate against aitp-tct.schema.json."
+        },
+        "grant_voucher": {
+          "$ref": "#/$defs/CompactJws",
+          "description": "OPTIONAL companion grant voucher for the renewed TCT, typ 'aitp-grant+jwt', src_jti = the renewed TCT's jti (RFC-AITP-0005 §8.2)."
+        },
+        "pop_nonce_echo": {
+          "$ref": "#/$defs/PopNonce",
+          "description": "MUST equal the request's pop_nonce."
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "examples": [
+    {
+      "current_tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJzdWIiOiJleGFtcGxlIn0.c2ln",
+      "pop_nonce": "YWl0cC1yZW5ld2FsLWthdA",
+      "pop_signature": "t5g8neQjcjgjNo80uzOPEwqFAxBGIc8NsIszAMq-zzfmyzBUqEoXpk_kElquxwn3gK4S5BPsShCf9-RM99dbAg"
+    },
+    {
+      "tct": "eyJhbGciOiJFZERTQSIsInR5cCI6ImFpdHAtdGN0K2p3dCJ9.eyJzdWIiOiJleGFtcGxlIn0.c2ln",
+      "pop_nonce_echo": "YWl0cC1yZW5ld2FsLWthdA"
+    }
+  ]
+}

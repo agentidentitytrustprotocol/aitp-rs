@@ -121,8 +121,8 @@ pub enum TctError {
     #[error("attestation ext lacks statement key `{0}`")]
     AttestationStatementMissing(String),
     /// A renewal request's `pop_nonce` is not 22 unpadded base64url
-    /// characters decoding to 16 bytes (RFC-AITP-0004 §8.1 wire format).
-    /// Wire code `INVALID_ENVELOPE`.
+    /// characters decoding to 16 bytes (RFC-AITP-0013 §4 step 1). Wire
+    /// code `POP_RESPONSE_INVALID`.
     #[error("renewal pop_nonce malformed: {0}")]
     RenewalNonceMalformed(String),
     /// A renewal request's `pop_nonce` was already used to renew a TCT
@@ -130,8 +130,7 @@ pub enum TctError {
     #[error("renewal pop_nonce already used (replay)")]
     RenewalReplayed,
     /// Re-evaluating the issuer's grant policy at renewal left no grant
-    /// (RFC-AITP-0004 §8.1: renewal is not a bypass for policy). Wire
-    /// code `POLICY_VIOLATION`.
+    /// (RFC-AITP-0013 §4 step 6). Wire code `POLICY_VIOLATION`.
     #[error("no grant survives renewal policy re-evaluation")]
     RenewalGrantsWithdrawn,
     /// The renewal replay guard's nonce store refused or failed. A local
@@ -141,4 +140,9 @@ pub enum TctError {
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
+    /// A renewal request body is not a JSON object with exactly
+    /// `current_tct`, `pop_nonce` and `pop_signature`, each a string
+    /// (RFC-AITP-0013 §4 step 1). Wire code `POP_RESPONSE_INVALID`.
+    #[error("renewal request malformed: {0}")]
+    RenewalRequestMalformed(String),
 }

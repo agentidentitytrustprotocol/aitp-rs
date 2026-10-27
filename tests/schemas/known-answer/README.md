@@ -15,7 +15,7 @@ verifier rejects (§5.4.7).
 | [`keypairs.json`](keypairs.json) | Seed → public key → `aid:pubkey:` identifier (Ed25519 ×5, P-256 ×1), plus `kat-keypair-001-tagged`, which pins the algorithm-tagged `aid:pubkey:ed25519:` spelling of kat-keypair-001 beside its untagged one | RFC-AITP-0001 §5.3 |
 | [`oidc-test-issuers.json`](oidc-test-issuers.json) | Seed → Ed25519 public key → JWK of the OIDC test issuers that sign the corpus's identity JWTs: `kat-oidc-issuer-001` (`https://auth.openai.com`, trusted) and `kat-oidc-issuer-002-unknown` (signs `__VALID_JWT_FROM_UNKNOWN_ISSUER__`, never trusted). Issuer keys, not AIDs | RFC-AITP-0002 §2, [PLACEHOLDERS.md](../PLACEHOLDERS.md) |
 | [`jwk-thumbprints.json`](jwk-thumbprints.json) | RFC 7638 thumbprints of the canonical JWK forms. **Load-bearing in v0.3:** these are the `cnf.jkt` values on TCTs and delegation tokens (RFC-AITP-0001 §5.4.4), as well as the OIDC identity binding's `cnf.jkt` | RFC-AITP-0001 §5.4.4, RFC-AITP-0002 §2.2.1 |
-| [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, the Draft multihop vectors, and the derived-identifier vector `kat-derived-uuid-001` (RFC-AITP-0005 §2.2). Each vector names its own signing input; see below. Also the single-hash P-256 vectors `kat-p256-jcs-sign-001`, `kat-manifest-pop-002-p256` and `kat-pinned-key-proof-002-p256`, each with the double-hash value that MUST NOT verify, and the pinned-key proof vectors `kat-pinned-key-proof-001` (Ed25519, untagged AID) and `kat-pinned-key-proof-003-tagged-ed25519` (Ed25519, `aid:pubkey:ed25519:` AID), and the SPIFFE X509-SVID proof vector `kat-spiffe-x509-proof-001` (leaf key kat-keypair-003, sender kat-keypair-002; MUST NOT verify over the pinned-key input of the same tuple) | RFC-AITP-0001 §5.4.1–§5.4.2, RFC-AITP-0005 §2.2, RFC-AITP-0001 §5.4.6, RFC-AITP-0002 §3.1, §6.4.1 |
+| [`jcs-sha256.json`](jcs-sha256.json) | **Signing inputs** — JCS canonical bytes (RFC 8785) and SHA-256 digests of the JCS-profile artifacts (Manifest, revocation snapshot, session bundle), the unified PoP signing-input vector, the Draft multihop vectors, and the derived-identifier vector `kat-derived-uuid-001` (RFC-AITP-0005 §2.2). Each vector names its own signing input; see below. Also the single-hash P-256 vectors `kat-p256-jcs-sign-001`, `kat-manifest-pop-002-p256` and `kat-pinned-key-proof-002-p256`, each with the double-hash value that MUST NOT verify, and the pinned-key proof vectors `kat-pinned-key-proof-001` (Ed25519, untagged AID) and `kat-pinned-key-proof-003-tagged-ed25519` (Ed25519, `aid:pubkey:ed25519:` AID), the SPIFFE X509-SVID proof vector `kat-spiffe-x509-proof-001` (leaf key kat-keypair-003, sender kat-keypair-002; MUST NOT verify over the pinned-key input of the same tuple), and the Draft renewal PoP vectors `kat-renewal-pop-001` (Ed25519) and `kat-renewal-pop-002-p256` | RFC-AITP-0001 §5.4.1–§5.4.2, RFC-AITP-0005 §2.2, RFC-AITP-0001 §5.4.6, RFC-AITP-0002 §3.1, §6.4.1, RFC-AITP-0013 §3.1 |
 | [`signature-strictness.json`](signature-strictness.json) | Raw (public key, message, signature) tuples that a lax verifier accepts and a strict one MUST reject: Ed25519 small-order key (`sig-001`), Ed25519 `S ≥ L` (`sig-002`), P-256 high-S (`sig-003`) | RFC-AITP-0001 §5.4.7 |
 | [`signed-examples/`](signed-examples/) | Real-signature artifacts minted from the pinned seeds: compact-JWS TCT, grant voucher, delegation token; JCS-signed Manifest, revocation snapshot and session bundle; and P-256 (`kat-keypair-005-p256`) siblings: an envelope, Manifest, revocation snapshot and `ES256` TCT; an Ed25519 envelope with a non-empty `extensions` member (`kat-envelope-002-ed25519`); and two self-attestation TCTs (`kat-tct-002` EdDSA, `kat-tct-003` ES256) | RFC-AITP-0005 §5.3/§7/§8, RFC-AITP-0006 §6, RFC-AITP-0003 §6, RFC-AITP-0008 §1.5, RFC-AITP-0010 §3, RFC-AITP-0001 §5.4 |
 
@@ -144,20 +144,34 @@ a re-mint reproduces them byte for byte.
 
 ## Stability
 
-These vectors are stable for AITP v0.3. New vectors MAY be added; an
-existing vector's output MUST NOT change without an RFC bump. If JCS
-or JWK Thumbprint specifications change in a way that breaks these
-vectors, AITP will issue a major version bump.
+These vectors are stable for AITP v0.3. The rule is: **additions only,
+except a security fix under [SECURITY.md](../../../SECURITY.md).**
 
-**Invoked once so far.** `kat-manifest-001`, `kat-revocation-001` and
-`kat-session-bundle-001` were regenerated when it was found that they
-pinned the transport wrapper rather than the signing input the RFCs
-specified. That correction carries a patch bump of the four RFCs whose
-citations moved (`0.2.0-draft` → `0.2.1-draft`), and `CHANGELOG.md`
-publishes the old and new bytes, digests and signatures so a consumer
-pinning them can tell which copy they hold. Note the direction: the
-requirement did not change, the artifacts were wrong — which is why it
-is a patch bump and not a protocol or schema-namespace break.
+- New vectors and signed examples MAY be added.
+- No existing vector's output, no signed example and no known-answer
+  keypair changes, except as part of a security fix handled under
+  [SECURITY.md](../../../SECURITY.md#security-fixes-that-change-the-wire).
+  Such a fix ships with a published advisory, and `CHANGELOG.md` lists
+  each old and new value so a consumer pinning them can tell which copy
+  they hold.
+- If the JCS or JWK Thumbprint specifications change in a way that
+  breaks these vectors, AITP issues a new protocol revision.
+
+The same rule is quoted in [`VERSIONING.md`](../../../VERSIONING.md)
+(Change classes and What is frozen).
+
+**Earlier rule, invoked once.** On the v0.2 line the rule allowed an
+existing output to change with an RFC bump. It was used once:
+`kat-manifest-001`, `kat-revocation-001` and `kat-session-bundle-001`
+were regenerated when it was found that they pinned the transport
+wrapper rather than the signing input the RFCs specified. That
+correction carried a patch bump of the four RFCs whose citations moved
+(`0.2.0-draft` → `0.2.1-draft`), and `CHANGELOG.md` publishes the old
+and new bytes, digests and signatures so a consumer pinning them can
+tell which copy they hold. Note the direction: the requirement did not
+change, the artifacts were wrong — which is why it was a patch bump and
+not a protocol or schema-namespace break. On the `aitp/0.3` line such a
+correction to a frozen vector is taken only as a security fix.
 
 **Re-minted for `aitp/0.3`.** The `aitp/0.3` revision changed the
 literal inside every signed artifact, so every vector and signed example
@@ -165,3 +179,28 @@ that carries it was re-minted by script with the same keys, `jti`s and
 timestamps. That is a protocol revision, not a use of the rule above.
 `CHANGELOG.md` lists each old and new output, and the `aitp/0.2` values
 stay in the frozen v0.2 line (commit `f9ee7ea`).
+
+### Draft vectors
+
+A vector or signed example pinned for a **Draft** RFC carries
+`"draft": true`. Today these are `kat-multihop-chain-001` and
+`kat-multihop-truncation-001` (RFC-AITP-0011),
+`kat-session-bundle-001` with
+[`signed-examples/session-bundle/`](signed-examples/session-bundle/)
+(RFC-AITP-0010), and `kat-renewal-pop-001` and
+`kat-renewal-pop-002-p256` (RFC-AITP-0013).
+
+- A draft entry is **outside the frozen set** until its RFC reaches
+  Release Candidate. Until then it may change with its RFC: the change
+  takes a `Version:` bump on that RFC, and `CHANGELOG.md` lists the old
+  and new values.
+- When the RFC reaches Release Candidate, the tag is removed in the same
+  change, and from then on the entry follows the rule above.
+- Everything else is in the frozen set. Any digest or manifest of the
+  frozen set covers untagged entries only.
+- An implementation reproduces draft entries exactly like the others.
+  The tag says how the entry may change, not whether it is checked.
+
+`make kat-verify` checks the tag in both directions: every listed draft
+entry carries exactly `true`, and no other entry carries a `draft`
+member. A frozen vector cannot leave the frozen set by being tagged.

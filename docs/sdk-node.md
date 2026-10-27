@@ -470,7 +470,7 @@ These ship in the default build. A `--no-default-features` build drops all of
 them; add back by named Cargo feature: `renewal`, `session-bundle`,
 `spki-pinning`, `multihop-delegation`.
 
-### TCT renewal (RFC-AITP-0013 / RFC-AITP-0004 §8.1, feature `renewal`)
+### TCT renewal (RFC-AITP-0013, feature `renewal`)
 
 ```javascript
 const req = alice.buildRenewalRequest(tctJws);   // the held TCT compact JWS
@@ -484,8 +484,7 @@ const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
   absent when issuance policy declined to mint one).
   `issueTctForDelegatee` returns the same shape. Before 0.15 both returned a
   bare compact-JWS string and dropped the voucher.
-- **Status:** RFC-AITP-0013 is *Planned* and the RFC-AITP-0004 §8.1 renewal
-  extension is non-normative.
+- **Status:** RFC-AITP-0013 is *Draft*.
 - **Policy re-evaluation (since 0.15).** The issuer must have called
   `buildManifest()`; grants its Manifest no longer offers are dropped
   (none left throws). Pass the issuer's revoked TCT `jti`s as the optional

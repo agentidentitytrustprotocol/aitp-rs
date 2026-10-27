@@ -1,6 +1,8 @@
-//! TCT renewal endpoint (RFC-AITP-0004 §8.1, issue #196): mounted only at
+//! TCT renewal endpoint (RFC-AITP-0013, issue #196): mounted only at
 //! the advertised `rfc-aitp-0005.renew_uri`, replay-guarded, re-checks
-//! revocation and grants, and maps each failure to its own registry code.
+//! revocation and grants, answers with a signed `tct` envelope, and
+//! refuses each failure with a signed `error` envelope carrying its own
+//! registry code.
 
 #![cfg(all(feature = "http-server", feature = "experimental-renewal"))]
 
@@ -117,8 +119,14 @@ async fn post(base: &str, body: &impl serde::Serialize) -> (u16, serde_json::Val
     (status, body)
 }
 
+/// The code of a signed `error` envelope from this issuer.
 fn code(body: &serde_json::Value) -> &str {
-    body["error"]["code"].as_str().unwrap_or("<none>")
+    assert_eq!(body["message_type"], "error", "{body}");
+    assert_eq!(
+        body["sender"]["agent_id"].as_str(),
+        Some(issuer().aid().as_str())
+    );
+    body["payload"]["code"].as_str().unwrap_or("<none>")
 }
 
 #[tokio::test]
@@ -144,8 +152,17 @@ async fn renews_at_advertised_path_and_refuses_replay() {
 
     let (status, body) = post(&base, &req).await;
     assert_eq!(status, 200, "{body}");
-    assert!(body["tct"].is_string());
-    assert!(body["grant_voucher"].is_string());
+    assert_eq!(body["message_type"], "tct");
+    assert_eq!(
+        body["sender"]["agent_id"].as_str(),
+        Some(issuer().aid().as_str())
+    );
+    assert_eq!(
+        body["payload"]["pop_nonce_echo"].as_str(),
+        Some(req.pop_nonce.as_str())
+    );
+    assert!(body["payload"]["tct"].is_string());
+    assert!(body["payload"]["grant_voucher"].is_string());
 
     // The old fixed path is not mounted when another is advertised.
     let resp = reqwest::Client::new()
@@ -200,7 +217,8 @@ async fn withdrawn_grants_are_dropped_or_refused() {
     let (status, body) = post(&base, &request(&holder, current.token)).await;
     assert_eq!(status, 200, "{body}");
     let renewed =
-        aitp::crypto::jws::decode_payload_unverified(body["tct"].as_str().unwrap()).unwrap();
+        aitp::crypto::jws::decode_payload_unverified(body["payload"]["tct"].as_str().unwrap())
+            .unwrap();
     let claims: serde_json::Value = serde_json::from_slice(&renewed).unwrap();
     assert_eq!(claims["grants"], serde_json::json!(["demo.echo"]));
 
@@ -256,7 +274,11 @@ async fn each_failure_maps_to_its_own_code() {
     let short =
         build_renewal_request(&holder, good.token.clone(), base64url::encode(&[7u8; 8])).unwrap();
     let (status, body) = post(&base, &short).await;
-    assert_eq!((status, code(&body)), (400, "INVALID_ENVELOPE"), "{body}");
+    assert_eq!(
+        (status, code(&body)),
+        (400, "POP_RESPONSE_INVALID"),
+        "{body}"
+    );
 
     // A TCT some other issuer signed.
     let other = AitpSigningKey::from_seed(&[0x07; 32]);
@@ -272,7 +294,11 @@ async fn each_failure_maps_to_its_own_code() {
     let mut extra = serde_json::to_value(request(&holder, good.token.clone())).unwrap();
     extra["surprise"] = serde_json::json!(1);
     let (status, body) = post(&base, &extra).await;
-    assert_eq!((status, code(&body)), (400, "UNKNOWN_FIELD"), "{body}");
+    assert_eq!(
+        (status, code(&body)),
+        (400, "POP_RESPONSE_INVALID"),
+        "{body}"
+    );
 
     // Not a JWS.
     let mut garbage = request(&holder, good.token.clone());
@@ -295,4 +321,6 @@ async fn full_replay_guard_is_a_local_error() {
     assert_eq!(status, 200);
     let (status, body) = post(&base, &request(&holder, current.token)).await;
     assert_eq!(status, 503, "{body}");
+    assert_eq!(body["message_type"], "error");
+    assert_eq!(body["payload"]["retryable"], true);
 }
