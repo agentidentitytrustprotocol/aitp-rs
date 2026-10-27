@@ -147,11 +147,13 @@ def node_items(source: str) -> list[str]:
 
 
 def node_names(items: list[str]) -> tuple[set[str], dict[str, tuple[set[str], set[str]]]]:
-    """(addon export names, {class: (prototype names, static names)})."""
+    """(addon export names, {class: (prototype names, static names)}).
+    `__`-prefixed names are set by the generated loader (index.js), not the
+    addon, so they are not expected from it."""
     exports, classes, kinds = set(), {}, {}
     for line in items:
         m = re.match(r"(class|interface|enum|function|const|type) (\w+)", line)
-        if m:
+        if m and not m.group(2).startswith("__"):
             kinds[m.group(2)] = m.group(1)
             if m.group(1) in ("class", "enum", "function", "const"):
                 exports.add(m.group(2))

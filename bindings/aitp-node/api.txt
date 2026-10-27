@@ -83,6 +83,7 @@ class JwksProvider
 class SpkiPinVerifier
 class TctStore
 const REVOCATION_LIST_PATH: string
+const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
 function computeAidJkt(aid: string): string
 function computeSpkiHash(certDer: Buffer): Buffer
 function revocationSigningBytes(envelopeJson: string): Buffer
