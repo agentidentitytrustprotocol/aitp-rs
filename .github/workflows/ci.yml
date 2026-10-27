@@ -766,6 +766,98 @@ jobs:
             aitp-rs/rs-report.json
           if-no-files-found: error
 
+  # RS-GO (#405): the same two checks as `xcheck`, against the Go verifier,
+  # written from the RFCs and schemas with the standard library alone. It is
+  # pinned by commit SHA in tests/AITP_VERIFIER_GO_VERSION, and both of its
+  # programs are built from that checkout; the adapter embeds the OIDC
+  # test-issuer keys, so it needs no spec files of its own. Same author as
+  # this repo, so it does not count as an independent implementation
+  # (D4). A required check, like `xcheck`; bump-verifier-go.yml opens the
+  # PR that moves the pin.
+  xcheck-go:
+    name: cross-impl acceptance (aitp-verifier-go)
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout aitp-rs
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          path: aitp-rs
+      - name: Read pinned commits
+        id: pin
+        run: |
+          echo "go=$(cat aitp-rs/tests/AITP_VERIFIER_GO_VERSION)" >> "$GITHUB_OUTPUT"
+          echo "spec=$(cat aitp-rs/tests/schemas/SPEC_VERSION)" >> "$GITHUB_OUTPUT"
+      - name: Checkout aitp-verifier-go at pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          repository: agentidentitytrustprotocol/aitp-verifier-go
+          path: aitp-verifier-go
+          ref: ${{ steps.pin.outputs.go }}
+      - name: Checkout spec at pinned commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+        with:
+          repository: agentidentitytrustprotocol/agentidentitytrustprotocol
+          path: spec
+          ref: ${{ steps.pin.outputs.spec }}
+          # The reports' spec.version is `git describe` of the pin.
+          fetch-depth: 0
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: aitp-rs
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: aitp-verifier-go/go.mod
+          # Standard library only: no go.sum, nothing to cache.
+          cache: false
+      - name: Build the independent verifier
+        working-directory: aitp-verifier-go
+        run: go build -o bin/ ./cmd/aitp-verifier-adapter ./cmd/xcheck-verify
+      # aitp-rs mints; the Go verifier verifies those exact bytes. Nothing
+      # is re-signed on either side (see the comment in `xcheck`).
+      - name: Mint with aitp-rs, verify with aitp-verifier-go
+        working-directory: aitp-rs
+        run: |
+          cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
+            | ../aitp-verifier-go/bin/xcheck-verify
+      - name: Build adapter + runner
+        working-directory: aitp-rs
+        run: cargo build -p aitp-conformance
+      # Core profile, no features, for both. The comparison below is the
+      # gate, so the runs never fail the step themselves.
+      - name: Run the fixtures against both adapters
+        working-directory: aitp-rs
+        run: |
+          for t in rs:./target/debug/aitp-rs-adapter \
+                   go:../aitp-verifier-go/bin/aitp-verifier-adapter; do
+            ./target/debug/aitp-conformance run \
+              --target "${t#*:}" \
+              --fixtures-dir ../spec/schemas/conformance \
+              --spec-commit "${{ steps.pin.outputs.spec }}" \
+              --report "${t%%:*}-report.json" \
+              --output tap > /dev/null || true
+          done
+      # Same gate as `xcheck`: the core claim passes and every fixture
+      # agrees. There are no known divergences.
+      - name: aitp-verifier-go agrees with aitp-rs
+        working-directory: aitp-rs
+        run: |
+          python3 scripts/xcheck-compare-reports.py rs-report.json go-report.json \
+            --verifier aitp-verifier-go
+      - name: Upload the verifier's conformance report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: xcheck-go-report
+          path: |
+            aitp-rs/go-report.json
+            aitp-rs/rs-report.json
+          if-no-files-found: error
+
   wasm:
     name: wasm portability check
     needs: changes

@@ -157,11 +157,9 @@ jobs:
   #     aitp-ci/bump-consume, which waits for the npm CDN to serve the
   #     version, re-locks, and opens a PR (auto-merging on a patch).
   #     Dependabot / a weekly schedule are the backstop.
-  #   aitp-verifier-ts: its bump-aitp-rs.yml moves AITP_RS_COMMIT (the
-  #     aitp-rs commit whose conformance runner its CI builds) to the
-  #     `aitp-v<version>` tag, which lockstep releases put on the same commit
-  #     as `aitp-node-v<version>`, and opens a PR held for review. A daily
-  #     schedule is the backstop.
+  # The verifiers (aitp-verifier-ts, aitp-verifier-go) are told by
+  # notify-verifiers.yml on the `aitp-v*` tag instead: they build the Rust
+  # conformance runner and need no npm package.
   # Auth: the aitp-deps-bot App (short-lived installation token, scoped to
   # the one target repo) — no PAT.
   dispatch:
@@ -172,7 +170,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        repo: [aitp-control-plane, aitp-ui-console, aitp-verifier-ts]
+        repo: [aitp-control-plane, aitp-ui-console]
     steps:
       - name: Resolve version from tag
         id: ver
