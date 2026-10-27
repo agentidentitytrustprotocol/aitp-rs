@@ -31,9 +31,6 @@ metrics = ["dep:metrics"]
 # Test helpers: `crypto::testing` (mock KMS signers, the P-256 high-S
 # twin). Never enable it in production builds.
 test-util = []
-# SPIFFE identity (RFC-AITP-0002 §6; `spiffe` is registry status
-# Proposed). Experimental: enables `handshake::identity_spiffe`.
-experimental-spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser"]
 # `HandshakeServer::into_router`, `ManifestServer::into_router` and the
 # `with_request_body_limit*` helpers, which expose axum (pre-1.0).
 # Experimental: no promise (STABILITY.md); `serve` is the stable way to
@@ -70,7 +67,6 @@ tokio = { workspace = true, optional = true, features = ["net"] }
 rustls = { workspace = true, optional = true }
 rustls-pki-types = { workspace = true, optional = true }
 x509-parser = { workspace = true, optional = true }
-webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["std", "ring"], optional = true }
 
 [dev-dependencies]
 # `crypto::testing` for the integration tests. Only `test-util`, so the

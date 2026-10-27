@@ -112,8 +112,8 @@ pub enum IdentityKind {
     /// Pinned Ed25519 public key.
     PinnedKey,
     /// SPIFFE workload identity (RFC-AITP-0002 §6, registry status
-    /// Proposed). Verified only with the `experimental-spiffe-identity`
-    /// feature.
+    /// Proposed). `aitp` does not verify it; a
+    /// [`crate::handshake::IdentityVerifier`] can.
     Spiffe,
 }
 

@@ -30,55 +30,6 @@ pub fn aitp::transport::with_request_body_limit(axum::routing::Router, usize) ->
 pub fn aitp::transport::with_request_body_limit_default(axum::routing::Router) -> axum::routing::Router
 pub mod aitp::transport::server_limits::_per_route_limits
 
-## experimental-spiffe-identity
-#[non_exhaustive] pub enum aitp::handshake::SpiffeConfigError
-#[non_exhaustive] pub enum aitp::handshake::identity_spiffe::SpiffeConfigError
-impl aitp::handshake::identity_spiffe::SpiffeBundle
-impl aitp::handshake::identity_spiffe::SpiffeBundleStore
-pub aitp::handshake::PeerConfig::spiffe_bundles: core::option::Option<&'a aitp::handshake::identity_spiffe::SpiffeBundleStore>
-pub aitp::handshake::SpiffeConfigError::DuplicateTrustDomain(alloc::string::String)
-pub aitp::handshake::SpiffeConfigError::InvalidTrustDomain(alloc::string::String)
-pub aitp::handshake::SpiffeConfigError::Malformed(alloc::string::String)
-pub aitp::handshake::SpiffeVerifyContext::bundles: &'a aitp::handshake::identity_spiffe::SpiffeBundleStore
-pub aitp::handshake::SpiffeVerifyContext::iat_tolerance_secs: i64
-pub aitp::handshake::SpiffeVerifyContext::message_id: &'a uuid::Uuid
-pub aitp::handshake::SpiffeVerifyContext::now_unix_secs: i64
-pub aitp::handshake::SpiffeVerifyContext::pop_nonce: &'a str
-pub aitp::handshake::SpiffeVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
-pub aitp::handshake::SpiffeVerifyContext::sender_aid: &'a aitp::core::aid::Aid
-pub aitp::handshake::SpiffeVerifyContext::timestamp: aitp::core::time::Timestamp
-pub aitp::handshake::identity_spiffe::SpiffeConfigError::DuplicateTrustDomain(alloc::string::String)
-pub aitp::handshake::identity_spiffe::SpiffeConfigError::InvalidTrustDomain(alloc::string::String)
-pub aitp::handshake::identity_spiffe::SpiffeConfigError::Malformed(alloc::string::String)
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::bundles: &'a aitp::handshake::identity_spiffe::SpiffeBundleStore
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::iat_tolerance_secs: i64
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::message_id: &'a uuid::Uuid
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::now_unix_secs: i64
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::pop_nonce: &'a str
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::sender_aid: &'a aitp::core::aid::Aid
-pub aitp::handshake::identity_spiffe::SpiffeVerifyContext::timestamp: aitp::core::time::Timestamp
-pub aitp::handshake::state_machine::PeerConfig::spiffe_bundles: core::option::Option<&'a aitp::handshake::identity_spiffe::SpiffeBundleStore>
-pub const aitp::handshake::SPIFFE_X509_PROOF_DOMAIN: &[u8]
-pub const aitp::handshake::identity_spiffe::SPIFFE_X509_PROOF_DOMAIN: &[u8]
-pub fn aitp::handshake::identity_spiffe::SpiffeBundle::from_jwk_set(&serde_json::value::Value) -> core::result::Result<Self, aitp::handshake::identity_spiffe::SpiffeConfigError>
-pub fn aitp::handshake::identity_spiffe::SpiffeBundleStore::from_config(&serde_json::value::Value) -> core::result::Result<Self, aitp::handshake::identity_spiffe::SpiffeConfigError>
-pub fn aitp::handshake::identity_spiffe::SpiffeBundleStore::get(&self, &str) -> core::option::Option<&aitp::handshake::identity_spiffe::SpiffeBundle>
-pub fn aitp::handshake::identity_spiffe::SpiffeBundleStore::insert(&mut self, &str, aitp::handshake::identity_spiffe::SpiffeBundle) -> core::result::Result<(), aitp::handshake::identity_spiffe::SpiffeConfigError>
-pub fn aitp::handshake::identity_spiffe::SpiffeBundleStore::new() -> Self
-pub fn aitp::handshake::identity_spiffe::spiffe_x509_proof_input(&aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::handshake::error::HandshakeError>
-pub fn aitp::handshake::identity_spiffe::verify_spiffe(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_spiffe::SpiffeVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
-pub fn aitp::handshake::spiffe_x509_proof_input(&aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::handshake::error::HandshakeError>
-pub fn aitp::handshake::state_machine::PeerConfig<'a>::with_spiffe_bundles(self, &'a aitp::handshake::identity_spiffe::SpiffeBundleStore) -> Self
-pub fn aitp::handshake::verify_spiffe(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_spiffe::SpiffeVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
-pub mod aitp::handshake::identity_spiffe
-pub struct aitp::handshake::SpiffeBundle
-pub struct aitp::handshake::SpiffeBundleStore
-pub struct aitp::handshake::SpiffeVerifyContext<'a>
-pub struct aitp::handshake::identity_spiffe::SpiffeBundle
-pub struct aitp::handshake::identity_spiffe::SpiffeBundleStore
-pub struct aitp::handshake::identity_spiffe::SpiffeVerifyContext<'a>
-
 ## test-util
 #[non_exhaustive] pub enum aitp::crypto::testing::MockOutput
 impl aitp::crypto::signer::AitpSigner for aitp::crypto::testing::MockKmsSigner

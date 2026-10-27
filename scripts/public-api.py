@@ -34,7 +34,6 @@ STABLE_FEATURES = ["default", "http-client", "http-server", "pinned-admission", 
 UNSTABLE_FEATURES = [
     "client-spki-pinning",
     "experimental-axum",
-    "experimental-spiffe-identity",
     "test-util",
 ]
 STABLE_FILE = "public-api.stable.txt"

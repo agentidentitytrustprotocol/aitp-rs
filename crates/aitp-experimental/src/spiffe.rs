@@ -1,8 +1,5 @@
-//! SPIFFE identity verification (RFC-AITP-0002 §6).
-//!
-//! **Experimental.** `spiffe` is at registry status Proposed and this
-//! module ships behind the `experimental-spiffe-identity` feature. Its
-//! API can change in any release.
+//! SPIFFE identity verification (RFC-AITP-0002 §6, registry status
+//! Proposed). **No stability promise.** Needs feature `spiffe-identity`.
 //!
 //! A `spiffe` descriptor proves a SPIFFE ID with one of two SVID forms:
 //!
@@ -17,12 +14,23 @@
 //! bundle lookup, keys of the right `use`) runs before any signature is
 //! verified. Every failure is `IDENTITY_FAILED`
 //! ([`HandshakeError::Identity`]).
+//!
+//! [`SpiffeVerifier`] plugs it into the handshake:
+//!
+//! ```
+//! # use aitp_experimental::spiffe::{SpiffeBundleStore, SpiffeVerifier};
+//! # fn demo(cfg: aitp::handshake::PeerConfig<'_>, bundles: &SpiffeBundleStore) {
+//! let verifier = SpiffeVerifier::new(bundles);
+//! let cfg = cfg.with_identity_verifier(&verifier);
+//! # let _ = cfg;
+//! # }
+//! ```
 
 use std::collections::BTreeMap;
 use std::time::Duration;
 
-use crate::core::{base64url, Aid, Timestamp};
-use crate::crypto::{AitpVerifyingKey, Digest32, Signature};
+use aitp::core::{base64url, Aid, Timestamp};
+use aitp::crypto::{AitpVerifyingKey, Digest32, Signature};
 use base64ct::Encoding as _;
 use rustls_pki_types::{CertificateDer, UnixTime};
 use serde::Deserialize;
@@ -31,10 +39,11 @@ use uuid::Uuid;
 use x509_parser::extensions::GeneralName;
 use x509_parser::oid_registry::{OID_EC_P256, OID_KEY_TYPE_EC_PUBLIC_KEY, OID_SIG_ED25519};
 
-use crate::handshake::error::HandshakeError;
-use crate::handshake::identity::{IdentityDescriptor, IdentityKind, SvidType};
-use crate::handshake::identity_pinned::handshake_proof_input;
-use crate::handshake::jwk::{verify_jws_signature, JwkParseError, JwkPublicKey};
+use aitp::handshake::identity_pinned::PINNED_KEY_PROOF_DOMAIN;
+use aitp::handshake::{
+    pinned_key_proof_input, verify_jws_signature, HandshakeError, IdentityDescriptor, IdentityKind,
+    IdentityVerifier, IdentityVerifyContext, JwkParseError, JwkPublicKey, SvidType,
+};
 
 /// Domain prefix of the X509-SVID proof input (RFC-AITP-0002 §6.4.1).
 pub const SPIFFE_X509_PROOF_DOMAIN: &[u8] = b"aitp-spiffe-x509-v1\0";
@@ -248,6 +257,7 @@ pub fn verify_spiffe(
         (SvidType::JwtSvid, Some(_)) => return Err(fail("x5c must be absent for a jwt-svid")),
         (SvidType::X509Svid, Some([_, ..])) => {}
         (SvidType::X509Svid, _) => return Err(fail("x509-svid requires a non-empty x5c")),
+        (_, _) => return Err(fail("unsupported svid_type")),
     }
     // Step 3: that trust domain's bundle, and only that bundle.
     let bundle = ctx
@@ -268,6 +278,7 @@ pub fn verify_spiffe(
             }
             verify_x509_svid(identity, bundle, ctx)
         }
+        _ => Err(fail("unsupported svid_type")),
     }
 }
 
@@ -280,14 +291,54 @@ pub fn spiffe_x509_proof_input(
     timestamp: Timestamp,
     pop_nonce: &str,
 ) -> Result<Vec<u8>, HandshakeError> {
-    handshake_proof_input(
-        SPIFFE_X509_PROOF_DOMAIN,
-        sender_aid,
-        receiver_aid,
-        message_id,
-        timestamp,
-        pop_nonce,
-    )
+    // The §3.1 input is its domain prefix followed by the shared fields.
+    let pinned =
+        pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)?;
+    let fields = pinned
+        .strip_prefix(PINNED_KEY_PROOF_DOMAIN)
+        .expect("the pinned-key proof input starts with its domain");
+    Ok([SPIFFE_X509_PROOF_DOMAIN, fields].concat())
+}
+
+/// An [`IdentityVerifier`] for `spiffe` identities, backed by a
+/// [`SpiffeBundleStore`]. It handles [`IdentityKind::Spiffe`] only, and
+/// allows a JWT-SVID `iat` skew of 300 seconds (RFC-AITP-0002 §2.2).
+#[derive(Debug, Clone, Copy)]
+pub struct SpiffeVerifier<'a> {
+    bundles: &'a SpiffeBundleStore,
+}
+
+impl<'a> SpiffeVerifier<'a> {
+    /// A verifier trusting only `bundles`.
+    pub fn new(bundles: &'a SpiffeBundleStore) -> Self {
+        Self { bundles }
+    }
+}
+
+impl IdentityVerifier for SpiffeVerifier<'_> {
+    fn handles(&self, kind: IdentityKind) -> bool {
+        kind == IdentityKind::Spiffe
+    }
+
+    fn verify(
+        &self,
+        identity: &IdentityDescriptor,
+        ctx: &IdentityVerifyContext<'_>,
+    ) -> Result<(), HandshakeError> {
+        verify_spiffe(
+            identity,
+            &SpiffeVerifyContext {
+                bundles: self.bundles,
+                sender_aid: ctx.sender_aid,
+                receiver_aid: ctx.receiver_aid,
+                message_id: ctx.message_id,
+                timestamp: ctx.timestamp,
+                pop_nonce: ctx.pop_nonce,
+                iat_tolerance_secs: 300,
+                now_unix_secs: ctx.now.0,
+            },
+        )
+    }
 }
 
 fn verify_jwt_svid(
@@ -608,7 +659,7 @@ struct Cnf {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::handshake::jwk::test_signers;
+    use aitp::handshake::JwsAlgorithm;
     use base64ct::{Base64UrlUnpadded, Encoding};
     use serde_json::json;
 
@@ -665,8 +716,8 @@ mod tests {
     /// §2.1 algorithms verifies end to end against its bundle key.
     #[test]
     fn jwt_svid_verifies_under_every_allowed_alg() {
-        for alg in test_signers::JWT_SVID_ALGS {
-            let (jwk, sign) = test_signers::signer(alg);
+        for alg in JWT_SVID_TEST_ALGS {
+            let (jwk, sign) = signer(alg);
             verify_jwt_svid_under(alg.as_str(), jwk, &sign)
                 .unwrap_or_else(|e| panic!("{alg}: {e}"));
         }
@@ -677,7 +728,7 @@ mod tests {
     /// `verify_jws_signature` accepts that pair (OIDC allows it).
     #[test]
     fn jwt_svid_rejects_eddsa_under_an_ed25519_key() {
-        let key = crate::crypto::AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = aitp::crypto::AitpSigningKey::from_seed(&[4u8; 32]);
         let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
         let jwk = json!({"kty": "OKP", "crv": "Ed25519",
             "x": Base64UrlUnpadded::encode_string(&x)});
@@ -767,5 +818,87 @@ mod tests {
     fn bundle_rejects_x509_key_without_single_cert() {
         let key = json!({"kty": "EC", "crv": "P-256", "use": "x509-svid", "x5c": []});
         assert!(SpiffeBundle::from_jwk_set(&json!({"keys": [key]})).is_err());
+    }
+
+    /// The nine JWT-SVID algorithms (RFC-AITP-0002 §6.3).
+    const JWT_SVID_TEST_ALGS: [JwsAlgorithm; 9] = [
+        JwsAlgorithm::RS256,
+        JwsAlgorithm::RS384,
+        JwsAlgorithm::RS512,
+        JwsAlgorithm::ES256,
+        JwsAlgorithm::ES384,
+        JwsAlgorithm::ES512,
+        JwsAlgorithm::PS256,
+        JwsAlgorithm::PS384,
+        JwsAlgorithm::PS512,
+    ];
+
+    /// A throwaway RSA-2048 key, generated for these tests only.
+    const RSA_PKCS8: &[u8] = include_bytes!("../tests/fixtures/rsa2048-test-only.pk8");
+
+    type Sign = Box<dyn Fn(&[u8]) -> Vec<u8>>;
+
+    /// A key for `alg`: its public JWK and a function returning the JOSE
+    /// signature over a signing input.
+    fn signer(alg: JwsAlgorithm) -> (Value, Sign) {
+        use ring::signature::{self as rs, KeyPair as _};
+        let b64 = |b: &[u8]| Base64UrlUnpadded::encode_string(b);
+        let rng = ring::rand::SystemRandom::new();
+        match alg {
+            JwsAlgorithm::ES256 | JwsAlgorithm::ES384 => {
+                let (signing, crv, n) = if alg == JwsAlgorithm::ES256 {
+                    (&rs::ECDSA_P256_SHA256_FIXED_SIGNING, "P-256", 32)
+                } else {
+                    (&rs::ECDSA_P384_SHA384_FIXED_SIGNING, "P-384", 48)
+                };
+                let pkcs8 = rs::EcdsaKeyPair::generate_pkcs8(signing, &rng).unwrap();
+                let kp = rs::EcdsaKeyPair::from_pkcs8(signing, pkcs8.as_ref(), &rng).unwrap();
+                let point = kp.public_key().as_ref().to_vec();
+                let jwk = json!({"kty": "EC", "crv": crv,
+                    "x": b64(&point[1..1 + n]), "y": b64(&point[1 + n..])});
+                (
+                    jwk,
+                    Box::new(move |m| kp.sign(&rng, m).unwrap().as_ref().to_vec()),
+                )
+            }
+            JwsAlgorithm::ES512 => {
+                use p521::ecdsa::signature::Signer as _;
+                let mut scalar = [0u8; 66];
+                scalar[65] = 7;
+                let sk = p521::ecdsa::SigningKey::from_slice(&scalar).unwrap();
+                let point = p521::ecdsa::VerifyingKey::from(&sk).to_sec1_point(false);
+                let point = point.as_bytes();
+                let jwk = json!({"kty": "EC", "crv": "P-521",
+                    "x": b64(&point[1..67]), "y": b64(&point[67..])});
+                (
+                    jwk,
+                    Box::new(move |m| {
+                        let sig: p521::ecdsa::Signature = sk.sign(m);
+                        sig.to_bytes().to_vec()
+                    }),
+                )
+            }
+            rsa => {
+                let padding: &'static dyn rs::RsaEncoding = match rsa {
+                    JwsAlgorithm::RS256 => &rs::RSA_PKCS1_SHA256,
+                    JwsAlgorithm::RS384 => &rs::RSA_PKCS1_SHA384,
+                    JwsAlgorithm::RS512 => &rs::RSA_PKCS1_SHA512,
+                    JwsAlgorithm::PS256 => &rs::RSA_PSS_SHA256,
+                    JwsAlgorithm::PS384 => &rs::RSA_PSS_SHA384,
+                    _ => &rs::RSA_PSS_SHA512,
+                };
+                let kp = rs::RsaKeyPair::from_pkcs8(RSA_PKCS8).unwrap();
+                let public: rs::RsaPublicKeyComponents<Vec<u8>> = kp.public().into();
+                let jwk = json!({"kty": "RSA", "n": b64(&public.n), "e": b64(&public.e)});
+                (
+                    jwk,
+                    Box::new(move |m| {
+                        let mut sig = vec![0u8; kp.public().modulus_len()];
+                        kp.sign(padding, &rng, m, &mut sig).unwrap();
+                        sig
+                    }),
+                )
+            }
+        }
     }
 }

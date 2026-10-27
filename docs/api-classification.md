@@ -79,6 +79,7 @@ reasons already in the table are kept.
 | `aitp::handshake::HandshakeRevocationDecision` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::handshake::IdentityDescriptor` | struct | non_exhaustive |  |
 | `aitp::handshake::IdentityKind` | enum | non_exhaustive |  |
+| `aitp::handshake::IdentityVerifyContext` | struct | non_exhaustive |  |
 | `aitp::handshake::Initiator` | struct | private fields |  |
 | `aitp::handshake::JwkKeyMaterial` | enum | non_exhaustive |  |
 | `aitp::handshake::JwkParseError` | enum | non_exhaustive |  |

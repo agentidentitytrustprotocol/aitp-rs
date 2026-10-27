@@ -1,12 +1,11 @@
 //! `kat-spiffe-x509-proof-001`: the RFC-AITP-0002 §6.4.1 X509-SVID proof
 //! input. The signer is kat-keypair-003 acting as the leaf key; the
 //! sender AID is kat-keypair-002, so the leaf key is not the AID key.
-#![cfg(feature = "experimental-spiffe-identity")]
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{AitpVerifyingKey, Digest32, Signature};
 use aitp::handshake::identity_pinned::pinned_key_proof_input;
-use aitp::handshake::spiffe_x509_proof_input;
+use aitp_experimental::spiffe::spiffe_x509_proof_input;
 use serde_json::Value;
 use uuid::Uuid;
 
