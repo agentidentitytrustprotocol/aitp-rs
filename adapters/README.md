@@ -13,9 +13,13 @@ Each adapter is an executable that speaks NDJSON over stdin/stdout.
 
 ## Protocol
 
-See [`../docs/conformance.md`](../docs/conformance.md#wire-protocol)
-for the full request/response specification and the
-[operation vocabulary](../docs/conformance.md#operation-vocabulary).
+The spec defines it, in
+[`schemas/conformance/ADAPTER.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/ADAPTER.md):
+messages, `init`, the operations fixtures use and SKIP rules. The inputs
+of each operation are in
+[PLACEHOLDERS.md, "Operation key"](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/PLACEHOLDERS.md#operation-key).
+How this runner applies it is in
+[`../docs/conformance.md`](../docs/conformance.md#adapter-protocol).
 
 ## Testing your adapter
 
@@ -24,7 +28,7 @@ The fixtures live in the spec repo
 With the spec cloned next to this repo, run from the `aitp-rs` root:
 
 ```sh
-cargo run -p aitp-conformance -- run \
+cargo run -p aitp-conformance --bin aitp-conformance -- run \
   --target adapters/python-adapter-template.py \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
   --filter tct-
@@ -42,25 +46,29 @@ cargo run -p aitp-conformance -- run \
 - For results that match CI, check the spec out at the commit pinned in
   `tests/schemas/SPEC_VERSION`.
 
-Against the unmodified template every selected fixture fails, and the
-runner exits with status 1. The output looks like this (the fixture count
-depends on the spec commit you have checked out):
+Against the unmodified template every selected fixture is a SKIP: an op
+the template does not list, or one it answers with `OP_NOT_SUPPORTED`, is
+not run. A SKIP of a core fixture still fails the core gate, so the runner
+exits with status 1. The output looks like this (the fixture count depends
+on the spec commit you have checked out):
 
 ```text
-Loaded 11 fixtures
+Loaded 28 fixtures
 Adapter: aitp-py-template 0.0.0
-  FAIL tct-002 [0ms]
-        reason: expected error TCT_EXPIRED, got OP_NOT_SUPPORTED
+  SKIP tct-002 (adapter does not support op verify_tct)
   ...
-  FAIL tct-006 [0ms]
-        reason: step 1: operation 'issue_pop_challenge' not supported by this adapter
+  SKIP tct-006 (adapter does not support op issue_pop_challenge)
   ...
-  FAIL tct-012 [0ms]
-        reason: expected success, got error OP_NOT_SUPPORTED
-Summary: 0 passed, 11 failed, 0 skipped of 11 fixtures
+  SKIP tct-019 (non-core fixture (status=Extension); requires feature `aitp-self-attestation`)
+  ...
+Summary: 0 passed, 0 failed, 28 skipped of 28 fixtures
+
+core conformance gate FAILED — 25 required fixture(s) did not pass:
+  tct-002: SKIP — adapter does not support op verify_tct
+  ...
 ```
 
-That is the expected starting point: implement the ops the failures name
+That is the expected starting point: implement the ops the SKIPs name
 (`verify_tct` first), list them in `supported_ops` in the `init` response,
 and re-run. See [CLI surface](../docs/conformance.md#cli-surface) for
 `--tag`, `--feature` and the other runner flags.
