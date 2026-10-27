@@ -6,9 +6,11 @@ name: bindings
 # suite, plus the cross-language interop suite, so binding breakage is
 # caught on PRs instead of at release time.
 #
-# Built with default features, which now cover the full surface (pinning,
-# renewal, session bundle, p256, multihop) — the same surface the RELEASE
-# workflows ship. See bindings-release.yml / aitp-py-release.yml.
+# The aitp-py / aitp-node jobs build default features, the surface the
+# release workflows ship (bindings-release.yml / aitp-py-release.yml), and
+# check that it exports exactly its API snapshot (scripts/binding-api.py). The *-experimental jobs build
+# `--features experimental` with AITP_EXPECT_EXPERIMENTAL=1, so a test of
+# an experimental feature fails instead of skipping.
 
 on:
   push:
@@ -86,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.9', '3.11', '3.13', '3.14']
+        python: ['3.10', '3.11', '3.13', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
@@ -116,12 +118,47 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           python -m pip install 'maturin>=1.5,<2.0' pytest httpx 'pyjwt[crypto]>=2.8' 'cryptography>=41'
-      - name: Build the wheel (editable, full surface)
+      - name: Build the wheel (editable, default features)
         working-directory: bindings/aitp-py
         run: maturin develop --release
+      - name: The default build exports exactly its API snapshot
+        run: python scripts/binding-api.py runtime --python python
       - name: pytest
         working-directory: bindings/aitp-py
-        run: pytest tests/ -v
+        run: pytest tests/ -v -rs
+
+  aitp-py-experimental:
+    name: aitp-py experimental (python 3.13)
+    runs-on: ubuntu-latest
+    env:
+      AITP_EXPECT_EXPERIMENTAL: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: bindings/aitp-py
+          key: experimental
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: '3.13'
+      - name: Create and activate venv
+        run: |
+          python -m venv .venv
+          echo "$PWD/.venv/bin" >> "$GITHUB_PATH"
+          echo "VIRTUAL_ENV=$PWD/.venv" >> "$GITHUB_ENV"
+      - name: Install maturin + test deps
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install 'maturin>=1.5,<2.0' pytest httpx 'pyjwt[crypto]>=2.8' 'cryptography>=41'
+      - name: Build the wheel (editable, --features experimental)
+        working-directory: bindings/aitp-py
+        run: maturin develop --release --features experimental
+      - name: pytest
+        working-directory: bindings/aitp-py
+        run: pytest tests/ -v -rs
 
   aitp-node:
     name: aitp-node (node ${{ matrix.node }})
@@ -144,7 +181,7 @@ jobs:
       - name: Install dependencies
         working-directory: bindings/aitp-node
         run: npm install
-      - name: Build the native binary (full surface)
+      - name: Build the native binary (default features)
         working-directory: bindings/aitp-node
         run: npm run build:debug
       # build:debug regenerates index.js and index.d.ts from the napi-rs
@@ -155,16 +192,54 @@ jobs:
       - name: index.js / index.d.ts are up to date
         working-directory: bindings/aitp-node
         run: git diff --exit-code index.js index.d.ts
+      - name: The default build exports exactly its API snapshot
+        run: python3 scripts/binding-api.py runtime --node
       - name: node --test
         working-directory: bindings/aitp-node
         # Explicit glob: Node 22+ treats `--test tests/` as a module path
         # (MODULE_NOT_FOUND) instead of recursing into the dir.
         run: node --test tests/*.mjs
 
+  aitp-node-experimental:
+    name: aitp-node experimental (node 22)
+    runs-on: ubuntu-latest
+    env:
+      AITP_EXPECT_EXPERIMENTAL: '1'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        with:
+          workspaces: bindings/aitp-node
+          key: experimental
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+      - name: Install dependencies
+        working-directory: bindings/aitp-node
+        run: npm install
+      # Writes experimental.js and experimental.d.ts; index.js and
+      # index.d.ts stay the default build's.
+      - name: Build the native binary (--features experimental)
+        working-directory: bindings/aitp-node
+        run: npm run build:experimental
+      - name: experimental.js / experimental.d.ts are up to date, index.* untouched
+        working-directory: bindings/aitp-node
+        run: git diff --exit-code experimental.js experimental.d.ts index.js index.d.ts
+      - name: node --test
+        working-directory: bindings/aitp-node
+        run: node --test tests/*.mjs
+
   interop:
     name: interop (python ↔ node)
     runs-on: ubuntu-latest
     needs: [aitp-py, aitp-node]
+    # The session-bundle case needs the experimental features.
+    env:
+      AITP_BINDING_FEATURES: experimental
+      AITP_EXPECT_EXPERIMENTAL: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
@@ -182,7 +257,7 @@ jobs:
         with:
           node-version: '20'
       # scripts/interop.sh creates its own venv, installs maturin/pytest/
-      # pyjwt/cryptography, builds both SDKs with default (full) features,
+      # pyjwt/cryptography, builds both SDKs with AITP_BINDING_FEATURES,
       # then drives a real four-message handshake between them.
       - name: Cross-language interop
         run: make interop

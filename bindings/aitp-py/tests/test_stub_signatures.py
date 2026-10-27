@@ -8,7 +8,10 @@ every function and method's parameter names — and which of them are optional
 — against `inspect.signature` of the compiled object, so the next drift fails
 CI instead of a caller.
 
-Symbols behind an optional Cargo feature that this build omits are skipped.
+`aitp_experimental.pyi` declares the experimental features' symbols; its
+cases run against a build that has them. Symbols behind an optional Cargo
+feature that this build omits are skipped. Every public name the module
+exports must be declared in one of the two stubs.
 """
 
 import ast
@@ -21,7 +24,9 @@ import pytest
 
 import aitp
 
-STUB = pathlib.Path(__file__).resolve().parent.parent / "aitp.pyi"
+ROOT = pathlib.Path(__file__).resolve().parent.parent
+STUB = ROOT / "aitp.pyi"
+EXPERIMENTAL_STUB = ROOT / "aitp_experimental.pyi"
 
 
 def _stub_params(fn: ast.FunctionDef, *, is_method: bool):
@@ -49,8 +54,8 @@ def _is_property(fn: ast.FunctionDef) -> bool:
     return any(isinstance(d, ast.Name) and d.id == "property" for d in fn.decorator_list)
 
 
-def _cases():
-    tree = ast.parse(STUB.read_text())
+def _cases(stub):
+    tree = ast.parse(stub.read_text())
     for node in tree.body:
         if isinstance(node, ast.FunctionDef):
             yield node.name, None, node
@@ -60,7 +65,36 @@ def _cases():
                     yield node.name, item.name, item
 
 
-CASES = list(_cases())
+CASES = list(_cases(STUB)) + list(_cases(EXPERIMENTAL_STUB))
+
+
+def _declared(stub):
+    names = set()
+    for node in ast.parse(stub.read_text()).body:
+        if isinstance(node, (ast.FunctionDef, ast.ClassDef)):
+            names.add(node.name)
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names.add(node.target.id)
+        elif isinstance(node, ast.Assign):
+            names.update(t.id for t in node.targets if isinstance(t, ast.Name))
+    return names
+
+
+def test_every_export_is_declared():
+    declared = _declared(STUB) | _declared(EXPERIMENTAL_STUB)
+    # The installed package re-exports its native module's names; the
+    # native module itself is not API.
+    exported = {
+        n for n in dir(aitp)
+        if not n.startswith("_") and not inspect.ismodule(getattr(aitp, n))
+    }
+    missing = sorted(exported - declared)
+    assert not missing, f"exported by the binding but not declared in a stub: {missing}"
+
+
+def test_stable_stub_declares_no_experimental_symbol():
+    overlap = sorted(_declared(STUB) & (_declared(EXPERIMENTAL_STUB) - {"AitpAgent"}))
+    assert not overlap, f"declared in both aitp.pyi and aitp_experimental.pyi: {overlap}"
 
 
 @pytest.mark.parametrize(

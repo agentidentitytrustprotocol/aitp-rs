@@ -32,8 +32,9 @@ Prebuilt native binaries are published for macOS (x64, arm64) and Linux GNU
 
 ```bash
 npm install
-npm run build:debug                  # full surface (all capabilities)
-npm run build:minimal:debug          # minimal surface (--no-default-features)
+npm run build:debug                  # default surface, as published
+npm run build:experimental           # adds the experimental features (see below)
+npm run build:minimal:debug          # without SPKI pinning (--no-default-features)
 # Release variants:
 npm run build
 npm run build:minimal
@@ -268,7 +269,7 @@ strings. The token is verified under the key that Manifest designates
 you omit it, a delegation whose source TCT has been revoked is still
 redeemed. The result's `cnfJkt` is the delegatee's `cnf.jkt` (Python:
 `cnf_jkt`). For multi-hop chains, see
-[Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
+[Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-experimental-multihop-delegation).
 
 ### Manifest verification
 
@@ -464,13 +465,41 @@ key too. Its `public_key` is the 33-byte SEC1 compressed point (44 base64url
 characters), the same bytes as the AID's identifier. Earlier versions threw
 here.
 
-## Additional capabilities (on by default)
+### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 
-These ship in the default build. A `--no-default-features` build drops all of
-them; add back by named Cargo feature: `renewal`, `session-bundle`,
-`spki-pinning`, `multihop-delegation`.
+```javascript
+import { computeSpkiHash, SpkiPinVerifier } from '@agentidentitytrustprotocol/aitp';
 
-### TCT renewal (RFC-AITP-0013, feature `renewal`)
+const pin = computeSpkiHash(certDerBuffer);       // 32-byte Buffer
+const verifier = new SpkiPinVerifier([pin]);
+console.log(verifier.isPinned(certDerBuffer), verifier.isPinned(otherCertDer));   // true false
+```
+
+Wire `verifier.isPinned()` into your HTTP client's `checkServerIdentity` hook
+(e.g. an `undici.Agent` `connect` option). The SDK does no HTTP itself.
+
+<a id="additional-capabilities-on-by-default"></a>
+## Experimental (build from source)
+
+The published `@agentidentitytrustprotocol/aitp` package does not include
+these. They carry no stability promise. Build from source with every
+experimental feature:
+
+```bash
+npm run build:experimental
+```
+
+It builds the addon with `--features experimental` and writes
+`experimental.js` and `experimental.d.ts`, which export the experimental
+API next to the stable one; `index.js` and `index.d.ts` stay the default
+build's. `experimental.js` is not in the published package; load it from
+the build directory:
+
+```js
+const { verifySessionBundle } = require('./bindings/aitp-node/experimental.js');
+```
+
+### TCT renewal (RFC-AITP-0013, feature `experimental-renewal`)
 
 ```javascript
 const req = alice.buildRenewalRequest(tctJws);   // the held TCT compact JWS
@@ -491,7 +520,7 @@ const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
   fourth argument `revokedJtis` to refuse a revoked TCT. A replayed
   request (same `pop_nonce`) throws. See [tct-renewal.md](tct-renewal.md).
 
-### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
+### Multi-hop delegation (RFC-AITP-0011, feature `experimental-multihop-delegation`)
 
 ```javascript
 import { verifyDelegationMultihop } from '@agentidentitytrustprotocol/aitp';
@@ -513,7 +542,7 @@ none fails with `KEY_RESOLUTION_FAILED`. A single-hop token also
 verifies, and `0` reverts to strict single-hop. See
 [multihop-delegation.md](multihop-delegation.md).
 
-### Session Trust Bundle (RFC-AITP-0010, feature `session-bundle`)
+### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 
 ```javascript
 import { SessionBundleBuilder, verifySessionBundle } from '@agentidentitytrustprotocol/aitp';
@@ -547,19 +576,6 @@ the coordinator key (RFC-AITP-0010 §5 step 5). There is no AID-only fallback;
 a Manifest for another AID throws.
 `revocationCheck` is called with each participant TCT's `jti` and returns
 `true` if that TCT is revoked. See [session-bundle.md](session-bundle.md).
-
-### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
-
-```javascript
-import { computeSpkiHash, SpkiPinVerifier } from '@agentidentitytrustprotocol/aitp';
-
-const pin = computeSpkiHash(certDerBuffer);       // 32-byte Buffer
-const verifier = new SpkiPinVerifier([pin]);
-console.log(verifier.isPinned(certDerBuffer), verifier.isPinned(otherCertDer));   // true false
-```
-
-Wire `verifier.isPinned()` into your HTTP client's `checkServerIdentity` hook
-(e.g. an `undici.Agent` `connect` option). The SDK does no HTTP itself.
 
 ## Tests + interop
 

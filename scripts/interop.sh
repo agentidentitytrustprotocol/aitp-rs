@@ -8,6 +8,9 @@
 #
 # Usage:
 #   scripts/interop.sh        # or: make interop
+#   AITP_BINDING_FEATURES=experimental scripts/interop.sh
+#
+# AITP_BINDING_FEATURES is passed to both binding builds as `--features`.
 
 set -euo pipefail
 
@@ -28,7 +31,7 @@ source "$VENV/bin/activate"
 # `pyjwt[crypto]` + `cryptography` are required by the OIDC interop
 # test (mock IdP signs Ed25519 JWTs in-process) AND by the stock-JOSE
 # acceptance check (pyjwt verifies the spec's signed-example KATs).
-# Default features (the full surface) cover session-bundle interop.
+# The session-bundle interop case needs AITP_BINDING_FEATURES=experimental.
 pip install --quiet --upgrade pip maturin pytest 'pyjwt[crypto]>=2.8' 'cryptography>=41'
 
 # Install the Node deps first so the stock-JOSE acceptance check (which
@@ -51,10 +54,18 @@ node "$INTEROP/stock_jose_acceptance.mjs"
 echo "interop: stock-JOSE acceptance check (Python, third-party pyjwt)..."
 python3 "$INTEROP/stock_jose_acceptance.py"
 
-maturin develop --release -m "$PY_DIR/Cargo.toml"
+FEATURES="${AITP_BINDING_FEATURES:-}"
+maturin develop --release -m "$PY_DIR/Cargo.toml" ${FEATURES:+--features "$FEATURES"}
 
 echo "interop: building the Node binding (napi build)..."
-( cd "$NODE_DIR" && npm run build --silent )
+if [ -n "$FEATURES" ]; then
+  # Writes experimental.js / experimental.d.ts; index.js and index.d.ts
+  # stay the default build's.
+  ( cd "$NODE_DIR" && npx napi build --platform --release --features "$FEATURES" \
+      --js experimental.js --dts experimental.d.ts )
+else
+  ( cd "$NODE_DIR" && npm run build --silent )
+fi
 
 echo "interop: running cross-language handshake + pyjwt acceptance tests..."
 exec pytest -v "$INTEROP"

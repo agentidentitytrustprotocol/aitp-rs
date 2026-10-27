@@ -34,7 +34,8 @@ pub struct JsTctIdentity {
 }
 
 /// A TCT this agent just minted for someone else — the return shape of
-/// `processRenewalRequest` and `issueTctForDelegatee`. Mirrors the Python
+/// `issueTctForDelegatee` (and, in an experimental build,
+/// `processRenewalRequest`). Mirrors the Python
 /// SDK's `{"tct", "grant_voucher"}` JSON object.
 #[napi(object)]
 pub struct JsIssuedTct {

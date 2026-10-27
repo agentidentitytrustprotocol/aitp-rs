@@ -21,6 +21,7 @@ import time
 import pytest
 
 import aitp
+from _experimental import HAS_BUNDLE, HAS_MULTIHOP, HAS_RENEWAL
 
 V4 = "770e8400-e29b-41d4-a716-446655441011"
 V1 = "770e8400-e29b-11d4-a716-446655441007"
@@ -68,7 +69,6 @@ def test_message_id_non_canonical_is_rejected(label, value):
 
 # ── Strict: session bundle session_id ──────────────────────────────────
 
-HAS_BUNDLE = hasattr(aitp, "SessionBundleBuilder")
 
 
 def _bundle_builder():
@@ -95,13 +95,13 @@ def _bundle_builder():
     return aitp.SessionBundleBuilder(coord).participant(member.aid, tct)
 
 
-@pytest.mark.skipif(not HAS_BUNDLE, reason="built without session-bundle")
+@pytest.mark.skipif(not HAS_BUNDLE, reason="built without experimental-session-bundle")
 def test_session_id_lowercase_v4_is_signed_verbatim():
     envelope = json.loads(_bundle_builder().session_id(V4).build())
     assert envelope["session_bundle"]["session_id"] == V4
 
 
-@pytest.mark.skipif(not HAS_BUNDLE, reason="built without session-bundle")
+@pytest.mark.skipif(not HAS_BUNDLE, reason="built without experimental-session-bundle")
 @pytest.mark.parametrize("label, value", NON_CANONICAL, ids=NON_CANONICAL_IDS)
 def test_session_id_non_canonical_is_rejected(label, value):
     builder = aitp.SessionBundleBuilder(aitp.AitpAgent.generate())
@@ -189,7 +189,6 @@ def test_verify_tct_cached_malformed_revoked_jti_is_rejected(held):
 
 # ── Lenient: revoked_jtis on process_renewal_request ───────────────────
 
-HAS_RENEWAL = hasattr(aitp.AitpAgent.generate(), "build_renewal_request")
 
 
 def _renew(responder, initiator, tct, revoked):
@@ -205,7 +204,7 @@ def renewal_pair():
     return responder, initiator, tct, _claims(tct)["jti"]
 
 
-@pytest.mark.skipif(not HAS_RENEWAL, reason="built without renewal")
+@pytest.mark.skipif(not HAS_RENEWAL, reason="built without experimental-renewal")
 @pytest.mark.parametrize("label", ["lowercase"] + SPELLINGS)
 def test_renewal_revoked_jti_is_normalized(renewal_pair, label):
     responder, initiator, tct, jti = renewal_pair
@@ -214,14 +213,14 @@ def test_renewal_revoked_jti_is_normalized(renewal_pair, label):
         _renew(responder, initiator, tct, {entry})
 
 
-@pytest.mark.skipif(not HAS_RENEWAL, reason="built without renewal")
+@pytest.mark.skipif(not HAS_RENEWAL, reason="built without experimental-renewal")
 def test_renewal_v1_revoked_jti_is_accepted_but_never_matches(renewal_pair):
     responder, initiator, tct, _jti = renewal_pair
     fresh = json.loads(_renew(responder, initiator, tct, {V1}))
     assert fresh["tct"].count(".") == 2
 
 
-@pytest.mark.skipif(not HAS_RENEWAL, reason="built without renewal")
+@pytest.mark.skipif(not HAS_RENEWAL, reason="built without experimental-renewal")
 def test_renewal_malformed_revoked_jti_is_rejected(renewal_pair):
     responder, initiator, tct, _jti = renewal_pair
     with pytest.raises(ValueError, match="revoked_jtis entry is not a UUID"):
@@ -266,7 +265,7 @@ def delegation():
 
 
 VERIFIERS = [("strict", getattr(aitp, "verify_delegation"))]
-if hasattr(aitp, "verify_delegation_multihop"):
+if HAS_MULTIHOP:
     VERIFIERS.append(
         (
             "multihop",

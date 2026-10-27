@@ -50,6 +50,8 @@ pub enum AitpError {
 /// Wire-level error code as it appears on the protocol.
 ///
 /// Serialized as `SCREAMING_SNAKE_CASE` strings matching the registry.
+/// It holds the codes of the core RFCs; the codes of Draft extensions
+/// are carried by their modules in `aitp-experimental`.
 ///
 /// Marked `#[non_exhaustive]` so new codes added to the spec's error
 /// registry can ship in a future minor version without breaking
@@ -156,14 +158,8 @@ pub enum ErrorCode {
     DelegationExpired,
     /// Delegation token: PoP binding (cnf) verification failed.
     DelegationPopFailed,
-    /// Delegation token: chain length exceeds v0.1 single-hop limit.
+    /// Delegation token: carries a `chain` claim (RFC-AITP-0006 §4).
     DelegationMultihopNotSupported,
-    /// Multi-hop delegation: total hops exceed the verifier's hop budget
-    /// (RFC-AITP-0011).
-    DelegationHopLimitExceeded,
-    /// Multi-hop delegation: `chain_hash` does not match the `chain`
-    /// array contents (truncation or tampering detected — RFC-AITP-0011).
-    DelegationChainHashMismatch,
     /// Manifest service: no manifest for the requested AID.
     ManifestNotFound,
     /// TCT verification: signature did not validate under issuer's key.
@@ -173,45 +169,6 @@ pub enum ErrorCode {
     /// TCT verification: TCT `expires_at` exceeds the issuing peer's
     /// Manifest `expires_at` (RFC-AITP-0004 §4.3).
     TctExpiresAfterManifest,
-
-    // ── Session Bundle (RFC-AITP-0010, Draft) ───────────────────────────
-    /// Coordinator's outer bundle signature failed verification under
-    /// the coordinator's Manifest key.
-    BundleInvalidSignature,
-    /// `version` is not `"aitp/0.3"` (or a later supported version).
-    BundleVersionMismatch,
-    /// Bundle `expires_at` is in the past at verification time.
-    BundleExpired,
-    /// `expires_at` is greater than
-    /// `min(participants[*].tct.expires_at)` (RFC-AITP-0010 §6).
-    BundleExpiryWindowInvariant,
-    /// One or more `participants[*].tct.issuer` values do not equal
-    /// `coordinator`.
-    BundleCoordinatorIssuerMismatch,
-    /// A `participants[i].tct.audience` does not equal
-    /// `participants[i].aid`.
-    BundleAudienceMismatch,
-    /// `participants` array is empty.
-    BundleEmptyParticipants,
-    /// At least one embedded participant TCT failed standard TCT
-    /// verification.
-    BundleParticipantTctInvalid,
-    /// Receiver's AID is not in `participants[*].aid`.
-    BundleNotMember,
-    /// Aggregate fallback — implementations MAY return this when a
-    /// deployment policy requires a single-error surface for bundles,
-    /// in lieu of the specific BUNDLE_* codes above.
-    ///
-    /// Also the mandatory code for a structurally invalid wire form,
-    /// ahead of any of the specific `BUNDLE_*` checks: e.g. the
-    /// `{"session_bundle": …}` transport wrapper carrying an
-    /// unexpected sibling member (notably the pre-erratum shape where
-    /// `signature` sat beside the wrapper instead of inside the signed
-    /// body — RFC-AITP-0010 §3, fixture
-    /// `bundle-004-signature-sibling-rejected`), or an inner body that
-    /// fails to deserialize as a bundle at all. These cases have no
-    /// bundle to run the specific `BUNDLE_*` checks against.
-    SessionBundleInvalid,
 
     // ── Manifest (RFC-AITP-0003) ────────────────────────────────────────
     /// Manifest failed schema validation — a missing REQUIRED member, a
@@ -332,14 +289,6 @@ mod tests {
                 ErrorCode::DelegationMultihopNotSupported,
                 "DELEGATION_MULTIHOP_NOT_SUPPORTED",
             ),
-            (
-                ErrorCode::DelegationHopLimitExceeded,
-                "DELEGATION_HOP_LIMIT_EXCEEDED",
-            ),
-            (
-                ErrorCode::DelegationChainHashMismatch,
-                "DELEGATION_CHAIN_HASH_MISMATCH",
-            ),
             (ErrorCode::ManifestNotFound, "MANIFEST_NOT_FOUND"),
             (ErrorCode::TrustFailed, "TRUST_FAILED"),
             (
@@ -361,35 +310,6 @@ mod tests {
                 ErrorCode::RevocationSnapshotSignatureInvalid,
                 "REVOCATION_SNAPSHOT_SIGNATURE_INVALID",
             ),
-            // Session Bundle (RFC-AITP-0010, Draft)
-            (
-                ErrorCode::BundleInvalidSignature,
-                "BUNDLE_INVALID_SIGNATURE",
-            ),
-            (ErrorCode::BundleVersionMismatch, "BUNDLE_VERSION_MISMATCH"),
-            (ErrorCode::BundleExpired, "BUNDLE_EXPIRED"),
-            (
-                ErrorCode::BundleExpiryWindowInvariant,
-                "BUNDLE_EXPIRY_WINDOW_INVARIANT",
-            ),
-            (
-                ErrorCode::BundleCoordinatorIssuerMismatch,
-                "BUNDLE_COORDINATOR_ISSUER_MISMATCH",
-            ),
-            (
-                ErrorCode::BundleAudienceMismatch,
-                "BUNDLE_AUDIENCE_MISMATCH",
-            ),
-            (
-                ErrorCode::BundleEmptyParticipants,
-                "BUNDLE_EMPTY_PARTICIPANTS",
-            ),
-            (
-                ErrorCode::BundleParticipantTctInvalid,
-                "BUNDLE_PARTICIPANT_TCT_INVALID",
-            ),
-            (ErrorCode::BundleNotMember, "BUNDLE_NOT_MEMBER"),
-            (ErrorCode::SessionBundleInvalid, "SESSION_BUNDLE_INVALID"),
         ];
         for (code, wire) in cases {
             let v = serde_json::to_value(code).unwrap();
@@ -443,24 +363,12 @@ mod tests {
                 | ErrorCode::DelegationExpired
                 | ErrorCode::DelegationPopFailed
                 | ErrorCode::DelegationMultihopNotSupported
-                | ErrorCode::DelegationHopLimitExceeded
-                | ErrorCode::DelegationChainHashMismatch
                 | ErrorCode::ManifestNotFound
                 | ErrorCode::TctSignatureInvalid
                 | ErrorCode::TctRevoked
                 | ErrorCode::TctExpiresAfterManifest
                 | ErrorCode::RevocationSnapshotInvalid
-                | ErrorCode::RevocationSnapshotSignatureInvalid
-                | ErrorCode::BundleInvalidSignature
-                | ErrorCode::BundleVersionMismatch
-                | ErrorCode::BundleExpired
-                | ErrorCode::BundleExpiryWindowInvariant
-                | ErrorCode::BundleCoordinatorIssuerMismatch
-                | ErrorCode::BundleAudienceMismatch
-                | ErrorCode::BundleEmptyParticipants
-                | ErrorCode::BundleParticipantTctInvalid
-                | ErrorCode::BundleNotMember
-                | ErrorCode::SessionBundleInvalid => {}
+                | ErrorCode::RevocationSnapshotSignatureInvalid => {}
             }
         }
         for (code, _) in cases {
@@ -478,7 +386,7 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            56,
+            44,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
     }

@@ -1,7 +1,8 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
         deny audit msrv semver coverage schemas-check ci \
         check-versions sync-versions docs-check public-api public-api-check \
-        api-classification api-classification-check stable-deps-check
+        api-classification api-classification-check stable-deps-check \
+        stable-experimental-check binding-api binding-api-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -95,6 +96,23 @@ api-classification-check:
 # aitp release. Reads the committed public-api.stable.txt.
 stable-deps-check:
 	python3 scripts/check-stable-deps.py
+
+# No Draft or Proposed mechanism (renewal, Session Trust Bundles, SPIFFE,
+# multi-hop delegation) in the stable surface (RS-RC4): those live in
+# aitp-experimental. Reads the committed public-api.stable.txt.
+stable-experimental-check:
+	python3 scripts/check-stable-experimental.py
+
+# The bindings' API snapshots (bindings/aitp-py/api.txt from aitp.pyi,
+# bindings/aitp-node/api.txt from index.d.ts), their semver gate. Run
+# `make binding-api` after a binding signature change and review the diff.
+# bindings.yml and the release workflows also check that the built default
+# artifact exports exactly its snapshot.
+binding-api:
+	python3 scripts/binding-api.py generate
+
+binding-api-check:
+	python3 scripts/binding-api.py check
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a

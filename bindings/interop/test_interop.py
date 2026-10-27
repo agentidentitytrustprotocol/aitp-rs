@@ -737,7 +737,9 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     bilateral handshake). Node verifies the bundle and finds itself in
     the active set."""
     if not hasattr(aitp, "SessionBundleBuilder"):
-        pytest.skip("python binding built without the session-bundle feature (--no-default-features)")
+        if os.environ.get("AITP_EXPECT_EXPERIMENTAL") == "1":
+            pytest.fail("AITP_EXPECT_EXPERIMENTAL=1 but the binding lacks experimental-session-bundle")
+        pytest.skip("python binding built without experimental-session-bundle")
 
     py = PyEndpoint()
     nd = NodeEndpoint(node)

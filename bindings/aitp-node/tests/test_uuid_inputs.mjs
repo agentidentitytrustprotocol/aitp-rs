@@ -18,11 +18,16 @@ import assert from 'node:assert/strict';
 
 import {
   AitpAgent,
-  SessionBundleBuilder,
   TctStore,
   verifyDelegation,
-  verifyDelegationMultihop,
 } from '../index.js';
+import {
+  HAS_BUNDLE,
+  HAS_MULTIHOP,
+  HAS_RENEWAL,
+  SessionBundleBuilder,
+  verifyDelegationMultihop,
+} from './_experimental.mjs';
 import { decodeJwsPayload } from './_jws.mjs';
 
 const V4 = '770e8400-e29b-41d4-a716-446655441011';
@@ -87,7 +92,6 @@ for (const [label, value] of NON_CANONICAL) {
 
 // ── Strict: session bundle sessionId ───────────────────────────────────
 
-const HAS_BUNDLE = typeof SessionBundleBuilder === 'function';
 
 test('sessionId: lowercase v4 is signed verbatim', { skip: !HAS_BUNDLE }, () => {
   const { agent: coord, manifest: coordManifest } = peer('coordinator', 9801, ['session.member'], {
@@ -167,7 +171,6 @@ test('verifyTctCached: malformed revoked jti is rejected', () => {
 
 // ── Lenient: revokedJtis on processRenewalRequest ──────────────────────
 
-const HAS_RENEWAL = typeof AitpAgent.generate().buildRenewalRequest === 'function';
 
 function renew(revoked) {
   const { initiator, responder, tct } = held;
@@ -204,7 +207,7 @@ function buildDelegation() {
 const delegation = buildDelegation();
 
 const VERIFIERS = [['verifyDelegation', (t, aid, m, r) => verifyDelegation(t, aid, m, r)]];
-if (typeof verifyDelegationMultihop === 'function') {
+if (HAS_MULTIHOP) {
   VERIFIERS.push([
     'verifyDelegationMultihop',
     (t, aid, m, r) => verifyDelegationMultihop(t, aid, m, null, r),

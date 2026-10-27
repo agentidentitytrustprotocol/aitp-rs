@@ -31,8 +31,9 @@ Rust toolchain. The binding is not part of the `aitp-rs` Cargo workspace.
 
 ```bash
 pip install maturin
-maturin develop                          # full surface (all features are default)
-maturin develop --no-default-features    # minimal surface (core handshake only)
+maturin develop                          # default surface, as published
+maturin develop --features experimental  # adds the experimental features (see below)
+maturin develop --no-default-features    # without SPKI pinning
 ```
 
 ## Default surface
@@ -269,7 +270,7 @@ fails with `KEY_RESOLUTION_FAILED`. Pass `revoked_jtis`. If you omit it, a deleg
 source TCT has been revoked is still redeemed. The result's `cnf_jkt` is the
 delegatee's `cnf.jkt` (Node: `cnfJkt`). The older name `cnf` still works but
 emits a `DeprecationWarning`. For multi-hop chains, see
-[Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-multihop-delegation).
+[Multi-hop delegation](#multi-hop-delegation-rfc-aitp-0011-feature-experimental-multihop-delegation).
 
 ### Manifest verification
 
@@ -456,13 +457,36 @@ key too. Its `public_key` is the 33-byte SEC1 compressed point (44 base64url
 characters), the same bytes as the AID's identifier. Earlier versions raised
 `RuntimeError` here.
 
-## Additional capabilities (on by default)
+### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
 
-These ship in the default wheel. A `--no-default-features` build drops all of
-them; add back by named Cargo feature: `renewal`, `session-bundle`,
-`spki-pinning`, `multihop-delegation`.
+```python
+pin = aitp.compute_spki_hash(cert_der_bytes)    # 32 bytes
+verifier = aitp.SpkiPinVerifier([pin])
+print(verifier.is_pinned(cert_der_bytes), verifier.is_pinned(other_cert_der))   # True False
+```
 
-### TCT renewal (RFC-AITP-0013, feature `renewal`)
+Wire `verifier.is_pinned()` into your HTTP client's certificate-verification
+hook, for example an `httpx` transport-level verify callback. The SDK does no
+HTTP itself.
+
+<a id="additional-capabilities-on-by-default"></a>
+## Experimental (build from source)
+
+The published `aitp-sdk` wheel does not include these. They carry no
+stability promise. Build from source with every experimental feature, or
+name one of `experimental-renewal`, `experimental-session-bundle` and
+`experimental-multihop-delegation`:
+
+```bash
+maturin develop --features experimental
+# From the sdist:
+MATURIN_PEP517_ARGS="--features experimental" pip install --no-binary aitp-sdk aitp-sdk
+```
+
+Their type stubs are in `bindings/aitp-py/aitp_experimental.pyi`, which the
+wheel does not ship.
+
+### TCT renewal (RFC-AITP-0013, feature `experimental-renewal`)
 
 ```python
 import time
@@ -488,7 +512,7 @@ fresh_tct, fresh_voucher = renewed["tct"], renewed["grant_voucher"]
   `revoked_jtis=` to refuse a revoked TCT. A replayed request (same
   `pop_nonce`) raises. See [tct-renewal.md](tct-renewal.md).
 
-### Multi-hop delegation (RFC-AITP-0011, feature `multihop-delegation`)
+### Multi-hop delegation (RFC-AITP-0011, feature `experimental-multihop-delegation`)
 
 ```python
 # Every hop verifies under the key its issuer's Manifest designates
@@ -511,7 +535,7 @@ also verifies, and `max_delegation_hops=0` reverts to strict single-hop.
 `jti`. See [multihop-delegation.md](multihop-delegation.md) for the
 verification rules and known limitations.
 
-### Session Trust Bundle (RFC-AITP-0010, feature `session-bundle`)
+### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 
 ```python
 bundle = (
@@ -550,18 +574,6 @@ envelope is verified, must designate the bundle's `coordinator`, and supplies
 the coordinator key (RFC-AITP-0010 §5 step 5). There is no AID-only fallback;
 a Manifest for another AID raises `RuntimeError`. See
 [session-bundle.md](session-bundle.md).
-
-### SPKI cert pinning (HPKP-style, feature `spki-pinning`)
-
-```python
-pin = aitp.compute_spki_hash(cert_der_bytes)    # 32 bytes
-verifier = aitp.SpkiPinVerifier([pin])
-print(verifier.is_pinned(cert_der_bytes), verifier.is_pinned(other_cert_der))   # True False
-```
-
-Wire `verifier.is_pinned()` into your HTTP client's certificate-verification
-hook, for example an `httpx` transport-level verify callback. The SDK does no
-HTTP itself.
 
 ## Python vs Node differences
 
