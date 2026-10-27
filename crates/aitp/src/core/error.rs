@@ -118,9 +118,6 @@ pub enum ErrorCode {
     PopVerificationFailed,
     /// pop_nonce_echo did not match the previously sent nonce.
     NonceMismatch,
-    /// MUTUAL_HELLO_ACK came from an AID other than the peer the
-    /// initiator addressed (RFC-AITP-0004 §5.2 step 3).
-    PeerMismatch,
     /// Peer-issued TCT audience did not equal own AID.
     AudienceMismatch,
     /// Peer-issued TCT grants exceed peer's offered_capabilities.
@@ -238,6 +235,14 @@ pub enum ErrorCode {
     /// peer's key, resolved from that peer's Manifest. Distinct from
     /// `TctSignatureInvalid`, which is about a token's own JWS.
     RevocationSnapshotSignatureInvalid,
+
+    // ── Mutual handshake, later additions ───────────────────────────────
+    // New variants go last: `ErrorCode` has no `repr`, so inserting one
+    // earlier would change the implicit discriminant of every variant
+    // after it.
+    /// MUTUAL_HELLO_ACK came from an AID other than the peer the
+    /// initiator addressed (RFC-AITP-0004 §5.2 step 3).
+    PeerMismatch,
 }
 
 impl ErrorCode {
