@@ -3,6 +3,6 @@
   "private": true,
   "description": "aitp-verifier-ts, from npm, that ci.yml's xcheck-ts job drives through aitp-conformance (#384). Pinned exactly: a verifier release must not change this repo's CI on its own, so a bump is a PR here.",
   "dependencies": {
-    "@agentidentitytrustprotocol/verifier": "0.1.0"
+    "@agentidentitytrustprotocol/verifier": "0.1.1"
   }
 }
