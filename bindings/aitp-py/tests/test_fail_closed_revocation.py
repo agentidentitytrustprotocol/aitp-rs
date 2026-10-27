@@ -13,6 +13,7 @@ import json
 import pytest
 
 import aitp
+from _experimental import HAS_MULTIHOP
 
 GRANT = "demo.write"
 UNAVAILABLE = "revocation source unavailable"
@@ -175,8 +176,8 @@ def test_verify_delegation_fail_open_opt_out_accepts():
 
 
 @pytest.mark.skipif(
-    not hasattr(aitp, "verify_delegation_multihop"),
-    reason="multihop-delegation feature absent",
+    not HAS_MULTIHOP,
+    reason="experimental-multihop-delegation feature absent",
 )
 def test_verify_delegation_multihop_without_list_fails_closed():
     a, b_manifest, token = _delegation()

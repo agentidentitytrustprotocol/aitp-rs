@@ -3,14 +3,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
+import { AitpAgent } from '../index.js';
 import {
-  AitpAgent,
+  HAS_BUNDLE,
   SessionBundleBuilder,
   verifySessionBundle,
-} from '../index.js';
+} from './_experimental.mjs';
 import { decodeJwsPayload } from './_jws.mjs';
 
-const HAS_BUNDLE = typeof SessionBundleBuilder === 'function';
 
 function handshakeToCoordinator(participant, coordinator, coordManifest) {
   const sess = participant.newSession(null, { pinnedKeys: [coordinator.aid] });

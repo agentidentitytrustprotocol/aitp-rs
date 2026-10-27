@@ -18,7 +18,7 @@ use crate::delegation::{
 use crate::envelope::sign_envelope_py;
 use crate::oidc::PyJwksProvider;
 use crate::pop::{new_pop_challenge_py, sign_pop_response_py};
-#[cfg(feature = "renewal")]
+#[cfg(feature = "experimental-renewal")]
 use crate::renewal::{build_renewal_request_py, process_renewal_request_py};
 use crate::revocation::sign_revocation_list_py;
 use crate::session::{PyInitiatorSession, PyResponderSession, SessionContext};
@@ -465,9 +465,8 @@ impl PyAitpAgent {
     /// renewal of `current_tct_token` — the held TCT as a compact-JWS
     /// string (RFC-AITP-0013).
     ///
-    /// Behind the `renewal` Cargo feature, which is **on by default** —
-    /// build with `maturin develop --no-default-features` to omit it.
-    #[cfg(feature = "renewal")]
+    /// Behind the `experimental-renewal` Cargo feature (off by default).
+    #[cfg(feature = "experimental-renewal")]
     fn build_renewal_request(&self, current_tct_token: &str) -> PyResult<String> {
         build_renewal_request_py(&self.key, current_tct_token)
     }
@@ -487,8 +486,8 @@ impl PyAitpAgent {
     /// `revoked_jtis` entries are normalized as in `verify_tct`; one that
     /// is not a UUID raises `ValueError`.
     ///
-    /// **Gated by the `renewal` Cargo feature.**
-    #[cfg(feature = "renewal")]
+    /// Behind the `experimental-renewal` Cargo feature (off by default).
+    #[cfg(feature = "experimental-renewal")]
     #[pyo3(signature = (request_payload_json, manifest_exp_unix_secs, new_ttl_secs, revoked_jtis = None))]
     fn process_renewal_request(
         &self,
@@ -516,8 +515,8 @@ impl PyAitpAgent {
 impl PyAitpAgent {
     /// Crate-internal accessor used by the session-bundle module, which
     /// needs to sign with the agent's long-term key. Gated to match its
-    /// only caller so a `--no-default-features` build stays warning-free.
-    #[cfg(feature = "session-bundle")]
+    /// only caller so a build without it stays warning-free.
+    #[cfg(feature = "experimental-session-bundle")]
     pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
         self.key.clone()
     }

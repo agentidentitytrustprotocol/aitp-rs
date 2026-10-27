@@ -14,16 +14,14 @@ import {
   AitpAgent,
   computeAidJkt,
   verifyDelegation,
-  verifyDelegationMultihop,
 } from '../index.js';
+import { HAS_MULTIHOP, verifyDelegationMultihop } from './_experimental.mjs';
 import {
   withClaims,
   decodeJwsPayload,
   tamperJwsSignature,
 } from './_jws.mjs';
 
-const HAS_MULTIHOP =
-  typeof verifyDelegationMultihop === 'function';
 
 // Take a valid single-hop delegation token and forge a non-empty `chain`
 // claim into its (unverified) payload. The strict vs. multi-hop gate
@@ -159,7 +157,7 @@ test('verifyDelegation (strict default) rejects a multi-hop chain', () => {
 
 test(
   'verifyDelegationMultihop opts past the hop gate',
-  { skip: !HAS_MULTIHOP ? 'built without multihop-delegation' : false },
+  { skip: !HAS_MULTIHOP ? 'built without experimental-multihop-delegation' : false },
   () => {
     // The opt-in verifier must get PAST the hop gate the strict path rejects
     // at — proven by failing with a *different* error (structure/signature)
@@ -175,7 +173,7 @@ test(
 
 test(
   'verifyDelegationMultihop parses issuerManifests up front',
-  { skip: !HAS_MULTIHOP ? 'built without multihop-delegation' : false },
+  { skip: !HAS_MULTIHOP ? 'built without experimental-multihop-delegation' : false },
   () => {
     // RFC-AITP-0011 §3 step 1: hop keys come from the issuers' Manifests,
     // passed as `{"manifest": ...}` envelope JSON strings.

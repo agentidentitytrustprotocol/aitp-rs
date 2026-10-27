@@ -204,3 +204,53 @@ A vector or signed example pinned for a **Draft** RFC carries
 `make kat-verify` checks the tag in both directions: every listed draft
 entry carries exactly `true`, and no other entry carries a `draft`
 member. A frozen vector cannot leave the frozen set by being tagged.
+
+### The frozen-set manifest (`make kat-frozen`)
+
+[`scripts/kat-frozen.py`](../../../scripts/kat-frozen.py) records the
+frozen set as a **per-vector manifest**, using the Python standard
+library only. A digest of whole files would not work: draft vectors
+share files such as `jcs-sha256.json` with frozen ones, so adding one
+would change it.
+
+- **Entries.** Each object in the `vectors` array of a top-level
+  `*.json` file here, keyed by its `id`, and each
+  `signed-examples/**/*.json` file as a whole, keyed by its path from
+  this directory (for example
+  `signed-examples/tct/kat-keypair-001-issues-002.json`). Entries with
+  `"draft": true` are left out.
+- **Per-vector hash.** `sha256(JCS(entry))`, lowercase hex: the SHA-256
+  of the RFC 8785 canonical form of the parsed entry. It does not depend
+  on whitespace, member order or line endings, so macOS and Linux give
+  the same value.
+- **Overall digest.** `sha256(JCS(vectors))`, over the id-sorted
+  manifest object.
+
+`make kat-frozen` prints the manifest as JSON on stdout, and that output
+is exactly what `FROZEN.json` holds:
+
+```json
+{
+  "manifest_version": 1,
+  "hash": "sha256(JCS(entry))",
+  "digest": "<sha256 hex of JCS(vectors)>",
+  "vectors": { "<id>": "<sha256 hex>", "…": "…" }
+}
+```
+
+`FROZEN.json` does not exist yet. It is written when the core RFCs reach
+Release Candidate. Until then, `make kat-frozen-check` (part of
+`make validate` and CI) only computes and prints the digest, and CI also
+prints the full manifest. Once `FROZEN.json` exists, the check fails
+when:
+
+- an id it lists is missing;
+- an id it lists has a different hash;
+- an id it lists now carries `"draft": true`;
+- its `digest` does not match its own `vectors`.
+
+New ids pass, draft or not, because the rule is additions only.
+`make kat-frozen-test` runs the check against a temporary copy of this
+directory with a generated `FROZEN.json`. Its cases include a mutated
+frozen vector and a deleted frozen id, which must fail, and an appended
+vector, which must pass.

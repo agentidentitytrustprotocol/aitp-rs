@@ -142,7 +142,8 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 - **Session Trust Bundle and renewal are opt-in.** N-party trust
   artifacts (RFC-0010, Draft, opt-in) live in the separate
   `aitp-experimental` crate, as does TCT renewal (RFC-0013, Draft). The
-  language SDKs ship both **on by default**.
+  published language SDKs include neither; a source build adds them with
+  the bindings' `experimental` feature.
 - **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
   revocation status for a TCT treats it as revoked (`TCT_REVOKED`). The
   `HandshakeServer` and `run_initiator_handshake` fetch the peer's

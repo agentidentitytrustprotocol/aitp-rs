@@ -4,8 +4,9 @@
 > [RFC-AITP-0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md)
 > is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
 > Implemented in the `aitp-experimental` crate as
-> `aitp_experimental::session_bundle` (the language bindings use their own
-> `session-bundle` feature, on by default). Neither the API nor the wire
+> `aitp_experimental::session_bundle` (the language bindings: their
+> `experimental-session-bundle` feature, off by default and absent from the
+> published packages). Neither the API nor the wire
 > form carries a stability promise until the RFC is ratified.
 
 ## Motivation
@@ -131,7 +132,7 @@ only when a coordinator Manifest is supplied.
 # Coordinator (Python): each participant already handshook with the
 # coordinator, which issued them a TCT (aud == participant AID).
 # a_tct / c_tct are the coordinator-issued TCT compact JWS strings.
-b = aitp.SessionBundleBuilder(coordinator_agent)   # `session-bundle` feature
+b = aitp.SessionBundleBuilder(coordinator_agent)   # `experimental-session-bundle` feature
 b.participant(a_aid, a_tct)
 b.participant(c_aid, c_tct)
 bundle_json = b.build()        # expires_at auto-set to min(member expiries)
@@ -141,7 +142,7 @@ bundle_json = b.build()        # expires_at auto-set to min(member expiries)
 // Participant (Node) verifies the bundle naming its own AID, under the
 // key the coordinator's Manifest designates (`{"manifest": …}` JSON,
 // required; RFC-AITP-0010 §5 step 5):
-const outcome = verifySessionBundle(bundleJson, myAid, coordinatorManifestJson);   // `session-bundle` feature
+const outcome = verifySessionBundle(bundleJson, myAid, coordinatorManifestJson);   // `experimental-session-bundle` feature
 // outcome = { kind: "clear" | "degraded", activeAids, droppedAids }
 // Throws on a Manifest for another AID / NotMember / ExpiryWindowInvariant /
 // bad coordinator signature / any embedded TCT failing verification.

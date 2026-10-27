@@ -12,6 +12,7 @@ import time
 import pytest
 
 import aitp
+from _experimental import HAS_RENEWAL
 
 
 def _jws_claims(tct_token):
@@ -21,9 +22,8 @@ def _jws_claims(tct_token):
     return json.loads(raw)
 
 ed = aitp.AitpAgent
-HAS_RENEWAL = hasattr(ed.generate(), "build_renewal_request")
 pytestmark = pytest.mark.skipif(
-    not HAS_RENEWAL, reason="binding built without --features renewal"
+    not HAS_RENEWAL, reason="binding built without --features experimental-renewal"
 )
 
 

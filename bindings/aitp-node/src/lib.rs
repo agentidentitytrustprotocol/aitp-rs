@@ -17,7 +17,7 @@
 #![cfg_attr(test, allow(dead_code))]
 
 mod agent;
-#[cfg(feature = "session-bundle")]
+#[cfg(feature = "experimental-session-bundle")]
 mod bundle;
 mod delegation;
 mod envelope;
@@ -26,7 +26,7 @@ mod oidc;
 #[cfg(feature = "spki-pinning")]
 mod pinning;
 mod pop;
-#[cfg(feature = "renewal")]
+#[cfg(feature = "experimental-renewal")]
 mod renewal;
 mod revocation;
 mod session;

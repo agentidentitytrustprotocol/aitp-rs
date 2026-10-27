@@ -20,25 +20,34 @@ crate-type = ["cdylib"]
 # A plain `cargo build` (feature off) links libpython for local
 # testing; the importable wheel must be built with the feature on.
 #
-# The full capability surface ships **by default** — the published wheel
-# exposes renewal, session bundles, SPKI pinning, and multi-hop
-# delegation with no special build. Each capability is still a named
-# feature so a minimal wheel can opt out via `--no-default-features`.
+# The default build, and so the published wheel, has the stable surface
+# plus SPKI pinning. The `experimental-*` features (umbrella
+# `experimental`) add renewal, session bundles and multi-hop delegation
+# to a source build; they carry no stability promise.
 [features]
 extension-module = ["pyo3/extension-module"]
-default = ["renewal", "session-bundle", "spki-pinning", "multihop-delegation"]
-# TCT renewal (RFC-AITP-0013, `aitp_experimental::renewal`).
-renewal = ["dep:aitp-experimental"]
-# Session bundles (RFC-AITP-0010) — exposes `SessionBundleBuilder`.
-session-bundle = ["dep:aitp-experimental"]
+default = ["spki-pinning"]
+# Experimental (no promise; not in the published packages): TCT renewal
+# (RFC-AITP-0013, `aitp_experimental::renewal`).
+experimental-renewal = ["dep:aitp-experimental"]
+# Experimental: Session Trust Bundles (RFC-AITP-0010) — exposes
+# `SessionBundleBuilder`.
+experimental-session-bundle = ["dep:aitp-experimental"]
 # SPKI cert pinning — exposes `compute_spki_hash()` and `SpkiPinVerifier`.
 # Implemented standalone on top of x509-parser + sha2 (no rustls, no
 # `aitp::transport`, no tokio/hyper) to keep the wheel small.
 spki-pinning = ["dep:x509-parser"]
-# Multi-hop delegation (RFC-AITP-0011, `aitp_experimental::delegation`).
+# Experimental: multi-hop delegation (RFC-AITP-0011,
+# `aitp_experimental::delegation`).
 # The strict single-hop `verify_delegation` is always present; this
 # additionally exposes `verify_delegation_multihop`.
-multihop-delegation = ["dep:aitp-experimental"]
+experimental-multihop-delegation = ["dep:aitp-experimental"]
+# Every experimental feature.
+experimental = [
+    "experimental-renewal",
+    "experimental-session-bundle",
+    "experimental-multihop-delegation",
+]
 
 [dependencies]
 aitp = { path = "../../crates/aitp", default-features = false }
@@ -46,11 +55,11 @@ aitp-experimental = { path = "../../crates/aitp-experimental", optional = true }
 x509-parser = { version = "0.18", optional = true }
 sha2 = "0.11"
 
-# abi3-py39: build a single forward-compatible wheel (cp39-abi3) per
-# platform that runs on CPython 3.9+ via the stable ABI, instead of one
+# abi3-py310: build a single forward-compatible wheel (cp310-abi3) per
+# platform that runs on CPython 3.10+ via the stable ABI, instead of one
 # wheel per interpreter version. Keeps the release matrix to one build
-# per OS/arch and matches `requires-python = ">=3.9"` in pyproject.toml.
-pyo3 = { version = "0.29", features = ["abi3-py39"] }
+# per OS/arch and matches `requires-python = ">=3.10"` in pyproject.toml.
+pyo3 = { version = "0.29", features = ["abi3-py310"] }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

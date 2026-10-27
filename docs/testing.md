@@ -392,7 +392,7 @@ npm test                   # node --test tests/*.mjs
 cd bindings/aitp-py
 python -m venv .venv && . .venv/bin/activate
 pip install maturin pytest httpx 'pyjwt[crypto]' cryptography
-maturin develop           # add --no-default-features for the minimal surface
+maturin develop           # add --features experimental for the experimental tests
 pytest tests/ -v
 ```
 

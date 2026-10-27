@@ -36,14 +36,12 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 import aitp
+from _experimental import HAS_BUNDLE, HAS_MULTIHOP, HAS_RENEWAL
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[3]
 DOC = REPO_ROOT / "docs" / "sdk-python.md"
 README = REPO_ROOT / "bindings" / "aitp-py" / "README.md"
 
-HAS_RENEWAL = hasattr(aitp.AitpAgent.generate(), "build_renewal_request")
-HAS_MULTIHOP = hasattr(aitp, "verify_delegation_multihop")
-HAS_BUNDLE = hasattr(aitp, "SessionBundleBuilder")
 HAS_PINNING = hasattr(aitp, "SpkiPinVerifier")
 
 
@@ -327,7 +325,7 @@ def _p256_suite(ns):
 
 
 def _tct_renewal(ns):
-    # docs/sdk-python.md § Additional capabilities › TCT renewal (feature `renewal`)
+    # docs/sdk-python.md § Experimental › TCT renewal (feature `experimental-renewal`)
     alice, bob, tct_jws = ns.alice, ns.bob, ns.tct_jws
     import time
 
@@ -340,7 +338,7 @@ def _tct_renewal(ns):
 
 
 def _multihop(ns):
-    # docs/sdk-python.md § Additional capabilities › Multi-hop delegation
+    # docs/sdk-python.md § Experimental › Multi-hop delegation
     bob, alice_manifest = ns.bob, ns.alice_manifest
     delegation_jws, revoked = ns.delegation_jws, ns.revoked
     # Every hop verifies under the key its issuer's Manifest designates
@@ -354,7 +352,7 @@ def _multihop(ns):
 
 
 def _session_bundle(ns):
-    # docs/sdk-python.md § Additional capabilities › Session Trust Bundle
+    # docs/sdk-python.md § Experimental › Session Trust Bundle
     alice, bob, carol = ns.alice, ns.bob, ns.carol
     tct_jws, carol_tct, revoked = ns.tct_jws, ns.carol_tct, ns.revoked
     bundle = (
@@ -384,7 +382,7 @@ def _session_bundle(ns):
 
 
 def _spki_pinning(ns):
-    # docs/sdk-python.md § Additional capabilities › SPKI cert pinning
+    # docs/sdk-python.md § Default surface › SPKI cert pinning
     cert_der_bytes, other_cert_der = _self_signed_der(), _self_signed_der()
     pin = aitp.compute_spki_hash(cert_der_bytes)    # 32 bytes
     verifier = aitp.SpkiPinVerifier([pin])
@@ -514,20 +512,20 @@ def test_p256_suite():
     assert json.loads(ns.p_sess.complete(commit_ack, revoked_jtis=set()))["tct"].count(".") == 2
 
 
-@pytest.mark.skipif(not HAS_RENEWAL, reason="binding built without the renewal feature")
+@pytest.mark.skipif(not HAS_RENEWAL, reason="binding built without experimental-renewal")
 def test_tct_renewal():
     ns = _tct_renewal(_mutual_handshake())
     assert ns.fresh_tct.count(".") == 2 and ns.fresh_tct != ns.tct_jws
     assert ns.fresh_voucher is not None
 
 
-@pytest.mark.skipif(not HAS_MULTIHOP, reason="binding built without multihop-delegation")
+@pytest.mark.skipif(not HAS_MULTIHOP, reason="binding built without experimental-multihop-delegation")
 def test_multihop_delegation():
     ns = _multihop(_through_delegation())
     assert ns.verified.delegatee == ns.carol.aid
 
 
-@pytest.mark.skipif(not HAS_BUNDLE, reason="binding built without session-bundle")
+@pytest.mark.skipif(not HAS_BUNDLE, reason="binding built without experimental-session-bundle")
 def test_session_bundle(capsys):
     ns = _delegation(_mutual_handshake())
     ns = _revocation_lists(ns)
