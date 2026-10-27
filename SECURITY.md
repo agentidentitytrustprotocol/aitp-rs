@@ -39,9 +39,9 @@ decisions, signature handling, or cryptographic verification.
   zeroizes its secret scalar on drop and redacts it from `Debug`)
 - Replay, downgrade, or audience-confusion attacks against handshake, TCT
   verification, or single-hop delegation flows
-- Any way to get a multi-hop delegation `chain` accepted while
-  `max_delegation_hops` is at its default of 0 (the strict default must
-  reject every chained token; see
+- Any way to get a multi-hop delegation `chain` accepted by
+  `aitp::delegation::verify_delegation` (it must reject every chained
+  token; see
   [`docs/multihop-delegation.md`](docs/multihop-delegation.md))
 - Parser denial-of-service in any AITP protocol message
 - Policy bypass in revocation, soft-fail grant restriction, or trust-mode enforcement
@@ -53,6 +53,5 @@ decisions, signature handling, or cryptographic verification.
 - Denial-of-service requiring transport-layer control below `aitp::transport`
 - Third-party dependency issues — report those upstream
 - Feature-gated draft-RFC surfaces (`experimental-renewal`,
-  the `aitp-experimental` crate) and multi-hop delegation once a caller has
-  opted in with `max_delegation_hops > 0` — reports welcome, but no patching SLA until the
-  corresponding RFCs leave Draft
+  the `aitp-experimental` crate, including multi-hop delegation) — reports
+  welcome, but no patching SLA until the corresponding RFCs leave Draft

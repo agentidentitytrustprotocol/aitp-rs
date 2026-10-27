@@ -58,9 +58,11 @@ crate's version.
 
 These can change or disappear in any release, including a patch:
 
-- **`aitp-experimental`.** Session Trust Bundles
-  (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft) and their
-  HTTP endpoint (feature `http-server`). The crate tracks Draft spec text.
+- **`aitp-experimental`.** Multi-hop delegation
+  (`aitp_experimental::delegation`, RFC-AITP-0011, Draft), Session Trust
+  Bundles (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft) and
+  their HTTP endpoint (feature `http-server`). The crate tracks Draft spec
+  text.
 - **Unstable features of `aitp`.** These are `experimental-renewal`
   (`facade::renew_tct`, `TctStore::needs_refresh` and the `tct` renewal
   items), `experimental-spiffe-identity` (`handshake::identity_spiffe`),

@@ -85,7 +85,7 @@ aitp-rs/
 | `aitp::envelope`      | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp::transport`. |
 | `aitp::manifest`      | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
 | `aitp::tct`           | ✅ complete   | Builder + verifier + downstream PoP + renewal; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |
-| `aitp::delegation`    | ✅ complete   | Builder + verifier: single-hop by default, multi-hop chains (RFC-0011) via the runtime opt-in `VerifyDelegationContext::with_max_delegation_hops`. |
+| `aitp::delegation`    | ✅ complete   | Builder + verifier, single-hop (RFC-0006); a `chain`-bearing token is rejected with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Multi-hop chains (RFC-0011) are in `aitp_experimental::delegation`. |
 | `aitp::handshake`     | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy); RSA-2048 floor on OIDC RSA keys. |
 | `aitp::transport`     | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 §2.3 branch), handshake server (AITP error envelopes), revocation endpoint. SSRF `HostGuard` on peer fetches, pluggable `ReplayGuard`, optional `metrics` feature. |
 | `aitp::facade`        | ✅ complete   | Async `run_initiator_handshake` + `TctStore` (+ `renew_tct` behind `experimental-renewal`); `InitiatorConfig` with `with_http_timeout` / `with_host_guard`. |
@@ -127,15 +127,15 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | [0008](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md) | Revocation | ✅ implemented | Snapshot signing/verification + per-issuer cache + HTTP endpoint + Manifest extension. |
 | [0009](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md) | Security considerations | ✅ honored | Replay window, timestamp tolerance, HTTPS-only fetches, fail-closed defaults; SSRF `HostGuard` (redirect-block + address classification + DNS-rebind-safe pinning), canonical low-S P-256, RSA-2048 floor. See [`docs/transport-hardening.md`](docs/transport-hardening.md). |
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft, opt-in | Builder + verifier in the `aitp-experimental` crate (`aitp_experimental::session_bundle`); conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
-| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft, opt-in | Always compiled; gated at runtime. `VerifyDelegationContext::new` sets `max_delegation_hops = 0`, which rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. `with_max_delegation_hops(n)` with `n > 0` (typically `DEFAULT_MAX_DELEGATION_HOPS = 3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
+| [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft, opt-in | In the `aitp-experimental` crate (`aitp_experimental::delegation`): `ChainedDelegationBuilder` and `verify_chained_delegation`, with a hop budget of `DEFAULT_MAX_DELEGATION_HOPS = 3`. The stable `aitp::delegation::verify_delegation` rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ◐ container only | The §1 container is carried: `ExtensionsMap` on JCS payloads, the `ext` claim on JWS artifacts, unknown keys ignored; revocation URL extension wired. No ZK/TEE extension family is implemented. |
 | [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft, opt-in | Behind the `experimental-renewal` Cargo feature: the holder's PoP request, the issuer's §4 checks and signed `tct` / `error` response envelope, the holder's §6.1 response check, the `renew_tct` facade and the server route at the advertised `rfc-aitp-0005.renew_uri`; the conformance runner's `--feature experimental-renewal` flag exercises the `ren-*` fixtures. See [`docs/tct-renewal.md`](docs/tct-renewal.md). |
 
 ## Known limitations (v0.3)
 
-- **Single-hop delegation only by default.** Multi-hop chains (RFC-0011)
-  are rejected unless the caller opts in at runtime with
-  `VerifyDelegationContext::with_max_delegation_hops(n)`, `n > 0`. See
+- **Single-hop delegation only in `aitp`.** `aitp::delegation::verify_delegation`
+  rejects multi-hop chains (RFC-0011); they verify with
+  `aitp_experimental::delegation::verify_chained_delegation`. See
   [`docs/multihop-delegation.md`](docs/multihop-delegation.md) and, for
   why the default must stay strict,
   [`docs/architecture.md`](docs/architecture.md#why-multi-hop-delegation-is-unreachable-by-default).

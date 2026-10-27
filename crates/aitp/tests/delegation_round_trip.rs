@@ -399,26 +399,70 @@ fn tct_presented_as_delegation_rejected() {
     );
 }
 
+/// Re-sign B's delegation to C after `edit` changes its claims.
+fn resigned_delegation(
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>),
+) -> String {
+    let token = delegate_to_c(&voucher_for_b());
+    let payload = jws::decode_payload_unverified(&token).unwrap();
+    let mut claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
+    edit(claims.as_object_mut().unwrap());
+    jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap()
+}
+
 #[test]
-fn jti_without_multihop_opt_in_rejected() {
-    // RFC-AITP-0011 §1.1: strict-claims rejection for non-opted-in
-    // verifiers; the same token verifies under the opt-in.
-    let token = DelegationBuilder::new(&b(), &voucher_for_b())
-        .unwrap()
-        .delegatee(c().aid().clone())
-        .scope(["read_data"])
-        .now(NOW)
-        .jti(Uuid::new_v4()) // minted as chain-extensible
-        .build()
-        .unwrap();
+fn jti_and_chain_hash_rejected_as_malformed() {
+    // RFC-AITP-0011 §1.1: `jti` and `chain_hash` are outside the
+    // RFC-AITP-0006 §2 claim set; the value is never inspected.
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
-    assert!(matches!(
-        verify_delegation(&token, &ctx).unwrap_err(),
-        DelegationError::ClaimsMalformed(_)
-    ));
-    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60)).with_max_delegation_hops(3);
-    verify_delegation(&token, &ctx).expect("jti-bearing single-hop verifies under opt-in");
+    for (member, value) in [
+        ("jti", serde_json::json!(Uuid::new_v4())),
+        ("jti", serde_json::json!("not-a-uuid")),
+        ("chain_hash", serde_json::json!("AAAA")),
+    ] {
+        let token = resigned_delegation(|c| {
+            c.insert(member.into(), value.clone());
+        });
+        assert!(
+            matches!(
+                verify_delegation(&token, &ctx).unwrap_err(),
+                DelegationError::ClaimsMalformed(_)
+            ),
+            "{member}: {value}"
+        );
+    }
+}
+
+#[test]
+fn chain_rejected_before_other_claim_checks() {
+    // RFC-AITP-0006 §4 multi-hop guard: a `chain` claim is a structural
+    // rejection ahead of every other claim check.
+    let a_key = a();
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
+    let edits: [fn(&mut serde_json::Map<String, serde_json::Value>); 4] = [
+        |c| {
+            c.insert("chain".into(), serde_json::json!(["x"]));
+        },
+        |c| {
+            c.insert("chain".into(), serde_json::json!([]));
+        },
+        |c| {
+            c.insert("chain".into(), serde_json::json!(["x"]));
+            c.insert("jti".into(), serde_json::json!("not-a-uuid"));
+        },
+        |c| {
+            c.insert("chain".into(), serde_json::json!(["x"]));
+            c.insert("scope".into(), serde_json::json!(7));
+        },
+    ];
+    for edit in edits {
+        let token = resigned_delegation(edit);
+        assert!(matches!(
+            verify_delegation(&token, &ctx).unwrap_err(),
+            DelegationError::MultihopNotSupported
+        ));
+    }
 }
 
 // ─────────────── issuer key from the issuer's Manifest ───────────────

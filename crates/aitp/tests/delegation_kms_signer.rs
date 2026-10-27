@@ -76,17 +76,9 @@ fn kms_delegator_with_wrong_key_returns_signer_error() {
 
 use std::sync::Arc;
 
-const JTI1: &str = "770e8400-e29b-41d4-a716-446655440901";
-const JTI2: &str = "770e8400-e29b-41d4-a716-446655440902";
-
 type MakeKey = fn(u8) -> AitpSigningKey;
 
-fn jti(s: &str) -> uuid::Uuid {
-    uuid::Uuid::parse_str(s).unwrap()
-}
-
-/// Sync and async single-hop and multi-hop delegations are byte
-/// identical for deterministic keys (Ed25519; P-256 via RFC 6979 through
+/// Sync and async delegations are byte identical for deterministic keys (Ed25519; P-256 via RFC 6979 through
 /// the mock's Raw and Der outputs).
 #[tokio::test]
 async fn async_delegations_are_byte_identical_to_sync() {
@@ -99,16 +91,13 @@ async fn async_delegations_are_byte_identical_to_sync() {
         let a = make(0xA3);
         let b = make(0xB4);
         let c = make(0xC4);
-        let d = AitpSigningKey::from_seed(&[0xD4; 32]);
         let voucher = voucher_for(&a, &b);
 
-        // Single hop: B -> C.
         let sync1 = DelegationBuilder::new(&b, &voucher)
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
             .now(NOW)
-            .jti(jti(JTI1))
             .build()
             .unwrap();
         let b_kms = MockKmsSigner::new(make(0xB4)).output(output);
@@ -117,33 +106,11 @@ async fn async_delegations_are_byte_identical_to_sync() {
             .delegatee(c.aid().clone())
             .scope(["read_data"])
             .now(NOW)
-            .jti(jti(JTI1))
             .build_async()
             .await
             .unwrap();
         assert_eq!(sync1, async1);
         assert_eq!(b_kms.calls(), 1);
-
-        // Multi hop: C extends to D.
-        let sync2 = DelegationBuilder::extending(&c, &sync1)
-            .unwrap()
-            .delegatee(d.aid().clone())
-            .scope(["read_data"])
-            .now(NOW)
-            .jti(jti(JTI2))
-            .build()
-            .unwrap();
-        let c_kms = MockKmsSigner::new(make(0xC4)).output(output);
-        let async2 = DelegationBuilder::extending_async(&c_kms, &async1)
-            .unwrap()
-            .delegatee(d.aid().clone())
-            .scope(["read_data"])
-            .now(NOW)
-            .jti(jti(JTI2))
-            .build_async()
-            .await
-            .unwrap();
-        assert_eq!(sync2, async2);
     }
 }
 
@@ -156,10 +123,6 @@ async fn async_constructors_validate_like_sync() {
     assert!(matches!(
         DelegationBuilder::new_async(&stranger, &voucher).err(),
         Some(DelegationError::InvalidVoucher)
-    ));
-    assert!(matches!(
-        DelegationBuilder::extending_async(&stranger, "not.a.jws").err(),
-        Some(DelegationError::Crypto(_))
     ));
 }
 

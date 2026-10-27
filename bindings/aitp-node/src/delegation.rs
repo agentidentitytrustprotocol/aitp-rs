@@ -14,11 +14,11 @@ use aitp::delegation::{
     verify_delegation, DelegationBuilder, DelegationRevocation, SourceRevocationCheck,
     VerifyDelegationContext,
 };
-// RFC-AITP-0011 multi-hop ceiling — only referenced by the multi-hop
-// opt-in verifier, so the import is feature-gated to avoid an unused-import
-// warning in the default (strict single-hop) build.
+// RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "multihop-delegation")]
-use aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS;
+use aitp_experimental::delegation::{
+    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+};
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -103,9 +103,9 @@ pub fn verify_delegation_js(
     let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
     let root = |jti: &Uuid| deny.delegation_status(jti);
 
-    // `VerifyDelegationContext::new` ships `max_delegation_hops = 0`, so a non-empty
-    // chain fails before any per-hop work runs — which is also why only the
-    // root check is wired here: there are no hops.
+    // `verify_delegation` rejects any chain-bearing token before per-hop
+    // work, which is why only the root check is wired here: there are no
+    // hops.
     let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), root_source(&deny, &root))
         .with_issuer_manifests(&manifests);
 
@@ -165,14 +165,27 @@ pub fn verify_delegation_multihop_js(
     let hop = |_issuer: &Aid, jti: &Uuid| deny.delegation_status(jti);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), root_source(&deny, &root))
+    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), root_source(&deny, &root))
         .with_max_delegation_hops(hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
 
-    let verified = verify_delegation(&token, &ctx).map_err(|e| verify_failed(env, &e))?;
+    let verified = verify_chained_delegation(&token, &ctx).map_err(|e| match e {
+        aitp_experimental::delegation::ChainedDelegationError::Delegation(e) => {
+            verify_failed(env, &e)
+        }
+        other => Error::from_reason(format!("delegation verification failed: {other}")),
+    })?;
 
-    Ok(to_verified(&verified))
+    let claims = verified.claims;
+    Ok(JsDelegationVerified {
+        delegator: claims.aud.to_string(),
+        delegatee: claims.sub.to_string(),
+        issued_by: claims.iss.to_string(),
+        grants: claims.scope,
+        expires_at: claims.exp.0 as f64,
+        cnf_jkt: claims.cnf.jkt,
+    })
 }
 
 /// The root revocation source: the deny-list lookup, or nothing at all

@@ -10,7 +10,6 @@ use aitp::tct::TctBuilder;
 use boon::{Compiler, Schemas};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
-use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
@@ -67,46 +66,6 @@ fn minted_single_hop_claims_validate() {
         .unwrap();
     if let Err(e) = validate(&decoded_claims(&token)) {
         panic!("single-hop delegation claims failed schema validation:\n{e}");
-    }
-}
-
-#[test]
-fn minted_multihop_claims_validate() {
-    let a = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let b = AitpSigningKey::from_seed(&[0xB1; 32]);
-    let c = AitpSigningKey::from_seed(&[0xC1; 32]);
-    let d = AitpSigningKey::from_seed(&[0xD1; 32]);
-    let voucher = TctBuilder::new(&a)
-        .subject(b.aid().clone())
-        .audience(b.aid().clone())
-        .grants(["read_data"])
-        .ttl_secs(7200)
-        .subject_pubkey(b.verifying_key())
-        .issued_at(NOW)
-        .build()
-        .unwrap()
-        .voucher
-        .unwrap();
-    let h1 = DelegationBuilder::new(&b, &voucher)
-        .unwrap()
-        .delegatee(c.aid().clone())
-        .scope(["read_data"])
-        .ttl_secs(6000)
-        .now(NOW)
-        .jti(Uuid::new_v4())
-        .build()
-        .unwrap();
-    let outer = DelegationBuilder::extending(&c, &h1)
-        .unwrap()
-        .delegatee(d.aid().clone())
-        .scope(["read_data"])
-        .ttl_secs(3000)
-        .now(NOW)
-        .jti(Uuid::new_v4())
-        .build()
-        .unwrap();
-    if let Err(e) = validate(&decoded_claims(&outer)) {
-        panic!("multi-hop delegation claims failed schema validation:\n{e}");
     }
 }
 

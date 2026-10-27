@@ -60,23 +60,13 @@ pub enum DelegationError {
     VersionUnknown,
     /// Decoded JWS payload did not deserialize as delegation claims —
     /// unknown claim outside `ext`, duplicate claim, missing required
-    /// claim, or a claim not permitted in the current mode (e.g. `jti`
-    /// without multi-hop opt-in).
+    /// claim, or an RFC-AITP-0011 `jti` or `chain_hash` claim.
     #[error("delegation claims malformed: {0}")]
     ClaimsMalformed(String),
-    /// Token attempts multi-hop but the verifier was constructed with
-    /// `max_delegation_hops = 0` (single-hop only).
+    /// Token carries a `chain` claim (RFC-AITP-0011 multi-hop), which
+    /// single-hop verification rejects structurally (RFC-AITP-0006 §4).
     #[error("multi-hop delegation is not supported")]
     MultihopNotSupported,
-    /// `total_hops = chain.len() + 2` exceeds the verifier's configured
-    /// `max_delegation_hops` (RFC-AITP-0011 §2). Default cap is 3.
-    #[error("delegation hop limit exceeded")]
-    HopLimitExceeded,
-    /// `chain` is non-empty but `chain_hash` was missing or did not
-    /// match the recomputed hash over `chain` (RFC-AITP-0011 §5,
-    /// truncation defense).
-    #[error("delegation chain_hash mismatch")]
-    ChainHashMismatch,
     /// Self-delegation attempt (`issued_by == delegatee`).
     #[error("self-delegation is forbidden")]
     SelfDelegation,
@@ -86,9 +76,6 @@ pub enum DelegationError {
     /// Builder was missing a required field.
     #[error("missing required field: {0}")]
     MissingField(&'static str),
-    /// Canonicalization failed.
-    #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
@@ -102,11 +89,4 @@ pub enum DelegationError {
     /// draft code, even though delegation itself is a draft-RFC surface.
     #[error("unknown field: {0}")]
     UnknownField(String),
-    /// A hop's `jti` (the outer token's, or any `chain[]` entry's) is
-    /// not in the strict lowercase hyphenated UUID v4 layout
-    /// (RFC-AITP-0011 §1.1, RFC-AITP-0005 §2). Checked on the unverified
-    /// payload, before signature verification, and also raised by the
-    /// builder. Wire code `DELEGATION_INVALID_SIGNATURE`.
-    #[error("delegation hop jti is not a UUID v4: {0}")]
-    JtiNotV4(crate::core::ids::V4Error),
 }

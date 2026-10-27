@@ -605,29 +605,22 @@ pub aitp::crypto::signer::SignerError::Transient::source: core::option::Option<a
 pub aitp::crypto::signer::SignerError::UnsupportedAlgorithm(alloc::string::String)
 pub aitp::crypto::signer::SignerError::VerificationFailed
 pub aitp::delegation::DelegationClaims::aud: aitp::core::aid::Aid
-pub aitp::delegation::DelegationClaims::chain: core::option::Option<alloc::vec::Vec<alloc::string::String>>
-pub aitp::delegation::DelegationClaims::chain_hash: core::option::Option<alloc::string::String>
 pub aitp::delegation::DelegationClaims::cnf: aitp::tct::types::Cnf
 pub aitp::delegation::DelegationClaims::exp: aitp::core::time::Timestamp
 pub aitp::delegation::DelegationClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
 pub aitp::delegation::DelegationClaims::iss: aitp::core::aid::Aid
-pub aitp::delegation::DelegationClaims::jti: core::option::Option<uuid::Uuid>
 pub aitp::delegation::DelegationClaims::scope: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::DelegationClaims::sub: aitp::core::aid::Aid
 pub aitp::delegation::DelegationClaims::ver: alloc::string::String
 pub aitp::delegation::DelegationClaims::voucher: core::option::Option<alloc::string::String>
 pub aitp::delegation::DelegationError::AudienceMismatch
-pub aitp::delegation::DelegationError::Canonicalization(alloc::string::String)
-pub aitp::delegation::DelegationError::ChainHashMismatch
 pub aitp::delegation::DelegationError::ClaimsMalformed(alloc::string::String)
 pub aitp::delegation::DelegationError::CnfMalformed
 pub aitp::delegation::DelegationError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::delegation::DelegationError::EmptyScope
 pub aitp::delegation::DelegationError::Expired
-pub aitp::delegation::DelegationError::HopLimitExceeded
 pub aitp::delegation::DelegationError::InvalidSignature
 pub aitp::delegation::DelegationError::InvalidVoucher
-pub aitp::delegation::DelegationError::JtiNotV4(aitp::core::ids::V4Error)
 pub aitp::delegation::DelegationError::KeyResolutionFailed
 pub aitp::delegation::DelegationError::KeyResolutionFailed::issuer: aitp::core::aid::Aid
 pub aitp::delegation::DelegationError::KeyResolutionFailed::source: aitp::manifest::error::ManifestError
@@ -645,24 +638,18 @@ pub aitp::delegation::DelegationRevocation::FailOpen
 pub aitp::delegation::VerifiedDelegation::claims: aitp::delegation::types::DelegationClaims
 pub aitp::delegation::VerifiedDelegation::token: alloc::string::String
 pub aitp::delegation::VerifiedDelegation::voucher: aitp::tct::types::GrantVoucherClaims
-pub aitp::delegation::VerifyDelegationContext::hop_revocation_check: core::option::Option<aitp::delegation::verifier::HopRevocationCheck<'a>>
 pub aitp::delegation::VerifyDelegationContext::issuer_manifests: core::option::Option<&'a dyn aitp::manifest::resolver::ManifestResolver>
-pub aitp::delegation::VerifyDelegationContext::max_delegation_hops: usize
 pub aitp::delegation::VerifyDelegationContext::now: aitp::core::time::Timestamp
 pub aitp::delegation::VerifyDelegationContext::revocation: aitp::delegation::verifier::DelegationRevocation<'a>
 pub aitp::delegation::VerifyDelegationContext::verifier: &'a aitp::core::aid::Aid
 pub aitp::delegation::error::DelegationError::AudienceMismatch
-pub aitp::delegation::error::DelegationError::Canonicalization(alloc::string::String)
-pub aitp::delegation::error::DelegationError::ChainHashMismatch
 pub aitp::delegation::error::DelegationError::ClaimsMalformed(alloc::string::String)
 pub aitp::delegation::error::DelegationError::CnfMalformed
 pub aitp::delegation::error::DelegationError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::delegation::error::DelegationError::EmptyScope
 pub aitp::delegation::error::DelegationError::Expired
-pub aitp::delegation::error::DelegationError::HopLimitExceeded
 pub aitp::delegation::error::DelegationError::InvalidSignature
 pub aitp::delegation::error::DelegationError::InvalidVoucher
-pub aitp::delegation::error::DelegationError::JtiNotV4(aitp::core::ids::V4Error)
 pub aitp::delegation::error::DelegationError::KeyResolutionFailed
 pub aitp::delegation::error::DelegationError::KeyResolutionFailed::issuer: aitp::core::aid::Aid
 pub aitp::delegation::error::DelegationError::KeyResolutionFailed::source: aitp::manifest::error::ManifestError
@@ -676,13 +663,10 @@ pub aitp::delegation::error::DelegationError::SourceTctRevoked
 pub aitp::delegation::error::DelegationError::UnknownField(alloc::string::String)
 pub aitp::delegation::error::DelegationError::VersionUnknown
 pub aitp::delegation::types::DelegationClaims::aud: aitp::core::aid::Aid
-pub aitp::delegation::types::DelegationClaims::chain: core::option::Option<alloc::vec::Vec<alloc::string::String>>
-pub aitp::delegation::types::DelegationClaims::chain_hash: core::option::Option<alloc::string::String>
 pub aitp::delegation::types::DelegationClaims::cnf: aitp::tct::types::Cnf
 pub aitp::delegation::types::DelegationClaims::exp: aitp::core::time::Timestamp
 pub aitp::delegation::types::DelegationClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
 pub aitp::delegation::types::DelegationClaims::iss: aitp::core::aid::Aid
-pub aitp::delegation::types::DelegationClaims::jti: core::option::Option<uuid::Uuid>
 pub aitp::delegation::types::DelegationClaims::scope: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::types::DelegationClaims::sub: aitp::core::aid::Aid
 pub aitp::delegation::types::DelegationClaims::ver: alloc::string::String
@@ -692,9 +676,7 @@ pub aitp::delegation::types::VerifiedDelegation::token: alloc::string::String
 pub aitp::delegation::types::VerifiedDelegation::voucher: aitp::tct::types::GrantVoucherClaims
 pub aitp::delegation::verifier::DelegationRevocation::Check(&'a aitp::delegation::verifier::SourceRevocationCheck<'a>)
 pub aitp::delegation::verifier::DelegationRevocation::FailOpen
-pub aitp::delegation::verifier::VerifyDelegationContext::hop_revocation_check: core::option::Option<aitp::delegation::verifier::HopRevocationCheck<'a>>
 pub aitp::delegation::verifier::VerifyDelegationContext::issuer_manifests: core::option::Option<&'a dyn aitp::manifest::resolver::ManifestResolver>
-pub aitp::delegation::verifier::VerifyDelegationContext::max_delegation_hops: usize
 pub aitp::delegation::verifier::VerifyDelegationContext::now: aitp::core::time::Timestamp
 pub aitp::delegation::verifier::VerifyDelegationContext::revocation: aitp::delegation::verifier::DelegationRevocation<'a>
 pub aitp::delegation::verifier::VerifyDelegationContext::verifier: &'a aitp::core::aid::Aid
@@ -1581,11 +1563,9 @@ pub const aitp::crypto::jws::TYP_DELEGATION: &str
 pub const aitp::crypto::jws::TYP_GRANT_VOUCHER: &str
 pub const aitp::crypto::jws::TYP_TCT: &str
 pub const aitp::delegation::DEFAULT_DELEGATION_TTL_SECS: i64
-pub const aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS: usize
 pub const aitp::delegation::DELEGATION_CLAIMS_MEMBERS: &[&str]
 pub const aitp::delegation::builder::DEFAULT_DELEGATION_TTL_SECS: i64
 pub const aitp::delegation::types::DELEGATION_CLAIMS_MEMBERS: &[&str]
-pub const aitp::delegation::verifier::DEFAULT_MAX_DELEGATION_HOPS: usize
 pub const aitp::handshake::MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::MUTUAL_COMMIT_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS: &[&str]
@@ -1870,22 +1850,15 @@ pub fn aitp::crypto::signer::sign_raw(&dyn aitp::crypto::signer::AitpSigner, &[u
 pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint(&[u8; 32]) -> alloc::string::String
 pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint_p256(&[u8; 32], &[u8; 32]) -> alloc::string::String
 pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::build(self) -> core::result::Result<alloc::string::String, aitp::delegation::error::DelegationError>
-pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::extending(&'a dyn aitp::crypto::signer::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::signer::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::error::DelegationError>
-pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::extending_async(&'a dyn aitp::crypto::signer::DynAsyncAitpSigner, &str) -> core::result::Result<Self, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::new_async(&'a dyn aitp::crypto::signer::DynAsyncAitpSigner, &str) -> core::result::Result<Self, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::delegatee(self, aitp::core::aid::Aid) -> Self
-pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::jti(self, uuid::Uuid) -> Self
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::now(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::scope<I, C>(self, I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = C>, C: core::convert::Into<alloc::string::String>
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::ttl_secs(self, i64) -> Self
-pub fn aitp::delegation::builder::compute_chain_hash(&[alloc::string::String]) -> core::result::Result<alloc::string::String, aitp::delegation::error::DelegationError>
-pub fn aitp::delegation::compute_chain_hash(&[alloc::string::String]) -> core::result::Result<alloc::string::String, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::verifier::DelegationRevocation<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::new(&'a aitp::core::aid::Aid, aitp::core::time::Timestamp, aitp::delegation::verifier::DelegationRevocation<'a>) -> Self
-pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::with_hop_revocation_check(self, aitp::delegation::verifier::HopRevocationCheck<'a>) -> Self
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::resolver::ManifestResolver) -> Self
-pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::with_max_delegation_hops(self, usize) -> Self
 pub fn aitp::delegation::verifier::verify_delegation(&str, &aitp::delegation::verifier::VerifyDelegationContext<'_>) -> core::result::Result<aitp::delegation::types::VerifiedDelegation, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::verify_delegation(&str, &aitp::delegation::verifier::VerifyDelegationContext<'_>) -> core::result::Result<aitp::delegation::types::VerifiedDelegation, aitp::delegation::error::DelegationError>
 pub fn aitp::envelope::sign_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
@@ -2456,9 +2429,7 @@ pub type aitp::core::unknown_field::CheckedJson::Err = aitp::core::unknown_field
 pub type aitp::core::unknown_field::CheckedJson::Target = serde_json::value::Value
 pub type aitp::crypto::signer::BoxError = alloc::boxed::Box<(dyn core::error::Error + core::marker::Send + core::marker::Sync + 'static)>
 pub type aitp::crypto::signer::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = T> + core::marker::Send + 'a)>>
-pub type aitp::delegation::HopRevocationCheck<'a> = &'a (dyn core::ops::function::Fn(&aitp::core::aid::Aid, &uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + 'a)
 pub type aitp::delegation::SourceRevocationCheck<'a> = (dyn core::ops::function::Fn(&uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + 'a)
-pub type aitp::delegation::verifier::HopRevocationCheck<'a> = &'a (dyn core::ops::function::Fn(&aitp::core::aid::Aid, &uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + 'a)
 pub type aitp::delegation::verifier::SourceRevocationCheck<'a> = (dyn core::ops::function::Fn(&uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + 'a)
 pub type aitp::handshake::GrantPolicyFn = (dyn core::ops::function::Fn(&aitp::handshake::identity::IdentityDescriptor, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::OidcMintJwtFn = (dyn core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, alloc::string::String> + 'static)

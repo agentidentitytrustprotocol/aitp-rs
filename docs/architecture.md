@@ -245,12 +245,12 @@ hop limit against verification DoS
 The grant voucher inside `chain[0]` also discloses the root grant
 profile to every later hop. A deployment that never asked for chains should not carry that surface.
 
-So the multi-hop code is always compiled, but nothing reaches it without an
-explicit call. `VerifyDelegationContext::new` sets
-`max_delegation_hops = 0`, and in that state `verify_delegation` rejects a
-`chain` claim before any per-hop processing. It also rejects the
-multi-hop-only `jti` claim (`crates/aitp/src/delegation/verifier.rs`). Only
-`with_max_delegation_hops(n)` with `n > 0` enables chain verification. The
+So the multi-hop code is in the `aitp-experimental` crate
+(`aitp_experimental::delegation`), not in `aitp`. The stable
+`aitp::delegation::verify_delegation` rejects a `chain` claim before any
+other claim check, and rejects the multi-hop `jti` and `chain_hash` claims
+(`crates/aitp/src/delegation/verifier.rs`). Chains verify only through
+`aitp_experimental::delegation::verify_chained_delegation`. The
 language bindings follow the same rule: `verify_delegation` /
 `verifyDelegation` stays strict,
 and chains need the separate `verify_delegation_multihop` /
