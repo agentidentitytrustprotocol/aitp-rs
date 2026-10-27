@@ -22,10 +22,11 @@ stable features. Each type is listed at its shortest public path. CI runs
 `make api-classification-check`, which fails on a stable type missing
 from the table, a type listed under the wrong class, or an exhaustive
 type without a reason. After a type is added, removed or reclassified,
-regenerate the table with `make api-classification`; reasons already in
-the table are kept.
+regenerate the table under [Types](#types) with `make api-classification`;
+reasons already in the table are kept.
 
-<!-- BEGIN api-classification (scripts/api-classification.py) -->
+## Types
+
 | Type | Kind | Class | Why exhaustive |
 |---|---|---|---|
 | `aitp::core::Aid` | struct | private fields |  |
@@ -172,4 +173,3 @@ the table are kept.
 | `aitp::transport::TrustedProxy` | struct | private fields |  |
 | `aitp::transport::TrustedProxyParseError` | struct | private fields |  |
 | `aitp::transport::revocation::EmptyRevocationProvider` | struct | private fields |  |
-<!-- END api-classification -->

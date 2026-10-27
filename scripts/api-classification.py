@@ -32,8 +32,9 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "docs" / "api-classification.md"
-BEGIN = "<!-- BEGIN api-classification (scripts/api-classification.py) -->"
-END = "<!-- END api-classification -->"
+# The table is everything after this heading, which ends the file. No
+# HTML comment markers: the website's MDX build rejects them.
+HEADING = "## Types\n"
 CLASSES = ("non_exhaustive", "private fields", "exhaustive")
 
 _spec = importlib.util.spec_from_file_location("public_api", ROOT / "scripts" / "public-api.py")
@@ -125,7 +126,7 @@ ROW = re.compile(r"^\| `(?P<path>[^`]+)` \| (?P<kind>\w+) \| (?P<cls>[^|]+?) \| 
 def read_table() -> dict[str, tuple[str, str, str]]:
     rows = {}
     text = DOC.read_text()
-    body = text[text.index(BEGIN) + len(BEGIN): text.index(END)]
+    body = text[text.index(HEADING) + len(HEADING):]
     for line in body.splitlines():
         m = ROW.match(line.strip())
         if m:
@@ -166,8 +167,8 @@ def main() -> int:
         text = DOC.read_text()
         reasons = {p: r[2] for p, r in rows.items()}
         table = render(types, reasons)
-        start, end = text.index(BEGIN) + len(BEGIN), text.index(END)
-        DOC.write_text(text[:start] + "\n" + table + "\n" + text[end:])
+        start = text.index(HEADING) + len(HEADING)
+        DOC.write_text(text[:start] + "\n" + table + "\n")
         rows = read_table()
     found = problems(types, rows)
     for p in found:
