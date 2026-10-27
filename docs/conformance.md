@@ -440,7 +440,9 @@ Two things close that gap, and conformance is neither:
    `main` moves), verifies those exact bytes
    through `scripts/xcheck-verify.py`. The `xcheck-ts` job does the same
    with [`aitp-verifier-ts`](https://github.com/agentidentitytrustprotocol/aitp-verifier-ts),
-   pinned by `tests/AITP_VERIFIER_TS_VERSION`. The reverse direction is covered by
+   whose `xcheck-verify.mjs` is pinned by `tests/AITP_VERIFIER_TS_VERSION` and
+   whose conformance adapter comes from npm at the version locked in
+   `tests/xcheck-verifier-ts/`. The reverse direction is covered by
    the committed bytes in `tests/xcheck-fixtures/`. See
    [testing.md](testing.md#cross-implementation-acceptance-xcheck).
 

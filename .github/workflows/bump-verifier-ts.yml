@@ -1,9 +1,9 @@
 name: bump-verifier-ts
 # Keep the TypeScript cross-implementation gate current (RS4.3). ci.yml's
-# `xcheck-ts` job builds aitp-verifier-ts from the commit pinned in
-# tests/AITP_VERIFIER_TS_VERSION. The verifier is not on npm yet, so the pin
-# is a commit SHA; once a v0.1.x release is published this can move to a
-# release pin like aitp-verifier-ts's PyPI requirement.
+# `xcheck-ts` job runs aitp-verifier-ts's scripts/xcheck-verify.mjs from the
+# commit pinned in tests/AITP_VERIFIER_TS_VERSION; the npm package does not
+# ship that script. The conformance adapter comes from npm instead, at the
+# version locked in tests/xcheck-verifier-ts/, and Dependabot bumps it.
 #
 # A copy of bump-verifier-py.yml with the names changed: weekly (and on
 # demand) it compares the pin with aitp-verifier-ts `main` and, when main is
