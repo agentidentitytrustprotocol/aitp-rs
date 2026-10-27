@@ -160,6 +160,12 @@ the crates and the SDKs. How to report a vulnerability is in
   `aitp`'s dependency graph (`cargo metadata`). axum is pre-1.0, so the
   servers are hosted with `serve(listener)` and their routers are
   behind `experimental-axum`.
+- **No experimental mechanism in the stable surface.**
+  [`scripts/check-stable-experimental.py`](scripts/check-stable-experimental.py)
+  (`make stable-experimental-check`, in the same CI job) fails if
+  `public-api.stable.txt` names TCT renewal, Session Trust Bundles,
+  SPIFFE or multi-hop delegation, apart from the `spiffe` identity-type
+  wire names it lists.
 - **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
   lints and tests `aitp` and `aitp-experimental` with each feature on its
   own (`cargo hack --each-feature`), and

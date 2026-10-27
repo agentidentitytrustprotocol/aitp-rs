@@ -1,7 +1,8 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
         deny audit msrv semver coverage schemas-check ci \
         check-versions sync-versions docs-check public-api public-api-check \
-        api-classification api-classification-check stable-deps-check
+        api-classification api-classification-check stable-deps-check \
+        stable-experimental-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -95,6 +96,12 @@ api-classification-check:
 # aitp release. Reads the committed public-api.stable.txt.
 stable-deps-check:
 	python3 scripts/check-stable-deps.py
+
+# No Draft or Proposed mechanism (renewal, Session Trust Bundles, SPIFFE,
+# multi-hop delegation) in the stable surface (RS-RC4): those live in
+# aitp-experimental. Reads the committed public-api.stable.txt.
+stable-experimental-check:
+	python3 scripts/check-stable-experimental.py
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a
