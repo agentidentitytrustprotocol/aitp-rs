@@ -1,25 +1,54 @@
-//! `aitp::facade::renew_tct` renews only at the issuer's advertised
+//! `renewal::renew_tct` renews only at the issuer's advertised
 //! `rfc-aitp-0005.renew_uri` and never probes a guessed path
-//! (RFC-AITP-0013, issue #196).
+//! (RFC-AITP-0013 §2).
 
-#![cfg(all(feature = "experimental-renewal", feature = "http-server"))]
-
+use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::facade::{renew_tct, renew_tct_with_insecure_localhost, FacadeError};
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::tct::TctBuilder;
-use aitp::transport::{HandshakeServer, RENEW_URI_EXT};
+use aitp::tct::{sign_revocation_list, RevocationList, RevocationListEnvelope, TctBuilder};
+use aitp::transport::RevocationListProducer;
+use aitp_experimental::renewal::{
+    renew_tct, renew_tct_with_insecure_localhost, RenewClientError, RenewalServer, RENEW_URI_EXT,
+};
+use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use tokio::net::TcpListener;
 
-struct NoOpResolver;
-impl JwksResolver for NoOpResolver {
-    fn resolve(&self, _issuer: &url::Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
-        Ok(vec![])
+struct StaticProducer(RevocationListEnvelope);
+impl RevocationListProducer for StaticProducer {
+    fn current(&self) -> RevocationListEnvelope {
+        self.0.clone()
     }
+}
+
+/// Serve `seed`'s renewal endpoint for `m` on `listener`.
+fn spawn_renewal(seed: [u8; 32], m: &Manifest, listener: TcpListener) {
+    let key = AitpSigningKey::from_seed(&seed);
+    let now = Timestamp::now();
+    let list = sign_revocation_list(
+        RevocationList::new(key.aid().clone(), now, Timestamp(now.0 + 3600), vec![]),
+        &key,
+    )
+    .unwrap();
+    let app = RenewalServer::new(
+        Arc::new(key),
+        m.clone(),
+        Arc::new(StaticProducer(list)),
+        Arc::new(InMemoryNonceStore::default()),
+    )
+    .unwrap()
+    .router()
+    .unwrap();
+    tokio::spawn(async move {
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .ok()
+    });
 }
 
 fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
@@ -64,14 +93,7 @@ async fn renews_at_the_advertised_uri() {
         &issuer,
         Some(format!("http://127.0.0.1:{port}/somewhere/else/renew")),
     );
-    let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x60; 32]),
-        m.clone(),
-        vec![],
-        NoOpResolver,
-        vec!["demo.echo".into()],
-    );
-    tokio::spawn(async move { server.serve(listener).await.ok() });
+    spawn_renewal([0x60; 32], &m, listener);
 
     let renewed = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
@@ -126,7 +148,7 @@ async fn no_renew_uri_means_no_request() {
         .await
         .unwrap_err();
     assert!(
-        matches!(err, FacadeError::RenewalNotAdvertised),
+        matches!(err, RenewClientError::NotAdvertised),
         "got {err:?}"
     );
 
@@ -136,7 +158,7 @@ async fn no_renew_uri_means_no_request() {
         .await
         .unwrap_err();
     assert!(
-        matches!(err, FacadeError::RenewalNotAdvertised),
+        matches!(err, RenewClientError::NotAdvertised),
         "got {err:?}"
     );
 
@@ -146,32 +168,25 @@ async fn no_renew_uri_means_no_request() {
         .await
         .unwrap_err();
     assert!(
-        matches!(err, FacadeError::RenewalNotAdvertised),
+        matches!(err, RenewClientError::NotAdvertised),
         "got {err:?}"
     );
     assert_eq!(hits.load(Ordering::SeqCst), 0, "no guessed path probed");
 }
 
 /// An issuer refusal arrives as a signed `error` envelope with a 4xx
-/// status; the facade surfaces its code (RFC-AITP-0013 §6.1).
+/// status; the client surfaces its code (RFC-AITP-0013 §6.1).
 #[tokio::test]
 async fn refusal_is_surfaced_with_its_code() {
     use aitp::core::ErrorCode;
-    use aitp::tct::RenewalResponseError;
+    use aitp_experimental::renewal::RenewalResponseError;
 
     let issuer = AitpSigningKey::from_seed(&[0x64; 32]);
     let holder = AitpSigningKey::from_seed(&[0x65; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));
-    let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x64; 32]),
-        m.clone(),
-        vec![],
-        NoOpResolver,
-        vec!["demo.echo".into()],
-    );
-    tokio::spawn(async move { server.serve(listener).await.ok() });
+    spawn_renewal([0x64; 32], &m, listener);
 
     // A TCT carrying only a grant the Manifest no longer offers.
     let withdrawn = TctBuilder::new(&issuer)
@@ -188,7 +203,7 @@ async fn refusal_is_surfaced_with_its_code() {
         .await
         .unwrap_err();
     match err {
-        FacadeError::RenewalResponse(RenewalResponseError::Refused { code, .. }) => {
+        RenewClientError::Response(RenewalResponseError::Refused { code, .. }) => {
             assert_eq!(code, ErrorCode::PolicyViolation)
         }
         other => panic!("got {other:?}"),

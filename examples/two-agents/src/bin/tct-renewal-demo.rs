@@ -1,29 +1,46 @@
 //! TCT renewal demo (P15).
 //!
 //! Spawns an issuer agent whose Manifest advertises
-//! `rfc-aitp-0005.renew_uri` (RFC-AITP-0004 §8.1), mints an initial TCT
-//! in-process, and exercises the renewal endpoint via
-//! `aitp::facade::renew_tct`, which reads that URL from the Manifest. Asserts the new TCT has a fresh JTI and
-//! a refreshed expiry.
+//! `rfc-aitp-0005.renew_uri` (RFC-AITP-0013 §2), hosting the handshake
+//! routes, the Manifest and `aitp_experimental::renewal::RenewalServer`
+//! on one listener. Mints an initial TCT in-process and renews it with
+//! `aitp_experimental::renewal::renew_tct_with_insecure_localhost`, which
+//! reads that URL from the Manifest. Asserts the new TCT has a fresh JTI
+//! and a refreshed expiry.
 //!
 //! ```sh
 //! cargo run -p aitp-example-two-agents --bin tct-renewal-demo \
 //!     --features experimental-renewal
 //! ```
 
+use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::facade::{renew_tct_with_insecure_localhost, TctStore};
+use aitp::facade::TctStore;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::tct::{verify_tct, TctBuilder, TctVerifyContext};
-use aitp::transport::{HandshakeServer, RENEW_URI_EXT};
+use aitp::tct::{
+    sign_revocation_list, verify_tct, RevocationList, RevocationListEnvelope, TctBuilder,
+    TctVerifyContext,
+};
+use aitp::transport::{HandshakeServer, ManifestServer, RevocationListProducer};
+use aitp_experimental::renewal::{renew_tct_with_insecure_localhost, RenewalServer, RENEW_URI_EXT};
+use std::net::SocketAddr;
+use std::sync::Arc;
 use tokio::net::TcpListener;
 
 struct NoOpResolver;
 impl JwksResolver for NoOpResolver {
     fn resolve(&self, _issuer: &url::Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
         Ok(vec![])
+    }
+}
+
+/// The issuer's revocation list: signed once, empty.
+struct EmptyList(RevocationListEnvelope);
+impl RevocationListProducer for EmptyList {
+    fn current(&self) -> RevocationListEnvelope {
+        self.0.clone()
     }
 }
 
@@ -86,17 +103,41 @@ async fn main() {
         .build()
         .unwrap();
 
-    let server = HandshakeServer::new(
+    // One revocation producer for both servers.
+    let list = sign_revocation_list(
+        RevocationList::new(issuer.aid().clone(), now, Timestamp(now.0 + 3600), vec![]),
+        &issuer,
+    )
+    .expect("sign revocation list");
+    let revocation: Arc<dyn RevocationListProducer> = Arc::new(EmptyList(list));
+    let handshake = HandshakeServer::new(
         AitpSigningKey::from_seed(&[0x60; 32]),
         manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-    );
+    )
+    .with_revocation_producer(revocation.clone());
+    let renewal = RenewalServer::new(
+        Arc::new(AitpSigningKey::from_seed(&[0x60; 32])),
+        manifest.clone(),
+        revocation,
+        Arc::new(InMemoryNonceStore::default()),
+    )
+    .expect("signer matches the Manifest");
+    let app = handshake
+        .into_router()
+        .merge(ManifestServer::new(manifest.clone()).into_router())
+        .merge(renewal.router().expect("Manifest advertises renew_uri"));
 
     println!("issuer listening on http://127.0.0.1:{port}");
     tokio::spawn(async move {
-        server.serve(listener).await.ok();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .ok();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 

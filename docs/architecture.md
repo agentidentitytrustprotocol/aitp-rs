@@ -106,7 +106,7 @@ aitp                       the protocol library (crates/aitp)
 │                          sync, no I/O
 ├── manifest               ManifestBuilder + verify_manifest
 ├── tct                    TctBuilder + verify_tct + PoP exchange +
-│                          revocation snapshots + renewal (feature-gated)
+│                          revocation snapshots
 ├── delegation             DelegationBuilder + verify_delegation
 │                          (single-hop; multi-hop chains opt-in at runtime)
 ├── handshake              Initiator/Responder state machines, OIDC
@@ -115,7 +115,7 @@ aitp                       the protocol library (crates/aitp)
 ├── transport              ManifestServer + HandshakeServer (axum,
 │                          http-server) + ManifestFetcher + JwksFetcher
 │                          (reqwest, http-client), RSA-2048 floor on JWKS keys
-├── facade                 async run_initiator_handshake / renew_tct +
+├── facade                 async run_initiator_handshake +
 │                          TctStore (http-client)
 └── prelude                the most common types
 
@@ -172,7 +172,7 @@ flowchart BT
 
 The protocol modules are sync. Async code lives in `aitp::transport`
 (behind the `http-client` / `http-server` features) and in
-`aitp::facade`'s `run_initiator_handshake` and `renew_tct`.
+`aitp::facade`'s `run_initiator_handshake`.
 
 ## Why the library is layered this way
 
@@ -210,8 +210,8 @@ features and the module boundaries below stay one-directional:
   MessagePack) builds `aitp` with `default-features = false`, implements
   just the wire layer and reuses every protocol module.
 - **`aitp::facade` and `aitp::prelude`** add the async
-  `run_initiator_handshake` helper (plus `renew_tct` behind
-  `experimental-renewal`) on top (`http-client` feature, on by default).
+  `run_initiator_handshake` helper on top (`http-client` feature, on by
+  default).
   This is what most users call. A TCT-only consumer uses `aitp::tct` +
   `aitp::crypto` from `aitp` with `default-features = false`.
 - **Session Trust Bundles are a separate crate.** `aitp-experimental`
@@ -227,7 +227,7 @@ features and the module boundaries below stay one-directional:
 
 The protocol modules are sync. Async code lives in `aitp::transport`
 (because `reqwest` / `axum` are) and in `aitp::facade`'s
-`run_initiator_handshake` and `renew_tct`, which drive it. This keeps TCT
+`run_initiator_handshake`, which drives it. This keeps TCT
 verification callable from sync codebases and from non-Rust runtimes via
 FFI: the language bindings build `aitp` with `default-features = false`
 and call the protocol modules directly, not the facade.

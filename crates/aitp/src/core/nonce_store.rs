@@ -1,9 +1,8 @@
-//! Single-use nonce storage, shared by pinned-key admission (proposal
-//! agentidentitytrustprotocol#72 Item 7d, `aitp::handshake`) and the TCT
-//! renewal replay guard (RFC-AITP-0013, `aitp::tct`).
+//! Single-use nonce storage: pinned-key admission (proposal
+//! agentidentitytrustprotocol#72 Item 7d, `aitp::handshake`) and any other
+//! single-use nonce check.
 //!
-//! Lives here, in the lowest crate both depend on; `crate::handshake::admission`
-//! re-exports every item under its 0.14 path.
+//! `crate::handshake::admission` re-exports every item under its 0.14 path.
 
 use crate::core::{Aid, Timestamp};
 use std::cmp::Reverse;
@@ -24,8 +23,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Length in bytes of a [`Nonce`]: 16, the `pop_nonce` length of
-/// RFC-AITP-0002 §3.1 and of the renewal request (RFC-AITP-0013,
-/// 22 unpadded base64url characters).
+/// RFC-AITP-0002 §3.1 (22 unpadded base64url characters).
 pub const NONCE_LEN: usize = 16;
 
 /// Gauge name for the records an [`InMemoryNonceStore`] holds, emitted
@@ -46,7 +44,7 @@ pub struct IssuedNonce {
     /// any other verifier does not consume it.
     pub verifier: Aid,
     /// The requester: for admission, `ChallengeSource`'s `Display`
-    /// (transport key, then any label); for renewal, the holder AID. Stores MAY
+    /// (transport key, then any label). Stores MAY
     /// use it for audit or quotas; the library never reads it back.
     pub source: String,
     /// When the challenge was issued. Stores sweep expired records

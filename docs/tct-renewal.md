@@ -3,18 +3,19 @@
 > **Status: opt-in, tracks a Draft RFC.**
 > [RFC-AITP-0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md)
 > is **Draft**. It is not part of v0.3 core conformance; its fixtures
-> (`ren-*`) carry the feature `experimental-renewal`. In `aitp-rs` it is
-> off by default:
+> (`ren-*`) carry the runner feature `experimental-renewal`. In `aitp-rs`
+> it lives in the `aitp-experimental` crate, module
+> `aitp_experimental::renewal`:
 >
-> - `experimental-renewal` on `aitp` enables all of it: the `aitp::tct`
->   renewal items, the client driver `aitp::facade::renew_tct` (with
->   `http-client`), and the renewal route on
->   `aitp::transport::HandshakeServer` (with `http-server`), mounted at the
->   path of the Manifest's advertised `rfc-aitp-0005.renew_uri`.
+> - The core (request, PoP input, issuer checks, holder checks, envelopes)
+>   needs no feature.
+> - `RenewalServer`, the issuer's HTTP endpoint, needs feature
+>   `http-server`.
+> - `renew_tct`, the holder's HTTP client, needs feature `http-client`.
 > - Language bindings: their own `renewal` feature (on by default), which
->   enables `aitp/experimental-renewal` on an HTTP-free `aitp` build.
+>   depends on `aitp-experimental`.
 >
-> No stability promise while RFC-AITP-0013 is Draft (STABILITY.md).
+> No stability promise (STABILITY.md).
 
 A holder renews its TCT by presenting it, with a proof of possession of the
 subject key, to the issuer that issued it. The issuer mints a TCT for the
@@ -28,7 +29,7 @@ TCTs cross this exchange as opaque compact JWS strings (RFC-AITP-0001 §5.4.5).
 ### Request
 
 The body of a `POST` to `renew_uri` is an unenveloped JSON object with
-exactly these members (`TctRenewalPayload`; `aitp::tct::parse_renewal_request`):
+exactly these members (`TctRenewalPayload`; `parse_renewal_request`):
 
 ```json
 {
@@ -38,7 +39,7 @@ exactly these members (`TctRenewalPayload`; `aitp::tct::parse_renewal_request`):
 }
 ```
 
-The PoP input (`aitp::tct::renewal_pop_input`, RFC-AITP-0013 §3.1) is
+The PoP input (`renewal_pop_input`, RFC-AITP-0013 §3.1) is
 
 ```text
 "aitp-renewal-pop-v1" || 0x00 || iss || 0x00 || jti || 0x00 || nonce
@@ -73,7 +74,7 @@ Every answer is an RFC-AITP-0001 envelope signed by the issuer, whose
 ## Endpoint discovery (`renew_uri`)
 
 The issuer advertises its renewal endpoint as the Manifest extension
-`rfc-aitp-0005.renew_uri` (`aitp::transport::RENEW_URI_EXT`), an
+`rfc-aitp-0005.renew_uri` (`RENEW_URI_EXT`), an
 absolute HTTPS URL (`http` is accepted only for `localhost` /
 `127.0.0.1`, for development). Because the Manifest is signed, the
 extension is set when the Manifest is built:
@@ -85,15 +86,16 @@ let manifest = ManifestBuilder::new(&key)
     .build()?;
 ```
 
-- **Server.** `HandshakeServer::serve()` mounts the renewal route at the
-  path of that URL, and only then. A Manifest without a usable
-  `renew_uri` gets no renewal route.
-- **Client.** `aitp::facade::renew_tct(holder, current, &issuer_manifest)`
+- **Server.** `RenewalServer::router()` mounts the renewal route at the
+  path of that URL. A Manifest without a usable `renew_uri` is
+  `RenewalServerError::NotAdvertised`; a path another AITP route uses is
+  `RenewalServerError::PathCollision`.
+- **Client.** `renew_tct(holder, current, &issuer_manifest)`
   reads the extension from the issuer's (verified) Manifest and POSTs
   there. It uses only an `https` `renew_uri`; for a plain-`http`
   loopback one in local development, call
   `renew_tct_with_insecure_localhost` instead (never in production). With no usable `renew_uri` it fails with
-  `FacadeError::RenewalNotAdvertised` before sending anything: per
+  `RenewClientError::NotAdvertised` before sending anything: per
   RFC-AITP-0013 §2 the holder MUST NOT probe a guessed path and falls
   back to a full handshake.
 
@@ -108,9 +110,10 @@ the new TTL and whether to mint a voucher. The steps run in this order
 (RFC-AITP-0013 §4) and stop at the first failure:
 
 1. **Parse.** The body is an object with exactly the three string
-   members, no repeated key (`RenewalRequestMalformed`), and `pop_nonce`
-   decodes to 16 bytes (`RenewalNonceMalformed`).
-2. **Verify `current_tct` as its issuer** with `verify_tct`: `typ`, `alg`,
+   members, no repeated key (`RenewalError::RequestMalformed`), and
+   `pop_nonce` decodes to 16 bytes (`RenewalError::NonceMalformed`).
+2. **Verify `current_tct` as its issuer** with `verify_tct` (failures are
+   `RenewalError::Tct`): `typ`, `alg`,
    signature under the issuer's own key, claims, `exp` (`Expired`) and the
    issuer's current Manifest expiry (`ExpiresAfterManifest`). Its `aud`
    must equal its `sub` (`AudienceMismatch`).
@@ -120,12 +123,12 @@ the new TTL and whether to mint a voucher. The steps run in this order
 4. **Revocation.** The `jti` is not in the issuer's deny list (`Revoked`).
 5. **Replay guard.** The nonce is recorded in the `NonceStore`
    (`aitp::core::nonce_store`) until the presented TCT's `exp`; a nonce
-   already recorded is `RenewalReplayed`. A store failure is
-   `RenewalNonceStore`.
+   already recorded is `RenewalError::Replayed`. A store failure is
+   `RenewalError::NonceStore`.
 6. **Grants.** The current grants intersected with the grants the issuer
    offers now, then narrowed by the optional policy hook. A grant the hook
    returns outside its input is dropped. None left is
-   `RenewalGrantsWithdrawn`.
+   `RenewalError::GrantsWithdrawn`.
 7. **Mint** with `TctBuilder`: same `iss`, `sub`, `aud` and `cnf`, the
    surviving grants, a new random `jti`, `iat = now`,
    `exp = min(now + ttl, Manifest expires_at)`.
@@ -133,7 +136,9 @@ the new TTL and whether to mint a voucher. The steps run in this order
    (`RenewalContext::without_voucher` turns it off), with `src_jti` = the
    new `jti`.
 
-`renewal_error_code` gives each failure's registry code.
+`RenewalError::error_code` gives each failure's registry code;
+`RenewalError::is_local_fault` is true for the issuer's own nonce store
+or signer failing.
 
 ## Holder side (`verify_renewal_response`)
 
@@ -153,24 +158,51 @@ issuer's answer (RFC-AITP-0013 §6.1) before the renewed TCT is used:
    (`AUDIENCE_MISMATCH`).
 6. Its grants are a subset of the current TCT's (`GRANT_OVERFLOW`).
 
-`message_id` deduplication (RFC-AITP-0001 §5.5) is the caller's. The
-facade's `renew_tct` runs this check, with the issuer Manifest's
+`message_id` deduplication (RFC-AITP-0001 §5.5) is the caller's.
+`renew_tct` runs this check, with the issuer Manifest's
 `expires_at`, and returns the verified `RenewedTct`.
 
-## Server (`HandshakeServer`)
+## Server (`RenewalServer`)
 
-The renewal route applies the server's per-source rate limit and checks
-the content type, then runs `process_renewal_request` with:
+```rust
+let renewal = RenewalServer::new(
+    Arc::new(issuer_key),          // the Manifest's key
+    manifest.clone(),
+    revocation_producer.clone(),   // the same producer as the handshake server's
+    Arc::new(InMemoryNonceStore::default()),
+)?;
+let app = handshake_server
+    .into_router()                 // aitp feature `experimental-axum`
+    .merge(ManifestServer::new(manifest).into_router())
+    .merge(renewal.router()?);
+axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()).await?;
+```
 
-- revocation from the attached `RevocationListProducer`'s current list
-  (none attached: the server serves its default signed empty snapshot, so
-  nothing is revoked);
-- grants from the server Manifest's `offered_capabilities`, plus the
-  optional `with_renewal_grant_policy` hook;
-- an in-memory replay guard by default, replaceable with
-  `with_renewal_nonce_store` (use a shared store when several replicas
-  serve one issuer);
+`RenewalServer::new` refuses a signer whose AID is not the Manifest's
+`aid` (`RenewalServerError::KeyMismatch`). Each request is rate limited
+per transport source, then the content type and body are checked, then
+`process_renewal_request` runs with:
+
+- revocation from the `RevocationListProducer`'s current list;
+- grants from the Manifest's `offered_capabilities`, plus the optional
+  `with_grant_policy` hook;
+- the `NonceStore` passed to `new` as the replay guard (use a shared store
+  when several replicas serve one issuer);
 - TTL `aitp::tct::DEFAULT_TCT_TTL_SECS`, capped by the Manifest window.
+
+Rate limiting:
+
+- On by default with `RateLimitConfig::default()`; `with_rate_limit`
+  replaces it and `without_rate_limit` turns it off. Only
+  `requests_per_source_per_60s` and `trusted_proxies` apply.
+- Its counters are its own, separate from the handshake server's.
+- A rate-limited request gets HTTP 429 with an empty body.
+- With the rate limit on, a request without a client address (a router
+  served without `into_make_service_with_connect_info`) gets a retryable
+  error envelope with HTTP 500.
+
+The body limit is `DEFAULT_MAX_BODY_BYTES` (`with_request_body_limit`
+changes it), read within `DEFAULT_BODY_READ_TIMEOUT`.
 
 Each refusal is a signed `error` envelope carrying the failing step's
 registry code:
@@ -189,7 +221,10 @@ registry code:
 | revoked TCT | `TCT_REVOKED` |
 | replayed `pop_nonce` | `REPLAY_DETECTED` |
 | no grant survives re-evaluation | `POLICY_VIOLATION` |
+| wrong content type | `POP_RESPONSE_INVALID` |
+| body over the limit, unreadable or too slow | `INVALID_ENVELOPE` |
 | replay guard failure or full (local) | retryable error envelope, HTTP 500 / 503 |
+| no client address with the rate limit on (local) | retryable error envelope, HTTP 500 |
 
 ## Known limitations
 

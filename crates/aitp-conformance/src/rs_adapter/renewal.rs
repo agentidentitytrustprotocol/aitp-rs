@@ -1,4 +1,4 @@
-//! TCT renewal ops (RFC-AITP-0013, Draft; feature `experimental-renewal`).
+//! TCT renewal ops (RFC-AITP-0013, Draft; `aitp_experimental::renewal`).
 //!
 //! `renew_tct` runs the issuer side (§4) and returns the signed response
 //! envelope (§6) as `response_envelope`, from which the runner reads the
@@ -9,9 +9,10 @@ use super::{checked, envelope_parse_error_code, err, kat_seed_for_aid, AdapterSt
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{Aid, ErrorCode, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::tct::{
-    parse_renewal_request, process_renewal_request, renewal_error_code, renewal_response_envelope,
-    verify_renewal_response, RenewalContext, RenewalResponseContext, TctError,
+use aitp::tct::TctError;
+use aitp_experimental::renewal::{
+    parse_renewal_request, process_renewal_request, renewal_response_envelope,
+    verify_renewal_response, RenewalContext, RenewalError, RenewalResponseContext,
 };
 use serde_json::{json, Value};
 use std::collections::HashSet;
@@ -74,7 +75,7 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
 
     let request = match parse_renewal_request(body.to_string().as_bytes()) {
         Ok(r) => r,
-        Err(e) => return err(id, &code_str(renewal_error_code(&e)), &e.to_string()),
+        Err(e) => return err(id, &code_str(e.error_code()), &e.to_string()),
     };
     let store = state
         .renewal_nonces
@@ -94,8 +95,8 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     }
     let renewed = match ready(process_renewal_request(&request, &issuer, &ctx)) {
         Ok(r) => r,
-        Err(TctError::RenewalNonceStore(e)) => return err(id, "INTERNAL_ERROR", &e.to_string()),
-        Err(e) => return err(id, &code_str(renewal_error_code(&e)), &e.to_string()),
+        Err(RenewalError::NonceStore(e)) => return err(id, "INTERNAL_ERROR", &e.to_string()),
+        Err(e) => return err(id, &code_str(e.error_code()), &e.to_string()),
     };
     match renewal_response_envelope(&issuer, &renewed, &request.pop_nonce, Uuid::new_v4(), now) {
         Ok(envelope) => json!({

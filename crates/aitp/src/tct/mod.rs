@@ -19,11 +19,6 @@
 pub mod builder;
 pub mod error;
 pub mod pop;
-/// TCT renewal (RFC-AITP-0013, Draft). Gated behind the
-/// `experimental-renewal` Cargo feature; without it, a peer renews by
-/// running a fresh Mutual Handshake.
-#[cfg(feature = "experimental-renewal")]
-pub mod renewal;
 pub mod revocation;
 pub mod types;
 pub mod verifier;
@@ -31,21 +26,11 @@ pub mod verifier;
 pub use builder::{TctBuilder, ATTESTATION_GRANT};
 pub use error::TctError;
 pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse};
-#[cfg(feature = "experimental-renewal")]
-pub use renewal::{
-    build_renewal_request, parse_renewal_request, process_renewal_request, renewal_error_code,
-    renewal_error_envelope, renewal_pop_input, renewal_response_envelope, verify_renewal_response,
-    RenewalContext, RenewalErrorPayload, RenewalGrantPolicyFn, RenewalResponseContext,
-    RenewalResponseError, RenewalResponsePayload, RenewedTct, RENEWAL_POP_DOMAIN_TAG,
-    RENEWAL_RESPONSE_PAYLOAD_MEMBERS,
-};
 pub use revocation::{
     parse_revocation_snapshot_wire, revocation_signing_bytes, sign_revocation_list,
     verify_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope,
     VerifyRevocationListContext, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
 };
-#[cfg(feature = "experimental-renewal")]
-pub use types::TctRenewalPayload;
 pub use types::{
     Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS,
     TCT_CLAIMS_MEMBERS,

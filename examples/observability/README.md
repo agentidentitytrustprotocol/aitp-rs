@@ -70,7 +70,7 @@ means consumers are seeing snapshots past `max_staleness_secs`).
 |---|---|---|
 | `fetch` | `aitp::transport::client` (`ManifestFetcher::fetch`) | `origin` |
 | `resolve` | `aitp::transport::client` (`JwksFetcher::resolve`) | `issuer` |
-| `handle_renew` | `aitp::transport::server` (only with the `experimental-renewal` feature) | (request-scoped) |
+| `handle_renew` | `aitp_experimental::renewal` (`RenewalServer`, feature `http-server`) | (request-scoped) |
 
 Add `aid`, `session_id`, `message_id` as span fields on outer
 caller spans for end-to-end traceability.
