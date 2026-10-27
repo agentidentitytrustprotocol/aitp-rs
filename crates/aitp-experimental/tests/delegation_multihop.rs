@@ -8,12 +8,13 @@
 
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
-use aitp::delegation::{
-    compute_chain_hash, verify_delegation, DelegationBuilder, DelegationError,
-    DelegationRevocation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS,
-};
+use aitp::delegation::{DelegationError, DelegationRevocation};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::TctBuilder;
+use aitp_experimental::delegation::{
+    compute_chain_hash, verify_chained_delegation, ChainedDelegationBuilder,
+    ChainedDelegationError, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use uuid::Uuid;
@@ -49,7 +50,7 @@ fn voucher_for_b() -> String {
 
 /// B → C (chain[0]): jti-bearing, both grants, 100 min.
 fn hop1() -> String {
-    DelegationBuilder::new(&b(), &voucher_for_b())
+    ChainedDelegationBuilder::new(&b(), &voucher_for_b())
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data", "write_data"])
@@ -62,7 +63,7 @@ fn hop1() -> String {
 
 /// C → D (outer): narrowed scope, 50 min.
 fn outer(h1: &str) -> String {
-    DelegationBuilder::extending(&c(), h1)
+    ChainedDelegationBuilder::extending(&c(), h1)
         .unwrap()
         .delegatee(d().aid().clone())
         .scope(["read_data"])
@@ -112,8 +113,8 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     })
 }
 
-fn multihop_ctx(verifier: &aitp::core::Aid) -> VerifyDelegationContext<'_> {
-    VerifyDelegationContext::new(
+fn multihop_ctx(verifier: &aitp::core::Aid) -> VerifyChainContext<'_> {
+    VerifyChainContext::new(
         verifier,
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
@@ -127,7 +128,8 @@ fn three_hop_chain_round_trip() {
     let h1 = hop1();
     let token = outer(&h1);
     let a_key = a();
-    let verified = verify_delegation(&token, &multihop_ctx(a_key.aid())).expect("chain verifies");
+    let verified =
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).expect("chain verifies");
     assert_eq!(verified.claims.iss, *c().aid());
     assert_eq!(verified.claims.sub, *d().aid());
     assert_eq!(verified.claims.scope, vec!["read_data".to_string()]);
@@ -141,15 +143,16 @@ fn three_hop_chain_round_trip() {
 fn chain_rejected_without_opt_in() {
     let token = outer(&hop1());
     let a_key = a();
-    // Single-hop-only context: structural rejection.
-    let ctx = VerifyDelegationContext::new(
+    // A hop budget of 0: structural rejection.
+    let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
-    );
+    )
+    .with_max_delegation_hops(0);
     assert!(matches!(
-        verify_delegation(&token, &ctx).unwrap_err(),
-        DelegationError::MultihopNotSupported
+        verify_chained_delegation(&token, &ctx).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::MultihopNotSupported)
     ));
 }
 
@@ -158,15 +161,15 @@ fn hop_limit_enforced_before_signatures() {
     let token = outer(&hop1());
     let a_key = a();
     // total_hops = chain(1) + 2 = 3 > max_delegation_hops 2.
-    let ctx = VerifyDelegationContext::new(
+    let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
     )
     .with_max_delegation_hops(2);
     assert!(matches!(
-        verify_delegation(&token, &ctx).unwrap_err(),
-        DelegationError::HopLimitExceeded
+        verify_chained_delegation(&token, &ctx).unwrap_err(),
+        ChainedDelegationError::HopLimitExceeded
     ));
 }
 
@@ -174,7 +177,7 @@ fn hop_limit_enforced_before_signatures() {
 fn scope_inflation_across_hops_rejected() {
     // C tries to delegate `write_data` to D after B granted C only
     // `read_data` — adjacent-pair subsetting must catch it.
-    let narrow_h1 = DelegationBuilder::new(&b(), &voucher_for_b())
+    let narrow_h1 = ChainedDelegationBuilder::new(&b(), &voucher_for_b())
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data"])
@@ -185,14 +188,14 @@ fn scope_inflation_across_hops_rejected() {
         .unwrap();
     // The builder itself refuses scope inflation…
     assert!(matches!(
-        DelegationBuilder::extending(&c(), &narrow_h1)
+        ChainedDelegationBuilder::extending(&c(), &narrow_h1)
             .unwrap()
             .delegatee(d().aid().clone())
             .scope(["write_data"])
             .now(NOW)
             .build()
             .unwrap_err(),
-        DelegationError::ScopeExceeded
+        ChainedDelegationError::Delegation(DelegationError::ScopeExceeded)
     ));
     // …so hand-mint the inflated outer token to prove the verifier
     // catches it independently.
@@ -211,8 +214,8 @@ fn scope_inflation_across_hops_rejected() {
     let token = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::ScopeExceeded
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::ScopeExceeded)
     ));
 }
 
@@ -224,7 +227,7 @@ fn truncated_chain_rejected() {
     // the digest-array commitment.
     let e = e();
     let h1 = hop1(); // B→C, chain-extensible
-    let h2 = DelegationBuilder::extending(&c(), &h1)
+    let h2 = ChainedDelegationBuilder::extending(&c(), &h1)
         .unwrap()
         .delegatee(d().aid().clone())
         .scope(["read_data"])
@@ -233,7 +236,7 @@ fn truncated_chain_rejected() {
         .jti(Uuid::new_v4())
         .build()
         .unwrap();
-    let outer4 = DelegationBuilder::extending(&d(), &h2)
+    let outer4 = ChainedDelegationBuilder::extending(&d(), &h2)
         .unwrap()
         .delegatee(e.aid().clone())
         .scope(["read_data"])
@@ -243,14 +246,14 @@ fn truncated_chain_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let full_ctx = VerifyDelegationContext::new(
+    let full_ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
     )
     .with_max_delegation_hops(4)
     .with_issuer_manifests(issuer_manifests());
-    verify_delegation(&outer4, &full_ctx)
+    verify_chained_delegation(&outer4, &full_ctx)
         .expect("4-hop chain verifies under max_delegation_hops=4");
 
     // Truncate: drop h1, keep the original chain_hash.
@@ -258,9 +261,9 @@ fn truncated_chain_rejected() {
     let mut claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
     claims["chain"] = serde_json::json!([h2]);
     let forged = jws::sign_compact(&d(), jws::TYP_DELEGATION, &claims).unwrap();
-    let err = verify_delegation(&forged, &full_ctx).unwrap_err();
+    let err = verify_chained_delegation(&forged, &full_ctx).unwrap_err();
     assert!(
-        matches!(err, DelegationError::ChainHashMismatch),
+        matches!(err, ChainedDelegationError::ChainHashMismatch),
         "got {err:?}"
     );
 }
@@ -275,8 +278,8 @@ fn chain_hash_missing_rejected() {
     let forged = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::ChainHashMismatch
+        verify_chained_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::ChainHashMismatch
     ));
 }
 
@@ -295,8 +298,8 @@ fn voucher_on_chained_outer_token_rejected() {
     let forged = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::InvalidVoucher
+        verify_chained_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::InvalidVoucher)
     ));
 }
 
@@ -320,8 +323,8 @@ fn continuity_break_rejected() {
     let token = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::InvalidVoucher
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::InvalidVoucher)
     ));
 }
 
@@ -344,8 +347,8 @@ fn expiry_inflation_across_hops_rejected() {
     let token = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::Expired
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::Expired)
     ));
 }
 
@@ -368,8 +371,8 @@ fn duplicate_hop_jti_rejected() {
     let token = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::InvalidVoucher
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::InvalidVoucher)
     ));
 }
 
@@ -388,8 +391,8 @@ fn revoked_mid_chain_hop_rejected() {
     ctx.revocation = DelegationRevocation::Check(&not_revoked);
     ctx.hop_revocation_check = Some(&hop_revoked);
     assert!(matches!(
-        verify_delegation(&token, &ctx).unwrap_err(),
-        DelegationError::SourceTctRevoked
+        verify_chained_delegation(&token, &ctx).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::SourceTctRevoked)
     ));
 }
 
@@ -403,8 +406,8 @@ fn multihop_without_hop_source_fails_closed() {
     let mut ctx = multihop_ctx(a_key.aid());
     ctx.revocation = DelegationRevocation::Check(&not_revoked);
     assert!(matches!(
-        verify_delegation(&token, &ctx).unwrap_err(),
-        DelegationError::RevocationUnavailable(_)
+        verify_chained_delegation(&token, &ctx).unwrap_err(),
+        ChainedDelegationError::Delegation(DelegationError::RevocationUnavailable(_))
     ));
 }
 
@@ -416,8 +419,8 @@ fn multihop_without_hop_source_fails_closed() {
 fn ctx_with<'a>(
     verifier: &'a Aid,
     resolver: &'a dyn aitp::manifest::ManifestResolver,
-) -> VerifyDelegationContext<'a> {
-    VerifyDelegationContext::new(
+) -> VerifyChainContext<'a> {
+    VerifyChainContext::new(
         verifier,
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
@@ -427,12 +430,12 @@ fn ctx_with<'a>(
 }
 
 /// Unwrap a `KeyResolutionFailed` for `issuer` and return its cause.
-fn key_resolution_cause(err: DelegationError, issuer: &Aid) -> ManifestError {
+fn key_resolution_cause(err: ChainedDelegationError, issuer: &Aid) -> ManifestError {
     match err {
-        DelegationError::KeyResolutionFailed {
+        ChainedDelegationError::Delegation(DelegationError::KeyResolutionFailed {
             issuer: got,
             source,
-        } => {
+        }) => {
             assert_eq!(&got, issuer);
             source
         }
@@ -444,14 +447,17 @@ fn key_resolution_cause(err: DelegationError, issuer: &Aid) -> ManifestError {
 fn multihop_without_manifest_source_rejected() {
     let token = outer(&hop1());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(
+    let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         DelegationRevocation::FailOpen,
     )
     .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
     // chain[0] is verified first; its issuer is B.
-    let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err(), b().aid());
+    let cause = key_resolution_cause(
+        verify_chained_delegation(&token, &ctx).unwrap_err(),
+        b().aid(),
+    );
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
 }
 
@@ -461,7 +467,7 @@ fn hop_issuer_manifest_unavailable_rejected() {
     let token = outer(&hop1());
     let only_b = vec![manifest_for(&b(), NOW)];
     let a_key = a();
-    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &only_b)).unwrap_err();
+    let err = verify_chained_delegation(&token, &ctx_with(a_key.aid(), &only_b)).unwrap_err();
     let cause = key_resolution_cause(err, c().aid());
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
 }
@@ -478,7 +484,7 @@ fn hop_key_not_designated_by_issuer_manifest_rejected() {
         (c().aid().clone(), manifest_for(&c(), NOW)),
     ]);
     let a_key = a();
-    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &resolver)).unwrap_err();
+    let err = verify_chained_delegation(&token, &ctx_with(a_key.aid(), &resolver)).unwrap_err();
     let cause = key_resolution_cause(err, b().aid());
     assert!(matches!(cause, ManifestError::AidMismatch), "got {cause:?}");
 }
@@ -491,7 +497,7 @@ fn hop_issuer_manifest_must_verify() {
     // Expired: C's Manifest lapsed before the verification time.
     let stale_c = manifest_with_ttl(&c(), Timestamp(NOW.0 - 120), 60);
     let manifests = vec![manifest_for(&b(), NOW), stale_c];
-    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
+    let err = verify_chained_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
     let cause = key_resolution_cause(err, c().aid());
     assert!(matches!(cause, ManifestError::Expired), "got {cause:?}");
 
@@ -499,7 +505,7 @@ fn hop_issuer_manifest_must_verify() {
     let mut forged_b = manifest_for(&b(), NOW);
     forged_b.display_name = Some("not what B signed".into());
     let manifests = vec![forged_b, manifest_for(&c(), NOW)];
-    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
+    let err = verify_chained_delegation(&token, &ctx_with(a_key.aid(), &manifests)).unwrap_err();
     let cause = key_resolution_cause(err, b().aid());
     assert!(
         matches!(cause, ManifestError::SignatureInvalid),
@@ -515,9 +521,12 @@ fn hop_signed_by_other_key_is_invalid_signature() {
     let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
     let forged = jws::sign_compact(&mallory(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
-    let err = verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err();
+    let err = verify_chained_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err();
     assert!(
-        matches!(err, DelegationError::InvalidSignature),
+        matches!(
+            err,
+            ChainedDelegationError::Delegation(DelegationError::InvalidSignature)
+        ),
         "got {err:?}"
     );
 }
@@ -527,7 +536,7 @@ fn single_hop_under_opt_in_resolves_issuer_manifest() {
     // A plain B → C delegation takes the single-hop path under multi-hop
     // opt-in too, and verifies under B's Manifest key (RFC-AITP-0006 §4
     // step 1) exactly as it does under the strict default.
-    let token = DelegationBuilder::new(&b(), &voucher_for_b())
+    let token = ChainedDelegationBuilder::new(&b(), &voucher_for_b())
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data"])
@@ -536,10 +545,10 @@ fn single_hop_under_opt_in_resolves_issuer_manifest() {
         .build()
         .unwrap();
     let a_key = a();
-    verify_delegation(&token, &multihop_ctx(a_key.aid()))
+    verify_chained_delegation(&token, &multihop_ctx(a_key.aid()))
         .expect("single-hop verifies under B's Manifest key");
     let none: Vec<Manifest> = Vec::new();
-    let err = verify_delegation(&token, &ctx_with(a_key.aid(), &none)).unwrap_err();
+    let err = verify_chained_delegation(&token, &ctx_with(a_key.aid(), &none)).unwrap_err();
     let cause = key_resolution_cause(err, b().aid());
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
 }
@@ -595,14 +604,14 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
         manifest_for(&AitpSigningKey::from_seed(&kat_002_seed), published),
         manifest_for(&AitpSigningKey::from_seed(&[0xffu8; 32]), published),
     ];
-    let ctx = VerifyDelegationContext::new(
+    let ctx = VerifyChainContext::new(
         verifier.aid(),
         Timestamp(1_711_900_100),
         DelegationRevocation::FailOpen,
     )
     .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
     .with_issuer_manifests(&manifests);
-    let verified = verify_delegation(outer_token, &ctx).expect("spec chain KAT verifies");
+    let verified = verify_chained_delegation(outer_token, &ctx).expect("spec chain KAT verifies");
     assert_eq!(verified.claims.scope, vec!["macp.mode.task.v1".to_string()]);
     assert_eq!(
         verified.voucher.src_jti,
@@ -630,7 +639,7 @@ fn spec_truncation_kat_detects_mismatch() {
 
 #[test]
 fn builder_reproduces_spec_outer_delegation() {
-    // DelegationBuilder::extending re-mints the KAT's outer token
+    // ChainedDelegationBuilder::extending re-mints the KAT's outer token
     // byte-for-byte from the pinned seeds and the carried chain entry.
     let v = kat("kat-multihop-chain-001");
     let h1 = v["chain"][0].as_str().unwrap();
@@ -639,7 +648,7 @@ fn builder_reproduces_spec_outer_delegation() {
 
     // Outer exp is 1711902000; drive the ttl to land exactly there.
     let now = Timestamp(1_711_900_000);
-    let token = DelegationBuilder::extending(&c_key, h1)
+    let token = ChainedDelegationBuilder::extending(&c_key, h1)
         .unwrap()
         .delegatee(d_key.aid().clone())
         .scope(["macp.mode.task.v1"])
@@ -688,8 +697,8 @@ fn non_v4_outer_hop_jti_rejected_before_signature() {
         let token = jws::sign_compact(&c(), jws::TYP_DELEGATION, &claims).unwrap();
         assert!(
             matches!(
-                verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-                DelegationError::JtiNotV4(_)
+                verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+                ChainedDelegationError::JtiNotV4(_)
             ),
             "{bad}"
         );
@@ -697,8 +706,8 @@ fn non_v4_outer_hop_jti_rejected_before_signature() {
         let forged = jws::sign_compact(&d(), jws::TYP_DELEGATION, &claims).unwrap();
         assert!(
             matches!(
-                verify_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
-                DelegationError::JtiNotV4(_)
+                verify_chained_delegation(&forged, &multihop_ctx(a_key.aid())).unwrap_err(),
+                ChainedDelegationError::JtiNotV4(_)
             ),
             "{bad} (forged)"
         );
@@ -727,14 +736,14 @@ fn non_v4_chain_hop_jti_rejected() {
     .unwrap();
     let a_key = a();
     assert!(matches!(
-        verify_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
-        DelegationError::JtiNotV4(_)
+        verify_chained_delegation(&token, &multihop_ctx(a_key.aid())).unwrap_err(),
+        ChainedDelegationError::JtiNotV4(_)
     ));
 }
 
 #[test]
 fn builder_rejects_non_v4_jti() {
-    let err = DelegationBuilder::new(&b(), &voucher_for_b())
+    let err = ChainedDelegationBuilder::new(&b(), &voucher_for_b())
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data"])
@@ -743,5 +752,155 @@ fn builder_rejects_non_v4_jti() {
         .jti(Uuid::parse_str("0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e").unwrap())
         .build()
         .unwrap_err();
-    assert!(matches!(err, DelegationError::JtiNotV4(_)), "{err:?}");
+    assert!(
+        matches!(err, ChainedDelegationError::JtiNotV4(_)),
+        "{err:?}"
+    );
+}
+
+// ───────────────────────── async signers ─────────────────────────
+
+/// Sync and async chain extensions are byte identical for deterministic
+/// keys (Ed25519; P-256 via RFC 6979 through the mock's Raw and Der
+/// outputs).
+#[tokio::test]
+async fn async_extensions_are_byte_identical_to_sync() {
+    use aitp::crypto::testing::{MockKmsSigner, MockOutput};
+    type MakeKey = fn(u8) -> AitpSigningKey;
+    fn p256(seed: u8) -> AitpSigningKey {
+        AitpSigningKey::from_p256_seed(&[seed; 32]).expect("valid P-256 scalar")
+    }
+    let jti1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440901").unwrap();
+    let jti2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440902").unwrap();
+    let cases: [(MakeKey, MockOutput); 3] = [
+        (|s| AitpSigningKey::from_seed(&[s; 32]), MockOutput::Raw),
+        (p256, MockOutput::Raw),
+        (p256, MockOutput::Der),
+    ];
+    for (make, output) in cases {
+        let (a, b, c) = (make(0xA3), make(0xB4), make(0xC4));
+        let d = AitpSigningKey::from_seed(&[0xD4; 32]);
+        let voucher = TctBuilder::new(&a)
+            .subject(b.aid().clone())
+            .audience(b.aid().clone())
+            .grants(["read_data"])
+            .ttl_secs(7200)
+            .subject_pubkey(b.verifying_key())
+            .issued_at(NOW)
+            .build()
+            .unwrap()
+            .voucher
+            .unwrap();
+        let hop1 = ChainedDelegationBuilder::new(&b, &voucher)
+            .unwrap()
+            .delegatee(c.aid().clone())
+            .scope(["read_data"])
+            .now(NOW)
+            .jti(jti1)
+            .build()
+            .unwrap();
+        let b_kms = MockKmsSigner::new(make(0xB4)).output(output);
+        let async_hop1 = ChainedDelegationBuilder::new_async(&b_kms, &voucher)
+            .unwrap()
+            .delegatee(c.aid().clone())
+            .scope(["read_data"])
+            .now(NOW)
+            .jti(jti1)
+            .build_async()
+            .await
+            .unwrap();
+        assert_eq!(hop1, async_hop1);
+
+        let sync2 = ChainedDelegationBuilder::extending(&c, &hop1)
+            .unwrap()
+            .delegatee(d.aid().clone())
+            .scope(["read_data"])
+            .now(NOW)
+            .jti(jti2)
+            .build()
+            .unwrap();
+        let c_kms = MockKmsSigner::new(make(0xC4)).output(output);
+        let async2 = ChainedDelegationBuilder::extending_async(&c_kms, &hop1)
+            .unwrap()
+            .delegatee(d.aid().clone())
+            .scope(["read_data"])
+            .now(NOW)
+            .jti(jti2)
+            .build_async()
+            .await
+            .unwrap();
+        assert_eq!(sync2, async2);
+    }
+    let stranger = MockKmsSigner::new(AitpSigningKey::from_seed(&[0xE5; 32]));
+    assert!(matches!(
+        ChainedDelegationBuilder::extending_async(&stranger, "not.a.jws").err(),
+        Some(ChainedDelegationError::Delegation(DelegationError::Crypto(
+            _
+        )))
+    ));
+}
+
+// ──────────────────── prior-hop peek in `extending` ────────────────────
+
+fn prior_hop_claims() -> serde_json::Value {
+    serde_json::json!({
+        "ver": PROTOCOL_VERSION,
+        "iss": b().aid(),
+        "sub": c().aid(),
+        "aud": a().aid(),
+        "scope": ["read_data"],
+        "exp": NOW.0 + 3600,
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "jti": Uuid::new_v4(),
+    })
+}
+
+/// RFC-AITP-0001 §7: an unknown member on the prior hop is UNKNOWN_FIELD.
+#[test]
+fn builder_extending_rejects_prior_hop_with_unknown_member() {
+    let mut prior_claims = prior_hop_claims();
+    prior_claims["surprise"] = serde_json::json!(1);
+    let prior_token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &prior_claims).unwrap();
+    match ChainedDelegationBuilder::extending(&c(), &prior_token) {
+        Err(ChainedDelegationError::Delegation(DelegationError::UnknownField(field))) => {
+            assert_eq!(field, "surprise")
+        }
+        Err(other) => panic!("expected UnknownField(\"surprise\"), got {other:?}"),
+        Ok(_) => panic!("prior hop with an unknown claim must not extend"),
+    }
+}
+
+/// RFC-AITP-0001 §5.4.5: a duplicate member on the prior hop is rejected.
+#[test]
+fn builder_extending_rejects_prior_hop_with_duplicate_member() {
+    let prior_token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &prior_hop_claims()).unwrap();
+    let parts: Vec<&str> = prior_token.split('.').collect();
+    let payload = aitp::core::base64url::decode_strict(parts[1]).unwrap();
+    let payload = std::str::from_utf8(&payload).unwrap();
+    let dup_payload = format!("{{\"ver\":\"{PROTOCOL_VERSION}\",{}", &payload[1..]);
+    let dup_token = format!(
+        "{}.{}.{}",
+        parts[0],
+        aitp::core::base64url::encode(dup_payload.as_bytes()),
+        parts[2]
+    );
+    match ChainedDelegationBuilder::extending(&c(), &dup_token) {
+        Err(ChainedDelegationError::Delegation(DelegationError::ClaimsMalformed(m))) => {
+            assert!(m.contains("duplicate field `ver`"), "{m}")
+        }
+        Err(other) => panic!("expected ClaimsMalformed(duplicate field `ver`), got {other:?}"),
+        Ok(_) => panic!("prior hop with a duplicate claim must not extend"),
+    }
+}
+
+#[test]
+fn new_defaults_to_three_hops() {
+    let a_key = a();
+    let ctx = VerifyChainContext::new(
+        a_key.aid(),
+        Timestamp(NOW.0 + 60),
+        DelegationRevocation::FailOpen,
+    );
+    assert_eq!(ctx.max_delegation_hops, DEFAULT_MAX_DELEGATION_HOPS);
+    assert_eq!(DEFAULT_MAX_DELEGATION_HOPS, 3);
 }

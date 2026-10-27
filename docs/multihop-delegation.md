@@ -1,19 +1,17 @@
 # Multi-hop delegation (RFC-AITP-0011)
 
-> **Status: Draft, opt-in at the call site.**
+> **Status: Draft, in `aitp-experimental`.**
 > [RFC-AITP-0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md)
 > is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
-> The multi-hop verifier is always compiled into `aitp::delegation` and is
-> **gated at runtime**: `VerifyDelegationContext::new` sets
-> `max_delegation_hops = 0` (strict default), so any token carrying a `chain`
-> claim is rejected unless the caller raises the cap with
-> `VerifyDelegationContext::with_max_delegation_hops(n)`. In Rust there is
-> one entry point, `verify_delegation`; the language bindings split it into
-> the strict `verify_delegation` / `verifyDelegation` and an explicit
-> `verify_delegation_multihop` / `verifyDelegationMultihop` (present in the
-> default build via the bindings' `multihop-delegation` feature). See
-> [architecture](architecture.md#why-multi-hop-delegation-is-unreachable-by-default)
-> for why multi-hop must never be reachable without an explicit opt-in.
+> Multi-hop delegation is in the `aitp-experimental` crate
+> (`aitp_experimental::delegation`): `ChainedDelegationBuilder` mints and
+> extends chains and `verify_chained_delegation` verifies them. The stable
+> `aitp::delegation::verify_delegation` rejects any token carrying a `chain`
+> claim with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. The language bindings
+> expose the strict `verify_delegation` / `verifyDelegation` and, under
+> their `multihop-delegation` feature, `verify_delegation_multihop` /
+> `verifyDelegationMultihop`. See
+> [architecture](architecture.md#why-multi-hop-delegation-is-unreachable-by-default).
 
 ## Motivation
 
@@ -34,20 +32,21 @@ token is an ordinary `aitp-delegation+jwt` compact JWS; every hop is a
 complete delegation JWS verified over its transmitted bytes, with no byte
 reconstruction. `total_hops = chain.len() + 2` (§2).
 
-`aitp-rs` specifics: claims deserialize into `DelegationClaims`
-(`crates/aitp/src/delegation/types.rs`); the RFC §2 recommended ceiling is
-exported as `DEFAULT_MAX_DELEGATION_HOPS = 3`, which with `+2` admits a
-single-entry `chain` (the A → B → C → D example).
+`aitp-rs` specifics: claims deserialize into `ChainedDelegationClaims`
+(`crates/aitp-experimental/src/delegation/types.rs`); the RFC §2 recommended
+ceiling is exported as `DEFAULT_MAX_DELEGATION_HOPS = 3`, which with `+2`
+admits a single-entry `chain` (the A → B → C → D example).
+`VerifyChainContext::new` sets it; `with_max_delegation_hops(n)` changes it.
 
-## Verification (`verify_delegation`, multi-hop path)
+## Verification (`verify_chained_delegation`)
 
 The normative order is
 [RFC-AITP-0011 §2–§6](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md#3-per-hop-verification).
-How `crates/aitp/src/delegation/verifier.rs` runs it, with the
-`DelegationError` variant each failure maps to:
+How `crates/aitp-experimental/src/delegation/verifier.rs` runs it, with the
+`ChainedDelegationError` variant each failure maps to (the checks shared
+with single-hop report as `ChainedDelegationError::Delegation(DelegationError::…)`):
 
-0. **Strict gate** (`verify_delegation`, lines 137-160). With
-   `max_delegation_hops == 0`: any `chain` claim (even `[]`) →
+0. **Strict gate.** With `max_delegation_hops == 0`: any `chain` claim (even `[]`) →
    `MultihopNotSupported` (`DELEGATION_MULTIHOP_NOT_SUPPORTED`); a `jti` claim
    on an otherwise single-hop token → `ClaimsMalformed`, because `jti` is not
    in the single-hop claim set (RFC-AITP-0011 §1.1). With the cap raised, a
@@ -67,7 +66,7 @@ How `crates/aitp/src/delegation/verifier.rs` runs it, with the
      source configured fails closed the same way. Then the sole `alg`
      derived from that key; signature → `InvalidSignature`. `ver` must be
      known → `VersionUnknown`.
-   - **Common claims** (`check_hop_claims`): `aud` equals the verifier at every
+   - **Common claims**: `aud` equals the verifier at every
      hop → `AudienceMismatch`; `iss != sub` → `SelfDelegation`; non-empty
      `scope` → `EmptyScope`; `cnf.jkt` matches the key in `sub` →
      `CnfMalformed`. `jti` present and unique across hops → else `InvalidVoucher`.
@@ -85,25 +84,27 @@ How `crates/aitp/src/delegation/verifier.rs` runs it, with the
      entry, with a matching `chain_hash` → else `InvalidVoucher`.
 4. **Revocation**, only after every signature check: `voucher.src_jti`
    against the `DelegationRevocation::Check` hook passed to
-   `VerifyDelegationContext::new`, then each hop's `(iss, jti)` against
+   `VerifyChainContext::new`, then each hop's `(iss, jti)` against
    `with_hop_revocation_check` → `SourceTctRevoked`. Revocation is
    `fail_closed` (RFC-AITP-0008 §3.1): a hook that cannot answer, or a
    multi-hop chain with no hop hook, gives `RevocationUnavailable`
    (`DELEGATION_SOURCE_TCT_REVOKED` on the wire).
    `DelegationRevocation::FailOpen` skips every lookup.
 
-Proof of possession is not part of `verify_delegation`: the caller runs the
+Proof of possession is not part of `verify_chained_delegation`: the caller runs the
 RFC-AITP-0006 §4 step 9 exchange against the presenting agent, with the
 bound key from the **outer** token's `sub`
 (`aitp::tct::sign_pop_response` / `verify_pop_response`).
 
 ## Known limitations
 
-- **Opt-in at the call site.** The strict default rejects every `chain`-bearing
-  token with `DELEGATION_MULTIHOP_NOT_SUPPORTED`
-  ([RFC-AITP-0006 §4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md#4-verification-rules))
-  and every `jti`-bearing single-hop token with `ClaimsMalformed`. A single-hop
-  token with neither claim verifies normally whatever the cap.
+- **Stable `aitp` is single-hop.** `aitp::delegation::verify_delegation`
+  rejects every `chain`-bearing token with `DELEGATION_MULTIHOP_NOT_SUPPORTED`
+  ([RFC-AITP-0006 §4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0006-delegation.md#4-verification-rules)),
+  ahead of every other claim check, and every token carrying `jti` or
+  `chain_hash` with `ClaimsMalformed` (`INVALID_ENVELOPE`). A single-hop
+  token with none of these claims verifies the same way under both
+  verifiers.
 - **Manifests are supplied, not fetched.** The verifier is synchronous and
   does no I/O: the caller provides the issuers' Manifests through an
   `aitp::manifest::ManifestResolver` (a `Vec<Manifest>`, a
@@ -138,12 +139,13 @@ verifyDelegationMultihop(delegationJws, verifierAid, issuerManifests, 3);   // m
 ```
 
 ```rust
-use aitp::delegation::{verify_delegation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS};
+use aitp::delegation::DelegationRevocation;
+use aitp_experimental::delegation::{verify_chained_delegation, VerifyChainContext};
 
 // Any `ManifestResolver` (here a `Vec<Manifest>` of the hop issuers'
 // Manifests): each hop verifies under its issuer's verified Manifest key.
-let ctx = VerifyDelegationContext::new(&my_aid, now)
-    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-    .with_issuer_manifests(&issuer_manifests);
-let verified = verify_delegation(&delegation_jws, &ctx)?;
+let ctx = VerifyChainContext::new(&my_aid, now, DelegationRevocation::Check(&is_revoked))
+    .with_issuer_manifests(&issuer_manifests)
+    .with_hop_revocation_check(&is_hop_revoked);
+let verified = verify_chained_delegation(&delegation_jws, &ctx)?;
 ```

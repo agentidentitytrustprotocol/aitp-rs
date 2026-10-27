@@ -60,8 +60,9 @@ pub struct AdapterState {
     /// Feature flags the runner has told us are enabled. The
     /// adapter consults this when deciding whether to opt into
     /// post-v0.1 RFC behavior. Examples:
-    ///   `experimental-multihop-delegation` → verify_delegation
-    ///       uses `max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS` instead of strict 0.
+    ///   `experimental-multihop-delegation` → delegations verify with
+    ///       `aitp_experimental::delegation` instead of the strict
+    ///       single-hop `aitp::delegation::verify_delegation`.
     ///   `experimental-session-bundle` → bundle ops accept work.
     enabled_features: HashSet<String>,
     /// PoP-enforcement state for the `tct-007` capability-invocation
@@ -2100,35 +2101,36 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
             || deny_lists.get(issuer).is_some_and(|s| s.contains(jti)))
     };
 
-    // Multi-hop opt-in. Per RFC-AITP-0006 §4 the v0.2 default MUST
-    // reject any chain-bearing token; the runner enables RFC-0011
-    // semantics by sending `set_features` with
-    // `experimental-multihop-delegation`. Without that feature we
-    // use the strict single-hop cap (max_delegation_hops = 0).
-    let max_delegation_hops = if state.has_feature("experimental-multihop-delegation") {
-        aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS
-    } else {
-        0
-    };
     let issuer_manifests = match delegation_issuer_manifests(&params) {
         Ok(m) => m,
         Err((code, msg)) => return err(id, &code, &msg),
     };
-    let ctx = aitp::delegation::VerifyDelegationContext::new(
-        &verifier_aid,
-        now,
-        aitp::delegation::DelegationRevocation::Check(&revocation_check_closure),
-    )
-    .with_max_delegation_hops(max_delegation_hops)
-    .with_issuer_manifests(&issuer_manifests)
-    .with_hop_revocation_check(&hop_revocation_closure);
-    match aitp::delegation::verify_delegation(&token, &ctx) {
-        Ok(v) => json!({
+    let revocation = aitp::delegation::DelegationRevocation::Check(&revocation_check_closure);
+    // Multi-hop opt-in. Per RFC-AITP-0006 §4 the default MUST reject any
+    // chain-bearing token; the runner enables RFC-AITP-0011 semantics by
+    // sending `set_features` with `experimental-multihop-delegation`.
+    let scope = if state.has_feature("experimental-multihop-delegation") {
+        let ctx =
+            aitp_experimental::delegation::VerifyChainContext::new(&verifier_aid, now, revocation)
+                .with_issuer_manifests(&issuer_manifests)
+                .with_hop_revocation_check(&hop_revocation_closure);
+        aitp_experimental::delegation::verify_chained_delegation(&token, &ctx)
+            .map(|v| v.claims.scope)
+            .map_err(|e| (chained_delegation_error_code(&e), e.to_string()))
+    } else {
+        let ctx = aitp::delegation::VerifyDelegationContext::new(&verifier_aid, now, revocation)
+            .with_issuer_manifests(&issuer_manifests);
+        aitp::delegation::verify_delegation(&token, &ctx)
+            .map(|v| v.claims.scope)
+            .map_err(|e| (delegation_error_code(&e), e.to_string()))
+    };
+    match scope {
+        Ok(scope) => json!({
             "id": id,
             "ok": true,
-            "result": {"verified": true, "grants": v.claims.scope}
+            "result": {"verified": true, "grants": scope}
         }),
-        Err(e) => err(id, &delegation_error_code(&e), &e.to_string()),
+        Err((code, msg)) => err(id, &code, &msg),
     }
 }
 
@@ -2170,16 +2172,11 @@ fn delegation_error_code(e: &aitp::delegation::DelegationError) -> String {
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
-        HopLimitExceeded => "DELEGATION_HOP_LIMIT_EXCEEDED",
-        ChainHashMismatch => "DELEGATION_CHAIN_HASH_MISMATCH",
         VersionUnknown => "UNKNOWN_VERSION",
         // RFC-AITP-0006 §4 step 10: self-delegation maps to
         // DELEGATION_INVALID_SIGNATURE (same code as a bad outer sig).
         SelfDelegation => "DELEGATION_INVALID_SIGNATURE",
-        // Spec PR C: a non-v4 hop `jti` is a signature-class reject.
-        JtiNotV4(_) => "DELEGATION_INVALID_SIGNATURE",
         EmptyScope | CnfMalformed | MissingField(_) | ClaimsMalformed(_) => "INVALID_ENVELOPE",
-        Canonicalization(_) => "INTERNAL_ERROR",
         // Crypto errors surface from JWS-layer verification. A plain
         // bad signature here can only come from the embedded voucher
         // (the outer token's bad signature maps to InvalidSignature
@@ -2191,6 +2188,21 @@ fn delegation_error_code(e: &aitp::delegation::DelegationError) -> String {
         // could not be obtained, did not verify, or does not designate
         // the issuer's AID.
         KeyResolutionFailed { .. } => "KEY_RESOLUTION_FAILED",
+        _ => "INTERNAL_ERROR",
+    }
+    .to_string()
+}
+
+fn chained_delegation_error_code(
+    e: &aitp_experimental::delegation::ChainedDelegationError,
+) -> String {
+    use aitp_experimental::delegation::ChainedDelegationError::*;
+    match e {
+        Delegation(d) => return delegation_error_code(d),
+        HopLimitExceeded => "DELEGATION_HOP_LIMIT_EXCEEDED",
+        ChainHashMismatch => "DELEGATION_CHAIN_HASH_MISMATCH",
+        // Spec PR C: a non-v4 hop `jti` is a signature-class reject.
+        JtiNotV4(_) => "DELEGATION_INVALID_SIGNATURE",
         _ => "INTERNAL_ERROR",
     }
     .to_string()
@@ -2495,45 +2507,60 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
     // Single-hop: the delegator presents the grant voucher its TCT
     // issuer minted for it (`voucher` / `grant_voucher`, a compact
     // JWS). Multi-hop extension: `prior_token` is the delegation the
-    // delegator received and is extending (requires
-    // experimental-multihop-delegation semantics on verification).
-    let builder = if let Some(voucher) = params
+    // delegator received and is extending; it and a per-hop `jti` are
+    // RFC-AITP-0011 and mint with `aitp_experimental::delegation`.
+    let voucher = params
         .get("voucher")
         .or_else(|| params.get("grant_voucher"))
         .or_else(|| params.get("voucher_token"))
-        .and_then(|v| v.as_str())
-    {
-        DelegationBuilder::new(delegator, voucher)
-    } else if let Some(prior) = params.get("prior_token").and_then(|v| v.as_str()) {
-        DelegationBuilder::extending(delegator, prior)
-    } else {
-        return err(
-            id,
-            "INVALID_REQUEST",
-            "missing 'voucher' (single-hop) or 'prior_token' (multi-hop extension)",
-        );
-    };
-    let mut builder = match builder {
-        Ok(b) => b,
-        Err(e) => return err(id, &delegation_error_code(&e), &e.to_string()),
-    };
-    builder = builder
-        .delegatee(delegatee)
-        .scope(scope)
-        .ttl_secs(ttl)
-        .now(state.now());
-    if let Some(jti) = params
+        .and_then(|v| v.as_str());
+    let prior = params.get("prior_token").and_then(|v| v.as_str());
+    let jti = params
         .get("jti")
         .and_then(|v| v.as_str())
-        .and_then(|s| Uuid::parse_str(s).ok())
-    {
-        builder = builder.jti(jti);
-    }
-    let token = match builder.build() {
-        Ok(t) => t,
-        Err(e) => return err(id, &delegation_error_code(&e), &e.to_string()),
+        .and_then(|s| Uuid::parse_str(s).ok());
+    let now = state.now();
+    use aitp_experimental::delegation::ChainedDelegationBuilder;
+    let chained = |builder: Result<ChainedDelegationBuilder<'_>, _>| {
+        builder
+            .and_then(|b| {
+                let b = b
+                    .delegatee(delegatee.clone())
+                    .scope(scope.clone())
+                    .ttl_secs(ttl)
+                    .now(now);
+                match jti {
+                    Some(jti) => b.jti(jti),
+                    None => b,
+                }
+                .build()
+            })
+            .map_err(|e| (chained_delegation_error_code(&e), e.to_string()))
     };
-    json!({"id": id, "ok": true, "result": {"delegation_token": token}})
+    let token = match (voucher, prior) {
+        (Some(voucher), _) if jti.is_none() => DelegationBuilder::new(delegator, voucher)
+            .and_then(|b| {
+                b.delegatee(delegatee)
+                    .scope(scope)
+                    .ttl_secs(ttl)
+                    .now(now)
+                    .build()
+            })
+            .map_err(|e| (delegation_error_code(&e), e.to_string())),
+        (Some(voucher), _) => chained(ChainedDelegationBuilder::new(delegator, voucher)),
+        (None, Some(prior)) => chained(ChainedDelegationBuilder::extending(delegator, prior)),
+        (None, None) => {
+            return err(
+                id,
+                "INVALID_REQUEST",
+                "missing 'voucher' (single-hop) or 'prior_token' (multi-hop extension)",
+            )
+        }
+    };
+    match token {
+        Ok(token) => json!({"id": id, "ok": true, "result": {"delegation_token": token}}),
+        Err((code, msg)) => err(id, &code, &msg),
+    }
 }
 
 fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
@@ -5128,7 +5155,7 @@ mod discarded_snapshot_policy_tests {
             .unwrap()
             .voucher
             .unwrap();
-        let single_hop = aitp::delegation::DelegationBuilder::new(&b, &voucher)
+        let single_hop = aitp_experimental::delegation::ChainedDelegationBuilder::new(&b, &voucher)
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
@@ -5137,14 +5164,15 @@ mod discarded_snapshot_policy_tests {
             .jti(Uuid::new_v4())
             .build()
             .unwrap();
-        let two_hop = aitp::delegation::DelegationBuilder::extending(&c, &single_hop)
-            .unwrap()
-            .delegatee(d.aid().clone())
-            .scope(["read_data"])
-            .ttl_secs(1800)
-            .now(Timestamp(1_700_000_000))
-            .build()
-            .unwrap();
+        let two_hop =
+            aitp_experimental::delegation::ChainedDelegationBuilder::extending(&c, &single_hop)
+                .unwrap()
+                .delegatee(d.aid().clone())
+                .scope(["read_data"])
+                .ttl_secs(1800)
+                .now(Timestamp(1_700_000_000))
+                .build()
+                .unwrap();
         Chain {
             a,
             b,

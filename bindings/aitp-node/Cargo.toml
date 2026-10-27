@@ -29,12 +29,10 @@ renewal = ["aitp/experimental-renewal"]
 session-bundle = ["dep:aitp-experimental"]
 # SPKI cert pinning — see aitp-py Cargo.toml for the rationale.
 spki-pinning = ["dep:x509-parser"]
-# Multi-hop delegation (RFC-AITP-0011). The strict single-hop
-# `verifyDelegation` is always present; this additionally exposes
-# `verifyDelegationMultihop`. `aitp::delegation` has no feature of its own
-# (multi-hop is always compiled, gated at runtime by max_delegation_hops), so this is
-# a binding-level surface gate only.
-multihop-delegation = []
+# Multi-hop delegation (RFC-AITP-0011, `aitp_experimental::delegation`).
+# The strict single-hop `verifyDelegation` is always present; this
+# additionally exposes `verifyDelegationMultihop`.
+multihop-delegation = ["dep:aitp-experimental"]
 
 [dependencies]
 aitp = { path = "../../crates/aitp", default-features = false }

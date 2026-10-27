@@ -132,6 +132,7 @@ version = "0.23.0"
 dependencies = [
  "aitp",
  "axum",
+ "boon",
  "hex",
  "parking_lot",
  "serde",

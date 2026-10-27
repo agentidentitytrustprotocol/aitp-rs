@@ -190,31 +190,6 @@ fn builder_new_rejects_voucher_with_unknown_member() {
     }
 }
 
-/// Same treatment for `DelegationBuilder::extending`'s prior-hop peek.
-#[test]
-fn builder_extending_rejects_prior_hop_with_unknown_member() {
-    let prior_claims = serde_json::json!({
-        "ver": PROTOCOL_VERSION,
-        "iss": b().aid(),
-        "sub": c().aid(),
-        "aud": a().aid(),
-        "scope": ["read_data"],
-        "exp": NOW.0 + 3600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
-        "jti": Uuid::new_v4(),
-        "surprise": 1,
-    });
-    let prior_token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &prior_claims).unwrap();
-    let err = match DelegationBuilder::extending(&c(), &prior_token) {
-        Err(e) => e,
-        Ok(_) => panic!("prior hop with an unknown claim must not extend"),
-    };
-    match err {
-        DelegationError::UnknownField(field) => assert_eq!(field, "surprise"),
-        other => panic!("expected UnknownField(\"surprise\"), got {other:?}"),
-    }
-}
-
 fn inject_duplicate_ver(token: &str) -> String {
     let parts: Vec<&str> = token.split('.').collect();
     assert_eq!(parts.len(), 3);
@@ -250,31 +225,6 @@ fn builder_new_rejects_voucher_with_duplicate_member() {
     let err = match DelegationBuilder::new(&b(), &dup_token) {
         Err(e) => e,
         Ok(_) => panic!("voucher with a duplicate claim must not build"),
-    };
-    assert!(
-        matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),
-        "expected ClaimsMalformed(duplicate field `ver`), got {err:?}"
-    );
-}
-
-/// Same treatment for `DelegationBuilder::extending`'s prior-hop peek.
-#[test]
-fn builder_extending_rejects_prior_hop_with_duplicate_member() {
-    let prior_claims = serde_json::json!({
-        "ver": PROTOCOL_VERSION,
-        "iss": b().aid(),
-        "sub": c().aid(),
-        "aud": a().aid(),
-        "scope": ["read_data"],
-        "exp": NOW.0 + 3600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
-        "jti": Uuid::new_v4(),
-    });
-    let prior_token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &prior_claims).unwrap();
-    let dup_token = inject_duplicate_ver(&prior_token);
-    let err = match DelegationBuilder::extending(&c(), &dup_token) {
-        Err(e) => e,
-        Ok(_) => panic!("prior hop with a duplicate claim must not extend"),
     };
     assert!(
         matches!(&err, DelegationError::ClaimsMalformed(m) if m.contains("duplicate field `ver`")),

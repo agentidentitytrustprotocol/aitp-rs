@@ -21,11 +21,11 @@ use aitp::delegation::{
 use crate::helpers::{
     binding_revocation, delegation_revocation_code, runtime_error, BindingRevocation,
 };
-// RFC-AITP-0011 multi-hop ceiling — only referenced by the multi-hop
-// opt-in verifier, so the import is feature-gated to avoid an unused-import
-// warning in the default (strict v0.1) build.
+// RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "multihop-delegation")]
-use aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS;
+use aitp_experimental::delegation::{
+    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+};
 use pyo3::exceptions::{PyDeprecationWarning, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashSet;
@@ -164,9 +164,9 @@ pub fn verify_delegation_py(
     let deny = delegation_revocation(revoked_jtis.as_ref(), revocation)?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
-    // `VerifyDelegationContext::new` ships `max_delegation_hops = 0` (single-hop
-    // strict), so a non-empty chain fails before any per-hop work runs — which
-    // is also why only the root check is wired here: there are no hops.
+    // `verify_delegation` rejects any chain-bearing token before per-hop
+    // work, which is why only the root check is wired here: there are no
+    // hops.
     let root = |jti: &Uuid| deny.delegation_status(jti);
     let source = if deny.is_fail_open() {
         DelegationRevocation::FailOpen
@@ -231,14 +231,24 @@ pub fn verify_delegation_multihop_py(
     } else {
         DelegationRevocation::Check(&root)
     };
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), source)
+    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), source)
         .with_max_delegation_hops(max_delegation_hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
 
-    let verified = verify_delegation(delegation_token, &ctx).map_err(verify_failed)?;
+    let verified = verify_chained_delegation(delegation_token, &ctx).map_err(|e| match e {
+        aitp_experimental::delegation::ChainedDelegationError::Delegation(e) => verify_failed(e),
+        other => runtime_error(format!("delegation verification failed: {other}"), None),
+    })?;
 
-    Ok(to_verified(&verified))
+    Ok(PyDelegationVerified {
+        delegator: verified.voucher.iss.to_string(),
+        delegatee: verified.claims.sub.to_string(),
+        issued_by: verified.claims.iss.to_string(),
+        grants: verified.claims.scope,
+        expires_at: verified.claims.exp.0,
+        cnf_jkt: verified.claims.cnf.jkt,
+    })
 }
 
 /// Parse the issuer Manifests (`{"manifest": {...}}` envelope JSON strings)

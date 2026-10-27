@@ -35,12 +35,10 @@ session-bundle = ["dep:aitp-experimental"]
 # Implemented standalone on top of x509-parser + sha2 (no rustls, no
 # `aitp::transport`, no tokio/hyper) to keep the wheel small.
 spki-pinning = ["dep:x509-parser"]
-# Multi-hop delegation (RFC-AITP-0011). The strict single-hop
-# `verify_delegation` is always present; this additionally exposes
-# `verify_delegation_multihop`. `aitp::delegation` has no feature of its own
-# (multi-hop is always compiled, gated at runtime by max_delegation_hops), so this is
-# a binding-level surface gate only.
-multihop-delegation = []
+# Multi-hop delegation (RFC-AITP-0011, `aitp_experimental::delegation`).
+# The strict single-hop `verify_delegation` is always present; this
+# additionally exposes `verify_delegation_multihop`.
+multihop-delegation = ["dep:aitp-experimental"]
 
 [dependencies]
 aitp = { path = "../../crates/aitp", default-features = false }

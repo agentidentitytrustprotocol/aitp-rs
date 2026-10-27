@@ -1,36 +1,24 @@
-//! Delegation verification (RFC-AITP-0006 §4 single-hop;
-//! RFC-AITP-0011 §2–§6 multi-hop).
+//! Delegation verification (RFC-AITP-0006 §4).
 //!
-//! No step of either algorithm reconstructs any byte sequence: every
-//! signature — outer token, every chain entry, the embedded voucher —
-//! is verified over bytes exactly as transmitted. (The v0.1
-//! `grant_proof` source-TCT reconstruction is gone.)
+//! No step reconstructs any byte sequence: both signatures — the token
+//! and the embedded voucher — are verified over bytes exactly as
+//! transmitted.
 
 use crate::core::{
     check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
 };
 use crate::crypto::{jws, AitpVerifyingKey};
-use crate::delegation::builder::compute_chain_hash;
 use crate::delegation::types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
 use crate::delegation::DelegationError;
 use crate::manifest::{resolve_verified_manifest, ManifestResolver, VerifyManifestContext};
 use crate::tct::GrantVoucherClaims;
 use uuid::Uuid;
 
-/// Default `max_delegation_hops` once multi-hop is enabled
-/// (RFC-AITP-0011 §2): covers orchestrator → planner → executor.
-pub const DEFAULT_MAX_DELEGATION_HOPS: usize = 3;
-
 /// Source-TCT revocation lookup (RFC-AITP-0008): `voucher.src_jti →
 /// revoked?` against the verifier's own deny list. Returns
 /// `Err(DelegationError::RevocationUnavailable(_))` when the status
 /// cannot be determined, so "unknown" is never read as "not revoked".
 pub type SourceRevocationCheck<'a> = dyn Fn(&Uuid) -> Result<bool, DelegationError> + 'a;
-
-/// Per-hop revocation lookup (RFC-AITP-0011 §6): `(hop issuer, hop
-/// jti) → revoked?`, resolved against the hop issuer's deny list. Same
-/// tri-state contract as [`SourceRevocationCheck`].
-pub type HopRevocationCheck<'a> = &'a (dyn Fn(&Aid, &Uuid) -> Result<bool, DelegationError> + 'a);
 
 /// Where delegation verification gets revocation status (RFC-AITP-0008).
 ///
@@ -40,13 +28,10 @@ pub type HopRevocationCheck<'a> = &'a (dyn Fn(&Aid, &Uuid) -> Result<bool, Deleg
 #[non_exhaustive]
 pub enum DelegationRevocation<'a> {
     /// Check `voucher.src_jti` with this hook after every signature
-    /// check. A multi-hop chain additionally needs
-    /// [`VerifyDelegationContext::with_hop_revocation_check`]; without
-    /// it the chain is rejected with
-    /// [`DelegationError::RevocationUnavailable`] (`fail_closed`).
+    /// check.
     Check(&'a SourceRevocationCheck<'a>),
     /// No revocation lookups at all (`fail_open`): a revoked but
-    /// unexpired source TCT or hop is accepted. A warning is logged once
+    /// unexpired source TCT is accepted. A warning is logged once
     /// per process. Tests and demos only.
     FailOpen,
 }
@@ -82,70 +67,36 @@ fn warn_fail_open_once() {
 /// every downstream crate.
 #[non_exhaustive]
 pub struct VerifyDelegationContext<'a> {
-    /// The verifier's own AID (A). `aud` at every hop and `voucher.iss`
-    /// MUST equal this.
+    /// The verifier's own AID (A). `aud` and `voucher.iss` MUST equal
+    /// this.
     pub verifier: &'a Aid,
     /// Current time.
     pub now: Timestamp,
-    /// Hop budget. `0` (the v0.2 default) means single-hop only: any
-    /// token carrying a `chain` claim is structurally rejected with
-    /// [`DelegationError::MultihopNotSupported`] before per-hop
-    /// processing (RFC-AITP-0006 §4 multi-hop guard). A non-zero value
-    /// opts into RFC-AITP-0011 with `total_hops = chain.len() + 2`
-    /// bounded by this cap.
-    pub max_delegation_hops: usize,
     /// Revocation source for the source TCT (`voucher.src_jti`), A's
     /// **own** deny list. The only stateful single-hop check; runs after
     /// all signature checks (RFC-AITP-0008 §3.3).
     pub revocation: DelegationRevocation<'a>,
-    /// Multi-hop per-hop revocation (RFC-AITP-0011 §6): whether a hop's
-    /// `jti` is revoked according to the deny list of the hop's issuer
-    /// (first argument). Consulted for every chain entry and the outer
-    /// token, after all signature checks. Required for multi-hop chains
-    /// under [`DelegationRevocation::Check`].
-    pub hop_revocation_check: Option<HopRevocationCheck<'a>>,
     /// Source of each delegation issuer's Manifest (RFC-AITP-0006 §4
-    /// step 1; RFC-AITP-0011 §3 step 1). Every delegation JWS — the
-    /// single-hop token, and each chain entry plus the outer token of a
-    /// multi-hop chain — is verified under the key its issuer's verified
+    /// step 1). The token is verified under the key its issuer's verified
     /// Manifest designates; with no source configured (or no usable
-    /// Manifest for an issuer) the token is rejected with
+    /// Manifest for the issuer) the token is rejected with
     /// [`DelegationError::KeyResolutionFailed`].
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
 }
 
 impl<'a> VerifyDelegationContext<'a> {
-    /// Single-hop-only context (the v0.2 default posture) with the given
-    /// source-TCT revocation choice.
+    /// Context with the given source-TCT revocation choice.
     pub fn new(verifier: &'a Aid, now: Timestamp, revocation: DelegationRevocation<'a>) -> Self {
         Self {
             verifier,
             now,
-            max_delegation_hops: 0,
             revocation,
-            hop_revocation_check: None,
             issuer_manifests: None,
         }
     }
 
-    /// Opt into multi-hop verification (RFC-AITP-0011) with the given
-    /// hop budget — use [`DEFAULT_MAX_DELEGATION_HOPS`] unless the deployment
-    /// explicitly needs longer chains.
-    pub fn with_max_delegation_hops(mut self, max_delegation_hops: usize) -> Self {
-        self.max_delegation_hops = max_delegation_hops;
-        self
-    }
-
-    /// Per-hop revocation for multi-hop chains (RFC-AITP-0011 §6):
-    /// `(hop issuer, hop jti) -> revoked?`.
-    pub fn with_hop_revocation_check(mut self, check: HopRevocationCheck<'a>) -> Self {
-        self.hop_revocation_check = Some(check);
-        self
-    }
-
     /// Where verification gets each delegation issuer's Manifest
-    /// (RFC-AITP-0006 §4 step 1; RFC-AITP-0011 §3 step 1). Required for
-    /// any delegation — single-hop or multi-hop — to verify.
+    /// (RFC-AITP-0006 §4 step 1). Required for any delegation to verify.
     pub fn with_issuer_manifests(mut self, resolver: &'a dyn ManifestResolver) -> Self {
         self.issuer_manifests = Some(resolver);
         self
@@ -154,7 +105,7 @@ impl<'a> VerifyDelegationContext<'a> {
 
 /// Verify a delegation token presented to `ctx.verifier` (A).
 ///
-/// Single-hop (RFC-AITP-0006 §4, in order): outer JWS
+/// RFC-AITP-0006 §4, in order: outer JWS
 /// (typ / alg pin / signature under the key the issuer's verified
 /// Manifest designates, from `ctx.issuer_manifests` / `ver`) → `aud` + `exp` → embedded
 /// voucher (typ `aitp-grant+jwt`, `voucher.iss` == A, signature under
@@ -163,12 +114,11 @@ impl<'a> VerifyDelegationContext<'a> {
 /// `cnf.jkt` binding → revocation on `voucher.src_jti` (the only
 /// stateful check, last per RFC-AITP-0008 §3.3).
 ///
-/// Multi-hop (RFC-AITP-0011, only when `ctx.max_delegation_hops > 0`): hop limit →
-/// chain-hash recomputation → per-hop JWS (signature under the key the
-/// issuer's verified Manifest designates, from `ctx.issuer_manifests`) +
-/// claims + continuity +
-/// expiry monotonicity + transitive scope subsetting + nested-chain
-/// prefix consistency → per-hop revocation.
+/// A token carrying a `chain` claim (RFC-AITP-0011) is rejected with
+/// [`DelegationError::MultihopNotSupported`] before any other claim check
+/// (RFC-AITP-0006 §4 multi-hop guard); one carrying `jti` or `chain_hash`
+/// is outside the RFC-AITP-0006 §2 claim set and is rejected with
+/// [`DelegationError::ClaimsMalformed`].
 ///
 /// The downstream PoP exchange (RFC-AITP-0006 §4 step 9) is a separate
 /// challenge/response flow run by the caller against the presenting
@@ -180,30 +130,8 @@ pub fn verify_delegation(
 ) -> Result<VerifiedDelegation, DelegationError> {
     // Peek (unverified) to learn the claimed shape; everything is
     // re-established cryptographically below.
-    let peeked = peek_claims(token)?;
-
-    let chain_len = peeked.chain.as_ref().map_or(0, |c| c.len());
-    if ctx.max_delegation_hops == 0 {
-        if chain_len > 0 || peeked.chain.is_some() {
-            // Multi-hop guard: structural rejection before any per-hop
-            // processing (RFC-AITP-0006 §4).
-            return Err(DelegationError::MultihopNotSupported);
-        }
-        if peeked.jti.is_some() {
-            // RFC-AITP-0011 §1.1: `jti` is not part of the single-hop
-            // claims set; non-opted-in verifiers reject it under the
-            // strict-claims rule.
-            return Err(DelegationError::ClaimsMalformed(
-                "jti claim requires multi-hop opt-in".into(),
-            ));
-        }
-    }
-
-    if chain_len == 0 {
-        verify_single_hop(token, ctx)
-    } else {
-        verify_multi_hop(token, &peeked, ctx)
-    }
+    peek_claims(token)?;
+    verify_single_hop(token, ctx)
 }
 
 fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
@@ -247,11 +175,20 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     if let Ok(peek_value) = serde_json::from_slice::<serde_json::Value>(&payload) {
         check_members("DelegationClaims", &peek_value, DELEGATION_CLAIMS_MEMBERS)
             .map_err(|e| DelegationError::UnknownField(e.field))?;
-        // Hop `jti` layout (RFC-AITP-0011 §1.1 / RFC-AITP-0005 §2), on
-        // the raw string: `Uuid`'s deserializer also takes uppercase,
-        // braced and URN forms. A non-string is left to serde below.
-        if let Some(jti) = peek_value.get("jti").and_then(|v| v.as_str()) {
-            crate::core::ids::parse_v4(jti).map_err(DelegationError::JtiNotV4)?;
+        // Multi-hop guard (RFC-AITP-0006 §4): a `chain` claim, whatever
+        // its value, is a structural rejection ahead of every other
+        // claim check.
+        if peek_value.get("chain").is_some() {
+            return Err(DelegationError::MultihopNotSupported);
+        }
+        // `jti` and `chain_hash` are RFC-AITP-0011 claims outside the
+        // RFC-AITP-0006 §2 claim set (RFC-AITP-0011 §1.1).
+        for member in ["jti", "chain_hash"] {
+            if peek_value.get(member).is_some() {
+                return Err(DelegationError::ClaimsMalformed(format!(
+                    "{member} is not a single-hop delegation claim"
+                )));
+            }
         }
     }
     serde_json::from_slice(&payload).map_err(|e| {
@@ -263,10 +200,9 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
     })
 }
 
-/// Strictly verify one delegation JWS under its claimed `iss` and return
+/// Strictly verify the delegation JWS under its claimed `iss` and return
 /// its claims. The verification key is the one the claimed issuer's
-/// verified Manifest designates (RFC-AITP-0006 §4 step 1; RFC-AITP-0011
-/// §3 step 1), from `ctx.issuer_manifests`; no source, or no usable
+/// verified Manifest designates (RFC-AITP-0006 §4 step 1), from `ctx.issuer_manifests`; no source, or no usable
 /// Manifest for the issuer, is [`DelegationError::KeyResolutionFailed`].
 /// A forged `iss` fails the signature check — only the claimed issuer's
 /// key is tried — and the AID-derived alg pin forecloses algorithm
@@ -280,7 +216,7 @@ fn verify_hop_jws(
         .issuer_manifests
         .ok_or(crate::manifest::ManifestError::NotFound)
         .and_then(|r| {
-            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext { now: ctx.now })
+            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext::at(ctx.now))
         })
         .map_err(|source| DelegationError::KeyResolutionFailed {
             issuer: claimed.iss.clone(),
@@ -305,8 +241,7 @@ fn verify_hop_jws(
     Ok(claims)
 }
 
-/// Common per-hop claim checks (RFC-AITP-0011 §3 step 2; the same
-/// invariants hold for the single-hop token).
+/// Claim checks on the verified token (RFC-AITP-0006 §4).
 fn check_hop_claims(
     claims: &DelegationClaims,
     ctx: &VerifyDelegationContext<'_>,
@@ -398,138 +333,6 @@ fn verify_single_hop(
     Ok(VerifiedDelegation {
         token: token.to_string(),
         claims,
-        voucher,
-    })
-}
-
-fn verify_multi_hop(
-    token: &str,
-    peeked: &DelegationClaims,
-    ctx: &VerifyDelegationContext<'_>,
-) -> Result<VerifiedDelegation, DelegationError> {
-    let chain: Vec<String> = peeked.chain.clone().unwrap_or_default();
-
-    // §2: hop limit, before any signature work.
-    let total_hops = chain.len() + 2;
-    if total_hops > ctx.max_delegation_hops {
-        return Err(DelegationError::HopLimitExceeded);
-    }
-
-    // §5: chain-hash recomputation, before per-hop verification. (The
-    // peeked chain/chain_hash become trusted once the outer signature
-    // — which covers both claims — verifies below.)
-    let expected_hash = peeked
-        .chain_hash
-        .as_deref()
-        .ok_or(DelegationError::ChainHashMismatch)?;
-    if compute_chain_hash(&chain)? != expected_hash {
-        return Err(DelegationError::ChainHashMismatch);
-    }
-
-    // §3: verify every hop, oldest first; the outer token is last.
-    let mut voucher: Option<GrantVoucherClaims> = None;
-    let mut prev: Option<DelegationClaims> = None;
-    let mut hop_records: Vec<(Aid, Uuid)> = Vec::new();
-
-    let hop_count = chain.len() + 1;
-    for (i, hop_token) in chain
-        .iter()
-        .map(String::as_str)
-        .chain(std::iter::once(token))
-        .enumerate()
-    {
-        // Step 1: standard JWS verification (+ ver), under the key the
-        // hop issuer's verified Manifest designates.
-        let hop = verify_hop_jws(hop_token, ctx)?;
-        // Step 2: common claims + per-hop jti (present, unique).
-        check_hop_claims(&hop, ctx)?;
-        let jti = hop.jti.ok_or(DelegationError::InvalidVoucher)?;
-        if hop_records.iter().any(|(_, seen)| *seen == jti) {
-            return Err(DelegationError::InvalidVoucher);
-        }
-        hop_records.push((hop.iss.clone(), jti));
-
-        if hop.exp.is_in_the_past(ctx.now) {
-            return Err(DelegationError::Expired);
-        }
-
-        if i == 0 {
-            // Step 3: root authority — chain[0] carries the voucher.
-            let voucher_token = hop
-                .voucher
-                .as_deref()
-                .ok_or(DelegationError::InvalidVoucher)?;
-            let v = verify_root_voucher(voucher_token, &hop.iss, ctx)?;
-            if hop.exp.0 > v.exp.0 {
-                return Err(DelegationError::Expired);
-            }
-            // §4: scope rooted in the voucher.
-            for cap in &hop.scope {
-                if !v.grants.contains(cap) {
-                    return Err(DelegationError::ScopeExceeded);
-                }
-            }
-            voucher = Some(v);
-        } else {
-            let prev_hop = prev.as_ref().expect("set after first iteration");
-            // Step 4: continuity — exactly one root of authority.
-            if hop.voucher.is_some() {
-                return Err(DelegationError::InvalidVoucher);
-            }
-            if hop.iss != prev_hop.sub {
-                return Err(DelegationError::InvalidVoucher);
-            }
-            // Step 5: expiry monotonically non-increasing.
-            if hop.exp.0 > prev_hop.exp.0 {
-                return Err(DelegationError::Expired);
-            }
-            // §4: adjacent-pair scope subsetting.
-            for cap in &hop.scope {
-                if !prev_hop.scope.contains(cap) {
-                    return Err(DelegationError::ScopeExceeded);
-                }
-            }
-        }
-
-        // Step 7 (§1.1): nested-chain prefix consistency for chain
-        // entries that were themselves minted as multi-hop tokens.
-        if i < hop_count - 1 {
-            if let Some(inner_chain) = &hop.chain {
-                if inner_chain.as_slice() != &chain[..i] {
-                    return Err(DelegationError::InvalidVoucher);
-                }
-                let inner_hash = hop
-                    .chain_hash
-                    .as_deref()
-                    .ok_or(DelegationError::InvalidVoucher)?;
-                if compute_chain_hash(inner_chain)? != inner_hash {
-                    return Err(DelegationError::InvalidVoucher);
-                }
-            }
-        }
-
-        prev = Some(hop);
-    }
-
-    let voucher = voucher.expect("first hop sets the voucher");
-    let outer = prev.expect("loop ran for every hop");
-
-    // §6: per-hop revocation, only after every signature check.
-    check_source_revocation(ctx, &voucher.src_jti)?;
-    if let DelegationRevocation::Check(_) = ctx.revocation {
-        let check = ctx.hop_revocation_check.ok_or_else(|| {
-            DelegationError::RevocationUnavailable("no per-hop revocation source configured".into())
-        })?;
-        for (issuer, jti) in &hop_records {
-            if check(issuer, jti)? {
-                return Err(DelegationError::SourceTctRevoked);
-            }
-        }
-    }
-
-    Ok(VerifiedDelegation {
-        token: token.to_string(),
-        claims: outer,
         voucher,
     })
 }

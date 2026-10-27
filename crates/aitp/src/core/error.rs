@@ -158,7 +158,7 @@ pub enum ErrorCode {
     DelegationPopFailed,
     /// Delegation token: chain length exceeds v0.1 single-hop limit.
     DelegationMultihopNotSupported,
-    /// Multi-hop delegation: chain length exceeds `max_delegation_hops`
+    /// Multi-hop delegation: total hops exceed the verifier's hop budget
     /// (RFC-AITP-0011).
     DelegationHopLimitExceeded,
     /// Multi-hop delegation: `chain_hash` does not match the `chain`
