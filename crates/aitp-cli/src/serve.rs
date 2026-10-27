@@ -245,18 +245,16 @@ impl Interop {
             vec![ECHO_CAP.into()],
         )
         .with_pinned_key_store(Arc::clone(&self.enrolled) as Arc<dyn PinnedKeyStore>)
-        .with_rate_limit(RateLimitConfig {
-            trusted_proxies: self.trusted_proxies.clone(),
-            ..RateLimitConfig::default()
-        })
+        .with_rate_limit(
+            RateLimitConfig::default().with_trusted_proxies(self.trusted_proxies.clone()),
+        )
         // The peer never uses the TCT it receives; it authorises nothing.
         // So an initiator with no revocation list to publish (a CLI, a CI
         // job) is accepted, logged at info; an advertised list that
         // cannot be checked is still refused.
-        .with_revocation_policy(RevocationPolicy {
-            fail_mode: RevocationFailMode::FailOpenIfUnadvertised,
-            ..RevocationPolicy::default()
-        });
+        .with_revocation_policy(
+            RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpenIfUnadvertised),
+        );
         let routes = ManifestServer::new(manifest)
             .router()
             .merge(handshake.router());
@@ -277,12 +275,10 @@ fn interop_manifest(
         .display_name(PEER_NAME)
         .handshake_endpoint(public_url.join("/aitp/handshake/")?.as_str().parse()?)
         .revocation_list_uri(public_url.join(REVOCATION_LIST_PATH)?.as_str().parse()?)
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: PEER_NAME.into(),
-            issuer: None,
-            public_key: Some(base64url::encode(&key.verifying_key().to_compressed())),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, PEER_NAME)
+                .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
+        )
         .accept_identity_type("pinned_key")
         .offer(ECHO_CAP)
         .ttl_secs(MANIFEST_TTL_SECS)
@@ -706,11 +702,7 @@ async fn check_echo(
         .map_err(|_| Refusal::pop("pop_response envelope signature"))?;
     // Steps 2 to 4: nonce echo, PoP signature under the `sub` key, and
     // `cnf.jkt`. The store already enforced expiry.
-    let challenge = PopChallenge {
-        tct_jti: claims.jti,
-        nonce: response.nonce_echo.clone(),
-        expires_at: now,
-    };
+    let challenge = PopChallenge::new(claims.jti, response.nonce_echo.clone(), now);
     verify_pop_response(&challenge, &response, &claims, now)
         .map_err(|e| Refusal::pop(e.to_string()))?;
 

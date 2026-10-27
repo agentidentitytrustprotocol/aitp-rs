@@ -411,12 +411,10 @@ async fn bundle_uri_is_advertised_in_the_signed_manifest() {
         ManifestBuilder::new(&coordinator)
             .display_name("coordinator")
             .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
-                subject: "coordinator".into(),
-                issuer: None,
-                public_key: Some(coordinator.aid().identifier().to_string()),
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+                    .with_public_key(coordinator.aid().identifier().to_string()),
+            )
             .offer("session.coordinate")
             .published_at(NOW)
     };
@@ -430,7 +428,7 @@ async fn bundle_uri_is_advertised_in_the_signed_manifest() {
     let manifest = advertise_bundle_uri(builder(), &bundle_uri)
         .build()
         .unwrap();
-    let ctx = VerifyManifestContext { now: NOW };
+    let ctx = VerifyManifestContext::at(NOW);
     verify_manifest(&manifest, &ctx).expect("advertising Manifest verifies");
     assert_eq!(
         bundle_uri_from_manifest(&manifest),

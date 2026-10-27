@@ -156,12 +156,8 @@ impl PyAitpAgent {
                     // P-256.
                     let pk_bytes = self.key.verifying_key().to_compressed();
                     (
-                        IdentityHint {
-                            kind: IdentityHintKind::PinnedKey,
-                            subject: display_name.to_string(),
-                            issuer: None,
-                            public_key: Some(aitp::core::base64url::encode(&pk_bytes)),
-                        },
+                        IdentityHint::new(IdentityHintKind::PinnedKey, display_name)
+                            .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
                         "pinned_key",
                         vec![],
                     )
@@ -177,12 +173,8 @@ impl PyAitpAgent {
                         PyValueError::new_err(format!("invalid oidc_issuer URL: {e}"))
                     })?;
                     (
-                        IdentityHint {
-                            kind: IdentityHintKind::Oidc,
-                            subject: sub.to_string(),
-                            issuer: Some(RawUrl::from(iss.clone())),
-                            public_key: None,
-                        },
+                        IdentityHint::new(IdentityHintKind::Oidc, sub)
+                            .with_issuer(RawUrl::from(iss.clone())),
                         "oidc",
                         vec![iss],
                     )
@@ -241,7 +233,7 @@ impl PyAitpAgent {
             .map_err(|e| PyRuntimeError::new_err(format!("manifest build failed: {e}")))?;
         self.manifest = Some(manifest.clone());
 
-        serde_json::to_string(&ManifestEnvelope { manifest })
+        serde_json::to_string(&ManifestEnvelope::new(manifest))
             .map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 

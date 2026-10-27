@@ -47,16 +47,15 @@ fn populated_manifest() -> aitp::manifest::Manifest {
     ManifestBuilder::new(&key)
         .display_name("alice")
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "alice".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -72,9 +71,7 @@ fn populated_manifest() -> aitp::manifest::Manifest {
 
 #[test]
 fn populated_manifest_validates_against_spec_schema() {
-    let env = ManifestEnvelope {
-        manifest: populated_manifest(),
-    };
+    let env = ManifestEnvelope::new(populated_manifest());
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate(&value) {
         panic!("Manifest envelope failed schema validation:\n{e}");
@@ -88,12 +85,10 @@ fn minimal_manifest_validates_against_spec_schema() {
     let key = AitpSigningKey::from_seed(&[0xAB; 32]);
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent-a".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent-a")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .build()
@@ -101,7 +96,7 @@ fn minimal_manifest_validates_against_spec_schema() {
     // Belt-and-braces: clear extensions to confirm the absent path
     // also validates (it should be skipped from serialization entirely).
     m.extensions = None;
-    let env = ManifestEnvelope { manifest: m };
+    let env = ManifestEnvelope::new(m);
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate(&value) {
         panic!("Minimal Manifest envelope failed schema validation:\n{e}");
@@ -113,9 +108,7 @@ fn manifest_with_legacy_description_is_rejected_by_schema() {
     // Direct guard against D-1 regression: even if someone sneaks the
     // `description` field back into the wire bytes, the spec schema will
     // refuse it.
-    let env = ManifestEnvelope {
-        manifest: populated_manifest(),
-    };
+    let env = ManifestEnvelope::new(populated_manifest());
     let mut value = serde_json::to_value(&env).unwrap();
     value["manifest"]
         .as_object_mut()
@@ -137,18 +130,16 @@ fn manifest_with_present_but_empty_extensions_validates_against_spec_schema() {
     let key = AitpSigningKey::from_seed(&[0xAC; 32]);
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent-a".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent-a")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .build()
         .unwrap();
     m.extensions = Some(ExtensionsMap::new());
-    let env = ManifestEnvelope { manifest: m };
+    let env = ManifestEnvelope::new(m);
     let value = serde_json::to_value(&env).unwrap();
     assert_eq!(value["manifest"]["extensions"], serde_json::json!({}));
     if let Err(e) = validate(&value) {

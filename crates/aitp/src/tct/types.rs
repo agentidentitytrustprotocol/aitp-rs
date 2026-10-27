@@ -21,6 +21,7 @@ use uuid::Uuid;
 /// without understanding AIDs.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Cnf {
     /// RFC 7638 JWK thumbprint, unpadded base64url.
     pub jkt: String,
@@ -32,6 +33,7 @@ pub struct Cnf {
 /// string); verify a received compact string with [`crate::tct::verify_tct`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct TctClaims {
     /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
@@ -89,6 +91,7 @@ pub const TCT_CLAIMS_MEMBERS: &[&str] = &[
 /// inside a delegation token whose outer signature binds it).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct GrantVoucherClaims {
     /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
@@ -133,6 +136,7 @@ pub const GRANT_VOUCHER_CLAIMS_MEMBERS: &[&str] = &[
 /// mint one — RFC-AITP-0005 §8.2, in which case the subject cannot
 /// delegate).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct IssuedTct {
     /// The TCT as the opaque compact JWS string that goes on the wire.
     pub token: String,
@@ -147,6 +151,7 @@ pub struct IssuedTct {
 /// now-trusted decoded claims. Hold (and forward) `token`; read
 /// `claims`.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VerifiedTct {
     /// The verified compact JWS string, byte-for-byte as received.
     pub token: String,

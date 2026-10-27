@@ -76,18 +76,16 @@ fn main() {
     // Field-for-field the spec's committed
     // signed-examples/revocation/kat-keypair-001-snapshot.json, so the
     // output can be compared byte-for-byte against it.
-    let body = RevocationList {
-        version: aitp::core::PROTOCOL_VERSION.to_string(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(NOW),
-        expires_at: Timestamp(NOW + 3600),
-        entries: vec![RevocationEntry {
-            jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
-            revoked_at: Timestamp(NOW + 60),
-            reason: Some("key_compromised".into()),
-        }],
-        extensions: None,
-    };
+    let body = RevocationList::new(
+        issuer.aid().clone(),
+        Timestamp(NOW),
+        Timestamp(NOW + 3600),
+        vec![RevocationEntry::new(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
+            Timestamp(NOW + 60),
+        )
+        .with_reason("key_compromised")],
+    );
     let snapshot = sign_revocation_list(body, &issuer).expect("sign revocation snapshot");
 
     // Otherwise-identical revocation snapshot, but with a populated
@@ -105,17 +103,19 @@ fn main() {
         serde_json::json!({"inner": {"count": 3, "flag": true}, "list": [1, 2, 3]}),
     );
     extensions_with_content.insert("count", serde_json::json!(42));
-    let body_with_extensions = RevocationList {
-        version: aitp::core::PROTOCOL_VERSION.to_string(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(NOW),
-        expires_at: Timestamp(NOW + 3600),
-        entries: vec![RevocationEntry {
-            jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
-            revoked_at: Timestamp(NOW + 60),
-            reason: Some("key_compromised".into()),
-        }],
-        extensions: Some(extensions_with_content),
+    let body_with_extensions = {
+        let mut list = RevocationList::new(
+            issuer.aid().clone(),
+            Timestamp(NOW),
+            Timestamp(NOW + 3600),
+            vec![RevocationEntry::new(
+                Uuid::parse_str("550e8400-e29b-41d4-a716-446655440099").unwrap(),
+                Timestamp(NOW + 60),
+            )
+            .with_reason("key_compromised")],
+        );
+        list.extensions = Some(extensions_with_content);
+        list
     };
     let snapshot_with_extensions =
         sign_revocation_list(body_with_extensions, &issuer).expect("sign revocation snapshot");
@@ -134,11 +134,9 @@ fn main() {
             .try_to_ed25519_bytes()
             .expect("issuer key was constructed as Ed25519, never P-256"),
     );
-    let manifest_identity_hint = || IdentityHint {
-        kind: IdentityHintKind::PinnedKey,
-        subject: "xcheck-manifest".into(),
-        issuer: None,
-        public_key: Some(manifest_pubkey_b64.clone()),
+    let manifest_identity_hint = || {
+        IdentityHint::new(IdentityHintKind::PinnedKey, "xcheck-manifest")
+            .with_public_key(manifest_pubkey_b64.clone())
     };
     let manifest_no_extensions = ManifestBuilder::new(&issuer)
         .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
@@ -268,18 +266,16 @@ fn mint_p256_vectors() -> serde_json::Value {
 
     // Revocation snapshot: also the TCT legs' revocation source.
     let snapshot = sign_revocation_list(
-        RevocationList {
-            version: aitp::core::PROTOCOL_VERSION.to_string(),
-            issuer: signer.aid().clone(),
-            published_at: Timestamp(NOW),
-            expires_at: Timestamp(NOW + 3600),
-            entries: vec![RevocationEntry {
-                jti: Uuid::parse_str(P256_REVOKED_JTI).unwrap(),
-                revoked_at: Timestamp(NOW + 60),
-                reason: Some("key_compromised".into()),
-            }],
-            extensions: None,
-        },
+        RevocationList::new(
+            signer.aid().clone(),
+            Timestamp(NOW),
+            Timestamp(NOW + 3600),
+            vec![RevocationEntry::new(
+                Uuid::parse_str(P256_REVOKED_JTI).unwrap(),
+                Timestamp(NOW + 60),
+            )
+            .with_reason("key_compromised")],
+        ),
         &signer,
     )
     .expect("sign p256 revocation snapshot");
@@ -287,12 +283,10 @@ fn mint_p256_vectors() -> serde_json::Value {
     // Manifest whose pinned_key identity_hint is the 44-char P-256 form.
     let manifest = ManifestBuilder::new(&signer)
         .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "xcheck-manifest-p256".into(),
-            issuer: None,
-            public_key: Some(signer.aid().identifier().to_string()),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "xcheck-manifest-p256")
+                .with_public_key(signer.aid().identifier().to_string()),
+        )
         .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")

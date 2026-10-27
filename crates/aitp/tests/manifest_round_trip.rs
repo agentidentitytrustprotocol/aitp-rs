@@ -15,12 +15,10 @@ fn build_alice_manifest_at(now: Timestamp) -> aitp::manifest::Manifest {
     let key = alice_key();
     ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "alice".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
@@ -33,7 +31,7 @@ fn build_alice_manifest_at(now: Timestamp) -> aitp::manifest::Manifest {
 fn happy_path_round_trip() {
     let now = Timestamp(1_700_000_000);
     let m = build_alice_manifest_at(now);
-    verify_manifest(&m, &VerifyManifestContext { now }).expect("fresh manifest verifies");
+    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("fresh manifest verifies");
 }
 
 #[test]
@@ -44,7 +42,7 @@ fn tampered_outer_signature_fails() {
     let last = s.pop().unwrap();
     s.push(if last == 'A' { 'B' } else { 'A' });
     m.signature = s;
-    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap_err();
     assert!(
         matches!(err, ManifestError::SignatureInvalid),
         "got: {:?}",
@@ -60,7 +58,7 @@ fn tampered_pop_signature_fails() {
     let last = s.pop().unwrap();
     s.push(if last == 'A' { 'B' } else { 'A' });
     m.proof_of_possession.signature = s;
-    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap_err();
     // Tampering the PoP signature also invalidates the outer
     // signature, which covers it; PoP is checked first.
     assert!(matches!(err, ManifestError::PopFailed), "got: {err:?}");
@@ -78,7 +76,7 @@ fn tampered_pop_challenge_fails() {
         chars[0] = b'B';
     }
     m.proof_of_possession.challenge = String::from_utf8(chars).unwrap();
-    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap_err();
     // Tampering the challenge invalidates BOTH the pop_signature
     // and the outer signature; PoP is checked first.
     assert!(matches!(err, ManifestError::PopFailed), "got: {err:?}");
@@ -89,7 +87,7 @@ fn expired_fails() {
     let issued = Timestamp(1_700_000_000);
     let m = build_alice_manifest_at(issued);
     let later = Timestamp(1_700_000_000 + 7200); // 2h after issuance, TTL was 1h
-    let err = verify_manifest(&m, &VerifyManifestContext { now: later }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(later)).unwrap_err();
     assert!(matches!(err, ManifestError::Expired), "got: {:?}", err);
 }
 
@@ -98,7 +96,7 @@ fn unknown_version_fails() {
     let now = Timestamp(1_700_000_000);
     let mut m = build_alice_manifest_at(now);
     m.version = "aitp/9.9".into();
-    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap_err();
     assert!(
         matches!(err, ManifestError::VersionUnknown),
         "got: {:?}",
@@ -129,30 +127,26 @@ fn pinned_key_manifest_round_trips() {
     let now = Timestamp(1_700_000_000);
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "internal-1".into(),
-            issuer: None,
-            public_key: Some(pubkey_b64),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "internal-1")
+                .with_public_key(pubkey_b64),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
         .build()
         .unwrap();
-    verify_manifest(&m, &VerifyManifestContext { now }).unwrap();
+    verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap();
 }
 
 #[test]
 fn builder_rejects_missing_handshake_endpoint() {
     let key = alice_key();
     let err = ManifestBuilder::new(&key)
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "x".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "x")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .build()
         .unwrap_err();
     assert!(matches!(
@@ -166,12 +160,11 @@ fn builder_rejects_oidc_with_pubkey() {
     let key = alice_key();
     let err = ManifestBuilder::new(&key)
         .handshake_endpoint("https://x".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "x".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: Some("A".repeat(43)),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "x")
+                .with_issuer("https://idp.example.com".parse().unwrap())
+                .with_public_key("A".repeat(43)),
+        )
         .build()
         .unwrap_err();
     assert!(matches!(err, ManifestError::IdentityHintMalformed(_)));
@@ -182,12 +175,7 @@ fn builder_rejects_pinned_without_pubkey() {
     let key = alice_key();
     let err = ManifestBuilder::new(&key)
         .handshake_endpoint("https://x".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "x".into(),
-            issuer: None,
-            public_key: None,
-        })
+        .identity_hint(IdentityHint::new(IdentityHintKind::PinnedKey, "x"))
         .build()
         .unwrap_err();
     assert!(matches!(err, ManifestError::IdentityHintMalformed(_)));
@@ -209,7 +197,7 @@ fn pop_corruption_surfaces_as_pop_failed_not_signature_invalid() {
     m.proof_of_possession.signature = other
         .sign_jcs(&aitp::crypto::Digest32::sha256(b"unrelated"))
         .into_string();
-    let err = verify_manifest(&m, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&m, &VerifyManifestContext::at(now)).unwrap_err();
     assert!(
         matches!(err, ManifestError::PopFailed),
         "PoP corruption must surface as PopFailed (PoP before signature), got: {err:?}"
@@ -254,7 +242,7 @@ fn extensions_present_but_empty_now_verifies_end_to_end() {
 
     let republished: aitp::manifest::Manifest = serde_json::from_value(value).unwrap();
     assert_eq!(republished.extensions, Some(ExtensionsMap::new()));
-    verify_manifest(&republished, &VerifyManifestContext { now })
+    verify_manifest(&republished, &VerifyManifestContext::at(now))
         .expect("a manifest signed WITH \"extensions\":{} must now verify");
 }
 
@@ -324,7 +312,7 @@ fn unknown_version_value_is_not_confused_with_unknown_field() {
 
     let parsed =
         parse_manifest_wire(&checked(&value)).expect("known member with an unknown value parses");
-    let err = verify_manifest(&parsed, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&parsed, &VerifyManifestContext::at(now)).unwrap_err();
     assert!(matches!(err, ManifestError::VersionUnknown), "got: {err:?}");
 }
 
@@ -442,12 +430,10 @@ fn revocation_list_uri_is_advertised_inside_the_signed_body() {
     let uri = "https://alice.example.com/.well-known/aitp-revocation-list";
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "alice".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .revocation_list_uri(uri.parse().unwrap())
@@ -462,7 +448,7 @@ fn revocation_list_uri_is_advertised_inside_the_signed_body() {
             .and_then(|v| v.as_str()),
         Some(uri)
     );
-    verify_manifest(&m, &VerifyManifestContext { now }).expect("advertising manifest verifies");
+    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("advertising manifest verifies");
 
     let mut swapped = m;
     let mut ext = swapped.extensions.take().unwrap();
@@ -471,7 +457,7 @@ fn revocation_list_uri_is_advertised_inside_the_signed_body() {
         serde_json::json!("https://attacker.example/.well-known/aitp-revocation-list"),
     );
     swapped.extensions = Some(ext);
-    let err = verify_manifest(&swapped, &VerifyManifestContext { now }).unwrap_err();
+    let err = verify_manifest(&swapped, &VerifyManifestContext::at(now)).unwrap_err();
     assert!(
         matches!(err, ManifestError::SignatureInvalid),
         "a swapped revocation_list_uri must fail the Manifest signature: {err:?}"
@@ -485,7 +471,7 @@ fn manifest_without_revocation_list_uri_still_verifies() {
     let now = Timestamp(1_700_000_000);
     let m = build_alice_manifest_at(now);
     assert!(m.extensions.is_none());
-    verify_manifest(&m, &VerifyManifestContext { now }).expect("absent key is not a reject");
+    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("absent key is not a reject");
 }
 
 /// RFC-AITP-0014 §4.1: the registered `rfc-aitp-0014.a2a_interfaces`
@@ -497,12 +483,10 @@ fn a2a_interfaces_extension_key_is_accepted() {
     let key = alice_key();
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "alice".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .extension(
@@ -516,7 +500,7 @@ fn a2a_interfaces_extension_key_is_accepted() {
     let wire = serde_json::to_string(&m).unwrap();
     let parsed =
         parse_manifest_wire(&wire.parse().unwrap()).expect("strict parse accepts the a2a key");
-    verify_manifest(&parsed, &VerifyManifestContext { now }).expect("manifest verifies");
+    verify_manifest(&parsed, &VerifyManifestContext::at(now)).expect("manifest verifies");
     assert_eq!(
         parsed
             .extensions

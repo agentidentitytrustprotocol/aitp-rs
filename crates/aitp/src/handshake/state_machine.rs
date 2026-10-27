@@ -175,6 +175,7 @@ impl<'a> PeerConfig<'a> {
 /// source silently accepts revoked-but-unexpired TCTs, so the caller
 /// names one of the two choices.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub enum RevocationSource<'a> {
     /// Consult this hook after the TCT verifies. A hook that cannot
     /// determine the status under `fail_closed` (the RFC-AITP-0008 §3.1
@@ -266,6 +267,7 @@ pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> +
 /// proof to bind the full (sender, receiver, message_id, timestamp,
 /// pop_nonce) tuple; collecting them in one struct prevents call sites
 /// from forgetting fields.
+#[non_exhaustive]
 pub struct IdentityPresentationContext<'a> {
     /// Sender's AID (= signer's AID — must match
     /// `signing_key.aid()`).
@@ -296,6 +298,7 @@ pub struct IdentityPresentationContext<'a> {
 pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, String> + 'static;
 
 /// What identity this peer will present.
+#[non_exhaustive]
 pub enum PresentedIdentity {
     /// Self-sign a pinned-key proof over `message_id|timestamp` of the
     /// envelope being sent.
@@ -859,6 +862,7 @@ fn verify_received_tct(
 /// allowed delegation, the companion grant voucher to delegate with
 /// later (RFC-AITP-0005 §8).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct CompletedHandshake {
     /// The TCT the peer issued to us.
     pub tct: VerifiedTct,

@@ -29,6 +29,7 @@ pub enum V4Error {
 /// A derivation tag outside printable ASCII `0x21..=0x7E`, or empty.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[error("derivation tag must be non-empty printable ASCII (0x21-0x7E)")]
+#[non_exhaustive]
 pub struct InvalidTag;
 
 /// True if `id` has version 4 and the RFC 9562 variant.

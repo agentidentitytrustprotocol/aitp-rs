@@ -7,7 +7,7 @@
 //! be another. The happy paths are covered elsewhere; this proves the
 //! mismatch is rejected with `HandshakeError::Identity`.
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
     HandshakeError, Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity,
@@ -29,16 +29,15 @@ fn manifest_for(key: &AitpSigningKey, hint_subject: &str) -> Manifest {
     ManifestBuilder::new(key)
         .display_name(hint_subject)
         .handshake_endpoint("https://peer.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: hint_subject.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, hint_subject).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .published_at(NOW)
@@ -47,18 +46,13 @@ fn manifest_for(key: &AitpSigningKey, hint_subject: &str) -> Manifest {
 }
 
 fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: MessageType::MutualHello,
-        message_id: mid,
-        timestamp: NOW,
-        sender: Sender {
-            agent_id: sender.aid().clone(),
-        },
+    let mut envelope = AitpEnvelope::unsigned(
+        sender.aid().clone(),
+        MessageType::MutualHello,
         payload,
-        extensions: None,
-        signature: String::new(),
-    };
+        mid,
+        NOW,
+    );
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = sender
         .sign_jcs(&aitp::crypto::Digest32::from(digest))

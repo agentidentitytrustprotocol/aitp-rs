@@ -19,16 +19,15 @@ const NOW: Timestamp = Timestamp(1_700_000_000);
 fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
     let mut b = ManifestBuilder::new(key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "subj".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "subj").with_public_key(
+                base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .ttl_secs(3600)

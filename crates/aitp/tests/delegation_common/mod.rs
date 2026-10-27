@@ -15,12 +15,10 @@ use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, 
 pub fn manifest_for(key: &dyn AitpSigner, published_at: Timestamp) -> Manifest {
     ManifestBuilder::new(key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(published_at)
         .ttl_secs(86_400)

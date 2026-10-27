@@ -91,7 +91,7 @@ pub fn verify_manifest_json(
     let manifest = wire::manifest(&manifest_envelope_json)
         .map_err(|e| throw_with_code(env, e.code(), format!("invalid manifest JSON: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&manifest, &VerifyManifestContext { now }).map_err(|e| {
+    verify_manifest(&manifest, &VerifyManifestContext::at(now)).map_err(|e| {
         throw_with_code(
             env,
             manifest_verification_cause(&e),

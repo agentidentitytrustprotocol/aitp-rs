@@ -41,6 +41,7 @@ use uuid::Uuid;
 /// variant (proposal agentidentitytrustprotocol#72, resolved
 /// 2026-10-16). Tests use [`TrustMode::PinnedKeys`] with a
 /// [`crate::handshake::StaticPinnedKeyStore`].
+#[non_exhaustive]
 pub enum TrustMode<'a> {
     /// Require all pinned-key peers to appear in this store.
     PinnedKeys(&'a dyn PinnedKeyStore),
@@ -67,6 +68,7 @@ pub enum TrustMode<'a> {
 /// (`accepted_identity_types: ["oidc"]`) rejected the HELLO. The facade
 /// now presents the configured type and pre-checks it against the peer
 /// Manifest's `accepted_identity_types` before the handshake starts.
+#[non_exhaustive]
 pub enum IdentityMode<'a> {
     /// Present a pinned-key identity: the facade self-signs a
     /// proof-of-possession over the outbound HELLO envelope.
@@ -182,6 +184,7 @@ impl JwksResolver for NoOpJwksResolver {
 /// and the peer's verifying key (so the caller can use the held TCT for
 /// downstream PoP without re-fetching the peer Manifest).
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct SessionContext {
     /// Peer's AID — `held_tct.claims.iss == peer_aid`.
     pub peer_aid: crate::core::Aid,
@@ -197,6 +200,7 @@ pub struct SessionContext {
 
 /// Errors from the high-level helpers.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FacadeError {
     /// Manifest fetch failure.
     #[error("manifest fetch failed: {0}")]

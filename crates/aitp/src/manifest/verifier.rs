@@ -7,6 +7,7 @@ use crate::manifest::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
 use crate::manifest::ManifestError;
 
 /// Inputs for verifying a Manifest.
+#[non_exhaustive]
 pub struct VerifyManifestContext {
     /// Current time, used for expiry check. Pass `Timestamp::now()` in
     /// production; pass a pinned value in tests.
@@ -16,9 +17,12 @@ pub struct VerifyManifestContext {
 impl VerifyManifestContext {
     /// Build a context using the system clock.
     pub fn now() -> Self {
-        Self {
-            now: Timestamp::now(),
-        }
+        Self::at(Timestamp::now())
+    }
+
+    /// Build a context at `now`.
+    pub fn at(now: Timestamp) -> Self {
+        Self { now }
     }
 }
 

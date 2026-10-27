@@ -42,6 +42,7 @@ use uuid::Uuid;
 /// `extensions` slot reserved per RFC-AITP-0001 §7.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct AitpEnvelope {
     /// Protocol version. MUST be `"aitp/0.3"`.
     pub version: String,
@@ -89,6 +90,29 @@ pub struct AitpEnvelope {
     pub signature: String,
 }
 
+impl AitpEnvelope {
+    /// An envelope at [`PROTOCOL_VERSION`](crate::core::PROTOCOL_VERSION),
+    /// with no `extensions` and an empty `signature`, ready to sign.
+    pub fn unsigned(
+        sender: Aid,
+        message_type: MessageType,
+        payload: serde_json::Value,
+        message_id: Uuid,
+        timestamp: Timestamp,
+    ) -> Self {
+        Self {
+            version: crate::core::PROTOCOL_VERSION.into(),
+            message_type,
+            message_id,
+            timestamp,
+            sender: Sender::new(sender),
+            payload,
+            extensions: None,
+            signature: String::new(),
+        }
+    }
+}
+
 /// Full set of top-level members `aitp-envelope.schema.json` declares,
 /// including the `extensions` namespace key itself. Used by
 /// [`parse_envelope_wire`]'s member-set check (RFC-AITP-0001 §7).
@@ -110,6 +134,7 @@ pub const AITP_ENVELOPE_MEMBERS: &[&str] = &[
 
 /// Error from [`parse_envelope_wire`].
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
 pub enum EnvelopeParseError {
     /// `version` is absent, not a string, or not the revision this
     /// implementation speaks ([`crate::core::PROTOCOL_VERSION`]). Checked first
@@ -240,9 +265,17 @@ pub fn check_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
 /// Sender identification block.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Sender {
     /// AID of the sending agent.
     pub agent_id: Aid,
+}
+
+impl Sender {
+    /// The sender `agent_id`.
+    pub fn new(agent_id: Aid) -> Self {
+        Self { agent_id }
+    }
 }
 
 /// Wire-level message type discriminant.

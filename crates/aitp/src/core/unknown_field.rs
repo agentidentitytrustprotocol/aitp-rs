@@ -31,6 +31,7 @@ use serde::de::{DeserializeSeed, Deserializer, Error as DeError, MapAccess, SeqA
 /// The offending member and the object it was found on.
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 #[error("unknown field `{field}` in `{object}`")]
+#[non_exhaustive]
 pub struct UnknownField {
     /// Name of the JSON member that was not in the object's declared
     /// member set.

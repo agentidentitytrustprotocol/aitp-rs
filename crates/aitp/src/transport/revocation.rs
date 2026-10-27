@@ -178,6 +178,7 @@ pub enum RevocationError {
 /// What to do when revocation cannot be checked freshly (network down,
 /// no provider configured, snapshot stale, …).
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum RevocationFailMode {
     /// Reject the underlying TCT — safest choice for high-value flows.
     /// Default.
@@ -262,6 +263,7 @@ pub fn apply_safe_subset(requested: &[String], safe_grants: &[String]) -> Vec<St
 
 /// Per-issuer revocation policy.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RevocationPolicy {
     /// What to do when a fresh snapshot cannot be obtained.
     pub fail_mode: RevocationFailMode,
@@ -273,6 +275,26 @@ pub struct RevocationPolicy {
     /// 60s — keeps verification cheap for back-to-back handshakes
     /// without hiding a fresh issuer push for too long.
     pub cache_ttl_secs: u64,
+}
+
+impl RevocationPolicy {
+    /// Set `fail_mode`.
+    pub fn with_fail_mode(mut self, fail_mode: RevocationFailMode) -> Self {
+        self.fail_mode = fail_mode;
+        self
+    }
+
+    /// Set `max_staleness_secs`.
+    pub fn with_max_staleness_secs(mut self, secs: u64) -> Self {
+        self.max_staleness_secs = secs;
+        self
+    }
+
+    /// Set `cache_ttl_secs`.
+    pub fn with_cache_ttl_secs(mut self, secs: u64) -> Self {
+        self.cache_ttl_secs = secs;
+        self
+    }
 }
 
 impl Default for RevocationPolicy {

@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// [`crate::manifest::verify_manifest`].
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct Manifest {
     /// MUST be `"aitp/0.3"`.
     pub version: String,
@@ -128,9 +129,17 @@ pub const MANIFEST_MEMBERS: &[&str] = &[
 /// MUST unwrap before computing the signing input.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ManifestEnvelope {
     /// The signed inner Manifest.
     pub manifest: Manifest,
+}
+
+impl ManifestEnvelope {
+    /// The `{"manifest": …}` wrapper around `manifest`.
+    pub fn new(manifest: Manifest) -> Self {
+        Self { manifest }
+    }
 }
 
 /// Static identity metadata (RFC-AITP-0003 §3.1).
@@ -141,6 +150,7 @@ pub struct ManifestEnvelope {
 /// where it can be bound to a per-handshake nonce.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct IdentityHint {
     /// `oidc` or `pinned_key`.
     #[serde(rename = "type")]
@@ -155,6 +165,30 @@ pub struct IdentityHint {
     /// (required when type=pinned_key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub public_key: Option<String>,
+}
+
+impl IdentityHint {
+    /// A hint of `kind` for `subject`, with no `issuer` or `public_key`.
+    pub fn new(kind: IdentityHintKind, subject: impl Into<String>) -> Self {
+        Self {
+            kind,
+            subject: subject.into(),
+            issuer: None,
+            public_key: None,
+        }
+    }
+
+    /// Set `issuer`.
+    pub fn with_issuer(mut self, issuer: RawUrl) -> Self {
+        self.issuer = Some(issuer);
+        self
+    }
+
+    /// Set `public_key`.
+    pub fn with_public_key(mut self, public_key: impl Into<String>) -> Self {
+        self.public_key = Some(public_key.into());
+        self
+    }
 }
 
 /// Identity provider type.
@@ -177,11 +211,22 @@ pub enum IdentityHintKind {
 /// Manifest PoP block (RFC-AITP-0003 §3.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct ManifestPop {
     /// Random 128-bit base64url-unpadded challenge (22 chars).
     pub challenge: String,
     /// Signature over `sha256(challenge)` using the AID's private key.
     pub signature: String,
+}
+
+impl ManifestPop {
+    /// A proof of possession: the `challenge` and its `signature`.
+    pub fn new(challenge: impl Into<String>, signature: impl Into<String>) -> Self {
+        Self {
+            challenge: challenge.into(),
+            signature: signature.into(),
+        }
+    }
 }
 
 #[cfg(test)]

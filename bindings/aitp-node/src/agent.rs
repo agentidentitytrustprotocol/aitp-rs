@@ -200,12 +200,8 @@ impl AitpAgent {
                 // Ed25519, the 33-byte SEC1 compressed point for P-256.
                 let pk_bytes = self.key.verifying_key().to_compressed();
                 (
-                    IdentityHint {
-                        kind: IdentityHintKind::PinnedKey,
-                        subject: opts.display_name.clone(),
-                        issuer: None,
-                        public_key: Some(aitp::core::base64url::encode(&pk_bytes)),
-                    },
+                    IdentityHint::new(IdentityHintKind::PinnedKey, opts.display_name.clone())
+                        .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
                     "pinned_key",
                     Vec::<url::Url>::new(),
                 )
@@ -221,12 +217,8 @@ impl AitpAgent {
                     .parse()
                     .map_err(|e| Error::from_reason(format!("invalid oidcIssuer URL: {e}")))?;
                 (
-                    IdentityHint {
-                        kind: IdentityHintKind::Oidc,
-                        subject: sub.to_string(),
-                        issuer: Some(RawUrl::from(iss.clone())),
-                        public_key: None,
-                    },
+                    IdentityHint::new(IdentityHintKind::Oidc, sub)
+                        .with_issuer(RawUrl::from(iss.clone())),
                     "oidc",
                     vec![iss],
                 )
@@ -283,7 +275,7 @@ impl AitpAgent {
             .map_err(|e| Error::from_reason(format!("manifest build failed: {e}")))?;
         self.manifest = Some(manifest.clone());
 
-        serde_json::to_string(&ManifestEnvelope { manifest })
+        serde_json::to_string(&ManifestEnvelope::new(manifest))
             .map_err(|e| Error::from_reason(e.to_string()))
     }
 
@@ -501,21 +493,19 @@ impl AitpAgent {
                         )));
                     }
                 };
-                Ok::<_, Error>(RevocationEntry {
-                    jti,
-                    revoked_at,
-                    reason: e.reason.clone(),
+                Ok::<_, Error>({
+                    let mut entry = RevocationEntry::new(jti, revoked_at);
+                    entry.reason = e.reason.clone();
+                    entry
                 })
             })
             .collect::<Result<_>>()?;
-        let body = RevocationList {
-            version: aitp::core::PROTOCOL_VERSION.into(),
-            issuer: self.key.aid().clone(),
-            published_at: now,
-            expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
-            entries: rust_entries,
-            extensions: None,
-        };
+        let body = RevocationList::new(
+            self.key.aid().clone(),
+            now,
+            Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
+            rust_entries,
+        );
         let envelope = sign_revocation_list(body, &self.key)
             .map_err(|e| Error::from_reason(format!("sign_revocation_list failed: {e}")))?;
         serde_json::to_string(&envelope).map_err(|e| Error::from_reason(e.to_string()))

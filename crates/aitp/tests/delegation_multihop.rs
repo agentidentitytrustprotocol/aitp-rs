@@ -84,12 +84,10 @@ fn e() -> AitpSigningKey {
 fn manifest_with_ttl(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> Manifest {
     ManifestBuilder::new(key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(published_at)
         .ttl_secs(ttl_secs)

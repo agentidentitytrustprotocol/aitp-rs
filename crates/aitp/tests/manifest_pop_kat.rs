@@ -95,16 +95,15 @@ fn builder_pop_uses_decoded_challenge() {
     let key = AitpSigningKey::from_seed(&[1u8; 32]);
     let manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "alice".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+                base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .ttl_secs(3600)
@@ -130,16 +129,15 @@ fn legacy_ascii_bytes_pop_is_rejected() {
     let key = AitpSigningKey::from_seed(&[2u8; 32]);
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "alice".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+                base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .ttl_secs(3600)
@@ -149,18 +147,11 @@ fn legacy_ascii_bytes_pop_is_rejected() {
     let legacy_input =
         aitp::crypto::Digest32::sha256(manifest.proof_of_possession.challenge.as_bytes());
     let legacy_sig = key.sign_jcs(&legacy_input).into_string();
-    manifest.proof_of_possession = ManifestPop {
-        challenge: manifest.proof_of_possession.challenge.clone(),
-        signature: legacy_sig,
-    };
+    manifest.proof_of_possession =
+        ManifestPop::new(manifest.proof_of_possession.challenge.clone(), legacy_sig);
 
-    let err = verify_manifest(
-        &manifest,
-        &VerifyManifestContext {
-            now: Timestamp::now(),
-        },
-    )
-    .expect_err("legacy ASCII-bytes PoP must be rejected");
+    let err = verify_manifest(&manifest, &VerifyManifestContext::at(Timestamp::now()))
+        .expect_err("legacy ASCII-bytes PoP must be rejected");
     assert!(
         matches!(err, ManifestError::PopFailed),
         "expected PopFailed, got {err:?}"

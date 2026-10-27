@@ -93,7 +93,7 @@ pub fn verify_manifest_json_py(
         WireError::Malformed(_) => PyValueError::new_err(format!("invalid manifest JSON: {e}")),
     })?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&manifest, &VerifyManifestContext { now }).map_err(|e| {
+    verify_manifest(&manifest, &VerifyManifestContext::at(now)).map_err(|e| {
         verification_error(
             verification_cause(&e),
             format!("manifest verification failed: {e}"),

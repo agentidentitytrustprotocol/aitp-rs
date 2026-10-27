@@ -52,6 +52,7 @@ pub enum ResolveError {
 }
 
 /// Inputs for verifying an OIDC identity proof.
+#[non_exhaustive]
 pub struct OidcVerifyContext<'a> {
     /// The verifier's own AID (used as the expected `aud` claim).
     pub expected_audience: &'a Aid,
@@ -69,6 +70,32 @@ pub struct OidcVerifyContext<'a> {
     pub iat_tolerance_secs: i64,
     /// Current time for `iat` / `exp` evaluation.
     pub now_unix_secs: i64,
+}
+
+impl<'a> OidcVerifyContext<'a> {
+    /// A context that checks an ID token for `subject_aid` against
+    /// `trust_anchors`, keys from `jwks_resolver`, the expected `aud`
+    /// and `nonce`, and `iat` within `iat_tolerance_secs` of
+    /// `now_unix_secs`.
+    pub fn new(
+        expected_audience: &'a Aid,
+        expected_nonce: &'a str,
+        trust_anchors: &'a [crate::core::RawUrl],
+        jwks_resolver: &'a dyn JwksResolver,
+        subject_aid: &'a Aid,
+        iat_tolerance_secs: i64,
+        now_unix_secs: i64,
+    ) -> Self {
+        Self {
+            expected_audience,
+            expected_nonce,
+            trust_anchors,
+            jwks_resolver,
+            subject_aid,
+            iat_tolerance_secs,
+            now_unix_secs,
+        }
+    }
 }
 
 /// Verify an OIDC identity proof per RFC-AITP-0002 §2.3.

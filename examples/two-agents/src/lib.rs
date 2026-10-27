@@ -34,12 +34,9 @@ pub fn build_demo_manifest(
     let mut builder = ManifestBuilder::new(key)
         .display_name(display_name)
         .handshake_endpoint(endpoint.parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: display_name.into(),
-            issuer: None,
-            public_key: Some(pubkey_b64),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, display_name).with_public_key(pubkey_b64),
+        )
         .accept_identity_type("pinned_key")
         // Every TCT issuer MUST advertise its `ListRevoked` URL
         // (RFC-AITP-0008 §1.4); `HandshakeServer` serves it at this path.

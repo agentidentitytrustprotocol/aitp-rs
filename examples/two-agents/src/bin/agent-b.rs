@@ -110,10 +110,9 @@ async fn main() {
     // it advertises, so the demo opts out explicitly. agent-a itself
     // keeps the default and checks our list. A deployment should not
     // opt out.
-    .with_revocation_policy(RevocationPolicy {
-        fail_mode: RevocationFailMode::FailOpen,
-        ..RevocationPolicy::default()
-    });
+    .with_revocation_policy(
+        RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+    );
 
     let app = server.router().merge(
         Router::new()
@@ -132,9 +131,7 @@ async fn main() {
 }
 
 async fn serve_manifest(State(state): State<Arc<EchoState>>) -> Json<ManifestEnvelope> {
-    Json(ManifestEnvelope {
-        manifest: state.manifest.clone(),
-    })
+    Json(ManifestEnvelope::new(state.manifest.clone()))
 }
 
 async fn handle_echo(

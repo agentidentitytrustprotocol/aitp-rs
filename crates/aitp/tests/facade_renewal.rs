@@ -26,14 +26,11 @@ fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
     let mut b = ManifestBuilder::new(issuer)
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example/aitp/handshake/".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &issuer.verifying_key().try_to_ed25519_bytes().unwrap(),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .ttl_secs(86_400);
@@ -113,14 +110,11 @@ async fn no_renew_uri_means_no_request() {
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &issuer.verifying_key().try_to_ed25519_bytes().unwrap(),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()

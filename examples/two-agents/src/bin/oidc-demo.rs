@@ -10,7 +10,7 @@
 //! `aitp::handshake`; it demonstrates the end-to-end OIDC code path
 //! without needing a real IdP and is referenced from the README.
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
     Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, PeerConfig,
@@ -207,12 +207,10 @@ fn oidc_manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifes
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: name.into(),
-            issuer: Some(aitp::core::RawUrl::from(issuer.clone())),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, name)
+                .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
+        )
         .accept_trust_anchor(issuer.clone())
         .accept_identity_type("oidc")
         .offer("demo.echo")
@@ -228,18 +226,7 @@ fn envelope_with(
     mid: Uuid,
     ts: Timestamp,
 ) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let mut envelope = AitpEnvelope::unsigned(key.aid().clone(), mt, payload, mid, ts);
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = key
         .sign_jcs(&aitp::crypto::Digest32::from(digest))
@@ -306,13 +293,11 @@ impl MockOidcIssuer {
     }
 
     fn as_jwk(&self) -> JwkPublicKey {
-        JwkPublicKey {
-            kid: Some(self.kid.clone()),
-            alg: Some(JwsAlgorithm::EdDSA),
-            key: JwkKeyMaterial::Ed25519 {
-                x: self.pubkey_bytes(),
-            },
-        }
+        JwkPublicKey::new(JwkKeyMaterial::Ed25519 {
+            x: self.pubkey_bytes(),
+        })
+        .with_kid(self.kid.clone())
+        .with_alg(JwsAlgorithm::EdDSA)
     }
 
     fn as_resolver(&self) -> MockJwksResolver {

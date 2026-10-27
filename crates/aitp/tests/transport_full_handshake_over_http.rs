@@ -48,16 +48,13 @@ fn manifest_with_revocation(
     builder
         .display_name(name)
         .handshake_endpoint(handshake_endpoint.parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            // 32 bytes for Ed25519, 33-byte SEC1 compressed for P-256:
-            // the AID identifier bytes (RFC-AITP-0002 §3.2 step 2).
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key().to_compressed(),
-            )),
-        })
+        // 32 bytes for Ed25519, 33-byte SEC1 compressed for P-256: the
+        // AID identifier bytes (RFC-AITP-0002 §3.2 step 2).
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -153,14 +150,12 @@ async fn run_pinned_handshake(
     // serving a signed empty snapshot.
     let alice_list_uri = if revocation == AliceRevocation::Published {
         let snapshot = aitp::tct::sign_revocation_list(
-            aitp::tct::RevocationList {
-                version: aitp::core::PROTOCOL_VERSION.into(),
-                issuer: alice.aid().clone(),
-                published_at: Timestamp::now(),
-                expires_at: Timestamp(Timestamp::now().0 + 3600),
-                entries: vec![],
-                extensions: None,
-            },
+            aitp::tct::RevocationList::new(
+                alice.aid().clone(),
+                Timestamp::now(),
+                Timestamp(Timestamp::now().0 + 3600),
+                vec![],
+            ),
             &alice,
         )
         .unwrap();
@@ -195,14 +190,13 @@ async fn run_pinned_handshake(
         alice_list_uri,
     );
 
-    let bob_policy = RevocationPolicy {
-        fail_mode: if revocation == AliceRevocation::UnadvertisedFailOpen {
+    let bob_policy = RevocationPolicy::default().with_fail_mode(
+        if revocation == AliceRevocation::UnadvertisedFailOpen {
             RevocationFailMode::FailOpen
         } else {
             RevocationFailMode::FailClosed
         },
-        ..RevocationPolicy::default()
-    };
+    );
     let manifest_router = ManifestServer::new(bob_manifest.clone()).router();
     let handshake_router = HandshakeServer::new(
         make_bob(),
@@ -358,9 +352,7 @@ async fn run_pinned_handshake(
 
     server.abort();
     let _ = server.await;
-    let _ = Sender {
-        agent_id: alice.aid().clone(),
-    };
+    let _ = Sender::new(alice.aid().clone());
 }
 
 /// GAP-3: a `HandshakeServer` configured with a pinned-key trust store

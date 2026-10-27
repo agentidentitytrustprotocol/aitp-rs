@@ -28,16 +28,15 @@ fn server() -> HandshakeServer<NoOpResolver> {
     let manifest = ManifestBuilder::new(&key)
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "responder".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -57,11 +56,11 @@ fn ip(s: &str) -> IpAddr {
 
 #[test]
 fn allows_traffic_below_per_ip_limit() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 5,
-        requests_per_aid_per_60s: None,
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(5)
+            .with_requests_per_aid_per_60s(None),
+    );
     for _ in 0..5 {
         assert!(matches!(
             srv.enforce_rate_limit(Some(ip("1.2.3.4")), None),
@@ -77,11 +76,11 @@ fn allows_traffic_below_per_ip_limit() {
 
 #[test]
 fn separate_ips_have_separate_buckets() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 2,
-        requests_per_aid_per_60s: None,
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(2)
+            .with_requests_per_aid_per_60s(None),
+    );
     // Each IP gets its own window.
     for _ in 0..2 {
         assert!(matches!(
@@ -140,11 +139,11 @@ fn without_rate_limit_always_allows() {
 
 #[test]
 fn denied_request_does_not_consume_quota() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 1,
-        requests_per_aid_per_60s: None,
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(1)
+            .with_requests_per_aid_per_60s(None),
+    );
     assert!(matches!(
         srv.enforce_rate_limit(Some(ip("9.9.9.9")), None),
         RateLimitOutcome::Allow
@@ -166,11 +165,11 @@ fn denied_request_does_not_consume_quota() {
 /// transport limit (RFC-AITP-0009 §3.1: never the only key).
 #[test]
 fn rotating_aids_does_not_bypass_transport_limit() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 3,
-        requests_per_aid_per_60s: Some(100),
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(3)
+            .with_requests_per_aid_per_60s(Some(100)),
+    );
     for seed in 0..3u8 {
         let k = AitpSigningKey::from_seed(&[seed; 32]);
         assert!(matches!(
@@ -189,11 +188,11 @@ fn rotating_aids_does_not_bypass_transport_limit() {
 /// an IPv4-mapped address shares the IPv4 bucket.
 #[test]
 fn ipv6_slash_64_and_v4_mapped_share_a_bucket() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 2,
-        requests_per_aid_per_60s: None,
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(2)
+            .with_requests_per_aid_per_60s(None),
+    );
     assert!(matches!(
         srv.enforce_rate_limit(Some(ip("2001:db8:1:2::1")), None),
         RateLimitOutcome::Allow
@@ -260,16 +259,15 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
     let manifest = ManifestBuilder::new(&key)
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "responder".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -281,11 +279,12 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
         NoOpResolver,
         vec!["demo.echo".into()],
     )
-    .with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: per_ip,
-        requests_per_aid_per_60s: None,
-        trusted_proxies,
-    });
+    .with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(per_ip)
+            .with_requests_per_aid_per_60s(None)
+            .with_trusted_proxies(trusted_proxies),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
@@ -477,11 +476,11 @@ async fn malformed_and_stale_requests_consume_rate_limit_budget() {
 fn allows_traffic_below_per_aid_limit_then_denies() {
     // The per-AID gate (keyed on the envelope sender) is the stronger,
     // payload-derived limiter; only the per-IP gate was previously tested.
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 1_000,
-        requests_per_aid_per_60s: Some(3),
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(1_000)
+            .with_requests_per_aid_per_60s(Some(3)),
+    );
     let aid = AitpSigningKey::from_seed(&[0x33; 32]);
     for _ in 0..3 {
         assert!(matches!(
@@ -497,11 +496,11 @@ fn allows_traffic_below_per_aid_limit_then_denies() {
 
 #[test]
 fn per_aid_buckets_are_independent() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 1_000,
-        requests_per_aid_per_60s: Some(2),
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(1_000)
+            .with_requests_per_aid_per_60s(Some(2)),
+    );
     let alice = AitpSigningKey::from_seed(&[0x44; 32]);
     let bob = AitpSigningKey::from_seed(&[0x55; 32]);
     // Exhaust Alice's budget.
@@ -586,11 +585,11 @@ async fn forwarded_for_uses_rightmost_untrusted_hop() {
 /// such request shares one bucket.
 #[tokio::test]
 async fn missing_transport_identifier_shares_one_bucket() {
-    let srv = server().with_rate_limit(RateLimitConfig {
-        requests_per_source_per_60s: 2,
-        requests_per_aid_per_60s: None,
-        ..RateLimitConfig::default()
-    });
+    let srv = server().with_rate_limit(
+        RateLimitConfig::default()
+            .with_requests_per_source_per_60s(2)
+            .with_requests_per_aid_per_60s(None),
+    );
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {

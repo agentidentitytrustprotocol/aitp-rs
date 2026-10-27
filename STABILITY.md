@@ -106,6 +106,12 @@ leg and `cargo-msrv`).
   - [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt)
     lists what each unstable feature adds to the stable surface. It
     carries no promise, and changes to it never count as breaks.
+- **`aitp public API snapshot and classification`** also checks that
+  every public struct and enum in the stable surface is classified in
+  [`docs/api-classification.md`](docs/api-classification.md) as
+  `non_exhaustive`, `private fields` or `exhaustive`, and that each
+  exhaustive one has a reason (`make api-classification-check`). Only an
+  exhaustive type can gain a field or variant as a breaking change.
 - **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
   lints and tests `aitp` and `aitp-experimental` with each feature on its
   own (`cargo hack --each-feature`), and

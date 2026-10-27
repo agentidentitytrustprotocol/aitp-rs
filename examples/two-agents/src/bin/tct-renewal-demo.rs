@@ -69,17 +69,16 @@ async fn main() {
     let manifest = ManifestBuilder::new(&issuer)
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &issuer
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                aitp::core::base64url::encode(
+                    &issuer
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .ttl_secs(86_400)

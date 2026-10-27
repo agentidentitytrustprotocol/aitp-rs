@@ -13,12 +13,10 @@ use aitp::manifest::{
 fn build(signer: &dyn AitpSigner, now: Timestamp) -> Result<Manifest, ManifestError> {
     ManifestBuilder::new(signer)
         .handshake_endpoint("https://kms.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "kms-agent".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "kms-agent")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
@@ -43,7 +41,7 @@ fn kms_backend_builds_a_verifying_manifest() {
             "PoP and outer signature both go to the backend"
         );
         assert_eq!(&m.aid, kms.aid());
-        verify_manifest(&m, &VerifyManifestContext { now }).expect("KMS manifest verifies");
+        verify_manifest(&m, &VerifyManifestContext::at(now)).expect("KMS manifest verifies");
     }
 }
 
@@ -52,7 +50,7 @@ fn kms_backend_ed25519_builds_a_verifying_manifest() {
     let now = Timestamp(1_700_000_000);
     let kms = MockKmsSigner::new(AitpSigningKey::from_seed(&[6; 32]));
     let m = build(&kms, now).expect("KMS-backed ManifestBuilder builds");
-    verify_manifest(&m, &VerifyManifestContext { now }).expect("KMS manifest verifies");
+    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("KMS manifest verifies");
 }
 
 #[test]
@@ -82,12 +80,10 @@ fn build_async<'a>(
 ) -> impl std::future::Future<Output = Result<Manifest, ManifestError>> + Send + 'a {
     ManifestBuilder::new_async(signer)
         .handshake_endpoint("https://kms.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "kms-agent".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "kms-agent")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
@@ -140,7 +136,7 @@ async fn async_manifest_matches_sync_for_deterministic_keys() {
         let sig = aitp::crypto::sign_jcs(&key, &digest).unwrap();
         assert_eq!(asyn.signature, sig.into_string());
 
-        verify_manifest(&asyn, &VerifyManifestContext { now }).expect("async manifest verifies");
+        verify_manifest(&asyn, &VerifyManifestContext::at(now)).expect("async manifest verifies");
     }
 }
 
@@ -176,5 +172,5 @@ async fn async_manifest_future_is_send() {
         .unwrap()
         .expect("async manifest builds on another task");
     assert_eq!(&m.aid, signer.aid());
-    verify_manifest(&m, &VerifyManifestContext { now }).expect("verifies");
+    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("verifies");
 }

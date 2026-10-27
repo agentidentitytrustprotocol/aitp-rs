@@ -202,10 +202,9 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
     .with_http_timeout(args.net.timeout)
     .with_insecure_localhost(args.net.insecure_localhost);
     if args.revocation_fail_open {
-        config = config.with_revocation_policy(RevocationPolicy {
-            fail_mode: RevocationFailMode::FailOpen,
-            ..Default::default()
-        });
+        config = config.with_revocation_policy(
+            RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+        );
     }
 
     let session = match run_initiator_handshake(config).await {
@@ -320,7 +319,7 @@ pub(crate) fn manifest_fetch(peer: url::Url, net: NetOpts) -> CliResult {
         .block_on(net.fetcher().fetch(&peer))
         .map_err(FacadeError::from)?;
     // Same envelope shape `aitp manifest verify` reads, so the two pipe.
-    let envelope = ManifestEnvelope { manifest };
+    let envelope = ManifestEnvelope::new(manifest);
     println!("{}", serde_json::to_string_pretty(&envelope)?);
     Ok(())
 }
@@ -339,13 +338,11 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
                 .parse()
                 .expect("constant is a valid URL"),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: CLI_SUBJECT.into(),
-            issuer: None,
-            // AID-identifier form of the key (RFC-AITP-0002 §3.3).
-            public_key: Some(base64url::encode(&key.verifying_key().to_compressed())),
-        })
+        // The key in AID-identifier form (RFC-AITP-0002 §3.3).
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
+                .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
+        )
         .accept_identity_type("pinned_key")
         .build()
 }

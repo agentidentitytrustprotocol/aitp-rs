@@ -3,7 +3,7 @@
 //! (P-256, DER, high-S), and a backend signing with the wrong key fails
 //! locally with `CryptoError::Signer`, never a token the peer rejects.
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, AitpVerifyingKey, CryptoError, SignerError};
 use aitp::handshake::{
@@ -35,12 +35,10 @@ fn manifest_for(key: &dyn AitpSigner, name: &str) -> Manifest {
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(&vk(key).to_compressed())),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name)
+                .with_public_key(aitp::core::base64url::encode(&vk(key).to_compressed())),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .published_at(NOW)
@@ -54,18 +52,7 @@ fn envelope_with(
     payload: serde_json::Value,
     message_id: Uuid,
 ) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id,
-        timestamp: NOW,
-        sender: Sender {
-            agent_id: sender.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let mut envelope = AitpEnvelope::unsigned(sender.aid().clone(), mt, payload, message_id, NOW);
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = aitp::crypto::sign_jcs(sender, &aitp::crypto::Digest32::from(digest))
         .unwrap()

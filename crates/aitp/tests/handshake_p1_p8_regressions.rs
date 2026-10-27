@@ -20,15 +20,15 @@
 //! Replay-deny-list (P8) and JwksFetcher hardening (P9) belong to the
 //! transport crate and are covered by `crates/aitp/tests/transport_*.rs`.
 
-use aitp::core::{base64url, AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::identity_pinned::{
     sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
 };
 use aitp::handshake::state_machine::{GrantPolicyFn, StaticPinnedKeyStore};
 use aitp::handshake::{
-    bootstrap_verify_peer, verify_oidc, HandshakeError, IdentityDescriptor, IdentityKind,
-    JwkPublicKey, JwksResolver, OidcVerifyContext, PeerConfig, PresentedIdentity, ResolveError,
+    bootstrap_verify_peer, verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey,
+    JwksResolver, OidcVerifyContext, PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use uuid::Uuid;
@@ -51,16 +51,15 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp::manifest::Manifest {
     ManifestBuilder::new(key)
         .display_name(name)
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -85,30 +84,18 @@ fn p1_legacy_two_field_proof_rejected() {
     let legacy_input = format!("{mid}|{}", ts.0);
     let legacy_sig = aitp::core::base64url::encode(&sender.sign_raw(legacy_input.as_bytes()));
 
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::PinnedKey,
-        issuer: None,
-        subject: "sender".into(),
-        proof: legacy_sig,
-        public_key: Some(base64url::encode(
+    let descriptor = IdentityDescriptor::pinned_key(
+        "sender",
+        base64url::encode(
             &sender
                 .verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
+        ),
+        legacy_sig,
+    );
 
-    let ctx = PinnedKeyVerifyContext {
-        sender_aid: sender.aid(),
-        receiver_aid: receiver.aid(),
-        message_id: &mid,
-        timestamp: ts,
-        pop_nonce,
-        subject: Default::default(),
-    };
+    let ctx = PinnedKeyVerifyContext::new(sender.aid(), receiver.aid(), &mid, ts, pop_nonce);
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -142,29 +129,18 @@ fn p1_wrong_receiver_in_proof_rejected() {
         pop_nonce,
     )
     .unwrap();
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::PinnedKey,
-        issuer: None,
-        subject: "sender".into(),
-        proof,
-        public_key: Some(base64url::encode(
+    let descriptor = IdentityDescriptor::pinned_key(
+        "sender",
+        base64url::encode(
             &sender
                 .verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
-    let ctx = PinnedKeyVerifyContext {
-        sender_aid: sender.aid(),
-        receiver_aid: intended_receiver.aid(),
-        message_id: &mid,
-        timestamp: ts,
-        pop_nonce,
-        subject: Default::default(),
-    };
+        ),
+        proof,
+    );
+    let ctx =
+        PinnedKeyVerifyContext::new(sender.aid(), intended_receiver.aid(), &mid, ts, pop_nonce);
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -185,29 +161,17 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
     let proof = sign_pinned_key_proof(&sender, sender.aid(), receiver.aid(), &mid, ts, &real_nonce)
         .unwrap();
     let other_nonce = nonce(0xE1);
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::PinnedKey,
-        issuer: None,
-        subject: "sender".into(),
-        proof,
-        public_key: Some(base64url::encode(
+    let descriptor = IdentityDescriptor::pinned_key(
+        "sender",
+        base64url::encode(
             &sender
                 .verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
-    let ctx = PinnedKeyVerifyContext {
-        sender_aid: sender.aid(),
-        receiver_aid: receiver.aid(),
-        message_id: &mid,
-        timestamp: ts,
-        pop_nonce: &other_nonce,
-        subject: Default::default(),
-    };
+        ),
+        proof,
+    );
+    let ctx = PinnedKeyVerifyContext::new(sender.aid(), receiver.aid(), &mid, ts, &other_nonce);
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -228,31 +192,28 @@ fn oidc_descriptor_with_public_key_rejected() {
     let sender = AitpSigningKey::from_seed(&[0x70; 32]);
     let receiver = AitpSigningKey::from_seed(&[0x71; 32]);
     let resolver = NoOpResolver;
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::Oidc,
-        issuer: Some("https://idp.example.com".parse().unwrap()),
-        subject: "sender".into(),
-        proof: "eyJhbGc.placeholder.sig".into(),
-        // Forbidden for oidc:
-        public_key: Some(base64url::encode(
-            &sender
-                .verifying_key()
-                .try_to_ed25519_bytes()
-                .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
-    let ctx = OidcVerifyContext {
-        expected_audience: receiver.aid(),
-        expected_nonce: "nonce",
-        trust_anchors: &["https://idp.example.com".parse().unwrap()],
-        jwks_resolver: &resolver,
-        subject_aid: sender.aid(),
-        iat_tolerance_secs: 300,
-        now_unix_secs: 1_700_000_000,
-    };
+    let mut descriptor = IdentityDescriptor::oidc(
+        "https://idp.example.com".parse().unwrap(),
+        "sender",
+        "eyJhbGc.placeholder.sig",
+    );
+    // Forbidden for oidc:
+    descriptor.public_key = Some(base64url::encode(
+        &sender
+            .verifying_key()
+            .try_to_ed25519_bytes()
+            .expect("key was constructed as Ed25519, never P-256"),
+    ));
+    let anchors = ["https://idp.example.com".parse().unwrap()];
+    let ctx = OidcVerifyContext::new(
+        receiver.aid(),
+        "nonce",
+        &anchors,
+        &resolver,
+        sender.aid(),
+        300,
+        1_700_000_000,
+    );
     let err = verify_oidc(&descriptor, &ctx).unwrap_err();
     assert!(
         matches!(err, HandshakeError::Identity(ref s) if s.contains("public_key")),
@@ -300,32 +261,27 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
         pop_nonce,
     )
     .unwrap();
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::PinnedKey,
-        issuer: None,
-        subject: "sender".into(),
-        proof,
-        public_key: Some(base64url::encode(
+    let descriptor = IdentityDescriptor::pinned_key(
+        "sender",
+        base64url::encode(
             &untrusted_sender
                 .verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
-    let envelope = AitpEnvelope {
-        version: "aitp/0.1".into(),
-        message_type: MessageType::MutualHello,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: untrusted_sender.aid().clone(),
-        },
-        payload: serde_json::json!({}),
-        extensions: None,
-        signature: "A".repeat(86),
+        ),
+        proof,
+    );
+    let envelope = {
+        let mut envelope = AitpEnvelope::unsigned(
+            untrusted_sender.aid().clone(),
+            MessageType::MutualHello,
+            serde_json::json!({}),
+            mid,
+            ts,
+        );
+        envelope.version = "aitp/0.1".into();
+        envelope.signature = "A".repeat(86);
+        envelope
     };
     let err = bootstrap_verify_peer(&envelope, &sender_manifest, &descriptor, pop_nonce, &cfg)
         .unwrap_err();
@@ -352,12 +308,10 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
     let sender_manifest = ManifestBuilder::new(&sender)
         .display_name("sender")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "sender".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "sender")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_identity_type("oidc")
         .offer("demo.echo")
         .build()
@@ -367,21 +321,16 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
     // (P4) must reject before any verifier-specific code runs.
     let proof =
         sign_pinned_key_proof(&sender, sender.aid(), receiver.aid(), &mid, ts, pop_nonce).unwrap();
-    let descriptor = IdentityDescriptor {
-        kind: IdentityKind::PinnedKey,
-        issuer: None,
-        subject: "sender".into(),
-        proof,
-        public_key: Some(base64url::encode(
+    let descriptor = IdentityDescriptor::pinned_key(
+        "sender",
+        base64url::encode(
             &sender
                 .verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
-        )),
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    };
+        ),
+        proof,
+    );
 
     let receiver_manifest = manifest_for(&receiver, "receiver");
     let resolver = NoOpResolver;
@@ -395,17 +344,17 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         ts,
     )
     .with_trust_anchors(&cfg_anchors);
-    let envelope = AitpEnvelope {
-        version: "aitp/0.1".into(),
-        message_type: MessageType::MutualHello,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: sender.aid().clone(),
-        },
-        payload: serde_json::json!({}),
-        extensions: None,
-        signature: "A".repeat(86),
+    let envelope = {
+        let mut envelope = AitpEnvelope::unsigned(
+            sender.aid().clone(),
+            MessageType::MutualHello,
+            serde_json::json!({}),
+            mid,
+            ts,
+        );
+        envelope.version = "aitp/0.1".into();
+        envelope.signature = "A".repeat(86);
+        envelope
     };
     let err = bootstrap_verify_peer(&envelope, &sender_manifest, &descriptor, pop_nonce, &cfg)
         .unwrap_err();

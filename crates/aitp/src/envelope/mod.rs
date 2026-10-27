@@ -23,7 +23,7 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-use crate::core::{envelope_signing_digest, Aid, AitpEnvelope, MessageType, Sender, Timestamp};
+use crate::core::{envelope_signing_digest, Aid, AitpEnvelope, MessageType, Timestamp};
 use crate::crypto::{AitpSigner, Digest32, DynAsyncAitpSigner};
 use uuid::Uuid;
 
@@ -168,18 +168,7 @@ fn unsigned(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> AitpEnvelope {
-    AitpEnvelope {
-        version: crate::core::PROTOCOL_VERSION.into(),
-        message_type,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: sender.clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    }
+    AitpEnvelope::unsigned(sender.clone(), message_type, payload, message_id, timestamp)
 }
 
 /// Convenience: sign with a freshly generated `message_id` and
