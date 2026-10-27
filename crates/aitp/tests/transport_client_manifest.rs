@@ -179,12 +179,10 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent-b".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .ttl_secs(3600)
@@ -339,12 +337,10 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent-c".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent-c")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .ttl_secs(3600)

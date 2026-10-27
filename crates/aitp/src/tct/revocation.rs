@@ -18,6 +18,7 @@ use crate::tct::TctError;
 /// Inner body of a signed revocation snapshot.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RevocationList {
     /// MUST be `"aitp/0.3"`.
     pub version: String,
@@ -47,6 +48,26 @@ pub struct RevocationList {
     pub extensions: Option<ExtensionsMap>,
 }
 
+impl RevocationList {
+    /// A list at [`PROTOCOL_VERSION`](crate::core::PROTOCOL_VERSION)
+    /// from `issuer`, with no `extensions`.
+    pub fn new(
+        issuer: Aid,
+        published_at: Timestamp,
+        expires_at: Timestamp,
+        entries: Vec<RevocationEntry>,
+    ) -> Self {
+        Self {
+            version: crate::core::PROTOCOL_VERSION.into(),
+            issuer,
+            published_at,
+            expires_at,
+            entries,
+            extensions: None,
+        }
+    }
+}
+
 /// Full set of top-level members `aitp-revocation-list.schema.json`'s inner
 /// `revocation_list` object declares, including the `extensions` namespace
 /// key itself. Used by [`parse_revocation_snapshot_wire`]'s member-set
@@ -72,6 +93,7 @@ pub const REVOCATION_ENVELOPE_MEMBERS: &[&str] = &["revocation_list", "signature
 /// A single revoked-TCT record.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RevocationEntry {
     /// JTI of the revoked TCT: strict lowercase hyphenated UUID v4 on the
     /// wire (`aitp-revocation-list.schema.json`). Deserialized through
@@ -87,6 +109,23 @@ pub struct RevocationEntry {
     pub reason: Option<String>,
 }
 
+impl RevocationEntry {
+    /// The TCT `jti`, revoked at `revoked_at`, with no `reason`.
+    pub fn new(jti: Uuid, revoked_at: Timestamp) -> Self {
+        Self {
+            jti,
+            revoked_at,
+            reason: None,
+        }
+    }
+
+    /// Set `reason`.
+    pub fn with_reason(mut self, reason: impl Into<String>) -> Self {
+        self.reason = Some(reason.into());
+        self
+    }
+}
+
 /// On-wire envelope: `{"revocation_list": {...}, "signature": "..."}`.
 ///
 /// Per RFC-AITP-0008 §1.5, both `revocation_list` and `signature` are
@@ -96,6 +135,7 @@ pub struct RevocationEntry {
 /// (RFC-AITP-0001 §5.4.1).
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct RevocationListEnvelope {
     /// The signed inner snapshot — this, alone, is what is signed.
     pub revocation_list: RevocationList,

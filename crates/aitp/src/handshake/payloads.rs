@@ -9,6 +9,7 @@ use serde::{Deserialize, Serialize};
 /// Payload of a `MUTUAL_HELLO` envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MutualHelloPayload {
     /// Fresh, handshake-bound identity proof.
     pub identity: IdentityDescriptor,
@@ -48,6 +49,7 @@ pub const MUTUAL_HELLO_PAYLOAD_MEMBERS: &[&str] = &[
 /// Payload of a `MUTUAL_HELLO_ACK` envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MutualHelloAckPayload {
     /// Responder's identity proof.
     pub identity: IdentityDescriptor,
@@ -82,6 +84,7 @@ pub const MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS: &[&str] = &[
 /// Payload of a `MUTUAL_COMMIT` envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MutualCommitPayload {
     /// TCT the initiator issues to the responder — opaque compact JWS,
     /// `typ: aitp-tct+jwt` (RFC-AITP-0005).
@@ -116,6 +119,7 @@ pub const MUTUAL_COMMIT_PAYLOAD_MEMBERS: &[&str] = &[
 /// Payload of a `MUTUAL_COMMIT_ACK` envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct MutualCommitAckPayload {
     /// TCT the responder issues to the initiator — opaque compact JWS,
     /// `typ: aitp-tct+jwt` (RFC-AITP-0005).

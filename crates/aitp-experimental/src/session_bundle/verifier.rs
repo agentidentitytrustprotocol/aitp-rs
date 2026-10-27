@@ -131,7 +131,7 @@ pub fn verify_session_bundle(
     // 5. Coordinator key resolution.
     let (coord_key, coordinator_manifest_expires_at) = match ctx.coordinator_key {
         CoordinatorKeySource::Manifest(manifest) => {
-            verify_manifest(manifest, &VerifyManifestContext { now: ctx.now })
+            verify_manifest(manifest, &VerifyManifestContext::at(ctx.now))
                 .map_err(SessionBundleError::CoordinatorManifest)?;
             if manifest.aid != bundle.coordinator {
                 return Err(SessionBundleError::CoordinatorManifestMismatch);

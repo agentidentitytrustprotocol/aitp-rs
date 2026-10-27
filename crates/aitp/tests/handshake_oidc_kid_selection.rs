@@ -12,8 +12,8 @@ mod fixtures;
 use aitp::core::{Aid, RawUrl};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
-    verify_oidc, HandshakeError, IdentityDescriptor, IdentityKind, JwkPublicKey, JwksResolver,
-    OidcVerifyContext, ResolveError,
+    verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey, JwksResolver, OidcVerifyContext,
+    ResolveError,
 };
 use fixtures::mock_oidc::MockOidcIssuer;
 use url::Url;
@@ -53,16 +53,7 @@ fn jkt_of(key: &AitpSigningKey) -> String {
 }
 
 fn descriptor(proof: String) -> IdentityDescriptor {
-    IdentityDescriptor {
-        kind: IdentityKind::Oidc,
-        issuer: Some(ISSUER.parse().unwrap()),
-        subject: "sender".into(),
-        proof,
-        public_key: None,
-        extensions: None,
-        svid_type: None,
-        x5c: None,
-    }
+    IdentityDescriptor::oidc(ISSUER.parse().unwrap(), "sender", proof)
 }
 
 fn ctx<'a>(
@@ -72,15 +63,15 @@ fn ctx<'a>(
     nonce: &'a str,
     anchors: &'a [RawUrl],
 ) -> OidcVerifyContext<'a> {
-    OidcVerifyContext {
-        expected_audience: audience_aid,
-        expected_nonce: nonce,
-        trust_anchors: anchors,
-        jwks_resolver: resolver,
+    OidcVerifyContext::new(
+        audience_aid,
+        nonce,
+        anchors,
+        resolver,
         subject_aid,
-        iat_tolerance_secs: 300,
-        now_unix_secs: NOW,
-    }
+        300,
+        NOW,
+    )
 }
 
 /// No `kid` on the JWT + exactly one JWKS key ⇒ the fallback selects

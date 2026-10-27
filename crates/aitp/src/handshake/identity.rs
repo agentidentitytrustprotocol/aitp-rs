@@ -28,6 +28,7 @@ use serde::{Deserialize, Serialize};
 /// [`IdentityDescriptor::kind`] to branch.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct IdentityDescriptor {
     /// Identity mechanism: `oidc`, `pinned_key` or `spiffe`.
     #[serde(rename = "type")]

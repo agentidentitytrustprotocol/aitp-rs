@@ -94,14 +94,12 @@ impl RevocationListProducer for LiveRevocations {
         let now = Timestamp::now();
         let entries = self.revoked.lock().clone();
         sign_revocation_list(
-            RevocationList {
-                version: "aitp/0.3".into(),
-                issuer: self.issuer.aid().clone(),
-                published_at: now,
-                expires_at: Timestamp(now.0 + 3600),
+            RevocationList::new(
+                self.issuer.aid().clone(),
+                now,
+                Timestamp(now.0 + 3600),
                 entries,
-                extensions: None,
-            },
+            ),
             &self.issuer,
         )
         .expect("revocation snapshot signs")
@@ -122,11 +120,9 @@ impl Worker {
     /// Revoke `jti`, so the next `/work` call presenting a TCT with that
     /// id is refused and the next revocation-snapshot fetch lists it.
     pub fn revoke(&self, jti: Uuid) {
-        self.revocations.revoked.lock().push(RevocationEntry {
-            jti,
-            revoked_at: Timestamp::now(),
-            reason: Some("revoked by tier-3 test".into()),
-        });
+        self.revocations.revoked.lock().push(
+            RevocationEntry::new(jti, Timestamp::now()).with_reason("revoked by tier-3 test"),
+        );
     }
 
     /// Stop the server. Blocks (asynchronously) until the axum task
@@ -210,10 +206,9 @@ pub async fn spawn(
     // planner is a pure client that serves nothing at the list URL it
     // advertises, so the worker opts out explicitly; the planner keeps
     // the default and checks the worker's list.
-    .with_revocation_policy(RevocationPolicy {
-        fail_mode: RevocationFailMode::FailOpen,
-        ..RevocationPolicy::default()
-    });
+    .with_revocation_policy(
+        RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+    );
 
     let app = server.router().merge(
         Router::new()
@@ -243,9 +238,7 @@ pub async fn spawn(
 }
 
 async fn serve_manifest(State(state): State<Arc<AppState>>) -> Json<ManifestEnvelope> {
-    Json(ManifestEnvelope {
-        manifest: state.manifest.clone(),
-    })
+    Json(ManifestEnvelope::new(state.manifest.clone()))
 }
 
 async fn handle_work(

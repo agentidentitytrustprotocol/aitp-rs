@@ -11,9 +11,7 @@
 //! [`aitp::envelope::sign_prepared_envelope`] for the signature — so the
 //! binding cannot drift from the server.
 
-use aitp::core::{
-    Aid, AitpEnvelope, ExtensionsMap, MessageType, Sender, Timestamp, PROTOCOL_VERSION,
-};
+use aitp::core::{Aid, AitpEnvelope, ExtensionsMap, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -138,17 +136,16 @@ pub fn sign_envelope_js(
         Some(s) => crate::helpers::parse_strict_v4("message_id", s).map_err(Error::from_reason)?,
         None => Uuid::new_v4(),
     };
-    let envelope = AitpEnvelope {
-        version: PROTOCOL_VERSION.into(),
-        message_type,
-        message_id,
-        timestamp: opts.timestamp.map(Timestamp).unwrap_or_else(Timestamp::now),
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload,
-        extensions,
-        signature: String::new(),
+    let envelope = {
+        let mut envelope = AitpEnvelope::unsigned(
+            key.aid().clone(),
+            message_type,
+            payload,
+            message_id,
+            opts.timestamp.map(Timestamp).unwrap_or_else(Timestamp::now),
+        );
+        envelope.extensions = extensions;
+        envelope
     };
     // Refuses a non-v4 `message_id` and a negative `timestamp` before
     // signing: whatever a verifier rejects is not signed.

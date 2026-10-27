@@ -43,18 +43,12 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let now = Timestamp::now();
     let revoked_jti = Uuid::new_v4();
     let envelope = sign_revocation_list(
-        RevocationList {
-            version: "aitp/0.3".into(),
-            issuer: issuer.aid().clone(),
-            published_at: now,
-            expires_at: Timestamp(now.0 + 3600),
-            entries: vec![RevocationEntry {
-                jti: revoked_jti,
-                revoked_at: now,
-                reason: Some("test".into()),
-            }],
-            extensions: None,
-        },
+        RevocationList::new(
+            issuer.aid().clone(),
+            now,
+            Timestamp(now.0 + 3600),
+            vec![RevocationEntry::new(revoked_jti, now).with_reason("test")],
+        ),
         &issuer,
     )
     .unwrap();
@@ -62,17 +56,16 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let manifest = ManifestBuilder::new(&issuer)
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &issuer
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                aitp::core::base64url::encode(
+                    &issuer
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -121,18 +114,12 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
     let issuer = AitpSigningKey::from_seed(&[0x77; 32]);
     let now = Timestamp::now();
     let envelope = sign_revocation_list(
-        RevocationList {
-            version: "aitp/0.3".into(),
-            issuer: issuer.aid().clone(),
-            published_at: now,
-            expires_at: Timestamp(now.0 + 3600),
-            entries: vec![RevocationEntry {
-                jti: Uuid::new_v4(),
-                revoked_at: now,
-                reason: Some("wire-shape check".into()),
-            }],
-            extensions: None,
-        },
+        RevocationList::new(
+            issuer.aid().clone(),
+            now,
+            Timestamp(now.0 + 3600),
+            vec![RevocationEntry::new(Uuid::new_v4(), now).with_reason("wire-shape check")],
+        ),
         &issuer,
     )
     .unwrap();
@@ -140,17 +127,16 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
     let manifest = ManifestBuilder::new(&issuer)
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &issuer
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                aitp::core::base64url::encode(
+                    &issuer
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -209,12 +195,10 @@ fn advertising_manifest(issuer: &AitpSigningKey, origin: &url::Url) -> aitp::man
     ManifestBuilder::new(issuer)
         .display_name("issuer")
         .handshake_endpoint(origin.join("/aitp/handshake").unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "issuer".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "issuer")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .revocation_list_uri(origin.join(REVOCATION_LIST_PATH).unwrap())

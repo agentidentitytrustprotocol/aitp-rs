@@ -137,11 +137,8 @@ fn assert_backend_live(
 fn jose_backend_verifies_eddsa() {
     let pubkey = aitp::core::base64url::decode_strict_exact::<32>(EDDSA_PUBKEY_B64)
         .expect("fixture pubkey is 32 base64url-encoded bytes");
-    let key = JwkPublicKey {
-        kid: None,
-        alg: Some(JwsAlgorithm::EdDSA),
-        key: JwkKeyMaterial::Ed25519 { x: pubkey },
-    };
+    let key =
+        JwkPublicKey::new(JwkKeyMaterial::Ed25519 { x: pubkey }).with_alg(JwsAlgorithm::EdDSA);
     assert_backend_live(
         JwsAlgorithm::EdDSA,
         EDDSA_JWT,
@@ -155,11 +152,7 @@ fn jose_backend_verifies_eddsa() {
 fn jose_backend_verifies_es256() {
     let x = aitp::core::base64url::decode_strict_exact::<32>(ES256_X).expect("fixture x");
     let y = aitp::core::base64url::decode_strict_exact::<32>(ES256_Y).expect("fixture y");
-    let key = JwkPublicKey {
-        kid: None,
-        alg: Some(JwsAlgorithm::ES256),
-        key: JwkKeyMaterial::P256 { x, y },
-    };
+    let key = JwkPublicKey::new(JwkKeyMaterial::P256 { x, y }).with_alg(JwsAlgorithm::ES256);
     let jsonwebtoken_key =
         DecodingKey::from_ec_components(ES256_X, ES256_Y).expect("fixture P-256 components");
     assert_backend_live(
@@ -175,11 +168,7 @@ fn jose_backend_verifies_es256() {
 fn jose_backend_verifies_rs256() {
     let n = aitp::core::base64url::decode_strict(RS256_N).expect("fixture n");
     let e = aitp::core::base64url::decode_strict(RS256_E).expect("fixture e");
-    let key = JwkPublicKey {
-        kid: None,
-        alg: Some(JwsAlgorithm::RS256),
-        key: JwkKeyMaterial::Rsa { n, e },
-    };
+    let key = JwkPublicKey::new(JwkKeyMaterial::Rsa { n, e }).with_alg(JwsAlgorithm::RS256);
     let jsonwebtoken_key =
         DecodingKey::from_rsa_components(RS256_N, RS256_E).expect("fixture RSA components");
     assert_backend_live(

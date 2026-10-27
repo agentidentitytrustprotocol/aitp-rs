@@ -15,7 +15,7 @@
 //!
 //! Closes BLOCKED-SPEC-EXAMPLE (agentidentitytrustprotocol#5).
 
-use aitp::core::{base64url, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{DelegationBuilder, DelegationClaims};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
@@ -94,12 +94,10 @@ fn mint_manifest() {
     let mut manifest = ManifestBuilder::new(&key)
         .display_name("kat-keypair-001")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "kat-keypair-001".into(),
-            issuer: None,
-            public_key: Some(pubkey_b64),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "kat-keypair-001")
+                .with_public_key(pubkey_b64),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("macp.mode.task.v1")
@@ -115,12 +113,11 @@ fn mint_manifest() {
     //  - manifest signature over `sha256(JCS(manifest sans signature))`.
     let challenge_bytes = base64url::decode_strict_exact::<16>(FIXED_MANIFEST_POP_CHALLENGE)
         .expect("pinned challenge decodes to 16 bytes");
-    manifest.proof_of_possession = aitp::manifest::ManifestPop {
-        challenge: FIXED_MANIFEST_POP_CHALLENGE.into(),
-        signature: key
-            .sign_jcs(&aitp::crypto::Digest32::sha256(&challenge_bytes))
+    manifest.proof_of_possession = aitp::manifest::ManifestPop::new(
+        FIXED_MANIFEST_POP_CHALLENGE,
+        key.sign_jcs(&aitp::crypto::Digest32::sha256(&challenge_bytes))
             .into_string(),
-    };
+    );
     let mut unsigned = serde_json::to_value(&manifest).expect("manifest to value");
     unsigned.as_object_mut().unwrap().remove("signature");
     let canonical = aitp::core::jcs::canonicalize(&unsigned).expect("canonicalize manifest");
@@ -128,7 +125,7 @@ fn mint_manifest() {
         .sign_jcs(&aitp::crypto::Digest32::sha256(&canonical))
         .into_string();
 
-    let env = ManifestEnvelope { manifest };
+    let env = ManifestEnvelope::new(manifest);
     write_pretty(
         output_root().join("manifest/kat-keypair-001-manifest.json"),
         json!({
@@ -268,18 +265,16 @@ fn mint_delegation(voucher: &str) {
 
 fn mint_revocation_snapshot() {
     let issuer = key_from_hex(KAT_001_SEED_HEX);
-    let body = RevocationList {
-        version: PROTOCOL_VERSION.into(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(FIXED_NOW),
-        expires_at: Timestamp(FIXED_NOW + REVOCATION_TTL),
-        entries: vec![RevocationEntry {
-            jti: Uuid::parse_str(FIXED_REVOKED_JTI).unwrap(),
-            revoked_at: Timestamp(FIXED_NOW + 60),
-            reason: Some("key_compromised".into()),
-        }],
-        extensions: None,
-    };
+    let body = RevocationList::new(
+        issuer.aid().clone(),
+        Timestamp(FIXED_NOW),
+        Timestamp(FIXED_NOW + REVOCATION_TTL),
+        vec![RevocationEntry::new(
+            Uuid::parse_str(FIXED_REVOKED_JTI).unwrap(),
+            Timestamp(FIXED_NOW + 60),
+        )
+        .with_reason("key_compromised")],
+    );
     let env = sign_revocation_list(body, &issuer).expect("sign revocation");
     write_pretty(
         output_root().join("revocation/kat-keypair-001-snapshot.json"),

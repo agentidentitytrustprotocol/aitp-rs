@@ -85,12 +85,9 @@ pub(crate) fn respond(
         return Err("the challenge names a different TCT".into());
     }
     let response = sign_pop_response(
-        &PopChallenge {
-            tct_jti: jti,
-            nonce: payload.nonce,
-            // Not part of the signing input; the peer enforces expiry.
-            expires_at: Timestamp::now(),
-        },
+        // `expires_at` is not part of the signing input; the peer
+        // enforces expiry.
+        &PopChallenge::new(jti, payload.nonce, Timestamp::now()),
         key,
     )
     .map_err(|e| e.to_string())?;

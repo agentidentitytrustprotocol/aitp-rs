@@ -89,18 +89,12 @@ async fn main() {
     let revoked_jti = Uuid::new_v4();
 
     let snapshot = sign_revocation_list(
-        RevocationList {
-            version: aitp::core::PROTOCOL_VERSION.into(),
-            issuer: issuer.aid().clone(),
-            published_at: now,
-            expires_at: Timestamp(now.0 + 3600),
-            entries: vec![RevocationEntry {
-                jti: revoked_jti,
-                revoked_at: now,
-                reason: Some("compromised".into()),
-            }],
-            extensions: None,
-        },
+        RevocationList::new(
+            issuer.aid().clone(),
+            now,
+            Timestamp(now.0 + 3600),
+            vec![RevocationEntry::new(revoked_jti, now).with_reason("compromised")],
+        ),
         &issuer,
     )
     .expect("sign snapshot");
@@ -108,17 +102,16 @@ async fn main() {
     let manifest = ManifestBuilder::new(&issuer)
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &issuer
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                aitp::core::base64url::encode(
+                    &issuer
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         // RFC-AITP-0005 §11: a TCT issuer MUST advertise its ListRevoked

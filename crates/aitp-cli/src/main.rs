@@ -423,8 +423,8 @@ fn tct_verify(
 
 fn manifest_verify(json: &str, at: Option<i64>) -> CliResult {
     let env: ManifestEnvelope = serde_json::from_str(json)?;
-    let ctx = at.map_or_else(VerifyManifestContext::now, |t| VerifyManifestContext {
-        now: Timestamp(t),
+    let ctx = at.map_or_else(VerifyManifestContext::now, |t| {
+        VerifyManifestContext::at(Timestamp(t))
     });
     verify_manifest(&env.manifest, &ctx)?;
     let m = &env.manifest;

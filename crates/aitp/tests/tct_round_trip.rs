@@ -374,11 +374,7 @@ fn revocation_unavailable_is_distinct_from_revoked() {
 fn pop_challenge_response_round_trip() {
     let subject = subject_key();
     let issued = issue_at(Timestamp(1_700_000_000));
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: "A".repeat(22),
-        expires_at: Timestamp(1_700_000_300),
-    };
+    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(1_700_000_300));
     let response = sign_pop_response(&challenge, &subject).unwrap();
     verify_pop_response(
         &challenge,
@@ -393,11 +389,7 @@ fn pop_challenge_response_round_trip() {
 fn pop_response_with_wrong_nonce_fails() {
     let subject = subject_key();
     let issued = issue_at(Timestamp(1_700_000_000));
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: "A".repeat(22),
-        expires_at: Timestamp(1_700_000_300),
-    };
+    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(1_700_000_300));
     let mut response = sign_pop_response(&challenge, &subject).unwrap();
     response.nonce_echo = "B".repeat(22);
     let err = verify_pop_response(
@@ -414,11 +406,7 @@ fn pop_response_with_wrong_nonce_fails() {
 fn pop_response_with_wrong_jti_fails() {
     let subject = subject_key();
     let issued = issue_at(Timestamp(1_700_000_000));
-    let challenge = PopChallenge {
-        tct_jti: Uuid::new_v4(),
-        nonce: "A".repeat(22),
-        expires_at: Timestamp(1_700_000_300),
-    };
+    let challenge = PopChallenge::new(Uuid::new_v4(), "A".repeat(22), Timestamp(1_700_000_300));
     let response = sign_pop_response(&challenge, &subject).unwrap();
     let err = verify_pop_response(
         &challenge,
@@ -540,11 +528,11 @@ fn p256_issuer_and_subject_round_trip_and_pop() {
         .unwrap();
     verify_tct(&issued.token, &ctx).expect("p256 TCT verifies");
 
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: base64url::encode(&[0x55u8; 16]),
-        expires_at: Timestamp(now.0 + 60),
-    };
+    let challenge = PopChallenge::new(
+        issued.claims.jti,
+        base64url::encode(&[0x55u8; 16]),
+        Timestamp(now.0 + 60),
+    );
     let response = sign_pop_response(&challenge, &subject).expect("p256 pop sign ok");
     verify_pop_response(&challenge, &response, &issued.claims, now).expect("p256 pop verifies");
 }

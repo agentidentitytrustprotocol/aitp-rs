@@ -83,12 +83,10 @@ fn main() {
     // RFC-AITP-0007); here B publishes one in place.
     let b_manifest = ManifestBuilder::new(&b)
         .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: "agent-b".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+                .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(now)
         .ttl_secs(3600)

@@ -25,6 +25,17 @@ While aitp-rs is pre-1.0:
 
 At 1.0 the usual rules take over, with breaking changes in a major release.
 
+### Decision and outcome enums are exhaustive on purpose
+
+`HandshakeRevocationDecision`, `RevocationOutcome`, `KeyResolutionOutcome`
+and `RateLimitOutcome` report a security or admission decision. They are
+not `#[non_exhaustive]`, so a caller's `match` must name every outcome and
+cannot let a new one fall into a wildcard arm that admits or ignores it.
+Adding a variant to one of them is therefore always a breaking change: a
+**major** release from 1.0 on (the next minor before it). A new decision
+or outcome enum follows the same rule, and is listed as `exhaustive` with
+that reason in [`docs/api-classification.md`](docs/api-classification.md).
+
 The published crates (`aitp`, `aitp-experimental` and `aitp-cli`) ship in
 lockstep at one shared version, so a breaking change anywhere in the stable
 surface bumps the minor digit of every crate.
@@ -106,6 +117,12 @@ leg and `cargo-msrv`).
   - [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt)
     lists what each unstable feature adds to the stable surface. It
     carries no promise, and changes to it never count as breaks.
+- **`aitp public API snapshot and classification`** also checks that
+  every public struct and enum in the stable surface is classified in
+  [`docs/api-classification.md`](docs/api-classification.md) as
+  `non_exhaustive`, `private fields` or `exhaustive`, and that each
+  exhaustive one has a reason (`make api-classification-check`). Only an
+  exhaustive type can gain a field or variant as a breaking change.
 - **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
   lints and tests `aitp` and `aitp-experimental` with each feature on its
   own (`cargo hack --each-feature`), and

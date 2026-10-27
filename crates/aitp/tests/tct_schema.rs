@@ -120,18 +120,15 @@ fn regex_lite() -> impl Fn(&str) -> bool {
 #[test]
 fn signed_revocation_list_validates_against_spec_schema() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
-    let body = RevocationList {
-        version: "aitp/0.3".into(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(1_700_000_000),
-        expires_at: Timestamp(1_700_003_600),
-        entries: vec![RevocationEntry {
-            jti: Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
-            revoked_at: Timestamp(1_700_001_000),
-            reason: None,
-        }],
-        extensions: None,
-    };
+    let body = RevocationList::new(
+        issuer.aid().clone(),
+        Timestamp(1_700_000_000),
+        Timestamp(1_700_003_600),
+        vec![RevocationEntry::new(
+            Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap(),
+            Timestamp(1_700_001_000),
+        )],
+    );
     let env = sign_revocation_list(body, &issuer).unwrap();
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate_against(&value, schema_path_for("aitp-revocation-list.schema.json")) {
@@ -142,14 +139,12 @@ fn signed_revocation_list_validates_against_spec_schema() {
 #[test]
 fn empty_entries_revocation_list_validates() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
-    let body = RevocationList {
-        version: "aitp/0.3".into(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(1_700_000_000),
-        expires_at: Timestamp(1_700_003_600),
-        entries: vec![],
-        extensions: None,
-    };
+    let body = RevocationList::new(
+        issuer.aid().clone(),
+        Timestamp(1_700_000_000),
+        Timestamp(1_700_003_600),
+        vec![],
+    );
     let env = sign_revocation_list(body, &issuer).unwrap();
     let value = serde_json::to_value(&env).unwrap();
     if let Err(e) = validate_against(&value, schema_path_for("aitp-revocation-list.schema.json")) {
@@ -160,13 +155,15 @@ fn empty_entries_revocation_list_validates() {
 #[test]
 fn revocation_list_with_present_but_empty_extensions_validates_against_spec_schema() {
     let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
-    let body = RevocationList {
-        version: "aitp/0.3".into(),
-        issuer: issuer.aid().clone(),
-        published_at: Timestamp(1_700_000_000),
-        expires_at: Timestamp(1_700_003_600),
-        entries: vec![],
-        extensions: Some(ExtensionsMap::new()),
+    let body = {
+        let mut list = RevocationList::new(
+            issuer.aid().clone(),
+            Timestamp(1_700_000_000),
+            Timestamp(1_700_003_600),
+            vec![],
+        );
+        list.extensions = Some(ExtensionsMap::new());
+        list
     };
     let env = sign_revocation_list(body, &issuer).unwrap();
     let value = serde_json::to_value(&env).unwrap();

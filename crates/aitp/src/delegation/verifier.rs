@@ -37,6 +37,7 @@ pub type HopRevocationCheck<'a> = &'a (dyn Fn(&Aid, &Uuid) -> Result<bool, Deleg
 /// There is deliberately no `Default`: with no source a revoked source
 /// TCT is accepted, so the caller names one of the two choices.
 #[derive(Clone, Copy)]
+#[non_exhaustive]
 pub enum DelegationRevocation<'a> {
     /// Check `voucher.src_jti` with this hook after every signature
     /// check. A multi-hop chain additionally needs

@@ -59,8 +59,7 @@ fn minted_manifest_verifies() {
         return;
     };
     let m: Manifest = serde_json::from_value(v["manifest"].clone()).unwrap();
-    verify_manifest(&m, &VerifyManifestContext { now: fixed_now() })
-        .expect("minted manifest verifies");
+    verify_manifest(&m, &VerifyManifestContext::at(fixed_now())).expect("minted manifest verifies");
 }
 
 #[test]
@@ -119,12 +118,13 @@ fn minted_delegation_verifies() {
     assert_eq!(b_key.aid(), &kat_002_aid());
     let b_manifest = aitp::manifest::ManifestBuilder::new(&b_key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(aitp::manifest::IdentityHint {
-            kind: aitp::manifest::IdentityHintKind::Oidc,
-            subject: "kat-keypair-002".into(),
-            issuer: Some("https://idp.example.com".parse().unwrap()),
-            public_key: None,
-        })
+        .identity_hint(
+            aitp::manifest::IdentityHint::new(
+                aitp::manifest::IdentityHintKind::Oidc,
+                "kat-keypair-002",
+            )
+            .with_issuer("https://idp.example.com".parse().unwrap()),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(Timestamp(fixed_now().0 - 100))
         .ttl_secs(3600)

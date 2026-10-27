@@ -47,16 +47,15 @@ fn manifest_with_revocation(
     builder
         .display_name(name)
         .handshake_endpoint(handshake_endpoint.parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -98,10 +97,9 @@ async fn spawn_bob_with(
         NoOpResolver,
         vec!["demo.echo".into()],
     )
-    .with_revocation_policy(RevocationPolicy {
-        fail_mode: RevocationFailMode::FailOpen,
-        ..Default::default()
-    });
+    .with_revocation_policy(
+        RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+    );
     if reject_initiator {
         // Empty pinned store ⇒ no pinned-key peer is trusted ⇒ reject.
         handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::default()));
@@ -204,10 +202,9 @@ async fn facade_fails_closed_without_peer_revocation_list() {
         "got {err:?}"
     );
 
-    run_initiator_handshake(config().with_revocation_policy(RevocationPolicy {
-        fail_mode: RevocationFailMode::FailOpen,
-        ..Default::default()
-    }))
+    run_initiator_handshake(config().with_revocation_policy(
+        RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+    ))
     .await
     .expect("fail_open admits the peer");
 }

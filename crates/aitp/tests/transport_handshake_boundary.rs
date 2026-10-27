@@ -26,16 +26,15 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp::manifest::Manifest {
     ManifestBuilder::new(key)
         .display_name(name)
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -110,9 +109,7 @@ async fn stale_timestamp_returns_timestamp_expired() {
         Timestamp(Timestamp::now().0 - 7200), // 2 h in the past
     )
     .unwrap();
-    envelope.sender = Sender {
-        agent_id: key.aid().clone(),
-    };
+    envelope.sender = Sender::new(key.aid().clone());
     let resp = reqwest::Client::new()
         .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
         .json(&envelope)

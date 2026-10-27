@@ -1,6 +1,6 @@
 //! Full Mutual Handshake — both peers in-process, pinned-key identity.
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
@@ -33,16 +33,15 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -58,18 +57,8 @@ fn envelope_with(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: sender.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let mut envelope =
+        AitpEnvelope::unsigned(sender.aid().clone(), mt, payload, message_id, timestamp);
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = sender
         .sign_jcs(&aitp::crypto::Digest32::from(digest))
@@ -542,17 +531,16 @@ fn insufficient_grants_aborts() {
     let alice_manifest = ManifestBuilder::new(&alice)
         .display_name("alice")
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "alice".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &alice
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+                aitp::core::base64url::encode(
+                    &alice
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -641,18 +629,13 @@ fn insufficient_grants_aborts() {
 #[test]
 fn envelope_signing_input_round_trips() {
     let alice = alice_key();
-    let envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: MessageType::Tct,
-        message_id: Uuid::nil(),
-        timestamp: Timestamp(1),
-        sender: Sender {
-            agent_id: alice.aid().clone(),
-        },
-        payload: json!({"hello": "world"}),
-        extensions: None,
-        signature: String::new(),
-    };
+    let envelope = AitpEnvelope::unsigned(
+        alice.aid().clone(),
+        MessageType::Tct,
+        json!({"hello": "world"}),
+        Uuid::nil(),
+        Timestamp(1),
+    );
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     let sig = alice.sign_jcs(&aitp::crypto::Digest32::from(digest));
     // Verify with the verifying key.

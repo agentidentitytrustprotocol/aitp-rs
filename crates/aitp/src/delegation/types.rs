@@ -25,6 +25,7 @@ use uuid::Uuid;
 /// and MUST be absent on the outer token.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct DelegationClaims {
     /// Protocol version private claim. MUST be `"aitp/0.3"`.
     pub ver: String,
@@ -97,6 +98,7 @@ pub const DELEGATION_CLAIMS_MEMBERS: &[&str] = &[
 /// verbatim outer token, its trusted claims, and the root voucher's
 /// claims (the authority the chain bottomed out in).
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct VerifiedDelegation {
     /// The outer compact JWS, byte-for-byte as presented.
     pub token: String,

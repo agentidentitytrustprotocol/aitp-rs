@@ -259,7 +259,7 @@ jobs:
         run: docker logs peer || true
 
   public-api:
-    name: aitp public API snapshot
+    name: aitp public API snapshot and classification
     runs-on: ubuntu-latest
     # The curated facade surface (RS1.5) is frozen, with signatures, in
     # crates/aitp/public-api.{stable,experimental}.txt; any added, removed
@@ -274,6 +274,9 @@ jobs:
       - name: Install cargo-public-api
         run: cargo +nightly-2026-05-05 install --locked cargo-public-api@0.52.0
       - run: make public-api-check
+      # Every stable struct and enum is classified in
+      # docs/api-classification.md (RS-RC3).
+      - run: make api-classification-check
 
   msrv:
     name: cargo-msrv (workspace)

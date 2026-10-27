@@ -190,6 +190,7 @@ impl Default for RenewalConfig {
 /// `sender` is unauthenticated at that point, so §3.1 forbids it from
 /// being the only key.
 #[derive(Clone, Debug)]
+#[non_exhaustive]
 pub struct RateLimitConfig {
     /// Max requests per transport source in any rolling 60 s window.
     pub requests_per_source_per_60s: u32,
@@ -210,6 +211,24 @@ impl RateLimitConfig {
     /// RFC-AITP-0009 §3.1 recommended handshake requests per initiator
     /// AID per 60 s.
     pub const RECOMMENDED_PER_AID: u32 = 10;
+
+    /// Set `requests_per_source_per_60s`.
+    pub fn with_requests_per_source_per_60s(mut self, n: u32) -> Self {
+        self.requests_per_source_per_60s = n;
+        self
+    }
+
+    /// Set `requests_per_aid_per_60s`; `None` turns the per-AID limit off.
+    pub fn with_requests_per_aid_per_60s(mut self, n: Option<u32>) -> Self {
+        self.requests_per_aid_per_60s = n;
+        self
+    }
+
+    /// Set `trusted_proxies`.
+    pub fn with_trusted_proxies(mut self, proxies: Vec<TrustedProxy>) -> Self {
+        self.trusted_proxies = proxies;
+        self
+    }
 }
 
 impl Default for RateLimitConfig {

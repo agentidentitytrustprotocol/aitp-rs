@@ -42,14 +42,11 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
         .display_name("peer")
         .handshake_endpoint(format!("{origin}/aitp/handshake/").parse().unwrap())
         .revocation_list_uri(format!("{origin}{REVOCATION_LIST_PATH}").parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "peer".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key().to_compressed(),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "peer").with_public_key(
+                aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .build()
@@ -68,10 +65,9 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
         vec!["demo.echo".into()],
     )
     // The CLI publishes no revocation list of its own.
-    .with_revocation_policy(RevocationPolicy {
-        fail_mode: RevocationFailMode::FailOpen,
-        ..Default::default()
-    })
+    .with_revocation_policy(
+        RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
+    )
     .with_pinned_key_store(Arc::new(trusted));
     let app = ManifestServer::new(manifest)
         .router()

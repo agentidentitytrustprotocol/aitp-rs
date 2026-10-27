@@ -1,6 +1,7 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
         deny audit msrv semver coverage schemas-check ci \
-        check-versions sync-versions docs-check public-api public-api-check
+        check-versions sync-versions docs-check public-api public-api-check \
+        api-classification api-classification-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -77,6 +78,17 @@ public-api:
 public-api-check:
 	@command -v cargo-public-api >/dev/null || { echo "cargo-public-api missing: cargo install --locked cargo-public-api@0.52.0"; exit 1; }
 	python3 scripts/public-api.py check
+
+# docs/api-classification.md: the class of every public struct and enum
+# in the stable surface (RS-RC3). `api-classification` regenerates the
+# table, keeping its reasons; `api-classification-check` fails on an
+# unclassified type, a wrong class or an exhaustive type with no reason
+# (CI runs it). Needs the same pinned nightly as public-api.
+api-classification:
+	python3 scripts/api-classification.py generate
+
+api-classification-check:
+	python3 scripts/api-classification.py check
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a

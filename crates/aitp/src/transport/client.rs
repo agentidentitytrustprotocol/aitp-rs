@@ -14,6 +14,7 @@ use url::Url;
 
 /// Errors from `ManifestFetcher::fetch`.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum FetchError {
     /// URL was not HTTPS, or its host is (or resolves to) an address
     /// the configured [`crate::transport::net_guard::HostGuard`] forbids. The
@@ -445,6 +446,7 @@ impl Default for ManifestFetcher {
 
 /// Errors from `JwksFetcher::resolve`.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum JwksFetcherError {
     /// URL was not HTTPS.
     #[error("issuer URL must be HTTPS")]

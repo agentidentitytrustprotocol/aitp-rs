@@ -14,7 +14,7 @@
 //! convention change then crossed a whole release family with one accidental
 //! interlock standing in its way. That was one missing binding, three times.
 
-use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::tct::{
     revocation_signing_bytes, sign_revocation_list, verify_revocation_list, RevocationEntry,
@@ -128,10 +128,10 @@ fn parse_entries(entries: &Bound<'_, PyList>, now: Timestamp) -> PyResult<Vec<Re
             })?),
         };
 
-        out.push(RevocationEntry {
-            jti,
-            revoked_at,
-            reason,
+        out.push({
+            let mut entry = RevocationEntry::new(jti, revoked_at);
+            entry.reason = reason;
+            entry
         });
     }
     Ok(out)
@@ -146,14 +146,12 @@ pub fn sign_revocation_list_py(
 ) -> PyResult<String> {
     let now = Timestamp::now();
     let parsed = parse_entries(entries, now)?;
-    let body = RevocationList {
-        version: PROTOCOL_VERSION.into(),
-        issuer: issuer_key.aid().clone(),
-        published_at: now,
-        expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
-        entries: parsed,
-        extensions: None,
-    };
+    let body = RevocationList::new(
+        issuer_key.aid().clone(),
+        now,
+        Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),
+        parsed,
+    );
     let envelope = sign_revocation_list(body, issuer_key)
         .map_err(|e| PyRuntimeError::new_err(format!("sign_revocation_list failed: {e}")))?;
     serde_json::to_string(&envelope).map_err(|e| PyRuntimeError::new_err(e.to_string()))

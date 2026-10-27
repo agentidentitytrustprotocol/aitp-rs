@@ -358,6 +358,7 @@ impl StaticPinnedKeyStore {
 }
 
 /// Inputs for verifying a pinned-key identity proof.
+#[non_exhaustive]
 pub struct PinnedKeyVerifyContext<'a> {
     /// The sender's AID (per `envelope.sender.agent_id`).
     pub sender_aid: &'a Aid,

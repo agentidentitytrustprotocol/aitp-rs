@@ -127,11 +127,11 @@ pub fn new_pop_challenge_js(tct_token: &str, ttl_secs: i64) -> Result<String> {
     rand::rngs::SysRng
         .try_fill_bytes(&mut nonce)
         .map_err(|e| Error::from_reason(format!("rng failure: {e}")))?;
-    let challenge = PopChallenge {
-        tct_jti: claims.jti,
-        nonce: base64url::encode(&nonce),
-        expires_at: Timestamp::now().plus_secs(ttl_secs),
-    };
+    let challenge = PopChallenge::new(
+        claims.jti,
+        base64url::encode(&nonce),
+        Timestamp::now().plus_secs(ttl_secs),
+    );
     serde_json::to_string(&challenge).map_err(|e| Error::from_reason(e.to_string()))
 }
 
@@ -158,11 +158,11 @@ pub fn sign_pop_response_js(
             "PoP challenge stale: expired".into(),
         ));
     }
-    let challenge = PopChallenge {
-        tct_jti: received.tct_jti,
-        nonce: received.nonce,
-        expires_at: received.expires_at.unwrap_or(now),
-    };
+    let challenge = PopChallenge::new(
+        received.tct_jti,
+        received.nonce,
+        received.expires_at.unwrap_or(now),
+    );
     let response = aitp::tct::sign_pop_response(&challenge, holder_key)
         .map_err(|e| Error::from_reason(format!("PoP signing failed: {e}")))?;
     serde_json::to_string(&response).map_err(|e| Error::from_reason(e.to_string()))

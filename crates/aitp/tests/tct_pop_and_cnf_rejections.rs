@@ -86,11 +86,7 @@ fn pop_with_forged_signature_rejected() {
     let subject = subject_key();
     let rogue = AitpSigningKey::from_seed(&[0xEE; 32]);
     let issued = issue();
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: "A".repeat(22),
-        expires_at: Timestamp(NOW.0 + 300),
-    };
+    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(NOW.0 + 300));
     // Sign with the rogue key; jti/nonce_echo still come from `challenge`.
     let response = sign_pop_response(&challenge, &rogue).unwrap();
     assert_ne!(rogue.aid(), subject.aid());
@@ -111,11 +107,7 @@ fn pop_with_forged_signature_rejected() {
 fn pop_past_challenge_expiry_rejected() {
     let subject = subject_key();
     let issued = issue();
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: "A".repeat(22),
-        expires_at: Timestamp(NOW.0 + 50),
-    };
+    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(NOW.0 + 50));
     let response = sign_pop_response(&challenge, &subject).unwrap();
     // Verify strictly after the challenge window closes.
     let err = verify_pop_response(

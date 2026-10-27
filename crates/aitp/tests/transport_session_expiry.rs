@@ -30,16 +30,15 @@ fn manifest_for(
     ManifestBuilder::new(key)
         .display_name(name)
         .handshake_endpoint(handshake_endpoint.parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -72,10 +71,10 @@ async fn commit_after_session_ttl_is_rejected() {
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))
     // Session TTL is under test, not revocation: opt out of fail_closed.
-    .with_revocation_policy(aitp::transport::RevocationPolicy {
-        fail_mode: aitp::transport::RevocationFailMode::FailOpen,
-        ..Default::default()
-    });
+    .with_revocation_policy(
+        aitp::transport::RevocationPolicy::default()
+            .with_fail_mode(aitp::transport::RevocationFailMode::FailOpen),
+    );
     let app = server.router();
 
     let server_task = tokio::spawn(async move {
@@ -201,10 +200,10 @@ async fn fresh_session_within_ttl_is_accepted() {
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))
     // Session TTL is under test, not revocation: opt out of fail_closed.
-    .with_revocation_policy(aitp::transport::RevocationPolicy {
-        fail_mode: aitp::transport::RevocationFailMode::FailOpen,
-        ..Default::default()
-    });
+    .with_revocation_policy(
+        aitp::transport::RevocationPolicy::default()
+            .with_fail_mode(aitp::transport::RevocationFailMode::FailOpen),
+    );
     let app = server.router();
 
     let server_task = tokio::spawn(async move {

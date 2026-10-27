@@ -85,22 +85,15 @@ fn kms_backend_signs_pop_response_and_revocation_list() {
     let holder = MockKmsSigner::new(p256(0x42)).output(MockOutput::DerHighS);
     let issued = holder_tct(&issuer, &holder, now);
 
-    let challenge = PopChallenge {
-        tct_jti: issued.claims.jti,
-        nonce: base64url::encode(&[7u8; 16]),
-        expires_at: Timestamp(now.0 + 60),
-    };
+    let challenge = PopChallenge::new(
+        issued.claims.jti,
+        base64url::encode(&[7u8; 16]),
+        Timestamp(now.0 + 60),
+    );
     let resp = sign_pop_response(&challenge, &holder).expect("KMS PoP signs");
     verify_pop_response(&challenge, &resp, &issued.claims, now).expect("KMS PoP verifies");
 
-    let body = RevocationList {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        issuer: issuer.aid().clone(),
-        published_at: now,
-        expires_at: Timestamp(now.0 + 600),
-        entries: vec![],
-        extensions: None,
-    };
+    let body = RevocationList::new(issuer.aid().clone(), now, Timestamp(now.0 + 600), vec![]);
     let env = sign_revocation_list(body, &issuer).expect("KMS revocation list signs");
     verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer.aid(), now))
         .expect("KMS revocation list verifies");

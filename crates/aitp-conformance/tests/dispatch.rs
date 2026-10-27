@@ -271,18 +271,16 @@ mod single_hop_revocation_check {
     fn b_manifest() -> Value {
         let manifest = ManifestBuilder::new(&b())
             .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject: "b".into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
-                public_key: None,
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::Oidc, "b")
+                    .with_issuer("https://idp.example.com".parse().unwrap()),
+            )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(NOW))
             .ttl_secs(3600)
             .build()
             .unwrap();
-        serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
+        serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
     }
 
     #[test]
@@ -518,18 +516,16 @@ mod session_bundle_wire_shape {
         let manifest = ManifestBuilder::new(key)
             .display_name("coordinator")
             .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
-                subject: "coordinator".into(),
-                issuer: None,
-                public_key: Some(key.aid().identifier().to_string()),
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+                    .with_public_key(key.aid().identifier().to_string()),
+            )
             .offer("session.coordinate")
             .published_at(Timestamp(NOW))
             .ttl_secs(ttl_secs)
             .build()
             .unwrap();
-        serde_json::to_value(ManifestEnvelope { manifest }).unwrap()
+        serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
     }
 
     /// RFC-AITP-0010 §5 step 5 (issues #197, #238): the
@@ -729,11 +725,11 @@ mod verify_tct_as_issuer {
     }
 
     fn challenge(jti: &str, expires_at: i64) -> PopChallenge {
-        PopChallenge {
-            tct_jti: jti.parse().unwrap(),
-            nonce: "ISIjJCUmJygpKissLS4vMA".into(),
-            expires_at: Timestamp(expires_at),
-        }
+        PopChallenge::new(
+            jti.parse().unwrap(),
+            "ISIjJCUmJygpKissLS4vMA",
+            Timestamp(expires_at),
+        )
     }
 
     /// A `pop_response` envelope from `sender`, the PoP signed by `pop_key`.

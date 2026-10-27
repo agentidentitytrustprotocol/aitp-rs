@@ -43,14 +43,11 @@ fn manifest(advertise: bool, manifest_ttl: i64) -> Manifest {
     let mut b = ManifestBuilder::new(&key)
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "issuer".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key().try_to_ed25519_bytes().unwrap(),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+                base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
+            ),
+        )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .offer("demo.write")
@@ -177,18 +174,12 @@ async fn revoked_tct_is_refused() {
     let now = Timestamp::now();
     let current = tct(&key, &holder, &["demo.echo"], now, 600);
     let list = sign_revocation_list(
-        RevocationList {
-            version: "aitp/0.3".into(),
-            issuer: key.aid().clone(),
-            published_at: now,
-            expires_at: Timestamp(now.0 + 3600),
-            entries: vec![RevocationEntry {
-                jti: current.claims.jti,
-                revoked_at: now,
-                reason: None,
-            }],
-            extensions: None,
-        },
+        RevocationList::new(
+            key.aid().clone(),
+            now,
+            Timestamp(now.0 + 3600),
+            vec![RevocationEntry::new(current.claims.jti, now)],
+        ),
         &key,
     )
     .unwrap();

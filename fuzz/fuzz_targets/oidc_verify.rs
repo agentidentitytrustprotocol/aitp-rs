@@ -51,15 +51,15 @@ fn verify(identity: &IdentityDescriptor) {
     let receiver = Aid::parse(RECEIVER).expect("valid AID");
     let subject = Aid::parse(SUBJECT).expect("valid AID");
     let anchors = [RawUrl::new(ISSUER)];
-    let ctx = OidcVerifyContext {
-        expected_audience: &receiver,
-        expected_nonce: "AQIDBAUGBwgJCgsMDQ4PEA",
-        trust_anchors: &anchors,
-        jwks_resolver: &KatIssuer,
-        subject_aid: &subject,
-        iat_tolerance_secs: 300,
-        now_unix_secs: NOW,
-    };
+    let ctx = OidcVerifyContext::new(
+        &receiver,
+        "AQIDBAUGBwgJCgsMDQ4PEA",
+        &anchors,
+        &KatIssuer,
+        &subject,
+        300,
+        NOW,
+    );
     let _ = verify_oidc(identity, &ctx);
 }
 

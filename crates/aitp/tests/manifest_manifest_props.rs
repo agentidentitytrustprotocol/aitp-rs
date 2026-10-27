@@ -33,16 +33,15 @@ fn build_manifest(seed: u8, caps: &[String], ttl: i64) -> Manifest {
     let key = AitpSigningKey::from_seed(&[seed; 32]);
     let mut b = ManifestBuilder::new(&key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "subj".into(),
-            issuer: None,
-            public_key: Some(base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "subj").with_public_key(
+                base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .ttl_secs(ttl)
         .published_at(NOW);

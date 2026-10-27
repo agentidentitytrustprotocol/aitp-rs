@@ -20,6 +20,7 @@ use uuid::Uuid;
 /// PoP challenge sent by a consuming peer.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PopChallenge {
     /// JTI of the TCT being challenged.
     pub tct_jti: Uuid,
@@ -29,9 +30,22 @@ pub struct PopChallenge {
     pub expires_at: Timestamp,
 }
 
+impl PopChallenge {
+    /// A challenge for the TCT `tct_jti`, with `nonce`, valid until
+    /// `expires_at`.
+    pub fn new(tct_jti: Uuid, nonce: impl Into<String>, expires_at: Timestamp) -> Self {
+        Self {
+            tct_jti,
+            nonce: nonce.into(),
+            expires_at,
+        }
+    }
+}
+
 /// PoP response signed by the TCT holder.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
+#[non_exhaustive]
 pub struct PopResponse {
     /// JTI of the TCT being proven.
     pub tct_jti: Uuid,

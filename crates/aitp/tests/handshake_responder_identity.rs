@@ -11,7 +11,7 @@
 //! responder's grant_policy receives the same `IdentityDescriptor` the
 //! initiator presented, not a placeholder.
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::state_machine::GrantPolicyFn;
 use aitp::handshake::{IdentityDescriptor, IdentityKind};
@@ -38,16 +38,15 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: name.into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
@@ -64,18 +63,8 @@ fn envelope_with(
     message_id: Uuid,
     timestamp: Timestamp,
 ) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: sender.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let mut envelope =
+        AitpEnvelope::unsigned(sender.aid().clone(), mt, payload, message_id, timestamp);
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = sender
         .sign_jcs(&aitp::crypto::Digest32::from(digest))

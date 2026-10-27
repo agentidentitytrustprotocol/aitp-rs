@@ -83,6 +83,7 @@ pub fn envelope(json: &str) -> Result<AitpEnvelope, WireError> {
         EnvelopeParseError::UnknownVersion(v) => WireError::UnknownVersion(v),
         EnvelopeParseError::UnknownField(field) => WireError::UnknownField(field),
         EnvelopeParseError::Malformed(msg) => WireError::Malformed(msg),
+        other => WireError::Malformed(other.to_string()),
     })
 }
 

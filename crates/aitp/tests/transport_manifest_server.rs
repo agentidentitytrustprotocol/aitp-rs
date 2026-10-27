@@ -16,16 +16,15 @@ async fn round_trip_manifest_server() {
     let manifest = ManifestBuilder::new(&key)
         .display_name("server-side")
         .handshake_endpoint("https://localhost:9000/aitp/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "server-side".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &key.verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "server-side").with_public_key(
+                aitp::core::base64url::encode(
+                    &key.verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .accept_identity_type("pinned_key")
         .offer("demo.echo")

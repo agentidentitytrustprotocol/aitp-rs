@@ -76,26 +76,21 @@ impl MockOidcIssuer {
     /// Build a `JwkPublicKey` matching this issuer's public key, suitable
     /// for inclusion in a `MockJwksResolver`.
     pub fn as_jwk(&self) -> JwkPublicKey {
-        JwkPublicKey {
-            kid: Some(self.kid.clone()),
-            alg: Some(JwsAlgorithm::EdDSA),
-            key: JwkKeyMaterial::Ed25519 {
-                x: self.pubkey_bytes(),
-            },
-        }
+        JwkPublicKey::new(JwkKeyMaterial::Ed25519 {
+            x: self.pubkey_bytes(),
+        })
+        .with_kid(self.kid.clone())
+        .with_alg(JwsAlgorithm::EdDSA)
     }
 
     /// Like [`Self::as_jwk`] but with `kid: None`, so the resolved key
     /// only matches a JWT that has no `kid` (single-key fallback).
     #[allow(dead_code)]
     pub fn as_jwk_no_kid(&self) -> JwkPublicKey {
-        JwkPublicKey {
-            kid: None,
-            alg: Some(JwsAlgorithm::EdDSA),
-            key: JwkKeyMaterial::Ed25519 {
-                x: self.pubkey_bytes(),
-            },
-        }
+        JwkPublicKey::new(JwkKeyMaterial::Ed25519 {
+            x: self.pubkey_bytes(),
+        })
+        .with_alg(JwsAlgorithm::EdDSA)
     }
 
     /// Convenience: construct a resolver that returns *only* this

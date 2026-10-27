@@ -22,6 +22,7 @@ use std::str::FromStr;
 /// whose own `alg` is anything else is rejected during parsing
 /// ([`JwkPublicKey::from_jwk_json`]), not silently accepted here.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum JwsAlgorithm {
     /// EdDSA (Ed25519), RFC 8037.
     EdDSA,
@@ -121,6 +122,7 @@ impl FromStr for JwsAlgorithm {
 /// modulus/exponent pair — each exactly as carried on the wire in an
 /// RFC 7517 JWK, just base64url-decoded.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum JwkKeyMaterial {
     /// Ed25519 (`OKP`/`Ed25519`) public key: the raw 32-byte point.
     Ed25519 {
@@ -161,6 +163,7 @@ pub enum JwkKeyMaterial {
 /// A single JWK entry returned by [`crate::handshake::JwksResolver`] — owned key
 /// material with no dependency on any JOSE library's types.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct JwkPublicKey {
     /// Key identifier matching the JWT header `kid`.
     pub kid: Option<String>,
@@ -187,6 +190,27 @@ pub enum JwkParseError {
 }
 
 impl JwkPublicKey {
+    /// A key with no `kid` and no `alg`.
+    pub fn new(key: JwkKeyMaterial) -> Self {
+        Self {
+            kid: None,
+            alg: None,
+            key,
+        }
+    }
+
+    /// Set `kid`.
+    pub fn with_kid(mut self, kid: impl Into<String>) -> Self {
+        self.kid = Some(kid.into());
+        self
+    }
+
+    /// Set `alg`, which pins the key to that algorithm.
+    pub fn with_alg(mut self, alg: JwsAlgorithm) -> Self {
+        self.alg = Some(alg);
+        self
+    }
+
     /// Parse a single RFC 7517 JWK JSON value into an owned
     /// [`JwkPublicKey`].
     ///

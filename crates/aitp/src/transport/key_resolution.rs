@@ -51,6 +51,7 @@ use url::Url;
 ///
 /// Peer Manifest resolution does not honor this — see module docs.
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum KeyResolutionFailMode {
     /// Resolution miss → `ResolveError`. Default.
     FailClosed,

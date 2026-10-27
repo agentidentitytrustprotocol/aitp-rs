@@ -13,7 +13,7 @@
 
 #![forbid(unsafe_code)]
 
-use aitp::core::{base64url, jcs, Aid, AitpEnvelope, CheckedJson, MessageType, Sender, Timestamp};
+use aitp::core::{base64url, jcs, Aid, AitpEnvelope, CheckedJson, MessageType, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp::delegation::DelegationBuilder;
 use aitp::handshake::{
@@ -607,6 +607,7 @@ fn envelope_parse_error_code(e: &aitp::core::EnvelopeParseError) -> String {
         UnknownVersion(_) => "UNKNOWN_VERSION",
         UnknownField(_) => "UNKNOWN_FIELD",
         Malformed(_) => "INVALID_ENVELOPE",
+        _ => "INVALID_ENVELOPE",
     }
     .to_string()
 }
@@ -853,17 +854,16 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "verifier".into(),
-            issuer: None,
-            public_key: Some(aitp::core::base64url::encode(
-                &self_key
-                    .verifying_key()
-                    .try_to_ed25519_bytes()
-                    .expect("key was constructed as Ed25519, never P-256"),
-            )),
-        });
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "verifier").with_public_key(
+                aitp::core::base64url::encode(
+                    &self_key
+                        .verifying_key()
+                        .try_to_ed25519_bytes()
+                        .expect("key was constructed as Ed25519, never P-256"),
+                ),
+            ),
+        );
     let self_manifest = cfg_anchors
         .iter()
         .fold(self_manifest, |m, a| m.accept_trust_anchor_raw(a.clone()));
@@ -1336,11 +1336,9 @@ impl JwksResolver for OidcTestIssuerResolver {
         let Some(x) = key.verifying_key().try_to_ed25519_bytes() else {
             return Ok(vec![]);
         };
-        Ok(vec![JwkPublicKey {
-            kid: None,
-            alg: Some(JwsAlgorithm::EdDSA),
-            key: JwkKeyMaterial::Ed25519 { x },
-        }])
+        Ok(vec![
+            JwkPublicKey::new(JwkKeyMaterial::Ed25519 { x }).with_alg(JwsAlgorithm::EdDSA)
+        ])
     }
 }
 
@@ -1398,8 +1396,10 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .and_then(|v| v.as_i64())
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
-    match aitp::manifest::verify_manifest(&manifest, &aitp::manifest::VerifyManifestContext { now })
-    {
+    match aitp::manifest::verify_manifest(
+        &manifest,
+        &aitp::manifest::VerifyManifestContext::at(now),
+    ) {
         Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &manifest_error_code(&e), &e.to_string()),
     }
@@ -2291,7 +2291,7 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
         Ok(m) => m,
         Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
     };
-    let env = ManifestEnvelope { manifest };
+    let env = ManifestEnvelope::new(manifest);
     json!({
         "id": id,
         "ok": true,
@@ -2320,12 +2320,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .ok_or_else(|| "oidc identity_hint.issuer missing".to_string())?
                 .parse()
                 .map_err(|e| format!("issuer parse: {e}"))?;
-            Ok(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject,
-                issuer: Some(issuer),
-                public_key: None,
-            })
+            Ok(IdentityHint::new(IdentityHintKind::Oidc, subject).with_issuer(issuer))
         }
         "pinned_key" => {
             let pk = v
@@ -2333,12 +2328,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .and_then(|p| p.as_str())
                 .ok_or_else(|| "pinned_key identity_hint.public_key missing".to_string())?
                 .to_string();
-            Ok(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
-                subject,
-                issuer: None,
-                public_key: Some(pk),
-            })
+            Ok(IdentityHint::new(IdentityHintKind::PinnedKey, subject).with_public_key(pk))
         }
         other => Err(format!("unknown identity_hint.type: {other}")),
     }
@@ -2548,18 +2538,7 @@ fn sign_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Value 
     let payload = params.get("payload").cloned().unwrap_or(json!({}));
     let message_id = Uuid::new_v4();
     let timestamp = state.now();
-    let env = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id,
-        timestamp,
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let env = AitpEnvelope::unsigned(key.aid().clone(), mt, payload, message_id, timestamp);
     let env = match sign_unsigned_envelope(key, env) {
         Ok(env) => env,
         Err(e) => return err(id, "INTERNAL_ERROR", &e.to_string()),
@@ -3097,18 +3076,7 @@ fn sign_envelope_with_key<P: serde::Serialize>(
     ts: Timestamp,
 ) -> AitpEnvelope {
     let payload_value = serde_json::to_value(payload).unwrap();
-    let envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload: payload_value,
-        extensions: None,
-        signature: String::new(),
-    };
+    let envelope = AitpEnvelope::unsigned(key.aid().clone(), mt, payload_value, mid, ts);
     sign_unsigned_envelope(key, envelope).expect("digest")
 }
 
@@ -3231,11 +3199,8 @@ fn issue_pop_challenge_op(state: &mut AdapterState, id: &str, params: Value) -> 
         }
         base64url::encode(&nonce_bytes)
     };
-    let challenge = aitp::tct::PopChallenge {
-        tct_jti: tct.jti,
-        nonce: nonce.clone(),
-        expires_at: Timestamp(state.now().0 + ttl_secs),
-    };
+    let challenge =
+        aitp::tct::PopChallenge::new(tct.jti, nonce.clone(), Timestamp(state.now().0 + ttl_secs));
     state
         .pop_challenges
         .insert(tct.jti.to_string(), challenge.clone());
@@ -3290,14 +3255,9 @@ fn produce_pop_response_op(state: &mut AdapterState, id: &str, params: Value) ->
             // Stash the synthetic PopResponse so verify_pop_response can
             // pick it up.
             let expires_at = Timestamp(state.now().0 + 300);
-            state
-                .pop_challenges
-                .entry(tct.jti.to_string())
-                .or_insert(aitp::tct::PopChallenge {
-                    tct_jti: tct.jti,
-                    nonce: echo.to_string(),
-                    expires_at,
-                });
+            state.pop_challenges.entry(tct.jti.to_string()).or_insert(
+                aitp::tct::PopChallenge::new(tct.jti, echo.to_string(), expires_at),
+            );
             return json!({
                 "id": id,
                 "ok": true,
@@ -3900,18 +3860,13 @@ mod p256_readiness_tests {
         let message_id = Uuid::from_u128(0x0102_0304_0506_4708_890a_0b0c_0d0e_0f10);
         let timestamp = Timestamp(1_700_000_000);
         let payload = json!({"hello": "p256"});
-        let envelope = AitpEnvelope {
-            version: aitp::core::PROTOCOL_VERSION.into(),
-            message_type: MessageType::MutualHello,
+        let envelope = AitpEnvelope::unsigned(
+            key.aid().clone(),
+            MessageType::MutualHello,
+            payload,
             message_id,
             timestamp,
-            sender: Sender {
-                agent_id: key.aid().clone(),
-            },
-            payload,
-            extensions: None,
-            signature: String::new(),
-        };
+        );
         let envelope = sign_unsigned_envelope(&key, envelope).unwrap();
         serde_json::to_value(&envelope).unwrap()
     }
@@ -4388,12 +4343,10 @@ mod manifest_unknown_field_tests {
         let key = aitp::crypto::AitpSigningKey::from_seed(&[9u8; 32]);
         let manifest = ManifestBuilder::new(&key)
             .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject: "agent-b".into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
-                public_key: None,
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+                    .with_issuer("https://idp.example.com".parse().unwrap()),
+            )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .offer("demo.echo")
             .published_at(Timestamp(1_711_900_000))
@@ -4520,14 +4473,12 @@ mod revocation_unknown_field_tests {
 
     fn signed_snapshot_value(issuer_key: &AitpSigningKey) -> Value {
         let env = aitp::tct::sign_revocation_list(
-            aitp::tct::RevocationList {
-                version: aitp::core::PROTOCOL_VERSION.into(),
-                issuer: issuer_key.aid().clone(),
-                published_at: Timestamp(1_700_000_000),
-                expires_at: Timestamp(1_700_003_600),
-                entries: vec![],
-                extensions: None,
-            },
+            aitp::tct::RevocationList::new(
+                issuer_key.aid().clone(),
+                Timestamp(1_700_000_000),
+                Timestamp(1_700_003_600),
+                vec![],
+            ),
             issuer_key,
         )
         .unwrap();
@@ -4622,17 +4573,19 @@ mod revocation_unknown_field_tests {
     fn verify_revocation_snapshot_accepts_extensions() {
         let key = issuer();
         let env = aitp::tct::sign_revocation_list(
-            aitp::tct::RevocationList {
-                version: aitp::core::PROTOCOL_VERSION.into(),
-                issuer: key.aid().clone(),
-                published_at: Timestamp(1_700_000_000),
-                expires_at: Timestamp(1_700_003_600),
-                entries: vec![],
-                extensions: Some({
+            {
+                let mut list = aitp::tct::RevocationList::new(
+                    key.aid().clone(),
+                    Timestamp(1_700_000_000),
+                    Timestamp(1_700_003_600),
+                    vec![],
+                );
+                list.extensions = Some({
                     let mut ext = aitp::core::ExtensionsMap::new();
                     ext.insert("com.example.debug_trace", json!({"generator": "svc"}));
                     ext
-                }),
+                });
+                list
             },
             &key,
         )
@@ -4823,12 +4776,10 @@ mod revocation_unknown_field_tests {
         // (RFC-AITP-0006 §4 step 1).
         let b_manifest = ManifestBuilder::new(&b)
             .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject: "b".into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
-                public_key: None,
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::Oidc, "b")
+                    .with_issuer("https://idp.example.com".parse().unwrap()),
+            )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
             .ttl_secs(3600)
@@ -4892,21 +4843,15 @@ mod discarded_snapshot_policy_tests {
 
     fn snapshot(issuer_key: &AitpSigningKey, revoked: &[Uuid]) -> Value {
         let env = aitp::tct::sign_revocation_list(
-            aitp::tct::RevocationList {
-                version: aitp::core::PROTOCOL_VERSION.into(),
-                issuer: issuer_key.aid().clone(),
-                published_at: Timestamp(1_700_000_000),
-                expires_at: Timestamp(1_700_003_600),
-                entries: revoked
+            aitp::tct::RevocationList::new(
+                issuer_key.aid().clone(),
+                Timestamp(1_700_000_000),
+                Timestamp(1_700_003_600),
+                revoked
                     .iter()
-                    .map(|jti| aitp::tct::RevocationEntry {
-                        jti: *jti,
-                        revoked_at: Timestamp(1_700_000_000),
-                        reason: None,
-                    })
+                    .map(|jti| aitp::tct::RevocationEntry::new(*jti, Timestamp(1_700_000_000)))
                     .collect(),
-                extensions: None,
-            },
+            ),
             issuer_key,
         )
         .unwrap();
@@ -5118,12 +5063,10 @@ mod discarded_snapshot_policy_tests {
                     .parse()
                     .unwrap(),
             )
-            .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
-                subject: name.into(),
-                issuer: Some("https://idp.example.com".parse().unwrap()),
-                public_key: None,
-            })
+            .identity_hint(
+                IdentityHint::new(IdentityHintKind::Oidc, name)
+                    .with_issuer("https://idp.example.com".parse().unwrap()),
+            )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
             .ttl_secs(3600)
@@ -5328,18 +5271,13 @@ mod handshake_unknown_field_tests {
         let key = AitpSigningKey::from_seed(&[0x11; 32]);
         let message_id = Uuid::new_v4();
         let timestamp = Timestamp(1_700_000_000);
-        let envelope = AitpEnvelope {
-            version: aitp::core::PROTOCOL_VERSION.into(),
+        let envelope = AitpEnvelope::unsigned(
+            key.aid().clone(),
             message_type,
+            payload,
             message_id,
             timestamp,
-            sender: Sender {
-                agent_id: key.aid().clone(),
-            },
-            payload,
-            extensions: None,
-            signature: String::new(),
-        };
+        );
         let envelope = sign_unsigned_envelope(&key, envelope).unwrap();
         serde_json::to_value(&envelope).unwrap()
     }
@@ -5488,7 +5426,7 @@ mod oidc_test_issuer_tests {
     //! `oidc-test-issuers.json` key, exercised end-to-end by the `id-009`
     //! conformance fixture instead).
     use super::*;
-    use aitp::handshake::{verify_oidc, IdentityDescriptor, IdentityKind, OidcVerifyContext};
+    use aitp::handshake::{verify_oidc, IdentityDescriptor, OidcVerifyContext};
 
     /// Mint a JWT with the OIDC-profile claims `verify_oidc` requires
     /// (`identity_oidc.rs`'s full check order), signed by the test
@@ -5568,27 +5506,22 @@ mod oidc_test_issuer_tests {
         let jwt =
             mint_test_issuer_jwt("agent-under-test", audience_key.aid(), nonce, &cnf_jkt, now);
 
-        let descriptor = IdentityDescriptor {
-            kind: IdentityKind::Oidc,
-            issuer: Some(oidc_test_issuer().0.parse().unwrap()),
-            subject: "agent-under-test".into(),
-            proof: jwt,
-            public_key: None,
-            extensions: None,
-            svid_type: None,
-            x5c: None,
-        };
+        let descriptor = IdentityDescriptor::oidc(
+            oidc_test_issuer().0.parse().unwrap(),
+            "agent-under-test",
+            jwt,
+        );
         let anchors: Vec<aitp::core::RawUrl> = vec![oidc_test_issuer().0.parse().unwrap()];
         let resolver = OidcTestIssuerResolver;
-        let ctx = OidcVerifyContext {
-            expected_audience: audience_key.aid(),
-            expected_nonce: nonce,
-            trust_anchors: &anchors,
-            jwks_resolver: &resolver,
-            subject_aid: subject_key.aid(),
-            iat_tolerance_secs: 300,
-            now_unix_secs: now,
-        };
+        let ctx = OidcVerifyContext::new(
+            audience_key.aid(),
+            nonce,
+            &anchors,
+            &resolver,
+            subject_key.aid(),
+            300,
+            now,
+        );
         let result = verify_oidc(&descriptor, &ctx);
         assert!(
             result.is_ok(),

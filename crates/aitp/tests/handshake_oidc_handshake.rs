@@ -4,7 +4,7 @@
 #[path = "handshake_fixtures/mod.rs"]
 mod fixtures;
 
-use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
     Initiator, MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig, PresentedIdentity,
@@ -28,12 +28,10 @@ fn manifest_for_oidc(
                 .parse()
                 .unwrap(),
         )
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::Oidc,
-            subject: name.into(),
-            issuer: Some(aitp::core::RawUrl::from(issuer.clone())),
-            public_key: None,
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::Oidc, name)
+                .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
+        )
         .accept_trust_anchor(issuer.clone())
         .accept_identity_type("oidc")
         .offer("demo.echo")
@@ -49,18 +47,7 @@ fn envelope_with(
     mid: Uuid,
     ts: Timestamp,
 ) -> AitpEnvelope {
-    let mut envelope = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: mt,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: key.aid().clone(),
-        },
-        payload,
-        extensions: None,
-        signature: String::new(),
-    };
+    let mut envelope = AitpEnvelope::unsigned(key.aid().clone(), mt, payload, mid, ts);
     let digest = aitp::core::envelope_signing_digest(&envelope).unwrap();
     envelope.signature = key
         .sign_jcs(&aitp::crypto::Digest32::from(digest))

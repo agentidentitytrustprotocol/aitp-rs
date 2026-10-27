@@ -61,18 +61,13 @@ fn signature_is_over_caller_supplied_message_id_and_timestamp() {
 
     // Re-derive the digest from an independently built envelope over the
     // caller's pair and confirm the signature verifies against it.
-    let unsigned = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: MessageType::MutualHello,
-        message_id: mid,
-        timestamp: ts,
-        sender: Sender {
-            agent_id: k.aid().clone(),
-        },
-        payload: sample_payload(),
-        extensions: None,
-        signature: String::new(),
-    };
+    let unsigned = AitpEnvelope::unsigned(
+        k.aid().clone(),
+        MessageType::MutualHello,
+        sample_payload(),
+        mid,
+        ts,
+    );
     let digest = envelope_signing_digest(&unsigned).expect("digest");
     let sig = Signature::parse(&env.signature).expect("parse sig");
     k.verifying_key()
@@ -121,9 +116,7 @@ fn spoofed_sender_aid_is_rejected() {
     let alice = key(6);
     let mallory = key(7);
     let mut env = signed(&alice);
-    env.sender = Sender {
-        agent_id: mallory.aid().clone(),
-    };
+    env.sender = Sender::new(mallory.aid().clone());
     assert!(matches!(
         verify_envelope_signature(&env, &mallory.verifying_key()),
         Err(CryptoError::SignatureInvalid)
@@ -250,17 +243,17 @@ fn absent_and_empty_extensions_are_different_signing_inputs() {
 #[test]
 fn prepared_envelope_with_extensions_signs_and_verifies() {
     let k = key(0x42);
-    let mut env = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: MessageType::Tct,
-        message_id: Uuid::new_v4(),
-        timestamp: Timestamp(1_700_000_000),
-        sender: Sender {
-            agent_id: k.aid().clone(),
-        },
-        payload: sample_payload(),
-        extensions: Some(debug_trace()),
-        signature: "ignored on input".into(),
+    let mut env = {
+        let mut envelope = AitpEnvelope::unsigned(
+            k.aid().clone(),
+            MessageType::Tct,
+            sample_payload(),
+            Uuid::new_v4(),
+            Timestamp(1_700_000_000),
+        );
+        envelope.extensions = Some(debug_trace());
+        envelope.signature = "ignored on input".into();
+        envelope
     };
     env = sign_prepared_envelope(&k, env).expect("sign");
     verify_envelope_signature(&env, &k.verifying_key()).expect("verifies with extensions");
@@ -353,17 +346,16 @@ fn signed_envelopes_pass_the_structure_check() {
 #[tokio::test]
 async fn async_prepared_signing_matches_sync() {
     let k = key(0x45);
-    let env = AitpEnvelope {
-        version: aitp::core::PROTOCOL_VERSION.into(),
-        message_type: MessageType::Tct,
-        message_id: Uuid::new_v4(),
-        timestamp: Timestamp(1_700_000_000),
-        sender: Sender {
-            agent_id: k.aid().clone(),
-        },
-        payload: sample_payload(),
-        extensions: Some(debug_trace()),
-        signature: String::new(),
+    let env = {
+        let mut envelope = AitpEnvelope::unsigned(
+            k.aid().clone(),
+            MessageType::Tct,
+            sample_payload(),
+            Uuid::new_v4(),
+            Timestamp(1_700_000_000),
+        );
+        envelope.extensions = Some(debug_trace());
+        envelope
     };
     let sync = sign_prepared_envelope(&k, env.clone()).unwrap();
     let async_ = sign_prepared_envelope_async(&k, env).await.unwrap();

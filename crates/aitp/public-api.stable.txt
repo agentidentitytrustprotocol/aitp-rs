@@ -2,11 +2,13 @@
 #[non_exhaustive] pub enum aitp::core::AidAlgorithm
 #[non_exhaustive] pub enum aitp::core::AidParseError
 #[non_exhaustive] pub enum aitp::core::AitpError
+#[non_exhaustive] pub enum aitp::core::EnvelopeParseError
 #[non_exhaustive] pub enum aitp::core::ErrorCode
 #[non_exhaustive] pub enum aitp::core::MessageType
 #[non_exhaustive] pub enum aitp::core::aid::AidAlgorithm
 #[non_exhaustive] pub enum aitp::core::aid::AidParseError
 #[non_exhaustive] pub enum aitp::core::base64url::Base64UrlError
+#[non_exhaustive] pub enum aitp::core::envelope::EnvelopeParseError
 #[non_exhaustive] pub enum aitp::core::envelope::MessageType
 #[non_exhaustive] pub enum aitp::core::error::AitpError
 #[non_exhaustive] pub enum aitp::core::error::ErrorCode
@@ -25,13 +27,22 @@
 #[non_exhaustive] pub enum aitp::crypto::signer::SignRequest<'a>
 #[non_exhaustive] pub enum aitp::crypto::signer::SignerError
 #[non_exhaustive] pub enum aitp::delegation::DelegationError
+#[non_exhaustive] pub enum aitp::delegation::DelegationRevocation<'a>
 #[non_exhaustive] pub enum aitp::delegation::error::DelegationError
+#[non_exhaustive] pub enum aitp::delegation::verifier::DelegationRevocation<'a>
+#[non_exhaustive] pub enum aitp::facade::FacadeError
+#[non_exhaustive] pub enum aitp::facade::IdentityMode<'a>
+#[non_exhaustive] pub enum aitp::facade::TrustMode<'a>
 #[non_exhaustive] pub enum aitp::handshake::HandshakeError
 #[non_exhaustive] pub enum aitp::handshake::IdentityKind
+#[non_exhaustive] pub enum aitp::handshake::JwkKeyMaterial
 #[non_exhaustive] pub enum aitp::handshake::JwkParseError
+#[non_exhaustive] pub enum aitp::handshake::JwsAlgorithm
 #[non_exhaustive] pub enum aitp::handshake::JwsVerifyError
 #[non_exhaustive] pub enum aitp::handshake::PinnedKeyEntryError
+#[non_exhaustive] pub enum aitp::handshake::PresentedIdentity
 #[non_exhaustive] pub enum aitp::handshake::ResolveError
+#[non_exhaustive] pub enum aitp::handshake::RevocationSource<'a>
 #[non_exhaustive] pub enum aitp::handshake::SubjectBinding
 #[non_exhaustive] pub enum aitp::handshake::SvidType
 #[non_exhaustive] pub enum aitp::handshake::admission::AdmissionError
@@ -46,8 +57,12 @@
 #[non_exhaustive] pub enum aitp::handshake::identity_oidc::ResolveError
 #[non_exhaustive] pub enum aitp::handshake::identity_pinned::PinnedKeyEntryError
 #[non_exhaustive] pub enum aitp::handshake::identity_pinned::SubjectBinding
+#[non_exhaustive] pub enum aitp::handshake::jwk::JwkKeyMaterial
 #[non_exhaustive] pub enum aitp::handshake::jwk::JwkParseError
+#[non_exhaustive] pub enum aitp::handshake::jwk::JwsAlgorithm
 #[non_exhaustive] pub enum aitp::handshake::jwk::JwsVerifyError
+#[non_exhaustive] pub enum aitp::handshake::state_machine::PresentedIdentity
+#[non_exhaustive] pub enum aitp::handshake::state_machine::RevocationSource<'a>
 #[non_exhaustive] pub enum aitp::manifest::IdentityHintKind
 #[non_exhaustive] pub enum aitp::manifest::ManifestError
 #[non_exhaustive] pub enum aitp::manifest::error::ManifestError
@@ -59,37 +74,117 @@
 #[non_exhaustive] pub enum aitp::tct::TctVerifyContextError
 #[non_exhaustive] pub enum aitp::tct::error::TctError
 #[non_exhaustive] pub enum aitp::tct::verifier::TctVerifyContextError
+#[non_exhaustive] pub enum aitp::transport::FetchError
 #[non_exhaustive] pub enum aitp::transport::GuardMode
 #[non_exhaustive] pub enum aitp::transport::HostGuardError
+#[non_exhaustive] pub enum aitp::transport::JwksFetcherError
+#[non_exhaustive] pub enum aitp::transport::KeyResolutionFailMode
 #[non_exhaustive] pub enum aitp::transport::RevocationError
+#[non_exhaustive] pub enum aitp::transport::RevocationFailMode
+#[non_exhaustive] pub enum aitp::transport::client::FetchError
+#[non_exhaustive] pub enum aitp::transport::client::JwksFetcherError
+#[non_exhaustive] pub enum aitp::transport::key_resolution::KeyResolutionFailMode
 #[non_exhaustive] pub enum aitp::transport::net_guard::GuardMode
 #[non_exhaustive] pub enum aitp::transport::net_guard::HostGuardError
 #[non_exhaustive] pub enum aitp::transport::revocation::RevocationError
+#[non_exhaustive] pub enum aitp::transport::revocation::RevocationFailMode
+#[non_exhaustive] pub struct aitp::core::AitpEnvelope
+#[non_exhaustive] pub struct aitp::core::Sender
+#[non_exhaustive] pub struct aitp::core::UnknownField
+#[non_exhaustive] pub struct aitp::core::envelope::AitpEnvelope
+#[non_exhaustive] pub struct aitp::core::envelope::Sender
+#[non_exhaustive] pub struct aitp::core::ids::InvalidTag
 #[non_exhaustive] pub struct aitp::core::nonce_store::IssuedNonce
+#[non_exhaustive] pub struct aitp::core::unknown_field::UnknownField
+#[non_exhaustive] pub struct aitp::delegation::DelegationClaims
+#[non_exhaustive] pub struct aitp::delegation::VerifiedDelegation
 #[non_exhaustive] pub struct aitp::delegation::VerifyDelegationContext<'a>
+#[non_exhaustive] pub struct aitp::delegation::types::DelegationClaims
+#[non_exhaustive] pub struct aitp::delegation::types::VerifiedDelegation
 #[non_exhaustive] pub struct aitp::delegation::verifier::VerifyDelegationContext<'a>
 #[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
+#[non_exhaustive] pub struct aitp::facade::SessionContext
+#[non_exhaustive] pub struct aitp::handshake::CompletedHandshake
+#[non_exhaustive] pub struct aitp::handshake::IdentityDescriptor
+#[non_exhaustive] pub struct aitp::handshake::JwkPublicKey
+#[non_exhaustive] pub struct aitp::handshake::MutualCommitAckPayload
+#[non_exhaustive] pub struct aitp::handshake::MutualCommitPayload
+#[non_exhaustive] pub struct aitp::handshake::MutualHelloAckPayload
+#[non_exhaustive] pub struct aitp::handshake::MutualHelloPayload
+#[non_exhaustive] pub struct aitp::handshake::OidcVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::PeerConfig<'a>
 #[non_exhaustive] pub struct aitp::handshake::PinnedKeyEntry
+#[non_exhaustive] pub struct aitp::handshake::PinnedKeyVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::VerifiedPinnedKey
 #[non_exhaustive] pub struct aitp::handshake::admission::AdmissionChallenge
 #[non_exhaustive] pub struct aitp::handshake::admission::Admitted
 #[non_exhaustive] pub struct aitp::handshake::admission::IdentityPresentationPayload
 #[non_exhaustive] pub struct aitp::handshake::admission::IssuedNonce
+#[non_exhaustive] pub struct aitp::handshake::identity::IdentityDescriptor
+#[non_exhaustive] pub struct aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyEntry
+#[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::VerifiedPinnedKey
+#[non_exhaustive] pub struct aitp::handshake::jwk::JwkPublicKey
+#[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitAckPayload
+#[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitPayload
+#[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloAckPayload
+#[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloPayload
+#[non_exhaustive] pub struct aitp::handshake::state_machine::CompletedHandshake
+#[non_exhaustive] pub struct aitp::handshake::state_machine::IdentityPresentationContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::state_machine::PeerConfig<'a>
+#[non_exhaustive] pub struct aitp::manifest::IdentityHint
+#[non_exhaustive] pub struct aitp::manifest::Manifest
+#[non_exhaustive] pub struct aitp::manifest::ManifestEnvelope
+#[non_exhaustive] pub struct aitp::manifest::ManifestPop
+#[non_exhaustive] pub struct aitp::manifest::VerifyManifestContext
+#[non_exhaustive] pub struct aitp::manifest::types::IdentityHint
+#[non_exhaustive] pub struct aitp::manifest::types::Manifest
+#[non_exhaustive] pub struct aitp::manifest::types::ManifestEnvelope
+#[non_exhaustive] pub struct aitp::manifest::types::ManifestPop
+#[non_exhaustive] pub struct aitp::manifest::verifier::VerifyManifestContext
+#[non_exhaustive] pub struct aitp::prelude::AitpEnvelope
+#[non_exhaustive] pub struct aitp::prelude::IssuedTct
+#[non_exhaustive] pub struct aitp::prelude::Manifest
+#[non_exhaustive] pub struct aitp::prelude::TctClaims
+#[non_exhaustive] pub struct aitp::prelude::VerifiedTct
 #[non_exhaustive] pub struct aitp::tct::AttestationVerifyContext<'a>
+#[non_exhaustive] pub struct aitp::tct::Cnf
+#[non_exhaustive] pub struct aitp::tct::GrantVoucherClaims
+#[non_exhaustive] pub struct aitp::tct::IssuedTct
+#[non_exhaustive] pub struct aitp::tct::PopChallenge
+#[non_exhaustive] pub struct aitp::tct::PopResponse
+#[non_exhaustive] pub struct aitp::tct::RevocationEntry
+#[non_exhaustive] pub struct aitp::tct::RevocationList
+#[non_exhaustive] pub struct aitp::tct::RevocationListEnvelope
+#[non_exhaustive] pub struct aitp::tct::TctClaims
 #[non_exhaustive] pub struct aitp::tct::TctVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::VerifiedAttestation
+#[non_exhaustive] pub struct aitp::tct::VerifiedTct
 #[non_exhaustive] pub struct aitp::tct::VerifyRevocationListContext<'a>
+#[non_exhaustive] pub struct aitp::tct::pop::PopChallenge
+#[non_exhaustive] pub struct aitp::tct::pop::PopResponse
+#[non_exhaustive] pub struct aitp::tct::revocation::RevocationEntry
+#[non_exhaustive] pub struct aitp::tct::revocation::RevocationList
+#[non_exhaustive] pub struct aitp::tct::revocation::RevocationListEnvelope
 #[non_exhaustive] pub struct aitp::tct::revocation::VerifyRevocationListContext<'a>
+#[non_exhaustive] pub struct aitp::tct::types::Cnf
+#[non_exhaustive] pub struct aitp::tct::types::GrantVoucherClaims
+#[non_exhaustive] pub struct aitp::tct::types::IssuedTct
+#[non_exhaustive] pub struct aitp::tct::types::TctClaims
+#[non_exhaustive] pub struct aitp::tct::types::VerifiedTct
 #[non_exhaustive] pub struct aitp::tct::verifier::AttestationVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::verifier::TctVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::verifier::VerifiedAttestation
+#[non_exhaustive] pub struct aitp::transport::RateLimitConfig
+#[non_exhaustive] pub struct aitp::transport::RevocationPolicy
+#[non_exhaustive] pub struct aitp::transport::revocation::RevocationPolicy
+#[non_exhaustive] pub struct aitp::transport::server::RateLimitConfig
 impl aitp::core::aid::Aid
 impl aitp::core::aid::AidAlgorithm
+impl aitp::core::envelope::AitpEnvelope
 impl aitp::core::envelope::MessageType
+impl aitp::core::envelope::Sender
 impl aitp::core::error::ErrorCode
 impl aitp::core::extensions::ExtensionsMap
 impl aitp::core::nonce_store::InMemoryNonceStore
@@ -133,7 +228,13 @@ impl aitp::handshake::state_machine::Responder
 impl aitp::manifest::resolver::ManifestResolver for [aitp::manifest::types::Manifest]
 impl aitp::manifest::resolver::ManifestResolver for alloc::vec::Vec<aitp::manifest::types::Manifest>
 impl aitp::manifest::resolver::ManifestResolver for std::collections::hash::map::HashMap<aitp::core::aid::Aid, aitp::manifest::types::Manifest>
+impl aitp::manifest::types::IdentityHint
+impl aitp::manifest::types::ManifestEnvelope
+impl aitp::manifest::types::ManifestPop
 impl aitp::manifest::verifier::VerifyManifestContext
+impl aitp::tct::pop::PopChallenge
+impl aitp::tct::revocation::RevocationEntry
+impl aitp::tct::revocation::RevocationList
 impl aitp::transport::client::JwksFetcher
 impl aitp::transport::client::ManifestFetcher
 impl aitp::transport::client_config::ClientConfig
@@ -148,6 +249,7 @@ impl aitp::transport::replay_store::InMemoryReplayGuard
 impl aitp::transport::replay_store::ReplayGuard for aitp::transport::replay_store::InMemoryReplayGuard
 impl aitp::transport::retry::RetryPolicy
 impl aitp::transport::revocation::EmptyRevocationProvider
+impl aitp::transport::revocation::RevocationPolicy
 impl aitp::transport::revocation::RevocationProvider for aitp::transport::revocation::EmptyRevocationProvider
 impl aitp::transport::revocation_fetch::PreparedRevocation
 impl aitp::transport::revocation_fetch::RevocationFetcher
@@ -204,6 +306,7 @@ impl<'a> aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::sig
 impl<'a> aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>
 impl<'a> aitp::delegation::verifier::VerifyDelegationContext<'a>
 impl<'a> aitp::facade::InitiatorConfig<'a>
+impl<'a> aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 impl<'a> aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> aitp::handshake::state_machine::PeerConfig<'a>
 impl<'a> aitp::manifest::builder::ManifestBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>
@@ -1541,35 +1644,12 @@ pub const fn aitp::crypto::digest::Digest32::from_bytes([u8; 32]) -> Self
 pub const fn aitp::transport::retry::RetryPolicy::aggressive() -> Self
 pub const fn aitp::transport::retry::RetryPolicy::conservative() -> Self
 pub const fn aitp::transport::retry::RetryPolicy::none() -> Self
-pub enum aitp::core::EnvelopeParseError
-pub enum aitp::core::envelope::EnvelopeParseError
-pub enum aitp::delegation::DelegationRevocation<'a>
-pub enum aitp::delegation::verifier::DelegationRevocation<'a>
-pub enum aitp::facade::FacadeError
-pub enum aitp::facade::IdentityMode<'a>
-pub enum aitp::facade::TrustMode<'a>
 pub enum aitp::handshake::HandshakeRevocationDecision
-pub enum aitp::handshake::JwkKeyMaterial
-pub enum aitp::handshake::JwsAlgorithm
-pub enum aitp::handshake::PresentedIdentity
-pub enum aitp::handshake::RevocationSource<'a>
-pub enum aitp::handshake::jwk::JwkKeyMaterial
-pub enum aitp::handshake::jwk::JwsAlgorithm
 pub enum aitp::handshake::state_machine::HandshakeRevocationDecision
-pub enum aitp::handshake::state_machine::PresentedIdentity
-pub enum aitp::handshake::state_machine::RevocationSource<'a>
-pub enum aitp::transport::FetchError
-pub enum aitp::transport::JwksFetcherError
-pub enum aitp::transport::KeyResolutionFailMode
 pub enum aitp::transport::KeyResolutionOutcome
 pub enum aitp::transport::RateLimitOutcome
-pub enum aitp::transport::RevocationFailMode
 pub enum aitp::transport::RevocationOutcome
-pub enum aitp::transport::client::FetchError
-pub enum aitp::transport::client::JwksFetcherError
-pub enum aitp::transport::key_resolution::KeyResolutionFailMode
 pub enum aitp::transport::key_resolution::KeyResolutionOutcome
-pub enum aitp::transport::revocation::RevocationFailMode
 pub enum aitp::transport::revocation::RevocationOutcome
 pub enum aitp::transport::server::RateLimitOutcome
 pub fn &S::aid(&self) -> &aitp::core::aid::Aid
@@ -1605,7 +1685,9 @@ pub fn aitp::core::base64url::encode(&[u8]) -> alloc::string::String
 pub fn aitp::core::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
 pub fn aitp::core::check_members(&'static str, &serde_json::value::Value, &[&str]) -> core::result::Result<(), aitp::core::unknown_field::UnknownField>
 pub fn aitp::core::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
+pub fn aitp::core::envelope::AitpEnvelope::unsigned(aitp::core::aid::Aid, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> Self
 pub fn aitp::core::envelope::MessageType::as_wire_str(&self) -> &'static str
+pub fn aitp::core::envelope::Sender::new(aitp::core::aid::Aid) -> Self
 pub fn aitp::core::envelope::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
 pub fn aitp::core::envelope::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
 pub fn aitp::core::envelope::envelope_signing_digest(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<[u8; 32], aitp::core::jcs::JcsError>
@@ -1860,6 +1942,7 @@ pub fn aitp::handshake::identity::IdentityDescriptor::oidc(aitp::core::raw_url::
 pub fn aitp::handshake::identity::IdentityDescriptor::pinned_key(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::handshake::identity::IdentityKind::as_str(&self) -> &'static str
 pub fn aitp::handshake::identity_oidc::JwksResolver::resolve(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::handshake::identity_oidc::ResolveError>
+pub fn aitp::handshake::identity_oidc::OidcVerifyContext<'a>::new(&'a aitp::core::aid::Aid, &'a str, &'a [aitp::core::raw_url::RawUrl], &'a dyn aitp::handshake::identity_oidc::JwksResolver, &'a aitp::core::aid::Aid, i64, i64) -> Self
 pub fn aitp::handshake::identity_oidc::verify_oidc(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_oidc::OidcVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::NoPinnedKeys::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn aitp::handshake::identity_pinned::PinnedKeyEntry::new(impl core::convert::Into<alloc::string::String>, &aitp::crypto::keys::AitpVerifyingKey) -> Self
@@ -1881,6 +1964,9 @@ pub fn aitp::handshake::identity_pinned::pinned_key_proof_input(&aitp::core::aid
 pub fn aitp::handshake::identity_pinned::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSigner, &aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::string::String, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::verify_pinned_key(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'_>, &dyn aitp::handshake::identity_pinned::PinnedKeyStore) -> core::result::Result<aitp::handshake::identity_pinned::VerifiedPinnedKey, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::jwk::JwkPublicKey::from_jwk_json(&serde_json::value::Value) -> core::result::Result<Self, aitp::handshake::jwk::JwkParseError>
+pub fn aitp::handshake::jwk::JwkPublicKey::new(aitp::handshake::jwk::JwkKeyMaterial) -> Self
+pub fn aitp::handshake::jwk::JwkPublicKey::with_alg(self, aitp::handshake::jwk::JwsAlgorithm) -> Self
+pub fn aitp::handshake::jwk::JwkPublicKey::with_kid(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::handshake::jwk::JwsAlgorithm::as_str(&self) -> &'static str
 pub fn aitp::handshake::jwk::JwsAlgorithm::fits(&self, &aitp::handshake::jwk::JwkKeyMaterial) -> bool
 pub fn aitp::handshake::jwk::JwsAlgorithm::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -1933,6 +2019,12 @@ pub fn aitp::manifest::parse_manifest_wire(&aitp::core::unknown_field::CheckedJs
 pub fn aitp::manifest::resolve_verified_manifest(&dyn aitp::manifest::resolver::ManifestResolver, &aitp::core::aid::Aid, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::resolver::ManifestResolver::resolve_manifest(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub fn aitp::manifest::resolver::resolve_verified_manifest(&dyn aitp::manifest::resolver::ManifestResolver, &aitp::core::aid::Aid, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
+pub fn aitp::manifest::types::IdentityHint::new(aitp::manifest::types::IdentityHintKind, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::types::IdentityHint::with_issuer(self, aitp::core::raw_url::RawUrl) -> Self
+pub fn aitp::manifest::types::IdentityHint::with_public_key(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::types::ManifestEnvelope::new(aitp::manifest::types::Manifest) -> Self
+pub fn aitp::manifest::types::ManifestPop::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::verifier::VerifyManifestContext::at(aitp::core::time::Timestamp) -> Self
 pub fn aitp::manifest::verifier::VerifyManifestContext::now() -> Self
 pub fn aitp::manifest::verifier::check_identity_type_compatibility(&aitp::manifest::types::Manifest, &'static str) -> core::result::Result<(), aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::verifier::parse_manifest_wire(&aitp::core::unknown_field::CheckedJson) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
@@ -1971,8 +2063,12 @@ pub fn aitp::tct::builder::TctBuilder<'a, S>::subject_pubkey(self, aitp::crypto:
 pub fn aitp::tct::builder::TctBuilder<'a, S>::ttl_secs(self, i64) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::without_voucher(self) -> Self
 pub fn aitp::tct::parse_revocation_snapshot_wire(&aitp::core::unknown_field::CheckedJson) -> core::result::Result<aitp::tct::revocation::RevocationListEnvelope, aitp::tct::error::TctError>
+pub fn aitp::tct::pop::PopChallenge::new(uuid::Uuid, impl core::convert::Into<alloc::string::String>, aitp::core::time::Timestamp) -> Self
 pub fn aitp::tct::pop::sign_pop_response(&aitp::tct::pop::PopChallenge, &dyn aitp::crypto::signer::AitpSigner) -> core::result::Result<aitp::tct::pop::PopResponse, aitp::tct::error::TctError>
 pub fn aitp::tct::pop::verify_pop_response(&aitp::tct::pop::PopChallenge, &aitp::tct::pop::PopResponse, &aitp::tct::types::TctClaims, aitp::core::time::Timestamp) -> core::result::Result<(), aitp::tct::error::TctError>
+pub fn aitp::tct::revocation::RevocationEntry::new(uuid::Uuid, aitp::core::time::Timestamp) -> Self
+pub fn aitp::tct::revocation::RevocationEntry::with_reason(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::tct::revocation::RevocationList::new(aitp::core::aid::Aid, aitp::core::time::Timestamp, aitp::core::time::Timestamp, alloc::vec::Vec<aitp::tct::revocation::RevocationEntry>) -> Self
 pub fn aitp::tct::revocation::VerifyRevocationListContext<'a>::new(&'a aitp::core::aid::Aid, aitp::core::time::Timestamp) -> Self
 pub fn aitp::tct::revocation::parse_revocation_snapshot_wire(&aitp::core::unknown_field::CheckedJson) -> core::result::Result<aitp::tct::revocation::RevocationListEnvelope, aitp::tct::error::TctError>
 pub fn aitp::tct::revocation::revocation_signing_bytes(&aitp::tct::revocation::RevocationList) -> core::result::Result<alloc::vec::Vec<u8>, aitp::tct::error::TctError>
@@ -2082,6 +2178,9 @@ pub fn aitp::transport::revocation::RevocationCache<P>::new(P, aitp::transport::
 pub fn aitp::transport::revocation::RevocationCache<P>::offline(aitp::transport::revocation::RevocationPolicy) -> Self
 pub fn aitp::transport::revocation::RevocationFailMode::default() -> Self
 pub fn aitp::transport::revocation::RevocationPolicy::default() -> Self
+pub fn aitp::transport::revocation::RevocationPolicy::with_cache_ttl_secs(self, u64) -> Self
+pub fn aitp::transport::revocation::RevocationPolicy::with_fail_mode(self, aitp::transport::revocation::RevocationFailMode) -> Self
+pub fn aitp::transport::revocation::RevocationPolicy::with_max_staleness_secs(self, u64) -> Self
 pub fn aitp::transport::revocation::RevocationProvider::fetch(&self, &aitp::core::aid::Aid) -> core::result::Result<aitp::tct::revocation::RevocationListEnvelope, aitp::transport::revocation::RevocationError>
 pub fn aitp::transport::revocation::apply_safe_subset(&[alloc::string::String], &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String>
 pub fn aitp::transport::revocation::revocation_list_uri_from_manifest(&aitp::manifest::types::Manifest) -> core::option::Option<url::Url>
@@ -2113,6 +2212,9 @@ pub fn aitp::transport::server::HandshakeServer<R>::without_session_sweeper(self
 pub fn aitp::transport::server::ManifestServer::new(aitp::manifest::types::Manifest) -> Self
 pub fn aitp::transport::server::ManifestServer::router(self) -> axum::routing::Router
 pub fn aitp::transport::server::RateLimitConfig::default() -> Self
+pub fn aitp::transport::server::RateLimitConfig::with_requests_per_aid_per_60s(self, core::option::Option<u32>) -> Self
+pub fn aitp::transport::server::RateLimitConfig::with_requests_per_source_per_60s(self, u32) -> Self
+pub fn aitp::transport::server::RateLimitConfig::with_trusted_proxies(self, alloc::vec::Vec<aitp::transport::source_ip::TrustedProxy>) -> Self
 pub fn aitp::transport::server::RevocationListProducer::current(&self) -> aitp::tct::revocation::RevocationListEnvelope
 pub fn aitp::transport::server::resolve_source_ip(core::net::ip_addr::IpAddr, &http::header::map::HeaderMap, &[aitp::transport::source_ip::TrustedProxy]) -> core::net::ip_addr::IpAddr
 pub fn aitp::transport::server_limits::with_request_body_limit(axum::routing::Router, usize) -> axum::routing::Router
@@ -2213,26 +2315,19 @@ pub mod aitp::transport::server_limits
 pub mod aitp::transport::server_limits::_per_route_limits
 pub mod aitp::transport::source_ip
 pub struct aitp::core::Aid(_)
-pub struct aitp::core::AitpEnvelope
 pub struct aitp::core::CheckedJson(_)
 pub struct aitp::core::CheckedJsonError(_)
 pub struct aitp::core::ExtensionsMap(_)
 pub struct aitp::core::InMemoryNonceStore
 pub struct aitp::core::RawUrl(_)
-pub struct aitp::core::Sender
 pub struct aitp::core::Timestamp(pub i64)
-pub struct aitp::core::UnknownField
 pub struct aitp::core::aid::Aid(_)
-pub struct aitp::core::envelope::AitpEnvelope
-pub struct aitp::core::envelope::Sender
 pub struct aitp::core::extensions::ExtensionsMap(_)
-pub struct aitp::core::ids::InvalidTag
 pub struct aitp::core::nonce_store::InMemoryNonceStore
 pub struct aitp::core::raw_url::RawUrl(_)
 pub struct aitp::core::time::Timestamp(pub i64)
 pub struct aitp::core::unknown_field::CheckedJson(_)
 pub struct aitp::core::unknown_field::CheckedJsonError(_)
-pub struct aitp::core::unknown_field::UnknownField
 pub struct aitp::crypto::AitpSigningKey(_)
 pub struct aitp::crypto::AitpVerifyingKey(_)
 pub struct aitp::crypto::BlockingSigner<S>(pub S)
@@ -2244,24 +2339,10 @@ pub struct aitp::crypto::keys::AitpVerifyingKey(_)
 pub struct aitp::crypto::keys::Signature(_)
 pub struct aitp::crypto::signer::BlockingSigner<S>(pub S)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::delegation::DelegationClaims
-pub struct aitp::delegation::VerifiedDelegation
 pub struct aitp::delegation::builder::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::delegation::types::DelegationClaims
-pub struct aitp::delegation::types::VerifiedDelegation
-pub struct aitp::facade::SessionContext
 pub struct aitp::facade::TctStore
-pub struct aitp::handshake::CompletedHandshake
-pub struct aitp::handshake::IdentityDescriptor
 pub struct aitp::handshake::Initiator
-pub struct aitp::handshake::JwkPublicKey
-pub struct aitp::handshake::MutualCommitAckPayload
-pub struct aitp::handshake::MutualCommitPayload
-pub struct aitp::handshake::MutualHelloAckPayload
-pub struct aitp::handshake::MutualHelloPayload
 pub struct aitp::handshake::NoPinnedKeys
-pub struct aitp::handshake::OidcVerifyContext<'a>
-pub struct aitp::handshake::PinnedKeyVerifyContext<'a>
 pub struct aitp::handshake::Responder
 pub struct aitp::handshake::StaticPinnedKeyStore
 pub struct aitp::handshake::admission::ChallengeSource
@@ -2271,69 +2352,24 @@ pub struct aitp::handshake::admission::PinnedAdmission
 pub struct aitp::handshake::admission::PinnedAdmissionBuilder
 pub struct aitp::handshake::admission::RecommendedLimiter
 pub struct aitp::handshake::admission::TokenBucketLimiter
-pub struct aitp::handshake::identity::IdentityDescriptor
-pub struct aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 pub struct aitp::handshake::identity_pinned::NoPinnedKeys
-pub struct aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 pub struct aitp::handshake::identity_pinned::StaticPinnedKeyStore
-pub struct aitp::handshake::jwk::JwkPublicKey
-pub struct aitp::handshake::payloads::MutualCommitAckPayload
-pub struct aitp::handshake::payloads::MutualCommitPayload
-pub struct aitp::handshake::payloads::MutualHelloAckPayload
-pub struct aitp::handshake::payloads::MutualHelloPayload
-pub struct aitp::handshake::state_machine::CompletedHandshake
-pub struct aitp::handshake::state_machine::IdentityPresentationContext<'a>
 pub struct aitp::handshake::state_machine::Initiator
 pub struct aitp::handshake::state_machine::NoPinnedKeys
 pub struct aitp::handshake::state_machine::Responder
 pub struct aitp::handshake::state_machine::StaticPinnedKeyStore
-pub struct aitp::manifest::IdentityHint
-pub struct aitp::manifest::Manifest
 pub struct aitp::manifest::ManifestBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::manifest::ManifestEnvelope
-pub struct aitp::manifest::ManifestPop
-pub struct aitp::manifest::VerifyManifestContext
 pub struct aitp::manifest::builder::ManifestBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::manifest::types::IdentityHint
-pub struct aitp::manifest::types::Manifest
-pub struct aitp::manifest::types::ManifestEnvelope
-pub struct aitp::manifest::types::ManifestPop
-pub struct aitp::manifest::verifier::VerifyManifestContext
 pub struct aitp::prelude::Aid(_)
-pub struct aitp::prelude::AitpEnvelope
 pub struct aitp::prelude::AitpSigningKey(_)
 pub struct aitp::prelude::AitpVerifyingKey(_)
 pub struct aitp::prelude::BlockingSigner<S>(pub S)
-pub struct aitp::prelude::IssuedTct
-pub struct aitp::prelude::Manifest
 pub struct aitp::prelude::TctBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::prelude::TctClaims
 pub struct aitp::prelude::Timestamp(pub i64)
-pub struct aitp::prelude::VerifiedTct
 pub struct aitp::tct::AttestationVerifyContextBuilder<'a>
-pub struct aitp::tct::Cnf
-pub struct aitp::tct::GrantVoucherClaims
-pub struct aitp::tct::IssuedTct
-pub struct aitp::tct::PopChallenge
-pub struct aitp::tct::PopResponse
-pub struct aitp::tct::RevocationEntry
-pub struct aitp::tct::RevocationList
-pub struct aitp::tct::RevocationListEnvelope
 pub struct aitp::tct::TctBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::tct::TctClaims
 pub struct aitp::tct::TctVerifyContextBuilder<'a>
-pub struct aitp::tct::VerifiedTct
 pub struct aitp::tct::builder::TctBuilder<'a, S: ?core::marker::Sized + 'a>
-pub struct aitp::tct::pop::PopChallenge
-pub struct aitp::tct::pop::PopResponse
-pub struct aitp::tct::revocation::RevocationEntry
-pub struct aitp::tct::revocation::RevocationList
-pub struct aitp::tct::revocation::RevocationListEnvelope
-pub struct aitp::tct::types::Cnf
-pub struct aitp::tct::types::GrantVoucherClaims
-pub struct aitp::tct::types::IssuedTct
-pub struct aitp::tct::types::TctClaims
-pub struct aitp::tct::types::VerifiedTct
 pub struct aitp::tct::verifier::AttestationVerifyContextBuilder<'a>
 pub struct aitp::tct::verifier::TctVerifyContextBuilder<'a>
 pub struct aitp::transport::ClientConfig
@@ -2346,11 +2382,9 @@ pub struct aitp::transport::KeyResolutionPolicyBuilder
 pub struct aitp::transport::ManifestFetcher
 pub struct aitp::transport::ManifestServer
 pub struct aitp::transport::PreparedRevocation
-pub struct aitp::transport::RateLimitConfig
 pub struct aitp::transport::RetryPolicy
 pub struct aitp::transport::RevocationCache<P: aitp::transport::revocation::RevocationProvider>
 pub struct aitp::transport::RevocationFetcher
-pub struct aitp::transport::RevocationPolicy
 pub struct aitp::transport::StaticPinnedIssuerKeyStore
 pub struct aitp::transport::TrustedProxy
 pub struct aitp::transport::TrustedProxyParseError(_)
@@ -2365,12 +2399,10 @@ pub struct aitp::transport::replay_store::InMemoryReplayGuard
 pub struct aitp::transport::retry::RetryPolicy
 pub struct aitp::transport::revocation::EmptyRevocationProvider
 pub struct aitp::transport::revocation::RevocationCache<P: aitp::transport::revocation::RevocationProvider>
-pub struct aitp::transport::revocation::RevocationPolicy
 pub struct aitp::transport::revocation_fetch::PreparedRevocation
 pub struct aitp::transport::revocation_fetch::RevocationFetcher
 pub struct aitp::transport::server::HandshakeServer<R: aitp::handshake::identity_oidc::JwksResolver + core::marker::Send + core::marker::Sync + 'static>
 pub struct aitp::transport::server::ManifestServer
-pub struct aitp::transport::server::RateLimitConfig
 pub struct aitp::transport::server::TrustedProxy
 pub struct aitp::transport::server::TrustedProxyParseError(_)
 pub struct aitp::transport::source_ip::TrustedProxy

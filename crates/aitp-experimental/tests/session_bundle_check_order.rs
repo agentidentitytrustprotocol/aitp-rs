@@ -36,12 +36,10 @@ fn manifest_for(key: &AitpSigningKey, ttl_secs: i64) -> Manifest {
     ManifestBuilder::new(key)
         .display_name("coordinator")
         .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
-        .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
-            subject: "coordinator".into(),
-            issuer: None,
-            public_key: Some(key.aid().identifier().to_string()),
-        })
+        .identity_hint(
+            IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+                .with_public_key(key.aid().identifier().to_string()),
+        )
         .offer("session.coordinate")
         .published_at(NOW)
         .ttl_secs(ttl_secs)
