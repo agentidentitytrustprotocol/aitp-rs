@@ -176,7 +176,7 @@ for (const [k, v] of Object.entries(m)) {
   if (typeof v === 'function' && v.prototype && Object.getOwnPropertyNames(v.prototype).length > 1) {
     classes[k] = [
       Object.getOwnPropertyNames(v.prototype).filter((n) => n !== 'constructor'),
-      Object.getOwnPropertyNames(v).filter((n) => !['length', 'name', 'prototype'].includes(n)),
+      Object.getOwnPropertyNames(v).filter((n) => !['length', 'name', 'prototype', 'arguments', 'caller'].includes(n)),
     ];
   }
 }

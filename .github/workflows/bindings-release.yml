@@ -106,8 +106,10 @@ jobs:
         run: npx napi build --platform --release --target ${{ matrix.target }}
       # Alpine is the musl host, so the build is native there. The addon
       # must link the C runtime dynamically to load as a shared object:
-      # `-crt-static`. The same container smoke-loads it and checks it
-      # exports exactly its API snapshot.
+      # `-crt-static`. napi would pick a cross linker (`<arch>-linux-musl-gcc`)
+      # for the target; the native `gcc` is the right one here. The same
+      # container smoke-loads it and checks it exports exactly its API
+      # snapshot.
       - name: Build and smoke-test (musl, in Alpine)
         if: ${{ matrix.musl }}
         working-directory: ${{ github.workspace }}
@@ -118,6 +120,7 @@ jobs:
               curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.90.0
               . "$HOME/.cargo/env"
               npm install
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=gcc CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=gcc
               RUSTFLAGS="-C target-feature=-crt-static" npx napi build --platform --release --target "$TARGET"
               node -e "require(\"./index.js\"); console.log(\"addon loads\")"
               python3 ../../scripts/binding-api.py runtime --node
