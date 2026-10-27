@@ -2,7 +2,7 @@
         deny audit msrv semver coverage schemas-check ci \
         check-versions sync-versions docs-check public-api public-api-check \
         api-classification api-classification-check stable-deps-check \
-        stable-experimental-check
+        stable-experimental-check binding-surface-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -102,6 +102,12 @@ stable-deps-check:
 # aitp-experimental. Reads the committed public-api.stable.txt.
 stable-experimental-check:
 	python3 scripts/check-stable-experimental.py
+
+# No experimental symbol in the committed default binding declarations
+# (aitp.pyi, index.d.ts, index.js). bindings.yml and the release
+# workflows also run the runtime mode on the built default artifact.
+binding-surface-check:
+	python3 scripts/check-binding-surface.py static
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a

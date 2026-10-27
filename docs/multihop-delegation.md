@@ -9,7 +9,8 @@
 > `aitp::delegation::verify_delegation` rejects any token carrying a `chain`
 > claim with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. The language bindings
 > expose the strict `verify_delegation` / `verifyDelegation` and, under
-> their `multihop-delegation` feature, `verify_delegation_multihop` /
+> their `experimental-multihop-delegation` feature (off by default, absent
+> from the published packages), `verify_delegation_multihop` /
 > `verifyDelegationMultihop`. See
 > [architecture](architecture.md#why-multi-hop-delegation-is-unreachable-by-default).
 

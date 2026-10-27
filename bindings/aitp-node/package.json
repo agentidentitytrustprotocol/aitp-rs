@@ -28,6 +28,7 @@
   "scripts": {
     "build": "napi build --platform --release",
     "build:debug": "napi build --platform",
+    "build:experimental": "napi build --platform --features experimental --js experimental.js --dts experimental.d.ts",
     "build:minimal": "napi build --platform --release --no-default-features",
     "build:minimal:debug": "napi build --platform --no-default-features",
     "artifacts": "napi artifacts",

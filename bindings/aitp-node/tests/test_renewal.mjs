@@ -1,17 +1,15 @@
-// TCT renewal (RFC-AITP-0005 §10) — Node SDK.
+// TCT renewal (RFC-AITP-0013) — Node SDK.
 //
-// Gated by the `renewal` Cargo feature. Build the dev
-// artifact with `npm run build`. This test no-ops
-// itself when the binding was built without the feature.
+// Gated by the `experimental-renewal` Cargo feature: build with
+// `npm run build:experimental`. Without the feature the tests skip.
 
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import { AitpAgent } from '../index.js';
+import { HAS_RENEWAL } from './_experimental.mjs';
 import { decodeJwsPayload } from './_jws.mjs';
 
-const HAS_RENEWAL =
-  typeof AitpAgent.generate().buildRenewalRequest === 'function';
 
 function issuedPair() {
   const a = AitpAgent.generate();

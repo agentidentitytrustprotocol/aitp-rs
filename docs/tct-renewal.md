@@ -12,8 +12,8 @@
 > - `RenewalServer`, the issuer's HTTP endpoint, needs feature
 >   `http-server`.
 > - `renew_tct`, the holder's HTTP client, needs feature `http-client`.
-> - Language bindings: their own `renewal` feature (on by default), which
->   depends on `aitp-experimental`.
+> - Language bindings: their `experimental-renewal` feature, off by
+>   default and absent from the published packages.
 >
 > No stability promise (STABILITY.md).
 

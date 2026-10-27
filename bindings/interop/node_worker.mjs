@@ -24,18 +24,21 @@ const here = dirname(fileURLToPath(import.meta.url));
 const mod = await import(
   pathToFileURL(join(here, '..', 'aitp-node', 'index.js')).href
 );
+// The experimental features' exports; undefined in a default build.
+const exp = await import(
+  pathToFileURL(join(here, '..', 'aitp-node', 'experimental.js')).href
+);
 const AitpAgent = mod.AitpAgent ?? mod.default?.AitpAgent;
 const verifyDelegation = mod.verifyDelegation ?? mod.default?.verifyDelegation;
 const verifyDelegationMultihop =
-  mod.verifyDelegationMultihop ??
-  mod.default?.verifyDelegationMultihop;
+  exp.verifyDelegationMultihop ?? exp.default?.verifyDelegationMultihop;
 const verifyManifestJson = mod.verifyManifestJson ?? mod.default?.verifyManifestJson;
 const verifyEnvelope = mod.verifyEnvelope ?? mod.default?.verifyEnvelope;
 const JwksProvider = mod.JwksProvider ?? mod.default?.JwksProvider;
 const SessionBundleBuilder =
-  mod.SessionBundleBuilder ?? mod.default?.SessionBundleBuilder;
+  exp.SessionBundleBuilder ?? exp.default?.SessionBundleBuilder;
 const verifySessionBundle =
-  mod.verifySessionBundle ?? mod.default?.verifySessionBundle;
+  exp.verifySessionBundle ?? exp.default?.verifySessionBundle;
 if (!AitpAgent) {
   throw new Error('aitp-node binding not built — run `npm run build:debug`');
 }
