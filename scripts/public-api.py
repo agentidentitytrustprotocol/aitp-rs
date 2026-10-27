@@ -131,10 +131,21 @@ def is_defining(line: str) -> bool:
     return bool(DEFINING.match(line))
 
 
+# Compiler-internal marker traits: they promise nothing a caller can use,
+# and which of them rustdoc lists changes with the nightly.
+INTERNAL_MARKERS = re.compile(
+    r"^impl\b.* !?core::marker::(?:Freeze|UnsafeUnpin|StructuralPartialEq) for ")
+
+
 def snapshot(features: list[str]) -> list[str]:
-    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "--color=never", "-p", PACKAGE, "-sss",
+    """The surface built with `features`: every item with its signature,
+    and every impl on it except blanket impls (`-s`), so derived traits,
+    `From` conversions and the auto traits (`Send`, `Sync`, `Unpin`,
+    `UnwindSafe`, `RefUnwindSafe`) are part of what the snapshot freezes."""
+    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "--color=never", "-p", PACKAGE, "-s",
            "--no-default-features", "--features", ",".join(features)]
-    return sorted({l for l in run(cmd).splitlines() if l.strip()})
+    return sorted({l for l in run(cmd).splitlines()
+                   if l.strip() and not INTERNAL_MARKERS.match(l)})
 
 
 def unnamed_paths(lines: list[str]) -> dict[str, str]:

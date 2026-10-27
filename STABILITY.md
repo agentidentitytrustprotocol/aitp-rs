@@ -170,8 +170,12 @@ the crates and the SDKs. How to report a vulnerability is in
   [`scripts/public-api.py`](scripts/public-api.py):
   - [`public-api.stable.txt`](crates/aitp/public-api.stable.txt) covers the
     stable features: every item with its signature, fields, variants,
-    methods and impls, at each public path. Generating it fails if a
-    stable signature names a type no public path reaches.
+    methods and impls, at each public path. The impls include the derived
+    traits, the `From` conversions and the auto traits (`Send`, `Sync`,
+    `Unpin`, `UnwindSafe`, `RefUnwindSafe`), so losing one is a visible
+    break. Only blanket impls and compiler-internal markers are left out.
+    Generating it fails if a stable signature names a type no public path
+    reaches.
   - [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt)
     lists what each unstable feature adds to the stable surface. It
     carries no promise, and changes to it never count as breaks.
