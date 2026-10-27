@@ -8,10 +8,11 @@
 //! See [`RECOMMENDED_MAX_HEADER_BYTES`] and the recipe in
 //! `examples/observability/README.md`.
 //!
-//! For the request body, axum exposes
-//! [`axum::extract::DefaultBodyLimit`] as a router-level layer; the
-//! [`with_request_body_limit`] helper applies the AITP-recommended
-//! cap.
+//! The request body cap is
+//! [`ServeConfig::request_body_limit`](crate::transport::ServeConfig::request_body_limit),
+//! which defaults to [`DEFAULT_REQUEST_BODY_LIMIT`]. With
+//! `experimental-axum`, `with_request_body_limit` applies the same cap
+//! to a router from `into_router`.
 //!
 //! # Recommended caps
 //!
@@ -34,11 +35,10 @@
 //! `If-None-Match`). Cap at 16 KiB and rely on the body limit for
 //! the bulk of request size.
 
-use axum::extract::DefaultBodyLimit;
-use axum::Router;
+use axum::{extract::DefaultBodyLimit, Extension, Router};
 
-/// Default request body limit applied by
-/// [`with_request_body_limit_default`]: 64 KiB. Safe default for
+/// Default request body limit of
+/// [`ServeConfig`](crate::transport::ServeConfig): 64 KiB. Safe default for
 /// every AITP endpoint except revocation-list uploads — see
 /// [`REVOCATION_LIST_BODY_LIMIT`].
 pub const DEFAULT_REQUEST_BODY_LIMIT: usize = 64 * 1024;
@@ -74,15 +74,26 @@ pub const RECOMMENDED_MAX_HEADER_BYTES: usize = 16 * 1024;
 /// use aitp::transport::ManifestServer;
 /// # fn build_manifest() -> aitp::manifest::Manifest { unimplemented!() }
 ///
-/// let router = ManifestServer::new(build_manifest()).router();
+/// let router = ManifestServer::new(build_manifest()).into_router();
 /// let router = with_request_body_limit(router, DEFAULT_REQUEST_BODY_LIMIT);
 /// ```
+#[cfg(feature = "experimental-axum")]
 pub fn with_request_body_limit(router: Router, limit: usize) -> Router {
-    router.layer(DefaultBodyLimit::max(limit))
+    limit_bodies(router, limit)
+}
+
+/// Cap request bodies at `limit` on every route: axum's extractors
+/// through [`DefaultBodyLimit`], and the handshake handlers, which read
+/// the raw body, through the `BodyLimit` extension.
+pub(crate) fn limit_bodies(router: Router, limit: usize) -> Router {
+    router
+        .layer(DefaultBodyLimit::max(limit))
+        .layer(Extension(crate::transport::server::BodyLimit(limit)))
 }
 
 /// Same as [`with_request_body_limit`] with
 /// [`DEFAULT_REQUEST_BODY_LIMIT`].
+#[cfg(feature = "experimental-axum")]
 pub fn with_request_body_limit_default(router: Router) -> Router {
     with_request_body_limit(router, DEFAULT_REQUEST_BODY_LIMIT)
 }
@@ -107,6 +118,7 @@ pub fn with_request_body_limit_default(router: Router) -> Router {
 /// with different limits, and a wrong helper here would silently
 /// pick the wrong limit. Callers should compose with axum's
 /// primitives directly.
+#[cfg(feature = "experimental-axum")]
 pub mod _per_route_limits {}
 
 // Header-size cap is binary-side: `axum::serve` uses hyper's
@@ -116,7 +128,7 @@ pub mod _per_route_limits {}
 // recipe lives in `examples/observability/README.md` so callers
 // don't have to context-switch into rustdoc.
 
-#[cfg(test)]
+#[cfg(all(test, feature = "experimental-axum"))]
 mod tests {
     use super::*;
     use axum::body::Body;

@@ -37,9 +37,7 @@ async fn round_trip_manifest_server() {
 
     let server = ManifestServer::new(manifest.clone());
     let server_handle = tokio::spawn(async move {
-        axum::serve(listener, server.router().into_make_service())
-            .await
-            .unwrap();
+        server.serve(listener).await.unwrap();
     });
 
     // Give the server a moment to start.

@@ -21,6 +21,15 @@ pub struct aitp::transport::tls_pinning::SpkiPinVerifier
 pub type aitp::transport::SpkiHash = [u8; 32]
 pub type aitp::transport::tls_pinning::SpkiHash = [u8; 32]
 
+## experimental-axum
+pub fn aitp::transport::server::HandshakeServer<R>::into_router(self) -> axum::routing::Router
+pub fn aitp::transport::server::ManifestServer::into_router(self) -> axum::routing::Router
+pub fn aitp::transport::server_limits::with_request_body_limit(axum::routing::Router, usize) -> axum::routing::Router
+pub fn aitp::transport::server_limits::with_request_body_limit_default(axum::routing::Router) -> axum::routing::Router
+pub fn aitp::transport::with_request_body_limit(axum::routing::Router, usize) -> axum::routing::Router
+pub fn aitp::transport::with_request_body_limit_default(axum::routing::Router) -> axum::routing::Router
+pub mod aitp::transport::server_limits::_per_route_limits
+
 ## experimental-renewal
 #[non_exhaustive] pub struct aitp::tct::RenewalContext<'a>
 #[non_exhaustive] pub struct aitp::tct::renewal::RenewalContext<'a>

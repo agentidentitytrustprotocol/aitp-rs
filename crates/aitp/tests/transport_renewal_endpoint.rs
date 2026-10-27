@@ -75,14 +75,7 @@ async fn serve(server: HandshakeServer<NoOpResolver>) -> String {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            server
-                .router()
-                .into_make_service_with_connect_info::<std::net::SocketAddr>(),
-        )
-        .await
-        .unwrap();
+        server.serve(listener).await.unwrap();
     });
     format!("http://127.0.0.1:{port}")
 }

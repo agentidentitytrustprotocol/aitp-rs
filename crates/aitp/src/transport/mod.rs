@@ -85,17 +85,16 @@ pub use key_resolution::{
 #[cfg(feature = "http-server")]
 pub use server::{
     HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome, RevocationListProducer,
-    DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
+    ServeConfig, DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
 };
 
 #[cfg(feature = "source-ip")]
 pub use source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
 
+#[cfg(feature = "experimental-axum")]
+pub use server_limits::{with_request_body_limit, with_request_body_limit_default};
 #[cfg(feature = "http-server")]
-pub use server_limits::{
-    with_request_body_limit, with_request_body_limit_default, DEFAULT_REQUEST_BODY_LIMIT,
-    RECOMMENDED_MAX_HEADER_BYTES,
-};
+pub use server_limits::{DEFAULT_REQUEST_BODY_LIMIT, RECOMMENDED_MAX_HEADER_BYTES};
 
 #[cfg(any(feature = "http-client", feature = "http-server"))]
 pub use common::{

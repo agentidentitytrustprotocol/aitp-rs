@@ -277,6 +277,8 @@ jobs:
       # Every stable struct and enum is classified in
       # docs/api-classification.md (RS-RC3).
       - run: make api-classification-check
+      # No pre-1.0 crate's type in the stable surface (RS-RC5).
+      - run: make stable-deps-check
 
   msrv:
     name: cargo-msrv (workspace)

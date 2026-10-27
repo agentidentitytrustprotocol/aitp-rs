@@ -78,7 +78,7 @@ let manifest = ManifestBuilder::new(&key)
     .build()?;
 ```
 
-- **Server.** `HandshakeServer::router()` mounts the renewal route at the
+- **Server.** `HandshakeServer::serve()` mounts the renewal route at the
   path of that URL, and only then. A Manifest without a usable
   `renew_uri` gets no renewal route.
 - **Client.** `aitp::facade::renew_tct(holder, current, &issuer_manifest)`

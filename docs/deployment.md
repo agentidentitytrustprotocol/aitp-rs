@@ -87,12 +87,13 @@ Per-node memory is bounded, partly out of the box and partly by you:
   `HandshakeServer::with_session_ttl(...)`, a constructor that takes
   `new`'s arguments plus the TTL (it is not a builder method).
 - Expired sessions are swept on every HELLO and COMMIT, and by a
-  background sweeper that `router()` starts every
+  background sweeper that `serve()` starts every
   `DEFAULT_SESSION_SWEEP_INTERVAL` (30 s), so a burst that goes quiet
   doesn't hold memory until the next request. Change the period with
   `.with_session_sweep_interval(d)` or turn it off with
-  `.without_session_sweeper()`. If `router()` runs outside a Tokio
-  runtime, the sweeper starts with the first HELLO. The task holds only a
+  `.without_session_sweeper()`. A router from `into_router()` (feature
+  `experimental-axum`) starts it too; built outside a Tokio runtime, it
+  starts the sweeper with the first HELLO. The task holds only a
   weak reference and exits once the server state is dropped.
 
 There is deliberately **no** shared session store: it would require

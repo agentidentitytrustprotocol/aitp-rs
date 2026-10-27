@@ -169,6 +169,7 @@ reasons already in the table are kept.
 | `aitp::transport::RevocationFetcher` | struct | private fields |  |
 | `aitp::transport::RevocationOutcome` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::transport::RevocationPolicy` | struct | non_exhaustive |  |
+| `aitp::transport::ServeConfig` | struct | non_exhaustive |  |
 | `aitp::transport::StaticPinnedIssuerKeyStore` | struct | private fields |  |
 | `aitp::transport::TrustedProxy` | struct | private fields |  |
 | `aitp::transport::TrustedProxyParseError` | struct | private fields |  |

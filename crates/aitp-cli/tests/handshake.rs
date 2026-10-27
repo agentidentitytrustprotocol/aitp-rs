@@ -12,7 +12,7 @@ use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::transport::{
-    HandshakeServer, ManifestServer, RevocationFailMode, RevocationPolicy, REVOCATION_LIST_PATH,
+    HandshakeServer, RevocationFailMode, RevocationPolicy, REVOCATION_LIST_PATH,
 };
 use assert_cmd::Command;
 use predicates::prelude::*;
@@ -69,11 +69,9 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
         RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
     )
     .with_pinned_key_store(Arc::new(trusted));
-    let app = ManifestServer::new(manifest)
-        .router()
-        .merge(handshake.router());
+    // `serve` also serves the Manifest.
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.ok();
+        handshake.serve(listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
     (key, origin)

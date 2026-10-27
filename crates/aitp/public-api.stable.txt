@@ -178,8 +178,10 @@
 #[non_exhaustive] pub struct aitp::tct::verifier::VerifiedAttestation
 #[non_exhaustive] pub struct aitp::transport::RateLimitConfig
 #[non_exhaustive] pub struct aitp::transport::RevocationPolicy
+#[non_exhaustive] pub struct aitp::transport::ServeConfig
 #[non_exhaustive] pub struct aitp::transport::revocation::RevocationPolicy
 #[non_exhaustive] pub struct aitp::transport::server::RateLimitConfig
+#[non_exhaustive] pub struct aitp::transport::server::ServeConfig
 impl aitp::core::aid::Aid
 impl aitp::core::aid::AidAlgorithm
 impl aitp::core::envelope::AitpEnvelope
@@ -255,6 +257,7 @@ impl aitp::transport::revocation_fetch::PreparedRevocation
 impl aitp::transport::revocation_fetch::RevocationFetcher
 impl aitp::transport::server::ManifestServer
 impl aitp::transport::server::RateLimitConfig
+impl aitp::transport::server::ServeConfig
 impl aitp::transport::source_ip::TrustedProxy
 impl core::cmp::Eq for aitp::crypto::keys::AitpVerifyingKey
 impl core::cmp::PartialEq for aitp::crypto::keys::AitpVerifyingKey
@@ -264,7 +267,6 @@ impl core::convert::From<&str> for aitp::core::raw_url::RawUrl
 impl core::convert::From<[u8; 32]> for aitp::crypto::digest::Digest32
 impl core::convert::From<aitp::core::aid::Aid> for alloc::string::String
 impl core::convert::From<alloc::string::String> for aitp::core::raw_url::RawUrl
-impl core::convert::From<chrono::datetime::DateTime<chrono::offset::utc::Utc>> for aitp::core::time::Timestamp
 impl core::convert::From<i64> for aitp::core::time::Timestamp
 impl core::convert::From<url::Url> for aitp::core::raw_url::RawUrl
 impl core::convert::TryFrom<alloc::string::String> for aitp::core::aid::Aid
@@ -282,6 +284,7 @@ impl core::default::Default for aitp::transport::revocation::RevocationFailMode
 impl core::default::Default for aitp::transport::revocation::RevocationPolicy
 impl core::default::Default for aitp::transport::revocation_fetch::RevocationFetcher
 impl core::default::Default for aitp::transport::server::RateLimitConfig
+impl core::default::Default for aitp::transport::server::ServeConfig
 impl core::fmt::Debug for aitp::crypto::digest::Digest32
 impl core::fmt::Debug for aitp::crypto::keys::AitpSigningKey
 impl core::fmt::Debug for aitp::delegation::verifier::DelegationRevocation<'_>
@@ -1452,6 +1455,7 @@ pub aitp::transport::RevocationOutcome::SoftFailSafeSubset::safe_grants: alloc::
 pub aitp::transport::RevocationPolicy::cache_ttl_secs: u64
 pub aitp::transport::RevocationPolicy::fail_mode: aitp::transport::revocation::RevocationFailMode
 pub aitp::transport::RevocationPolicy::max_staleness_secs: u64
+pub aitp::transport::ServeConfig::request_body_limit: usize
 pub aitp::transport::client::FetchError::InsecureUrl
 pub aitp::transport::client::FetchError::MalformedJson(alloc::string::String)
 pub aitp::transport::client::FetchError::MalformedWrapper
@@ -1517,6 +1521,7 @@ pub aitp::transport::server::RateLimitConfig::trusted_proxies: alloc::vec::Vec<a
 pub aitp::transport::server::RateLimitOutcome::Allow
 pub aitp::transport::server::RateLimitOutcome::DenyTooManyRequests
 pub aitp::transport::server::RateLimitOutcome::DenyTooManyRequests::reason: alloc::string::String
+pub aitp::transport::server::ServeConfig::request_body_limit: usize
 pub async fn aitp::crypto::check_public_key_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner) -> core::result::Result<(), aitp::crypto::signer::SignerError>
 pub async fn aitp::crypto::jws::sign_compact_async<T: serde_core::ser::Serialize>(&dyn aitp::crypto::signer::DynAsyncAitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::error::CryptoError>
 pub async fn aitp::crypto::sign_jcs_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, &aitp::crypto::digest::Digest32) -> core::result::Result<aitp::crypto::keys::Signature, aitp::crypto::signer::SignerError>
@@ -1549,6 +1554,10 @@ pub async fn aitp::transport::common::sign_envelope_with_async(&dyn aitp::crypto
 pub async fn aitp::transport::key_resolution::KeyResolutionPolicy::resolve_async(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::handshake::identity_oidc::ResolveError>
 pub async fn aitp::transport::net_guard::HostGuard::resolve_checked(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<core::net::socket_addr::SocketAddr>, aitp::transport::net_guard::HostGuardError>
 pub async fn aitp::transport::revocation_fetch::RevocationFetcher::prepare(&self, &aitp::core::aid::Aid, core::option::Option<&str>, aitp::core::time::Timestamp) -> aitp::transport::revocation_fetch::PreparedRevocation
+pub async fn aitp::transport::server::HandshakeServer<R>::serve(self, tokio::net::tcp::listener::TcpListener) -> std::io::error::Result<()>
+pub async fn aitp::transport::server::HandshakeServer<R>::serve_with<F>(self, tokio::net::tcp::listener::TcpListener, aitp::transport::server::ServeConfig, F) -> std::io::error::Result<()> where F: core::future::future::Future<Output = ()> + core::marker::Send + 'static
+pub async fn aitp::transport::server::ManifestServer::serve(self, tokio::net::tcp::listener::TcpListener) -> std::io::error::Result<()>
+pub async fn aitp::transport::server::ManifestServer::serve_with<F>(self, tokio::net::tcp::listener::TcpListener, aitp::transport::server::ServeConfig, F) -> std::io::error::Result<()> where F: core::future::future::Future<Output = ()> + core::marker::Send + 'static
 pub async fn aitp::transport::sign_envelope_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
 pub async fn aitp::transport::sign_envelope_with_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
 pub const aitp::core::AID_PUBKEY_IDENTIFIER_LEN: usize
@@ -1735,7 +1744,6 @@ pub fn aitp::core::raw_url::RawUrl::from_str(&str) -> core::result::Result<Self,
 pub fn aitp::core::raw_url::RawUrl::new(impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::core::raw_url::RawUrl::parse_url(&self) -> core::result::Result<url::Url, url::parser::ParseError>
 pub fn aitp::core::reject_duplicate_keys(&[u8]) -> core::result::Result<(), alloc::string::String>
-pub fn aitp::core::time::Timestamp::from(chrono::datetime::DateTime<chrono::offset::utc::Utc>) -> Self
 pub fn aitp::core::time::Timestamp::from(i64) -> Self
 pub fn aitp::core::time::Timestamp::is_fresh(self, aitp::core::time::Timestamp) -> bool
 pub fn aitp::core::time::Timestamp::is_in_the_future(self, aitp::core::time::Timestamp) -> bool
@@ -2195,7 +2203,6 @@ pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_timeout(self, 
 pub fn aitp::transport::revocation_list_uri_from_manifest(&aitp::manifest::types::Manifest) -> core::option::Option<url::Url>
 pub fn aitp::transport::server::HandshakeServer<R>::enforce_rate_limit(&self, core::option::Option<core::net::ip_addr::IpAddr>, core::option::Option<&aitp::core::aid::Aid>) -> aitp::transport::server::RateLimitOutcome
 pub fn aitp::transport::server::HandshakeServer<R>::new<S: aitp::crypto::signer::AitpSigner + 'static>(S, aitp::manifest::types::Manifest, alloc::vec::Vec<aitp::core::raw_url::RawUrl>, R, alloc::vec::Vec<alloc::string::String>) -> Self
-pub fn aitp::transport::server::HandshakeServer<R>::router(self) -> axum::routing::Router
 pub fn aitp::transport::server::HandshakeServer<R>::spawn_session_sweeper(&self, core::time::Duration) -> core::result::Result<tokio::runtime::task::join::JoinHandle<()>, tokio::runtime::handle::TryCurrentError>
 pub fn aitp::transport::server::HandshakeServer<R>::with_max_sessions(self, usize) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::with_pinned_key_store(self, alloc::sync::Arc<dyn aitp::handshake::identity_pinned::PinnedKeyStore>) -> Self
@@ -2210,23 +2217,20 @@ pub fn aitp::transport::server::HandshakeServer<R>::with_session_ttl_and_replay_
 pub fn aitp::transport::server::HandshakeServer<R>::without_rate_limit(self) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::without_session_sweeper(self) -> Self
 pub fn aitp::transport::server::ManifestServer::new(aitp::manifest::types::Manifest) -> Self
-pub fn aitp::transport::server::ManifestServer::router(self) -> axum::routing::Router
 pub fn aitp::transport::server::RateLimitConfig::default() -> Self
 pub fn aitp::transport::server::RateLimitConfig::with_requests_per_aid_per_60s(self, core::option::Option<u32>) -> Self
 pub fn aitp::transport::server::RateLimitConfig::with_requests_per_source_per_60s(self, u32) -> Self
 pub fn aitp::transport::server::RateLimitConfig::with_trusted_proxies(self, alloc::vec::Vec<aitp::transport::source_ip::TrustedProxy>) -> Self
 pub fn aitp::transport::server::RevocationListProducer::current(&self) -> aitp::tct::revocation::RevocationListEnvelope
+pub fn aitp::transport::server::ServeConfig::default() -> Self
+pub fn aitp::transport::server::ServeConfig::with_request_body_limit(self, usize) -> Self
 pub fn aitp::transport::server::resolve_source_ip(core::net::ip_addr::IpAddr, &http::header::map::HeaderMap, &[aitp::transport::source_ip::TrustedProxy]) -> core::net::ip_addr::IpAddr
-pub fn aitp::transport::server_limits::with_request_body_limit(axum::routing::Router, usize) -> axum::routing::Router
-pub fn aitp::transport::server_limits::with_request_body_limit_default(axum::routing::Router) -> axum::routing::Router
 pub fn aitp::transport::sign_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
 pub fn aitp::transport::sign_envelope_with(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
 pub fn aitp::transport::source_ip::TrustedProxy::contains(&self, core::net::ip_addr::IpAddr) -> bool
 pub fn aitp::transport::source_ip::TrustedProxy::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub fn aitp::transport::source_ip::resolve_source_ip(core::net::ip_addr::IpAddr, &http::header::map::HeaderMap, &[aitp::transport::source_ip::TrustedProxy]) -> core::net::ip_addr::IpAddr
 pub fn aitp::transport::verify_envelope_signature(&aitp::core::envelope::AitpEnvelope, &aitp::crypto::keys::AitpVerifyingKey) -> core::result::Result<(), aitp::crypto::error::CryptoError>
-pub fn aitp::transport::with_request_body_limit(axum::routing::Router, usize) -> axum::routing::Router
-pub fn aitp::transport::with_request_body_limit_default(axum::routing::Router) -> axum::routing::Router
 pub fn alloc::boxed::Box<S>::aid(&self) -> &aitp::core::aid::Aid
 pub fn alloc::boxed::Box<S>::as_signing_key(&self) -> core::option::Option<&aitp::crypto::keys::AitpSigningKey>
 pub fn alloc::boxed::Box<S>::max_message_len(&self) -> core::option::Option<usize>
@@ -2312,7 +2316,6 @@ pub mod aitp::transport::revocation
 pub mod aitp::transport::revocation_fetch
 pub mod aitp::transport::server
 pub mod aitp::transport::server_limits
-pub mod aitp::transport::server_limits::_per_route_limits
 pub mod aitp::transport::source_ip
 pub struct aitp::core::Aid(_)
 pub struct aitp::core::CheckedJson(_)

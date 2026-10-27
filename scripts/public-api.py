@@ -33,6 +33,7 @@ STABLE_FEATURES = ["default", "http-client", "http-server", "pinned-admission", 
 # Features that carry no promise (STABILITY.md).
 UNSTABLE_FEATURES = [
     "client-spki-pinning",
+    "experimental-axum",
     "experimental-renewal",
     "experimental-spiffe-identity",
     "test-util",

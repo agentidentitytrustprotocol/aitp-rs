@@ -12,8 +12,8 @@ use aitp::handshake::{
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::transport::{
-    sign_envelope_with, HandshakeServer, ManifestServer, RevocationFailMode, RevocationFetcher,
-    RevocationPolicy, REVOCATION_LIST_PATH,
+    sign_envelope_with, HandshakeServer, RevocationFailMode, RevocationFetcher, RevocationPolicy,
+    REVOCATION_LIST_PATH,
 };
 use std::sync::Arc;
 use std::time::Duration;
@@ -197,8 +197,8 @@ async fn run_pinned_handshake(
             RevocationFailMode::FailClosed
         },
     );
-    let manifest_router = ManifestServer::new(bob_manifest.clone()).router();
-    let handshake_router = HandshakeServer::new(
+    // `serve` also serves the Manifest.
+    let bob_server = HandshakeServer::new(
         make_bob(),
         bob_manifest.clone(),
         vec![],
@@ -208,14 +208,10 @@ async fn run_pinned_handshake(
     .with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([alice.verifying_key()])))
     .with_revocation_fetcher(Arc::new(
         RevocationFetcher::new(bob_policy).with_insecure_localhost(true),
-    ))
-    .router();
-    let app = manifest_router.merge(handshake_router);
+    ));
 
     let server = tokio::spawn(async move {
-        axum::serve(bob_listener, app.into_make_service())
-            .await
-            .ok();
+        bob_server.serve(bob_listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -374,19 +370,16 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
     // Bob's pinned-key store trusts a stranger — NOT Alice.
     let stranger = AitpSigningKey::from_seed(&[0x99; 32]);
     let store = StaticPinnedKeyStore::new([stranger.verifying_key()]);
-    let handshake_router = HandshakeServer::new(
+    let bob_server = HandshakeServer::new(
         AitpSigningKey::from_seed(&[0x82; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
     )
-    .with_pinned_key_store(Arc::new(store))
-    .router();
+    .with_pinned_key_store(Arc::new(store));
     let server = tokio::spawn(async move {
-        axum::serve(bob_listener, handshake_router.into_make_service())
-            .await
-            .ok();
+        bob_server.serve(bob_listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 

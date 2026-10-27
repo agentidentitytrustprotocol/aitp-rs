@@ -210,7 +210,7 @@ pub async fn spawn(
         RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
     );
 
-    let app = server.router().merge(
+    let app = server.into_router().merge(
         Router::new()
             .route("/.well-known/aitp-manifest", get(serve_manifest))
             .route("/work", post(handle_work))
@@ -219,10 +219,13 @@ pub async fn spawn(
 
     let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
     let join = tokio::spawn(async move {
-        let serve =
-            axum::serve(listener, app.into_make_service()).with_graceful_shutdown(async move {
-                let _ = shutdown_rx.await;
-            });
+        let serve = axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+        )
+        .with_graceful_shutdown(async move {
+            let _ = shutdown_rx.await;
+        });
         if let Err(e) = serve.await {
             tracing::error!("worker server exited with error: {e}");
         }

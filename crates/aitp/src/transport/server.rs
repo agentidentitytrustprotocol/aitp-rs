@@ -62,12 +62,12 @@ pub const DEFAULT_MAX_SESSIONS: usize = 1_000;
 /// traffic. The default is half the [`DEFAULT_SESSION_TTL`] so any
 /// expired session is reclaimed within at most `TTL + period` from
 /// its creation. The sweeper starts automatically with the router
-/// (see [`HandshakeServer::router`]); turn it off with
+/// (see [`HandshakeServer::serve`]); turn it off with
 /// [`HandshakeServer::without_session_sweeper`] or by passing
 /// [`Duration::ZERO`] to [`HandshakeServer::with_session_sweep_interval`].
 pub const DEFAULT_SESSION_SWEEP_INTERVAL: Duration = Duration::from_secs(30);
 
-/// Path at which [`HandshakeServer::router`] serves `ListRevoked`, the
+/// Path at which [`HandshakeServer::serve`] serves `ListRevoked`, the
 /// issuer's signed revocation snapshot (RFC-AITP-0005 §11,
 /// RFC-AITP-0008 §1.5). The issuer's Manifest advertises the absolute
 /// URL of this route via
@@ -120,22 +120,102 @@ impl ManifestServer {
         }
     }
 
-    /// The axum router (mount under whatever prefix you want; usually `/`).
-    pub fn router(self) -> Router {
-        let manifest = self.manifest;
-        Router::new().route(
-            "/.well-known/aitp-manifest",
-            get(move || {
-                let manifest = manifest.clone();
-                async move {
-                    let env = ManifestEnvelope {
-                        manifest: (*manifest).clone(),
-                    };
-                    Json(env)
-                }
-            }),
-        )
+    /// Serve `/.well-known/aitp-manifest` on `listener` with
+    /// [`ServeConfig::default`], until the task is dropped or an I/O
+    /// error ends it.
+    pub async fn serve(self, listener: tokio::net::TcpListener) -> std::io::Result<()> {
+        self.serve_with(listener, ServeConfig::default(), std::future::pending())
+            .await
     }
+
+    /// Serve on `listener` with `config` until `shutdown` completes, then
+    /// finish the requests in flight and return.
+    pub async fn serve_with<F>(
+        self,
+        listener: tokio::net::TcpListener,
+        config: ServeConfig,
+        shutdown: F,
+    ) -> std::io::Result<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        serve_router(self.routes(), listener, config, shutdown).await
+    }
+
+    /// The axum router, for mounting next to your own routes. axum is
+    /// pre-1.0, so this carries no promise (STABILITY.md); hosting with
+    /// [`Self::serve`] does.
+    #[cfg(feature = "experimental-axum")]
+    pub fn into_router(self) -> Router {
+        self.routes()
+    }
+
+    fn routes(self) -> Router {
+        manifest_route(self.manifest)
+    }
+}
+
+fn manifest_route(manifest: Arc<Manifest>) -> Router {
+    Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(move || {
+            let manifest = manifest.clone();
+            async move {
+                let env = ManifestEnvelope {
+                    manifest: (*manifest).clone(),
+                };
+                Json(env)
+            }
+        }),
+    )
+}
+
+/// How [`HandshakeServer::serve_with`] and [`ManifestServer::serve_with`]
+/// host their routes.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct ServeConfig {
+    /// The largest request body accepted, in bytes; a larger one gets
+    /// `413 Payload Too Large`. Default
+    /// [`DEFAULT_REQUEST_BODY_LIMIT`](crate::transport::DEFAULT_REQUEST_BODY_LIMIT).
+    pub request_body_limit: usize,
+}
+
+impl Default for ServeConfig {
+    fn default() -> Self {
+        Self {
+            request_body_limit: crate::transport::server_limits::DEFAULT_REQUEST_BODY_LIMIT,
+        }
+    }
+}
+
+impl ServeConfig {
+    /// Set [`Self::request_body_limit`].
+    pub fn with_request_body_limit(mut self, limit: usize) -> Self {
+        self.request_body_limit = limit;
+        self
+    }
+}
+
+/// Serve `router` with the peer address available to the handlers, so
+/// rate limiting sees each client's address
+/// ([`TrustedProxy`] for proxies).
+async fn serve_router<F>(
+    router: Router,
+    listener: tokio::net::TcpListener,
+    config: ServeConfig,
+    shutdown: F,
+) -> std::io::Result<()>
+where
+    F: std::future::Future<Output = ()> + Send + 'static,
+{
+    let router = crate::transport::server_limits::limit_bodies(router, config.request_body_limit);
+    axum::serve(
+        listener,
+        router.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown)
+    .await
 }
 
 /// Server that drives the responder side of the handshake.
@@ -290,7 +370,7 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// the `Arc<HandshakeState>` is already built.
     max_sessions: std::sync::atomic::AtomicUsize,
     /// Period of the background session sweeper started by
-    /// [`HandshakeServer::router`]; `None` disables it. Under a `Mutex`
+    /// [`HandshakeServer::serve`]; `None` disables it. Under a `Mutex`
     /// so the builder can change it on an already-`Arc`'d server.
     session_sweep_interval: Mutex<Option<Duration>>,
     /// Set once a sweeper task has been spawned for this state, so the
@@ -344,10 +424,20 @@ pub const DEFAULT_REPLAY_WINDOW: Duration = Duration::from_secs(300);
 /// `TIMESTAMP_EXPIRED`.
 pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
 
-/// Maximum acceptable POST body size for handshake endpoints. AITP
-/// payloads are bounded — even a Manifest fits well under 32 KB. 256 KB
-/// is a generous ceiling that still rejects accidental gigabyte uploads.
+/// Maximum acceptable POST body size for handshake endpoints when no
+/// limit is configured: a router from `into_router` served without
+/// `with_request_body_limit`. AITP payloads are bounded — even a
+/// Manifest fits well under 32 KB. 256 KB is a generous ceiling that
+/// still rejects accidental gigabyte uploads. [`HandshakeServer::serve`]
+/// applies [`ServeConfig::request_body_limit`] instead.
 pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
+
+/// The body limit a handler reads, set by [`HandshakeServer::serve_with`]
+/// or `with_request_body_limit` as a request extension. The handshake
+/// handlers read the raw body, which axum's `DefaultBodyLimit` does not
+/// reach.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct BodyLimit(pub(crate) usize);
 
 /// Wall-clock cap on body read. Defends against slow-loris attackers
 /// who trickle a small body across many seconds: the body-size cap
@@ -517,7 +607,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// Spawn a background task on the current Tokio runtime that
     /// periodically evicts sessions older than the configured TTL.
     ///
-    /// [`Self::router`] already starts one at the configured interval
+    /// [`Self::serve`] already starts one at the configured interval
     /// unless [`Self::without_session_sweeper`] was called; calling this
     /// first replaces that automatic sweeper with one at `interval`.
     ///
@@ -541,7 +631,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// Start the configured background sweeper if it is enabled, not
     /// already running, and a Tokio runtime is current. Called from
-    /// [`Self::router`] and again from the HELLO handler, so a router
+    /// [`Self::serve`] and again from the HELLO handler, so a router
     /// built outside a runtime still gets its sweeper once it serves.
     fn ensure_session_sweeper(state: &Arc<HandshakeState<R>>) {
         use std::sync::atomic::Ordering;
@@ -656,7 +746,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     ///
     /// Returns `Allow` after [`Self::without_rate_limit`].
     ///
-    /// The handshake handlers ([`Self::router`]'s `hello` / `commit`
+    /// The handshake handlers ([`Self::serve`]'s `hello` / `commit`
     /// routes) call this internally per RFC-AITP-0009 §3.1 — after the
     /// replay deny-list check and before timestamp validation. Calling
     /// it again from operator middleware double-counts the request;
@@ -669,7 +759,45 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         rate_limit_check(&self.state, client_ip, peer_aid)
     }
 
-    /// The axum router for this handshake server.
+    /// Serve this handshake server on `listener` with
+    /// [`ServeConfig::default`], until the task is dropped or an I/O
+    /// error ends it.
+    ///
+    /// It serves the handshake routes, [`REVOCATION_LIST_PATH`], the
+    /// renewal route (below) and `/.well-known/aitp-manifest` with this
+    /// server's Manifest, so one listener is a complete AITP peer.
+    pub async fn serve(self, listener: tokio::net::TcpListener) -> std::io::Result<()> {
+        self.serve_with(listener, ServeConfig::default(), std::future::pending())
+            .await
+    }
+
+    /// [`Self::serve`] with `config`, until `shutdown` completes; then
+    /// the requests in flight finish and it returns.
+    pub async fn serve_with<F>(
+        self,
+        listener: tokio::net::TcpListener,
+        config: ServeConfig,
+        shutdown: F,
+    ) -> std::io::Result<()>
+    where
+        F: std::future::Future<Output = ()> + Send + 'static,
+    {
+        let manifest = Arc::new(self.state.manifest.clone());
+        let router = self.routes().merge(manifest_route(manifest));
+        serve_router(router, listener, config, shutdown).await
+    }
+
+    /// The axum router, without the Manifest route, for mounting next to
+    /// your own routes. axum is pre-1.0, so this carries no promise
+    /// (STABILITY.md); hosting with [`Self::serve`] does. Serve it with
+    /// `into_make_service_with_connect_info::<SocketAddr>()`, or rate
+    /// limiting sees no client address.
+    #[cfg(feature = "experimental-axum")]
+    pub fn into_router(self) -> Router {
+        self.routes()
+    }
+
+    /// The routes [`Self::serve`] and `into_router` host.
     ///
     /// With `experimental-renewal`, the renewal route is mounted only
     /// when this server's Manifest advertises
@@ -681,7 +809,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// [`Self::with_session_sweep_interval`] or turned off with
     /// [`Self::without_session_sweeper`]). Called outside a Tokio
     /// runtime, the sweeper starts with the first HELLO instead.
-    pub fn router(self) -> Router {
+    pub(crate) fn routes(self) -> Router {
         Self::ensure_session_sweeper(&self.state);
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
@@ -1420,8 +1548,9 @@ impl IntoResponse for ResponseError {
 }
 
 /// Read the request body with two bounds:
-/// - **Size**: refused with `INVALID_ENVELOPE` if it exceeds
-///   [`DEFAULT_MAX_BODY_BYTES`].
+/// - **Size**: refused with `INVALID_ENVELOPE` if it exceeds the
+///   configured limit (`BodyLimit`), or [`DEFAULT_MAX_BODY_BYTES`]
+///   when none is set.
 /// - **Wall-clock**: refused with `INVALID_ENVELOPE` if the entire
 ///   body cannot be drained within `timeout`. Defeats slow-loris
 ///   clients trickling bytes within the body cap.
@@ -1429,7 +1558,11 @@ async fn read_body_with_timeout(
     request: Request,
     timeout: Duration,
 ) -> Result<axum::body::Bytes, ResponseError> {
-    let body_fut = to_bytes(request.into_body(), DEFAULT_MAX_BODY_BYTES);
+    let limit = request
+        .extensions()
+        .get::<BodyLimit>()
+        .map_or(DEFAULT_MAX_BODY_BYTES, |l| l.0);
+    let body_fut = to_bytes(request.into_body(), limit);
     match tokio::time::timeout(timeout, body_fut).await {
         Ok(Ok(b)) => Ok(b),
         Ok(Err(e)) => Err(ResponseError::aitp(
@@ -1447,7 +1580,7 @@ async fn read_body_with_timeout(
 /// RFC-AITP-0009 §3.1 endpoint order and, inside it, the RFC-AITP-0001
 /// §5.4 envelope check order. The first failure is reported:
 ///
-/// 0. Read the body under [`DEFAULT_MAX_BODY_BYTES`] and
+/// 0. Read the body under the configured limit and
 ///    [`DEFAULT_BODY_READ_TIMEOUT`], and parse it as JSON with the
 ///    duplicate-key check (RFC-AITP-0001 §5.4.5). The body-size bound of
 ///    §3.1 step 4 runs here, ahead of steps 1–3, because those steps read

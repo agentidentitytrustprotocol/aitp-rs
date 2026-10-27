@@ -84,7 +84,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(listener, server.router()).await.unwrap();
+        server.serve(listener).await.unwrap();
     });
 
     let url = format!("http://127.0.0.1:{port}/.well-known/aitp-revocation-list");
@@ -154,7 +154,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(listener, server.router()).await.unwrap();
+        server.serve(listener).await.unwrap();
     });
 
     // Take the response as untyped JSON — the wire, not our own types.
@@ -210,7 +210,7 @@ async fn serve(server: HandshakeServer<NoOpResolver>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(listener, server.router()).await.unwrap();
+        server.serve(listener).await.unwrap();
     });
     port
 }

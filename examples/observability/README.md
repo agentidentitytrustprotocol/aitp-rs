@@ -163,28 +163,29 @@ size and HTTP header size. Recommended defaults are exported from
 | Request body | 64 KiB | `DEFAULT_REQUEST_BODY_LIMIT` |
 | HTTP header buffer | 16 KiB | `RECOMMENDED_MAX_HEADER_BYTES` |
 
-### Body limit (router-level, axum-native)
+### Body limit
 
-Wrap the router with `with_request_body_limit_default`:
+`HandshakeServer::serve` and `ManifestServer::serve` apply
+`DEFAULT_REQUEST_BODY_LIMIT`. Set another limit with `serve_with`:
 
 ```rust
-use aitp::transport::{
-    HandshakeServer,
-    with_request_body_limit_default,
-};
+use aitp::transport::{HandshakeServer, ServeConfig};
 
-let router = with_request_body_limit_default(server.router());
-axum::serve(listener, router).await?;
+let config = ServeConfig::default().with_request_body_limit(32 * 1024);
+server.serve_with(listener, config, shutdown_signal()).await?;
 ```
 
-Tune up for revocation-list uploads (which scale with the number of
-revoked JTIs); 256 KiB is a reasonable ceiling.
+An oversized handshake body is refused with `INVALID_ENVELOPE`
+(RFC-AITP-0009 §3.1). With the `experimental-axum` feature,
+`with_request_body_limit(server.into_router(), limit)` applies the same
+cap to a router you mount next to your own routes.
 
 ### Header limit (hyper-builder level)
 
 axum 0.8 does not expose a knob for the header buffer; it inherits
-hyper's defaults. To cap headers, drop down to `hyper-util` and
-launch each connection through a configured
+hyper's defaults. To cap headers, take the router from `into_router()`
+(feature `experimental-axum`), drop down to `hyper-util` and launch each
+connection through a configured
 `hyper::server::conn::http1::Builder`:
 
 ```rust

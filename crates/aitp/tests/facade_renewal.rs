@@ -71,7 +71,7 @@ async fn renews_at_the_advertised_uri() {
         NoOpResolver,
         vec!["demo.echo".into()],
     );
-    tokio::spawn(async move { axum::serve(listener, server.router()).await.ok() });
+    tokio::spawn(async move { server.serve(listener).await.ok() });
 
     let renewed = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
         .await
