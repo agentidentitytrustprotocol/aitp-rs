@@ -27,7 +27,8 @@ PROTECTED_STUBS = {
         <a id="tct-verification-rfc-aitp-0005-9"></a>
         ## TCT verification (RFC-AITP-0005 §7.2)
         ## Delegation (RFC-AITP-0006)
-        ## Additional capabilities (on by default)
+        <a id="additional-capabilities-on-by-default"></a>
+        ## Experimental (build from source)
         ## OIDC identity (RFC-AITP-0002)
         ## SPKI cert pinning (HPKP-style, feature `spki-pinning`)
         """,

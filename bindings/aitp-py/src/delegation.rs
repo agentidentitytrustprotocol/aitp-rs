@@ -22,7 +22,7 @@ use crate::helpers::{
     binding_revocation, delegation_revocation_code, runtime_error, BindingRevocation,
 };
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
-#[cfg(feature = "multihop-delegation")]
+#[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
     verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
@@ -128,7 +128,7 @@ impl PyDelegationVerified {
 ///
 /// Any token carrying a non-empty `chain` (a draft RFC-AITP-0011 multi-hop
 /// delegation) is **rejected**, matching the Rust core default. To opt into
-/// multi-hop, build the SDK with the `multihop-delegation`
+/// multi-hop, build the SDK with the `experimental-multihop-delegation`
 /// feature and call `verify_delegation_multihop`.
 ///
 /// `issuer_manifests` is the delegator's (B's) Manifest, each entry a
@@ -185,7 +185,7 @@ pub fn verify_delegation_py(
 /// RFC-AITP-0011 multi-hop** chains up to `max_delegation_hops` total hops.
 ///
 /// This opts into behavior that is **not** part of AITP v0.1. It is only
-/// compiled in under the `multihop-delegation` feature; a
+/// compiled in under the `experimental-multihop-delegation` feature; a
 /// default build exposes only the strict [`verify_delegation_py`].
 ///
 /// `max_delegation_hops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (the RFC-AITP-0011 §2
@@ -206,7 +206,7 @@ pub fn verify_delegation_py(
 /// `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
 /// before use; when several designate one AID the newest `published_at`
 /// wins.
-#[cfg(feature = "multihop-delegation")]
+#[cfg(feature = "experimental-multihop-delegation")]
 #[pyfunction]
 #[pyo3(
     name = "verify_delegation_multihop",

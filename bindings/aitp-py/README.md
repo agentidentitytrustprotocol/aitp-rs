@@ -24,31 +24,32 @@ This crate is **not** part of the `aitp-rs` Cargo workspace. Build it with
 
 ```bash
 pip install maturin
-maturin develop                          # full wheel (all capabilities)
-maturin develop --no-default-features    # minimal wheel (core surface only)
+maturin develop                          # default wheel, as published
+maturin develop --features experimental  # adds the experimental features
+maturin develop --no-default-features    # without SPKI pinning
 ```
 
 ### Cargo features
 
-By default the published wheel ships the **full** capability surface:
+The published wheel is the default build:
 
 - handshake, TCT, delegation, manifest verification and OIDC identity
 - revocation-list signing and verification
 - envelope signing and verification
-- TCT renewal, session bundles, SPKI pinning and multi-hop delegation
+- SPKI pinning (feature `spki-pinning`, on by default)
 
-Each capability below is a named feature, all on by default. A minimal wheel
-can opt out with `--no-default-features`:
+The experimental features are off by default and are not in the published
+wheel. A source build enables them one by one, or all with `experimental`.
+They carry no stability promise; their stubs are in `aitp_experimental.pyi`.
 
-| Feature               | Enables                                                            | RFC                  |
-|-----------------------|--------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request`      | RFC-AITP-0013 (Planned) |
-| `session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`                    | RFC-AITP-0010 (Draft) |
-| `spki-pinning`        | `compute_spki_hash`, `SpkiPinVerifier`                             | HPKP (RFC 7469)      |
-| `multihop-delegation` | `verify_delegation_multihop`                                       | RFC-AITP-0011 (Draft) |
+| Feature                            | Enables                                                       | RFC                  |
+|------------------------------------|---------------------------------------------------------------|----------------------|
+| `spki-pinning` (default)           | `compute_spki_hash`, `SpkiPinVerifier`                        | HPKP (RFC 7469)      |
+| `experimental-renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request` | RFC-AITP-0013 (Draft) |
+| `experimental-session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`               | RFC-AITP-0010 (Draft) |
+| `experimental-multihop-delegation` | `verify_delegation_multihop`                                  | RFC-AITP-0011 (Draft) |
 
-Capabilities whose RFC has not graduated make no wire-stability promise
-across binding versions. If you depend on them, pin a specific version.
+From the sdist: `MATURIN_PEP517_ARGS="--features experimental" pip install --no-binary aitp-sdk aitp-sdk`.
 
 ## Usage
 
@@ -114,10 +115,10 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `revocation_signing_bytes()` | default | The exact bytes a revocation snapshot's signature covers |
 | `verify_pop_response()` | default | RFC-AITP-0005 §6.2 checks only (not the TCT itself); returns the proven holder AID. Raises with `.code` `POP_CHALLENGE_INVALID` or `POP_RESPONSE_INVALID` |
 | `compute_aid_jkt()`   | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
-| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `renewal` | RFC-AITP-0013 (Planned). `build_renewal_request(current_tct_token)`; `process_renewal_request` returns `{"tct", "grant_voucher"}` JSON |
-| `SessionBundleBuilder`, `verify_session_bundle(json, verifier_aid, coordinator_manifest_json, ...)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinator_manifest_json` required) |
+| `AitpAgent.build_renewal_request()` / `process_renewal_request()` | `experimental-renewal` | RFC-AITP-0013 (Draft). `build_renewal_request(current_tct_token)`; `process_renewal_request` returns `{"tct", "grant_voucher"}` JSON |
+| `SessionBundleBuilder`, `verify_session_bundle(json, verifier_aid, coordinator_manifest_json, ...)` | `experimental-session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinator_manifest_json` required) |
 | `compute_spki_hash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
-| `verify_delegation_multihop()` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `verify_delegation_multihop()` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
 The Python and Node bindings differ in some return shapes and argument
 names; see

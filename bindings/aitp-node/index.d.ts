@@ -144,30 +144,6 @@ export declare class AitpAgent {
    * Returns the on-wire `RevocationListEnvelope` JSON.
    */
   signRevocationList(entries: Array<RevocationEntryInput>, expiresInSecs?: number | undefined | null): string
-  /**
-   * Holder side: build a `TctRenewalPayload` JSON for an in-band
-   * renewal of `currentTctToken` — the holder's current TCT as a
-   * compact-JWS string (RFC-AITP-0013).
-   *
-   * Behind the `renewal` Cargo feature, which is **on by default**; a
-   * `--no-default-features` build omits it.
-   */
-  buildRenewalRequest(currentTctToken: string): string
-  /**
-   * Issuer side: verify a `TctRenewalPayload` JSON request and mint a
-   * fresh TCT. Returns `{ tct, grantVoucher }` — the compact-JWS TCT plus
-   * its companion grant voucher (`null` when none was minted).
-   *
-   * Renewal re-evaluates policy (RFC-AITP-0013): grants this
-   * agent's Manifest (from `buildManifest()`, required) no longer
-   * offers are dropped, a TCT whose `jti` is in `revokedJtis` is
-   * refused, and a replayed request (same `pop_nonce`) is refused.
-   * `revokedJtis` entries are normalized as in `verifyTct`; one that is
-   * not a UUID throws.
-   *
-   * Behind the `renewal` Cargo feature (on by default).
-   */
-  processRenewalRequest(requestPayloadJson: string, manifestExpUnixSecs: number, newTtlSecs: number, revokedJtis?: Array<string> | undefined | null): JsIssuedTct
 }
 
 /** Outbound handshake session — drives the initiator side. */
@@ -234,38 +210,6 @@ export declare class JwksProvider {
   /** Return the issuer URLs currently registered. */
   issuers(): Array<string>
 }
-
-/**
- * Fluent builder for issuing a `SessionBundleEnvelope`. Constructed
- * from the coordinator's `AitpAgent`.
- *
- * The Rust struct is suffixed `Js` to avoid a name collision with the
- * `aitp_experimental::session_bundle::SessionBundleBuilder` imported above; the
- * `#[napi(js_name)]` attribute exposes it to JavaScript under the
- * plain name `SessionBundleBuilder` for parity with the Python SDK.
- */
-export declare class SessionBundleBuilder {
-  /** Construct a builder backed by `coordinator`'s signing key. */
-  constructor(coordinator: AitpAgent)
-  /**
-   * Set the session ID. It is signed into the bundle, so it must be the
-   * lowercase hyphenated UUID v4 wire form (RFC-AITP-0010 §3); uppercase,
-   * braced, `urn:uuid:`, unhyphenated and non-v4 forms are refused, not
-   * normalized. Defaults to a fresh one.
-   */
-  sessionId(uuidStr: string): this
-  /** Override `issued_at` (unix seconds). Defaults to "now" at build. */
-  issuedAt(unixSecs: number): this
-  /**
-   * Add a participant entry. `tctToken` is the participant's TCT as an
-   * opaque compact-JWS string (the `tct` field returned by `complete()`
-   * / `processCommit()`), carried into the bundle verbatim.
-   */
-  participant(aid: string, tctToken: string): this
-  /** Construct, sign, and return the `SessionBundleEnvelope` JSON. */
-  build(): string
-}
-export type SessionBundleBuilderJs = SessionBundleBuilder
 
 /**
  * Holds a list of 32-byte SPKI pins. `isPinned(certDer)` returns true
@@ -343,16 +287,6 @@ export interface GenerateOpts {
    * `"p256"` (RFC-AITP-0001 §5.4.3).
    */
   suite?: string
-}
-
-/**
- * Outcome shape returned by `verifySessionBundle`. `kind` is `"clear"`
- * or `"degraded"`; `droppedAids` is empty in the `"clear"` case.
- */
-export interface JsBundleOutcome {
-  kind: string
-  activeAids: Array<string>
-  droppedAids: Array<string>
 }
 
 /**
@@ -451,7 +385,8 @@ export interface JsHelloAckResult {
 
 /**
  * A TCT this agent just minted for someone else — the return shape of
- * `processRenewalRequest` and `issueTctForDelegatee`. Mirrors the Python
+ * `issueTctForDelegatee` (and, in an experimental build,
+ * `processRenewalRequest`). Mirrors the Python
  * SDK's `{"tct", "grant_voucher"}` JSON object.
  */
 export interface JsIssuedTct {
@@ -614,8 +549,9 @@ export interface SignEnvelopeOpts {
  *
  * Any token carrying a non-empty `chain` (an RFC-AITP-0011 multi-hop
  * delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
- * matching the Rust core default. To allow multi-hop chains, call
- * `verifyDelegationMultihop` instead.
+ * matching the Rust core default. A build with the
+ * `experimental-multihop-delegation` feature adds
+ * `verifyDelegationMultihop`, which allows multi-hop chains.
  *
  * `issuerManifests` is the delegator's Manifest(s), each a
  * `{"manifest": {...}}` envelope JSON string. RFC-AITP-0006 §4 step 1
@@ -637,42 +573,6 @@ export interface SignEnvelopeOpts {
  * not a UUID throws rather than being ignored.
  */
 export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
-
-/**
- * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
- * chains up to `maxDelegationHops` total hops (`chain.length + 1`).
- *
- * The strict single-hop `verifyDelegation` is the safe default; this
- * function additionally allows multi-hop chains. Present by default (the
- * `multihop-delegation` feature); a `--no-default-features` build omits it.
- *
- * `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
- * recommended ceiling). Pass a smaller value for a tighter bound;
- * `maxDelegationHops = 0` reverts to strict single-hop (rejects any non-empty chain).
- *
- * `revokedJtis` and `revocation` are as in `verifyDelegation`
- * (`fail_closed`). The list is consulted twice — both only after every
- * signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
- * step 7), and once for every hop's `jti`, meaning each chain entry and the
- * outer token (RFC-AITP-0011 §6). Both are MUST-rejects, and a revoked hop
- * invalidates every hop downstream of it — there is no partial-validity
- * model. Entries are normalized as in `verifyDelegation`.
- *
- * Note that §6 specifies each hop `jti` be checked against the deny list of
- * *that hop's issuer*, which one flat list cannot express, so it is applied
- * to every hop regardless of issuer. That can only reject more, never
- * accept a revoked hop, but it does mean a list aggregated across several
- * issuers lets any contributor revoke any hop.
- *
- * `issuerManifests` is the hop issuers' Manifests, each a
- * `{"manifest": {...}}` envelope JSON string. RFC-AITP-0011 §3 step 1
- * verifies every hop under the key resolved from its issuer's verified
- * Manifest; a hop whose issuer has no valid Manifest here fails with
- * `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
- * before use; when several designate one AID the newest `published_at`
- * wins.
- */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
 
 /**
  * Verify an `AitpEnvelope` JSON string sent by `expectedSenderAid`.
@@ -761,14 +661,3 @@ export declare function verifyPopResponse(challengeJson: string, responseJson: s
  * The caller owns the staleness budget.
  */
 export declare function verifyRevocationList(envelopeJson: string, expectedIssuerAid: string, nowUnixSecs?: number | undefined | null): void
-
-/**
- * Verify a `SessionBundleEnvelope` JSON. `nowUnixSecs` defaults to
- * the system clock. `revocationCheck` receives a JTI string and
- * returns true if revoked. `coordinatorManifestJson` (required) is the
- * coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
- * §5), must designate the bundle's `coordinator`, and the coordinator
- * key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
- * AID-only fallback.
- */
-export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null): JsBundleOutcome

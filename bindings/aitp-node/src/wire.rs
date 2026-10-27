@@ -125,7 +125,7 @@ pub fn revocation_snapshot(json: &str) -> Result<RevocationListEnvelope, WireErr
 }
 
 /// The bundle inside a `{"session_bundle": {...}}` wire envelope.
-#[cfg(feature = "session-bundle")]
+#[cfg(feature = "experimental-session-bundle")]
 pub fn session_bundle(
     json: &str,
 ) -> Result<aitp_experimental::session_bundle::SessionTrustBundle, WireError> {

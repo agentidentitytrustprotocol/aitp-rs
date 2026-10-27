@@ -84,10 +84,15 @@ jobs:
       # Load the built addon before it can publish: a release-profile
       # binary that links but fails to dlopen (e.g. a mis-aligned
       # LINKEDIT from stripping) must fail here, not on users' machines.
-      # The x86_64 macOS addon is cross-built on an arm runner.
+      # It then checks the addon has no experimental symbol. The x86_64
+      # macOS addon is cross-built on an arm runner, so it is not loadable
+      # here; it has only the static check (ci.yml) and the default
+      # features of Cargo.toml.
       - name: Smoke-load the addon
         if: matrix.target != 'x86_64-apple-darwin'
-        run: node -e "require('./index.js'); console.log('addon loads')"
+        run: |
+          node -e "require('./index.js'); console.log('addon loads')"
+          python3 ../../scripts/check-binding-surface.py runtime --node
       - name: Upload .node artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

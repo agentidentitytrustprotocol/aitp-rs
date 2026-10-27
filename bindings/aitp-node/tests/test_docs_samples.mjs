@@ -35,28 +35,30 @@ import forge from 'node-forge';
 import {
   AitpAgent,
   JwksProvider,
-  SessionBundleBuilder,
   SpkiPinVerifier,
   TctStore,
   computeAidJkt,
   computeSpkiHash,
   revocationSigningBytes,
   verifyDelegation,
-  verifyDelegationMultihop,
   verifyEnvelope,
   verifyManifestJson,
   verifyRevocationList,
-  verifySessionBundle,
 } from '../index.js';
+import {
+  HAS_BUNDLE,
+  HAS_MULTIHOP,
+  HAS_RENEWAL,
+  SessionBundleBuilder,
+  verifyDelegationMultihop,
+  verifySessionBundle,
+} from './_experimental.mjs';
 
 const THIS_FILE = fileURLToPath(import.meta.url);
 const REPO_ROOT = path.resolve(path.dirname(THIS_FILE), '../../..');
 const DOC = path.join(REPO_ROOT, 'docs', 'sdk-node.md');
 const README = path.join(REPO_ROOT, 'bindings', 'aitp-node', 'README.md');
 
-const HAS_RENEWAL = typeof AitpAgent.generate().buildRenewalRequest === 'function';
-const HAS_MULTIHOP = typeof verifyDelegationMultihop === 'function';
-const HAS_BUNDLE = typeof SessionBundleBuilder === 'function';
 const HAS_PINNING = typeof computeSpkiHash === 'function';
 
 /** Run `fn`, returning [its result, the lines it console.log'd]. */
@@ -309,7 +311,7 @@ function p256Suite(ns) {
 }
 
 function tctRenewal(ns) {
-  // docs/sdk-node.md § Additional capabilities › TCT renewal (feature `renewal`)
+  // docs/sdk-node.md § Experimental › TCT renewal (feature `experimental-renewal`)
   const { alice, bob, tctJws } = ns;
   const req = alice.buildRenewalRequest(tctJws);   // the held TCT compact JWS
   const { tct: freshTct, grantVoucher: freshVoucher } = bob.processRenewalRequest(
@@ -319,7 +321,7 @@ function tctRenewal(ns) {
 }
 
 function multihop(ns) {
-  // docs/sdk-node.md § Additional capabilities › Multi-hop delegation
+  // docs/sdk-node.md § Experimental › Multi-hop delegation
   const { bob, delegationJws, revoked, aliceManifest } = ns;
   // Every hop verifies under the key its issuer's Manifest designates
   // (RFC-AITP-0011 §3 step 1), so pass each hop issuer's Manifest
@@ -331,7 +333,7 @@ function multihop(ns) {
 }
 
 function sessionBundle(ns) {
-  // docs/sdk-node.md § Additional capabilities › Session Trust Bundle
+  // docs/sdk-node.md § Experimental › Session Trust Bundle
   const { alice, bob, carol, tctJws, carolTct, revoked } = ns;
   const bundle = new SessionBundleBuilder(bob)   // bob coordinates
     .sessionId(randomUUID())                     // optional; defaults to a fresh UUID
@@ -356,7 +358,7 @@ function sessionBundle(ns) {
 }
 
 function spkiPinning() {
-  // docs/sdk-node.md § Additional capabilities › SPKI cert pinning
+  // docs/sdk-node.md § Default surface › SPKI cert pinning
   const certDerBuffer = selfSignedDer();
   const otherCertDer = selfSignedDer();
   const pin = computeSpkiHash(certDerBuffer);       // 32-byte Buffer

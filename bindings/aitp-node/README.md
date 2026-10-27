@@ -31,38 +31,38 @@ the [NAPI-rs CLI](https://napi.rs) and a Rust toolchain:
 
 ```bash
 npm install
-npm run build:debug                  # full `.node` (all capabilities)
-npm run build:minimal:debug          # minimal `.node` (core surface only)
+npm run build:debug                  # default `.node`, as published
+npm run build:experimental           # adds the experimental features
+npm run build:minimal:debug          # without SPKI pinning
 # Release:
-npm run build                        # full release (all capabilities)
-npm run build:minimal                # minimal release (--no-default-features)
+npm run build
+npm run build:minimal                # --no-default-features
 ```
 
 The build produces the platform `.node` binary and regenerates `index.js`
-and `index.d.ts`. The generated TypeScript typings in `index.d.ts` cover the
-full surface; a `--no-default-features` build narrows it.
+and `index.d.ts`, which cover the default surface. `build:experimental`
+writes `experimental.js` and `experimental.d.ts` instead, which add the
+experimental API and are not in the published package.
 
 ### Cargo features
 
-By default the published `.node` ships the **full** capability surface:
+The published `.node` is the default build:
 
 - handshake, TCT, delegation, manifest verification and OIDC identity
 - revocation-list signing and verification
 - envelope signing and verification
-- TCT renewal, session bundles, SPKI pinning and multi-hop delegation
+- SPKI pinning (feature `spki-pinning`, on by default)
 
-Each capability below is a named feature, all on by default. A minimal build
-can opt out with `--no-default-features`:
+The experimental features are off by default and are not in the published
+package. A source build enables them one by one, or all with `experimental`
+(`npm run build:experimental`). They carry no stability promise.
 
-| Feature               | Enables                                                                  | RFC                  |
-|-----------------------|--------------------------------------------------------------------------|----------------------|
-| `renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest`                | RFC-AITP-0013 (Planned) |
-| `session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`                            | RFC-AITP-0010 (Draft) |
-| `spki-pinning`        | `computeSpkiHash`, `SpkiPinVerifier`                                     | HPKP (RFC 7469)      |
-| `multihop-delegation` | `verifyDelegationMultihop`                                               | RFC-AITP-0011 (Draft) |
-
-Capabilities whose RFC has not graduated make no wire-stability promise
-across binding versions.
+| Feature                            | Enables                                                   | RFC                  |
+|------------------------------------|-----------------------------------------------------------|----------------------|
+| `spki-pinning` (default)           | `computeSpkiHash`, `SpkiPinVerifier`                      | HPKP (RFC 7469)      |
+| `experimental-renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest` | RFC-AITP-0013 (Draft) |
+| `experimental-session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`             | RFC-AITP-0010 (Draft) |
+| `experimental-multihop-delegation` | `verifyDelegationMultihop`                                | RFC-AITP-0011 (Draft) |
 
 ## Usage
 
@@ -131,10 +131,10 @@ compact-JWS token strings** (`header.payload.signature`).
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
 | `verifyPopResponse(challengeJson, responseJson, tctToken)` | default | RFC-AITP-0005 §6.2 checks only (not the TCT itself); returns the proven holder AID. Throws with `code` `POP_CHALLENGE_INVALID` or `POP_RESPONSE_INVALID` |
 | `computeAidJkt(aid)`      | default | RFC 7638 thumbprint of an AID's key, for an OIDC JWT's `cnf.jkt` |
-| `buildRenewalRequest()` / `processRenewalRequest()` | `renewal` | RFC-AITP-0013 (Planned). `processRenewalRequest` → `{ tct, grantVoucher? }` |
-| `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
+| `buildRenewalRequest()` / `processRenewalRequest()` | `experimental-renewal` | RFC-AITP-0013 (Draft). `processRenewalRequest` → `{ tct, grantVoucher? }` |
+| `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `experimental-session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
-| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?)` | `multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?)` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
 `verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
 the issuer.

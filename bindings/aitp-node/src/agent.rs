@@ -16,7 +16,7 @@ use crate::delegation::{
 use crate::envelope::{sign_envelope_js, SignEnvelopeOpts};
 use crate::oidc::JwksProvider;
 use crate::pop::{new_pop_challenge_js, sign_pop_response_js, PopExchange};
-#[cfg(feature = "renewal")]
+#[cfg(feature = "experimental-renewal")]
 use crate::renewal::{build_renewal_request_js, process_renewal_request_js};
 use crate::session::{JsInitiatorSession, JsResponderSession, SessionContext};
 use crate::tct::{js_verify_tct, js_verify_tct_cached, JsIssuedTct, JsTctIdentity, JsTctStore};
@@ -518,15 +518,14 @@ impl AitpAgent {
 // emits a `__napi__build_renewal_request` registration from the token
 // stream, but the method definition is `cfg`-stripped — a dangling
 // reference. Gating the whole impl block removes both together.
-#[cfg(feature = "renewal")]
+#[cfg(feature = "experimental-renewal")]
 #[napi]
 impl AitpAgent {
     /// Holder side: build a `TctRenewalPayload` JSON for an in-band
     /// renewal of `currentTctToken` — the holder's current TCT as a
     /// compact-JWS string (RFC-AITP-0013).
     ///
-    /// Behind the `renewal` Cargo feature, which is **on by default**; a
-    /// `--no-default-features` build omits it.
+    /// Behind the `experimental-renewal` Cargo feature (off by default).
     #[napi]
     pub fn build_renewal_request(&self, current_tct_token: String) -> Result<String> {
         build_renewal_request_js(&self.key, &current_tct_token)
@@ -543,7 +542,7 @@ impl AitpAgent {
     /// `revokedJtis` entries are normalized as in `verifyTct`; one that is
     /// not a UUID throws.
     ///
-    /// Behind the `renewal` Cargo feature (on by default).
+    /// Behind the `experimental-renewal` Cargo feature (off by default).
     #[napi]
     pub fn process_renewal_request(
         &self,
@@ -571,7 +570,7 @@ impl AitpAgent {
     /// Crate-internal accessor used by the session-bundle module, which
     /// needs to sign with the agent's long-term key. Gated to match its
     /// only caller so the default (feature-off) build stays warning-free.
-    #[cfg(feature = "session-bundle")]
+    #[cfg(feature = "experimental-session-bundle")]
     pub(crate) fn signing_key(&self) -> Arc<AitpSigningKey> {
         self.key.clone()
     }

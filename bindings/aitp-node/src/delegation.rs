@@ -15,7 +15,7 @@ use aitp::delegation::{
     VerifyDelegationContext,
 };
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
-#[cfg(feature = "multihop-delegation")]
+#[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
     verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
@@ -67,8 +67,9 @@ pub struct JsDelegationVerified {
 ///
 /// Any token carrying a non-empty `chain` (an RFC-AITP-0011 multi-hop
 /// delegation) is **rejected** with `DELEGATION_MULTIHOP_NOT_SUPPORTED`,
-/// matching the Rust core default. To allow multi-hop chains, call
-/// `verifyDelegationMultihop` instead.
+/// matching the Rust core default. A build with the
+/// `experimental-multihop-delegation` feature adds
+/// `verifyDelegationMultihop`, which allows multi-hop chains.
 ///
 /// `issuerManifests` is the delegator's Manifest(s), each a
 /// `{"manifest": {...}}` envelope JSON string. RFC-AITP-0006 §4 step 1
@@ -118,8 +119,8 @@ pub fn verify_delegation_js(
 /// chains up to `maxDelegationHops` total hops (`chain.length + 1`).
 ///
 /// The strict single-hop `verifyDelegation` is the safe default; this
-/// function additionally allows multi-hop chains. Present by default (the
-/// `multihop-delegation` feature); a `--no-default-features` build omits it.
+/// function additionally allows multi-hop chains. Behind the
+/// `experimental-multihop-delegation` feature (off by default).
 ///
 /// `maxDelegationHops` defaults to `DEFAULT_MAX_DELEGATION_HOPS` (3, the RFC-AITP-0011 §2
 /// recommended ceiling). Pass a smaller value for a tighter bound;
@@ -146,7 +147,7 @@ pub fn verify_delegation_js(
 /// `KEY_RESOLUTION_FAILED`. Each Manifest is verified (RFC-AITP-0003 §5)
 /// before use; when several designate one AID the newest `published_at`
 /// wins.
-#[cfg(feature = "multihop-delegation")]
+#[cfg(feature = "experimental-multihop-delegation")]
 #[napi(js_name = "verifyDelegationMultihop")]
 pub fn verify_delegation_multihop_js(
     env: Env,

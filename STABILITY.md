@@ -17,7 +17,9 @@ These follow [semver](https://semver.org/):
 - **The language SDKs.** `@agentidentitytrustprotocol/aitp` on npm
   (declared in [`bindings/aitp-node/index.d.ts`](bindings/aitp-node/index.d.ts))
   and `aitp-sdk` on PyPI (declared in
-  [`bindings/aitp-py/aitp.pyi`](bindings/aitp-py/aitp.pyi)).
+  [`bindings/aitp-py/aitp.pyi`](bindings/aitp-py/aitp.pyi)). The bindings'
+  `experimental-*` Cargo features are not covered; the published packages
+  do not enable them.
 
 | Change to a covered surface | Release |
 |---|---|
@@ -173,4 +175,8 @@ the crates and the SDKs. How to report a vulnerability is in
   that `pinned-admission` and `source-ip` alone pull in no HTTP stack.
 - **The SDKs** do not have a signature gate yet. A snapshot check of
   `index.d.ts` and `aitp.pyi` arrives with the bindings work for 1.x
-  (#403).
+  (#403). [`scripts/check-binding-surface.py`](scripts/check-binding-surface.py)
+  fails if `aitp.pyi`, `index.d.ts` or `index.js` (`make
+  binding-surface-check`, CI), or the default build of either binding
+  (`bindings.yml` and the release workflows' smoke steps, before upload),
+  exposes an experimental symbol.
