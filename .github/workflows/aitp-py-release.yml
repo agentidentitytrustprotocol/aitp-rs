@@ -4,13 +4,16 @@ name: aitp-py-release
 # wheels + sdist to a GitHub Release.
 #
 # Trigger: push a tag of the form `aitp-py-v0.2.0`. The build matrix
-# cross-builds one cp39-abi3 wheel per OS/arch (matching the Node SDK's
-# platform set) plus a source distribution; the publish job uploads them
-# all to PyPI in one shot.
+# builds one cp310-abi3 wheel per OS/arch (matching the Node SDK's
+# platform set: macOS x86_64/arm64, manylinux x86_64/aarch64, musllinux
+# x86_64/aarch64) plus a source distribution; the publish job uploads them
+# all to PyPI in one shot. Windows is built on demand only (STABILITY.md).
 #
-# Built with default features, which ship the full capability surface
-# (renewal, session bundles, SPKI pinning, multi-hop delegation). For a
-# minimal wheel, add `--no-default-features` to the maturin `args` below.
+# Built with default features: the stable surface plus SPKI pinning. The
+# experimental features are not published (STABILITY.md).
+#
+# On a pull request touching the binding, the workflow is a dry run: it
+# builds and smoke-tests every wheel and the sdist, and publishes nothing.
 #
 # Publishing uses PyPI Trusted Publishing (OIDC) — NO API token or secret.
 # One-time setup on PyPI (https://pypi.org/manage/account/publishing/):
@@ -32,6 +35,11 @@ on:
   push:
     tags:
       - 'aitp-py-v*'
+  pull_request:
+    paths:
+      - 'bindings/aitp-py/**'
+      - 'scripts/binding-api.py'
+      - '.github/workflows/aitp-py-release.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -67,11 +75,19 @@ jobs:
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             manylinux: auto
+          - runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            musl: true
+          - runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            manylinux: musllinux_1_2
+            musl: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-      # maturin-action picks up `abi3-py39` from Cargo.toml and emits a
-      # single cp39-abi3 wheel per target; `manylinux: auto` builds the
-      # Linux wheels in a manylinux container (and cross-compiles aarch64).
+      # maturin-action picks up `abi3-py310` from Cargo.toml and emits a
+      # single cp310-abi3 wheel per target; `manylinux` builds the Linux
+      # wheels in a manylinux or musllinux container.
       - uses: PyO3/maturin-action@e83996d129638aa358a18fbd1dfb82f0b0fb5d3b # v1
         with:
           working-directory: bindings/aitp-py
@@ -81,17 +97,27 @@ jobs:
       # Load the built wheel before it can publish: a release-profile
       # binary that links but fails to dlopen (e.g. a mis-aligned
       # LINKEDIT from stripping) must fail here, not on users' machines.
-      # It then checks the wheel has no experimental symbol. The x86_64
+      # It then checks the wheel exports exactly its API snapshot. The x86_64
       # macOS wheel is cross-built on an arm runner, so it is not loadable
       # here; it has only the static check (ci.yml) and the default
       # features of Cargo.toml.
       - name: Smoke-import the wheel
-        if: matrix.target != 'x86_64-apple-darwin'
+        if: ${{ matrix.target != 'x86_64-apple-darwin' && !matrix.musl }}
         run: |
           python3 -m venv "$RUNNER_TEMP/smoke"
           "$RUNNER_TEMP/smoke/bin/pip" install --no-index --find-links bindings/aitp-py/dist aitp-sdk
           "$RUNNER_TEMP/smoke/bin/python" -c "import aitp; print(aitp.__name__, 'loads')"
-          python3 scripts/check-binding-surface.py runtime --python "$RUNNER_TEMP/smoke/bin/python"
+          python3 scripts/binding-api.py runtime --python "$RUNNER_TEMP/smoke/bin/python"
+      # A musllinux wheel installs only on a musl Python: smoke it in Alpine.
+      - name: Smoke-import the wheel (musl, in Alpine)
+        if: ${{ matrix.musl }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w python:3.12-alpine sh -euxc '
+            python -m venv /tmp/smoke
+            /tmp/smoke/bin/pip install --no-index --find-links bindings/aitp-py/dist aitp-sdk
+            /tmp/smoke/bin/python -c "import aitp; print(aitp.__name__, \"loads\")"
+            python scripts/binding-api.py runtime --python /tmp/smoke/bin/python
+          '
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: wheel-${{ matrix.target }}
@@ -118,8 +144,9 @@ jobs:
     name: publish to PyPI
     runs-on: ubuntu-latest
     needs: [wheels, sdist]
-    # Skip on a dry-run workflow_dispatch; always publish on a tag push.
-    if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+    # Always publish on a tag push; never on a pull request or a dry-run
+    # workflow_dispatch.
+    if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
     environment: pypi
     permissions:
       contents: write   # create the GitHub release

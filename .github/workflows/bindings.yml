@@ -8,7 +8,7 @@ name: bindings
 #
 # The aitp-py / aitp-node jobs build default features, the surface the
 # release workflows ship (bindings-release.yml / aitp-py-release.yml), and
-# check that it has no experimental symbol. The *-experimental jobs build
+# check that it exports exactly its API snapshot (scripts/binding-api.py). The *-experimental jobs build
 # `--features experimental` with AITP_EXPECT_EXPERIMENTAL=1, so a test of
 # an experimental feature fails instead of skipping.
 
@@ -88,7 +88,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        python: ['3.9', '3.11', '3.13', '3.14']
+        python: ['3.10', '3.11', '3.13', '3.14']
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
@@ -121,8 +121,8 @@ jobs:
       - name: Build the wheel (editable, default features)
         working-directory: bindings/aitp-py
         run: maturin develop --release
-      - name: No experimental symbol in the default build
-        run: python scripts/check-binding-surface.py runtime --python python
+      - name: The default build exports exactly its API snapshot
+        run: python scripts/binding-api.py runtime --python python
       - name: pytest
         working-directory: bindings/aitp-py
         run: pytest tests/ -v -rs
@@ -192,8 +192,8 @@ jobs:
       - name: index.js / index.d.ts are up to date
         working-directory: bindings/aitp-node
         run: git diff --exit-code index.js index.d.ts
-      - name: No experimental symbol in the default build
-        run: python3 scripts/check-binding-surface.py runtime --node
+      - name: The default build exports exactly its API snapshot
+        run: python3 scripts/binding-api.py runtime --node
       - name: node --test
         working-directory: bindings/aitp-node
         # Explicit glob: Node 22+ treats `--test tests/` as a module path
