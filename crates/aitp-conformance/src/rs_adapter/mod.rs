@@ -1019,6 +1019,19 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                     }
                 }
             };
+            // RFC-AITP-0004 §5.2 step 3 (`mh-015`): `peer_aid` is the AID
+            // the initiator addressed. The HELLO_ACK sender must be that
+            // peer, checked before any Manifest step. The initiator state
+            // machine (`Initiator::on_hello_ack`) applies the same check.
+            if let Some(peer_aid) = params.get("peer_aid").and_then(|v| v.as_str()) {
+                if envelope.sender.agent_id.as_str() != peer_aid {
+                    return err(
+                        id,
+                        &handshake_error_code(&HandshakeError::PeerMismatch),
+                        "HELLO_ACK sender is not the intended peer",
+                    );
+                }
+            }
             // mh-005 supplies `sent_pop_nonce` — the nonce the
             // receiver sent in its prior HELLO. The receiver MUST
             // check that the HELLO_ACK's `pop_nonce_echo` matches.
@@ -1353,6 +1366,7 @@ fn handshake_error_code(e: &aitp::handshake::HandshakeError) -> String {
         InvalidSignature => "INVALID_SIGNATURE".to_string(),
         IncompatibleTrustAnchors => "INCOMPATIBLE_TRUST_ANCHORS".to_string(),
         NonceMismatch => "NONCE_MISMATCH".to_string(),
+        PeerMismatch => "PEER_MISMATCH".to_string(),
         PopVerificationFailed => "POP_VERIFICATION_FAILED".to_string(),
         State(_) => "INVALID_STATE".to_string(),
         InsufficientGrants | GrantOverflow => "GRANT_OVERFLOW".to_string(),
@@ -4016,6 +4030,10 @@ mod error_code_mapping_tests {
         assert_eq!(
             handshake_error_code(&HandshakeError::NonceMismatch),
             "NONCE_MISMATCH"
+        );
+        assert_eq!(
+            handshake_error_code(&HandshakeError::PeerMismatch),
+            "PEER_MISMATCH"
         );
         assert_eq!(
             handshake_error_code(&HandshakeError::PopVerificationFailed),

@@ -460,7 +460,7 @@ is set, as explained above.
 |---|---|
 | Envelope and key resolution: RFC-AITP-0001, RFC-AITP-0007 | `env-001`–`env-011` (`env-007`–`env-011`: the `aitp-envelope-v2` signing input and the §5.4 check order, `aitp/0.2` strict cutover included) |
 | Manifest: RFC-AITP-0003 | `man-001`–`man-007` |
-| Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-009`, `mh-success-001` |
+| Identity and Mutual Handshake: RFC-AITP-0002, RFC-AITP-0004 | `id-001`–`id-009`, `mh-001`–`mh-015`, `mh-success-001` |
 | Pinned-key P-256, tagged AIDs and descriptor shape: RFC-AITP-0002 §1, §3.1–§3.3 | `id-010`, `id-011`, `id-011b`, `id-012`, `id-017`, `id-018` |
 | OIDC `cnf.jkt` follows the AID's algorithm (P-256): RFC-AITP-0002 §2.2.1 | `id-023` |
 | One-way pinned-key admission (extension `aitp-pinned-admission`): RFC-AITP-0002 §3.4 | `id-013`–`id-016`, `id-019`–`id-022` |

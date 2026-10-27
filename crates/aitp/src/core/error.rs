@@ -235,6 +235,14 @@ pub enum ErrorCode {
     /// peer's key, resolved from that peer's Manifest. Distinct from
     /// `TctSignatureInvalid`, which is about a token's own JWS.
     RevocationSnapshotSignatureInvalid,
+
+    // ── Mutual handshake, later additions ───────────────────────────────
+    // New variants go last: `ErrorCode` has no `repr`, so inserting one
+    // earlier would change the implicit discriminant of every variant
+    // after it.
+    /// MUTUAL_HELLO_ACK came from an AID other than the peer the
+    /// initiator addressed (RFC-AITP-0004 §5.2 step 3).
+    PeerMismatch,
 }
 
 impl ErrorCode {
@@ -299,6 +307,7 @@ mod tests {
             ),
             (ErrorCode::PopVerificationFailed, "POP_VERIFICATION_FAILED"),
             (ErrorCode::NonceMismatch, "NONCE_MISMATCH"),
+            (ErrorCode::PeerMismatch, "PEER_MISMATCH"),
             (ErrorCode::PopChallengeInvalid, "POP_CHALLENGE_INVALID"),
             (ErrorCode::PopResponseInvalid, "POP_RESPONSE_INVALID"),
             (
@@ -418,6 +427,7 @@ mod tests {
                 | ErrorCode::IncompatibleIdentityType
                 | ErrorCode::PopVerificationFailed
                 | ErrorCode::NonceMismatch
+                | ErrorCode::PeerMismatch
                 | ErrorCode::AudienceMismatch
                 | ErrorCode::GrantOverflow
                 | ErrorCode::InsufficientGrants
@@ -468,7 +478,7 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            55,
+            56,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
     }

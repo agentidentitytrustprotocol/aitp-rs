@@ -395,6 +395,7 @@ pub aitp::core::ErrorCode::ManifestPopFailed
 pub aitp::core::ErrorCode::ManifestSignatureInvalid
 pub aitp::core::ErrorCode::ManifestVersionUnknown
 pub aitp::core::ErrorCode::NonceMismatch
+pub aitp::core::ErrorCode::PeerMismatch
 pub aitp::core::ErrorCode::PolicyViolation
 pub aitp::core::ErrorCode::PopChallengeInvalid
 pub aitp::core::ErrorCode::PopResponseInvalid
@@ -499,6 +500,7 @@ pub aitp::core::error::ErrorCode::ManifestPopFailed
 pub aitp::core::error::ErrorCode::ManifestSignatureInvalid
 pub aitp::core::error::ErrorCode::ManifestVersionUnknown
 pub aitp::core::error::ErrorCode::NonceMismatch
+pub aitp::core::error::ErrorCode::PeerMismatch
 pub aitp::core::error::ErrorCode::PolicyViolation
 pub aitp::core::error::ErrorCode::PopChallengeInvalid
 pub aitp::core::error::ErrorCode::PopResponseInvalid
@@ -749,6 +751,7 @@ pub aitp::handshake::HandshakeError::KeyResolutionFailed::issuer: alloc::string:
 pub aitp::handshake::HandshakeError::KeyResolutionFailed::reason: alloc::string::String
 pub aitp::handshake::HandshakeError::Manifest(aitp::manifest::error::ManifestError)
 pub aitp::handshake::HandshakeError::NonceMismatch
+pub aitp::handshake::HandshakeError::PeerMismatch
 pub aitp::handshake::HandshakeError::PolicyViolation
 pub aitp::handshake::HandshakeError::PopVerificationFailed
 pub aitp::handshake::HandshakeError::Rng(alloc::string::String)
@@ -935,6 +938,7 @@ pub aitp::handshake::error::HandshakeError::KeyResolutionFailed::issuer: alloc::
 pub aitp::handshake::error::HandshakeError::KeyResolutionFailed::reason: alloc::string::String
 pub aitp::handshake::error::HandshakeError::Manifest(aitp::manifest::error::ManifestError)
 pub aitp::handshake::error::HandshakeError::NonceMismatch
+pub aitp::handshake::error::HandshakeError::PeerMismatch
 pub aitp::handshake::error::HandshakeError::PolicyViolation
 pub aitp::handshake::error::HandshakeError::PopVerificationFailed
 pub aitp::handshake::error::HandshakeError::Rng(alloc::string::String)
