@@ -55,6 +55,7 @@ export type JsTctStore = TctStore
 // A comment.
 export declare function computeAidJkt(aid: string): string
 export declare const REVOCATION_LIST_PATH: string
+export declare const __napiBindingTarget: 'native' | 'wasm32-wasi'
 export interface GenerateOpts {
   suite?: string
 }
@@ -105,6 +106,7 @@ class Node(unittest.TestCase):
             "type JsTctStore = TctStore",
             "function computeAidJkt(aid: string): string",
             "const REVOCATION_LIST_PATH: string",
+            "const __napiBindingTarget: 'native' | 'wasm32-wasi'",
             "interface GenerateOpts",
             "GenerateOpts.suite?: string",
         ]))
