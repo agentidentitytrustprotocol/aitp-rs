@@ -9,6 +9,10 @@ a crate that `aitp` depends on, directly or not, and every version of
 that crate in the dependency graph must be 1.0.0 or later. A 0.x crate
 can break its API in any minor release, which would force a breaking
 release of `aitp` (STABILITY.md). The graph comes from `cargo metadata`.
+
+Only the stable snapshot is read. A pre-1.0 type is allowed behind an
+unstable feature (axum behind `experimental-axum`), whose items are in
+`public-api.experimental.txt` and carry no promise.
 """
 
 from __future__ import annotations
