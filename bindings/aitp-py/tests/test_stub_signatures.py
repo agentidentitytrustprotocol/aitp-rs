@@ -12,6 +12,7 @@ Symbols behind an optional Cargo feature that this build omits are skipped.
 """
 
 import ast
+import base64
 import inspect
 import json
 import pathlib
@@ -92,7 +93,24 @@ def test_build_renewal_request_accepts_stub_keyword():
     agent = aitp.AitpAgent.generate()
     if not hasattr(agent, "build_renewal_request"):
         pytest.skip("renewal feature absent from this build")
-    # The holder side does not parse the token, so any string round-trips
-    # into the payload; a wrong keyword would raise TypeError instead.
-    req = json.loads(agent.build_renewal_request(current_tct_token="held.tct.jws"))
-    assert req["current_tct"] == "held.tct.jws"
+    # The holder reads `iss` and `jti` from the token's claims without
+    # verifying it, so a well-formed unsigned token round-trips into the
+    # payload; a wrong keyword would raise TypeError instead.
+    def b64(obj):
+        raw = json.dumps(obj, separators=(",", ":")).encode()
+        return base64.urlsafe_b64encode(raw).rstrip(b"=").decode()
+
+    claims = {
+        "ver": "aitp/0.3",
+        "jti": "550e8400-e29b-41d4-a716-446655440000",
+        "iss": agent.aid,
+        "sub": agent.aid,
+        "aud": agent.aid,
+        "iat": 1711900000,
+        "exp": 1711903600,
+        "grants": ["demo.echo"],
+        "cnf": {"jkt": "1IG2tMH7J2wbJZnOf8LJzQitKf7LMvoAElsuDMVM54Y"},
+    }
+    token = b64({"alg": "EdDSA", "typ": "aitp-tct+jwt"}) + "." + b64(claims) + ".AA"
+    req = json.loads(agent.build_renewal_request(current_tct_token=token))
+    assert req["current_tct"] == token

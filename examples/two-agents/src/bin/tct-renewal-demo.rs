@@ -108,17 +108,10 @@ async fn main() {
         .await
         .expect("renew_tct round-trip");
 
-    // Verify the freshly issued TCT before trusting its claims, then
-    // stash it (and its fresh voucher) back into the store.
-    let renewed_verified = verify_tct(
-        &renewed.tct,
-        &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
-            .accept_unchecked_revocation_dangerous()
-            .skip_manifest_expiry_cap_dangerous()
-            .build()
-            .expect("both decisions are made"),
-    )
-    .expect("renewed TCT verifies");
+    // `renew_tct` has already checked the issuer's signed response and
+    // verified the renewed TCT (RFC-AITP-0013 §6.1); stash it (and its
+    // fresh voucher) back into the store.
+    let renewed_verified = renewed.tct;
     store.insert(renewed_verified.clone(), renewed.grant_voucher.clone());
 
     let old = &initial_verified.claims;

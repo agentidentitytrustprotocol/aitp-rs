@@ -28,6 +28,7 @@ use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 mod admission;
+mod renewal;
 
 #[derive(Default)]
 pub struct AdapterState {
@@ -74,6 +75,10 @@ pub struct AdapterState {
     /// ([`admission`]). Built by its first admission step, dropped by
     /// `begin_fixture`.
     admission: Option<admission::AdmissionHarness>,
+    /// The issuer's renewal replay guard (RFC-AITP-0013 §4 step 5) for
+    /// the current fixture: `renew_tct` steps share it, `begin_fixture`
+    /// drops it.
+    renewal_nonces: Option<aitp::core::nonce_store::InMemoryNonceStore>,
 }
 
 impl AdapterState {
@@ -190,6 +195,10 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         }
         "verify_attestation" => admission::verify_attestation_op(state, id, params),
 
+        // TCT renewal (RFC-AITP-0013)
+        "renew_tct" => renewal::renew_tct_op(state, id, params),
+        "verify_renewal_response" => renewal::verify_renewal_response_op(state, id, params),
+
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
         "set_features" => set_features_op(state, id, params),
@@ -248,6 +257,8 @@ fn init(id: &str) -> Value {
         "verify_identity_presentation",
         "issue_presentation_challenge",
         "verify_attestation",
+        "renew_tct",
+        "verify_renewal_response",
         // Tier D
         "set_clock",
         "set_features",
@@ -3549,6 +3560,7 @@ fn set_clock_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
 /// `message_id`s never leak into the next.
 fn begin_fixture_op(state: &mut AdapterState, id: &str) -> Value {
     state.admission = None;
+    state.renewal_nonces = None;
     json!({"id": id, "ok": true, "result": {}})
 }
 

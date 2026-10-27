@@ -1,4 +1,4 @@
-//! The `rfc-aitp-0005.renew_uri` Manifest extension (RFC-AITP-0004 §8.1).
+//! The `rfc-aitp-0005.renew_uri` Manifest extension (RFC-AITP-0013 §2).
 //!
 //! TCT renewal is opt-in. An issuer that offers it advertises the concrete
 //! endpoint in its signed Manifest:
@@ -11,7 +11,7 @@
 //!
 //! A holder renews only at that URL. When the key is absent the holder
 //! MUST fall back to a full Mutual Handshake and MUST NOT probe a guessed
-//! path (RFC-AITP-0004 §8.1).
+//! path (RFC-AITP-0013 §2).
 
 /// Manifest extension key carrying the issuer's TCT renewal endpoint
 /// (registered Provisional in the spec's `registries/extension-keys.md`).

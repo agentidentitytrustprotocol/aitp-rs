@@ -113,7 +113,7 @@ The Status column is the state of **this implementation**. The RFCs' own
 status is in the
 [RFC index](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md):
 RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
-0011 opt-in; RFC-0012 is Reserved and RFC-0013 is Planned.
+0011 opt-in; RFC-0012 is Reserved and RFC-0013 is Draft, opt-in.
 
 | RFC | Title | Status | Notes |
 |-----|-------|--------|-------|
@@ -129,7 +129,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft, opt-in | Builder + verifier in the `aitp-experimental` crate (`aitp_experimental::session_bundle`); conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
 | [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft, opt-in | Always compiled; gated at runtime. `VerifyDelegationContext::new` sets `max_delegation_hops = 0`, which rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. `with_max_delegation_hops(n)` with `n > 0` (typically `DEFAULT_MAX_DELEGATION_HOPS = 3`) enables chain verification; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ◐ container only | The §1 container is carried: `ExtensionsMap` on JCS payloads, the `ext` claim on JWS artifacts, unknown keys ignored; revocation URL extension wired. No ZK/TEE extension family is implemented. |
-| [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ opt-in; implementation ahead of spec status (Planned) | Shortened in-band renewal (RFC-0004 §8.1, non-normative) behind the `experimental-renewal` Cargo feature: `renew_tct` facade + holder-PoP renewal exchange, advertised via `rfc-aitp-0005.renew_uri`, replay-guarded, re-checking revocation and grants; see [`docs/tct-renewal.md`](docs/tct-renewal.md). |
+| [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft, opt-in | Behind the `experimental-renewal` Cargo feature: the holder's PoP request, the issuer's §4 checks and signed `tct` / `error` response envelope, the holder's §6.1 response check, the `renew_tct` facade and the server route at the advertised `rfc-aitp-0005.renew_uri`; the conformance runner's `--feature experimental-renewal` flag exercises the `ren-*` fixtures. See [`docs/tct-renewal.md`](docs/tct-renewal.md). |
 
 ## Known limitations (v0.3)
 
@@ -141,7 +141,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
   [`docs/architecture.md`](docs/architecture.md#why-multi-hop-delegation-is-unreachable-by-default).
 - **Session Trust Bundle and renewal are opt-in.** N-party trust
   artifacts (RFC-0010, Draft, opt-in) live in the separate
-  `aitp-experimental` crate, and in-band TCT renewal (RFC-0013, Planned)
+  `aitp-experimental` crate, and TCT renewal (RFC-0013, Draft)
   sits behind the `experimental-renewal` Cargo feature on `aitp`. The
   language SDKs ship both **on by default**.
 - **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
@@ -248,7 +248,7 @@ Highlights:
 - [`docs/jcs.md`](docs/jcs.md) — JSON canonicalization strategy and test vectors
 - [`docs/conformance.md`](docs/conformance.md) — NDJSON adapter protocol, conformance results and the gate caveat
 - [`docs/handshake-transcripts.md`](docs/handshake-transcripts.md) — four-message exchange, byte by byte
-- [`docs/session-bundle.md`](docs/session-bundle.md) · [`docs/multihop-delegation.md`](docs/multihop-delegation.md) · [`docs/tct-renewal.md`](docs/tct-renewal.md) — opt-in extensions (RFC-0010/0011 Draft, RFC-0013 Planned)
+- [`docs/session-bundle.md`](docs/session-bundle.md) · [`docs/multihop-delegation.md`](docs/multihop-delegation.md) · [`docs/tct-renewal.md`](docs/tct-renewal.md) — opt-in extensions (RFC-0010/0011/0013 Draft)
 - [`docs/sdk-python.md`](docs/sdk-python.md) · [`docs/sdk-node.md`](docs/sdk-node.md) — SDK feature guides
 - [`docs/transport-hardening.md`](docs/transport-hardening.md) — HTTP-transport hardening register
 - [`docs/deployment.md`](docs/deployment.md) · [`docs/key-management.md`](docs/key-management.md) — running in production: where state lives, clustering, and signing-key handling

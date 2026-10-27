@@ -38,7 +38,7 @@ time = "0.3"
 p256 = { workspace = true }
 base64ct = { workspace = true }
 
-aitp = { path = "../aitp", version = "=0.23.0", default-features = false, features = ["pinned-admission", "experimental-spiffe-identity"] }
+aitp = { path = "../aitp", version = "=0.23.0", default-features = false, features = ["pinned-admission", "experimental-spiffe-identity", "experimental-renewal"] }
 aitp-experimental = { path = "../aitp-experimental", version = "=0.23.0" }
 url = { workspace = true }
 rand = { workspace = true }

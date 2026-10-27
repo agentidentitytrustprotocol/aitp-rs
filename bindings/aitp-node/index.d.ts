@@ -158,7 +158,7 @@ export declare class AitpAgent {
    * fresh TCT. Returns `{ tct, grantVoucher }` — the compact-JWS TCT plus
    * its companion grant voucher (`null` when none was minted).
    *
-   * Renewal re-evaluates policy (RFC-AITP-0004 §8.1): grants this
+   * Renewal re-evaluates policy (RFC-AITP-0013): grants this
    * agent's Manifest (from `buildManifest()`, required) no longer
    * offers are dropped, a TCT whose `jti` is in `revokedJtis` is
    * refused, and a replayed request (same `pop_nonce`) is refused.

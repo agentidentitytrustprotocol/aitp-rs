@@ -106,7 +106,7 @@ def test_replayed_renewal_request_rejected():
     a.process_renewal_request(
         renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600
     )
-    # Same pop_nonce again: the replay guard refuses it (RFC-AITP-0004 §8.1).
+    # Same pop_nonce again: the replay guard refuses it (RFC-AITP-0013).
     with pytest.raises(RuntimeError, match="replay"):
         a.process_renewal_request(
             renewal_req, manifest_exp_unix_secs=now + 86_400, new_ttl_secs=3600

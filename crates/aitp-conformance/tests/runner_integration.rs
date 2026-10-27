@@ -52,6 +52,9 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
             error_code: None,
             http_status: None,
             side_effects: None,
+            renewed_tct_claims: None,
+            renewed_jti_differs: None,
+            response: None,
         }),
     };
     let r = runner.run(&f);
@@ -90,6 +93,9 @@ fn unminted_placeholder_fails_the_fixture() {
             error_code: Some("INVALID_ENVELOPE".into()),
             http_status: None,
             side_effects: None,
+            renewed_tct_claims: None,
+            renewed_jti_differs: None,
+            response: None,
         }),
     };
     match runner.run(&f) {
@@ -135,6 +141,9 @@ fn unsupported_op_yields_skip() {
             error_code: None,
             http_status: None,
             side_effects: None,
+            renewed_tct_claims: None,
+            renewed_jti_differs: None,
+            response: None,
         }),
     };
     let r = runner.run(&f);
@@ -198,6 +207,9 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
             error_code: Some("TCT_SIGNATURE_INVALID".into()),
             http_status: None,
             side_effects: None,
+            renewed_tct_claims: None,
+            renewed_jti_differs: None,
+            response: None,
         }),
     };
     let r = runner.run(&f);
