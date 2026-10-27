@@ -2,21 +2,22 @@
 
 ## Supported versions
 
-| Version | Supported |
+| Line | Supported |
 |---|---|
-| The latest released minor line | ✅ Active security fixes |
-| Earlier minor lines | ❌ Not patched — upgrade to the latest minor |
+| The latest minor | ✅ Bug fixes and security fixes |
+| The previous minor | ✅ Security fixes, for 6 months after the latest minor's first release |
+| Older lines | ❌ Not patched: upgrade to the latest minor |
 
-All published crates ship in lockstep at one shared version, so "the
-latest minor line" means the same thing for every crate. While the project
-is pre-1.0, a breaking change bumps the minor digit (see
-[`STABILITY.md`](STABILITY.md)), and security fixes ship as a patch release
-on the latest minor line only. Releases are listed on the
+A fix ships as a patch release on each supported line it applies to. All
+published crates and the language SDKs (`@agentidentitytrustprotocol/aitp`
+on npm, `aitp-sdk` on PyPI) ship in lockstep at one shared version, so a
+line means the same thing for every package. Releases are listed on the
 [GitHub releases page](https://github.com/agentidentitytrustprotocol/aitp-rs/releases).
 
-Language SDKs (`@agentidentitytrustprotocol/aitp` on npm, `aitp-sdk` on
-PyPI) are versioned in lockstep with the crates and follow the same policy:
-the latest published minor line receives security fixes.
+A security fix can change observable behaviour, for example by rejecting
+input that used to be accepted, even when that brings the crate into line
+with the spec. It still ships in a patch, with a `### Fixed` entry that
+says what changes ([`STABILITY.md`](STABILITY.md#behaviour-that-follows-the-spec)).
 
 ## Reporting a vulnerability
 

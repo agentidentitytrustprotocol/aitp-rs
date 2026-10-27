@@ -1,29 +1,36 @@
 # Stability policy
 
 This file says which parts of aitp-rs carry a compatibility promise, what
-that promise is, and how CI enforces it.
+that promise is from 1.0 on, and how CI enforces it.
 
-## The `aitp` crate follows semver
+## Covered
 
-The [`aitp`](crates/aitp) crate is the supported way to use this
-implementation. Its stable surface consists of:
+These follow [semver](https://semver.org/):
 
-- every item frozen, with its signature, in
-  [`crates/aitp/public-api.stable.txt`](crates/aitp/public-api.stable.txt);
-- the `http-client`, `http-server`, `source-ip`, `pinned-admission`,
-  `metrics` and `all` features.
+- **The `aitp` crate's stable surface.** That is every item frozen, with
+  its signature, in
+  [`crates/aitp/public-api.stable.txt`](crates/aitp/public-api.stable.txt),
+  together with the `http-client`, `http-server`, `source-ip`,
+  `pinned-admission`, `metrics` and `all` features.
+- **The language SDKs.** `@agentidentitytrustprotocol/aitp` on npm
+  (declared in [`bindings/aitp-node/index.d.ts`](bindings/aitp-node/index.d.ts))
+  and `aitp-sdk` on PyPI (declared in
+  [`bindings/aitp-py/aitp.pyi`](bindings/aitp-py/aitp.pyi)).
 
-It is outside the unstable features listed below. That surface has
-followed [semver](https://semver.org/) since 0.20.
-
-While aitp-rs is pre-1.0:
-
-| Change to the stable surface | Release |
+| Change to a covered surface | Release |
 |---|---|
-| Breaking: an item removed, renamed or changed incompatibly, a variant added to an exhaustive enum, a stricter bound | next **minor** (0.x → 0.x+1) |
-| Additive or a fix | next **patch** |
+| Breaking: an item removed, renamed or changed incompatibly, a variant added to an exhaustive enum, a stricter bound | next **major** |
+| Additive: a new item, feature, variant of a `#[non_exhaustive]` enum or field of a `#[non_exhaustive]` struct | next **minor** |
+| A bug fix with no API change | next **patch** |
 
-At 1.0 the usual rules take over, with breaking changes in a major release.
+Until 1.0.0 the same rules apply one digit down: a breaking change bumps
+the minor digit (0.x → 0.x+1).
+
+The published crates (`aitp`, `aitp-experimental` and `aitp-cli`) and the
+SDKs ship in lockstep at one shared version, so a breaking change anywhere
+in a covered surface bumps the major digit of every package. Every
+breaking release lists its breaks under `### BREAKING` in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 ### Decision and outcome enums are exhaustive on purpose
 
@@ -36,43 +43,44 @@ Adding a variant to one of them is therefore always a breaking change: a
 or outcome enum follows the same rule, and is listed as `exhaustive` with
 that reason in [`docs/api-classification.md`](docs/api-classification.md).
 
-The published crates (`aitp`, `aitp-experimental` and `aitp-cli`) ship in
-lockstep at one shared version, so a breaking change anywhere in the stable
-surface bumps the minor digit of every crate.
-Every breaking release lists its breaks under `### BREAKING` in
-[`CHANGELOG.md`](CHANGELOG.md).
+### Behaviour that follows the spec
 
-A change that brings behaviour into line with the AITP RFCs is a fix, not a
-break, even when an application can observe it. Examples include the order
-of verification steps and which error code a defect gets. Such a change can
-ship in any release, with a `### Fixed` entry. The protocol version (`aitp/0.3`)
-is set by the spec, not by this crate's version.
+From 1.0, a change that brings observable behaviour into line with the
+AITP RFCs, such as the order of verification steps or which error code a
+defect gets, is a fix only when it closes a security hole. It then ships
+in any release, under [`SECURITY.md`](SECURITY.md), with a `### Fixed`
+entry that says what an application can observe. Any other spec-aligning
+change an application can observe is breaking and waits for a major
+release. The protocol version (`aitp/0.3`) is set by the spec, not by this
+crate's version.
 
-## No promise
+## Not covered
+
+These can change or disappear in any release, including a patch:
 
 - **`aitp-experimental`.** Session Trust Bundles
   (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft) and their
-  HTTP endpoint (feature `http-server`). The crate tracks Draft spec text
-  and can change or lose items in any release, including a patch.
+  HTTP endpoint (feature `http-server`). The crate tracks Draft spec text.
 - **Unstable features of `aitp`.** These are `experimental-renewal`
   (`facade::renew_tct`, `TctStore::needs_refresh` and the `tct` renewal
   items), `experimental-spiffe-identity` (`handshake::identity_spiffe`),
   `experimental-axum` (`HandshakeServer::into_router`,
   `ManifestServer::into_router` and the `with_request_body_limit*`
-  helpers, which expose axum), `client-spki-pinning` and `test-util`
-  (`crypto::testing`). Any feature
-  named `experimental-*` belongs here. They can change or disappear in any
-  release.
+  helpers, which expose axum, a pre-1.0 crate), `client-spki-pinning` and
+  `test-util` (`crypto::testing`). Any feature named `experimental-*`
+  belongs here. What each one adds is listed in
+  [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt).
+- **The CLI's flags and output.** `aitp-cli` is documented in
+  [`docs/cli.md`](docs/cli.md), but scripts that parse its output get no
+  promise.
+- **Test tooling.** `aitp-conformance` (the conformance runner and the
+  aitp-rs adapter, `aitp-rs-adapter`), `tools/` and the fuzz targets are
+  not published.
 - **The retired crates.** `aitp-core`, `aitp-crypto`, `aitp-tct`,
   `aitp-manifest`, `aitp-handshake`, `aitp-delegation`, `aitp-envelope`,
   `aitp-session-bundle` and `aitp-transport-http` are now modules of `aitp`
   (and `aitp-experimental`). Their last release is 0.23; they get no new
-  APIs.
-- **`aitp-cli`.** The CLI's flags and output are documented in
-  [`docs/cli.md`](docs/cli.md), but they are not covered by this policy.
-- **`aitp-conformance`.** The conformance runner and the aitp-rs adapter
-  (`aitp_conformance::rs_adapter`, binary `aitp-rs-adapter`) are test
-  tooling and are not published.
+  APIs and no fixes.
 
 ## MSRV
 
@@ -80,11 +88,26 @@ The minimum supported Rust version is the workspace `rust-version` in
 [`Cargo.toml`](Cargo.toml). CI builds and tests on it (the `test (… / <MSRV>)`
 leg and `cargo-msrv`).
 
+- aitp-rs builds on the latest stable Rust and the two before it (N-2):
+  the MSRV is never newer than the third-newest stable release.
 - An MSRV bump happens only in a minor release, never in a patch, and is
-  listed in the CHANGELOG.
+  listed in the CHANGELOG. It is not a breaking change.
 - The MSRV is raised only when a dependency or a needed language feature
   forces it. [`CONTRIBUTING.md`](CONTRIBUTING.md) lists every file that moves
   with it.
+
+## Support window
+
+| Line | Gets |
+|---|---|
+| The latest minor | bug fixes and security fixes |
+| The previous minor | security fixes, for 6 months after the latest minor's first release |
+| Older lines | nothing; upgrade |
+
+A fix ships as a patch release on each supported line it applies to.
+Because every package ships in lockstep, a line means the same thing for
+the crates and the SDKs. How to report a vulnerability is in
+[`SECURITY.md`](SECURITY.md).
 
 ## Enforcement
 
@@ -107,7 +130,6 @@ leg and `cargo-msrv`).
   requires at least one entry under `### BREAKING` in the `[Unreleased]`
   section of `CHANGELOG.md`, checked by
   [`scripts/check-breaking-entry.sh`](scripts/check-breaking-entry.sh).
-  The release that ships the break bumps the minor digit.
 - **`aitp public API snapshot`** fails on any change to the `aitp` surface,
   additive ones included, until the snapshots are regenerated with
   `make public-api`. Every surface change is therefore visible in the diff
@@ -139,5 +161,6 @@ leg and `cargo-msrv`).
   own (`cargo hack --each-feature`), and
   [`scripts/check-dep-surface.sh`](scripts/check-dep-surface.sh) checks
   that `pinned-admission` and `source-ip` alone pull in no HTTP stack.
-
-Security fixes are covered separately, in [`SECURITY.md`](SECURITY.md).
+- **The SDKs** do not have a signature gate yet. A snapshot check of
+  `index.d.ts` and `aitp.pyi` arrives with the bindings work for 1.x
+  (#403).
