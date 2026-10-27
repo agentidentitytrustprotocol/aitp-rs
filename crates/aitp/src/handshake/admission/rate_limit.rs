@@ -156,6 +156,12 @@ impl TokenBucketLimiter {
     pub const DEFAULT_MAX_SOURCES: usize = 100_000;
 
     /// `burst` challenges at once, `per_second` sustained, per source.
+    ///
+    /// Out-of-range values are clamped, never rejected: a `burst` of 0
+    /// is 1, and a `per_second` that is 0, negative or NaN is the
+    /// smallest positive rate, so a spent bucket effectively never
+    /// refills and its refusals carry a retry-after of
+    /// [`Duration::MAX`]. An infinite `per_second` never refuses.
     pub fn new(burst: u32, per_second: f64) -> Self {
         Self {
             burst: f64::from(burst.max(1)),
@@ -197,7 +203,7 @@ impl TokenBucketLimiter {
                 st.map.retain(|_, b| refill(b, now, burst, rate) < burst);
             }
             if st.map.len() >= self.max_sources {
-                return Err(Duration::from_secs_f64(1.0 / self.per_second).max(PRUNE_INTERVAL));
+                return Err(wait(1.0 / self.per_second).max(PRUNE_INTERVAL));
             }
         }
         let b = st.map.entry(key.to_owned()).or_insert(Bucket {
@@ -209,9 +215,15 @@ impl TokenBucketLimiter {
             b.tokens = tokens - 1.0;
             Ok(())
         } else {
-            Err(Duration::from_secs_f64((1.0 - tokens) / self.per_second))
+            Err(wait((1.0 - tokens) / self.per_second))
         }
     }
+}
+
+/// `secs` as a retry-after, saturating at [`Duration::MAX`]: a rate near
+/// zero gives a wait too long for a `Duration`.
+fn wait(secs: f64) -> Duration {
+    Duration::try_from_secs_f64(secs).unwrap_or(Duration::MAX)
 }
 
 /// Refill `b` up to `now` and return its token count.
@@ -331,6 +343,47 @@ mod tests {
         let t1 = t0 + Duration::from_millis(600);
         assert!(l.check_key_at("c", t1).is_err());
         assert!(l.check_key_at("c", t0 + Duration::from_secs(1)).is_ok());
+    }
+
+    #[test]
+    fn a_degenerate_rate_never_panics() {
+        let t0 = Instant::now();
+        for rate in [0.0, -1.0, f64::NAN, f64::NEG_INFINITY] {
+            let l = TokenBucketLimiter::new(1, rate);
+            l.check_key_at("a", t0).unwrap();
+            // A spent bucket waits "forever", not a panic.
+            assert_eq!(l.check_key_at("a", t0), Err(Duration::MAX), "rate {rate}");
+            let later = t0 + Duration::from_secs(3_600);
+            assert_eq!(
+                l.check_key_at("a", later),
+                Err(Duration::MAX),
+                "rate {rate}"
+            );
+            // The full-table path computes its wait from the rate too.
+            let l = TokenBucketLimiter::new(1, rate).max_sources(1);
+            l.check_key_at("a", t0).unwrap();
+            assert_eq!(l.check_key_at("b", t0), Err(Duration::MAX), "rate {rate}");
+        }
+    }
+
+    #[test]
+    fn an_infinite_rate_never_refuses() {
+        let l = TokenBucketLimiter::new(1, f64::INFINITY);
+        let t0 = Instant::now();
+        for _ in 0..100 {
+            l.check_key_at("a", t0).unwrap();
+        }
+        let l = TokenBucketLimiter::new(1, f64::INFINITY).max_sources(1);
+        l.check_key_at("a", t0).unwrap();
+        l.check_key_at("b", t0 + Duration::from_millis(1)).unwrap();
+    }
+
+    #[test]
+    fn a_zero_burst_admits_one() {
+        let l = TokenBucketLimiter::new(0, 1.0);
+        let t0 = Instant::now();
+        l.check_key_at("a", t0).unwrap();
+        assert!(l.check_key_at("a", t0).is_err());
     }
 
     #[test]
