@@ -109,34 +109,6 @@ fn kms_backend_signs_pop_response_and_revocation_list() {
     );
 }
 
-#[cfg(feature = "experimental-renewal")]
-#[tokio::test]
-async fn kms_backend_signs_renewal() {
-    use aitp::core::nonce_store::InMemoryNonceStore;
-    use aitp::tct::{build_renewal_request, process_renewal_request, RenewalContext};
-    let now = Timestamp(1_700_000_000);
-    let issuer = MockKmsSigner::new(p256(0x51)).output(MockOutput::DerHighS);
-    let holder = MockKmsSigner::new(p256(0x52));
-    let issued = holder_tct(&issuer, &holder, now);
-    let req = build_renewal_request(&holder, issued.token, base64url::encode(&[9u8; 16]))
-        .expect("KMS renewal request");
-    let store = InMemoryNonceStore::new(4);
-    let offered = vec!["demo.echo".to_string()];
-    let not_revoked = |_: &uuid::Uuid| Ok(false);
-    let renewal_ctx =
-        RenewalContext::new(Timestamp(now.0 + 7200), &offered, &not_revoked, &store, now)
-            .ttl_secs(600);
-    let renewed = process_renewal_request(&req, &issuer, &renewal_ctx)
-        .await
-        .expect("KMS renewal");
-    let ctx = TctVerifyContext::builder(holder.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
-        .skip_manifest_expiry_cap_dangerous()
-        .build()
-        .unwrap();
-    verify_tct(&renewed.token, &ctx).expect("renewed TCT verifies");
-}
-
 // Spelled out so the signature itself asserts the future is `Send`.
 #[allow(clippy::manual_async_fn)]
 fn issue_async(

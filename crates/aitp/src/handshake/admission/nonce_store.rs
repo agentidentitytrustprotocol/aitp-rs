@@ -1,9 +1,8 @@
 //! Single-use challenge nonces for pinned-key admission (proposal
 //! agentidentitytrustprotocol#72 Item 7d).
 //!
-//! The store moved to [`crate::core::nonce_store`] in 0.15 so the TCT
-//! renewal replay guard (`aitp::tct`) can share it; this module keeps the
-//! 0.14 paths compiling.
+//! The store is [`crate::core::nonce_store`]; this module re-exports it
+//! under the 0.14 paths.
 
 pub use crate::core::nonce_store::{
     ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,

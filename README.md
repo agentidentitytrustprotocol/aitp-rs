@@ -59,8 +59,8 @@ aitp-rs/
 │   │       ├── tct/         TCT issuance and verification, PoP exchange
 │   │       ├── delegation/  Delegation tokens (single-hop; multi-hop opt-in)
 │   │       ├── transport/   HTTP client/server (feature-gated, async)
-│   │       └── facade.rs    async handshake/renewal helpers
-│   ├── aitp-experimental/   Session Trust Bundle (RFC-0010), no stability promise
+│   │       └── facade.rs    async handshake helpers
+│   ├── aitp-experimental/   Session Trust Bundle, multi-hop delegation, TCT renewal; no stability promise
 │   ├── aitp-cli/            `aitp` command-line tool (keygen, verify, handshake)
 │   └── aitp-conformance/    conformance runner + the canonical Rust adapter (`aitp-rs-adapter` binary)
 ├── bindings/                language SDKs — excluded from the Cargo workspace
@@ -84,11 +84,11 @@ aitp-rs/
 | `aitp::crypto`        | ✅ complete   | Ed25519 (`verify_strict`) + P-256/ES256 (canonical **low-S**, high-S rejected), compact-JWS profile (`jws.rs`), JWK thumbprint. No RSA code: the RSA-2048 floor lives in `aitp::handshake` (OIDC JWK, `jwk.rs`) and `aitp::transport` (JWKS fetch, `common.rs`). |
 | `aitp::envelope`      | ✅ complete   | `sign_envelope` / `verify_envelope_signature` — sync, no I/O; wrapped by `aitp::transport`. |
 | `aitp::manifest`      | ✅ complete   | Builder + verifier + HTTP wrapper.                      |
-| `aitp::tct`           | ✅ complete   | Builder + verifier + downstream PoP + renewal; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |
+| `aitp::tct`           | ✅ complete   | Builder + verifier + downstream PoP; strict `TctVerifyContext::builder()` forces explicit revocation / manifest-expiry-cap decisions (`*_dangerous` waivers). |
 | `aitp::delegation`    | ✅ complete   | Builder + verifier, single-hop (RFC-0006); a `chain`-bearing token is rejected with `DELEGATION_MULTIHOP_NOT_SUPPORTED`. Multi-hop chains (RFC-0011) are in `aitp_experimental::delegation`. |
 | `aitp::handshake`     | ✅ complete   | Initiator + Responder + OIDC + pinned-key (with trust store + grant policy); RSA-2048 floor on OIDC RSA keys. |
 | `aitp::transport`     | ✅ complete   | Manifest fetcher (cache-correct, oversize-capped), JWKS resolver (RFC-0007 §2.3 branch), handshake server (AITP error envelopes), revocation endpoint. SSRF `HostGuard` on peer fetches, pluggable `ReplayGuard`, optional `metrics` feature. |
-| `aitp::facade`        | ✅ complete   | Async `run_initiator_handshake` + `TctStore` (+ `renew_tct` behind `experimental-renewal`); `InitiatorConfig` with `with_http_timeout` / `with_host_guard`. |
+| `aitp::facade`        | ✅ complete   | Async `run_initiator_handshake` + `TctStore`; `InitiatorConfig` with `with_http_timeout` / `with_host_guard`. |
 | `aitp-experimental`   | ✅ opt-in     | Session Trust Bundle (RFC-0010) at `aitp_experimental::session_bundle`: builder + verifier, plus `SessionBundleServer` behind its `http-server` feature. No stability promise. |
 | `aitp-cli`            | ✅ complete   | `aitp` binary (`cargo install aitp-cli`): offline `keygen`, `aid`, `tct inspect`/`verify`, `manifest verify`, plus `manifest fetch` and `handshake <url>` against a live peer. Stdin-friendly, non-zero exit with the AITP error code on failure. See [`docs/cli.md`](docs/cli.md). |
 | `aitp-conformance`    | ✅ Tier A–D   | Subprocess adapter, fixture loader, runner, and the `aitp-rs-adapter` binary (`aitp_conformance::rs_adapter`): all conformance ops, including `verify_handshake_payload` (`id-*` / `mh-*`), `verify_session_bundle` / `issue_session_bundle`, and the `tct-007` PoP-enforcement ops (`authorize_capability_invocation`, `expect_pop_challenge_issued`, `withhold_pop_response`). Results: [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix). |
@@ -129,7 +129,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | [0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md) | Session Trust Bundle | ✅ Draft, opt-in | Builder + verifier in the `aitp-experimental` crate (`aitp_experimental::session_bundle`); conformance fixtures `bundle-*` exercise issuance + verify when the feature is enabled, SKIP otherwise. |
 | [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft, opt-in | In the `aitp-experimental` crate (`aitp_experimental::delegation`): `ChainedDelegationBuilder` and `verify_chained_delegation`, with a hop budget of `DEFAULT_MAX_DELEGATION_HOPS = 3`. The stable `aitp::delegation::verify_delegation` rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ◐ container only | The §1 container is carried: `ExtensionsMap` on JCS payloads, the `ext` claim on JWS artifacts, unknown keys ignored; revocation URL extension wired. No ZK/TEE extension family is implemented. |
-| [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft, opt-in | Behind the `experimental-renewal` Cargo feature: the holder's PoP request, the issuer's §4 checks and signed `tct` / `error` response envelope, the holder's §6.1 response check, the `renew_tct` facade and the server route at the advertised `rfc-aitp-0005.renew_uri`; the conformance runner's `--feature experimental-renewal` flag exercises the `ren-*` fixtures. See [`docs/tct-renewal.md`](docs/tct-renewal.md). |
+| [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft, opt-in | In `aitp_experimental::renewal`: the holder's PoP request, the issuer's §4 checks and signed `tct` / `error` response envelope, the holder's §6.1 response check, the `renew_tct` client (feature `http-client`) and `RenewalServer` at the advertised `rfc-aitp-0005.renew_uri` (feature `http-server`); the conformance runner's `--feature experimental-renewal` flag exercises the `ren-*` fixtures. See [`docs/tct-renewal.md`](docs/tct-renewal.md). |
 
 ## Known limitations (v0.3)
 
@@ -141,8 +141,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
   [`docs/architecture.md`](docs/architecture.md#why-multi-hop-delegation-is-unreachable-by-default).
 - **Session Trust Bundle and renewal are opt-in.** N-party trust
   artifacts (RFC-0010, Draft, opt-in) live in the separate
-  `aitp-experimental` crate, and TCT renewal (RFC-0013, Draft)
-  sits behind the `experimental-renewal` Cargo feature on `aitp`. The
+  `aitp-experimental` crate, as does TCT renewal (RFC-0013, Draft). The
   language SDKs ship both **on by default**.
 - **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
   revocation status for a TCT treats it as revoked (`TCT_REVOKED`). The

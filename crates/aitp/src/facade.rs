@@ -1,5 +1,5 @@
 //! High-level helpers (alpha.5 P15) — one-call drivers for the Mutual
-//! Handshake and TCT renewal flows.
+//! Handshake.
 //!
 //! These wrap [`crate::handshake`] + [`crate::transport`] so callers
 //! that don't need the per-step state machine can drive a full
@@ -16,14 +16,7 @@ use crate::handshake::{
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
 use crate::manifest::Manifest;
-#[cfg(feature = "experimental-renewal")]
-pub use crate::tct::RenewedTct;
 use crate::tct::VerifiedTct;
-#[cfg(feature = "experimental-renewal")]
-use crate::tct::{
-    build_renewal_request, verify_renewal_response, RenewalResponseContext, RenewalResponseError,
-    TctRenewalPayload,
-};
 use crate::transport::{
     sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
     RevocationFetcher, RevocationPolicy,
@@ -232,29 +225,15 @@ pub enum FacadeError {
     /// JSON serialization error.
     #[error("serialization: {0}")]
     Serde(#[from] serde_json::Error),
-    /// Renewal-specific error.
-    #[error("renewal failed: {0}")]
-    Renewal(#[from] crate::tct::TctError),
     /// Manifest-level rejection (e.g.
     /// [`crate::manifest::ManifestError::IncompatibleIdentityType`] when
     /// the peer Manifest's `accepted_identity_types` doesn't include
     /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
     #[error("manifest verification: {0}")]
     ManifestVerify(#[from] crate::manifest::ManifestError),
-    /// The issuer's Manifest advertises no usable
-    /// `rfc-aitp-0005.renew_uri`, so it does not offer renewal. Run a
-    /// full Mutual Handshake instead; RFC-AITP-0013 §2 forbids probing
-    /// a guessed renewal path.
-    #[error("issuer Manifest advertises no rfc-aitp-0005.renew_uri; run a full handshake")]
-    RenewalNotAdvertised,
-    /// The issuer's renewal response failed RFC-AITP-0013 §6.1, or the
-    /// issuer refused the renewal ([`RenewalResponseError::Refused`]).
-    #[cfg(feature = "experimental-renewal")]
-    #[error("renewal response: {0}")]
-    RenewalResponse(#[from] RenewalResponseError),
 }
 
-/// Maximum size of a handshake or renewal response body the facade
+/// Maximum size of a handshake response body the facade
 /// will accept. AITP handshake payloads and TCTs are small; 256 KB
 /// matches the server's `DEFAULT_MAX_BODY_BYTES` ceiling.
 const MAX_RESPONSE_BYTES: usize = 256 * 1024;
@@ -455,8 +434,7 @@ async fn read_aitp_envelope_response(
 /// The `guard` and `timeout` come from [`InitiatorConfig`] on the
 /// handshake path (default `WarnPrivate` + 10s, so the local two-agent
 /// demo over `http://localhost` works once it opts in with
-/// [`InitiatorConfig::with_insecure_localhost`]), or from the built-in
-/// defaults on the renewal path.
+/// [`InitiatorConfig::with_insecure_localhost`]).
 async fn build_guarded_client(
     endpoint: &url::Url,
     timeout: Duration,
@@ -858,101 +836,6 @@ impl<'a> InitiatorConfig<'a> {
     }
 }
 
-/// Send a TCT renewal request to the endpoint the issuer advertises in
-/// its Manifest as `rfc-aitp-0005.renew_uri` (RFC-AITP-0013 §2).
-/// Gated behind the `experimental-renewal` Cargo feature.
-///
-/// `current` is the currently-held TCT compact JWS; `issuer_manifest`
-/// is the issuer's verified Manifest (e.g. from
-/// [`ManifestFetcher::fetch`]). Only an `https` `renew_uri` is used
-/// here; see [`renew_tct_with_insecure_localhost`] for local development.
-/// When the Manifest advertises no usable `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
-/// without sending anything: run a full handshake instead (no guessed
-/// path is ever probed). The issuer's answer is checked with
-/// [`crate::tct::verify_renewal_response`] (RFC-AITP-0013 §6.1) before
-/// the renewed TCT is returned; a refusal is
-/// [`FacadeError::RenewalResponse`] carrying
-/// [`RenewalResponseError::Refused`].
-///
-/// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
-/// failure returns `FacadeError::Renewal(TctError::Crypto(CryptoError::Signer(_)))`.
-#[cfg(feature = "experimental-renewal")]
-pub async fn renew_tct(
-    holder_key: &dyn AitpSigner,
-    current: String,
-    issuer_manifest: &Manifest,
-) -> Result<RenewedTct, FacadeError> {
-    renew_at_advertised_uri(holder_key, current, issuer_manifest, false).await
-}
-
-/// [`renew_tct`] that also accepts a plain-`http` `renew_uri` on
-/// `localhost` / `127.0.0.1`: the explicit local-development opt-in, as
-/// [`InitiatorConfig::with_insecure_localhost`] is for handshakes. Never
-/// use it in production. Gated behind the `experimental-renewal` feature.
-#[cfg(feature = "experimental-renewal")]
-pub async fn renew_tct_with_insecure_localhost(
-    holder_key: &dyn AitpSigner,
-    current: String,
-    issuer_manifest: &Manifest,
-) -> Result<RenewedTct, FacadeError> {
-    renew_at_advertised_uri(holder_key, current, issuer_manifest, true).await
-}
-
-#[cfg(feature = "experimental-renewal")]
-async fn renew_at_advertised_uri(
-    holder_key: &dyn AitpSigner,
-    current: String,
-    issuer_manifest: &Manifest,
-    allow_insecure_localhost: bool,
-) -> Result<RenewedTct, FacadeError> {
-    let url = crate::transport::renew_uri_from_manifest(issuer_manifest, allow_insecure_localhost)
-        .ok_or(FacadeError::RenewalNotAdvertised)?;
-    let pop_nonce = crate::core::base64url::encode(&rand_bytes_16());
-    let request: TctRenewalPayload = build_renewal_request(holder_key, current, pop_nonce)?;
-
-    // SSRF-guard the peer-chosen renewal endpoint before the POST,
-    // with the built-in transport defaults (10s, WarnPrivate).
-    let client = build_guarded_client(&url, Duration::from_secs(10), &HostGuard::default()).await?;
-    let renew_resp = client
-        .post(url)
-        .json(&request)
-        .send()
-        .await
-        .map_err(|e| FacadeError::Http(e.to_string()))?;
-    // RFC-AITP-0013 §6: the holder decides from the envelope, whatever
-    // the HTTP status.
-    let (_, _, body) = read_aitp_response_body(renew_resp, MAX_RESPONSE_BYTES).await?;
-    let value = CheckedJson::from_slice(&body)
-        .map_err(|e| FacadeError::Http(format!("malformed JSON in renewal response: {e}")))?;
-    let envelope = parse_envelope_wire(&value).map_err(|e| {
-        FacadeError::RenewalResponse(match e {
-            EnvelopeParseError::UnknownField(field) => RenewalResponseError::UnknownField(field),
-            other => RenewalResponseError::InvalidEnvelope(other.to_string()),
-        })
-    })?;
-    let ctx = RenewalResponseContext::new(
-        holder_key.aid(),
-        &request.current_tct,
-        &request.pop_nonce,
-        Timestamp::now(),
-    )
-    .issuer_manifest_expires_at(issuer_manifest.expires_at);
-    Ok(verify_renewal_response(&envelope, &ctx)?)
-}
-
-#[cfg(feature = "experimental-renewal")]
-fn rand_bytes_16() -> [u8; 16] {
-    // rand 0.10's `SysRng` (the renamed `OsRng`) is fallible, unlike the
-    // old infallible `RngCore::fill_bytes`. This fn has no `Result` in its
-    // signature to propagate through, so `UnwrapErr` reproduces the old
-    // `OsRng`'s behavior of panicking if the OS randomness source fails —
-    // not a silent fallback to a weaker generator.
-    use rand::Rng;
-    let mut buf = [0u8; 16];
-    rand::rand_core::UnwrapErr(rand::rngs::SysRng).fill_bytes(&mut buf);
-    buf
-}
-
 // ── TctStore ────────────────────────────────────────────────────────────
 
 /// In-memory store for held TCTs, keyed by peer (issuer) AID.
@@ -960,8 +843,8 @@ fn rand_bytes_16() -> [u8; 16] {
 /// `TctStore` provides an auto-refresh discipline: a
 /// background-friendly `needs_refresh` predicate fires when remaining
 /// TTL drops below a configurable fraction of the original TTL
-/// (default 20 %). Callers can then drive `renew_tct` and stash the
-/// fresh TCT back via `insert`.
+/// (default 20 %). Callers then obtain a fresh TCT and store it back
+/// via `insert`.
 ///
 /// The store is cheap to clone (`Arc<RwLock<...>>` inside) and safe to
 /// share across tasks.
@@ -1142,7 +1025,7 @@ mod tct_store_tests {
 
 #[cfg(test)]
 mod facade_http_tests {
-    //! GAP-4: the facade now validates handshake/renewal responses
+    //! GAP-4: the facade now validates handshake responses
     //! (status, Content-Type, size) and recognizes AITP error
     //! envelopes before deserializing, instead of feeding every body
     //! straight to `.json()`.

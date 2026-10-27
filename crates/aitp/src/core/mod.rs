@@ -17,7 +17,7 @@
 //!   [`CheckedJson`], the duplicate-key-checked input every `parse_*_wire`
 //!   function takes (RFC-AITP-0001 §5.4.5).
 //! - The [`nonce_store::NonceStore`] single-use nonce store trait and its
-//!   in-memory implementation (pinned-key admission, TCT renewal).
+//!   in-memory implementation (pinned-key admission).
 //!
 //! Higher-level protocol modules (`aitp::manifest`, `aitp::tct`, `aitp::handshake`,
 //! `aitp::delegation`) build on these primitives.

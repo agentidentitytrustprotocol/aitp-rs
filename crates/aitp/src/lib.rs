@@ -82,7 +82,7 @@ pub mod manifest;
 pub mod tct;
 pub mod transport;
 
-/// High-level client helpers: run a handshake, renew a TCT, cache TCTs.
+/// High-level client helpers: run a handshake, cache TCTs.
 #[cfg(feature = "http-client")]
 pub mod facade;
 

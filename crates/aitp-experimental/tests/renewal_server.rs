@@ -1,20 +1,24 @@
-//! TCT renewal endpoint (RFC-AITP-0013, issue #196): mounted only at
-//! the advertised `rfc-aitp-0005.renew_uri`, replay-guarded, re-checks
-//! revocation and grants, answers with a signed `tct` envelope, and
-//! refuses each failure with a signed `error` envelope carrying its own
-//! registry code.
+//! `RenewalServer` (RFC-AITP-0013): mounted only at the advertised
+//! `rfc-aitp-0005.renew_uri`, replay-guarded, rate limited per source,
+//! re-checks revocation and grants, answers with a signed `tct`
+//! envelope, and refuses each failure with a signed `error` envelope
+//! carrying its own registry code.
 
-#![cfg(all(feature = "http-server", feature = "experimental-renewal"))]
-
+use aitp::core::nonce_store::{InMemoryNonceStore, NonceStore};
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::{
-    build_renewal_request, sign_revocation_list, RevocationEntry, RevocationList,
-    RevocationListEnvelope, TctBuilder, TctRenewalPayload,
+    sign_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope, TctBuilder,
 };
-use aitp::transport::{HandshakeServer, RevocationListProducer, RENEW_URI_EXT};
+use aitp::transport::{
+    HandshakeServer, ManifestServer, RateLimitConfig, RevocationListProducer, REVOCATION_LIST_PATH,
+};
+use aitp_experimental::renewal::{
+    build_renewal_request, RenewalServer, RenewalServerError, TctRenewalPayload, RENEW_URI_EXT,
+};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -41,6 +45,10 @@ fn issuer() -> AitpSigningKey {
 }
 
 fn manifest(advertise: bool, manifest_ttl: i64) -> Manifest {
+    manifest_at(advertise.then_some(RENEW_PATH), manifest_ttl)
+}
+
+fn manifest_at(renew_path: Option<&str>, manifest_ttl: i64) -> Manifest {
     let key = issuer();
     let mut b = ManifestBuilder::new(&key)
         .display_name("issuer")
@@ -54,30 +62,73 @@ fn manifest(advertise: bool, manifest_ttl: i64) -> Manifest {
         .offer("demo.echo")
         .offer("demo.write")
         .ttl_secs(manifest_ttl);
-    if advertise {
-        b = b.extension(
-            RENEW_URI_EXT,
-            format!("http://127.0.0.1{RENEW_PATH}").into(),
-        );
+    if let Some(path) = renew_path {
+        b = b.extension(RENEW_URI_EXT, format!("http://127.0.0.1{path}").into());
     }
     b.build().unwrap()
 }
 
-fn server(manifest: Manifest) -> HandshakeServer<NoOpResolver> {
-    HandshakeServer::new(
-        issuer(),
+/// An empty revocation list signed by the issuer.
+fn empty_list() -> Arc<dyn RevocationListProducer> {
+    revoking(&[])
+}
+
+/// A revocation list signed by the issuer naming `jtis`.
+fn revoking(jtis: &[Uuid]) -> Arc<dyn RevocationListProducer> {
+    let key = issuer();
+    let now = Timestamp::now();
+    let list = sign_revocation_list(
+        RevocationList::new(
+            key.aid().clone(),
+            now,
+            Timestamp(now.0 + 3600),
+            jtis.iter().map(|j| RevocationEntry::new(*j, now)).collect(),
+        ),
+        &key,
+    )
+    .unwrap();
+    Arc::new(StaticProducer(list))
+}
+
+fn renewal_with(
+    manifest: Manifest,
+    revocation: Arc<dyn RevocationListProducer>,
+    store: Arc<dyn NonceStore>,
+) -> RenewalServer {
+    RenewalServer::new(Arc::new(issuer()), manifest, revocation, store).unwrap()
+}
+
+fn renewal(manifest: Manifest) -> RenewalServer {
+    renewal_with(
         manifest,
+        empty_list(),
+        Arc::new(InMemoryNonceStore::default()),
+    )
+}
+
+/// Serve the handshake routes, the Manifest and `renewal` on one
+/// listener, with connect info.
+async fn serve(renewal: RenewalServer) -> String {
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let manifest = manifest(true, 86_400);
+    let app = HandshakeServer::new(
+        issuer(),
+        manifest.clone(),
         vec!["https://idp.example.com".parse().unwrap()],
         NoOpResolver,
         vec!["demo.echo".into()],
     )
-}
-
-async fn serve(server: HandshakeServer<NoOpResolver>) -> String {
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let port = listener.local_addr().unwrap().port();
+    .into_router()
+    .merge(ManifestServer::new(manifest).into_router())
+    .merge(renewal.router().unwrap());
     tokio::spawn(async move {
-        server.serve(listener).await.unwrap();
+        axum::serve(
+            listener,
+            app.into_make_service_with_connect_info::<SocketAddr>(),
+        )
+        .await
+        .unwrap();
     });
     format!("http://127.0.0.1:{port}")
 }
@@ -129,23 +180,47 @@ fn code(body: &serde_json::Value) -> &str {
     body["payload"]["code"].as_str().unwrap_or("<none>")
 }
 
-#[tokio::test]
-async fn route_is_absent_without_renew_uri() {
-    let base = serve(server(manifest(false, 86_400))).await;
-    for path in [RENEW_PATH, "/aitp/handshake/renew"] {
-        let resp = reqwest::Client::new()
-            .post(format!("{base}{path}"))
-            .json(&serde_json::json!({}))
-            .send()
-            .await
-            .unwrap();
-        assert_eq!(resp.status().as_u16(), 404, "{path}");
+#[test]
+fn router_errors_without_renew_uri() {
+    let err = renewal(manifest(false, 86_400)).router().unwrap_err();
+    assert!(matches!(err, RenewalServerError::NotAdvertised), "{err:?}");
+}
+
+#[test]
+fn router_errors_on_path_collision() {
+    for path in [
+        "/aitp/handshake/hello",
+        "/aitp/handshake/commit",
+        REVOCATION_LIST_PATH,
+        "/.well-known/aitp-manifest",
+    ] {
+        let err = renewal(manifest_at(Some(path), 86_400))
+            .router()
+            .unwrap_err();
+        assert!(
+            matches!(&err, RenewalServerError::PathCollision(p) if p == path),
+            "{path}: {err:?}"
+        );
     }
+}
+
+#[test]
+fn new_rejects_signer_manifest_aid_mismatch() {
+    let other = AitpSigningKey::from_seed(&[0x43; 32]);
+    let err = RenewalServer::new(
+        Arc::new(other),
+        manifest(true, 86_400),
+        empty_list(),
+        Arc::new(InMemoryNonceStore::default()),
+    )
+    .err()
+    .expect("signer is not the Manifest key");
+    assert!(matches!(err, RenewalServerError::KeyMismatch), "{err:?}");
 }
 
 #[tokio::test]
 async fn renews_at_advertised_path_and_refuses_replay() {
-    let base = serve(server(manifest(true, 86_400))).await;
+    let base = serve(renewal(manifest(true, 86_400))).await;
     let holder = AitpSigningKey::from_seed(&[0x01; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let req = request(&holder, current.token);
@@ -183,19 +258,11 @@ async fn revoked_tct_is_refused() {
     let holder = AitpSigningKey::from_seed(&[0x02; 32]);
     let now = Timestamp::now();
     let current = tct(&key, &holder, &["demo.echo"], now, 600);
-    let list = sign_revocation_list(
-        RevocationList::new(
-            key.aid().clone(),
-            now,
-            Timestamp(now.0 + 3600),
-            vec![RevocationEntry::new(current.claims.jti, now)],
-        ),
-        &key,
-    )
-    .unwrap();
-    let base = serve(
-        server(manifest(true, 86_400)).with_revocation_producer(Arc::new(StaticProducer(list))),
-    )
+    let base = serve(renewal_with(
+        manifest(true, 86_400),
+        revoking(&[current.claims.jti]),
+        Arc::new(InMemoryNonceStore::default()),
+    ))
     .await;
     let (status, body) = post(&base, &request(&holder, current.token)).await;
     assert_eq!((status, code(&body)), (400, "TCT_REVOKED"), "{body}");
@@ -203,7 +270,7 @@ async fn revoked_tct_is_refused() {
 
 #[tokio::test]
 async fn withdrawn_grants_are_dropped_or_refused() {
-    let base = serve(server(manifest(true, 86_400))).await;
+    let base = serve(renewal(manifest(true, 86_400))).await;
     let holder = AitpSigningKey::from_seed(&[0x03; 32]);
 
     // "legacy.cap" is no longer offered: dropped, the rest survives.
@@ -231,7 +298,7 @@ async fn withdrawn_grants_are_dropped_or_refused() {
 #[tokio::test]
 async fn grant_policy_hook_is_applied() {
     let deny = Arc::new(|_: &Aid, _: &[String]| Vec::new());
-    let base = serve(server(manifest(true, 86_400)).with_renewal_grant_policy(deny)).await;
+    let base = serve(renewal(manifest(true, 86_400)).with_grant_policy(deny)).await;
     let holder = AitpSigningKey::from_seed(&[0x04; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let (status, body) = post(&base, &request(&holder, current.token)).await;
@@ -240,7 +307,7 @@ async fn grant_policy_hook_is_applied() {
 
 #[tokio::test]
 async fn each_failure_maps_to_its_own_code() {
-    let base = serve(server(manifest(true, 3_000))).await;
+    let base = serve(renewal(manifest(true, 3_000))).await;
     let key = issuer();
     let holder = AitpSigningKey::from_seed(&[0x05; 32]);
     let now = Timestamp::now();
@@ -313,8 +380,8 @@ async fn each_failure_maps_to_its_own_code() {
 
 #[tokio::test]
 async fn full_replay_guard_is_a_local_error() {
-    let store = Arc::new(aitp::core::nonce_store::InMemoryNonceStore::new(1));
-    let base = serve(server(manifest(true, 86_400)).with_renewal_nonce_store(store)).await;
+    let store = Arc::new(InMemoryNonceStore::new(1));
+    let base = serve(renewal_with(manifest(true, 86_400), empty_list(), store)).await;
     let holder = AitpSigningKey::from_seed(&[0x08; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let (status, _) = post(&base, &request(&holder, current.token.clone())).await;
@@ -323,4 +390,95 @@ async fn full_replay_guard_is_a_local_error() {
     assert_eq!(status, 503, "{body}");
     assert_eq!(body["message_type"], "error");
     assert_eq!(body["payload"]["retryable"], true);
+}
+
+#[tokio::test]
+async fn rate_limit_applies_per_source() {
+    let base = serve(
+        renewal(manifest(true, 86_400))
+            .with_rate_limit(RateLimitConfig::default().with_requests_per_source_per_60s(2)),
+    )
+    .await;
+    let holder = AitpSigningKey::from_seed(&[0x09; 32]);
+    let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
+    for _ in 0..2 {
+        let (status, body) = post(&base, &request(&holder, current.token.clone())).await;
+        assert_eq!(status, 200, "{body}");
+    }
+    let resp = reqwest::Client::new()
+        .post(format!("{base}{RENEW_PATH}"))
+        .json(&request(&holder, current.token))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 429);
+    assert!(resp.bytes().await.unwrap().is_empty(), "429 has no body");
+}
+
+#[tokio::test]
+async fn oversized_body_is_refused() {
+    let base = serve(renewal(manifest(true, 86_400)).with_request_body_limit(64)).await;
+    let holder = AitpSigningKey::from_seed(&[0x0a; 32]);
+    let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
+    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    assert_eq!((status, code(&body)), (400, "INVALID_ENVELOPE"), "{body}");
+}
+
+#[tokio::test]
+async fn wrong_content_type_is_refused() {
+    let base = serve(renewal(manifest(true, 86_400))).await;
+    let resp = reqwest::Client::new()
+        .post(format!("{base}{RENEW_PATH}"))
+        .header("content-type", "text/plain")
+        .body("{}")
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 400);
+    let body: serde_json::Value = resp.json().await.unwrap();
+    assert_eq!(code(&body), "POP_RESPONSE_INVALID", "{body}");
+}
+
+/// A request with no connect info, as from a router served without
+/// `into_make_service_with_connect_info`.
+fn bare_request(body: &impl serde::Serialize) -> axum::http::Request<axum::body::Body> {
+    axum::http::Request::post(RENEW_PATH)
+        .header("content-type", "application/json")
+        .body(axum::body::Body::from(serde_json::to_vec(body).unwrap()))
+        .unwrap()
+}
+
+#[tokio::test]
+async fn missing_connect_info_is_internal_error() {
+    use tower::ServiceExt;
+    let app = renewal(manifest(true, 86_400)).router().unwrap();
+    let holder = AitpSigningKey::from_seed(&[0x0b; 32]);
+    let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
+    let resp = app
+        .oneshot(bare_request(&request(&holder, current.token)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 500);
+    let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+        .await
+        .unwrap();
+    let body: serde_json::Value = serde_json::from_slice(&body).unwrap();
+    assert_eq!(code(&body), "INVALID_ENVELOPE");
+    assert_eq!(body["payload"]["retryable"], true);
+}
+
+#[tokio::test]
+async fn without_rate_limit_serves_without_connect_info() {
+    use tower::ServiceExt;
+    let app = renewal(manifest(true, 86_400))
+        .without_rate_limit()
+        .router()
+        .unwrap();
+    let holder = AitpSigningKey::from_seed(&[0x0c; 32]);
+    let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
+    let resp = app
+        .oneshot(bare_request(&request(&holder, current.token)))
+        .await
+        .unwrap();
+    assert_eq!(resp.status().as_u16(), 200);
 }

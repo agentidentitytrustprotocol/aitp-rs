@@ -60,12 +60,12 @@ These can change or disappear in any release, including a patch:
 
 - **`aitp-experimental`.** Multi-hop delegation
   (`aitp_experimental::delegation`, RFC-AITP-0011, Draft), Session Trust
-  Bundles (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft) and
-  their HTTP endpoint (feature `http-server`). The crate tracks Draft spec
-  text.
-- **Unstable features of `aitp`.** These are `experimental-renewal`
-  (`facade::renew_tct`, `TctStore::needs_refresh` and the `tct` renewal
-  items), `experimental-spiffe-identity` (`handshake::identity_spiffe`),
+  Bundles (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft), TCT
+  renewal (`aitp_experimental::renewal`, RFC-AITP-0013, Draft) and their
+  HTTP endpoints and client (features `http-server`, `http-client`). The
+  crate tracks Draft spec text.
+- **Unstable features of `aitp`.** These are
+  `experimental-spiffe-identity` (`handshake::identity_spiffe`),
   `experimental-axum` (`HandshakeServer::into_router`,
   `ManifestServer::into_router` and the `with_request_body_limit*`
   helpers, which expose axum, a pre-1.0 crate), `client-spki-pinning` and

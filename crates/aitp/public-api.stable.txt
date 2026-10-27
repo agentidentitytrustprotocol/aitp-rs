@@ -687,8 +687,6 @@ pub aitp::facade::FacadeError::ManifestVerify(aitp::manifest::error::ManifestErr
 pub aitp::facade::FacadeError::Protocol
 pub aitp::facade::FacadeError::Protocol::code: alloc::string::String
 pub aitp::facade::FacadeError::Protocol::message: alloc::string::String
-pub aitp::facade::FacadeError::Renewal(aitp::tct::error::TctError)
-pub aitp::facade::FacadeError::RenewalNotAdvertised
 pub aitp::facade::FacadeError::Serde(serde_json::error::Error)
 pub aitp::facade::IdentityMode::Oidc
 pub aitp::facade::IdentityMode::Oidc::issuer: url::Url
@@ -1261,11 +1259,6 @@ pub aitp::tct::TctError::PopChallengeExpired
 pub aitp::tct::TctError::PopFailed
 pub aitp::tct::TctError::PopJtiMismatch
 pub aitp::tct::TctError::PopNonceMismatch
-pub aitp::tct::TctError::RenewalGrantsWithdrawn
-pub aitp::tct::TctError::RenewalNonceMalformed(alloc::string::String)
-pub aitp::tct::TctError::RenewalNonceStore(aitp::core::nonce_store::NonceStoreError)
-pub aitp::tct::TctError::RenewalReplayed
-pub aitp::tct::TctError::RenewalRequestMalformed(alloc::string::String)
 pub aitp::tct::TctError::RevocationUnavailable(alloc::string::String)
 pub aitp::tct::TctError::Revoked
 pub aitp::tct::TctError::SelfIssued
@@ -1307,11 +1300,6 @@ pub aitp::tct::error::TctError::PopChallengeExpired
 pub aitp::tct::error::TctError::PopFailed
 pub aitp::tct::error::TctError::PopJtiMismatch
 pub aitp::tct::error::TctError::PopNonceMismatch
-pub aitp::tct::error::TctError::RenewalGrantsWithdrawn
-pub aitp::tct::error::TctError::RenewalNonceMalformed(alloc::string::String)
-pub aitp::tct::error::TctError::RenewalNonceStore(aitp::core::nonce_store::NonceStoreError)
-pub aitp::tct::error::TctError::RenewalReplayed
-pub aitp::tct::error::TctError::RenewalRequestMalformed(alloc::string::String)
 pub aitp::tct::error::TctError::RevocationUnavailable(alloc::string::String)
 pub aitp::tct::error::TctError::Revoked
 pub aitp::tct::error::TctError::SelfIssued
@@ -1608,7 +1596,6 @@ pub const aitp::transport::DEFAULT_REQUEST_BODY_LIMIT: usize
 pub const aitp::transport::DEFAULT_REVOCATION_FETCH_TIMEOUT: core::time::Duration
 pub const aitp::transport::DEFAULT_SESSION_TTL: core::time::Duration
 pub const aitp::transport::RECOMMENDED_MAX_HEADER_BYTES: usize
-pub const aitp::transport::RENEW_URI_EXT: &str
 pub const aitp::transport::REVOCATION_LIST_PATH: &str
 pub const aitp::transport::REVOCATION_LIST_URI_EXT: &str
 pub const aitp::transport::client::DEFAULT_MAX_JWKS_BYTES: usize
@@ -1616,7 +1603,6 @@ pub const aitp::transport::client::DEFAULT_MAX_MANIFEST_BYTES: usize
 pub const aitp::transport::client::DEFAULT_OIDC_DISCOVERY_TTL: core::time::Duration
 pub const aitp::transport::common::MIN_RSA_MODULUS_BITS: usize
 pub const aitp::transport::key_resolution::DEFAULT_NEGATIVE_CACHE_TTL: core::time::Duration
-pub const aitp::transport::renew_uri::RENEW_URI_EXT: &str
 pub const aitp::transport::revocation::DEFAULT_REVOCATION_CACHE_TTL: core::time::Duration
 pub const aitp::transport::revocation::REVOCATION_LIST_URI_EXT: &str
 pub const aitp::transport::revocation_fetch::DEFAULT_MAX_REVOCATION_LIST_BYTES: usize
@@ -2141,8 +2127,6 @@ pub fn aitp::transport::net_guard::HostGuard::new(aitp::transport::net_guard::Gu
 pub fn aitp::transport::net_guard::HostGuard::permissive() -> Self
 pub fn aitp::transport::net_guard::HostGuard::strict() -> Self
 pub fn aitp::transport::net_guard::HostGuardError::is_transient(&self) -> bool
-pub fn aitp::transport::renew_uri::renew_uri_from_manifest(&aitp::manifest::types::Manifest, bool) -> core::option::Option<url::Url>
-pub fn aitp::transport::renew_uri_from_manifest(&aitp::manifest::types::Manifest, bool) -> core::option::Option<url::Url>
 pub fn aitp::transport::replay_store::InMemoryReplayGuard::check_and_record(&self, &str, core::time::Duration) -> bool
 pub fn aitp::transport::replay_store::InMemoryReplayGuard::new() -> Self
 pub fn aitp::transport::replay_store::ReplayGuard::check_and_record(&self, &str, core::time::Duration) -> bool
@@ -2288,7 +2272,6 @@ pub mod aitp::transport::client_config
 pub mod aitp::transport::common
 pub mod aitp::transport::key_resolution
 pub mod aitp::transport::net_guard
-pub mod aitp::transport::renew_uri
 pub mod aitp::transport::replay_store
 pub mod aitp::transport::retry
 pub mod aitp::transport::revocation

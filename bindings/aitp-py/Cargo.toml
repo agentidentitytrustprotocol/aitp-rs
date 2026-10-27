@@ -27,8 +27,8 @@ crate-type = ["cdylib"]
 [features]
 extension-module = ["pyo3/extension-module"]
 default = ["renewal", "session-bundle", "spki-pinning", "multihop-delegation"]
-# In-band TCT renewal (RFC-AITP-0005 §10).
-renewal = ["aitp/experimental-renewal"]
+# TCT renewal (RFC-AITP-0013, `aitp_experimental::renewal`).
+renewal = ["dep:aitp-experimental"]
 # Session bundles (RFC-AITP-0010) — exposes `SessionBundleBuilder`.
 session-bundle = ["dep:aitp-experimental"]
 # SPKI cert pinning — exposes `compute_spki_hash()` and `SpkiPinVerifier`.

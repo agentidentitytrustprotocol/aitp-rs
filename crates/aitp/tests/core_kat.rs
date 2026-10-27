@@ -71,7 +71,7 @@ const NON_CANONICAL_VECTORS: &[&str] = &[
     "kat-pinned-key-proof-002-p256",
     "kat-pinned-key-proof-003-tagged-ed25519",
     // Renewal PoP-input vectors (RFC-AITP-0013 §3.1); checked in
-    // `crates/aitp/src/tct/renewal.rs` (feature `experimental-renewal`).
+    // `crates/aitp-experimental/tests/renewal_core.rs`.
     "kat-renewal-pop-001",
     "kat-renewal-pop-002-p256",
     // X509-SVID proof-input vector (RFC-AITP-0002 §6.4.1); checked in

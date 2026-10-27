@@ -1,6 +1,6 @@
 [package]
 name = "aitp-experimental"
-description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles). No stability promise."
+description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles, TCT renewal). No stability promise."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,10 +12,13 @@ homepage.workspace = true
 
 [features]
 default = []
-# `SessionBundleServer`, the RFC-AITP-0010 §4.3.1 HTTP endpoint. Turns on
-# `aitp/http-server`; nothing else here does, so depending on this crate
-# never forces the server onto `aitp`.
-http-server = ["aitp/http-server", "dep:axum", "dep:parking_lot"]
+# `SessionBundleServer` (RFC-AITP-0010 §4.3.1) and `renewal::RenewalServer`
+# (RFC-AITP-0013), the HTTP endpoints. Turns on `aitp/http-server`;
+# nothing else here does, so depending on this crate never forces the
+# server onto `aitp`.
+http-server = ["aitp/http-server", "dep:axum", "dep:parking_lot", "dep:tokio"]
+# `renewal::renew_tct`, the holder's renewal HTTP client.
+http-client = ["aitp/http-client", "dep:reqwest", "dep:rand"]
 
 [dependencies]
 aitp = { path = "../aitp", version = "=0.23.0", default-features = false }
@@ -27,16 +30,28 @@ uuid = { workspace = true }
 sha2 = { workspace = true }
 axum = { workspace = true, optional = true }
 parking_lot = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["time"] }
+reqwest = { workspace = true, optional = true }
+rand = { workspace = true, optional = true }
 tracing = { workspace = true }
 
 [dev-dependencies]
 boon = { workspace = true }
-aitp = { path = "../aitp", default-features = false, features = ["test-util"] }
+aitp = { path = "../aitp", default-features = false, features = ["test-util", "experimental-axum"] }
 hex = { workspace = true }
 tokio = { workspace = true }
 axum = { workspace = true }
 tower = { workspace = true, features = ["util"] }
+reqwest = { workspace = true }
 
 [[test]]
 name = "session_bundle_endpoint"
 required-features = ["http-server"]
+
+[[test]]
+name = "renewal_server"
+required-features = ["http-server"]
+
+[[test]]
+name = "renewal_client"
+required-features = ["http-server", "http-client"]

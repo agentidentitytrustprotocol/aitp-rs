@@ -1,7 +1,5 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
-#[cfg(feature = "experimental-renewal")]
-use crate::core::nonce_store::{InMemoryNonceStore, NonceStore, NonceStoreError};
 use crate::core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
@@ -14,11 +12,6 @@ use crate::handshake::{
 };
 use crate::manifest::{Manifest, ManifestEnvelope};
 use crate::tct::RevocationListEnvelope;
-#[cfg(feature = "experimental-renewal")]
-use crate::tct::{
-    parse_renewal_request, process_renewal_request, renewal_error_code, renewal_error_envelope,
-    renewal_response_envelope, RenewalContext, RenewalGrantPolicyFn,
-};
 use crate::transport::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::transport::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
 use axum::{
@@ -34,8 +27,6 @@ use serde_json::json;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-#[cfg(feature = "experimental-renewal")]
-use tracing::instrument;
 use tracing::{debug, warn};
 use uuid::Uuid;
 
@@ -234,26 +225,6 @@ where
 pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     state: Arc<HandshakeState<R>>,
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
-    #[cfg(feature = "experimental-renewal")]
-    renewal: RenewalConfig,
-}
-
-/// Issuer-side renewal settings (RFC-AITP-0013).
-#[cfg(feature = "experimental-renewal")]
-#[derive(Clone)]
-struct RenewalConfig {
-    nonce_store: Arc<dyn NonceStore>,
-    grant_policy: Option<Arc<RenewalGrantPolicyFn>>,
-}
-
-#[cfg(feature = "experimental-renewal")]
-impl Default for RenewalConfig {
-    fn default() -> Self {
-        Self {
-            nonce_store: Arc::new(InMemoryNonceStore::default()),
-            grant_policy: None,
-        }
-    }
 }
 
 /// Sliding-window rate-limit policy for the handshake endpoint
@@ -548,30 +519,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 )),
             }),
             revocation_producer: None,
-            #[cfg(feature = "experimental-renewal")]
-            renewal: RenewalConfig::default(),
         }
-    }
-
-    /// Replace the renewal replay guard (default: a process-local
-    /// [`InMemoryNonceStore`]). Every accepted renewal `pop_nonce` is
-    /// recorded here until the presented TCT expires, and a repeat is
-    /// refused with `REPLAY_DETECTED` (RFC-AITP-0013). Behind a
-    /// load balancer, share one store across replicas.
-    #[cfg(feature = "experimental-renewal")]
-    pub fn with_renewal_nonce_store(mut self, store: Arc<dyn NonceStore>) -> Self {
-        self.renewal.nonce_store = store;
-        self
-    }
-
-    /// Install a grant-policy hook re-run on every renewal, after the
-    /// presented grants are intersected with this server's Manifest
-    /// `offered_capabilities`. An empty result refuses the renewal with
-    /// `POLICY_VIOLATION`.
-    #[cfg(feature = "experimental-renewal")]
-    pub fn with_renewal_grant_policy(mut self, policy: Arc<RenewalGrantPolicyFn>) -> Self {
-        self.renewal.grant_policy = Some(policy);
-        self
     }
 
     /// Override the in-flight session cap (default
@@ -764,8 +712,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// [`ServeConfig::default`], until the task is dropped or an I/O
     /// error ends it.
     ///
-    /// It serves the handshake routes, [`REVOCATION_LIST_PATH`], the
-    /// renewal route (below) and `/.well-known/aitp-manifest` with this
+    /// It serves the handshake routes, [`REVOCATION_LIST_PATH`] and
+    /// `/.well-known/aitp-manifest` with this
     /// server's Manifest, so one listener is a complete AITP peer.
     pub async fn serve(self, listener: tokio::net::TcpListener) -> std::io::Result<()> {
         self.serve_with(listener, ServeConfig::default(), std::future::pending())
@@ -800,11 +748,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// The routes [`Self::serve`] and `into_router` host.
     ///
-    /// With `experimental-renewal`, the renewal route is mounted only
-    /// when this server's Manifest advertises
-    /// `rfc-aitp-0005.renew_uri`, at that URL's path (RFC-AITP-0013
-    /// §2: renewal is opt-in and peers never probe a guessed path).
-    ///
     /// Also starts the background session sweeper
     /// ([`DEFAULT_SESSION_SWEEP_INTERVAL`] unless changed with
     /// [`Self::with_session_sweep_interval`] or turned off with
@@ -815,9 +758,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
             .route("/aitp/handshake/commit", post(handle_commit::<R>));
-        #[cfg(feature = "experimental-renewal")]
-        let renewal_route =
-            renewal_router(&self.state, &self.renewal, self.revocation_producer.clone());
         let advertised = self.state.manifest.extensions.as_ref().is_some_and(|e| {
             e.get(crate::transport::revocation::REVOCATION_LIST_URI_EXT)
                 .is_some()
@@ -838,213 +778,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 &self.state.signing_key,
             ))),
         };
-        #[allow(unused_mut)]
-        let mut router = router
-            .with_state(self.state)
-            .merge(revocation_router(source));
-        #[cfg(feature = "experimental-renewal")]
-        if let Some(renewal_route) = renewal_route {
-            router = router.merge(renewal_route);
-        }
         router
-    }
-}
-
-/// State for the renewal route: the handshake state plus the renewal
-/// settings and the revocation source.
-#[cfg(feature = "experimental-renewal")]
-struct RenewalRouteState<R: JwksResolver + Send + Sync + 'static> {
-    handshake: Arc<HandshakeState<R>>,
-    config: RenewalConfig,
-    /// The issuer's own revocation list. `None`: the server serves its
-    /// default signed empty snapshot, so nothing is revoked.
-    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
-}
-
-/// The renewal route, mounted at the path of the Manifest's
-/// `rfc-aitp-0005.renew_uri`, or `None` when the Manifest does not
-/// advertise one (RFC-AITP-0013).
-#[cfg(feature = "experimental-renewal")]
-fn renewal_router<R: JwksResolver + Send + Sync + 'static>(
-    state: &Arc<HandshakeState<R>>,
-    config: &RenewalConfig,
-    revocation_producer: Option<Arc<dyn RevocationListProducer>>,
-) -> Option<Router> {
-    // Only the path is used here, to mount this server's own route, so
-    // loopback `http` is accepted; the scheme policy is the client's.
-    let Some(uri) = crate::transport::renew_uri::renew_uri_from_manifest(&state.manifest, true)
-    else {
-        debug!(
-            "Manifest advertises no usable {}; renewal route not mounted",
-            crate::transport::renew_uri::RENEW_URI_EXT
-        );
-        return None;
-    };
-    let path = uri.path().to_string();
-    if matches!(
-        path.as_str(),
-        "/aitp/handshake/hello" | "/aitp/handshake/commit" | REVOCATION_LIST_PATH
-    ) {
-        warn!(
-            "{} {uri} collides with another route; renewal route not mounted",
-            crate::transport::renew_uri::RENEW_URI_EXT
-        );
-        return None;
-    }
-    let route_state = Arc::new(RenewalRouteState {
-        handshake: state.clone(),
-        config: config.clone(),
-        revocation_producer,
-    });
-    Some(
-        Router::new()
-            .route(&path, post(handle_renew::<R>))
-            .with_state(route_state),
-    )
-}
-
-/// `POST <renew_uri path>` accepts a renewal request (RFC-AITP-0013 §3)
-/// and answers with a signed `tct` envelope carrying the renewed TCT
-/// (§6), or a signed `error` envelope refusing it. Gated behind the
-/// `experimental-renewal` Cargo feature.
-///
-/// Each request is rate limited per source like the handshake routes
-/// (RFC-AITP-0009 §3.1); a rate-limited request gets an empty 429.
-/// Everything else runs [`crate::tct::process_renewal_request`] against
-/// this server's revocation list, Manifest and replay guard.
-#[cfg(feature = "experimental-renewal")]
-#[instrument(level = "debug", skip(route_state, request))]
-async fn handle_renew<R: JwksResolver + Send + Sync + 'static>(
-    State(route_state): State<Arc<RenewalRouteState<R>>>,
-    request: Request,
-) -> Response {
-    let state = &route_state.handshake;
-    // Rate limit before any parsing (RFC-AITP-0009 §3.1). The body names
-    // no authenticated AID yet, so only the transport key applies.
-    let source_ip = request_source(state, &request);
-    if let RateLimitOutcome::DenyTooManyRequests { reason } =
-        rate_limit_check(state, source_ip, None)
-    {
-        return ResponseError::too_many_requests(reason).into_response();
-    }
-    let signer = &*state.signing_key;
-    let content_type = request
-        .headers()
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default()
-        .to_ascii_lowercase();
-    if !content_type.starts_with("application/json") {
-        return renewal_refusal(
-            signer,
-            StatusCode::BAD_REQUEST,
-            ErrorCode::PopResponseInvalid,
-            "expected Content-Type: application/json",
-            false,
-        );
-    }
-    let body = match read_body_with_timeout(request, DEFAULT_BODY_READ_TIMEOUT).await {
-        Ok(body) => body,
-        Err(e) => return renewal_refusal(signer, e.status, e.code, &e.message, false),
-    };
-    let payload = match parse_renewal_request(&body) {
-        Ok(p) => p,
-        Err(e) => return renewal_failure(signer, &e),
-    };
-    // Our own revocation list, read fresh for each request.
-    let revoked: std::collections::HashSet<Uuid> = route_state
-        .revocation_producer
-        .as_ref()
-        .map(|p| {
-            p.current()
-                .revocation_list
-                .entries
-                .iter()
-                .map(|e| e.jti)
-                .collect()
-        })
-        .unwrap_or_default();
-    let revocation_check = move |jti: &Uuid| Ok(revoked.contains(jti));
-    let now = Timestamp::now();
-    let mut ctx = RenewalContext::new(
-        state.manifest.expires_at,
-        &state.manifest.offered_capabilities,
-        &revocation_check,
-        &*route_state.config.nonce_store,
-        now,
-    );
-    if let Some(policy) = route_state.config.grant_policy.as_deref() {
-        ctx = ctx.grant_policy(policy);
-    }
-    let renewed = match process_renewal_request(&payload, signer, &ctx).await {
-        Ok(r) => r,
-        Err(e) => return renewal_failure(signer, &e),
-    };
-    match renewal_response_envelope(signer, &renewed, &payload.pop_nonce, Uuid::new_v4(), now) {
-        Ok(envelope) => Json(envelope).into_response(),
-        // Signing the response failed: a local fault, not the holder's.
-        Err(e) => ResponseError::local_signer_failure(&e).into_response(),
-    }
-}
-
-/// The refusal for a renewal failure: our own signer or nonce store
-/// failing is a local, retryable 5xx (RFC-AITP-0013 §5), never blamed
-/// on the holder; everything else is a 400 with
-/// [`renewal_error_code`].
-#[cfg(feature = "experimental-renewal")]
-fn renewal_failure(signer: &dyn AitpSigner, err: &crate::tct::TctError) -> Response {
-    match err {
-        e if tct_signer_failure(e) => ResponseError::local_signer_failure(e).into_response(),
-        crate::tct::TctError::RenewalNonceStore(store_err) => {
-            let status = match store_err {
-                NonceStoreError::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            renewal_refusal(
-                signer,
-                status,
-                ErrorCode::InvalidEnvelope,
-                &format!("internal error: renewal replay guard: {store_err}"),
-                true,
-            )
-        }
-        e => renewal_refusal(
-            signer,
-            StatusCode::BAD_REQUEST,
-            renewal_error_code(e),
-            &e.to_string(),
-            false,
-        ),
-    }
-}
-
-/// A signed `error` envelope refusing a renewal (RFC-AITP-0013 §6),
-/// with `status`.
-#[cfg(feature = "experimental-renewal")]
-fn renewal_refusal(
-    signer: &dyn AitpSigner,
-    status: StatusCode,
-    code: ErrorCode,
-    reason: &str,
-    retryable: bool,
-) -> Response {
-    warn!(
-        target: "aitp.error.envelope",
-        code = ?code,
-        status = status.as_u16(),
-        message = %reason,
-        "AITP renewal error envelope returned"
-    );
-    match renewal_error_envelope(
-        signer,
-        code,
-        reason,
-        retryable,
-        Uuid::new_v4(),
-        Timestamp::now(),
-    ) {
-        Ok(envelope) => (status, Json(envelope)).into_response(),
-        Err(e) => ResponseError::local_signer_failure(&e).into_response(),
+            .with_state(self.state)
+            .merge(revocation_router(source))
     }
 }
 

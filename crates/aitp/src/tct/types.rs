@@ -159,24 +159,6 @@ pub struct VerifiedTct {
     pub claims: TctClaims,
 }
 
-/// TCT renewal request body (RFC-AITP-0013 §3). Gated behind the
-/// `experimental-renewal` Cargo feature.
-///
-/// The holder presents the currently-held TCT (opaque compact string),
-/// a fresh `pop_nonce`, and a `pop_signature` over
-/// `sha256(`[`crate::tct::renewal_pop_input`]`)`.
-#[cfg(feature = "experimental-renewal")]
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct TctRenewalPayload {
-    /// The currently-held TCT compact JWS being renewed.
-    pub current_tct: String,
-    /// Holder-supplied fresh nonce (22-char base64url, 16 bytes).
-    pub pop_nonce: String,
-    /// `sign(holder_key, sha256(renewal_pop_input))` (RFC-AITP-0013 §3.1).
-    pub pop_signature: String,
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -10,7 +10,7 @@
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::tct::{
+use aitp_experimental::renewal::{
     build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload,
 };
 use napi::bindgen_prelude::*;

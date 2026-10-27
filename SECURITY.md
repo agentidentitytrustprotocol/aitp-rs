@@ -52,6 +52,6 @@ decisions, signature handling, or cryptographic verification.
 
 - Denial-of-service requiring transport-layer control below `aitp::transport`
 - Third-party dependency issues — report those upstream
-- Feature-gated draft-RFC surfaces (`experimental-renewal`,
-  the `aitp-experimental` crate, including multi-hop delegation) — reports
+- Draft-RFC surfaces (the `aitp-experimental` crate: multi-hop
+  delegation, Session Trust Bundles, TCT renewal) — reports
   welcome, but no patching SLA until the corresponding RFCs leave Draft

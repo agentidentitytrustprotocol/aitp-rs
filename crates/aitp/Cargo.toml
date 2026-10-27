@@ -31,10 +31,6 @@ metrics = ["dep:metrics"]
 # Test helpers: `crypto::testing` (mock KMS signers, the P-256 high-S
 # twin). Never enable it in production builds.
 test-util = []
-# In-band TCT renewal (RFC-AITP-0013). Experimental: enables
-# `tct::{build_renewal_request, process_renewal_request, ..}` and
-# `facade::renew_tct`.
-experimental-renewal = []
 # SPIFFE identity (RFC-AITP-0002 §6; `spiffe` is registry status
 # Proposed). Experimental: enables `handshake::identity_spiffe`.
 experimental-spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser"]
