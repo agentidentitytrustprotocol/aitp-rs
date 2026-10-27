@@ -271,9 +271,10 @@ fn peer_substitution_aborts() {
         .on_hello_ack(&spoofed_sender, &ack_payload, &alice_cfg)
         .unwrap_err();
     assert!(
-        matches!(err, aitp::handshake::HandshakeError::InvalidEnvelope(_)),
+        matches!(err, aitp::handshake::HandshakeError::PeerMismatch),
         "spoofed sender: got {err:?}"
     );
+    assert_eq!(err.error_code(), aitp::core::ErrorCode::PeerMismatch);
 
     // Attack 2: the response keeps Bob as the signed sender but swaps in
     // Mallory's Manifest (a different AID). Alice MUST reject before

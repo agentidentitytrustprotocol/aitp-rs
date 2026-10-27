@@ -118,6 +118,9 @@ pub enum ErrorCode {
     PopVerificationFailed,
     /// pop_nonce_echo did not match the previously sent nonce.
     NonceMismatch,
+    /// MUTUAL_HELLO_ACK came from an AID other than the peer the
+    /// initiator addressed (RFC-AITP-0004 §5.2 step 3).
+    PeerMismatch,
     /// Peer-issued TCT audience did not equal own AID.
     AudienceMismatch,
     /// Peer-issued TCT grants exceed peer's offered_capabilities.
@@ -299,6 +302,7 @@ mod tests {
             ),
             (ErrorCode::PopVerificationFailed, "POP_VERIFICATION_FAILED"),
             (ErrorCode::NonceMismatch, "NONCE_MISMATCH"),
+            (ErrorCode::PeerMismatch, "PEER_MISMATCH"),
             (ErrorCode::PopChallengeInvalid, "POP_CHALLENGE_INVALID"),
             (ErrorCode::PopResponseInvalid, "POP_RESPONSE_INVALID"),
             (
@@ -418,6 +422,7 @@ mod tests {
                 | ErrorCode::IncompatibleIdentityType
                 | ErrorCode::PopVerificationFailed
                 | ErrorCode::NonceMismatch
+                | ErrorCode::PeerMismatch
                 | ErrorCode::AudienceMismatch
                 | ErrorCode::GrantOverflow
                 | ErrorCode::InsufficientGrants
@@ -468,7 +473,7 @@ mod tests {
         // equals an unchanged (stale) target.
         assert_eq!(
             cases.len(),
-            55,
+            56,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
     }

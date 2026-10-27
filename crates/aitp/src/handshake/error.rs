@@ -50,6 +50,10 @@ pub enum HandshakeError {
     /// `pop_nonce_echo` did not match own previously sent nonce.
     #[error("nonce mismatch")]
     NonceMismatch,
+    /// MUTUAL_HELLO_ACK was sent by an AID other than the peer the
+    /// initiator addressed (RFC-AITP-0004 §5.2 step 3).
+    #[error("HELLO_ACK sender is not the intended peer")]
+    PeerMismatch,
     /// Peer's PoP signature did not verify.
     #[error("pop signature verification failed")]
     PopVerificationFailed,
@@ -140,6 +144,7 @@ impl HandshakeError {
             Self::PolicyViolation => ErrorCode::PolicyViolation,
             Self::PopVerificationFailed => ErrorCode::PopVerificationFailed,
             Self::NonceMismatch => ErrorCode::NonceMismatch,
+            Self::PeerMismatch => ErrorCode::PeerMismatch,
             Self::InsufficientGrants => ErrorCode::InsufficientGrants,
             Self::IncompatibleTrustAnchors => ErrorCode::IncompatibleTrustAnchors,
             Self::InvalidSignature => ErrorCode::InvalidSignature,

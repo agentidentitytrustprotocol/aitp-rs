@@ -1021,17 +1021,12 @@ impl Initiator {
             message_id = %envelope.message_id,
             "Initiator: AwaitingHelloAck → AwaitingCommitAck"
         );
-        // Peer-AID binding (RFC-AITP-0004): the initiator authenticates the
-        // peer it *intended* to reach. A malicious or compromised responder
-        // at the peer's endpoint must not be able to answer as a different
-        // AID — otherwise the initiator would issue its TCT to, and end the
-        // session bound to, an unintended peer. Both the signed envelope
-        // sender and the presented Manifest MUST be the intended peer.
+        // RFC-AITP-0004 §5.2 step 3: the HELLO_ACK sender is the peer
+        // this initiator addressed (PEER_MISMATCH). Step 4: the presented
+        // Manifest is the sender's (INVALID_ENVELOPE).
         if envelope.sender.agent_id != intended_peer_aid {
             self.state = InitiatorState::Failed;
-            return Err(HandshakeError::InvalidEnvelope(
-                "HELLO_ACK sender AID does not match the intended peer".into(),
-            ));
+            return Err(HandshakeError::PeerMismatch);
         }
         if ack.manifest.aid != intended_peer_aid {
             self.state = InitiatorState::Failed;
