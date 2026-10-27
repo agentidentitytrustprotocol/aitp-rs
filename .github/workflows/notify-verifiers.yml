@@ -1,0 +1,65 @@
+name: notify-verifiers
+# Tell the independent verifiers that aitp-rs released (RS-GO, #405).
+# release-plz tags the top-level `aitp` crate as `aitp-v<X.Y.Z>` when it
+# publishes, with the aitp-deps-bot App token, so the tag push triggers
+# this workflow. Each verifier's bump-aitp-rs.yml takes the `aitp-released`
+# dispatch and opens a PR, held for review, that moves its AITP_RS_COMMIT
+# (the aitp-rs commit whose conformance runner its CI builds) to the
+# release. A daily schedule in each verifier is the backstop.
+#
+# This used to ride on bindings-release.yml's npm publish, so a crates-only
+# release never reached the verifiers. The verifiers run the Rust
+# conformance runner and need no npm package; the consumers of the npm
+# package (aitp-control-plane, aitp-ui-console) are still notified from
+# there.
+#
+# Auth: the aitp-deps-bot App (short-lived installation token, scoped to
+# the one target repo); no PAT.
+on:
+  push:
+    tags:
+      - 'aitp-v*'   # release-plz's tag for the top-level `aitp` crate only
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'aitp-rs release to announce again (e.g. 0.24.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  dispatch:
+    name: notify ${{ matrix.repo }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        repo: [aitp-verifier-ts, aitp-verifier-go]
+    steps:
+      - name: Resolve version
+        id: ver
+        env:
+          MANUAL: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          v="${MANUAL:-${GITHUB_REF_NAME#aitp-v}}"
+          [[ "$v" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]] \
+            || { echo "::error::not a release version: $v"; exit 1; }
+          echo "version=$v" >> "$GITHUB_OUTPUT"
+      - name: Mint GitHub App token (scoped to ${{ matrix.repo }})
+        id: app
+        uses: actions/create-github-app-token@64ab729a6294000f5aa4a4bc0b73d1f32bc45510 # v3.3.0
+        with:
+          client-id: ${{ vars.AITP_BOT_CLIENT_ID }}
+          private-key: ${{ secrets.AITP_BOT_PRIVATE_KEY }}
+          owner: agentidentitytrustprotocol
+          repositories: ${{ matrix.repo }}
+      - name: Dispatch aitp-released (crates)
+        uses: peter-evans/repository-dispatch@28959ce8df70de7be546dd1250a005dd32156697 # v4.0.1
+        with:
+          token: ${{ steps.app.outputs.token }}
+          repository: agentidentitytrustprotocol/${{ matrix.repo }}
+          event-type: aitp-released
+          client-payload: '{"version": "${{ steps.ver.outputs.version }}", "ecosystem": "crates"}'

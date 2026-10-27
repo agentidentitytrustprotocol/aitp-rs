@@ -301,6 +301,49 @@ done
 python3 scripts/xcheck-compare-reports.py rs-report.json ts-report.json --verifier aitp-verifier-ts
 ```
 
+### The Go verifier (`xcheck-go`)
+
+The `xcheck-go` job runs both checks against
+[`aitp-verifier-go`](https://github.com/agentidentitytrustprotocol/aitp-verifier-go),
+written from the RFCs and schemas on the Go standard library alone. It is
+by the same author as this repo, so it does not count toward the
+different-authorship criterion. `tests/AITP_VERIFIER_GO_VERSION` pins a
+commit SHA, and the job builds `cmd/aitp-verifier-adapter` and
+`cmd/xcheck-verify` from that checkout with the Go version its `go.mod`
+names. The job then:
+
+- pipes `xcheck-mint` into `xcheck-verify`. The Go verifier does not
+  implement Session Trust Bundles, so it skips those artifacts;
+- runs the fixtures through `aitp-conformance` against
+  `aitp-verifier-adapter` and against `aitp-rs-adapter`, and gates on
+  `scripts/xcheck-compare-reports.py --verifier aitp-verifier-go`, under
+  the same rules as the other verifiers. There are no known divergences.
+
+The adapter embeds the OIDC test-issuer keys, so it needs no spec files.
+Both reports are uploaded as the `xcheck-go-report` artifact. Like
+`xcheck`, the job is a required check on `main`.
+`.github/workflows/bump-verifier-go.yml` keeps the pin current the same
+way `bump-verifier-ts.yml` does: every Monday (and on demand, with
+`dry-run`) it opens one held PR on `deps/verifier-go-<sha>` when
+`aitp-verifier-go` `main` is ahead of the pin. In the other direction,
+`.github/workflows/notify-verifiers.yml` sends `aitp-released` to both
+`aitp-verifier-ts` and `aitp-verifier-go` on every `aitp-v*` tag, and
+their `bump-aitp-rs.yml` opens a held PR that moves `AITP_RS_COMMIT` to
+the release. To run it locally from a sibling checkout:
+
+```bash
+(cd ../aitp-verifier-go && git checkout "$(cat ../aitp-rs/tests/AITP_VERIFIER_GO_VERSION)" \
+  && go build -o bin/ ./cmd/aitp-verifier-adapter ./cmd/xcheck-verify)
+cargo run --quiet -p mint-signed-examples --bin xcheck-mint | ../aitp-verifier-go/bin/xcheck-verify
+cargo build -p aitp-conformance
+for t in rs:./target/debug/aitp-rs-adapter go:../aitp-verifier-go/bin/aitp-verifier-adapter; do
+  ./target/debug/aitp-conformance run --target "${t#*:}" \
+    --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
+    --report "${t%%:*}-report.json" --output tap > /dev/null
+done
+python3 scripts/xcheck-compare-reports.py rs-report.json go-report.json --verifier aitp-verifier-go
+```
+
 ## Minting tools
 
 - `tools/mint-signed-examples` (binary `mint-signed-examples`) mints the

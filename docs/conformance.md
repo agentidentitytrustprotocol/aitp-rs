@@ -442,7 +442,9 @@ Two things close that gap, and conformance is neither:
    with [`aitp-verifier-ts`](https://github.com/agentidentitytrustprotocol/aitp-verifier-ts),
    whose `xcheck-verify.mjs` is pinned by `tests/AITP_VERIFIER_TS_VERSION` and
    whose conformance adapter comes from npm at the version locked in
-   `tests/xcheck-verifier-ts/`. The reverse direction is covered by
+   `tests/xcheck-verifier-ts/`, and the `xcheck-go` job with
+   [`aitp-verifier-go`](https://github.com/agentidentitytrustprotocol/aitp-verifier-go),
+   pinned by `tests/AITP_VERIFIER_GO_VERSION`. The reverse direction is covered by
    the committed bytes in `tests/xcheck-fixtures/`. See
    [testing.md](testing.md#cross-implementation-acceptance-xcheck).
 
