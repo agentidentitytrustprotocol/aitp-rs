@@ -148,7 +148,7 @@ async fn router_starts_session_sweeper_by_default() {
         "sweeper is configured on by default"
     );
     assert!(!state.sweeper_started.load(Ordering::Relaxed));
-    let _router = srv.router();
+    let _router = srv.routes();
     assert!(
         state.sweeper_started.load(Ordering::Relaxed),
         "router() inside a runtime starts the sweeper"
@@ -161,7 +161,7 @@ async fn sweeper_evicts_expired_sessions_without_traffic() {
         server(Duration::from_millis(30)).with_session_sweep_interval(Duration::from_millis(20));
     let state = srv.state.clone();
     insert_session(&state);
-    let _router = srv.router();
+    let _router = srv.routes();
     assert_eq!(state.sessions.lock().len(), 1);
     // No request ever arrives, so only the background sweeper can
     // evict the expired session.
@@ -176,7 +176,7 @@ async fn without_session_sweeper_disables_it() {
     let srv = server(Duration::from_millis(30)).without_session_sweeper();
     let state = srv.state.clone();
     insert_session(&state);
-    let _router = srv.router();
+    let _router = srv.routes();
     assert!(!state.sweeper_started.load(Ordering::Relaxed));
     tokio::time::sleep(Duration::from_millis(150)).await;
     assert_eq!(
@@ -190,7 +190,7 @@ async fn without_session_sweeper_disables_it() {
 async fn zero_sweep_interval_disables_it() {
     let srv = server(DEFAULT_SESSION_TTL).with_session_sweep_interval(Duration::ZERO);
     let state = srv.state.clone();
-    let _router = srv.router();
+    let _router = srv.routes();
     assert!(!state.sweeper_started.load(Ordering::Relaxed));
 }
 
@@ -202,7 +202,7 @@ fn router_outside_runtime_defers_sweeper_to_first_request() {
     let srv =
         server(Duration::from_millis(30)).with_session_sweep_interval(Duration::from_millis(20));
     let state = srv.state.clone();
-    let _router = srv.router();
+    let _router = srv.routes();
     assert!(!state.sweeper_started.load(Ordering::Relaxed));
 
     let rt = tokio::runtime::Builder::new_current_thread()
@@ -224,7 +224,7 @@ async fn sweeper_starts_only_once() {
     HandshakeServer::<NoOpResolver>::ensure_session_sweeper(&state);
     let weak_before = Arc::weak_count(&state);
     HandshakeServer::<NoOpResolver>::ensure_session_sweeper(&state);
-    let _router = srv.router();
+    let _router = srv.routes();
     assert_eq!(
         Arc::weak_count(&state),
         weak_before,

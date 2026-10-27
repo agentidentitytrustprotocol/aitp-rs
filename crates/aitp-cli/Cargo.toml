@@ -25,6 +25,7 @@ http-client = ["aitp/http-client", "dep:tokio", "dep:url", "dep:reqwest", "dep:u
 serve = [
     "http-client",
     "aitp/http-server",
+    "aitp/experimental-axum",
     "aitp/pinned-admission",
     "dep:axum",
     "dep:tower",

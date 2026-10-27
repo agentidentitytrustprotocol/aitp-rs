@@ -57,7 +57,10 @@ is set by the spec, not by this crate's version.
 - **Unstable features of `aitp`.** These are `experimental-renewal`
   (`facade::renew_tct`, `TctStore::needs_refresh` and the `tct` renewal
   items), `experimental-spiffe-identity` (`handshake::identity_spiffe`),
-  `client-spki-pinning` and `test-util` (`crypto::testing`). Any feature
+  `experimental-axum` (`HandshakeServer::into_router`,
+  `ManifestServer::into_router` and the `with_request_body_limit*`
+  helpers, which expose axum), `client-spki-pinning` and `test-util`
+  (`crypto::testing`). Any feature
   named `experimental-*` belongs here. They can change or disappear in any
   release.
 - **The retired crates.** `aitp-core`, `aitp-crypto`, `aitp-tct`,
@@ -123,6 +126,14 @@ leg and `cargo-msrv`).
   `non_exhaustive`, `private fields` or `exhaustive`, and that each
   exhaustive one has a reason (`make api-classification-check`). Only an
   exhaustive type can gain a field or variant as a breaking change.
+- **No pre-1.0 dependency in the stable surface.** A crate below 1.0 can
+  break its API in any minor release, which would force a breaking
+  `aitp` release. [`scripts/check-stable-deps.py`](scripts/check-stable-deps.py)
+  (`make stable-deps-check`, in the same CI job) fails if a path in
+  `public-api.stable.txt` names a crate that has a 0.x version in
+  `aitp`'s dependency graph (`cargo metadata`). axum is pre-1.0, so the
+  servers are hosted with `serve(listener)` and their routers are
+  behind `experimental-axum`.
 - **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
   lints and tests `aitp` and `aitp-experimental` with each feature on its
   own (`cargo hack --each-feature`), and

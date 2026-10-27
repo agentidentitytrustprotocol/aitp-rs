@@ -18,7 +18,7 @@ use aitp::facade::{
 };
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::transport::{HandshakeServer, ManifestServer, RevocationFailMode, RevocationPolicy};
+use aitp::transport::{HandshakeServer, RevocationFailMode, RevocationPolicy};
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -109,12 +109,9 @@ async fn spawn_bob_with(
             AitpSigningKey::from_seed(&[0x70; 32]).verifying_key(),
         ])));
     }
-    let app = ManifestServer::new(manifest)
-        .router()
-        .merge(handshake.router());
-
+    // `serve` also serves the Manifest.
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.ok();
+        handshake.serve(listener).await.ok();
     });
     // Give the listener a beat to start accepting.
     tokio::time::sleep(Duration::from_millis(50)).await;

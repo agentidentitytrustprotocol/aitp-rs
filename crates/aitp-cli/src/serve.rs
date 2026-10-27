@@ -256,8 +256,8 @@ impl Interop {
             RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpenIfUnadvertised),
         );
         let routes = ManifestServer::new(manifest)
-            .router()
-            .merge(handshake.router());
+            .into_router()
+            .merge(handshake.into_router());
         *self.aitp.write().expect("not poisoned") = routes;
         Ok(())
     }

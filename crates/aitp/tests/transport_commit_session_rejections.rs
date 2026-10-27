@@ -58,9 +58,8 @@ async fn spawn_server() -> u16 {
         NoOpResolver,
         vec!["demo.echo".into()],
     );
-    let app = server.router();
     tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.ok();
+        server.serve(listener).await.ok();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     port

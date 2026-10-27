@@ -11,7 +11,7 @@ use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::transport::{
     sign_envelope_with, HandshakeServer, RateLimitConfig, RateLimitOutcome, TrustedProxy,
 };
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -288,13 +288,7 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(
-            listener,
-            srv.router()
-                .into_make_service_with_connect_info::<SocketAddr>(),
-        )
-        .await
-        .ok();
+        srv.serve(listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(30)).await;
     port
@@ -593,7 +587,7 @@ async fn missing_transport_identifier_shares_one_bucket() {
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     tokio::spawn(async move {
-        axum::serve(listener, srv.router()).await.ok();
+        srv.serve(listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(30)).await;
     let client = reqwest::Client::new();

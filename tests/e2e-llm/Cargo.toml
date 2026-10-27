@@ -17,7 +17,7 @@ description = "Tier-3 end-to-end tests: real LLM-driven agents handshaking via A
 
 [dependencies]
 # AITP protocol + the two-agents example's manifest/envelope helpers.
-aitp = { path = "../../crates/aitp", features = ["all"] }
+aitp = { path = "../../crates/aitp", features = ["all", "experimental-axum"] }
 aitp-example-two-agents = { path = "../../examples/two-agents" }
 
 # Async runtime + HTTP server/client.

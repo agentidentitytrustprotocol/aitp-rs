@@ -38,6 +38,11 @@ experimental-renewal = []
 # SPIFFE identity (RFC-AITP-0002 §6; `spiffe` is registry status
 # Proposed). Experimental: enables `handshake::identity_spiffe`.
 experimental-spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser"]
+# `HandshakeServer::into_router`, `ManifestServer::into_router` and the
+# `with_request_body_limit*` helpers, which expose axum (pre-1.0).
+# Experimental: no promise (STABILITY.md); `serve` is the stable way to
+# host the servers.
+experimental-axum = ["http-server"]
 all = ["http-client", "http-server"]
 
 [dependencies]
@@ -47,7 +52,6 @@ serde_jcs = { workspace = true }
 thiserror = { workspace = true }
 base64ct = { workspace = true }
 sha2 = { workspace = true }
-chrono = { workspace = true }
 uuid = { workspace = true }
 hex = { workspace = true }
 url = { workspace = true }

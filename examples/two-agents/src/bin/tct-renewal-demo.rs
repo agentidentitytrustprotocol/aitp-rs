@@ -96,7 +96,7 @@ async fn main() {
 
     println!("issuer listening on http://127.0.0.1:{port}");
     tokio::spawn(async move {
-        axum::serve(listener, server.router()).await.ok();
+        server.serve(listener).await.ok();
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 

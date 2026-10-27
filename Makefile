@@ -1,7 +1,7 @@
 .PHONY: demo demo-build test interop fmt clippy doc clean \
         deny audit msrv semver coverage schemas-check ci \
         check-versions sync-versions docs-check public-api public-api-check \
-        api-classification api-classification-check
+        api-classification api-classification-check stable-deps-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -89,6 +89,12 @@ api-classification:
 
 api-classification-check:
 	python3 scripts/api-classification.py check
+
+# No type from a pre-1.0 crate in the stable surface (RS-RC5): a 0.x
+# dependency can break in any minor release and would force a breaking
+# aitp release. Reads the committed public-api.stable.txt.
+stable-deps-check:
+	python3 scripts/check-stable-deps.py
 
 # Enforce lockstep versioning: every published crate inherits the
 # workspace version and every inter-crate pin matches it. Guards against a

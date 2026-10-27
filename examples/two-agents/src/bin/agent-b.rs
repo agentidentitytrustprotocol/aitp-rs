@@ -114,7 +114,9 @@ async fn main() {
         RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
     );
 
-    let app = server.router().merge(
+    // `into_router` (feature `experimental-axum`) mounts the handshake
+    // next to our own routes; `server.serve(listener)` hosts it alone.
+    let app = server.into_router().merge(
         Router::new()
             .route("/.well-known/aitp-manifest", get(serve_manifest))
             .route("/echo", post(handle_echo))
@@ -127,7 +129,13 @@ async fn main() {
     let listener = TcpListener::bind((cli.host.as_str(), cli.port))
         .await
         .unwrap();
-    axum::serve(listener, app).await.unwrap();
+    // The peer address reaches the rate limiter only through ConnectInfo.
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .await
+    .unwrap();
 }
 
 async fn serve_manifest(State(state): State<Arc<EchoState>>) -> Json<ManifestEnvelope> {

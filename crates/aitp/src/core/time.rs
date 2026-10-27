@@ -1,8 +1,8 @@
 //! Unix-second timestamps with freshness checks.
 
 use crate::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS;
-use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 /// A Unix timestamp in seconds.
 ///
@@ -15,7 +15,11 @@ pub struct Timestamp(pub i64);
 impl Timestamp {
     /// The current time as a [`Timestamp`].
     pub fn now() -> Self {
-        Self(Utc::now().timestamp())
+        let secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
+            Ok(d) => i64::try_from(d.as_secs()).unwrap_or(i64::MAX),
+            Err(e) => i64::try_from(e.duration().as_secs()).map_or(i64::MIN, |s| -s),
+        };
+        Self(secs)
     }
 
     /// Add seconds, saturating on overflow.
@@ -52,12 +56,6 @@ impl Timestamp {
     /// True if `self` is in the future (relative to `reference`).
     pub fn is_in_the_future(self, reference: Timestamp) -> bool {
         self.0 > reference.0
-    }
-}
-
-impl From<DateTime<Utc>> for Timestamp {
-    fn from(dt: DateTime<Utc>) -> Self {
-        Self(dt.timestamp())
     }
 }
 
@@ -98,9 +96,12 @@ mod tests {
     }
 
     #[test]
-    fn now_is_close_to_chrono_now() {
+    fn now_is_close_to_system_time() {
         let a = Timestamp::now().0;
-        let b = chrono::Utc::now().timestamp();
+        let b = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs() as i64;
         assert!((a - b).abs() <= 5, "Timestamp::now() drift: {} vs {}", a, b);
     }
 

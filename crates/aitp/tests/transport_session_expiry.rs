@@ -75,10 +75,8 @@ async fn commit_after_session_ttl_is_rejected() {
         aitp::transport::RevocationPolicy::default()
             .with_fail_mode(aitp::transport::RevocationFailMode::FailOpen),
     );
-    let app = server.router();
-
     let server_task = tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.ok();
+        server.serve(listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
@@ -204,10 +202,8 @@ async fn fresh_session_within_ttl_is_accepted() {
         aitp::transport::RevocationPolicy::default()
             .with_fail_mode(aitp::transport::RevocationFailMode::FailOpen),
     );
-    let app = server.router();
-
     let server_task = tokio::spawn(async move {
-        axum::serve(listener, app.into_make_service()).await.ok();
+        server.serve(listener).await.ok();
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
