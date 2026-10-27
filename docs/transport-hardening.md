@@ -1,19 +1,18 @@
-# aitp-transport-http — hardening register
+# `aitp::transport` — hardening register
 
-> Status tracker for the `aitp-transport-http` subsystems: what each module
+> Status tracker for the `aitp::transport` subsystems: what each module
 > does, which RFC governs it, and what is still open. Operator-facing
 > guidance (what to turn on in production) is in
 > [`deployment.md`](deployment.md).
 >
-> `aitp-transport-http` is the **only async crate** in the workspace
-> (`reqwest`/`axum`/`tokio`); the protocol crates stay sync. Its features:
-> `client`, `server`, `client-spki-pinning` (requires `client`; off by
-> default), `experimental-renewal` (mounts the renewal route at the advertised `renew_uri`),
-> `experimental-session-bundle` (mounts the bundle routes; implies `server`)
-> and `metrics`. The `aitp` facade re-exposes a subset: `http-client`,
-> `http-server`, `all`, `experimental-renewal` and
-> `experimental-session-bundle`. `client-spki-pinning` and `metrics` are not
-> re-exported; enable them on `aitp-transport-http` directly.
+> `aitp::transport` is the **only async module** of `aitp`
+> (`reqwest`/`axum`/`tokio`); the protocol modules stay sync. Its features,
+> all on the `aitp` crate: `http-client` (default), `http-server` (implies
+> `http-client` and `source-ip`), `source-ip`, `client-spki-pinning`
+> (implies `http-client`; off by default), `experimental-renewal` (mounts
+> the renewal route at the advertised `renew_uri`), `metrics` and `all`.
+> The Session Trust Bundle endpoint lives in `aitp-experimental`, behind
+> that crate's `http-server` feature.
 >
 > Status legend: **scaffolded** (compiles, thin) · **tested** (unit/integration
 > coverage) · **documented** (rustdoc + usage notes) · **done** (tested +
@@ -33,19 +32,19 @@
 | `server.rs` | `ManifestServer` + `HandshakeServer` (hello/commit; renewal at the advertised `renew_uri` with `experimental-renewal`), `RevocationListProducer` | 0003 / 0004 / 0009 | done | Hello/commit run replay → rate limit → timestamp (RFC-AITP-0009 §3.1). Manifest structural failures map to `MANIFEST_INVALID`; unknown members to `UNKNOWN_FIELD`. Rate limiting is on by default at the RFC-AITP-0009 §3.1 values; `DEFAULT_MAX_SESSIONS` is the §3.1 1 000; `router()` starts a background session sweeper (`without_session_sweeper()` opts out). **Open:** the body cap is above the §3.1 recommendation (see [deployment](deployment.md#known-limitations)). The renew route is rate limited and replay-guarded, re-checks revocation and grants, and maps each failure to its own code (see [tct-renewal](tct-renewal.md#server-handshakeserver)). Producer must never mint a fresh empty list on backing-store failure. |
 | `server_limits.rs` | Request body-size cap (axum-level) + header recommendations | 0009 | done | Document how the cap composes with `axum::DefaultBodyLimit`. |
 | `tls_pinning.rs` | SHA-256 SPKI pinning for outbound HTTPS | RFC 7469 | done | Behind `client-spki-pinning` (off by default — avoids pulling a rustls `CryptoProvider`). Rustdoc covers `compute_spki_hash` and a `reqwest` integration example. |
-| `session_bundle_server.rs` | Session Trust Bundle HTTP transport (§4.3.1) — in-memory store, no verification | 0010 (Draft, opt-in) | tested | Behind `experimental-session-bundle`. Unknown body member → `UNKNOWN_FIELD`; wrapper defect or bare (unwrapped) body → `SESSION_BUNDLE_INVALID`. Advertise the route with `aitp_session_bundle::advertise_bundle_uri` and `SessionBundleServer::bundle_uri` (see [session-bundle](session-bundle.md)). |
+| `aitp_experimental::session_bundle::server` | Session Trust Bundle HTTP transport (§4.3.1) — in-memory store, no verification | 0010 (Draft, opt-in) | tested | In `crates/aitp-experimental/src/session_bundle/server.rs`, behind `aitp-experimental/http-server`. Unknown body member → `UNKNOWN_FIELD`; wrapper defect or bare (unwrapped) body → `SESSION_BUNDLE_INVALID`. Advertise the route with `aitp_experimental::session_bundle::advertise_bundle_uri` and `SessionBundleServer::bundle_uri` (see [session-bundle](session-bundle.md)). |
 | `obs.rs` | Low-cardinality counters at trust-decision points | — | done | Behind `metrics`; metric names in [deployment](deployment.md#transport-hardening-you-should-turn-on). |
 
 ## Cross-cutting acceptance criteria
 
-- **Async stays contained.** No async leaks into `aitp-core` / `aitp-tct` /
-  `aitp-handshake`. New blocking-bridge points must document the Tokio-context
+- **Async stays contained.** No async leaks into `aitp::core` / `aitp::tct` /
+  `aitp::handshake`. New blocking-bridge points must document the Tokio-context
   requirement (as `key_resolution.rs` does).
 - **Fail-closed defaults.** Revocation and key-resolution soft-fail modes must
   fail closed on the plain accessor; degraded state is opt-in via the
   `*_outcome()` variants.
 - **Feature minimalism.** Pinning stays behind `client-spki-pinning` so a
-  default `client` build doesn't pull in a rustls `CryptoProvider`.
+  default `http-client` build doesn't pull in a rustls `CryptoProvider`.
 
 ## Open items (rolled up)
 

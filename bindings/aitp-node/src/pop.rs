@@ -9,9 +9,9 @@
 //! Nonce single use (RFC-AITP-0001 §5.5) stays with the caller: the SDK
 //! keeps no record of the challenges it issued or the responses it saw.
 
-use aitp_core::{base64url, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{PopChallenge, PopResponse, TctClaims, TctError};
+use aitp::core::{base64url, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{PopChallenge, PopResponse, TctClaims, TctError};
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -98,8 +98,8 @@ pub fn verify_against(
     response: &PopResponse,
     claims: &TctClaims,
 ) -> Result<()> {
-    aitp_tct::verify_pop_response(challenge, response, claims, Timestamp::now()).map_err(
-        |e| match e {
+    aitp::tct::verify_pop_response(challenge, response, claims, Timestamp::now()).map_err(|e| {
+        match e {
             TctError::PopChallengeExpired => throw_with_code(
                 env,
                 POP_CHALLENGE_INVALID,
@@ -110,8 +110,8 @@ pub fn verify_against(
                 POP_RESPONSE_INVALID,
                 format!("PoP response invalid: {e}"),
             ),
-        },
-    )
+        }
+    })
 }
 
 /// Consumer side: a `pop_challenge` for the presented `tct_token`, with a
@@ -163,7 +163,7 @@ pub fn sign_pop_response_js(
         nonce: received.nonce,
         expires_at: received.expires_at.unwrap_or(now),
     };
-    let response = aitp_tct::sign_pop_response(&challenge, holder_key)
+    let response = aitp::tct::sign_pop_response(&challenge, holder_key)
         .map_err(|e| Error::from_reason(format!("PoP signing failed: {e}")))?;
     serde_json::to_string(&response).map_err(|e| Error::from_reason(e.to_string()))
 }

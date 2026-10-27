@@ -1,6 +1,6 @@
 [package]
 name = "aitp"
-description = "Agent Identity & Trust Protocol — facade crate re-exporting the protocol crates"
+description = "Agent Identity & Trust Protocol (AITP): identities, envelopes, Manifests, the mutual handshake, TCTs and delegation"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -12,56 +12,95 @@ homepage.workspace = true
 
 [features]
 default = ["http-client"]
-http-client = ["aitp-transport-http/client"]
-http-server = ["aitp-transport-http/server"]
-# In-band TCT renewal (RFC-AITP-0004 §8.1, post-v0.1). Re-exports the
-# `aitp-tct/experimental-renewal` gate and enables `renew_tct` /
-# `TctStore::needs_refresh` in `aitp::facade`.
-experimental-renewal = [
-    "aitp-tct/experimental-renewal",
-    "aitp-transport-http/experimental-renewal",
-]
-# Session Trust Bundle (RFC-AITP-0010, Draft). Gates the
-# `aitp::session_bundle` re-export. Bundle conformance fixtures and
-# adapter ops require the matching runner-side opt-in.
-experimental-session-bundle = [
-    "dep:aitp-session-bundle",
-    "aitp-transport-http/experimental-session-bundle",
-]
-# One-way pinned-key admission (RFC-AITP-0002 §3.4, OPTIONAL profile).
-# Enables `aitp::handshake::admission`.
-pinned-admission = ["aitp-handshake/pinned-admission"]
+# Manifest, JWKS and revocation fetchers and the `facade` helpers
+# (reqwest + tokio).
+http-client = ["dep:reqwest", "dep:tokio", "dep:parking_lot"]
+# `HandshakeServer`, `ManifestServer` and the revocation-list endpoint
+# (axum). Implies `http-client` and `source-ip`.
+http-server = ["http-client", "dep:axum", "dep:tokio", "source-ip"]
+# `transport::resolve_source_ip` and `TrustedProxy` without the server.
+source-ip = ["dep:http"]
+# SPKI certificate pinning for the HTTP client (rustls).
+client-spki-pinning = ["http-client", "dep:rustls", "dep:rustls-pki-types", "dep:x509-parser"]
+# One-way pinned-key admission (RFC-AITP-0002 §3.4, OPTIONAL profile):
+# `handshake::admission`.
+pinned-admission = []
+# `metrics` counters for admission, the handshake server and replay
+# guards.
+metrics = ["dep:metrics"]
+# Test helpers: `crypto::testing` (mock KMS signers, the P-256 high-S
+# twin). Never enable it in production builds.
+test-util = []
+# In-band TCT renewal (RFC-AITP-0004 §8.1). Experimental: enables
+# `tct::{build_renewal_request, process_renewal_request, ..}` and
+# `facade::renew_tct`.
+experimental-renewal = []
 # SPIFFE identity (RFC-AITP-0002 §6; `spiffe` is registry status
-# Proposed). Experimental: enables `aitp::handshake::identity_spiffe`.
-experimental-spiffe-identity = ["aitp-handshake/experimental-spiffe-identity"]
+# Proposed). Experimental: enables `handshake::identity_spiffe`.
+experimental-spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser"]
 all = ["http-client", "http-server"]
 
 [dependencies]
-aitp-core = { path = "../aitp-core", version = "=0.23.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "=0.23.0" }
-aitp-manifest = { path = "../aitp-manifest", version = "=0.23.0" }
-aitp-handshake = { path = "../aitp-handshake", version = "=0.23.0" }
-aitp-tct = { path = "../aitp-tct", version = "=0.23.0" }
-aitp-delegation = { path = "../aitp-delegation", version = "=0.23.0" }
-aitp-session-bundle = { path = "../aitp-session-bundle", version = "=0.23.0", optional = true }
-aitp-transport-http = { path = "../aitp-transport-http", version = "=0.23.0", optional = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
+serde_jcs = { workspace = true }
 thiserror = { workspace = true }
-url = { workspace = true }
+base64ct = { workspace = true }
+sha2 = { workspace = true }
+chrono = { workspace = true }
 uuid = { workspace = true }
-reqwest = { workspace = true }
+hex = { workspace = true }
+url = { workspace = true }
 rand = { workspace = true }
-# Used by `TctStore` for non-poisoning lock semantics — a poisoned
-# `std::sync::RwLock` would silently turn every subsequent
-# `insert`/`get`/`remove` into a no-op (the prior `if let Ok(..)`
-# pattern), masking bugs and degrading the store to "TCT cache always
-# misses" without any error path. parking_lot's locks never poison, so
-# a panic in one critical section does not corrupt subsequent ones.
-parking_lot = { workspace = true }
+ed25519-dalek = { workspace = true }
+p256 = { workspace = true }
+p521 = { workspace = true }
+ecdsa = { workspace = true }
+ring = { workspace = true }
+tracing = { workspace = true }
+# Non-poisoning locks for the HTTP caches, server state and `TctStore`: a
+# poisoned `std::sync::RwLock` would turn every later access into a
+# silent no-op.
+parking_lot = { workspace = true, optional = true }
+metrics = { workspace = true, optional = true }
+reqwest = { workspace = true, optional = true }
+axum = { workspace = true, optional = true }
+http = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true, features = ["net"] }
+rustls = { workspace = true, optional = true }
+rustls-pki-types = { workspace = true, optional = true }
+x509-parser = { workspace = true, optional = true }
+webpki = { package = "rustls-webpki", version = "0.103", default-features = false, features = ["std", "ring"], optional = true }
 
 [dev-dependencies]
-# Integration tests stand up a real `HandshakeServer` and drive the
-# facade's `run_initiator_handshake` against it over loopback HTTP.
+# `crypto::testing` for the integration tests. Only `test-util`, so the
+# feature matrix still tests each feature set as given.
+aitp = { path = ".", default-features = false, features = ["test-util"] }
 tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 axum = { workspace = true }
+reqwest = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+proptest = { workspace = true }
+criterion = { workspace = true }
+boon = { workspace = true }
+jsonwebtoken = { workspace = true }
+metrics-util = { version = "0.20", default-features = false, features = ["debugging"] }
+
+[[test]]
+name = "seam_surface"
+required-features = ["pinned-admission"]
+
+[[bench]]
+name = "jcs_canonicalize"
+harness = false
+
+[[bench]]
+name = "jws"
+harness = false
+
+[[bench]]
+name = "verify"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true

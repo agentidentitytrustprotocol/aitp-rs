@@ -1,7 +1,7 @@
 #![no_main]
 
 //! Fuzz target: signed revocation-list parsing + verification
-//! (`aitp_tct::verify_revocation_list`).
+//! (`aitp::tct::verify_revocation_list`).
 //!
 //! Revocation snapshots are JCS-signed (RFC-AITP-0008). This target
 //! parses arbitrary bytes as a `RevocationListEnvelope` and, when they
@@ -11,9 +11,9 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use aitp_core::Timestamp;
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_revocation_list, RevocationListEnvelope, VerifyRevocationListContext};
+use aitp::core::Timestamp;
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{verify_revocation_list, RevocationListEnvelope, VerifyRevocationListContext};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(envelope) = serde_json::from_slice::<RevocationListEnvelope>(data) {

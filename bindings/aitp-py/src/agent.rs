@@ -2,10 +2,10 @@
 
 use std::sync::Arc;
 
-use aitp_core::{Aid, RawUrl};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp_handshake::StaticPinnedKeyStore;
-use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::core::{Aid, RawUrl};
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::handshake::StaticPinnedKeyStore;
+use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -160,7 +160,7 @@ impl PyAitpAgent {
                             kind: IdentityHintKind::PinnedKey,
                             subject: display_name.to_string(),
                             issuer: None,
-                            public_key: Some(aitp_core::base64url::encode(&pk_bytes)),
+                            public_key: Some(aitp::core::base64url::encode(&pk_bytes)),
                         },
                         "pinned_key",
                         vec![],

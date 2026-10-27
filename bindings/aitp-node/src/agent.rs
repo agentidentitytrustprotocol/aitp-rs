@@ -2,11 +2,11 @@
 
 use std::sync::Arc;
 
-use aitp_core::{Aid, RawUrl, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp_handshake::StaticPinnedKeyStore;
-use aitp_manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
-use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList};
+use aitp::core::{Aid, RawUrl, Timestamp};
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::handshake::StaticPinnedKeyStore;
+use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -204,7 +204,7 @@ impl AitpAgent {
                         kind: IdentityHintKind::PinnedKey,
                         subject: opts.display_name.clone(),
                         issuer: None,
-                        public_key: Some(aitp_core::base64url::encode(&pk_bytes)),
+                        public_key: Some(aitp::core::base64url::encode(&pk_bytes)),
                     },
                     "pinned_key",
                     Vec::<url::Url>::new(),
@@ -489,7 +489,7 @@ impl AitpAgent {
                 // Strict wire form (#268): lowercase hyphenated UUID v4.
                 // A lenient parse would sign an uppercase jti in normalized
                 // form, or a non-v4 jti that verifyRevocationList rejects.
-                let jti = aitp_core::ids::parse_v4(&e.jti).map_err(|err| {
+                let jti = aitp::core::ids::parse_v4(&e.jti).map_err(|err| {
                     Error::from_reason(format!("jti is not a lowercase UUID v4: {} ({err})", e.jti))
                 })?;
                 let revoked_at = match e.revoked_at {
@@ -509,7 +509,7 @@ impl AitpAgent {
             })
             .collect::<Result<_>>()?;
         let body = RevocationList {
-            version: aitp_core::PROTOCOL_VERSION.into(),
+            version: aitp::core::PROTOCOL_VERSION.into(),
             issuer: self.key.aid().clone(),
             published_at: now,
             expires_at: Timestamp(now.0 + expires_in_secs.unwrap_or(3600)),

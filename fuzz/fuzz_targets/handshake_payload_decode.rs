@@ -2,14 +2,14 @@
 
 //! Fuzz target: Mutual Handshake payload decoding (RFC-AITP-0004).
 //!
-//! The input goes through the path `aitp-transport-http`'s handshake
+//! The input goes through the path `aitp::transport`'s handshake
 //! routes take for a received payload: duplicate-key rejection
 //! (`CheckedJson`), the unknown-member check, then typed
 //! deserialization, for each of the four messages. Every step must
 //! return, never panic.
 
-use aitp_core::{check_members, from_serde_error, CheckedJson};
-use aitp_handshake::{
+use aitp::core::{check_members, from_serde_error, CheckedJson};
+use aitp::handshake::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,

@@ -11,11 +11,11 @@ below.
 
 | Layer | What it covers | Run it |
 |---|---|---|
-| Unit + integration | Per-crate `#[test]` modules and `tests/` dirs across the workspace | `cargo test --workspace --all-features` (CI uses `cargo nextest run`) |
+| Unit + integration | `#[test]` modules and `tests/` dirs across the workspace | `cargo test --workspace --all-features` (CI uses `cargo nextest run`) |
 | Doctests | Runnable `///` examples on the public API (nextest skips these) | `cargo test --doc --workspace --all-features` |
-| Property tests | `proptest` over JCS canonicalization and envelope/manifest parsing | part of the workspace test run (`crates/*/tests/*_prop*.rs`) |
+| Property tests | `proptest` over JCS canonicalization and envelope/manifest parsing | part of the workspace test run (`crates/aitp/tests/*_prop*.rs`) |
 | Fuzzing | libFuzzer targets over every untrusted-byte entry point | `cd fuzz && cargo +nightly fuzz run <target>` |
-| Miri | UB / provenance checks on the pure crates | `cargo +nightly miri test -p aitp-core -p aitp-crypto --lib` |
+| Miri | UB / provenance checks on the pure modules | `cargo +nightly miri test -p aitp --no-default-features --lib -- core::` (and `crypto::`) |
 | Conformance | The spec's fixture corpus, driven through the NDJSON adapter | see [Conformance](#conformance) below |
 | Bindings | Node (`node --test`) and Python (`pytest`) SDK suites | see [Language bindings](#language-bindings) |
 | Cross-language interop | A real Python ↔ Node handshake through the native bindings | `make interop` |
@@ -28,7 +28,8 @@ below.
 ## Unit and integration tests
 
 Every crate carries `#[cfg(test)]` unit tests plus a `tests/` directory
-for integration coverage. The workspace run is the default gate:
+for integration coverage; in `crates/aitp/tests/` each file is prefixed
+with its module (`tct_round_trip.rs`, `handshake_schema.rs`). The workspace run is the default gate:
 
 ```bash
 cargo test --workspace --all-features        # or: make test
@@ -49,7 +50,7 @@ conformance pack. Recognising them is the point of this section.
 
 ### Blindness 1 — deriving the question from the answer
 
-`crates/aitp-core/tests/kat.rs` used to decide *which JSON shape to
+`crates/aitp/tests/core_kat.rs` used to decide *which JSON shape to
 canonicalize* by searching for the artifact's wrapper key inside the
 pinned answer hex. If the pin looked wrapped it canonicalized the wrapped
 form; otherwise the inner one. It therefore agreed with whatever shape the
@@ -112,12 +113,12 @@ and the tests are decoration.
 `proptest` (a workspace dev-dependency) drives generator-based tests
 where a single example can't cover the input space:
 
-- `crates/aitp-core/tests/jcs_properties.rs` — JCS idempotence, order
+- `crates/aitp/tests/core_jcs_properties.rs` — JCS idempotence, order
   invariance, whitespace-free output.
-- `crates/aitp-delegation/tests/attenuation_props.rs` — delegated scope
+- `crates/aitp/tests/delegation_attenuation_props.rs` — delegated scope
   is always a subset; delegated expiry never exceeds the voucher.
-- `crates/aitp-envelope/tests/envelope_props.rs` and
-  `crates/aitp-manifest/tests/manifest_props.rs` — parsing arbitrary
+- `crates/aitp/tests/envelope_envelope_props.rs` and
+  `crates/aitp/tests/manifest_manifest_props.rs` — parsing arbitrary
   input never panics, and a valid instance round-trips. These mirror the
   `envelope_parse` / `manifest_parse` fuzz targets so the invariant is
   checked on every CI run, not only in the nightly fuzz window.
@@ -143,21 +144,29 @@ uploads corpus deltas as build artifacts.
 ## Miri
 
 `.github/workflows/miri.yml` runs weekly (and on demand) against the
-two pure crates most likely to harbor UB — `aitp-core` (JCS, AID
-parsing) and `aitp-crypto` — under tree-borrows + strict-provenance.
+two pure modules most likely to harbor UB — `aitp::core` (JCS, AID
+parsing) and `aitp::crypto` — under tree-borrows + strict-provenance,
+one matrix leg per module.
 
 ```bash
-cargo +nightly miri test -p aitp-core -p aitp-crypto --lib
+cargo +nightly miri test -p aitp --no-default-features --lib -- core::
+cargo +nightly miri test -p aitp --no-default-features --lib -- crypto::
 ```
 
 ## WASM portability
 
-The pure verify/protocol crates must not pull in a native-only syscall
+The pure verify/protocol modules must not pull in a native-only syscall
 dependency. CI checks this with `cargo check --target wasm32-wasip1` on
-`aitp-core`, `aitp-crypto`, `aitp-envelope`, `aitp-manifest`, `aitp-tct`,
-`aitp-delegation`, and `aitp-session-bundle`. (A full browser build for
-`wasm32-unknown-unknown` also needs a `uuid` randomness feature. That is
-not wired up yet.)
+`aitp` without the HTTP features and on `aitp-experimental`:
+
+```bash
+cargo check -p aitp --no-default-features --features pinned-admission --target wasm32-wasip1
+cargo check -p aitp-experimental --target wasm32-wasip1
+```
+
+A full browser build for `wasm32-unknown-unknown` also needs a `uuid`
+randomness feature. That is
+not wired up yet.
 
 ## Conformance
 
@@ -166,10 +175,11 @@ The v0.2 conformance corpus lives in the **spec repo**
 commit in [`../tests/schemas/SPEC_VERSION`](../tests/schemas/SPEC_VERSION).
 The `aitp-conformance` runner drives fixtures through an adapter that
 speaks the NDJSON protocol described in [`conformance.md`](conformance.md);
-`aitp-rs-adapter` is the canonical Rust adapter.
+the `aitp-rs-adapter` binary (also in the `aitp-conformance` package) is
+the canonical Rust adapter.
 
 ```bash
-cargo build -p aitp-rs-adapter -p aitp-conformance
+cargo build -p aitp-conformance
 ./target/debug/aitp-conformance run \
   --target ./target/debug/aitp-rs-adapter \
   --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -203,7 +213,7 @@ cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
 then verifies those exact bytes, without re-signing anything. The reverse
 direction is the committed session bundle in
 `tests/xcheck-fixtures/session-bundle/`. `aitp-verifier-py` minted it, and
-`crates/aitp-session-bundle/tests/xcheck_committed.rs` verifies it.
+`crates/aitp-experimental/tests/session_bundle_xcheck_committed.rs` verifies it.
 
 The verifier pin in `tests/AITP_VERIFIER_PY_VERSION` is a commit SHA, never
 a branch, so an upstream change cannot break merges here unannounced. To keep
@@ -238,7 +248,7 @@ fixture. Both reports are uploaded as the
 ```bash
 python3.11 -m venv vpy && vpy/bin/pip install -r tests/xcheck-verifier-requirements.txt
 printf '#!/bin/sh\nexec %s/vpy/bin/python -m aitp_verifier.adapter\n' "$PWD" > vpy-adapter && chmod +x vpy-adapter
-cargo build -p aitp-rs-adapter -p aitp-conformance
+cargo build -p aitp-conformance
 for t in rs:./target/debug/aitp-rs-adapter py:./vpy-adapter; do
   ./target/debug/aitp-conformance run --target "${t#*:}" \
     --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -276,7 +286,7 @@ locally from a sibling checkout:
 (cd ../aitp-verifier-ts && git checkout "$(cat ../aitp-rs/tests/AITP_VERIFIER_TS_VERSION)" && npm ci && npm run build)
 cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
   | node ../aitp-verifier-ts/scripts/xcheck-verify.mjs
-cargo build -p aitp-rs-adapter -p aitp-conformance
+cargo build -p aitp-conformance
 for t in rs:./target/debug/aitp-rs-adapter ts:../aitp-verifier-ts/bin/aitp-verifier-adapter.mjs; do
   ./target/debug/aitp-conformance run --target "${t#*:}" \
     --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
@@ -306,9 +316,10 @@ test`:
 | `spec-schemas` | Vendored schemas match the pinned spec commit, and the spec's own known-answer verifier passes | `make schemas-check` |
 | `versions` | Crate and binding versions move in lockstep | `make check-versions` |
 | `semver` | `cargo-semver-checks` against the PR base (PRs only) | `make semver` |
-| `msrv` | The pinned MSRV still builds the facade crate | `make msrv` |
-| `bench-check` | The criterion benches compile | `cargo bench -p aitp-core -p aitp-crypto -p aitp-tct --no-run` |
-| `wasm` | Pure crates build for `wasm32-wasip1` | see [WASM portability](#wasm-portability) |
+| `msrv` | The pinned MSRV still builds the `aitp` crate | `make msrv` |
+| `bench-check` | The criterion benches compile | `cargo bench -p aitp --no-run` |
+| `features` | Each feature of `aitp` and `aitp-experimental` builds, lints and tests on its own (`cargo hack --each-feature`), and the small-dependency feature sets stay small (`scripts/check-dep-surface.sh`) | `scripts/check-dep-surface.sh`; `cargo hack test -p aitp -p aitp-experimental --each-feature` |
+| `wasm` | The pure modules build for `wasm32-wasip1` | see [WASM portability](#wasm-portability) |
 | `e2e-llm-build` | `tests/e2e-llm` formats, lints, and runs with the skip gate engaged (no provider calls) | see [End-to-end (LLM)](#end-to-end-llm) |
 | `docs-check` (not required) | Doc links and anchors, `RFC-AITP-NNNN §x.y` citations against the pinned spec, protected inbound anchors, banned stale strings | `make docs-check` |
 

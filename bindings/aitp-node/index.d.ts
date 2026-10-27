@@ -240,7 +240,7 @@ export declare class JwksProvider {
  * from the coordinator's `AitpAgent`.
  *
  * The Rust struct is suffixed `Js` to avoid a name collision with the
- * `aitp_session_bundle::SessionBundleBuilder` imported above; the
+ * `aitp_experimental::session_bundle::SessionBundleBuilder` imported above; the
  * `#[napi(js_name)]` attribute exposes it to JavaScript under the
  * plain name `SessionBundleBuilder` for parity with the Python SDK.
  */
@@ -422,7 +422,7 @@ export interface JsDelegationVerified {
 
 /**
  * The salient claims of a TCT obtained at handshake completion. Mirrors
- * `aitp_tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
+ * `aitp::tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
  */
 export interface JsHandshakeTctClaims {
   /** Issuer AID (`iss`) — the peer that minted and is bound by the TCT. */

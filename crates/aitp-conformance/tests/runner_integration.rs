@@ -18,7 +18,7 @@ fn adapter_path() -> std::path::PathBuf {
     let candidate = parent.join(format!("aitp-rs-adapter{}", std::env::consts::EXE_SUFFIX));
     if !candidate.exists() {
         panic!(
-            "{} not found — run `cargo build -p aitp-rs-adapter` first",
+            "{} not found — run `cargo build -p aitp-conformance` first",
             candidate.display()
         );
     }
@@ -145,28 +145,30 @@ fn unsupported_op_yields_skip() {
 fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
     // Build a TCT whose `issuer` AID is a *random* pubkey not signed by
     // the corresponding key — TCT signature verification must fail.
-    let issuer = aitp_crypto::AitpSigningKey::from_seed(&[0xA0; 32]);
-    let other = aitp_crypto::AitpSigningKey::from_seed(&[0xB0; 32]);
-    let subject = aitp_crypto::AitpSigningKey::from_seed(&[0xC0; 32]);
-    let tct = aitp_tct::TctBuilder::new(&issuer)
+    let issuer = aitp::crypto::AitpSigningKey::from_seed(&[0xA0; 32]);
+    let other = aitp::crypto::AitpSigningKey::from_seed(&[0xB0; 32]);
+    let subject = aitp::crypto::AitpSigningKey::from_seed(&[0xC0; 32]);
+    let tct = aitp::tct::TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["x"])
         .ttl_secs(3600)
         .subject_pubkey(subject.verifying_key())
-        .issued_at(aitp_core::Timestamp(1_700_000_000))
+        .issued_at(aitp::core::Timestamp(1_700_000_000))
         .build()
         .unwrap();
     // Forge the iss claim to a different AID and re-sign nothing — the
     // signature won't verify under the forged issuer's pubkey.
-    let payload = aitp_crypto::jws::decode_payload_unverified(&tct.token).unwrap();
+    let payload = aitp::crypto::jws::decode_payload_unverified(&tct.token).unwrap();
     let mut claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
     claims["iss"] = serde_json::to_value(other.aid()).unwrap();
     let (header, rest) = tct.token.split_once('.').unwrap();
     let (_, sig) = rest.split_once('.').unwrap();
     let forged = format!(
         "{header}.{}.{sig}",
-        aitp_core::base64url::encode(&aitp_core::jcs::canonicalize_serializable(&claims).unwrap())
+        aitp::core::base64url::encode(
+            &aitp::core::jcs::canonicalize_serializable(&claims).unwrap()
+        )
     );
 
     let adapter =

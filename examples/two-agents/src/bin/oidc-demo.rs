@@ -7,7 +7,7 @@
 //! [`JwksResolver`] so the handshake's OIDC verifier finds it.
 //!
 //! This is a runnable counterpart to the `oidc_handshake.rs` test in
-//! `aitp-handshake`; it demonstrates the end-to-end OIDC code path
+//! `aitp::handshake`; it demonstrates the end-to-end OIDC code path
 //! without needing a real IdP and is referenced from the README.
 
 use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
@@ -249,7 +249,7 @@ fn envelope_with(
 
 // ── In-process mock OIDC issuer ────────────────────────────────────────
 //
-// Mirrors the test fixture in `aitp-handshake/tests/fixtures/mock_oidc.rs`,
+// Mirrors the test fixture in `crates/aitp/tests/handshake_fixtures/mock_oidc.rs`,
 // duplicated here because the test fixture is not exposed as a public
 // helper crate (and we don't want a bin to depend on dev-deps of an
 // internal crate). The implementation is intentionally minimal: one

@@ -1,12 +1,5 @@
 #!/usr/bin/env python3
-"""The `aitp` public API snapshots, with signatures (RS-RC1).
-
-`cargo public-api -p aitp` shows a re-export from another crate as a bare
-`pub use aitp::tct::TctClaims`, so a changed field type in a re-exported
-internal type never reaches the snapshot. This script resolves each such
-re-export to its definition in the internal crate, built with exactly the
-features the facade enables for it, and writes the item with its fields,
-variants, methods and impls under its facade path.
+"""The `aitp` public API snapshots, with signatures.
 
   generate [--out-dir DIR]   write public-api.stable.txt and
                              public-api.experimental.txt (default
@@ -15,10 +8,12 @@ variants, methods and impls under its facade path.
                              committed snapshots
   breaks BASE HEAD           fail when HEAD's stable snapshot breaks BASE's
 
-The stable snapshot is the default features plus `http-client` and
-`http-server`. The experimental snapshot lists, per feature in
-EXPERIMENTAL_FEATURES, only what that feature adds to the stable surface.
-Both need the pinned nightly and cargo-public-api (Makefile).
+The stable snapshot is `aitp` built with STABLE_FEATURES. Generating it
+fails if a stable signature names an `aitp::` path the snapshot has no
+entry for: a type from a private module, which callers can use but never
+name. The experimental snapshot lists, per feature in UNSTABLE_FEATURES,
+only what that feature adds to the stable surface. Both need the pinned
+nightly and cargo-public-api (Makefile).
 """
 
 from __future__ import annotations
@@ -32,27 +27,16 @@ import tempfile
 from pathlib import Path
 
 NIGHTLY = os.environ.get("PUBLIC_API_NIGHTLY", "nightly-2026-05-05")
-FACADE = "aitp"
-STABLE_FEATURES = ["http-client", "http-server"]
-# Features that carry no promise (STABILITY.md). `pinned-admission` is
-# listed there too, though its name has no `experimental-` prefix.
-EXPERIMENTAL_FEATURES = [
+PACKAGE = "aitp"
+# The features STABILITY.md promises. `source-ip` comes with `http-server`.
+STABLE_FEATURES = ["default", "http-client", "http-server", "pinned-admission", "metrics"]
+# Features that carry no promise (STABILITY.md).
+UNSTABLE_FEATURES = [
+    "client-spki-pinning",
     "experimental-renewal",
-    "experimental-session-bundle",
     "experimental-spiffe-identity",
-    "pinned-admission",
+    "test-util",
 ]
-# Facade module -> the internal crate its re-exports are looked up in
-# first. A name not defined there is looked up in every internal crate.
-MODULE_CRATE = {
-    "core": "aitp_core",
-    "crypto": "aitp_crypto",
-    "tct": "aitp_tct",
-    "manifest": "aitp_manifest",
-    "handshake": "aitp_handshake",
-    "delegation": "aitp_delegation",
-    "transport": "aitp_transport_http",
-}
 STABLE_FILE = "public-api.stable.txt"
 EXPERIMENTAL_FILE = "public-api.experimental.txt"
 HEADER = (
@@ -64,12 +48,11 @@ DEFINING = re.compile(
     r"^(?:#\[[^\]]*\] )*pub (?:(?:unsafe|async|const|extern \"[^\"]*\") )*"
     r"(?:fn|struct|enum|trait|mod|const|static|type|union|macro) "
 )
-INTERNAL_PATH = re.compile(r"\baitp_[a-z_]+(?:::[A-Za-z0-9_]+)*")
+AITP_PATH = re.compile(r"\baitp(?:::[A-Za-z_][A-Za-z0-9_]*)+")
 
 
 def run(cmd: list[str]) -> str:
-    # CI sets CARGO_TERM_COLOR=always, which colours cargo tree's `(*)`
-    # marker into the feature list.
+    # CI sets CARGO_TERM_COLOR=always.
     env = {**os.environ, "CARGO_TERM_COLOR": "never"}
     res = subprocess.run(cmd, capture_output=True, text=True, env=env)
     if res.returncode != 0:
@@ -149,106 +132,47 @@ def is_defining(line: str) -> bool:
     return bool(DEFINING.match(line))
 
 
-def snapshot(package: str, features: list[str]) -> list[str]:
-    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "--color=never", "-p", package, "-sss",
-           "--no-default-features"]
-    if features:
-        cmd += ["--features", ",".join(features)]
-    return [l for l in run(cmd).splitlines() if l.strip()]
+def snapshot(features: list[str]) -> list[str]:
+    cmd = ["cargo", f"+{NIGHTLY}", "public-api", "--color=never", "-p", PACKAGE, "-sss",
+           "--no-default-features", "--features", ",".join(features)]
+    return sorted({l for l in run(cmd).splitlines() if l.strip()})
 
 
-def resolved_features(facade_features: list[str]) -> dict[str, list[str]]:
-    """Internal crate -> the features the facade build enables on it."""
-    cmd = ["cargo", "tree", "-p", FACADE, "-e", "normal", "--prefix", "none",
-           "-f", "{p}|{f}", "--no-default-features"]
-    if facade_features:
-        cmd += ["--features", ",".join(facade_features)]
-    out: dict[str, list[str]] = {}
-    for line in run(cmd).splitlines():
-        pkg, _, feats = line.partition("|")
-        name = pkg.split(" ")[0]
-        if name.startswith("aitp-") and name != FACADE:
-            # `(*)` marks a package already listed; its spacing varies by
-            # cargo version.
-            feats = feats.replace("(*)", "")
-            out[name.replace("-", "_")] = sorted(f.strip() for f in feats.split(",") if f.strip())
+def unnamed_paths(lines: list[str]) -> dict[str, str]:
+    """`aitp::` paths the lines name but have no entry for, each with the
+    first line that names it."""
+    known = {primary_path(l) for l in lines}
+    out: dict[str, str] = {}
+    for l in lines:
+        for path in AITP_PATH.findall(l):
+            if path not in known:
+                out.setdefault(path, l)
     return out
 
 
-def rewrite(line: str, mapping: dict[str, str]) -> str:
-    def sub(m: re.Match) -> str:
-        segs = m.group(0).split("::")
-        for n in range(len(segs), 0, -1):
-            facade = mapping.get("::".join(segs[:n]))
-            if facade:
-                return "::".join([facade, *segs[n:]])
-        return m.group(0)
-
-    return INTERNAL_PATH.sub(sub, line)
-
-
-def build(facade_features: list[str]) -> list[str]:
-    features = ["default", *facade_features]
-    facade = snapshot(FACADE, features)
-    crates = {c: snapshot(c.replace("_", "-"), f) for c, f in resolved_features(features).items()}
-    defs = {c: [(primary_path(l), l) for l in lines if is_defining(l)] for c, lines in crates.items()}
-
-    def lookup(crate: str, name: str) -> list[str]:
-        if name == crate.removeprefix("aitp_"):
-            return [crate]
-        return sorted({p for p, _ in defs.get(crate, []) if p.split("::")[-1] == name},
-                      key=lambda p: (p.count("::"), p))
-
-    reexports = [primary_path(l) for l in facade if re.match(r"^pub use ", l)]
-    # Expand each item once, under its first path outside the prelude.
-    reexports.sort(key=lambda p: (p.split("::")[1] == "prelude", p))
-    mapping: dict[str, str] = {}
-    expanded: list[tuple[str, str]] = []
-    unresolved = []
-    for path in reexports:
-        segs = path.split("::")
-        name = segs[-1]
-        first = MODULE_CRATE.get(segs[1])
-        order = [first] if first else []
-        order += sorted(c for c in crates if c != first)
-        hit = next(((c, found) for c in order if (found := lookup(c, name))), None)
-        if hit is None:
-            unresolved.append(path)
-            continue
-        crate, found = hit
-        for internal in found:
-            mapping.setdefault(internal, path)
-        if segs[1] != "prelude" and all(mapping[i] == path for i in found):
-            expanded.append((crate, found[0]))
-
-    lines = set()
-    for crate, internal in expanded:
-        for l in crates[crate]:
-            p = primary_path(l)
-            if p == internal or p.startswith(internal + "::"):
-                lines.add(rewrite(l, mapping))
-    lines.update(rewrite(l, mapping) for l in facade)
-    if unresolved:
-        print("not resolved to an internal crate (kept as `pub use`):", *unresolved,
-              sep="\n  ", file=sys.stderr)
-    return sorted(lines)
-
-
 def generate(out_dir: Path) -> None:
-    stable = build(STABLE_FEATURES)
+    stable = snapshot(STABLE_FEATURES)
+    unnamed = unnamed_paths(stable)
+    if unnamed:
+        for path, line in sorted(unnamed.items()):
+            print(f"::error::a stable signature names {path}, which is not public: {line}",
+                  file=sys.stderr)
+        sys.exit("make each type a stable signature names public, or change the signature")
     stable_set = set(stable)
     (out_dir / STABLE_FILE).write_text(
-        HEADER.format(kind=f"features: default, {', '.join(STABLE_FEATURES)}")
+        HEADER.format(kind=f"features: {', '.join(STABLE_FEATURES)}")
         + "".join(l + "\n" for l in stable))
     parts = [HEADER.format(kind="what each feature adds to the stable surface; no promise")]
-    for feature in EXPERIMENTAL_FEATURES:
-        added = [l for l in build([*STABLE_FEATURES, feature]) if l not in stable_set]
+    for feature in UNSTABLE_FEATURES:
+        added = [l for l in snapshot([*STABLE_FEATURES, feature]) if l not in stable_set]
         parts.append(f"\n## {feature}\n" + "".join(l + "\n" for l in added))
     (out_dir / EXPERIMENTAL_FILE).write_text("".join(parts))
 
 
 def body(text: str) -> list[str]:
-    return [l for l in text.splitlines() if l and not l.startswith("#")]
+    """The snapshot lines of `text`, without its `#` comments. A line
+    starting `#[` is an item with an attribute, not a comment."""
+    return [l for l in text.splitlines() if l and not (l.startswith("#") and not l.startswith("#["))]
 
 
 def find_breaks(base: list[str], head: list[str]) -> list[str]:

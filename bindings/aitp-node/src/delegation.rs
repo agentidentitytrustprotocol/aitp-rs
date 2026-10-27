@@ -3,14 +3,14 @@
 //! In v0.2 a delegation is an **opaque compact-JWS string** rooted in a
 //! **grant voucher** (`typ: aitp-grant+jwt`) the delegator received
 //! alongside its TCT during the handshake. The binding wraps
-//! `aitp_delegation::DelegationBuilder` and `verify_delegation` so a Node
+//! `aitp::delegation::DelegationBuilder` and `verify_delegation` so a Node
 //! consumer can mint a delegation from its held voucher, verify a peer's
 //! delegation, and (as the original grantor) mint a fresh TCT bound to
 //! the delegatee's key.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpVerifyingKey;
-use aitp_delegation::{
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::AitpVerifyingKey;
+use aitp::delegation::{
     verify_delegation, DelegationBuilder, DelegationRevocation, SourceRevocationCheck,
     VerifyDelegationContext,
 };
@@ -18,7 +18,7 @@ use aitp_delegation::{
 // opt-in verifier, so the import is feature-gated to avoid an unused-import
 // warning in the default (strict single-hop) build.
 #[cfg(feature = "multihop-delegation")]
-use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
+use aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS;
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -189,7 +189,7 @@ fn root_source<'a>(
 }
 
 /// A delegation failure as a JS `Error`, coded on revocation rejections.
-fn verify_failed(env: Env, e: &aitp_delegation::DelegationError) -> Error {
+fn verify_failed(env: Env, e: &aitp::delegation::DelegationError) -> Error {
     coded_error(
         env,
         delegation_revocation_code(e),
@@ -203,7 +203,7 @@ fn parse_verifier(verifier_aid: &str) -> Result<Aid> {
 }
 
 /// Parse the issuers' `{"manifest": {...}}` envelope JSON strings.
-fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp_manifest::Manifest>> {
+fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp::manifest::Manifest>> {
     issuer_manifests
         .iter()
         .map(|json| {
@@ -218,7 +218,7 @@ fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp_manife
 }
 
 /// Project a verified delegation's salient fields into the Node-facing type.
-fn to_verified(verified: &aitp_delegation::VerifiedDelegation) -> JsDelegationVerified {
+fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> JsDelegationVerified {
     let claims = &verified.claims;
     JsDelegationVerified {
         // The ultimate grantor is the delegation's audience (the verifier),
@@ -245,7 +245,7 @@ fn to_verified(verified: &aitp_delegation::VerifiedDelegation) -> JsDelegationVe
 /// * `ttl_secs` — token lifetime; `None` uses `DEFAULT_DELEGATION_TTL_SECS`
 ///   (capped at the voucher's expiry).
 pub(crate) fn build_delegation_token_json(
-    issuer_key: &aitp_crypto::AitpSigningKey,
+    issuer_key: &aitp::crypto::AitpSigningKey,
     voucher_token: &str,
     delegatee_aid_str: &str,
     scope: Vec<String>,
@@ -276,7 +276,7 @@ pub(crate) fn build_delegation_token_json(
 /// (the AID encodes the key); the TCT builder re-checks that the key's
 /// thumbprint matches the AID's `cnf.jkt`.
 pub(crate) fn issue_tct_for_delegatee_json(
-    issuer_key: &aitp_crypto::AitpSigningKey,
+    issuer_key: &aitp::crypto::AitpSigningKey,
     verified: &JsDelegationVerified,
     ttl_secs: Option<i64>,
 ) -> Result<JsIssuedTct> {
@@ -285,7 +285,7 @@ pub(crate) fn issue_tct_for_delegatee_json(
     let delegatee_pk = AitpVerifyingKey::from_aid(&delegatee_aid)
         .map_err(|e| Error::from_reason(format!("delegatee AID has invalid key: {e}")))?;
 
-    let mut builder = aitp_tct::TctBuilder::new(issuer_key)
+    let mut builder = aitp::tct::TctBuilder::new(issuer_key)
         .subject(delegatee_aid.clone())
         .audience(delegatee_aid)
         .grants(verified.grants.clone())

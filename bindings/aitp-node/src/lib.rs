@@ -33,8 +33,8 @@ mod session;
 mod tct;
 mod wire;
 
-use aitp_core::Timestamp;
-use aitp_manifest::{verify_manifest, ManifestError, VerifyManifestContext};
+use aitp::core::Timestamp;
+use aitp::manifest::{verify_manifest, ManifestError, VerifyManifestContext};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 

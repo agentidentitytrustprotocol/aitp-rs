@@ -49,9 +49,9 @@ decisions, signature handling, or cryptographic verification.
 
 ## Out of scope
 
-- Denial-of-service requiring transport-layer control below `aitp-transport-http`
+- Denial-of-service requiring transport-layer control below `aitp::transport`
 - Third-party dependency issues — report those upstream
 - Feature-gated draft-RFC surfaces (`experimental-renewal`,
-  `experimental-session-bundle`) and multi-hop delegation once a caller has
+  the `aitp-experimental` crate) and multi-hop delegation once a caller has
   opted in with `max_delegation_hops > 0` — reports welcome, but no patching SLA until the
   corresponding RFCs leave Draft

@@ -11,7 +11,7 @@ all depends on *which layer you use*.
 ## The one rule
 
 > **The verification/signing core is stateless. Only the optional
-> `aitp-transport-http` *server* keeps state — and of that, only the
+> `aitp::transport` *server* (`http-server`) keeps state — and of that, only the
 > replay deny-list carries a correctness guarantee at scale.**
 
 Everything below is a consequence of that rule.
@@ -20,8 +20,8 @@ Everything below is a consequence of that rule.
 
 | Layer / state | Stateful? | Multi-node story |
 |---|---|---|
-| `aitp-core`, `aitp-crypto`, `aitp-tct`, `aitp-delegation`, `aitp-handshake`, `aitp-manifest`, `aitp-envelope` | **No** | Pure functions. Verify/sign take inputs and return outputs; revocation is a caller-supplied callback. Run as many instances as you like — nothing to share. |
-| **Replay deny-list** (envelope `message_id`) | Yes | **Supply a shared [`ReplayGuard`](../crates/aitp-transport-http/src/replay_store.rs) or use sticky routing.** This is the one place per-node in-memory state silently weakens a guarantee at scale — see below. |
+| `aitp::core`, `aitp::crypto`, `aitp::tct`, `aitp::delegation`, `aitp::handshake`, `aitp::manifest`, `aitp::envelope` | **No** | Pure functions. Verify/sign take inputs and return outputs; revocation is a caller-supplied callback. Run as many instances as you like — nothing to share. |
+| **Replay deny-list** (envelope `message_id`) | Yes | **Supply a shared [`ReplayGuard`](../crates/aitp/src/transport/replay_store.rs) or use sticky routing.** This is the one place per-node in-memory state silently weakens a guarantee at scale — see below. |
 | **In-flight handshake sessions** | Yes | **Use sticky routing.** A handshake is a ~tens-of-ms, 4-message conversation holding live state; it is not a shared-store problem. The built-in `max_sessions` cap and session TTL, plus an opt-in sweeper, bound per-node memory. See below. |
 | Manifest cache, OIDC discovery cache, JWKS (positive + negative) cache, revocation-snapshot cache | Yes (caches) | **Nothing to do.** All are re-fetchable and TTL-bounded. A cache miss just re-fetches; there is no correctness impact from not sharing them, so they are deliberately in-memory and not pluggable. |
 | Facade `TctStore` (held TCTs) | Yes | Client-side convenience your code already owns — hold/replace it as you see fit. |
@@ -158,7 +158,7 @@ Independent of clustering, production servers/clients should set:
   facade only after `InitiatorConfig::with_insecure_localhost(true)`);
   the default is `false`. Never enable it in production.
 - **Observability** — the optional `metrics` feature on
-  `aitp-transport-http` emits low-cardinality counters via the
+  `aitp` emits low-cardinality counters via the
   [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
   `aitp_replay_rejected_total`, `aitp_sessions_evicted_total`,
   `aitp_revocation_cache_total`, `aitp_jwks_cache_total`), and with
@@ -189,7 +189,7 @@ Independent of clustering, production servers/clients should set:
 ## Summary
 
 Run the pure core at any scale with nothing shared. If you deploy the
-`aitp-transport-http` **server** across multiple nodes, either use sticky
+`aitp::transport` **server** across multiple nodes, either use sticky
 routing or inject a shared `ReplayGuard`; sessions want sticky routing
 regardless. The performance caches need no attention. `aitp-rs` supplies
 the seams and sensible in-memory defaults — the storage and topology

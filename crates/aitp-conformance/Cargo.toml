@@ -1,9 +1,9 @@
 [package]
 name = "aitp-conformance"
 description = "Conformance test runner for AITP implementations"
-# Not published to crates.io: it depends on aitp-rs-adapter (publish = false) as
-# a local path dep. Marking it private lets cargo-deny's allow-wildcard-paths
-# apply and matches release-plz.toml (release = false).
+# Test tooling, not published: the conformance runner (`aitp-conformance`)
+# and the aitp-rs adapter it drives (`aitp-rs-adapter`), two binaries over
+# one library. Matches release-plz.toml (release = false).
 publish = false
 version.workspace = true
 edition.workspace = true
@@ -17,10 +17,9 @@ homepage.workspace = true
 [features]
 default = []
 # `in-process` brings the in-process adapter into scope. It calls
-# directly into `aitp-rs-adapter`'s library API, so all per-tier ops
-# (Tier A through D) come from the same dispatch the subprocess
-# binary uses — no risk of in-process and subprocess drifting.
-in-process = ["aitp-rs-adapter"]
+# `rs_adapter::handle` directly, the same dispatch the `aitp-rs-adapter`
+# binary uses, so in-process and subprocess runs cannot drift.
+in-process = []
 
 [dependencies]
 serde = { workspace = true }
@@ -39,18 +38,13 @@ time = "0.3"
 p256 = { workspace = true }
 base64ct = { workspace = true }
 
-aitp-core = { path = "../aitp-core", version = "=0.23.0" }
-aitp-crypto = { path = "../aitp-crypto", version = "=0.23.0" }
-# Pure path dep (no version pin): aitp-rs-adapter is publish = false, so a
-# `version = "=x.y.z"` pin makes release-plz's release-pr `cargo update` try to
-# resolve it from crates.io — where it doesn't exist — and fail. aitp-conformance
-# is not published either, so the pin serves no purpose. check-versions.sh skips
-# version-less inter-crate deps, so the lockstep invariant is unaffected.
-aitp-rs-adapter = { path = "../aitp-rs-adapter", optional = true }
+aitp = { path = "../aitp", version = "=0.23.0", default-features = false, features = ["pinned-admission", "experimental-spiffe-identity"] }
+aitp-experimental = { path = "../aitp-experimental", version = "=0.23.0" }
+url = { workspace = true }
+rand = { workspace = true }
 
 [dev-dependencies]
 # Validates `--report` output against the vendored spec schema.
 jsonschema = { version = "0.58", default-features = false }
 sha2 = { workspace = true }
 hex = { workspace = true }
-aitp-tct = { path = "../aitp-tct", version = "=0.23.0" }

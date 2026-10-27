@@ -25,7 +25,7 @@ def _b64url(b: bytes) -> str:
 
 def _jwk_thumbprint_ed25519(pubkey_bytes: bytes) -> str:
     """RFC 7638 JWK thumbprint for an Ed25519 (OKP) key. Mirrors
-    `aitp_crypto::thumbprint::compute_jwk_thumbprint`."""
+    `aitp::crypto::thumbprint::compute_jwk_thumbprint`."""
     canonical = json.dumps(
         {"crv": "Ed25519", "kty": "OKP", "x": _b64url(pubkey_bytes)},
         separators=(",", ":"),

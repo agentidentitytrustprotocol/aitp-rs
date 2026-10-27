@@ -7,14 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
-aitp-core = { path = "../../crates/aitp-core", version = "0.23.0" }
-aitp-crypto = { path = "../../crates/aitp-crypto", version = "0.23.0" }
-aitp-manifest = { path = "../../crates/aitp-manifest", version = "0.23.0" }
-aitp-tct = { path = "../../crates/aitp-tct", version = "0.23.0" }
-aitp-delegation = { path = "../../crates/aitp-delegation", version = "0.23.0" }
-aitp-session-bundle = { path = "../../crates/aitp-session-bundle", version = "0.23.0" }
-aitp-envelope = { path = "../../crates/aitp-envelope", version = "0.23.0" }
-aitp-handshake = { path = "../../crates/aitp-handshake", version = "0.23.0" }
+aitp = { path = "../../crates/aitp", version = "0.23.0", default-features = false }
+aitp-experimental = { path = "../../crates/aitp-experimental", version = "0.23.0" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
@@ -26,7 +20,7 @@ uuid = { workspace = true }
 # the OIDC identity-binding cross-check vectors can emit real JWKs. Not
 # a library-crate dependency, and not new signing infrastructure -- it's
 # point-format conversion, already a transitive dependency via
-# aitp-crypto.
+# `aitp::crypto`.
 p256 = { workspace = true }
 
 # Two binaries: `mint-signed-examples` writes the spec's committed

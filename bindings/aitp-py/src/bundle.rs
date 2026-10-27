@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_session_bundle::{
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
     SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
 };

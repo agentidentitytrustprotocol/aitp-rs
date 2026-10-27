@@ -80,17 +80,18 @@ against.
 ## Workspace layout
 
 See [`docs/architecture.md`](docs/architecture.md).
-The short version: the protocol crates are pure and synchronous.
-HTTP lives in `aitp-transport-http` (client and server behind its `client`
-and `server` features) and in the `aitp` facade, whose async
-`run_initiator_handshake` helper drives a handshake over it.
+The short version: the protocol modules of `aitp` are pure and
+synchronous. HTTP lives in `aitp::transport` (client and server behind the
+`http-client` and `http-server` features) and in `aitp::facade`, whose
+async `run_initiator_handshake` helper drives a handshake over it.
 
 ## Coding standards
 
 - `#![forbid(unsafe_code)]` on every library root under `crates/`
   (`src/lib.rs`). CI does not gate this, but the project does. It is not
   set on the binary roots (`crates/aitp-cli/src/main.rs`,
-  `crates/aitp-conformance/src/main.rs`, `crates/aitp-rs-adapter/src/main.rs`),
+  `crates/aitp-conformance/src/main.rs`,
+  `crates/aitp-conformance/src/bin/aitp-rs-adapter.rs`),
   `examples/two-agents` or the `tools/*` binaries, and the binding crates
   omit it because the PyO3 / NAPI-rs export macros expand to `unsafe` code.
   See [`docs/architecture.md`](docs/architecture.md).
@@ -129,9 +130,9 @@ computes the next version and writes the per-crate `crates/*/CHANGELOG.md`
 entries from them, so the commit type matters:
 
 - `feat:`, `fix:`, `docs:`, `test:`, `refactor:`, `chore:` and so on, with
-  an optional scope: `fix(transport-http): …`.
+  an optional scope: `fix(transport): …`.
 - Mark a breaking change with `!` after the type or scope
-  (`fix!: …`, `refactor(aitp-handshake)!: …`) or a `BREAKING CHANGE:`
+  (`fix!: …`, `refactor(handshake)!: …`) or a `BREAKING CHANGE:`
   footer. While the crates are pre-1.0, a breaking change bumps the minor
   digit (0.12.x → 0.13.0), not the major.
 - release-plz also runs `cargo-semver-checks` (`semver_check = true` in

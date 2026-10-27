@@ -3,10 +3,12 @@
 //! Gated by the `renewal` Cargo feature: post-v0.1, no
 //! wire-stability guarantee until the feature graduates.
 
-use aitp_core::nonce_store::InMemoryNonceStore;
-use aitp_core::{base64url, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload};
+use aitp::core::nonce_store::InMemoryNonceStore;
+use aitp::core::{base64url, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{
+    build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload,
+};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use rand::TryRng;

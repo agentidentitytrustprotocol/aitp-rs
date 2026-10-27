@@ -29,13 +29,13 @@ into traces/metrics.
 
 ## First-class metrics (`metrics` feature)
 
-Alongside the tracing events below, `aitp-transport-http` emits counters at
+Alongside the tracing events below, `aitp::transport` emits counters at
 the operational trust-decision points when built with the `metrics`
 feature. They route through the [`metrics`](https://docs.rs/metrics)
 facade — zero-cost until you install a recorder in your binary:
 
 ```bash
-cargo add aitp-transport-http --features server,metrics
+cargo add aitp --features http-server,metrics
 cargo add metrics-exporter-prometheus
 ```
 
@@ -66,11 +66,11 @@ means consumers are seeing snapshots past `max_staleness_secs`).
 
 ## Spans (one per request)
 
-| Span name | Crate | Fields |
+| Span name | Module | Fields |
 |---|---|---|
-| `fetch` | `aitp-transport-http::client` (`ManifestFetcher::fetch`) | `origin` |
-| `resolve` | `aitp-transport-http::client` (`JwksFetcher::resolve`) | `issuer` |
-| `handle_renew` | `aitp-transport-http::server` (only with the `experimental-renewal` feature) | (request-scoped) |
+| `fetch` | `aitp::transport::client` (`ManifestFetcher::fetch`) | `origin` |
+| `resolve` | `aitp::transport::client` (`JwksFetcher::resolve`) | `issuer` |
+| `handle_renew` | `aitp::transport::server` (only with the `experimental-renewal` feature) | (request-scoped) |
 
 Add `aid`, `session_id`, `message_id` as span fields on outer
 caller spans for end-to-end traceability.
@@ -156,7 +156,7 @@ values: `cache`, `pinned_store`, `network`, `negative_cache`) for label-cardinal
 
 Two caps to apply when running an AITP HTTP server: request body
 size and HTTP header size. Recommended defaults are exported from
-`aitp_transport_http::server_limits`:
+`aitp::transport::server_limits`:
 
 | Knob | Default | Constant |
 |---|---|---|
@@ -168,7 +168,7 @@ size and HTTP header size. Recommended defaults are exported from
 Wrap the router with `with_request_body_limit_default`:
 
 ```rust
-use aitp_transport_http::{
+use aitp::transport::{
     HandshakeServer,
     with_request_body_limit_default,
 };
@@ -192,7 +192,7 @@ use hyper::server::conn::http1;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tower::Service;
-use aitp_transport_http::RECOMMENDED_MAX_HEADER_BYTES;
+use aitp::transport::RECOMMENDED_MAX_HEADER_BYTES;
 
 let listener = TcpListener::bind("0.0.0.0:8080").await?;
 let app = my_router();

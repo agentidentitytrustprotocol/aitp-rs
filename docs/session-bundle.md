@@ -3,10 +3,10 @@
 > **Status: Draft, opt-in.**
 > [RFC-AITP-0010](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0010-session-trust-bundle.md)
 > is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
-> Implemented in `aitp-session-bundle`, re-exported as `aitp::session_bundle`
-> under the facade's `experimental-session-bundle` feature (the language
-> bindings use their own `session-bundle` feature, on by default). No
-> wire-stability promise until the RFC is ratified.
+> Implemented in the `aitp-experimental` crate as
+> `aitp_experimental::session_bundle` (the language bindings use their own
+> `session-bundle` feature, on by default). Neither the API nor the wire
+> form carries a stability promise until the RFC is ratified.
 
 ## Motivation
 
@@ -35,12 +35,12 @@ How `aitp-rs` maps it:
 
 | Spec concept | `aitp-rs` |
 |---|---|
-| Inner signed body | `SessionTrustBundle` (`crates/aitp-session-bundle/src/types.rs`). `extensions` is `Option<ExtensionsMap>`, so absent and `{}` stay distinct in the signing input. |
+| Inner signed body | `SessionTrustBundle` (`crates/aitp-experimental/src/session_bundle/types.rs`). `extensions` is `Option<ExtensionsMap>`, so absent and `{}` stay distinct in the signing input. |
 | Transport wrapper | `SessionBundleEnvelope` |
 | Wire parsing | `parse_session_bundle_wire` (`src/wire.rs`) accepts the wrapped envelope or, for library callers, a bare inner body; `parse_session_bundle_envelope` requires the wrapper. A sibling member beside the wrapper (the pre-erratum `signature` placement) → `WireFormInvalid` (`SESSION_BUNDLE_INVALID`); an unknown body member outside `extensions` → `UnknownField` (`UNKNOWN_FIELD`). Both run before any crypto. |
 | Issuance (§4.2) | `SessionBundleBuilder` (`src/builder.rs`) — sets `expires_at = min(participants[*].tct.exp)` and signs `sha256(JCS(body minus signature))`. |
 | Coordinator advertisement (§4.3.1) | `advertise_bundle_uri(manifest_builder, &url)` sets `extensions["rfc-aitp-0010.bundle_uri"]` (`RFC_AITP_0010_BUNDLE_URI`) inside the coordinator's signed Manifest; `bundle_uri_from_manifest` reads it back (HTTPS only, or `http://localhost` / `http://127.0.0.1`), returning `None` when the coordinator advertises nothing. `SessionBundleServer::bundle_uri(&origin)` gives the URL of the server's route. |
-| HTTP binding (§4.3.1) | `SessionBundleServer` (`crates/aitp-transport-http/src/session_bundle_server.rs`), behind `aitp-transport-http/experimental-session-bundle`. `POST` accepts only the wrapped `{"session_bundle": …}` body (`parse_session_bundle_envelope`); a bare body is `SESSION_BUNDLE_INVALID`. Stores and serves bundles verbatim; it does **no** trust verification. |
+| HTTP binding (§4.3.1) | `SessionBundleServer` (`crates/aitp-experimental/src/session_bundle/server.rs`), behind the `aitp-experimental/http-server` feature. `POST` accepts only the wrapped `{"session_bundle": …}` body (`parse_session_bundle_envelope`); a bare body is `SESSION_BUNDLE_INVALID`. Stores and serves bundles verbatim; it does **no** trust verification. |
 
 ## Verification (`verify_session_bundle`)
 
@@ -51,9 +51,9 @@ invariant, (4) participants non-empty, (5) fetch and verify the coordinator's
 Manifest, (6) bundle signature, (7) per-participant TCT verification,
 (8) self-membership.
 
-`aitp-rs` runs exactly that order (`crates/aitp-session-bundle/src/verifier.rs`),
-with the adapter's error code for each (`bundle_error_code` in
-`crates/aitp-rs-adapter/src/lib.rs`):
+`aitp-rs` runs exactly that order
+(`crates/aitp-experimental/src/session_bundle/verifier.rs`), with the adapter's error code for each (`bundle_error_code` in
+`crates/aitp-conformance/src/rs_adapter/mod.rs`):
 
 0. Member-set and wrapper-shape checks, in `parse_session_bundle_wire`
    (before the verifier is called) → `UNKNOWN_FIELD` / `SESSION_BUNDLE_INVALID`.
@@ -65,8 +65,8 @@ with the adapter's error code for each (`bundle_error_code` in
 4. `participants` non-empty → `EmptyParticipants` (`BUNDLE_EMPTY_PARTICIPANTS`).
 5. Coordinator Manifest, chosen by `VerifySessionBundleContext::coordinator_key`:
    - `CoordinatorKeySource::Manifest(&m)` — the caller fetched the coordinator's
-     Manifest (e.g. `aitp_transport_http::ManifestFetcher::fetch`); it is
-     re-verified with `aitp_manifest::verify_manifest` → `CoordinatorManifest(_)`
+     Manifest (e.g. `aitp::transport::ManifestFetcher::fetch`); it is
+     re-verified with `aitp::manifest::verify_manifest` → `CoordinatorManifest(_)`
      (the Manifest's own error code, e.g. `MANIFEST_EXPIRED`), must have
      `m.aid == coordinator` → `CoordinatorManifestMismatch`
      (`KEY_RESOLUTION_FAILED`, RFC-AITP-0007 §1), and the signing key is
@@ -115,14 +115,14 @@ only when a coordinator Manifest is supplied.
 - **No `session_id` replay tracking.** RFC-AITP-0010 §10 says consumers MUST
   reject a bundle whose `session_id` they already accepted with a different
   signature. `verify_session_bundle` is stateless
-  (`crates/aitp-session-bundle/src/verifier.rs`); track accepted
+  (`crates/aitp-experimental/src/session_bundle/verifier.rs`); track accepted
   `session_id`s in your code.
 - **The bundle server is an in-memory reference.** `SessionBundleServer` is
   process-local, unbounded, overwrites on a repeated `session_id`, and
   performs no verification
-  (`crates/aitp-transport-http/src/session_bundle_server.rs:42,162`).
+  (`crates/aitp-experimental/src/session_bundle/server.rs:56,180`).
 - **Draft, opt-in.** Outside the core conformance gate; the `bundle-*`
-  fixtures run only with `--feature experimental-session-bundle`. Pass/skip
+  fixtures run only with the runner's `--feature experimental-session-bundle`. Pass/skip
   status: [conformance.md](conformance.md#v02-conformance-matrix).
 
 ## SDK example (Python coordinator → Node verifier)

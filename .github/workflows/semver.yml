@@ -1,7 +1,7 @@
 name: semver
 
-# The `aitp` facade follows semver (STABILITY.md); the internal crates
-# carry no promise. This workflow is separate from ci.yml so that adding
+# `aitp` follows semver (STABILITY.md); `aitp-experimental` carries no
+# promise. This workflow is separate from ci.yml so that adding
 # or removing the `semver-break-approved` label re-runs only this job.
 
 on:
@@ -19,7 +19,7 @@ env:
   CARGO_TERM_COLOR: always
   # Workspace crates that aren't published, plus `aitp-cli`, which is
   # binary-only and has no library API to compare.
-  UNCHECKED_CRATES: "aitp-conformance,aitp-rs-adapter,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-cli"
+  UNCHECKED_CRATES: "aitp-conformance,aitp-example-two-agents,mint-signed-examples,mint-conformance-fixtures,aitp-cli"
 
 jobs:
   semver:
@@ -40,29 +40,28 @@ jobs:
       # Blocking. The baseline is the PR base commit SHA, not the ref
       # name: with only the PR head checked out, `main` doesn't exist as
       # a local ref, and the SHA is present after `fetch-depth: 0`.
-      - name: aitp facade (blocking)
+      - name: aitp (blocking)
         if: env.BREAK_APPROVED != 'true'
         uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
           package: aitp
           baseline-rev: ${{ github.event.pull_request.base.sha }}
-          # The stable features only: `experimental-*` and
-          # `pinned-admission` carry no promise (STABILITY.md).
+          # The stable features only (STABILITY.md).
           feature-group: only-explicit-features
-          features: http-client,http-server
-      # Advisory: a break in an internal crate is reported, never blocks.
-      - name: Internal crates (advisory)
+          features: http-client,http-server,pinned-admission,metrics
+      # Advisory: a break in aitp-experimental is reported, never blocks.
+      - name: aitp-experimental (advisory)
         continue-on-error: true
         uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
           baseline-rev: ${{ github.event.pull_request.base.sha }}
           exclude: ${{ env.UNCHECKED_CRATES }},aitp
-      # Blocking. cargo-semver-checks can't see inside a type the facade
-      # re-exports from an internal crate, so the stable signature
-      # snapshot (scripts/public-api.py) is generated for the PR head and
-      # compared with the one committed at the base. The head is generated
-      # here, not read from the PR, so a PR that skips `make public-api`
-      # is still checked.
+      # Blocking. cargo-semver-checks misses some breaks (RS-RC1 found a
+      # changed field type and an added variant it let through), so the
+      # stable signature snapshot (scripts/public-api.py) is generated
+      # for the PR head and compared with the one committed at the base.
+      # The head is generated here, not read from the PR, so a PR that
+      # skips `make public-api` is still checked.
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (nightly)
         if: env.BREAK_APPROVED != 'true'
         with:

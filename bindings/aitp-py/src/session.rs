@@ -16,16 +16,16 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use aitp_core::{Aid, AitpEnvelope, MessageType, RawUrl, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_envelope::{sign_envelope, sign_envelope_with};
-use aitp_handshake::{
+use aitp::core::{Aid, AitpEnvelope, MessageType, RawUrl, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::envelope::{sign_envelope, sign_envelope_with};
+use aitp::handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
     MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, RevocationSource,
     StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp_manifest::{IdentityHintKind, Manifest};
+use aitp::manifest::{IdentityHintKind, Manifest};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
@@ -121,7 +121,7 @@ impl JwksResolver for SessionJwksRef {
     fn resolve(
         &self,
         issuer: &url::Url,
-    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, aitp_handshake::ResolveError> {
+    ) -> Result<Vec<aitp::handshake::JwkPublicKey>, aitp::handshake::ResolveError> {
         self.inner.resolve(issuer)
     }
 }

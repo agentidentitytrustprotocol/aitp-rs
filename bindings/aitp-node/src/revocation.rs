@@ -14,8 +14,8 @@
 //! single accidental interlock standing in its way. One missing binding, three
 //! times.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_tct::{
+use aitp::core::{Aid, Timestamp};
+use aitp::tct::{
     revocation_signing_bytes, verify_revocation_list, TctError, VerifyRevocationListContext,
 };
 

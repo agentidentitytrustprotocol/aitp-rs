@@ -7,14 +7,14 @@
 //!
 //! Both halves wrap the Rust implementation — [`wire::envelope`] for the
 //! first two steps of the RFC-AITP-0001 §5.4 check order and
-//! [`aitp_envelope::verify_envelope_signature`] /
-//! [`aitp_envelope::sign_prepared_envelope`] for the signature — so the
+//! [`aitp::envelope::verify_envelope_signature`] /
+//! [`aitp::envelope::sign_prepared_envelope`] for the signature — so the
 //! binding cannot drift from the server.
 
-use aitp_core::{
+use aitp::core::{
     Aid, AitpEnvelope, ExtensionsMap, MessageType, Sender, Timestamp, PROTOCOL_VERSION,
 };
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 use uuid::Uuid;
@@ -85,7 +85,7 @@ pub fn verify_envelope_js(
             ),
         ));
     }
-    aitp_envelope::verify_envelope_signature(&envelope, &key).map_err(|e| {
+    aitp::envelope::verify_envelope_signature(&envelope, &key).map_err(|e| {
         throw_with_code(
             env,
             "INVALID_SIGNATURE",
@@ -152,7 +152,7 @@ pub fn sign_envelope_js(
     };
     // Refuses a non-v4 `message_id` and a negative `timestamp` before
     // signing: whatever a verifier rejects is not signed.
-    let signed = aitp_envelope::sign_prepared_envelope(key, envelope)
+    let signed = aitp::envelope::sign_prepared_envelope(key, envelope)
         .map_err(|e| Error::from_reason(format!("signEnvelope failed: {e}")))?;
     serde_json::to_string(&signed).map_err(|e| Error::from_reason(e.to_string()))
 }

@@ -13,70 +13,29 @@ dependencies = [
 
 [[package]]
 name = "aitp"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-delegation",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-tct",
- "aitp-transport-http",
+ "axum",
+ "base64ct",
+ "chrono",
+ "ecdsa",
+ "ed25519-dalek",
+ "hex",
+ "http",
+ "p256",
+ "p521",
  "parking_lot",
  "rand 0.10.3",
  "reqwest",
- "serde",
- "serde_json",
- "thiserror",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-core"
-version = "0.21.0"
-dependencies = [
- "base64ct",
- "chrono",
- "hex",
+ "ring",
  "serde",
  "serde_jcs",
  "serde_json",
  "sha2",
  "thiserror",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-crypto"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "base64ct",
- "ecdsa",
- "ed25519-dalek",
- "p256",
- "rand 0.10.3",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
-]
-
-[[package]]
-name = "aitp-delegation"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-manifest",
- "aitp-tct",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
+ "tokio",
  "tracing",
+ "url",
  "uuid",
 ]
 
@@ -101,18 +60,8 @@ dependencies = [
 ]
 
 [[package]]
-name = "aitp-envelope"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "serde_json",
- "uuid",
-]
-
-[[package]]
 name = "aitp-example-two-agents"
-version = "0.21.0"
+version = "0.23.0"
 dependencies = [
  "aitp",
  "axum",
@@ -122,78 +71,6 @@ dependencies = [
  "reqwest",
  "serde_json",
  "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-handshake"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-manifest",
- "aitp-tct",
- "rand 0.10.3",
- "ring",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tracing",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-manifest"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "rand 0.10.3",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "url",
-]
-
-[[package]]
-name = "aitp-tct"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "uuid",
-]
-
-[[package]]
-name = "aitp-transport-http"
-version = "0.21.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-envelope",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-tct",
- "axum",
- "chrono",
- "http",
- "parking_lot",
- "rand 0.10.3",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tracing",
  "url",
  "uuid",
 ]
@@ -1243,6 +1120,20 @@ version = "0.14.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d2c9239b2dbc807adbbe147e8cf72ea7450c3a0aabe62cb8e75ff4ec22e1f72a"
 dependencies = [
+ "ecdsa",
+ "elliptic-curve",
+ "primefield",
+ "primeorder",
+ "sha2",
+]
+
+[[package]]
+name = "p521"
+version = "0.14.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4ad64cc32c2dc466317c12ee5853e61f159f9eab1fe7efade0395dc2e7b43449"
+dependencies = [
+ "base16ct",
  "ecdsa",
  "elliptic-curve",
  "primefield",

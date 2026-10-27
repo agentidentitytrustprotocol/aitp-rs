@@ -98,7 +98,7 @@ sync-versions:
 # the runner integration tests need.
 coverage:
 	@command -v cargo-tarpaulin >/dev/null || { echo "cargo-tarpaulin missing: (cd /tmp && cargo install --locked cargo-tarpaulin)"; exit 1; }
-	cargo build -p aitp-rs-adapter
+	cargo build -p aitp-conformance
 	cargo tarpaulin --workspace --all-features --skip-clean --timeout 180 \
 		--exclude mint-signed-examples --exclude mint-conformance-fixtures \
 		--exclude aitp-example-two-agents --exclude aitp-cli \

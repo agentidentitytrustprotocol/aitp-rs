@@ -3,11 +3,11 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Mutex;
 
-use aitp_core::Aid;
-use aitp_core::Timestamp;
-use aitp_crypto::jws::decode_payload_unverified;
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
+use aitp::core::Aid;
+use aitp::core::Timestamp;
+use aitp::crypto::jws::decode_payload_unverified;
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 
 use crate::helpers::{binding_revocation, runtime_error, tct_revocation_code, BindingRevocation};

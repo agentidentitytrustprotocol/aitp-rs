@@ -5,10 +5,10 @@
 //! verbatim, peeks at the unverified payload to learn the issuer AID,
 //! then re-establishes the issuer key from that AID inside `verify_tct`.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::jws::decode_payload_unverified;
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::jws::decode_payload_unverified;
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{verify_tct, PopChallenge, PopResponse, TctClaims, TctVerifyContext};
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
@@ -47,8 +47,8 @@ pub struct JsIssuedTct {
     pub grant_voucher: Option<String>,
 }
 
-impl From<aitp_tct::IssuedTct> for JsIssuedTct {
-    fn from(issued: aitp_tct::IssuedTct) -> Self {
+impl From<aitp::tct::IssuedTct> for JsIssuedTct {
+    fn from(issued: aitp::tct::IssuedTct) -> Self {
         Self {
             tct: issued.token,
             grant_voucher: issued.voucher,

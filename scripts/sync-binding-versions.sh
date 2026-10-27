@@ -126,7 +126,7 @@ sync_cargo_lock_versions() { # $1 = path to a binding's Cargo.lock
   tmp="$(mktemp)"
   awk -v ver="$ws_version" '
     function flush() {
-      is_path_aitp = (name ~ /^aitp-/) && !has_source
+      is_path_aitp = (name ~ /^aitp(-|$)/) && !has_source
       for (i = 0; i < n; i++) {
         line = buf[i]
         if (is_path_aitp && line ~ /^version = "/) {

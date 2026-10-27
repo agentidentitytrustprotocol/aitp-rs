@@ -530,11 +530,11 @@ def main() -> int:
 
     print("\nDirection (b) -- minted by the Python reference, verified by aitp-rs:")
     print("  ok    committed revocation snapshot verified by aitp-rs")
-    print("          (crates/aitp-tct spec_signed_example_snapshot_verifies,")
+    print("          (crates/aitp spec_signed_example_snapshot_verifies,")
     print("           + its negative spec_signed_example_rejects_the_wrapped_form)")
     print("  ok    committed session bundle (minted by aitp-verifier-py's own")
     print("        minter) verified by aitp-rs")
-    print("          (crates/aitp-session-bundle aitp_verifier_py_committed_bundle_verifies,")
+    print("          (crates/aitp-experimental aitp_verifier_py_committed_bundle_verifies,")
     print("           + its negative aitp_verifier_py_committed_bundle_rejects_the_sibling_shape;")
     print("           the aitp/0.2 mint is refused by committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover)")
     print(

@@ -1,7 +1,7 @@
 //! Delegation token binding — RFC-AITP-0006 (single-hop) / RFC-AITP-0011
 //! (multi-hop).
 //!
-//! Wraps `aitp_delegation::DelegationBuilder` and `verify_delegation`. The
+//! Wraps `aitp::delegation::DelegationBuilder` and `verify_delegation`. The
 //! Python side calls into this for the demo's "researcher → writer → sub-
 //! researcher" trust chain.
 //!
@@ -11,10 +11,10 @@
 //! commit, and A (the verifier / original grantor) re-mints a fresh TCT for
 //! the delegatee once verification passes.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_crypto::AitpVerifyingKey;
-use aitp_delegation::{
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::crypto::AitpVerifyingKey;
+use aitp::delegation::{
     verify_delegation, DelegationBuilder, DelegationRevocation, VerifyDelegationContext,
 };
 
@@ -25,7 +25,7 @@ use crate::helpers::{
 // opt-in verifier, so the import is feature-gated to avoid an unused-import
 // warning in the default (strict v0.1) build.
 #[cfg(feature = "multihop-delegation")]
-use aitp_delegation::DEFAULT_MAX_DELEGATION_HOPS;
+use aitp::delegation::DEFAULT_MAX_DELEGATION_HOPS;
 use pyo3::exceptions::{PyDeprecationWarning, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use std::collections::HashSet;
@@ -65,7 +65,7 @@ fn delegation_revocation(
 }
 
 /// A delegation verification failure, coded for revocation rejections.
-fn verify_failed(e: aitp_delegation::DelegationError) -> PyErr {
+fn verify_failed(e: aitp::delegation::DelegationError) -> PyErr {
     runtime_error(
         format!("delegation verification failed: {e}"),
         delegation_revocation_code(&e),
@@ -243,7 +243,7 @@ pub fn verify_delegation_multihop_py(
 
 /// Parse the issuer Manifests (`{"manifest": {...}}` envelope JSON strings)
 /// a verify call resolves delegation issuer keys from.
-fn parse_issuer_manifests(issuer_manifests: &[String]) -> PyResult<Vec<aitp_manifest::Manifest>> {
+fn parse_issuer_manifests(issuer_manifests: &[String]) -> PyResult<Vec<aitp::manifest::Manifest>> {
     issuer_manifests
         .iter()
         .map(|json| {
@@ -259,9 +259,9 @@ fn parse_verifier(verifier_aid: &str) -> PyResult<Aid> {
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))
 }
 
-/// Project a [`aitp_delegation::VerifiedDelegation`] into the Python-facing
+/// Project a [`aitp::delegation::VerifiedDelegation`] into the Python-facing
 /// type. The "delegator" (ultimate grantor A) is the root voucher's `iss`.
-fn to_verified(verified: &aitp_delegation::VerifiedDelegation) -> PyDelegationVerified {
+fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> PyDelegationVerified {
     PyDelegationVerified {
         delegator: verified.voucher.iss.to_string(),
         delegatee: verified.claims.sub.to_string(),
@@ -328,7 +328,7 @@ pub(crate) fn issue_tct_for_delegatee_json(
     let delegatee_pk = AitpVerifyingKey::from_aid(&delegatee_aid)
         .map_err(|e| PyValueError::new_err(format!("delegatee AID has invalid key bytes: {e}")))?;
 
-    let mut builder = aitp_tct::TctBuilder::new(issuer_key)
+    let mut builder = aitp::tct::TctBuilder::new(issuer_key)
         .subject(delegatee_aid.clone())
         .audience(delegatee_aid)
         .grants(verified.grants.clone())

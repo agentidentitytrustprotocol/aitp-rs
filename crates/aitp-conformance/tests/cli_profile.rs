@@ -15,7 +15,7 @@ fn adapter_path() -> PathBuf {
     let candidate = parent.join(format!("aitp-rs-adapter{}", std::env::consts::EXE_SUFFIX));
     if !candidate.exists() {
         panic!(
-            "{} not found — run `cargo build -p aitp-rs-adapter` first",
+            "{} not found — run `cargo build -p aitp-conformance` first",
             candidate.display()
         );
     }

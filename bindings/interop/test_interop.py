@@ -881,7 +881,7 @@ def test_p256_handshake_via_oidc_python_to_node(node):
     a TCT, exercising the cross-suite, cross-language signature path.
 
     Exercises `aitp.compute_aid_jkt` for the P-256 subject — the Node-side
-    OIDC verifier (in aitp-handshake) now derives the EC JWK thumbprint
+    OIDC verifier (in `aitp::handshake`) now derives the EC JWK thumbprint
     from the subject AID via the same crypto crate, so the Python-minted
     JWT's `cnf.jkt` matches without any in-Python curve arithmetic."""
     import time
@@ -944,7 +944,7 @@ def test_p256_handshake_via_oidc_python_to_node(node):
 
     now = int(time.time())
     # Both sides derive their `cnf.jkt` via the binding helper so the
-    # P-256 / Ed25519 split is handled by the same code in aitp-crypto.
+    # P-256 / Ed25519 split is handled by the same code in `aitp::crypto`.
     py_jkt = aitp.compute_aid_jkt(py_agent.aid)
     node_jkt = aitp.compute_aid_jkt(node_resp_aid)
 

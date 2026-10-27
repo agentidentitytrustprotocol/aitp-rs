@@ -11,6 +11,7 @@
 pub mod adapter;
 pub mod fixture;
 pub mod ops;
+pub mod rs_adapter;
 pub mod runner;
 
 pub use adapter::{Adapter, AdapterError, AdapterInfo, OpResult};

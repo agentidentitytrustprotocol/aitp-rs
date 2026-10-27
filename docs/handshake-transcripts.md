@@ -9,7 +9,7 @@ failure. The RFCs define the bytes. This page tells you where `aitp-rs`
 builds them.
 
 The shapes below follow the
-`crates/aitp-handshake/tests/full_handshake.rs::full_pinned_key_handshake`
+`crates/aitp/tests/handshake_full_handshake.rs::full_pinned_key_handshake`
 test, which uses pinned-key identity, fixed key seeds and a fixed clock of
 1 700 000 000. That test is a round-trip check, not a byte transcript. It
 prints nothing, and some values change on every run (see
@@ -64,10 +64,10 @@ builds the input.
 
 | Signature field | `aitp-rs` implementation | Normative source |
 |---|---|---|
-| `payload.identity.proof` (pinned-key) | `pinned_key_proof_input` (`crates/aitp-handshake/src/identity_pinned.rs`) | [RFC-AITP-0002 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md#31-proof-format) |
-| `payload.manifest.proof_of_possession.signature` | the PoP step in `crates/aitp-manifest/src/builder.rs` | [RFC-AITP-0001 §5.4.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#542-pop-signing-input-convention) |
-| `payload.manifest.signature` | `manifest_signing_bytes` (`crates/aitp-manifest/src/builder.rs`) | [RFC-AITP-0003 §6.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md#61-what-is-signed) |
-| `signature` (envelope) | `aitp_core::envelope_signing_input` / `envelope_signing_digest` (`crates/aitp-core/src/envelope.rs`) | [RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#54-signature) |
+| `payload.identity.proof` (pinned-key) | `pinned_key_proof_input` (`crates/aitp/src/handshake/identity_pinned.rs`) | [RFC-AITP-0002 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md#31-proof-format) |
+| `payload.manifest.proof_of_possession.signature` | the PoP step in `crates/aitp/src/manifest/builder.rs` | [RFC-AITP-0001 §5.4.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#542-pop-signing-input-convention) |
+| `payload.manifest.signature` | `manifest_signing_bytes` (`crates/aitp/src/manifest/builder.rs`) | [RFC-AITP-0003 §6.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md#61-what-is-signed) |
+| `signature` (envelope) | `aitp::core::envelope_signing_input` / `envelope_signing_digest` (`crates/aitp/src/core/envelope.rs`) | [RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#54-signature) |
 
 Two encoding details cause most interop failures:
 
@@ -76,7 +76,7 @@ Two encoding details cause most interop failures:
   integer. Older RFC text said big-endian, and an earlier `aitp-rs`
   shipped that bug. The RFC-AITP-0002 §3.1 erratum and the
   `kat-pinned-key-proof-001` vector (checked by
-  `crates/aitp-handshake/tests/pinned_key_proof_kat.rs`) pin the ASCII
+  `crates/aitp/tests/handshake_pinned_key_proof_kat.rs`) pin the ASCII
   form.
 - **PoP and nonce inputs are hashed over the *decoded* nonce bytes**,
   never over the base64url string. RFC-AITP-0001 §5.4.2 makes this one
@@ -110,7 +110,7 @@ wrong because the helper that wrapped envelopes generated fresh
 `message_id` / `timestamp` after the identity proof was already built.
 Build the proof and the envelope with the **same** `(message_id,
 timestamp)` pair. The `envelope_with` helpers in
-`crates/aitp-handshake/tests/full_handshake.rs` and
+`crates/aitp/tests/handshake_full_handshake.rs` and
 `examples/two-agents/src/bin/oidc-demo.rs` show the pattern: the caller
 passes in the `message_id` and timestamp it already used for the payload.
 
@@ -150,14 +150,14 @@ that forbids the subject from delegating omits `grant_voucher`.
 
 | Field | `aitp-rs` implementation | Normative source |
 |---|---|---|
-| `payload.tct` (JWS signature segment) | `aitp_crypto::jws::sign_compact`, called from `crates/aitp-tct/src/builder.rs` | [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts), [RFC-AITP-0005 §7.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md#71-what-is-signed) |
-| `payload.grant_voucher` (JWS signature segment) | `aitp_crypto::jws::sign_compact`, same builder | [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts) |
-| `payload.pop_signature` | `sign_pop` (`crates/aitp-handshake/src/state_machine.rs`) | [RFC-AITP-0001 §5.4.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#542-pop-signing-input-convention) |
+| `payload.tct` (JWS signature segment) | `aitp::crypto::jws::sign_compact`, called from `crates/aitp/src/tct/builder.rs` | [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts), [RFC-AITP-0005 §7.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md#71-what-is-signed) |
+| `payload.grant_voucher` (JWS signature segment) | `aitp::crypto::jws::sign_compact`, same builder | [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts) |
+| `payload.pop_signature` | `sign_pop` (`crates/aitp/src/handshake/state_machine.rs`) | [RFC-AITP-0001 §5.4.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#542-pop-signing-input-convention) |
 | `signature` (envelope) | same as M1 | [RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#54-signature) |
 
 The two JWS segments are **not** hashed with SHA-256 before signing.
 `sign_compact` signs the ASCII `header.payload` bytes directly
-(`crates/aitp-crypto/src/jws.rs`). For `EdDSA` that is plain Ed25519. For
+(`crates/aitp/src/crypto/jws.rs`). For `EdDSA` that is plain Ed25519. For
 `ES256` the SHA-256 step is part of the algorithm itself. The envelope,
 the Manifest and the PoP signatures, by contrast, do sign a SHA-256
 digest, as their RFC sections specify. The shortened renewal exchange
@@ -204,7 +204,7 @@ In short:
 `full_handshake.rs` is not a byte transcript. Run it like this:
 
 ```sh
-cargo test -p aitp-handshake --test full_handshake
+cargo test -p aitp --test handshake_full_handshake
 ```
 
 It checks that all four messages verify and that each side ends up holding
@@ -212,7 +212,7 @@ the TCT it should. Only the key seeds (`[0xA1] * 32`, `[0xB2] * 32`) and
 the clock (`NOW = 1_700_000_000`) are fixed. Every run uses fresh random
 `message_id`s (`Uuid::new_v4()`), `pop_nonce`s and TCT `jti`s, so the
 signatures differ from run to run. Envelopes are stamped
-`aitp_core::PROTOCOL_VERSION` (`"aitp/0.3"`), the shape shown above.
+`aitp::core::PROTOCOL_VERSION` (`"aitp/0.3"`), the shape shown above.
 
 For bytes that are fixed and pinned, use the spec's known-answer
 vectors:

@@ -12,7 +12,7 @@ An agent's identity is a signing keypair. `aitp-rs` supports two suites
 either freshly or from a stored seed:
 
 ```rust
-use aitp_crypto::AitpSigningKey;
+use aitp::crypto::AitpSigningKey;
 
 // Fresh, from the OS CSPRNG:
 let key = AitpSigningKey::generate();          // Ed25519 (default suite)
@@ -130,7 +130,7 @@ signature.
 
 ```rust
 use aitp::crypto::{AitpVerifyingKey, AsyncAitpSigner, BackendSignature, SignRequest, SignerError};
-use aitp_core::Aid;
+use aitp::core::Aid;
 
 struct KmsSigner { client: aws_sdk_kms::Client, key_id: String, aid: Aid }
 
@@ -187,7 +187,7 @@ blocking signer where an async one is expected, wrap it in
 
 ### Testing a backend
 
-`aitp-crypto`'s `test-util` feature exposes `testing::MockKmsSigner`. It
+The `aitp` `test-util` feature exposes `aitp::crypto::testing::MockKmsSigner`. It
 returns DER, high-S or randomized-nonce output, signs with the wrong key,
 reports the wrong public key, or fails transiently with `retry_after`. Its
 `calls()` counter lets a test prove that a request was refused before the
@@ -226,7 +226,7 @@ rotation as an identity change, not a transparent key swap:
   2. Revoke every TCT issued **by** the old AID, by publishing a signed
      revocation snapshot covering all known `jti`s
      ([RFC-AITP-0008 §1.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0008-revocation.md#15-signed-revocation-response)).
-     With `aitp-transport-http`, that is what a `RevocationListProducer`
+     With `aitp::transport`, that is what a `RevocationListProducer`
      attached via `HandshakeServer::with_revocation_producer` serves.
      Without one, the server serves an empty signed snapshot, which
      revokes nothing.

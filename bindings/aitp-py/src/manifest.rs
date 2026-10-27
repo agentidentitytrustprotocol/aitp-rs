@@ -4,8 +4,8 @@
 //! Plane during agent enrollment, and by any consumer that reads an AID or an
 //! endpoint out of a peer's manifest.
 
-use aitp_core::Timestamp;
-use aitp_manifest::{verify_manifest, ManifestError, VerifyManifestContext};
+use aitp::core::Timestamp;
+use aitp::manifest::{verify_manifest, ManifestError, VerifyManifestContext};
 use pyo3::exceptions::PyValueError;
 use pyo3::prelude::*;
 

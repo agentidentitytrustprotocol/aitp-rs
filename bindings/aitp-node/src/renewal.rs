@@ -7,10 +7,12 @@
 //! the renewal request / fresh TCT are likewise tokens (the renewal
 //! payload is a small JSON object wrapping the token).
 
-use aitp_core::nonce_store::InMemoryNonceStore;
-use aitp_core::{base64url, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload};
+use aitp::core::nonce_store::InMemoryNonceStore;
+use aitp::core::{base64url, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{
+    build_renewal_request, process_renewal_request, RenewalContext, TctRenewalPayload,
+};
 use napi::bindgen_prelude::*;
 use rand::TryRng;
 use std::future::Future;

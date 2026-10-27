@@ -29,24 +29,40 @@ dependencies = [
 name = "aitp"
 version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-delegation",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-session-bundle",
- "aitp-tct",
- "aitp-transport-http",
+ "aitp",
  "axum",
+ "base64ct",
+ "boon",
+ "chrono",
+ "criterion",
+ "ecdsa",
+ "ed25519-dalek",
+ "hex",
+ "http",
+ "jsonwebtoken",
+ "metrics",
+ "metrics-util",
+ "p256",
+ "p521",
  "parking_lot",
+ "proptest",
  "rand 0.10.2",
  "reqwest",
+ "ring",
+ "rustls",
+ "rustls-pki-types",
+ "rustls-webpki",
  "serde",
+ "serde_jcs",
  "serde_json",
+ "sha2",
  "thiserror",
  "tokio",
+ "tower",
+ "tracing",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]
@@ -75,16 +91,15 @@ dependencies = [
 name = "aitp-conformance"
 version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-rs-adapter",
- "aitp-tct",
+ "aitp",
+ "aitp-experimental",
  "base64ct",
  "chrono",
  "clap",
  "hex",
  "jsonschema",
  "p256",
+ "rand 0.10.2",
  "rcgen",
  "serde",
  "serde_json",
@@ -92,77 +107,7 @@ dependencies = [
  "thiserror",
  "time",
  "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aitp-core"
-version = "0.23.0"
-dependencies = [
- "base64ct",
- "chrono",
- "criterion",
- "hex",
- "metrics",
- "proptest",
- "serde",
- "serde_jcs",
- "serde_json",
- "sha2",
- "thiserror",
  "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-crypto"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "base64ct",
- "criterion",
- "ecdsa",
- "ed25519-dalek",
- "hex",
- "jsonwebtoken",
- "p256",
- "rand 0.10.2",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
-]
-
-[[package]]
-name = "aitp-delegation"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-manifest",
- "aitp-tct",
- "boon",
- "proptest",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tracing",
- "uuid",
-]
-
-[[package]]
-name = "aitp-envelope"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "proptest",
- "serde_json",
- "tokio",
  "uuid",
 ]
 
@@ -183,131 +128,13 @@ dependencies = [
 ]
 
 [[package]]
-name = "aitp-handshake"
+name = "aitp-experimental"
 version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-manifest",
- "aitp-tct",
- "base64ct",
- "boon",
- "ed25519-dalek",
- "hex",
- "metrics",
- "metrics-util",
- "p256",
- "p521",
- "rand 0.10.2",
- "ring",
- "rustls-pki-types",
- "rustls-webpki",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "tracing",
- "url",
- "uuid",
- "x509-parser",
-]
-
-[[package]]
-name = "aitp-manifest"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "boon",
- "hex",
- "proptest",
- "rand 0.10.2",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "url",
-]
-
-[[package]]
-name = "aitp-rs-adapter"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-delegation",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-session-bundle",
- "aitp-tct",
- "hex",
- "rand 0.10.2",
- "serde",
- "serde_json",
- "sha2",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-session-bundle"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-manifest",
- "aitp-tct",
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "url",
- "uuid",
-]
-
-[[package]]
-name = "aitp-tct"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "boon",
- "criterion",
- "hex",
- "serde",
- "serde_json",
- "sha2",
- "thiserror",
- "tokio",
- "uuid",
-]
-
-[[package]]
-name = "aitp-transport-http"
-version = "0.23.0"
-dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-envelope",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-session-bundle",
- "aitp-tct",
+ "aitp",
  "axum",
- "chrono",
- "http",
- "jsonwebtoken",
- "metrics",
- "metrics-util",
+ "hex",
  "parking_lot",
- "rand 0.10.2",
- "reqwest",
- "rustls",
- "rustls-pki-types",
  "serde",
  "serde_json",
  "sha2",
@@ -317,7 +144,6 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
- "x509-parser",
 ]
 
 [[package]]
@@ -1808,11 +1634,7 @@ checksum = "68354c5c6bd36d73ff3feceb05efa59b6acb7626617f4962be322a825e61f79a"
 name = "mint-conformance-fixtures"
 version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-delegation",
- "aitp-manifest",
- "aitp-tct",
+ "aitp",
  "hex",
  "jsonwebtoken",
  "serde",
@@ -1826,14 +1648,8 @@ dependencies = [
 name = "mint-signed-examples"
 version = "0.23.0"
 dependencies = [
- "aitp-core",
- "aitp-crypto",
- "aitp-delegation",
- "aitp-envelope",
- "aitp-handshake",
- "aitp-manifest",
- "aitp-session-bundle",
- "aitp-tct",
+ "aitp",
+ "aitp-experimental",
  "hex",
  "p256",
  "serde",
