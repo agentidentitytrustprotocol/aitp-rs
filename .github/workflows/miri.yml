@@ -52,4 +52,4 @@ jobs:
         # Skip integration tests that read large vendored fixtures —
         # the unit tests inside src/ are the high-value target for
         # UB checks (JCS canonicalization, AID byte parsing).
-        run: cargo +nightly miri test -p aitp --no-default-features --lib -- ${{ matrix.module }}::
+        run: "cargo +nightly miri test -p aitp --no-default-features --lib -- ${{ matrix.module }}::"
