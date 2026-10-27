@@ -262,32 +262,38 @@ python3 scripts/xcheck-compare-reports.py rs-report.json py-report.json
 The `xcheck-ts` job runs both checks again against
 [`aitp-verifier-ts`](https://github.com/agentidentitytrustprotocol/aitp-verifier-ts),
 a third implementation that shares no code with this repo or with
-`aitp-verifier-py`. It is not published, so `tests/AITP_VERIFIER_TS_VERSION`
-pins a commit SHA and the job builds that checkout with `npm ci && npm run
-build` on Node 22. The job then:
+`aitp-verifier-py`, on Node 22. Like `xcheck`, it pins its two halves
+separately:
 
-- pipes `xcheck-mint` into the verifier's `scripts/xcheck-verify.mjs`;
-- runs the fixtures through `aitp-conformance` against
-  `bin/aitp-verifier-adapter.mjs` and against `aitp-rs-adapter`, and gates
-  on `scripts/xcheck-compare-reports.py --verifier aitp-verifier-ts`, under
-  the same rules as the Python verifier. There are no known divergences.
+- **The adapter** comes from npm as `@agentidentitytrustprotocol/verifier`,
+  at the exact version in `tests/xcheck-verifier-ts/package.json`, installed
+  with `npm ci` from the committed lockfile into its own directory.
+  Dependabot opens the PR that bumps it. The job runs the fixtures through
+  `aitp-conformance` against the package's `aitp-verifier-adapter` bin and
+  against `aitp-rs-adapter`, and gates on
+  `scripts/xcheck-compare-reports.py --verifier aitp-verifier-ts`, under the
+  same rules as the Python verifier. There are no known divergences.
+- **The mint → verify step** pipes `xcheck-mint` into the verifier's
+  `scripts/xcheck-verify.mjs`, which the npm package does not ship. It runs
+  from a checkout pinned by commit SHA in `tests/AITP_VERIFIER_TS_VERSION`,
+  built with `npm ci && npm run build`.
+  `.github/workflows/bump-verifier-ts.yml` keeps that pin current the same
+  way `bump-verifier-py.yml` does: every Monday (and on demand, with
+  `dry-run`) it opens one held PR on `deps/verifier-ts-<sha>` when
+  `aitp-verifier-ts` `main` is ahead of the pin.
 
-The adapter reads the OIDC test-issuer keys from the checkout's
-`vendor/spec/`, so it runs from a clone, not an installed package. Both
-reports are uploaded as the `xcheck-ts-report` artifact. Like `xcheck`, the
-job is a required check on `main`. `.github/workflows/bump-verifier-ts.yml`
-keeps the pin current the same way `bump-verifier-py.yml` does: every Monday
-(and on demand, with `dry-run`) it opens one held PR on
-`deps/verifier-ts-<sha>` when `aitp-verifier-ts` `main` is ahead of the pin.
-The pin stays a commit SHA until the verifier is published to npm. To run it
-locally from a sibling checkout:
+Both reports are uploaded as the `xcheck-ts-report` artifact. Like
+`xcheck`, the job is a required check on `main`. To run it locally from a
+sibling checkout:
 
 ```bash
 (cd ../aitp-verifier-ts && git checkout "$(cat ../aitp-rs/tests/AITP_VERIFIER_TS_VERSION)" && npm ci && npm run build)
 cargo run --quiet -p mint-signed-examples --bin xcheck-mint \
   | node ../aitp-verifier-ts/scripts/xcheck-verify.mjs
+mkdir -p /tmp/vts-npm && cp tests/xcheck-verifier-ts/package*.json /tmp/vts-npm/
+(cd /tmp/vts-npm && npm ci --ignore-scripts)
 cargo build -p aitp-conformance
-for t in rs:./target/debug/aitp-rs-adapter ts:../aitp-verifier-ts/bin/aitp-verifier-adapter.mjs; do
+for t in rs:./target/debug/aitp-rs-adapter ts:/tmp/vts-npm/node_modules/.bin/aitp-verifier-adapter; do
   ./target/debug/aitp-conformance run --target "${t#*:}" \
     --fixtures-dir ../agentidentitytrustprotocol/schemas/conformance \
     --report "${t%%:*}-report.json" --output tap > /dev/null

@@ -45,6 +45,13 @@ updates:
       major-updates:
         update-types: ["major"]
 
+  # The aitp-verifier-ts adapter that ci.yml's xcheck-ts job installs (#384).
+  - package-ecosystem: npm
+    directory: "/tests/xcheck-verifier-ts"
+    schedule:
+      interval: monthly
+    open-pull-requests-limit: 10
+
   - package-ecosystem: github-actions
     directory: "/"
     schedule:

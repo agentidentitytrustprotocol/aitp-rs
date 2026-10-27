@@ -206,7 +206,7 @@ sooner. No actual cost materialized from accumulating.
 protection after it passed on its own PR, on the same terms as D3.
 **Consequence (accepted):** merges also depend on a GitHub checkout of `aitp-verifier-ts`
 and an `npm ci` (dev dependencies only; the package has no runtime ones). The verifier is
-pinned by commit SHA in `tests/AITP_VERIFIER_TS_VERSION` because it is not on npm yet;
+pinned by commit SHA in `tests/AITP_VERIFIER_TS_VERSION` because it is not on npm yet (since #384 its adapter comes from npm, and the SHA pin feeds only `xcheck-verify.mjs`);
 `bump-verifier-ts.yml` opens a held PR weekly when its `main` moves. Once a v0.1.x
 release is published, the pin can move to the release.
 **Status:** CONFIRMED (2026-10-25).

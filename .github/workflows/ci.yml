@@ -671,11 +671,12 @@ jobs:
 
   # RS4.3 (#308): the same two checks as `xcheck`, against the TypeScript
   # verifier, which shares no code with this repo or with aitp-verifier-py.
-  # It is unpublished, so it is pinned by commit SHA in
-  # tests/AITP_VERIFIER_TS_VERSION and built from that checkout; its adapter
-  # also reads the OIDC test-issuer keys from the checkout's vendor/spec.
-  # A required check, like `xcheck` (DECISIONS.md D3); bump-verifier-ts.yml
-  # opens the PR that moves the pin.
+  # Its conformance adapter comes from npm at the exact version locked in
+  # tests/xcheck-verifier-ts/ (#384; Dependabot bumps it). The mint -> verify
+  # step needs scripts/xcheck-verify.mjs, which the package does not ship, so
+  # it still builds the checkout pinned by commit SHA in
+  # tests/AITP_VERIFIER_TS_VERSION (bump-verifier-ts.yml moves that pin).
+  # A required check, like `xcheck` (DECISIONS.md D3).
   xcheck-ts:
     name: cross-impl acceptance (aitp-verifier-ts)
     needs: changes
@@ -717,6 +718,13 @@ jobs:
       - name: Build the independent verifier
         working-directory: aitp-verifier-ts
         run: npm ci && npm run build
+      # In its own directory, so it never mixes with the checkout above.
+      - name: Install the verifier's adapter from npm
+        run: |
+          mkdir vts-npm
+          cp aitp-rs/tests/xcheck-verifier-ts/package.json \
+             aitp-rs/tests/xcheck-verifier-ts/package-lock.json vts-npm/
+          (cd vts-npm && npm ci --ignore-scripts)
       # aitp-rs mints; the TS verifier verifies those exact bytes. Nothing
       # is re-signed on either side (see the comment in `xcheck`).
       - name: Mint with aitp-rs, verify with aitp-verifier-ts
@@ -733,7 +741,7 @@ jobs:
         working-directory: aitp-rs
         run: |
           for t in rs:./target/debug/aitp-rs-adapter \
-                   ts:../aitp-verifier-ts/bin/aitp-verifier-adapter.mjs; do
+                   ts:../vts-npm/node_modules/.bin/aitp-verifier-adapter; do
             ./target/debug/aitp-conformance run \
               --target "${t#*:}" \
               --fixtures-dir ../spec/schemas/conformance \
