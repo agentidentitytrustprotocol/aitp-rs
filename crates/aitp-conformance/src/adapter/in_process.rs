@@ -1,6 +1,6 @@
 //! In-process adapter for the Rust reference implementation.
 //!
-//! Calls directly into [`aitp_rs_adapter`]'s library API, so the
+//! Calls directly into [`crate::rs_adapter`]'s library API, so the
 //! subprocess and in-process adapters share one dispatch
 //! implementation — every Tier A/B/C/D op the subprocess binary
 //! supports is also reachable here, with no IPC overhead. Used for
@@ -11,16 +11,16 @@
 use crate::adapter::{Adapter, AdapterError, AdapterInfo, OpResult};
 use serde_json::{json, Value};
 
-/// In-process adapter wrapping the `aitp-rs-adapter` library directly.
+/// In-process adapter wrapping `crate::rs_adapter` directly.
 pub struct InProcessRustAdapter {
-    state: aitp_rs_adapter::AdapterState,
+    state: crate::rs_adapter::AdapterState,
 }
 
 impl InProcessRustAdapter {
     /// Construct a fresh adapter with a clean session/keypair store.
     pub fn new() -> Self {
         Self {
-            state: aitp_rs_adapter::AdapterState::default(),
+            state: crate::rs_adapter::AdapterState::default(),
         }
     }
 }
@@ -36,7 +36,7 @@ impl Adapter for InProcessRustAdapter {
         // Run the canonical `init` op against the same dispatcher the
         // subprocess binary uses — that way the supported_ops /
         // supported_features list stays in sync automatically.
-        let resp = aitp_rs_adapter::handle(&mut self.state, "init", "init", json!({}));
+        let resp = crate::rs_adapter::handle(&mut self.state, "init", "init", json!({}));
         let result = resp.get("result").cloned().unwrap_or_default();
         let supported_ops = result
             .get("supported_ops")
@@ -78,7 +78,7 @@ impl Adapter for InProcessRustAdapter {
     }
 
     fn execute(&mut self, op: &str, params: Value) -> Result<OpResult, AdapterError> {
-        let resp = aitp_rs_adapter::handle(&mut self.state, "exec", op, params);
+        let resp = crate::rs_adapter::handle(&mut self.state, "exec", op, params);
         let ok = resp.get("ok").and_then(|v| v.as_bool()).unwrap_or(false);
         if ok {
             Ok(OpResult::Ok {

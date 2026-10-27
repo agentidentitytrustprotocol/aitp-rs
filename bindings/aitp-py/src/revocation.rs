@@ -14,9 +14,9 @@
 //! convention change then crossed a whole release family with one accidental
 //! interlock standing in its way. That was one missing binding, three times.
 
-use aitp_core::{Aid, Timestamp, PROTOCOL_VERSION};
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{
+use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{
     revocation_signing_bytes, sign_revocation_list, verify_revocation_list, RevocationEntry,
     RevocationList, TctError, VerifyRevocationListContext,
 };
@@ -101,7 +101,7 @@ fn parse_entries(entries: &Bound<'_, PyList>, now: Timestamp) -> PyResult<Vec<Re
         // Strict wire form (#268): lowercase hyphenated UUID v4. A lenient
         // parse here would sign an uppercase jti in normalized form, or a
         // non-v4 jti that `verify_revocation_list` then rejects.
-        let jti = aitp_core::ids::parse_v4(&jti_str).map_err(|e| {
+        let jti = aitp::core::ids::parse_v4(&jti_str).map_err(|e| {
             PyValueError::new_err(format!(
                 "entries[{i}].jti is not a lowercase UUID v4: {jti_str} ({e})"
             ))

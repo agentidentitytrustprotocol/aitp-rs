@@ -1,0 +1,729 @@
+//! Manifest builder.
+//!
+//! Builds a fully-signed [`Manifest`] from the issuer's signing key plus
+//! configuration, following RFC-AITP-0003 §3 and §6.
+
+use crate::core::Aid;
+use crate::core::RawUrl;
+use crate::core::{base64url, jcs, ExtensionsMap, Timestamp};
+use crate::crypto::{AitpSigner, CryptoError, Digest32, DynAsyncAitpSigner, Signature};
+use crate::manifest::types::{IdentityHint, IdentityHintKind, Manifest, ManifestPop};
+use crate::manifest::ManifestError;
+use rand::TryRng;
+use serde::Serialize;
+
+/// Default Manifest TTL (24 hours).
+pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
+
+/// Manifest `extensions` key (registered, RFC-AITP-0012 namespace) under
+/// which a TCT issuer advertises its `ListRevoked` URL
+/// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4). Set it with
+/// [`ManifestBuilder::revocation_list_uri`].
+pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
+
+/// Fluent builder for issuing a Manifest.
+///
+/// ```ignore
+/// use aitp::manifest::{ManifestBuilder, IdentityHint, IdentityHintKind};
+/// let manifest = ManifestBuilder::new(&signing_key)
+///     .handshake_endpoint("https://a.example.com/handshake".parse()?)
+///     .identity_hint(IdentityHint {
+///         kind: IdentityHintKind::Oidc,
+///         subject: "agent-a".into(),
+///         issuer: Some("https://idp.example.com".parse()?),
+///         public_key: None,
+///     })
+///     .accept_trust_anchor("https://idp.example.com".parse()?)
+///     .offer("demo.echo")
+///     .ttl_secs(3600)
+///     .build()?;
+/// ```
+///
+/// With an async (KMS, HSM) signer, start from
+/// [`ManifestBuilder::new_async`] and finish with
+/// [`ManifestBuilder::build_async`]; the setters are shared. The signer
+/// kind is a type parameter, so a sync builder has no `build_async` and
+/// an async one has no `build`.
+pub struct ManifestBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
+    signing_key: &'a S,
+    handshake_endpoint: Option<RawUrl>,
+    accepted_trust_anchors: Vec<RawUrl>,
+    /// `None` until the caller explicitly opts in via
+    /// [`Self::accept_identity_type`]. The wire `Manifest` carries
+    /// this as `Option<Vec<String>>` so absent and explicit-empty
+    /// remain distinguishable in the canonical signing input.
+    accepted_identity_types: Option<Vec<String>>,
+    offered_capabilities: Vec<String>,
+    /// `None` until the caller calls [`Self::require`]. Same
+    /// canonical-form rationale as `accepted_identity_types`:
+    /// absent vs explicit-empty must round-trip distinctly.
+    required_peer_capabilities: Option<Vec<String>>,
+    identity_hint: Option<IdentityHint>,
+    ttl_secs: i64,
+    display_name: Option<String>,
+    extensions: ExtensionsMap,
+    /// Override `published_at` for tests / fixed-clock scenarios.
+    now_override: Option<Timestamp>,
+}
+
+impl<'a> ManifestBuilder<'a, dyn AitpSigner + 'a> {
+    /// Begin a new Manifest, signed by `signing_key`.
+    ///
+    /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
+    /// failure surfaces from [`Self::build`] as
+    /// `ManifestError::Crypto(CryptoError::Signer(_))`.
+    pub fn new(signing_key: &'a dyn AitpSigner) -> Self {
+        Self::with_signer(signing_key)
+    }
+
+    /// Construct, sign, and return the Manifest.
+    ///
+    /// Two backend calls, in order: the proof-of-possession signature,
+    /// then the outer signature over the body (which covers the PoP).
+    pub fn build(self) -> Result<Manifest, ManifestError> {
+        let (draft, signer) = self.draft()?;
+        let pop = crate::crypto::sign_jcs(signer, &draft.pop_input).map_err(CryptoError::Signer)?;
+        let (mut manifest, digest) = draft.with_pop(pop)?;
+        let signature = crate::crypto::sign_jcs(signer, &digest).map_err(CryptoError::Signer)?;
+        manifest.signature = signature.into_string();
+        Ok(manifest)
+    }
+}
+
+impl<'a> ManifestBuilder<'a, dyn DynAsyncAitpSigner + 'a> {
+    /// Begin a new Manifest signed by an async backend, for example
+    /// `ManifestBuilder::new_async(&*arc_kms_signer)`. Finish with
+    /// [`Self::build_async`].
+    ///
+    /// A backend failure surfaces from [`Self::build_async`] as
+    /// `ManifestError::Crypto(CryptoError::Signer(_))`.
+    pub fn new_async(signing_key: &'a dyn DynAsyncAitpSigner) -> Self {
+        Self::with_signer(signing_key)
+    }
+
+    /// As [`ManifestBuilder::build`], awaiting the backend. Validation
+    /// and output are identical. The PoP and the outer signature are two
+    /// sequential backend calls, in that order; the future is `Send`.
+    pub async fn build_async(self) -> Result<Manifest, ManifestError> {
+        let (draft, signer) = self.draft()?;
+        let pop = crate::crypto::sign_jcs_async(signer, &draft.pop_input)
+            .await
+            .map_err(CryptoError::Signer)?;
+        let (mut manifest, digest) = draft.with_pop(pop)?;
+        let signature = crate::crypto::sign_jcs_async(signer, &digest)
+            .await
+            .map_err(CryptoError::Signer)?;
+        manifest.signature = signature.into_string();
+        Ok(manifest)
+    }
+}
+
+/// The signer's AID, whichever signer kind holds it.
+trait SignerAid {
+    fn signer_aid(&self) -> &Aid;
+}
+impl SignerAid for dyn AitpSigner + '_ {
+    fn signer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+impl SignerAid for dyn DynAsyncAitpSigner + '_ {
+    fn signer_aid(&self) -> &Aid {
+        self.aid()
+    }
+}
+
+/// A validated Manifest awaiting its two signatures: the PoP first, then
+/// the outer signature over the body that embeds the PoP.
+struct Draft {
+    /// `sha256(base64url_decode(challenge))`, the PoP signing input.
+    pop_input: Digest32,
+    /// Every field final except `proof_of_possession.signature` and
+    /// `signature`.
+    manifest: Manifest,
+}
+
+impl Draft {
+    /// Install the PoP signature and compute the outer signing digest.
+    fn with_pop(self, pop: Signature) -> Result<(Manifest, Digest32), ManifestError> {
+        let mut manifest = self.manifest;
+        manifest.proof_of_possession.signature = pop.into_string();
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view)?;
+        let digest = Digest32::sha256(&canonical);
+        Ok((manifest, digest))
+    }
+}
+
+#[allow(private_bounds)]
+impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
+    fn with_signer(signing_key: &'a S) -> Self {
+        Self {
+            signing_key,
+            handshake_endpoint: None,
+            accepted_trust_anchors: Vec::new(),
+            accepted_identity_types: None,
+            offered_capabilities: Vec::new(),
+            required_peer_capabilities: None,
+            identity_hint: None,
+            ttl_secs: DEFAULT_MANIFEST_TTL_SECS,
+            display_name: None,
+            extensions: ExtensionsMap::new(),
+            now_override: None,
+        }
+    }
+
+    /// Set the handshake endpoint URL.
+    pub fn handshake_endpoint(mut self, url: url::Url) -> Self {
+        self.handshake_endpoint = Some(RawUrl::from(url));
+        self
+    }
+
+    /// Set the handshake endpoint URL preserving the wire bytes
+    /// verbatim. Use when the endpoint string isn't `url::Url`-canonical
+    /// (e.g. a fixture that signs over `https://h` without trailing
+    /// slash and the canonical bytes must match).
+    pub fn handshake_endpoint_raw(mut self, url: RawUrl) -> Self {
+        self.handshake_endpoint = Some(url);
+        self
+    }
+
+    /// Set the identity hint block.
+    pub fn identity_hint(mut self, hint: IdentityHint) -> Self {
+        self.identity_hint = Some(hint);
+        self
+    }
+
+    /// Append a capability to `offered_capabilities`.
+    pub fn offer(mut self, capability: impl Into<String>) -> Self {
+        self.offered_capabilities.push(capability.into());
+        self
+    }
+
+    /// Append a capability to `required_peer_capabilities`. Once
+    /// called, the field is serialized in the canonical bytes; if
+    /// never called, the field is absent on the wire (which means
+    /// "no requirements" semantically and produces strictly
+    /// shorter canonical bytes).
+    pub fn require(mut self, capability: impl Into<String>) -> Self {
+        self.required_peer_capabilities
+            .get_or_insert_with(Vec::new)
+            .push(capability.into());
+        self
+    }
+
+    /// Append an issuer URI to `accepted_trust_anchors`. Accepts
+    /// `url::Url`; use [`Self::accept_trust_anchor_raw`] when the
+    /// input string isn't `url::Url`-canonical and the canonical
+    /// bytes must match the wire form verbatim.
+    pub fn accept_trust_anchor(mut self, issuer: url::Url) -> Self {
+        self.accepted_trust_anchors.push(RawUrl::from(issuer));
+        self
+    }
+
+    /// Append an issuer URI to `accepted_trust_anchors` preserving
+    /// the wire bytes verbatim.
+    pub fn accept_trust_anchor_raw(mut self, issuer: RawUrl) -> Self {
+        self.accepted_trust_anchors.push(issuer);
+        self
+    }
+
+    /// Append an identity type (`"oidc"`, `"pinned_key"`).
+    ///
+    /// Once at least one type is appended, the manifest's
+    /// `accepted_identity_types` field is serialized in the
+    /// canonical bytes — even if the list is later cleared. Callers
+    /// who want the absent (default `["oidc"]`) semantic should not
+    /// call this method at all.
+    pub fn accept_identity_type(mut self, ty: impl Into<String>) -> Self {
+        self.accepted_identity_types
+            .get_or_insert_with(Vec::new)
+            .push(ty.into());
+        self
+    }
+
+    /// Set `accepted_identity_types` to an explicit empty list,
+    /// causing the manifest to reject every peer regardless of
+    /// presented identity type. The wire form will carry
+    /// `"accepted_identity_types": []`. Useful when the operator
+    /// wants to lock the agent down (e.g. during a key-rotation
+    /// drill).
+    pub fn accept_no_identity_types(mut self) -> Self {
+        self.accepted_identity_types = Some(Vec::new());
+        self
+    }
+
+    /// Override the default Manifest TTL.
+    pub fn ttl_secs(mut self, secs: i64) -> Self {
+        self.ttl_secs = secs;
+        self
+    }
+
+    /// Set the human-readable display name.
+    pub fn display_name(mut self, name: impl Into<String>) -> Self {
+        self.display_name = Some(name.into());
+        self
+    }
+
+    /// Advertise this issuer's `ListRevoked` URL under
+    /// [`REVOCATION_LIST_URI_EXT`]. Every peer that issues TCTs (every
+    /// peer completing the Mutual Handshake) MUST advertise it
+    /// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4, RFC-AITP-0001 §10 item 6).
+    /// The value is an absolute HTTPS URL; it is set before signing, so
+    /// the Manifest signature covers it.
+    pub fn revocation_list_uri(self, url: url::Url) -> Self {
+        self.extension(
+            REVOCATION_LIST_URI_EXT,
+            serde_json::Value::String(url.into()),
+        )
+    }
+
+    /// Insert a forward-compatible extension key.
+    pub fn extension(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
+        self.extensions.insert(key, value);
+        self
+    }
+
+    /// Override `published_at`. Used by tests and fixture issuers; production
+    /// callers should leave this unset and let the builder use
+    /// `Timestamp::now()`.
+    pub fn published_at(mut self, ts: Timestamp) -> Self {
+        self.now_override = Some(ts);
+        self
+    }
+
+    /// Validate and assemble the Manifest; signing is the caller's.
+    fn draft(self) -> Result<(Draft, &'a S), ManifestError> {
+        // 1. Required-field validation.
+        let handshake_endpoint = self
+            .handshake_endpoint
+            .ok_or(ManifestError::MissingField("handshake_endpoint"))?;
+        let identity_hint = self
+            .identity_hint
+            .ok_or(ManifestError::MissingField("identity_hint"))?;
+        validate_identity_hint(&identity_hint)?;
+
+        // 2. Generate a 128-bit (16-byte) random PoP challenge.
+        let mut challenge_bytes = [0u8; 16];
+        rand::rngs::SysRng
+            .try_fill_bytes(&mut challenge_bytes)
+            .map_err(|e| ManifestError::Rng(e.to_string()))?;
+        let challenge = base64url::encode(&challenge_bytes);
+        debug_assert_eq!(
+            challenge.len(),
+            22,
+            "16 bytes encode to 22 base64url-unpadded chars"
+        );
+
+        // 3. Sign `sha256(base64url_decode(challenge))` per RFC-AITP-0001
+        //    §5.4.2 (unified PoP signing-input convention) and RFC-AITP-0003
+        //    §3 — the hash input is the 16 raw decoded bytes, NOT the ASCII
+        //    bytes of the base64url-encoded string. Pinned by KAT
+        //    `kat-manifest-pop-001` in `jcs-sha256.json`.
+        //    Signed by the caller, before the body (step 6).
+        let pop_input = Digest32::sha256(&challenge_bytes);
+
+        // 4. Compose published_at / expires_at.
+        let published_at = self.now_override.unwrap_or_else(Timestamp::now);
+        let expires_at = published_at.plus_secs(self.ttl_secs);
+
+        // 5. Assemble every field except `signature` into a `Manifest`
+        //    (placeholder `signature`, never read by the `From` impl below —
+        //    `ManifestSigningView` structurally elides it), then derive the
+        //    signing view from that `Manifest` via the same `From` impl
+        //    `verify_manifest` uses, instead of hand-constructing a second,
+        //    independent view here. See `ManifestSigningView::from`'s doc
+        //    comment for why a single shared derivation matters.
+        let aid = self.signing_key.signer_aid().clone();
+        let pop = ManifestPop {
+            challenge,
+            // Filled in by `Draft::with_pop` once the PoP is signed.
+            signature: String::new(),
+        };
+
+        // OQ1: the builder has no public API for requesting a literal
+        // `"extensions":{}` on the wire (mirroring `accepted_identity_types`
+        // / `required_peer_capabilities`, `.extension()` is the only way to
+        // populate this field) — an empty `self.extensions` here means
+        // "the caller never called `.extension()`", i.e. absent, not
+        // present-but-empty. Preserve that as `None` so the canonical bytes
+        // (and this builder's own behavior) are unchanged from before the
+        // `Option<ExtensionsMap>` migration; `Some(ExtensionsMap::new())`
+        // is only reachable by constructing a `Manifest` directly.
+        let extensions: Option<ExtensionsMap> = if self.extensions.is_empty() {
+            None
+        } else {
+            Some(self.extensions)
+        };
+
+        let manifest = Manifest {
+            version: crate::core::PROTOCOL_VERSION.into(),
+            aid,
+            display_name: self.display_name,
+            identity_hint,
+            handshake_endpoint,
+            accepted_trust_anchors: self.accepted_trust_anchors,
+            accepted_identity_types: self.accepted_identity_types,
+            // No builder API sets this yet (see `Manifest::accepted_signature_algorithms`
+            // doc comment) — modeling only, no enforcement feature in scope here.
+            accepted_signature_algorithms: None,
+            offered_capabilities: self.offered_capabilities,
+            required_peer_capabilities: self.required_peer_capabilities,
+            proof_of_possession: pop,
+            published_at,
+            expires_at,
+            extensions,
+            signature: String::new(),
+        };
+
+        // 6. The outer signature covers the body, PoP signature included:
+        //    `Draft::with_pop` computes its digest after step 3.
+        Ok((
+            Draft {
+                pop_input,
+                manifest,
+            },
+            self.signing_key,
+        ))
+    }
+}
+
+fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
+    match hint.kind {
+        IdentityHintKind::Oidc => {
+            if hint.issuer.is_none() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "oidc requires `issuer`",
+                ));
+            }
+            if hint.public_key.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "oidc must not include `public_key`",
+                ));
+            }
+        }
+        IdentityHintKind::PinnedKey => {
+            if hint.public_key.is_none() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "pinned_key requires `public_key`",
+                ));
+            }
+        }
+        IdentityHintKind::Spiffe => {
+            // RFC-AITP-0002 §6.6: `type` and `subject` only.
+            if hint.issuer.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `issuer`",
+                ));
+            }
+            if hint.public_key.is_some() {
+                return Err(ManifestError::IdentityHintMalformed(
+                    "spiffe must not include `public_key`",
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Serialization view of a Manifest with the `signature` field elided.
+///
+/// The exact field order, names, and skip-when-empty rules MUST mirror
+/// `Manifest` so that the bytes hashed at issuance are byte-identical to
+/// the bytes hashed at verification.
+///
+/// **Field-presence handling (RFC-AITP-0003 §3.2 / Gap-2):**
+///
+/// `accepted_identity_types` is omitted from the canonical bytes
+/// when absent and serialized verbatim (including explicit `[]`)
+/// when present. RFC §3.2 distinguishes absent (= defaults to
+/// `["oidc"]`) from explicit `[]` (= reject every peer); the
+/// canonical bytes MUST preserve that distinction so issuer and
+/// verifier compute identical digests. We track presence via
+/// `Option<Vec<String>>` on the wire `Manifest`, so a `None` here
+/// means "field absent in the original signed body".
+///
+/// `required_peer_capabilities` follows the same `Option` pattern
+/// as `accepted_identity_types` — spec fixtures vary in whether
+/// they include explicit `[]` or omit the field, and the canonical
+/// signing bytes differ accordingly.
+///
+/// `extensions` is `Option<&'a ExtensionsMap>` with
+/// `skip_serializing_if = "Option::is_none"`, matching `Manifest::extensions`
+/// exactly (OQ1 / issue #140): `None` emits no `extensions` key, and
+/// `Some(&ExtensionsMap::new())` emits `"extensions":{}`. Before this, the
+/// field was a bare `&'a ExtensionsMap` skipped via `ExtensionsMap::is_empty`,
+/// which silently dropped a wire-present `"extensions":{}` from the signing
+/// input — a manifest signed with that literal shape failed verification.
+/// This field, like every other field on this type, is populated by the
+/// single `From<&Manifest>` derivation below — shared by `.build()` and
+/// `verify_manifest` — so there is exactly one place that can get this
+/// `Option` derivation wrong, not two independent ones that could disagree.
+#[derive(Serialize)]
+pub(crate) struct ManifestSigningView<'a> {
+    pub version: &'a str,
+    pub aid: &'a crate::core::Aid,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub display_name: Option<&'a str>,
+    pub identity_hint: &'a IdentityHint,
+    pub handshake_endpoint: &'a RawUrl,
+    pub accepted_trust_anchors: &'a [RawUrl],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_identity_types: Option<&'a [String]>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub accepted_signature_algorithms: Option<&'a [String]>,
+    pub offered_capabilities: &'a [String],
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub required_peer_capabilities: Option<&'a [String]>,
+    pub proof_of_possession: &'a ManifestPop,
+    pub published_at: &'a Timestamp,
+    pub expires_at: &'a Timestamp,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub extensions: Option<&'a ExtensionsMap>,
+}
+
+/// The single derivation of a Manifest's signing view.
+///
+/// Both [`ManifestBuilder::build`] and [`crate::manifest::verify_manifest`] route
+/// through this `From` impl instead of hand-constructing
+/// [`ManifestSigningView`] independently. Before this existed, the two call
+/// sites derived the view field-by-field, separately — self-consistent
+/// under a symmetric mistake (e.g. both accidentally signing/verifying the
+/// `{"manifest": ...}` transport wrapper instead of the inner body), which
+/// is exactly the regression class issue #147 found no test could catch.
+/// A single derivation used by both sites removes the mechanism that let
+/// that happen, not just the symptom.
+impl<'a> From<&'a Manifest> for ManifestSigningView<'a> {
+    fn from(manifest: &'a Manifest) -> Self {
+        ManifestSigningView {
+            version: &manifest.version,
+            aid: &manifest.aid,
+            display_name: manifest.display_name.as_deref(),
+            identity_hint: &manifest.identity_hint,
+            handshake_endpoint: &manifest.handshake_endpoint,
+            accepted_trust_anchors: &manifest.accepted_trust_anchors,
+            accepted_identity_types: manifest.accepted_identity_types.as_deref(),
+            accepted_signature_algorithms: manifest.accepted_signature_algorithms.as_deref(),
+            offered_capabilities: &manifest.offered_capabilities,
+            required_peer_capabilities: manifest.required_peer_capabilities.as_deref(),
+            proof_of_possession: &manifest.proof_of_possession,
+            published_at: &manifest.published_at,
+            expires_at: &manifest.expires_at,
+            extensions: manifest.extensions.as_ref(),
+        }
+    }
+}
+
+/// The canonical signing input for a Manifest: JCS of a
+/// [`ManifestSigningView`].
+///
+/// The single definition of what gets signed, mirroring
+/// `crate::tct::revocation_signing_bytes`. Combined with the `From` impl
+/// above, this means [`ManifestBuilder::build`] and
+/// [`crate::manifest::verify_manifest`] cannot independently canonicalize something
+/// different — they call the same function over a view derived the same
+/// way.
+pub(crate) fn manifest_signing_bytes(
+    view: &ManifestSigningView<'_>,
+) -> Result<Vec<u8>, ManifestError> {
+    jcs::canonicalize_serializable(view).map_err(|e| ManifestError::Canonicalization(e.to_string()))
+}
+
+impl Default for ManifestBuilder<'_> {
+    fn default() -> Self {
+        // No reasonable default key; consumers must call `new`.
+        // We provide `Default` only via this stub that panics so we don't
+        // accidentally encourage default-initialised builders.
+        panic!("ManifestBuilder requires an issuer signing key; use ManifestBuilder::new")
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::Aid;
+
+    fn vendored(rel: &str) -> std::path::PathBuf {
+        std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .parent()
+            .and_then(|p| p.parent())
+            .expect("repo root")
+            .join("tests/schemas")
+            .join(rel)
+    }
+
+    fn sample_view_parts() -> (
+        Aid,
+        IdentityHint,
+        RawUrl,
+        Vec<RawUrl>,
+        Vec<String>,
+        ManifestPop,
+    ) {
+        (
+            Aid::from_ed25519(&[0u8; 32]),
+            IdentityHint {
+                kind: IdentityHintKind::Oidc,
+                subject: "agent-a".into(),
+                issuer: Some(RawUrl::new("https://idp.example.com")),
+                public_key: None,
+            },
+            RawUrl::new("https://a.example.com/handshake"),
+            vec![RawUrl::new("https://idp.example.com")],
+            vec!["demo.echo".into()],
+            ManifestPop {
+                challenge: "A".repeat(22),
+                signature: "A".repeat(86),
+            },
+        )
+    }
+
+    /// OQ1 gate: `ManifestSigningView::extensions` must be presence-sensitive
+    /// the same way `Manifest::extensions` is — `None` emits no key,
+    /// `Some(&ExtensionsMap::new())` emits `"extensions":{}`. This is the
+    /// exact bug that made a wire-present `"extensions":{}` fail
+    /// verification before the `Option` migration: the view used to skip
+    /// on `ExtensionsMap::is_empty`, which is `true` for both "absent" and
+    /// "present but empty", so it dropped the empty-but-present case from
+    /// the canonical bytes unconditionally.
+    #[test]
+    fn signing_view_extensions_is_presence_sensitive() {
+        let (aid, hint, endpoint, anchors, caps, pop) = sample_view_parts();
+        let published_at = Timestamp(1_711_900_000);
+        let expires_at = Timestamp(1_711_986_400);
+
+        let absent = ManifestSigningView {
+            version: "aitp/0.3",
+            aid: &aid,
+            display_name: None,
+            identity_hint: &hint,
+            handshake_endpoint: &endpoint,
+            accepted_trust_anchors: &anchors,
+            accepted_identity_types: None,
+            accepted_signature_algorithms: None,
+            offered_capabilities: &caps,
+            required_peer_capabilities: None,
+            proof_of_possession: &pop,
+            published_at: &published_at,
+            expires_at: &expires_at,
+            extensions: None,
+        };
+        let v = serde_json::to_value(&absent).unwrap();
+        assert!(
+            !v.as_object().unwrap().contains_key("extensions"),
+            "None must emit no `extensions` key in the signing view: {v}"
+        );
+
+        let empty = ExtensionsMap::new();
+        let present = ManifestSigningView {
+            extensions: Some(&empty),
+            ..absent
+        };
+        let v = serde_json::to_value(&present).unwrap();
+        assert_eq!(
+            v.get("extensions"),
+            Some(&serde_json::json!({})),
+            "Some(empty) must emit `\"extensions\":{{}}` in the signing view: {v}"
+        );
+    }
+
+    /// Pins this implementation's canonical manifest signing bytes against
+    /// the spec's own `kat-manifest-001` vector
+    /// (`tests/schemas/known-answer/jcs-sha256.json`) — catches this
+    /// implementation silently canonicalizing something other than what the
+    /// spec says it signs. Mirrors `crates/aitp/src/tct/revocation.rs`'s
+    /// `rfc_kat_canonical_bytes_match` and
+    /// `crates/aitp-experimental/src/session_bundle/builder.rs`'s
+    /// `production_signing_bytes_match_the_pinned_vector`.
+    #[test]
+    fn signing_bytes_match_the_pinned_kat_vector() {
+        let kat: serde_json::Value = serde_json::from_slice(
+            &std::fs::read(vendored("known-answer/jcs-sha256.json")).unwrap(),
+        )
+        .unwrap();
+        let v = kat["vectors"]
+            .as_array()
+            .expect("vectors array")
+            .iter()
+            .find(|v| v["id"].as_str() == Some("kat-manifest-001"))
+            .expect("kat-manifest-001 missing from jcs-sha256.json")
+            .clone();
+
+        // The vector must declare its signing input. A vector that pins
+        // canonical bytes without saying what they are the canonicalization
+        // *of* is unfalsifiable — fail loudly rather than guessing.
+        assert_eq!(
+            v["signing_input"].as_str(),
+            Some("body"),
+            "kat-manifest-001 must declare signing_input=body (RFC-AITP-0003 §6.1)"
+        );
+
+        // `object` carries every Manifest field except `signature` (never
+        // part of the signing view — the type structurally elides it, see
+        // `ManifestSigningView` above). Insert a placeholder so the value
+        // deserializes into `Manifest`; the placeholder is never read by
+        // `ManifestSigningView::from`.
+        let mut object = v["object"].clone();
+        object
+            .as_object_mut()
+            .expect("object is a JSON object")
+            .insert("signature".into(), serde_json::json!("A".repeat(86)));
+        let manifest: Manifest =
+            serde_json::from_value(object).expect("vector deserializes into Manifest");
+
+        // Drive the SHARED derivation, not a local reconstruction: this
+        // test must not be able to go green while the production
+        // sign/verify path canonicalizes something else.
+        let view = ManifestSigningView::from(&manifest);
+        let canonical = manifest_signing_bytes(&view).expect("canonicalize");
+
+        assert_eq!(
+            canonical.len(),
+            v["jcs_canonical_len_bytes"].as_u64().unwrap() as usize,
+            "canonical byte length diverges from spec kat-manifest-001"
+        );
+        assert_eq!(
+            hex::encode(&canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "canonical bytes diverge from spec kat-manifest-001 — the implementation is \
+             canonicalizing a different JSON shape than the spec signs"
+        );
+        assert_eq!(
+            hex::encode(crate::crypto::Digest32::sha256(&canonical)),
+            v["sha256_hex"].as_str().unwrap(),
+            "digest diverges from spec kat-manifest-001"
+        );
+
+        // Load-bearing, not vacuous: mutating the deserialized `Manifest`
+        // before deriving the view must break the byte match.
+        // `required_peer_capabilities` is explicit `[]` in the vector, not
+        // absent — dropping it to `None` must change the canonical bytes
+        // (presence-sensitive field, RFC-AITP-0003 §3.2).
+        let mut mutated = manifest.clone();
+        mutated.required_peer_capabilities = None;
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "dropping required_peer_capabilities to None must change the canonical bytes \
+             (presence-sensitive field) — this test would be vacuous otherwise"
+        );
+
+        // The vector has no `extensions` key at all — adding a
+        // present-but-empty map must also break the match (the same
+        // presence-sensitivity property `signing_view_extensions_is_presence_sensitive`
+        // above pins directly, exercised here through the shared derivation
+        // instead of a hand-built view).
+        let mut mutated = manifest;
+        mutated.extensions = Some(ExtensionsMap::new());
+        let mutated_canonical =
+            manifest_signing_bytes(&ManifestSigningView::from(&mutated)).unwrap();
+        assert_ne!(
+            hex::encode(&mutated_canonical),
+            v["jcs_canonical_hex"].as_str().unwrap(),
+            "adding Some(empty) extensions must change the canonical bytes (presence-sensitive \
+             field) — this test would be vacuous otherwise"
+        );
+    }
+}

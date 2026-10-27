@@ -24,27 +24,21 @@ napi-build = "2"
 [features]
 default = ["renewal", "session-bundle", "spki-pinning", "multihop-delegation"]
 # In-band TCT renewal (RFC-AITP-0005 §10).
-renewal = ["aitp-tct/experimental-renewal"]
+renewal = ["aitp/experimental-renewal"]
 # Session bundles (RFC-AITP-0010) — exposes `SessionBundleBuilder`.
-session-bundle = ["dep:aitp-session-bundle"]
+session-bundle = ["dep:aitp-experimental"]
 # SPKI cert pinning — see aitp-py Cargo.toml for the rationale.
 spki-pinning = ["dep:x509-parser"]
 # Multi-hop delegation (RFC-AITP-0011). The strict single-hop
 # `verifyDelegation` is always present; this additionally exposes
-# `verifyDelegationMultihop`. aitp-delegation has no feature of its own
+# `verifyDelegationMultihop`. `aitp::delegation` has no feature of its own
 # (multi-hop is always compiled, gated at runtime by max_delegation_hops), so this is
 # a binding-level surface gate only.
 multihop-delegation = []
 
 [dependencies]
-aitp-core = { path = "../../crates/aitp-core" }
-aitp-crypto = { path = "../../crates/aitp-crypto" }
-aitp-envelope = { path = "../../crates/aitp-envelope" }
-aitp-manifest = { path = "../../crates/aitp-manifest" }
-aitp-handshake = { path = "../../crates/aitp-handshake" }
-aitp-tct = { path = "../../crates/aitp-tct" }
-aitp-delegation = { path = "../../crates/aitp-delegation" }
-aitp-session-bundle = { path = "../../crates/aitp-session-bundle", optional = true }
+aitp = { path = "../../crates/aitp", default-features = false }
+aitp-experimental = { path = "../../crates/aitp-experimental", optional = true }
 x509-parser = { version = "0.18", optional = true }
 sha2 = "0.11"
 

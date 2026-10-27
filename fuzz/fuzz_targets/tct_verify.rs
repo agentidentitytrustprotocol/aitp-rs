@@ -1,6 +1,6 @@
 #![no_main]
 
-//! Fuzz target: TCT verification (`aitp_tct::verify_tct`).
+//! Fuzz target: TCT verification (`aitp::tct::verify_tct`).
 //!
 //! Drives arbitrary bytes as a candidate TCT compact-JWS string through
 //! the full 9-step verification order (RFC-AITP-0005 §7.2): parse → typ
@@ -10,19 +10,27 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use aitp_crypto::AitpSigningKey;
-use aitp_tct::{verify_tct, TctVerifyContext};
+use aitp::crypto::AitpSigningKey;
+use aitp::tct::{verify_tct, TctVerifyContext};
 
 fuzz_target!(|data: &[u8]| {
     let audience = AitpSigningKey::from_ed25519_seed(&[1u8; 32]).aid().clone();
     let issuer = AitpSigningKey::from_ed25519_seed(&[2u8; 32]).aid().clone();
 
     let token = String::from_utf8_lossy(data);
-    let ctx = TctVerifyContext::builder(&audience, &issuer, aitp_core::Timestamp::now()).accept_unchecked_revocation_dangerous().skip_manifest_expiry_cap_dangerous().build().unwrap();
+    let ctx = TctVerifyContext::builder(&audience, &issuer, aitp::core::Timestamp::now())
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
     let _ = verify_tct(&token, &ctx);
 
     // Also exercise the self-issued shape (aud == iss == sub), which
     // takes a different path through the audience/self-binding checks.
-    let ctx_self = TctVerifyContext::builder(&issuer, &issuer, aitp_core::Timestamp::now()).accept_unchecked_revocation_dangerous().skip_manifest_expiry_cap_dangerous().build().unwrap();
+    let ctx_self = TctVerifyContext::builder(&issuer, &issuer, aitp::core::Timestamp::now())
+        .accept_unchecked_revocation_dangerous()
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
     let _ = verify_tct(&token, &ctx_self);
 });

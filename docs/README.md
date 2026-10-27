@@ -1,7 +1,7 @@
 # `aitp-rs` documentation
 
 These docs cover **this implementation** — how `aitp-rs` is built, why the
-crates are split the way they are, and how to drive the SDKs and the
+library is layered the way it is, and how to drive the SDKs and the
 conformance runner.
 
 They are deliberately **not** a copy of the protocol. The protocol is
@@ -26,7 +26,7 @@ the spec's
 
 | If you want to… | Read |
 |---|---|
-| Understand the codebase + why it's split this way | [`architecture.md`](architecture.md) |
+| Understand the codebase + why it's layered this way | [`architecture.md`](architecture.md) |
 | Use the Python SDK | [`sdk-python.md`](sdk-python.md) |
 | Use the Node SDK | [`sdk-node.md`](sdk-node.md) |
 | Understand the conformance runner / check status | [`conformance.md`](conformance.md) |
@@ -52,16 +52,16 @@ that governs it.
 
 | Doc | Topic | Normative spec |
 |---|---|---|
-| [`architecture.md`](architecture.md) | Topology, crate map, workspace-split rationale, sync/async boundary, MSRV | — (build rationale) |
+| [`architecture.md`](architecture.md) | Topology, crate and module map, layering rationale, sync/async boundary, MSRV | — (build rationale) |
 | [`testing.md`](testing.md) | Test layers (unit, proptest, fuzz, Miri, WASM, conformance, xcheck, bindings, interop, e2e) + how to run each | — (test rationale) |
 | [`jcs.md`](jcs.md) | JSON canonicalization strategy + test vectors | RFC-AITP-0001 §5.4.1, [RFC 8785](https://datatracker.ietf.org/doc/html/rfc8785) |
 | [`conformance.md`](conformance.md) | NDJSON adapter protocol, runner, the fixture matrix (the only page with fixture counts) and the gate caveat | spec `schemas/conformance/` |
 | [`handshake-transcripts.md`](handshake-transcripts.md) | Four-message handshake shapes and where `aitp-rs` builds each signing input | RFC-AITP-0004, RFC-AITP-0002 §3.1 |
-| [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (RFC Draft; opt-in feature) | RFC-AITP-0010 |
+| [`session-bundle.md`](session-bundle.md) | Session Trust Bundle (RFC Draft; opt-in `aitp-experimental` crate) | RFC-AITP-0010 |
 | [`multihop-delegation.md`](multihop-delegation.md) | Multi-hop delegation (RFC Draft; runtime opt-in) | RFC-AITP-0011 |
 | [`tct-renewal.md`](tct-renewal.md) | Shortened TCT renewal (RFC Planned, implementation ahead of spec; opt-in feature) | RFC-AITP-0013, RFC-AITP-0004 §8.1 |
 | [`sdk-python.md`](sdk-python.md) · [`sdk-node.md`](sdk-node.md) | Per-language SDK feature guides | per-feature, cited inline |
-| [`transport-hardening.md`](transport-hardening.md) | `aitp-transport-http` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
+| [`transport-hardening.md`](transport-hardening.md) | `aitp::transport` hardening register | RFC-AITP-0007/0008/0009 + RFC 9449/8693/7469 |
 | [`deployment.md`](deployment.md) | Where state lives; multi-node/clustering (shared `ReplayGuard` vs sticky routing); production hardening checklist | RFC-AITP-0001 §5.5, RFC-AITP-0008/0009 |
 | [`key-management.md`](key-management.md) | Seed handling, in-memory hygiene, KMS/HSM reality, rotation runbook | RFC-AITP-0003 §8, RFC-AITP-0009 §3 |
 | [`interop-peer.md`](interop-peer.md) | The public interop peer (`aitp serve --interop`): key enrolment, policy, limits, `/echo`, deployment | RFC-AITP-0002 §3.2, RFC-AITP-0008 §3 |

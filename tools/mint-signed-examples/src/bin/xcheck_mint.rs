@@ -19,11 +19,11 @@
 //! collapses "Rust mints → Python verifies" and "Rust reproduces the
 //! reference-minted bytes" into one check.
 
-use aitp_core::{AidAlgorithm, ExtensionsMap, Timestamp};
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp_session_bundle::SessionBundleBuilder;
-use aitp_tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder};
+use aitp::core::{AidAlgorithm, ExtensionsMap, Timestamp};
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder};
+use aitp_experimental::session_bundle::SessionBundleBuilder;
 use uuid::Uuid;
 
 /// kat-keypair-001 (all-zero seed) — the coordinator / snapshot issuer.
@@ -43,13 +43,13 @@ const NOW: i64 = 1_711_900_000;
 // — a JWT whose issuer key could not be resolved used to verify
 // successfully instead of failing closed). We mint the minimal
 // identity-descriptor + envelope shape `verify_oidc`'s own unit tests
-// build (see `crates/aitp-handshake/src/identity_oidc.rs` and
-// `crates/aitp-handshake/tests/fixtures/mock_oidc.rs`), not a full
+// build (see `crates/aitp/src/handshake/identity_oidc.rs` and
+// `crates/aitp/tests/handshake_fixtures/mock_oidc.rs`), not a full
 // `MUTUAL_HELLO` envelope (Manifest + PoP + envelope signature) — that
 // is enough to reach `aitp_verifier.identity.verify_identity` directly.
 //
 // EdDSA and ES256 only. `aitp-rs` has no RSA *signing* capability: PR
-// #122 (merged) deliberately moved `aitp-handshake` to `ring` for RSA
+// #122 (merged) deliberately moved `aitp::handshake` to `ring` for RSA
 // verification only, and adding an RSA signer solely to mint one test
 // vector is out of scope for a test/CI-only change. RS256 stays covered
 // by `aitp-verifier-py`'s own unit tests (`tests/test_identity_oidc.py`,
@@ -77,7 +77,7 @@ fn main() {
     // signed-examples/revocation/kat-keypair-001-snapshot.json, so the
     // output can be compared byte-for-byte against it.
     let body = RevocationList {
-        version: aitp_core::PROTOCOL_VERSION.to_string(),
+        version: aitp::core::PROTOCOL_VERSION.to_string(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(NOW),
         expires_at: Timestamp(NOW + 3600),
@@ -106,7 +106,7 @@ fn main() {
     );
     extensions_with_content.insert("count", serde_json::json!(42));
     let body_with_extensions = RevocationList {
-        version: aitp_core::PROTOCOL_VERSION.to_string(),
+        version: aitp::core::PROTOCOL_VERSION.to_string(),
         issuer: issuer.aid().clone(),
         published_at: Timestamp(NOW),
         expires_at: Timestamp(NOW + 3600),
@@ -128,7 +128,7 @@ fn main() {
     // content, not empty). `Some(ExtensionsMap::new())`
     // (present-but-empty) is deliberately not covered here — it is
     // unreachable from the public `ManifestBuilder` API.
-    let manifest_pubkey_b64 = aitp_core::base64url::encode(
+    let manifest_pubkey_b64 = aitp::core::base64url::encode(
         &issuer
             .verifying_key()
             .try_to_ed25519_bytes()
@@ -260,7 +260,7 @@ const P256_PINNED_NONCE: &str = "AAECAwQFBgcICQoLDA0ODw";
 const P256_REVOKED_JTI: &str = "550e8400-e29b-41d4-a716-446655440098";
 
 fn mint_p256_vectors() -> serde_json::Value {
-    use aitp_core::MessageType;
+    use aitp::core::MessageType;
 
     let signer = AitpSigningKey::from_p256_seed(&KP_005_P256_SCALAR).expect("valid p256 scalar");
     let verifier = AitpSigningKey::from_seed(&P256_VERIFIER_SEED);
@@ -269,7 +269,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     // Revocation snapshot: also the TCT legs' revocation source.
     let snapshot = sign_revocation_list(
         RevocationList {
-            version: aitp_core::PROTOCOL_VERSION.to_string(),
+            version: aitp::core::PROTOCOL_VERSION.to_string(),
             issuer: signer.aid().clone(),
             published_at: Timestamp(NOW),
             expires_at: Timestamp(NOW + 3600),
@@ -302,7 +302,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         .expect("mint p256 manifest");
 
     // Envelope, plus the same envelope signed the pre-0.14 way.
-    let envelope = aitp_envelope::sign_envelope_with(
+    let envelope = aitp::envelope::sign_envelope_with(
         &signer,
         MessageType::Tct,
         serde_json::json!({ "note": "xcheck p256 envelope" }),
@@ -312,7 +312,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     .expect("sign p256 envelope");
     let envelope_double_hash = {
         let digest =
-            aitp_core::envelope::envelope_signing_digest(&envelope).expect("envelope digest");
+            aitp::core::envelope::envelope_signing_digest(&envelope).expect("envelope digest");
         let mut e = envelope.clone();
         e.signature = double_hash_signature(&digest);
         e
@@ -321,7 +321,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     // Pinned-key identity (RFC-AITP-0002 §3, proposal Item 2): a P-256
     // sender's tagged proof over the five-field input.
     let pinned_message_id = Uuid::from_u128(P256_PINNED_MESSAGE_ID);
-    let pinned_proof = aitp_handshake::sign_pinned_key_proof(
+    let pinned_proof = aitp::handshake::sign_pinned_key_proof(
         &signer,
         signer.aid(),
         verifier.aid(),
@@ -330,7 +330,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         P256_PINNED_NONCE,
     )
     .expect("sign p256 pinned-key proof");
-    let pinned_envelope = aitp_envelope::sign_envelope_with(
+    let pinned_envelope = aitp::envelope::sign_envelope_with(
         &signer,
         MessageType::IdentityPresentation,
         serde_json::json!({ "pop_nonce": P256_PINNED_NONCE }),
@@ -338,7 +338,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         Timestamp(NOW),
     )
     .expect("sign p256 pinned-key envelope");
-    let pinned_input = aitp_handshake::pinned_key_proof_input(
+    let pinned_input = aitp::handshake::pinned_key_proof_input(
         signer.aid(),
         verifier.aid(),
         &pinned_message_id,
@@ -426,7 +426,7 @@ fn double_hash_signature(digest: &[u8; 32]) -> String {
     let sk = p256::ecdsa::SigningKey::from_slice(&KP_005_P256_SCALAR).expect("valid p256 scalar");
     let sig: p256::ecdsa::Signature = sk.sign(digest);
     let sig = sig.normalize_s();
-    format!("p256.{}", aitp_core::base64url::encode(&sig.to_bytes()))
+    format!("p256.{}", aitp::core::base64url::encode(&sig.to_bytes()))
 }
 
 /// Mint one OIDC identity-binding cross-check vector: an issuer-signed
@@ -459,7 +459,7 @@ fn mint_oidc_vector(
     // hand-picked here), so there is no OIDC-specific signing logic in
     // this tool to drift out of sync with the library.
     let proof =
-        aitp_crypto::jws::sign_compact(issuer_key, "JWT", &claims).expect("sign oidc id token");
+        aitp::crypto::jws::sign_compact(issuer_key, "JWT", &claims).expect("sign oidc id token");
 
     serde_json::json!({
         "issuer": OIDC_ISSUER_URL,
@@ -487,7 +487,7 @@ fn issuer_jwk(vk: &AitpVerifyingKey) -> serde_json::Value {
             serde_json::json!({
                 "kty": "OKP",
                 "crv": "Ed25519",
-                "x": aitp_core::base64url::encode(&raw),
+                "x": aitp::core::base64url::encode(&raw),
             })
         }
         AidAlgorithm::P256 => {
@@ -508,8 +508,8 @@ fn issuer_jwk(vk: &AitpVerifyingKey) -> serde_json::Value {
             serde_json::json!({
                 "kty": "EC",
                 "crv": "P-256",
-                "x": aitp_core::base64url::encode(x),
-                "y": aitp_core::base64url::encode(y),
+                "x": aitp::core::base64url::encode(x),
+                "y": aitp::core::base64url::encode(y),
             })
         }
         other => panic!("xcheck-mint: unsupported OIDC issuer key algorithm {other:?}"),

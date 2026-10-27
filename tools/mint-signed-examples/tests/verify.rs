@@ -2,9 +2,9 @@
 //! cryptographically. The schema test in the spec repo confirms shape;
 //! this confirms the signatures are real.
 
-use aitp_core::{Aid, Timestamp};
-use aitp_manifest::{verify_manifest, Manifest, VerifyManifestContext};
-use aitp_tct::{
+use aitp::core::{Aid, Timestamp};
+use aitp::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use aitp::tct::{
     verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope, TctVerifyContext,
     VerifyRevocationListContext,
 };
@@ -115,12 +115,12 @@ fn minted_delegation_verifies() {
     for (i, b) in seed.iter_mut().enumerate() {
         *b = i as u8;
     }
-    let b_key = aitp_crypto::AitpSigningKey::from_seed(&seed);
+    let b_key = aitp::crypto::AitpSigningKey::from_seed(&seed);
     assert_eq!(b_key.aid(), &kat_002_aid());
-    let b_manifest = aitp_manifest::ManifestBuilder::new(&b_key)
+    let b_manifest = aitp::manifest::ManifestBuilder::new(&b_key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
-        .identity_hint(aitp_manifest::IdentityHint {
-            kind: aitp_manifest::IdentityHintKind::Oidc,
+        .identity_hint(aitp::manifest::IdentityHint {
+            kind: aitp::manifest::IdentityHintKind::Oidc,
             subject: "kat-keypair-002".into(),
             issuer: Some("https://idp.example.com".parse().unwrap()),
             public_key: None,
@@ -131,14 +131,14 @@ fn minted_delegation_verifies() {
         .build()
         .unwrap();
     let issuer_manifests = vec![b_manifest];
-    let ctx = aitp_delegation::VerifyDelegationContext::new(
+    let ctx = aitp::delegation::VerifyDelegationContext::new(
         &verifier_aid,
         fixed_now(),
-        aitp_delegation::DelegationRevocation::FailOpen,
+        aitp::delegation::DelegationRevocation::FailOpen,
     )
     .with_issuer_manifests(&issuer_manifests);
     let verified =
-        aitp_delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
+        aitp::delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
     assert_eq!(
         serde_json::to_value(&verified.claims).unwrap(),
         v["decoded_claims"],

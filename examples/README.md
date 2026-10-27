@@ -28,8 +28,8 @@ binaries, what each demonstrates, and where to look in the code.
   `aitp::transport::HandshakeServer` (server).
 - **Fine-grained control** — drive `aitp::handshake::{Initiator,
   Responder}` directly, as `oidc-demo` does.
-- **Verify-only** (you already hold a TCT) — depend on `aitp-tct` +
-  `aitp-core` alone and call `aitp_tct::verify_tct` with an
-  `aitp_tct::TctVerifyContext` (built with `TctVerifyContext::builder(&aud, &iss, now)…build()`), which takes `aitp_core::Aid` and
-  `aitp_core::Timestamp` values. (Through the facade the same function is
-  `aitp::tct::verify_tct`.)
+- **Verify-only** (you already hold a TCT) — depend on `aitp` with
+  `default-features = false` (no HTTP stack) and call
+  `aitp::tct::verify_tct` with an `aitp::tct::TctVerifyContext` (built
+  with `TctVerifyContext::builder(&aud, &iss, now)…build()`), which takes
+  `aitp::core::Aid` and `aitp::core::Timestamp` values.

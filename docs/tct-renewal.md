@@ -8,15 +8,14 @@
 > whose status is **Planned** (a non-normative stub). It is not part of v0.3
 > conformance. In `aitp-rs` it is off by default:
 >
-> - `aitp-tct` — `build_renewal_request` / `process_renewal_request` behind
->   `experimental-renewal`.
-> - `aitp-transport-http` — the renewal route on `HandshakeServer`, mounted
->   at the path of the Manifest's advertised `rfc-aitp-0005.renew_uri`,
->   behind its own `experimental-renewal`.
-> - `aitp` facade — `experimental-renewal` turns on both of the above and
->   the client driver `aitp::facade::renew_tct`.
+> - `experimental-renewal` on `aitp` enables all of it:
+>   `aitp::tct::{build_renewal_request, process_renewal_request}`, the
+>   client driver `aitp::facade::renew_tct` (with `http-client`), and the
+>   renewal route on `aitp::transport::HandshakeServer` (with
+>   `http-server`), mounted at the path of the Manifest's advertised
+>   `rfc-aitp-0005.renew_uri`.
 > - Language bindings — their own `renewal` feature (on by default), which
->   enables `aitp-tct/experimental-renewal` only.
+>   enables `aitp/experimental-renewal` on an HTTP-free `aitp` build.
 >
 > No wire-stability promise until RFC-AITP-0013 is written.
 
@@ -67,7 +66,7 @@ Response from the renewal route:
 ## Endpoint discovery (`renew_uri`)
 
 The issuer advertises its renewal endpoint as the Manifest extension
-`rfc-aitp-0005.renew_uri` (`aitp_transport_http::RENEW_URI_EXT`), an
+`rfc-aitp-0005.renew_uri` (`aitp::transport::RENEW_URI_EXT`), an
 absolute HTTPS URL (`http` is accepted only for `localhost` /
 `127.0.0.1`, for development). Because the Manifest is signed, the
 extension is set when the Manifest is built:
@@ -113,7 +112,7 @@ the new TTL and whether to mint a voucher. Checks run in this order:
 5. **Issuer Manifest window.** `manifest_expires_at > now` → else `Expired`;
    effective TTL `min(ttl, manifest_expires_at − now)` must be positive.
 6. **Replay guard.** The nonce is recorded in the `NonceStore`
-   (`aitp_core::nonce_store`, the same store the handshake admission path
+   (`aitp::core::nonce_store`, the same store the handshake admission path
    uses) until the presented TCT's `exp`. A nonce already recorded →
    `RenewalReplayed`. Recording happens only after the checks above pass,
    so an observer cannot burn a holder's nonce or fill the store with
@@ -145,7 +144,7 @@ the content type, then runs `process_renewal_request` with:
 - an in-memory replay guard by default, replaceable with
   `with_renewal_nonce_store` (use a shared store when several replicas
   serve one issuer);
-- TTL `aitp_tct::DEFAULT_TCT_TTL_SECS`, capped by the Manifest window.
+- TTL `aitp::tct::DEFAULT_TCT_TTL_SECS`, capped by the Manifest window.
 
 Each failure maps to its own registry code:
 

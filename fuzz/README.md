@@ -15,11 +15,11 @@ a custom profile). The main workspace excludes it.
 | `envelope_parse` | `AitpEnvelope` deserialization | RFC-AITP-0001 §5 |
 | `manifest_parse` | `Manifest` deserialization | RFC-AITP-0003 |
 | `delegation_parse` | `DelegationClaims` deserialization, multi-hop included | RFC-AITP-0006, 0011 |
-| `jws_verify` | `aitp_crypto::jws::verify_compact` | RFC-AITP-0001 §5.4.5 |
-| `tct_verify` | `aitp_tct::verify_tct` | RFC-AITP-0005 §7.2 |
-| `delegation_verify` | `aitp_delegation::verify_delegation` | RFC-AITP-0006 |
-| `jcs_canonicalize` | `aitp_core::jcs::canonicalize` | RFC 8785 |
-| `revocation_verify` | `aitp_tct::verify_revocation_list` | RFC-AITP-0008 |
+| `jws_verify` | `aitp::crypto::jws::verify_compact` | RFC-AITP-0001 §5.4.5 |
+| `tct_verify` | `aitp::tct::verify_tct` | RFC-AITP-0005 §7.2 |
+| `delegation_verify` | `aitp::delegation::verify_delegation` | RFC-AITP-0006 |
+| `jcs_canonicalize` | `aitp::core::jcs::canonicalize` | RFC 8785 |
+| `revocation_verify` | `aitp::tct::verify_revocation_list` | RFC-AITP-0008 |
 | `interop_enroll` | the interop peer's `POST /enroll` body | — |
 | `svid_verify` | X.509-SVID and JWT-SVID verification | RFC-AITP-0002 §6 |
 | `handshake_payload_decode` | the four Mutual Handshake payloads: duplicate keys, unknown members, typed decode | RFC-AITP-0004 |

@@ -3,7 +3,7 @@
 > **Status: Draft, opt-in at the call site.**
 > [RFC-AITP-0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md)
 > is a Community Standards Track (Draft) RFC outside v0.3 core conformance.
-> The multi-hop verifier is always compiled into `aitp-delegation` and is
+> The multi-hop verifier is always compiled into `aitp::delegation` and is
 > **gated at runtime**: `VerifyDelegationContext::new` sets
 > `max_delegation_hops = 0` (strict default), so any token carrying a `chain`
 > claim is rejected unless the caller raises the cap with
@@ -35,7 +35,7 @@ complete delegation JWS verified over its transmitted bytes, with no byte
 reconstruction. `total_hops = chain.len() + 2` (§2).
 
 `aitp-rs` specifics: claims deserialize into `DelegationClaims`
-(`crates/aitp-delegation/src/types.rs`); the RFC §2 recommended ceiling is
+(`crates/aitp/src/delegation/types.rs`); the RFC §2 recommended ceiling is
 exported as `DEFAULT_MAX_DELEGATION_HOPS = 3`, which with `+2` admits a
 single-entry `chain` (the A → B → C → D example).
 
@@ -43,7 +43,7 @@ single-entry `chain` (the A → B → C → D example).
 
 The normative order is
 [RFC-AITP-0011 §2–§6](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md#3-per-hop-verification).
-How `crates/aitp-delegation/src/verifier.rs` runs it, with the
+How `crates/aitp/src/delegation/verifier.rs` runs it, with the
 `DelegationError` variant each failure maps to:
 
 0. **Strict gate** (`verify_delegation`, lines 137-160). With
@@ -95,7 +95,7 @@ How `crates/aitp-delegation/src/verifier.rs` runs it, with the
 Proof of possession is not part of `verify_delegation`: the caller runs the
 RFC-AITP-0006 §4 step 9 exchange against the presenting agent, with the
 bound key from the **outer** token's `sub`
-(`aitp_tct::sign_pop_response` / `verify_pop_response`).
+(`aitp::tct::sign_pop_response` / `verify_pop_response`).
 
 ## Known limitations
 
@@ -106,7 +106,7 @@ bound key from the **outer** token's `sub`
   token with neither claim verifies normally whatever the cap.
 - **Manifests are supplied, not fetched.** The verifier is synchronous and
   does no I/O: the caller provides the issuers' Manifests through an
-  `aitp_manifest::ManifestResolver` (a `Vec<Manifest>`, a
+  `aitp::manifest::ManifestResolver` (a `Vec<Manifest>`, a
   `HashMap<Aid, Manifest>`, or its own cache) and is responsible for
   obtaining them (RFC-AITP-0007 §1 lists the sources). Single-hop tokens
   need the delegator's Manifest from the same source (RFC-AITP-0006 §4
@@ -138,7 +138,7 @@ verifyDelegationMultihop(delegationJws, verifierAid, issuerManifests, 3);   // m
 ```
 
 ```rust
-use aitp_delegation::{verify_delegation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS};
+use aitp::delegation::{verify_delegation, VerifyDelegationContext, DEFAULT_MAX_DELEGATION_HOPS};
 
 // Any `ManifestResolver` (here a `Vec<Manifest>` of the hop issuers'
 // Manifests): each hop verifies under its issuer's verified Manifest key.

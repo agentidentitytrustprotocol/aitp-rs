@@ -51,12 +51,17 @@ class PrimaryPath(unittest.TestCase):
         for line, want in cases.items():
             self.assertEqual(mod.primary_path(line), want, line)
 
-    def test_rewrite_maps_the_longest_known_prefix(self):
-        mapping = {"aitp_tct::types::TctClaims": "aitp::tct::TctClaims",
-                   "aitp_core::time::Timestamp": "aitp::core::Timestamp"}
-        line = "pub aitp_tct::types::TctClaims::exp: aitp_core::time::Timestamp"
-        self.assertEqual(mod.rewrite(line, mapping), "pub aitp::tct::TctClaims::exp: aitp::core::Timestamp")
-        self.assertEqual(mod.rewrite("pub aitp_core::Other", mapping), "pub aitp_core::Other")
+
+
+class UnnamedPaths(unittest.TestCase):
+    COMPLETE = BASE + ["pub struct aitp::core::Timestamp"]
+
+    def test_every_named_path_has_an_entry(self):
+        self.assertEqual(mod.unnamed_paths(self.COMPLETE), {})
+
+    def test_a_type_from_a_private_module_is_reported(self):
+        line = "pub fn aitp::tct::TctClaims::nonces(&self) -> aitp::core::store::Nonce"
+        self.assertEqual(mod.unnamed_paths(self.COMPLETE + [line]), {"aitp::core::store::Nonce": line})
 
 
 class Breaks(unittest.TestCase):
@@ -103,6 +108,15 @@ class Breaks(unittest.TestCase):
 
     def test_header_comments_are_ignored(self):
         self.assertEqual(mod.body("# generated\npub struct aitp::X\n\n"), ["pub struct aitp::X"])
+
+    def test_an_attributed_item_is_not_a_comment(self):
+        self.assertEqual(mod.body("## feature\n#[non_exhaustive] pub enum aitp::E\n"),
+                         ["#[non_exhaustive] pub enum aitp::E"])
+
+    def test_a_removed_non_exhaustive_type_breaks(self):
+        base = mod.body("#[non_exhaustive] pub enum aitp::tct::TctError\n")
+        self.assertEqual(mod.find_breaks(base, []),
+                         ["removed or changed: #[non_exhaustive] pub enum aitp::tct::TctError"])
 
 
 if __name__ == "__main__":

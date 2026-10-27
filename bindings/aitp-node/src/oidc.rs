@@ -9,9 +9,9 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use aitp_core::Aid;
-use aitp_crypto::AitpVerifyingKey;
-use aitp_handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
+use aitp::core::Aid;
+use aitp::crypto::AitpVerifyingKey;
+use aitp::handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
 use napi::bindgen_prelude::*;
 use napi::{Env, JSON};
 use napi_derive::napi;

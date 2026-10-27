@@ -1,6 +1,6 @@
 #![no_main]
 
-//! Fuzz target: delegation verification (`aitp_delegation::verify_delegation`).
+//! Fuzz target: delegation verification (`aitp::delegation::verify_delegation`).
 //!
 //! Drives arbitrary bytes as a candidate delegation compact-JWS through
 //! both the single-hop default (`max_delegation_hops = 0`, RFC-AITP-0006) and the
@@ -11,9 +11,9 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use aitp_core::Timestamp;
-use aitp_crypto::AitpSigningKey;
-use aitp_delegation::{verify_delegation, VerifyDelegationContext};
+use aitp::core::Timestamp;
+use aitp::crypto::AitpSigningKey;
+use aitp::delegation::{verify_delegation, VerifyDelegationContext};
 
 fuzz_target!(|data: &[u8]| {
     // First byte selects the hop budget so both the single-hop
@@ -26,7 +26,11 @@ fuzz_target!(|data: &[u8]| {
     let verifier = AitpSigningKey::from_ed25519_seed(&[3u8; 32]).aid().clone();
     let token = String::from_utf8_lossy(token_bytes);
 
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), aitp_delegation::DelegationRevocation::FailOpen)
-        .with_max_delegation_hops(max_delegation_hops);
+    let ctx = VerifyDelegationContext::new(
+        &verifier,
+        Timestamp::now(),
+        aitp::delegation::DelegationRevocation::FailOpen,
+    )
+    .with_max_delegation_hops(max_delegation_hops);
     let _ = verify_delegation(&token, &ctx);
 });

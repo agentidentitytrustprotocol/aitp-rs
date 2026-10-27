@@ -15,8 +15,8 @@
 //!
 //! Output is byte-stable for the same KAT seeds + reference clock.
 
-use aitp_core::{base64url, jcs, Timestamp};
-use aitp_crypto::AitpSigningKey;
+use aitp::core::{base64url, jcs, Timestamp};
+use aitp::crypto::AitpSigningKey;
 use jsonwebtoken::{EncodingKey, Header};
 use serde::Serialize;
 use serde_json::{json, Map, Value};
@@ -330,7 +330,7 @@ fn key_for_aid(aid: &str) -> Option<AitpSigningKey> {
 
 fn jcs_sign(view: &impl Serialize, key: &AitpSigningKey) -> String {
     let canonical = jcs::canonicalize_serializable(view).expect("canon");
-    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let digest = aitp::crypto::Digest32::sha256(&canonical);
     key.sign_jcs(&digest).into_string()
 }
 
@@ -370,7 +370,7 @@ fn sign_pop_inplace(pop: &mut Map<String, Value>, key: &AitpSigningKey) {
         // original string (so re-mints reproduce).
         deterministic_nonce(&format!("manifest-pop-{original}"))
     };
-    let digest = aitp_crypto::Digest32::sha256(challenge.as_bytes());
+    let digest = aitp::crypto::Digest32::sha256(challenge.as_bytes());
     let sig = key.sign_jcs(&digest).into_string();
     pop.insert("challenge".into(), json!(challenge));
     pop.insert("signature".into(), json!(sig));
@@ -480,11 +480,11 @@ fn sign_aitp_envelope(env: &mut Map<String, Value>, key: &AitpSigningKey) {
     // envelope minus `signature`, behind the `aitp-envelope-v2` tag.
     let mut unsigned = env.clone();
     unsigned.insert("signature".into(), json!(""));
-    let typed: aitp_core::AitpEnvelope =
+    let typed: aitp::core::AitpEnvelope =
         serde_json::from_value(Value::Object(unsigned)).expect("fixture envelope shape");
-    let digest = aitp_core::envelope_signing_digest(&typed).unwrap();
+    let digest = aitp::core::envelope_signing_digest(&typed).unwrap();
     let sig = key
-        .sign_jcs(&aitp_crypto::Digest32::from(digest))
+        .sign_jcs(&aitp::crypto::Digest32::from(digest))
         .into_string();
     env.insert("signature".into(), json!(sig));
 }
@@ -580,11 +580,11 @@ fn mint_valid_jwt(
     secret: &[u8],
 ) -> String {
     // cnf.jkt is the SHA-256 thumbprint of the canonical JWK form per
-    // RFC-AITP-0002 §2.2.1 (matches aitp_crypto::compute_jwk_thumbprint).
+    // RFC-AITP-0002 §2.2.1 (matches aitp::crypto::compute_jwk_thumbprint).
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp_crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
     let claims = json!({
         "sub": subject,
         "iat": FIXED_NOW,
@@ -605,7 +605,7 @@ fn mint_jwt_missing_aud(
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp_crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
     let claims = json!({
         "sub": subject,
         "iat": FIXED_NOW,
@@ -625,7 +625,7 @@ fn mint_jwt_wrong_aud(
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp_crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
     // Audience targets a DIFFERENT peer than the one verifying.
     let wrong = key_from_hex(KAT_003_SEED_HEX).aid().as_str().to_string();
     let claims = json!({
@@ -813,7 +813,7 @@ fn mint_id_004(value: &mut Value) {
     input_bytes.extend_from_slice(original_ts.0.to_string().as_bytes());
     input_bytes.push(0);
     input_bytes.extend_from_slice(&base64url::decode_strict(&original_nonce).unwrap());
-    let digest = aitp_crypto::Digest32::sha256(&input_bytes);
+    let digest = aitp::crypto::Digest32::sha256(&input_bytes);
     let captured_proof = sender_key.sign_jcs(&digest).into_string();
 
     // Embed into the envelope's identity.proof, then re-sign envelope.
@@ -1039,7 +1039,7 @@ fn mint_mh_pinned_key_envelope_with_tct(value: &mut Value, invalid_pop: bool) {
         };
         let decoded = base64url::decode_strict(&nonce_to_sign_over)
             .expect("pop_nonce_echo is valid base64url");
-        let digest = aitp_crypto::Digest32::sha256(&decoded);
+        let digest = aitp::crypto::Digest32::sha256(&decoded);
         let sig = sender_key.sign_jcs(&digest).into_string();
         payload.insert("pop_signature".into(), json!(sig));
     } else if invalid_pop {
@@ -1047,7 +1047,7 @@ fn mint_mh_pinned_key_envelope_with_tct(value: &mut Value, invalid_pop: bool) {
         // sign over an arbitrary "wrong" nonce.
         let decoded =
             base64url::decode_strict(&deterministic_nonce("mh-008-wrong")).expect("nonce");
-        let digest = aitp_crypto::Digest32::sha256(&decoded);
+        let digest = aitp::crypto::Digest32::sha256(&decoded);
         let sig = sender_key.sign_jcs(&digest).into_string();
         payload.insert("pop_signature".into(), json!(sig));
     }
@@ -1129,7 +1129,7 @@ fn sign_delegation_inplace(token: &mut Map<String, Value>) {
             "binding": {"cnf": subject_pubkey},
         });
         let source_canon = jcs::canonicalize(&source_view).unwrap();
-        let digest = aitp_crypto::Digest32::sha256(&source_canon);
+        let digest = aitp::crypto::Digest32::sha256(&source_canon);
         let source_sig = issuing_key.sign_jcs(&digest).into_string();
         gp.insert("signature".into(), json!(source_sig));
     }
@@ -1169,7 +1169,7 @@ fn pinned_proof_for_envelope(
     input_bytes.extend_from_slice(ts.to_string().as_bytes());
     input_bytes.push(0);
     input_bytes.extend_from_slice(&base64url::decode_strict(nonce).unwrap());
-    let digest = aitp_crypto::Digest32::sha256(&input_bytes);
+    let digest = aitp::crypto::Digest32::sha256(&input_bytes);
     sender_key.sign_jcs(&digest).into_string()
 }
 
@@ -1270,7 +1270,7 @@ fn mint_id_006_wrong_pop_nonce(value: &mut Value) {
     input_bytes.extend_from_slice(ts.to_string().as_bytes());
     input_bytes.push(0);
     input_bytes.extend_from_slice(&base64url::decode_strict(&bad_nonce).unwrap());
-    let digest = aitp_crypto::Digest32::sha256(&input_bytes);
+    let digest = aitp::crypto::Digest32::sha256(&input_bytes);
     let proof = sender_key.sign_jcs(&digest).into_string();
     envelope
         .get_mut("payload")
@@ -1357,7 +1357,7 @@ fn mint_rev_snapshot(value: &mut Value) {
     // body, not a member, so nothing is stripped before canonicalizing.
     let body = snapshot.get("revocation_list").unwrap();
     let canonical = jcs::canonicalize(body).unwrap();
-    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let digest = aitp::crypto::Digest32::sha256(&canonical);
     let sig = key.sign_jcs(&digest).into_string();
     snapshot.insert("signature".into(), json!(sig));
 }

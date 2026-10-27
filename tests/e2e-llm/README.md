@@ -17,7 +17,7 @@ opt-in sibling that depends on the workspace via path.
 
 | Tier | What it covers | Where it lives in `aitp-rs` |
 |---|---|---|
-| 1 | Wire format / JCS / envelope / TCT KATs | `crates/aitp-core/tests/kat.rs`, conformance fixtures |
+| 1 | Wire format / JCS / envelope / TCT KATs | `crates/aitp/tests/core_kat.rs`, conformance fixtures |
 | 2 | Real HTTP handshake + signed capability invocation, no LLM | `examples/two-agents` + `make demo` |
 | 3 | **Two LLM-driven agents** delegating real work over a TCT | **this package** |
 

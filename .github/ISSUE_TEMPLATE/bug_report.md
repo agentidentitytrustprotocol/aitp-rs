@@ -6,7 +6,7 @@ labels: bug
 
 ## Affected crate / version
 
-<!-- e.g. aitp-tct 0.1.0-alpha.0 -->
+<!-- e.g. aitp 0.24.0 -->
 
 ## What did you expect to happen?
 

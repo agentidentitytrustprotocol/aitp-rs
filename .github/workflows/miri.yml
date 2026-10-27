@@ -1,8 +1,7 @@
 name: miri
 
-# Miri checks for undefined behavior on the crates that contain unsafe
-# or low-level byte-shuffling — primarily aitp-core (JCS, AID parsing)
-# and aitp-crypto. Miri is slow and occasionally needs feature gating
+# Miri checks for undefined behavior in the modules that do low-level
+# byte-shuffling: `aitp::core` (JCS, AID parsing) and `aitp::crypto`. Miri is slow and occasionally needs feature gating
 # (ed25519-dalek pulls in code paths Miri doesn't model perfectly), so
 # this workflow is intentionally NOT a PR gate. Trigger it manually
 # (or on a weekly schedule) when adding crypto code or touching
@@ -12,11 +11,6 @@ on:
   schedule:
     - cron: "23 4 * * 1"   # 04:23 UTC every Monday
   workflow_dispatch:
-    inputs:
-      crates:
-        description: "Comma-separated -p arguments (default: aitp-core,aitp-crypto)"
-        required: false
-        default: "aitp-core,aitp-crypto"
 
 env:
   CARGO_TERM_COLOR: always
@@ -33,14 +27,14 @@ permissions:
 
 jobs:
   miri:
-    name: miri (${{ matrix.crate }})
+    name: miri (aitp::${{ matrix.module }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        crate:
-          - aitp-core
-          - aitp-crypto
+        module:
+          - core
+          - crypto
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: Install nightly + miri
@@ -58,4 +52,4 @@ jobs:
         # Skip integration tests that read large vendored fixtures —
         # the unit tests inside src/ are the high-value target for
         # UB checks (JCS canonicalization, AID byte parsing).
-        run: cargo +nightly miri test -p ${{ matrix.crate }} --lib
+        run: cargo +nightly miri test -p aitp --no-default-features --lib -- ${{ matrix.module }}::

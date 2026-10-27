@@ -1,6 +1,6 @@
 #![no_main]
 
-//! Fuzz target: JCS canonicalization (`aitp_core::jcs::canonicalize`).
+//! Fuzz target: JCS canonicalization (`aitp::core::jcs::canonicalize`).
 //!
 //! JCS (RFC 8785) canonicalization underpins the embedded-signature
 //! profile (envelopes, Manifests, revocation snapshots). This target
@@ -11,7 +11,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use aitp_core::jcs;
+use aitp::core::jcs;
 
 fuzz_target!(|data: &[u8]| {
     // Parsing as a serde_json::Value first mirrors how canonicalization

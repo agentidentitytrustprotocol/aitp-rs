@@ -15,8 +15,8 @@
 
 use std::sync::OnceLock;
 
-use aitp_core::base64url;
-use aitp_crypto::{AitpSigningKey, AitpVerifyingKey, Digest32};
+use aitp::core::base64url;
+use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Digest32};
 use base64ct::Encoding as _;
 use rcgen::{
     BasicConstraints, CertificateParams, DnType, IsCa, Issuer, KeyPair, KeyUsagePurpose,
@@ -176,7 +176,7 @@ impl EnvelopeCtx {
         self_aid: &str,
         now: i64,
     ) -> Option<String> {
-        let sender = aitp_core::Aid::parse(&self.sender).ok()?;
+        let sender = aitp::core::Aid::parse(&self.sender).ok()?;
         let jkt = AitpVerifyingKey::from_aid(&sender)
             .ok()?
             .to_jwk_thumbprint()

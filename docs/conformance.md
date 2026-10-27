@@ -116,9 +116,10 @@ adapter returns one.
 }
 ```
 
-`aitp-rs-adapter` reports its own crate version
-(`env!("CARGO_PKG_VERSION")` in `crates/aitp-rs-adapter/src/lib.rs`), so
-the value tracks the workspace release.
+`aitp-rs-adapter` reports the `aitp-conformance` package version
+(`env!("CARGO_PKG_VERSION")` in
+`crates/aitp-conformance/src/rs_adapter/mod.rs`), so the value tracks the
+workspace release.
 
 `implementation`, `version`, `repository` and `commit` are copied into a
 [conformance report](#conformance-report). Each one is optional in the
@@ -135,8 +136,8 @@ not `FAIL`.
 Operations are organized by tier. Adapters can support any subset. The
 **authoritative live list** is whatever an adapter returns in its `init`
 response (`supported_ops`); the tables below are the taxonomy, kept in
-sync with `crates/aitp-rs-adapter/src/`. Draft ops (session bundle,
-multi-hop) are only exercised under their opt-in features.
+sync with `crates/aitp-conformance/src/rs_adapter/`. Draft ops (session
+bundle, multi-hop) are only exercised under their opt-in features.
 
 ### Tier A — pure verification
 
@@ -516,7 +517,7 @@ Reproduce. The fixture path assumes a sibling checkout of the spec repo at
 the pinned commit:
 
 ```bash
-cargo build -p aitp-rs-adapter -p aitp-conformance
+cargo build -p aitp-conformance   # builds aitp-conformance and aitp-rs-adapter
 # Strict: no failures; the draft and extension fixtures skip. The
 # `--profile v0.1` outcomes are the same; only the gate's required flag
 # differs.
@@ -615,10 +616,11 @@ The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/ag
   `tests/schemas/SPEC_VERSION`. Re-run `scripts/sync-schemas.sh` (or
   `make schemas-check`) after the pin moves.
 - **P-256 coverage beyond `env-005`:**
-  - `aitp-crypto`'s `p256_keypair_kat_scalar_pubkey_aid_and_signature`
-    tests the `kat-keypair-005-p256` vector in
+  - `p256_keypair_kat_scalar_pubkey_aid_and_signature`
+    (`crates/aitp/tests/crypto_kat.rs`) tests the `kat-keypair-005-p256` vector in
     `tests/schemas/known-answer/keypairs.json`.
-  - `aitp-tct`'s `p256_issuer_and_subject_round_trip_and_pop`.
+  - `p256_issuer_and_subject_round_trip_and_pop`
+    (`crates/aitp/tests/tct_round_trip.rs`).
   - The pure-Rust OIDC handshakes `oidc_minter_handshake_p256_initiator`
     and `oidc_minter_handshake_p256_responder`.
   - The cross-language interop test

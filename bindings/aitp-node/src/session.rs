@@ -7,23 +7,23 @@
 
 use std::sync::Arc;
 
-use aitp_core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_envelope::{sign_envelope, sign_envelope_with};
-use aitp_handshake::{
+use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp::envelope::{sign_envelope, sign_envelope_with};
+use aitp::handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
     MutualHelloPayload, PresentedIdentity, Responder, RevocationSource, StaticPinnedKeyStore,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp_manifest::{IdentityHintKind, Manifest};
-use aitp_tct::VerifiedTct;
+use aitp::manifest::{IdentityHintKind, Manifest};
+use aitp::tct::VerifiedTct;
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
 
-use aitp_core::Aid;
+use aitp::core::Aid;
 
 use crate::helpers::{
     coded_error, handshake_code, js_revocation, make_peer_config, NoOpJwksResolver, NO_TCT_STEP,
@@ -99,7 +99,8 @@ impl JwksResolver for SessionJwksRef {
     fn resolve(
         &self,
         issuer: &url::Url,
-    ) -> std::result::Result<Vec<aitp_handshake::JwkPublicKey>, aitp_handshake::ResolveError> {
+    ) -> std::result::Result<Vec<aitp::handshake::JwkPublicKey>, aitp::handshake::ResolveError>
+    {
         self.inner.resolve(issuer)
     }
 }
@@ -114,7 +115,7 @@ pub struct JsHelloAckResult {
 }
 
 /// The salient claims of a TCT obtained at handshake completion. Mirrors
-/// `aitp_tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
+/// `aitp::tct::TctClaims`; timestamps are Unix seconds as JS `number`s.
 #[napi(object)]
 pub struct JsHandshakeTctClaims {
     /// Issuer AID (`iss`) — the peer that minted and is bound by the TCT.

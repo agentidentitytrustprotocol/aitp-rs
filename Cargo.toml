@@ -14,19 +14,10 @@ resolver = "2"
 # Run it explicitly from `tests/e2e-llm/`.
 exclude = ["fuzz", "bindings/aitp-py", "bindings/aitp-node", "tests/e2e-llm"]
 members = [
-    "crates/aitp-core",
-    "crates/aitp-crypto",
-    "crates/aitp-envelope",
-    "crates/aitp-manifest",
-    "crates/aitp-handshake",
-    "crates/aitp-tct",
-    "crates/aitp-delegation",
-    "crates/aitp-session-bundle",
-    "crates/aitp-transport-http",
     "crates/aitp",
+    "crates/aitp-experimental",
     "crates/aitp-cli",
     "crates/aitp-conformance",
-    "crates/aitp-rs-adapter",
     "examples/two-agents",
     "tools/mint-signed-examples",
     "tools/mint-conformance-fixtures",
@@ -59,11 +50,11 @@ ed25519-dalek = { version = "3.0", features = ["rand_core"] }
 p256 = { version = "0.14", default-features = false, features = ["ecdsa", "std", "arithmetic"] }
 # `der` decodes the ASN.1 ECDSA-Sig-Value that cloud KMS backends
 # (AWS KMS, GCP Cloud KMS, Azure Key Vault in DER mode, PKCS#11 shims)
-# return for P-256, so `aitp_crypto::signer` can convert it to the JOSE
+# return for P-256, so `aitp::crypto::signer` can convert it to the JOSE
 # `R || S` form. Feature unification turns it on for p256's own ecdsa.
 ecdsa = { version = "0.17", default-features = false, features = ["der"] }
 # ES512 (ECDSA on P-521) JWS verification for JWT-SVIDs and OIDC ID
-# tokens; `ring` has no P-521 (aitp-handshake `jwk.rs`).
+# tokens; `ring` has no P-521 (`aitp::handshake` `jwk.rs`).
 p521 = { version = "0.14", default-features = false, features = ["ecdsa", "std"] }
 base64ct = { version = "1.6", features = ["std"] }
 uuid = { version = "1.7", features = ["v4", "serde"] }
@@ -72,14 +63,14 @@ url = { version = "2.5", features = ["serde"] }
 chrono = { version = "0.4", default-features = false, features = ["std", "serde", "clock"] }
 rand = "0.10"
 
-# HTTP transport (feature-gated, only used by aitp-transport-http)
+# HTTP transport (feature-gated, only used by `aitp::transport`)
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 axum = "0.8"
 http = "1"
 tokio = { version = "1.36", features = ["rt-multi-thread", "macros"] }
 tower = { version = "0.5", default-features = false }
 
-# TLS — used by aitp-transport-http for SPKI cert pinning. The `ring`
+# TLS — used by `aitp::transport` for SPKI cert pinning. The `ring`
 # feature gives access to `rustls::crypto::ring::default_provider()` as a
 # fallback when no CryptoProvider has been installed yet (e.g. callers
 # building a pinned client config before any reqwest call has had a
@@ -91,7 +82,7 @@ rustls-pki-types = "1.10"
 x509-parser = "0.18"
 
 # RS256 (RSA) JWS signature verification for OIDC ID tokens
-# (`aitp_handshake::verify_jws_signature`), replacing the RS256
+# (`aitp::handshake::verify_jws_signature`), replacing the RS256
 # support `jsonwebtoken` used to provide (issue #99). `ring`'s
 # `RsaPublicKeyComponents::verify` with `RSA_PKCS1_2048_8192_SHA256` is
 # the same verification code path `jsonwebtoken` 9's RS256 backend used
@@ -104,8 +95,8 @@ ring = "0.17"
 
 # OIDC JOSE helper — issue #99 resolution: `jsonwebtoken` is now a
 # **dev-only** dependency, used solely as a differential test oracle
-# (see `crates/aitp-transport-http/tests/jose_backend_tripwire.rs` and
-# `crates/aitp-crypto`'s JWS KATs). No runtime crate in this workspace
+# (see `crates/aitp/tests/transport_jose_backend_tripwire.rs` and
+# `crates/aitp/tests/crypto_jws_kat.rs`). No runtime crate in this workspace
 # depends on it any more.
 #
 # Background on why it was dropped from the runtime graph, not just
@@ -132,8 +123,8 @@ ring = "0.17"
 # that both tracks current RustCrypto and avoids `rsa` 0.9 — so instead
 # of waiting on it, RS256 (RSA) JWS verification now goes through
 # `ring` directly (see the `ring` entry below and
-# `aitp_handshake::verify_jws_signature`), and EdDSA/ES256 go through
-# this workspace's own `aitp-crypto` JWS stack. Verification-only usage
+# `aitp::handshake::verify_jws_signature`), and EdDSA/ES256 go through
+# this workspace's own `aitp::crypto` JWS stack. Verification-only usage
 # is unaffected by RUSTSEC-2023-0071, which is a signing/decryption
 # padding-timing issue, not a verification one.
 #
@@ -141,10 +132,10 @@ ring = "0.17"
 # `deny-multiple-versions` guard in deny.toml, which turns any
 # reintroduction of a forked crypto stack into a red build.
 #
-# `aitp_handshake::JwkPublicKey`'s public fields are now owned types
-# with no JOSE-library dependency (see `crates/aitp-handshake/src/jwk.rs`),
+# `aitp::handshake::JwkPublicKey`'s public fields are now owned types
+# with no JOSE-library dependency (see `crates/aitp/src/handshake/jwk.rs`),
 # so this dependency's version is no longer semver-visible to
-# aitp-handshake or the bindings.
+# `aitp::handshake` or the bindings.
 jsonwebtoken = "9.3"
 
 # Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
@@ -158,7 +149,7 @@ parking_lot = "0.12"
 tracing = { version = "0.1", default-features = false, features = ["std", "attributes"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "env-filter"] }
 
-# Metrics facade (optional, feature-gated in aitp-transport-http). Just the
+# Metrics facade (optional, feature-gated in `aitp::transport`). Just the
 # lightweight recording API — the binary installs the recorder/exporter.
 # Zero-cost when no recorder is registered.
 metrics = "0.24"

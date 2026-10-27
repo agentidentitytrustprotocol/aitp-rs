@@ -11,7 +11,7 @@
 //! path must return, never panic.
 
 use aitp::core::{Aid, CheckedJson, Timestamp};
-use aitp::session_bundle::{
+use aitp_experimental::session_bundle::{
     parse_session_bundle_envelope, parse_session_bundle_wire, verify_session_bundle,
     CoordinatorKeySource, VerifySessionBundleContext,
 };

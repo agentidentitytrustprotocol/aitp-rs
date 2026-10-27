@@ -36,18 +36,18 @@ edge cases that are easy to get wrong and silent when you do:
 A naive `serde_json::to_string` with `sort_keys` solves about 4 of these.
 We need all 12. The canonicalizer handles 11 of them.
 
-Duplicate keys are not handled in `aitp_core::jcs`. The canonicalizer
+Duplicate keys are not handled in `aitp::core::jcs`. The canonicalizer
 takes an already-parsed `serde_json::Value`, and by then `serde_json` has
 silently kept the last of any duplicate keys. `JcsError::DuplicateKey` is
 never constructed. Duplicates are rejected earlier, from the raw bytes, by
-`aitp_core::reject_duplicate_keys` (`crates/aitp-core/src/unknown_field.rs`).
+`aitp::core::reject_duplicate_keys` (`crates/aitp/src/core/unknown_field.rs`).
 That check runs at the wire-parse entry points, before any `Value`
-exists. Every `parse_*_wire` function takes an `aitp_core::CheckedJson`,
+exists. Every `parse_*_wire` function takes an `aitp::core::CheckedJson`,
 whose only constructors (`from_slice`, `FromStr`) run the check, so a
 caller cannot reach those parsers with unchecked input:
 
-- the JWS claim parsers in `aitp-tct` and `aitp-delegation`
-- HTTP request and response parsing in `aitp-transport-http`
+- the JWS claim parsers in `aitp::tct` and `aitp::delegation`
+- HTTP request and response parsing in `aitp::transport`
 - the session-bundle builder, on each participant TCT's claims
 - the NDJSON adapter
 - the Node and Python bindings' manifest, revocation, session-bundle and
@@ -56,14 +56,14 @@ caller cannot reach those parsers with unchecked input:
 
 [RFC-AITP-0001 §5.4.5](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#545-compact-jws-profile-portable-trust-artifacts)
 requires this check for JWS payloads. The language bindings also reach it
-for TCT claims, because they call `aitp_tct::verify_tct`.
+for TCT claims, because they call `aitp::tct::verify_tct`.
 
 ## Strategy: depend on `serde_jcs`, vet with test vectors
 
 We use the [`serde_jcs`](https://crates.io/crates/serde_jcs) crate as the
 backing implementation. It's based on the JCS reference and handles the
 ECMAScript number formatting via `ryu`. We keep our public API
-(`aitp_core::jcs::canonicalize`) thin enough to fork the backing
+(`aitp::core::jcs::canonicalize`) thin enough to fork the backing
 implementation later if needed.
 
 The contract we offer to the rest of the workspace is:
@@ -77,7 +77,7 @@ So our investment is in the **test vectors**, not the JCS implementation.
 
 <a id="layer-1-jcs-standard-vectors-testsjcs_standard_vectorsrs"></a>
 
-### Layer 1: JCS standard vectors (`crates/aitp-core/tests/jcs_standard_vectors.rs`)
+### Layer 1: JCS standard vectors (`crates/aitp/tests/core_jcs_standard_vectors.rs`)
 
 Hand-constructed cases for the edge conditions above. They are not copied
 from RFC 8785's examples. The `VECTORS` table, run by
@@ -107,7 +107,7 @@ UTF-8 bytes gets this wrong.
 **Discipline: never delete a test vector.** New edge cases are added; old
 ones stay forever.
 
-### Layer 2: AITP signing vectors (`crates/aitp-core/tests/kat.rs`)
+### Layer 2: AITP signing vectors (`crates/aitp/tests/core_kat.rs`)
 
 Take a known wire object, canonicalize it, hash it, and assert against a
 known-answer hash **pinned in the spec**, not against our own output.
@@ -154,7 +154,7 @@ The session-bundle placement is settled. An erratum in RFC-AITP-0010 §3
 corrected the schema and the `bundle-*` fixtures to the placement the RFC
 always specified: `signature` is a member of the inner body. `aitp-rs` rejects the old sibling shape,
 `{"session_bundle": …, "signature": …}`, with `SESSION_BUNDLE_INVALID`
-(`parse_session_bundle_wire` in `crates/aitp-session-bundle/src/wire.rs`;
+(`parse_session_bundle_wire` in `crates/aitp-experimental/src/session_bundle/wire.rs`;
 fixture `bundle-004`). That parser still accepts a bare, unwrapped body
 for library callers. The HTTP server does not: it uses
 `parse_session_bundle_envelope`, which rejects a bare body with
@@ -163,9 +163,9 @@ for library callers. The HTTP server does not: it uses
 Each artifact has exactly one function that defines its signing input.
 The signer, the verifier and the known-answer test all go through it:
 
-- `manifest_signing_bytes` (`crates/aitp-manifest/src/builder.rs`)
-- `revocation_signing_bytes` (`crates/aitp-tct/src/revocation.rs`)
-- `bundle_signing_bytes` (`crates/aitp-session-bundle/src/builder.rs`)
+- `manifest_signing_bytes` (`crates/aitp/src/manifest/builder.rs`)
+- `revocation_signing_bytes` (`crates/aitp/src/tct/revocation.rs`)
+- `bundle_signing_bytes` (`crates/aitp-experimental/src/session_bundle/builder.rs`)
 
 Reconstructing the signing input at a call site is how a signer and
 its own verifier drift apart.
@@ -179,10 +179,10 @@ In **AITP v0.3** JCS only governs the protocol-internal artifacts, so we
 pin the jcs-sha256 KAT for the **JCS-profile** types: Manifest,
 revocation snapshot and session bundle. The envelope is JCS-profile too:
 its signing input is `"aitp-envelope-v2" || 0x00 || JCS(envelope minus
-signature)` (RFC-AITP-0001 §5.4, `aitp_core::envelope_signing_input`),
+signature)` (RFC-AITP-0001 §5.4, `aitp::core::envelope_signing_input`),
 pinned by the spec's `signed-examples/envelope/` artifacts rather than a
 jcs-sha256 vector. Vectors for all three declare
-`signing_input: "body"`, and `crates/aitp-core/tests/kat.rs` asserts that
+`signing_input: "body"`, and `crates/aitp/tests/core_kat.rs` asserts that
 declaration rather than inferring the shape — see
 [testing.md](testing.md) for why that distinction matters. The v0.1 TCT and delegation JCS
 vectors are **retired** — those artifacts are now compact JWS strings
@@ -194,7 +194,7 @@ profile boundary.
 
 <a id="layer-3-property-tests-testsjcs_propertiesrs"></a>
 
-### Layer 3: Property tests (`crates/aitp-core/tests/jcs_properties.rs`)
+### Layer 3: Property tests (`crates/aitp/tests/core_jcs_properties.rs`)
 
 Three properties:
 
@@ -217,7 +217,7 @@ it. These are responsibilities of the protocol layer:
 `extensions` MUST NOT collapse onto the same wire shape or the two round
 trips would canonicalize to different bytes for the same logical value —
 or worse, silently normalize one into the other and invalidate a
-signature. Every `extensions` field across the protocol crates
+signature. Every `extensions` field across the protocol modules
 (`AitpEnvelope`, `Manifest`, `RevocationList`, `SessionTrustBundle`, the
 four handshake payloads, and the `IdentityDescriptor` nested inside the
 `mutual_hello` / `mutual_hello_ack` payloads) is therefore modeled as
@@ -239,7 +239,7 @@ JCS-profile signed type (Manifest, revocation snapshot, the session-bundle
 outer signature). The compact-JWS artifacts (TCT, grant voucher, delegation
 token) do **not** use this pattern — they have no embedded `signature`
 field; the signature is the third compact-JWS segment, computed over the
-`header.payload` bytes (see `crates/aitp-tct/src/` for the JWS minting
+`header.payload` bytes (see `crates/aitp/src/tct/` for the JWS minting
 path).
 
 ## Why we may fork `serde_jcs` later
@@ -252,4 +252,4 @@ Risks with our current dependency:
 
 If we hit a correctness issue we can't fix upstream, we vendor `serde_jcs`
 into the workspace as `crates/aitp-jcs/`. Our public API
-(`aitp_core::jcs::canonicalize`) does not change.
+(`aitp::core::jcs::canonicalize`) does not change.

@@ -150,10 +150,10 @@ done < <(sed -n '/"optionalDependencies"/,/}/p' bindings/aitp-node/package.json)
 #    "..."` line in the lockfile, unlike a registry/git dependency) at
 #    the workspace version. `scripts/sync-binding-versions.sh` is the
 #    writer that keeps this in sync; this is the matching reader.
-extract_binding_lock_versions() { # $1 = path to a binding's Cargo.lock; emits "name<TAB>version" per aitp-* path package
+extract_binding_lock_versions() { # $1 = path to a binding's Cargo.lock; emits "name<TAB>version" per aitp or aitp-* path package
   awk '
     function flush() {
-      if (name ~ /^aitp-/ && !has_source) print name "\t" version
+      if (name ~ /^aitp(-|$)/ && !has_source) print name "\t" version
     }
     /^\[\[package\]\]/ { flush(); name = ""; version = ""; has_source = 0; next }
     /^name = "/ { name = $0; sub(/^name = "/, "", name); sub(/".*/, "", name) }

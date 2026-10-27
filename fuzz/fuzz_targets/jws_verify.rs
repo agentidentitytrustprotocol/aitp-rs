@@ -1,6 +1,6 @@
 #![no_main]
 
-//! Fuzz target: compact-JWS verification (`aitp_crypto::jws::verify_compact`).
+//! Fuzz target: compact-JWS verification (`aitp::crypto::jws::verify_compact`).
 //!
 //! The JWS profile is the load-bearing anti-forgery boundary
 //! (RFC-AITP-0001 §5.4.5): strict 3-segment parse, exact `{alg, typ}`
@@ -12,7 +12,7 @@
 
 use libfuzzer_sys::fuzz_target;
 
-use aitp_crypto::{jws, AitpSigningKey};
+use aitp::crypto::{jws, AitpSigningKey};
 
 fuzz_target!(|data: &[u8]| {
     // Fixed, deterministic signer AIDs — one per suite — so the target

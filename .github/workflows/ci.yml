@@ -75,14 +75,32 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
-      # aitp-rs#205 A-2: `source-ip` must build alone and stay free of
-      # axum/tokio so services on another HTTP stack can use it.
-      - name: clippy + dependency check — aitp-transport-http `source-ip` alone
-        run: |
-          cargo clippy -p aitp-transport-http --all-targets --no-default-features --features source-ip -- -D warnings
-          if cargo tree -p aitp-transport-http --no-default-features --features source-ip -e normal --prefix none | grep -E '^(axum|tokio|hyper) '; then
-            echo "::error::feature source-ip pulled in a server dependency"; exit 1
-          fi
+
+  # Every feature of the published library crates builds, lints and
+  # passes its tests on its own: no features, each feature alone, and all
+  # features (`cargo hack --each-feature`). The feature sets that promise
+  # a small dependency graph keep it (scripts/check-dep-surface.sh).
+  features:
+    name: feature matrix
+    needs: changes
+    if: needs.changes.outputs.rust == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master (stable)
+        with:
+          toolchain: stable
+          components: clippy
+      - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+      - uses: taiki-e/install-action@ba47c86ac325773530516bb756137ac718732518 # v2
+        with:
+          tool: cargo-hack
+      - name: dependency surface
+        run: scripts/check-dep-surface.sh
+      - name: clippy, each feature
+        run: cargo hack clippy -p aitp -p aitp-experimental --each-feature --all-targets -- -D warnings
+      - name: test, each feature
+        run: cargo hack test -p aitp -p aitp-experimental --each-feature
 
   bindings-lint:
     name: bindings fmt + clippy
@@ -293,7 +311,7 @@ jobs:
         with:
           toolchain: stable
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-      - run: cargo bench -p aitp-core -p aitp-crypto -p aitp-tct --no-run
+      - run: cargo bench -p aitp --no-run
 
   coverage:
     name: coverage (tarpaulin)
@@ -319,7 +337,7 @@ jobs:
         # produces test artifacts — bin targets that aren't a direct
         # test dep aren't built. Build it explicitly so the 12 runner
         # integration tests don't panic in adapter_path().
-        run: cargo build -p aitp-rs-adapter
+        run: cargo build -p aitp-conformance --bin aitp-rs-adapter
       - name: Run coverage with floor
         # Tarpaulin's --fail-under <pct> exits non-zero if total
         # workspace coverage drops below that threshold.
@@ -401,8 +419,9 @@ jobs:
       #
       # It proves the VECTORS are self-consistent; it can never prove
       # aitp-rs signs the right bytes. The Rust KATs and their negatives
-      # (crates/aitp-core/tests/kat.rs, aitp-tct, aitp-session-bundle,
-      # aitp-manifest) are what cover that half.
+      # (crates/aitp/tests/{core,tct,manifest}_*kat*.rs and
+      # crates/aitp-experimental/tests/session_bundle_*kat*.rs) are what
+      # cover that half.
       - name: Run the spec's own known-answer verifier
         working-directory: aitp-rs
         run: |
@@ -444,7 +463,7 @@ jobs:
           workspaces: aitp-rs
       - name: Build adapter + runner
         working-directory: aitp-rs
-        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+        run: cargo build -p aitp-conformance
       - name: No minting companion reaches the adapter (whole corpus)
         working-directory: aitp-rs
         # Walks every op request the runner sends, at every depth, for
@@ -611,7 +630,7 @@ jobs:
           chmod +x vpy-adapter
       - name: Build adapter + runner
         working-directory: aitp-rs
-        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+        run: cargo build -p aitp-conformance
       # Core profile, no features, for both. The runner exits non-zero on
       # any FAIL; the comparison below is the gate, so it runs either way.
       - name: Run the fixtures against both adapters
@@ -702,7 +721,7 @@ jobs:
             | node ../aitp-verifier-ts/scripts/xcheck-verify.mjs
       - name: Build adapter + runner
         working-directory: aitp-rs
-        run: cargo build -p aitp-rs-adapter -p aitp-conformance
+        run: cargo build -p aitp-conformance
       # Core profile, no features, for both. The comparison below is the
       # gate, so the runs never fail the step themselves.
       - name: Run the fixtures against both adapters
@@ -752,17 +771,15 @@ jobs:
           targets: wasm32-wasip1
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
       # Guards the "pure crates stay portable" invariant: no native-only
-      # syscall dependency may creep into the sync verify/protocol crates.
+      # syscall dependency may creep into the protocol modules (everything
+      # in `aitp` without the HTTP features) or `aitp-experimental`.
       # Target is wasm32-wasip1 (has a randomness source). Full browser
       # wasm32-unknown-unknown additionally needs a uuid rng feature —
       # tracked as a gated decision in plans/defered/deferred.md.
-      - name: cargo check --target wasm32-wasip1 (pure crates)
+      - name: cargo check --target wasm32-wasip1 (no HTTP features)
         run: |
-          for c in aitp-core aitp-crypto aitp-envelope aitp-manifest \
-                   aitp-tct aitp-delegation aitp-session-bundle; do
-            echo "== $c =="
-            cargo check -p "$c" --target wasm32-wasip1
-          done
+          cargo check -p aitp --no-default-features --features pinned-admission --target wasm32-wasip1
+          cargo check -p aitp-experimental --target wasm32-wasip1
 
   e2e-llm-build:
     name: tier-3 e2e build (no API calls)

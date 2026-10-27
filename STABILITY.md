@@ -5,14 +5,15 @@ that promise is, and how CI enforces it.
 
 ## The `aitp` crate follows semver
 
-The [`aitp`](crates/aitp) facade is the supported way to use this
+The [`aitp`](crates/aitp) crate is the supported way to use this
 implementation. Its stable surface consists of:
 
 - every item frozen, with its signature, in
   [`crates/aitp/public-api.stable.txt`](crates/aitp/public-api.stable.txt);
-- the `http-client`, `http-server` and `all` features.
+- the `http-client`, `http-server`, `source-ip`, `pinned-admission`,
+  `metrics` and `all` features.
 
-It is outside the experimental modules listed below. That surface has
+It is outside the unstable features listed below. That surface has
 followed [semver](https://semver.org/) since 0.20.
 
 While aitp-rs is pre-1.0:
@@ -24,8 +25,9 @@ While aitp-rs is pre-1.0:
 
 At 1.0 the usual rules take over, with breaking changes in a major release.
 
-All published crates ship in lockstep at one shared version, so a breaking
-change anywhere in the stable surface bumps the minor digit of every crate.
+The published crates (`aitp`, `aitp-experimental` and `aitp-cli`) ship in
+lockstep at one shared version, so a breaking change anywhere in the stable
+surface bumps the minor digit of every crate.
 Every breaking release lists its breaks under `### BREAKING` in
 [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -37,24 +39,26 @@ is set by the spec, not by this crate's version.
 
 ## No promise
 
-- **Internal crates.** These are `aitp-core`, `aitp-crypto`, `aitp-tct`,
+- **`aitp-experimental`.** Session Trust Bundles
+  (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft) and their
+  HTTP endpoint (feature `http-server`). The crate tracks Draft spec text
+  and can change or lose items in any release, including a patch.
+- **Unstable features of `aitp`.** These are `experimental-renewal`
+  (`facade::renew_tct`, `TctStore::needs_refresh` and the `tct` renewal
+  items), `experimental-spiffe-identity` (`handshake::identity_spiffe`),
+  `client-spki-pinning` and `test-util` (`crypto::testing`). Any feature
+  named `experimental-*` belongs here. They can change or disappear in any
+  release.
+- **The retired crates.** `aitp-core`, `aitp-crypto`, `aitp-tct`,
   `aitp-manifest`, `aitp-handshake`, `aitp-delegation`, `aitp-envelope`,
-  `aitp-session-bundle` and `aitp-transport-http`. They are published so the
-  bindings and tools can build on them. Their APIs can change in any release,
-  including a patch. Depend on `aitp` instead.
-- **Experimental modules of `aitp`.** These are `session_bundle` (feature
-  `experimental-session-bundle`), `handshake::identity_spiffe`
-  (`experimental-spiffe-identity`), `handshake::admission`
-  (`pinned-admission`), and `facade::renew_tct` and
-  `TctStore::needs_refresh` (`experimental-renewal`).
-  Any feature named `experimental-*` belongs here. They track Draft or
-  Proposed spec text and can change or disappear in any release.
-- **`aitp-unstable`.** The name is reserved for an opt-in crate of
-  pre-release surface. Anything published under it carries no promise.
+  `aitp-session-bundle` and `aitp-transport-http` are now modules of `aitp`
+  (and `aitp-experimental`). Their last release is 0.23; they get no new
+  APIs.
 - **`aitp-cli`.** The CLI's flags and output are documented in
   [`docs/cli.md`](docs/cli.md), but they are not covered by this policy.
-- **`aitp-conformance` and `aitp-rs-adapter`.** These are test tooling and
-  are not published.
+- **`aitp-conformance`.** The conformance runner and the aitp-rs adapter
+  (`aitp_conformance::rs_adapter`, binary `aitp-rs-adapter`) are test
+  tooling and are not published.
 
 ## MSRV
 
@@ -73,17 +77,16 @@ leg and `cargo-msrv`).
 - **`cargo-semver-checks` is a required check**
   ([`semver.yml`](.github/workflows/semver.yml)). It compares each pull
   request with its base commit.
-  - On `aitp` it is **blocking**: a breaking change to the facade, built
-    with the stable features `http-client` and `http-server`, fails the
-    check.
+  - On `aitp` it is **blocking**: a breaking change to `aitp`, built with
+    the stable features `http-client`, `http-server`, `pinned-admission`
+    and `metrics`, fails the check.
   - The same job also compares the stable signature snapshot with the
     base commit's
     ([`scripts/public-api.py`](scripts/public-api.py) `breaks`). It is
-    **blocking**. cargo-semver-checks cannot see inside a type that the
-    facade re-exports from an internal crate, and this check can. It fails
+    **blocking**, and catches breaks cargo-semver-checks misses. It fails
     on a removed or changed line, and on a field or variant added to a
     struct or enum without `#[non_exhaustive]`.
-  - On the internal crates it is **advisory**: breaks are reported in the
+  - On `aitp-experimental` it is **advisory**: breaks are reported in the
     log and never fail the check.
 - **Approving an intentional break.** Add the `semver-break-approved` label
   to the pull request. The blocking step is then skipped. Instead the job
@@ -91,18 +94,22 @@ leg and `cargo-msrv`).
   section of `CHANGELOG.md`, checked by
   [`scripts/check-breaking-entry.sh`](scripts/check-breaking-entry.sh).
   The release that ships the break bumps the minor digit.
-- **`aitp public API snapshot`** fails on any change to the facade surface,
+- **`aitp public API snapshot`** fails on any change to the `aitp` surface,
   additive ones included, until the snapshots are regenerated with
   `make public-api`. Every surface change is therefore visible in the diff
   under review. There are two snapshots, both generated by
   [`scripts/public-api.py`](scripts/public-api.py):
   - [`public-api.stable.txt`](crates/aitp/public-api.stable.txt) covers the
-    default features plus `http-client` and `http-server`. Each item
-    re-exported from an internal crate is expanded into its signature,
-    fields, variants, methods and impls, under its `aitp` path.
+    stable features: every item with its signature, fields, variants,
+    methods and impls, at each public path. Generating it fails if a
+    stable signature names a type no public path reaches.
   - [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt)
-    lists what each experimental feature and `pinned-admission` adds to
-    the stable surface. It carries no promise, and changes to it never
-    count as breaks.
+    lists what each unstable feature adds to the stable surface. It
+    carries no promise, and changes to it never count as breaks.
+- **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
+  lints and tests `aitp` and `aitp-experimental` with each feature on its
+  own (`cargo hack --each-feature`), and
+  [`scripts/check-dep-surface.sh`](scripts/check-dep-surface.sh) checks
+  that `pinned-admission` and `source-ip` alone pull in no HTTP stack.
 
 Security fixes are covered separately, in [`SECURITY.md`](SECURITY.md).

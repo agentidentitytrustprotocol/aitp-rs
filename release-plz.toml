@@ -1,24 +1,13 @@
 # release-plz configuration.
 #
-# These crates are part of the Cargo workspace but must NOT be published
-# to crates.io — they mirror the CI `PUBLISH_EXCLUDE_CRATES` list in
-# .github/workflows/ci.yml. The conformance runner + adapter are internal
-# test harnesses and the mint-* tools and the example are binaries.
-# (`aitp-cli` is a binary too, but it IS published, so `cargo install
-# aitp-cli` works; it rides the lockstep `version_group` below.) Keep
-# this list and ci.yml's in sync.
+# Published: `aitp`, `aitp-experimental` and `aitp-cli` (a binary,
+# published so `cargo install aitp-cli` works). Everything else is test
+# tooling or an example and must NOT be published.
 #
-# NOTE: aitp-session-bundle is a draft RFC surface but it IS published —
-# `aitp` and `aitp-transport-http` carry an optional, versioned dependency
-# on it, and `cargo publish` requires every versioned dependency (optional
-# or not) to resolve on the crates.io index. Excluding it here blocked
-# those two crates from ever publishing. It stays opt-in for consumers via
-# the `experimental-session-bundle` feature.
-#
-# Crates whose own Cargo.toml sets `publish = false` (the adapter, the
-# example, and the mint-* tools) must ALSO set `publish = false` here, or
-# release-plz aborts with a "publish = false in Cargo.toml but publish =
-# true in the release-plz configuration" consistency error.
+# A crate whose own Cargo.toml sets `publish = false` must ALSO set
+# `publish = false` here, or release-plz aborts with a "publish = false in
+# Cargo.toml but publish = true in the release-plz configuration"
+# consistency error.
 
 [workspace]
 # Run cargo-semver-checks inside release-plz when computing the release
@@ -33,11 +22,9 @@ pr_labels = ["release"]
 # Create a GitHub Release (tag + notes) for each published version.
 git_release_enable = true
 
-# Lockstep versioning (force-full-republish). The aitp crates are one
-# library split across crates that must be consumed as a coherent set:
-# shared types flow across crate boundaries via aitp-core, and the
-# inter-crate deps pin the EXACT shared version (`=x.y.z` in each
-# Cargo.toml), so a fresh resolver cannot mix release generations.
+# Lockstep versioning (force-full-republish). `aitp-experimental` and
+# `aitp-cli` pin the EXACT `aitp` version (`=x.y.z`), so a fresh resolver
+# cannot mix release generations.
 # Putting every published member in one `version_group` makes release-plz
 # assign them all the same next version and bump the whole family together
 # — even crates with no changes this cycle — so crates.io never holds a
@@ -49,50 +36,16 @@ git_release_enable = true
 # acdp-rs release config.
 
 [[package]]
-name = "aitp-core"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-crypto"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-envelope"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-manifest"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-handshake"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-tct"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-delegation"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-session-bundle"
-version_group = "aitp"
-
-[[package]]
-name = "aitp-transport-http"
-version_group = "aitp"
-
-[[package]]
 name = "aitp"
 version_group = "aitp"
 
 [[package]]
-name = "aitp-conformance"
-release = false
-# Cargo.toml sets publish = false (path dep on the publish=false adapter), so
-# release-plz.toml must agree or it aborts with a consistency error.
+name = "aitp-experimental"
+version_group = "aitp"
+# Held back until the 0.24.0 release PR, which removes this line: released
+# before it, release-plz would publish aitp-experimental 0.23.0 against
+# the aitp 0.23.0 on crates.io, which has none of the modules it uses. A
+# new crate is otherwise published on the merge that adds it.
 publish = false
 
 [[package]]
@@ -100,7 +53,7 @@ name = "aitp-cli"
 version_group = "aitp"
 
 [[package]]
-name = "aitp-rs-adapter"
+name = "aitp-conformance"
 release = false
 publish = false
 

@@ -1,25 +1,25 @@
 //! High-level helpers (alpha.5 P15) — one-call drivers for the Mutual
 //! Handshake and TCT renewal flows.
 //!
-//! These wrap [`aitp_handshake`] + [`aitp_transport_http`] so callers
+//! These wrap [`crate::handshake`] + [`crate::transport`] so callers
 //! that don't need the per-step state machine can drive a full
 //! handshake from a Manifest URL in a single call.
 
-use aitp_core::{
+use crate::core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, MessageType, Timestamp,
 };
-use aitp_crypto::{AitpSigner, AitpVerifyingKey};
-use aitp_handshake::{
+use crate::crypto::{AitpSigner, AitpVerifyingKey};
+use crate::handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
 };
-use aitp_manifest::Manifest;
-use aitp_tct::VerifiedTct;
+use crate::manifest::Manifest;
+use crate::tct::VerifiedTct;
 #[cfg(feature = "experimental-renewal")]
-use aitp_tct::{build_renewal_request, TctRenewalPayload};
-use aitp_transport_http::{
+use crate::tct::{build_renewal_request, TctRenewalPayload};
+use crate::transport::{
     sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
     RevocationFetcher, RevocationPolicy,
 };
@@ -40,7 +40,7 @@ use uuid::Uuid;
 /// 0.14.0 removed the possession-only `UnsafeNoTrustEnforcement`
 /// variant (proposal agentidentitytrustprotocol#72, resolved
 /// 2026-10-16). Tests use [`TrustMode::PinnedKeys`] with a
-/// [`aitp_handshake::StaticPinnedKeyStore`].
+/// [`crate::handshake::StaticPinnedKeyStore`].
 pub enum TrustMode<'a> {
     /// Require all pinned-key peers to appear in this store.
     PinnedKeys(&'a dyn PinnedKeyStore),
@@ -48,9 +48,9 @@ pub enum TrustMode<'a> {
     /// with JWKS resolved by `jwks_resolver`.
     Oidc {
         /// Trust anchors (issuer URLs) the verifying peer accepts.
-        trust_anchors: &'a [aitp_core::RawUrl],
+        trust_anchors: &'a [crate::core::RawUrl],
         /// Resolver for issuer JWKS (typically a
-        /// [`aitp_transport_http::key_resolution::KeyResolutionPolicy`]).
+        /// [`crate::transport::key_resolution::KeyResolutionPolicy`]).
         jwks_resolver: &'a dyn JwksResolver,
     },
 }
@@ -169,8 +169,8 @@ impl JwksResolver for NoOpJwksResolver {
     fn resolve(
         &self,
         _issuer: &url::Url,
-    ) -> Result<Vec<aitp_handshake::JwkPublicKey>, aitp_handshake::ResolveError> {
-        Err(aitp_handshake::ResolveError::NetworkError(
+    ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError> {
+        Err(crate::handshake::ResolveError::NetworkError(
             "no JWKS resolver configured (TrustMode::PinnedKeys)".into(),
         ))
     }
@@ -184,7 +184,7 @@ impl JwksResolver for NoOpJwksResolver {
 #[derive(Debug, Clone)]
 pub struct SessionContext {
     /// Peer's AID — `held_tct.claims.iss == peer_aid`.
-    pub peer_aid: aitp_core::Aid,
+    pub peer_aid: crate::core::Aid,
     /// Peer's verifying key (for downstream PoP verification).
     pub peer_pubkey: AitpVerifyingKey,
     /// TCT the peer issued to us: forward `held_tct.token`, read
@@ -203,7 +203,7 @@ pub enum FacadeError {
     Manifest(#[from] FetchError),
     /// Handshake-level error.
     #[error("handshake failed: {0}")]
-    Handshake(#[from] aitp_handshake::HandshakeError),
+    Handshake(#[from] crate::handshake::HandshakeError),
     /// HTTP transport error — connection failure, non-AITP error
     /// status, wrong Content-Type, oversized body, or malformed JSON.
     #[error("HTTP error: {0}")]
@@ -225,13 +225,13 @@ pub enum FacadeError {
     Serde(#[from] serde_json::Error),
     /// Renewal-specific error.
     #[error("renewal failed: {0}")]
-    Renewal(#[from] aitp_tct::TctError),
+    Renewal(#[from] crate::tct::TctError),
     /// Manifest-level rejection (e.g.
-    /// [`aitp_manifest::ManifestError::IncompatibleIdentityType`] when
+    /// [`crate::manifest::ManifestError::IncompatibleIdentityType`] when
     /// the peer Manifest's `accepted_identity_types` doesn't include
     /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
     #[error("manifest verification: {0}")]
-    ManifestVerify(#[from] aitp_manifest::ManifestError),
+    ManifestVerify(#[from] crate::manifest::ManifestError),
     /// The issuer's Manifest advertises no usable
     /// `rfc-aitp-0005.renew_uri`, so it does not offer renewal. Run a
     /// full Mutual Handshake instead; RFC-AITP-0004 §8.1 forbids probing
@@ -507,11 +507,11 @@ pub async fn run_initiator_handshake(
     // here — right after the Manifest fetch, before the HELLO — yields
     // a cleaner error than letting the responder reject the HELLO.
     let presented_type = config.identity_mode.presented_type();
-    aitp_manifest::check_identity_type_compatibility(&peer_manifest, presented_type)?;
+    crate::manifest::check_identity_type_compatibility(&peer_manifest, presented_type)?;
     let no_op_resolver = NoOpJwksResolver;
-    let empty_anchors: &[aitp_core::RawUrl] = &[];
+    let empty_anchors: &[crate::core::RawUrl] = &[];
     let (trust_anchors, jwks_resolver, pinned_key_store): (
-        &[aitp_core::RawUrl],
+        &[crate::core::RawUrl],
         &dyn JwksResolver,
         &dyn PinnedKeyStore,
     ) = match &config.trust_mode {
@@ -530,9 +530,9 @@ pub async fn run_initiator_handshake(
     //
     // No TCT arrives before MUTUAL_COMMIT_ACK, so the steps before it
     // never consult the revocation source; COMMIT_ACK gets the real one.
-    let no_tct_yet = |_: &aitp_core::Aid, _: &Uuid| {
+    let no_tct_yet = |_: &crate::core::Aid, _: &Uuid| {
         Err(HandshakeError::Tct(
-            aitp_tct::TctError::RevocationUnavailable(
+            crate::tct::TctError::RevocationUnavailable(
                 "no revocation lookup before MUTUAL_COMMIT_ACK".into(),
             ),
         ))
@@ -543,7 +543,7 @@ pub async fn run_initiator_handshake(
             config.own_manifest,
             jwks_resolver,
             pinned_key_store,
-            aitp_handshake::RevocationSource::Check(&no_tct_yet),
+            crate::handshake::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
         .with_trust_anchors(trust_anchors)
@@ -682,13 +682,13 @@ pub async fn run_initiator_handshake(
             Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &aitp_core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
     let cfg = PeerConfig::new(
         config.signing_key,
         config.own_manifest,
         jwks_resolver,
         pinned_key_store,
-        aitp_handshake::RevocationSource::Check(&revocation_check),
+        crate::handshake::RevocationSource::Check(&revocation_check),
         Timestamp::now(),
     )
     .with_trust_anchors(trust_anchors);
@@ -863,7 +863,7 @@ impl<'a> InitiatorConfig<'a> {
     }
 
     /// Override the revocation policy (default `fail_closed`). Pass
-    /// [`RevocationFailMode::FailOpen`](aitp_transport_http::RevocationFailMode::FailOpen)
+    /// [`RevocationFailMode::FailOpen`](crate::transport::RevocationFailMode::FailOpen)
     /// to accept a peer whose revocation status cannot be determined.
     pub fn with_revocation_policy(mut self, policy: RevocationPolicy) -> Self {
         self.revocation_policy = policy;
@@ -895,7 +895,7 @@ pub struct RenewedTct {
 /// When the Manifest advertises no usable `renew_uri` this returns [`FacadeError::RenewalNotAdvertised`]
 /// without sending anything: run a full handshake instead (no guessed
 /// path is ever probed). Returns the freshly-issued [`RenewedTct`]. The
-/// caller SHOULD verify the new token with [`aitp_tct::verify_tct`]
+/// caller SHOULD verify the new token with [`crate::tct::verify_tct`]
 /// before storing it.
 ///
 /// Accepts any [`AitpSigner`] (in-process key, KMS, HSM); a backend
@@ -929,10 +929,9 @@ async fn renew_at_advertised_uri(
     issuer_manifest: &Manifest,
     allow_insecure_localhost: bool,
 ) -> Result<RenewedTct, FacadeError> {
-    let url =
-        aitp_transport_http::renew_uri_from_manifest(issuer_manifest, allow_insecure_localhost)
-            .ok_or(FacadeError::RenewalNotAdvertised)?;
-    let pop_nonce = aitp_core::base64url::encode(&rand_bytes_16());
+    let url = crate::transport::renew_uri_from_manifest(issuer_manifest, allow_insecure_localhost)
+        .ok_or(FacadeError::RenewalNotAdvertised)?;
+    let pop_nonce = crate::core::base64url::encode(&rand_bytes_16());
     let request: TctRenewalPayload = build_renewal_request(holder_key, current, pop_nonce)?;
 
     // SSRF-guard the peer-chosen renewal endpoint before the POST,
@@ -975,7 +974,7 @@ fn rand_bytes_16() -> [u8; 16] {
 /// share across tasks.
 #[derive(Clone)]
 pub struct TctStore {
-    inner: std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<aitp_core::Aid, Stored>>>,
+    inner: std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<crate::core::Aid, Stored>>>,
     refresh_threshold: f64,
 }
 
@@ -1024,13 +1023,13 @@ impl TctStore {
     }
 
     /// Fetch a stored TCT for `peer_aid`, if any.
-    pub fn get(&self, peer_aid: &aitp_core::Aid) -> Option<VerifiedTct> {
+    pub fn get(&self, peer_aid: &crate::core::Aid) -> Option<VerifiedTct> {
         self.inner.read().get(peer_aid).map(|s| s.tct.clone())
     }
 
     /// Fetch the stored grant voucher for `peer_aid`, if any was
     /// delivered with the TCT.
-    pub fn get_voucher(&self, peer_aid: &aitp_core::Aid) -> Option<String> {
+    pub fn get_voucher(&self, peer_aid: &crate::core::Aid) -> Option<String> {
         self.inner
             .read()
             .get(peer_aid)
@@ -1038,14 +1037,14 @@ impl TctStore {
     }
 
     /// Remove a stored TCT (e.g. after revocation).
-    pub fn remove(&self, peer_aid: &aitp_core::Aid) {
+    pub fn remove(&self, peer_aid: &crate::core::Aid) {
         self.inner.write().remove(peer_aid);
     }
 
     /// Whether the held TCT for `peer_aid` is approaching expiry and
     /// SHOULD be refreshed by the caller. Returns `false` when no TCT
     /// is stored.
-    pub fn needs_refresh(&self, peer_aid: &aitp_core::Aid, now: Timestamp) -> bool {
+    pub fn needs_refresh(&self, peer_aid: &crate::core::Aid, now: Timestamp) -> bool {
         let map = self.inner.read();
         let Some(entry) = map.get(peer_aid) else {
             return false;
@@ -1063,7 +1062,7 @@ impl TctStore {
 
     /// Snapshot of every stored peer AID (e.g. for a periodic refresh
     /// scan).
-    pub fn peer_aids(&self) -> Vec<aitp_core::Aid> {
+    pub fn peer_aids(&self) -> Vec<crate::core::Aid> {
         self.inner.read().keys().cloned().collect()
     }
 }
@@ -1071,8 +1070,8 @@ impl TctStore {
 #[cfg(test)]
 mod tct_store_tests {
     use super::*;
-    use aitp_crypto::AitpSigningKey;
-    use aitp_tct::TctBuilder;
+    use crate::crypto::AitpSigningKey;
+    use crate::tct::TctBuilder;
 
     fn build_tct(issued_at: Timestamp, ttl_secs: i64) -> (VerifiedTct, Option<String>) {
         let issuer = AitpSigningKey::from_seed(&[1u8; 32]);
@@ -1239,7 +1238,7 @@ mod facade_http_tests {
     /// before its unknown sibling member is looked at.
     #[test]
     fn previous_revision_response_envelope_is_unknown_version() {
-        let key = aitp_crypto::AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = crate::crypto::AitpSigningKey::from_seed(&[7u8; 32]);
         let env = sign_envelope_with(
             &key,
             MessageType::MutualHelloAck,
@@ -1275,15 +1274,15 @@ mod initiator_config_knobs {
     //! R6.1: `InitiatorConfig` transport knobs — HTTP timeout + SSRF
     //! guard — default sensibly and are overridable.
     use super::*;
-    use aitp_crypto::AitpSigningKey;
+    use crate::crypto::AitpSigningKey;
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
         let key = AitpSigningKey::from_seed(&[0x33; 32]);
-        let manifest = aitp_manifest::ManifestBuilder::new(&key)
+        let manifest = crate::manifest::ManifestBuilder::new(&key)
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
-            .identity_hint(aitp_manifest::IdentityHint {
-                kind: aitp_manifest::IdentityHintKind::PinnedKey,
+            .identity_hint(crate::manifest::IdentityHint {
+                kind: crate::manifest::IdentityHintKind::PinnedKey,
                 subject: "t".into(),
                 issuer: None,
                 public_key: Some(key.aid().identifier().to_string()),
@@ -1302,7 +1301,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::PinnedKeys(&aitp_handshake::NoPinnedKeys),
+            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },
@@ -1311,7 +1310,7 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(10));
         assert_eq!(
             cfg.host_guard.mode(),
-            aitp_transport_http::GuardMode::WarnPrivate
+            crate::transport::GuardMode::WarnPrivate
         );
     }
 
@@ -1322,7 +1321,7 @@ mod initiator_config_knobs {
             &key,
             &manifest,
             "https://peer.example.com".parse().unwrap(),
-            TrustMode::PinnedKeys(&aitp_handshake::NoPinnedKeys),
+            TrustMode::PinnedKeys(&crate::handshake::NoPinnedKeys),
             IdentityMode::PinnedKey {
                 subject: "t".into(),
             },
@@ -1333,7 +1332,7 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(3));
         assert_eq!(
             cfg.host_guard.mode(),
-            aitp_transport_http::GuardMode::DenyPrivate
+            crate::transport::GuardMode::DenyPrivate
         );
     }
 }

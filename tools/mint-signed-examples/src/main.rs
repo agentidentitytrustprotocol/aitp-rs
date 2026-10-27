@@ -15,11 +15,11 @@
 //!
 //! Closes BLOCKED-SPEC-EXAMPLE (agentidentitytrustprotocol#5).
 
-use aitp_core::{base64url, Aid, Timestamp, PROTOCOL_VERSION};
-use aitp_crypto::{jws, AitpSigningKey};
-use aitp_delegation::{DelegationBuilder, DelegationClaims};
-use aitp_manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
-use aitp_tct::{
+use aitp::core::{base64url, Aid, Timestamp, PROTOCOL_VERSION};
+use aitp::crypto::{jws, AitpSigningKey};
+use aitp::delegation::{DelegationBuilder, DelegationClaims};
+use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+use aitp::tct::{
     sign_revocation_list, GrantVoucherClaims, IssuedTct, RevocationEntry, RevocationList,
     TctBuilder,
 };
@@ -115,17 +115,17 @@ fn mint_manifest() {
     //  - manifest signature over `sha256(JCS(manifest sans signature))`.
     let challenge_bytes = base64url::decode_strict_exact::<16>(FIXED_MANIFEST_POP_CHALLENGE)
         .expect("pinned challenge decodes to 16 bytes");
-    manifest.proof_of_possession = aitp_manifest::ManifestPop {
+    manifest.proof_of_possession = aitp::manifest::ManifestPop {
         challenge: FIXED_MANIFEST_POP_CHALLENGE.into(),
         signature: key
-            .sign_jcs(&aitp_crypto::Digest32::sha256(&challenge_bytes))
+            .sign_jcs(&aitp::crypto::Digest32::sha256(&challenge_bytes))
             .into_string(),
     };
     let mut unsigned = serde_json::to_value(&manifest).expect("manifest to value");
     unsigned.as_object_mut().unwrap().remove("signature");
-    let canonical = aitp_core::jcs::canonicalize(&unsigned).expect("canonicalize manifest");
+    let canonical = aitp::core::jcs::canonicalize(&unsigned).expect("canonicalize manifest");
     manifest.signature = key
-        .sign_jcs(&aitp_crypto::Digest32::sha256(&canonical))
+        .sign_jcs(&aitp::crypto::Digest32::sha256(&canonical))
         .into_string();
 
     let env = ManifestEnvelope { manifest };

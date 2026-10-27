@@ -1,0 +1,41 @@
+[package]
+name = "aitp-experimental"
+description = "Agent Identity & Trust Protocol: experimental surface (Session Trust Bundles). No stability promise."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
+keywords.workspace = true
+categories.workspace = true
+homepage.workspace = true
+
+[features]
+default = []
+# `SessionBundleServer`, the RFC-AITP-0010 §4.3.1 HTTP endpoint. Turns on
+# `aitp/http-server`; nothing else here does, so depending on this crate
+# never forces the server onto `aitp`.
+http-server = ["aitp/http-server", "dep:axum", "dep:parking_lot", "dep:tracing"]
+
+[dependencies]
+aitp = { path = "../aitp", version = "=0.23.0", default-features = false }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+url = { workspace = true }
+uuid = { workspace = true }
+sha2 = { workspace = true }
+axum = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
+[dev-dependencies]
+aitp = { path = "../aitp", default-features = false, features = ["test-util"] }
+hex = { workspace = true }
+tokio = { workspace = true }
+axum = { workspace = true }
+tower = { workspace = true, features = ["util"] }
+
+[[test]]
+name = "session_bundle_endpoint"
+required-features = ["http-server"]

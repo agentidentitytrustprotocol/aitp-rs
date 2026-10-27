@@ -4,9 +4,9 @@
 
 use std::sync::Arc;
 
-use aitp_core::{Aid, Timestamp};
-use aitp_crypto::AitpSigningKey;
-use aitp_session_bundle::{
+use aitp::core::{Aid, Timestamp};
+use aitp::crypto::AitpSigningKey;
+use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
     SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
 };
@@ -35,7 +35,7 @@ pub struct JsBundleOutcome {
 /// from the coordinator's `AitpAgent`.
 ///
 /// The Rust struct is suffixed `Js` to avoid a name collision with the
-/// `aitp_session_bundle::SessionBundleBuilder` imported above; the
+/// `aitp_experimental::session_bundle::SessionBundleBuilder` imported above; the
 /// `#[napi(js_name)]` attribute exposes it to JavaScript under the
 /// plain name `SessionBundleBuilder` for parity with the Python SDK.
 #[napi(js_name = "SessionBundleBuilder")]

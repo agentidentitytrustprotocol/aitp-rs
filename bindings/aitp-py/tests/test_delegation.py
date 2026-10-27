@@ -224,7 +224,7 @@ def test_multihop_issuer_manifests_are_parsed():
 # ── Revocation (RFC-AITP-0006 §4 step 7, RFC-AITP-0011 §6) ───────────────
 #
 # The Rust core has always had `revocation_check` / `hop_revocation_check`
-# and tests them (`crates/aitp-delegation/tests/round_trip.rs`, `multihop.rs`,
+# and tests them (`crates/aitp/tests/delegation_round_trip.rs`, `delegation_multihop.rs`,
 # plus the `del-mh-004-revoked-hop` conformance fixture). What was missing was
 # any way to *reach* them from Python: both entry points built their context
 # with `VerifyDelegationContext::new`, which hardcodes both hooks to `None`,

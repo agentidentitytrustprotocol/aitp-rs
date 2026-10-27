@@ -10,8 +10,8 @@
 //! `kat-keypair-001`-anchored KAT vectors), so a re-mint of any
 //! fixture is byte-stable across runs and across implementations.
 
-use aitp_core::{base64url, jcs};
-use aitp_crypto::AitpSigningKey;
+use aitp::core::{base64url, jcs};
+use aitp::crypto::AitpSigningKey;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
@@ -292,7 +292,7 @@ impl RunnerContext {
 
     /// Mint one compact-JWS token per the PLACEHOLDERS.md recipe table.
     fn mint_jws(&self, kind: &str, claims: &Value) -> Option<String> {
-        use aitp_crypto::jws;
+        use aitp::crypto::jws;
         let typ = match kind {
             "__JWS_TCT__"
             | "__JWS_TCT_TAMPERED_SIG__"
@@ -311,7 +311,7 @@ impl RunnerContext {
         let claims = if claims.is_object() {
             claims.clone()
         } else {
-            serde_json::json!({ "ver": aitp_core::PROTOCOL_VERSION })
+            serde_json::json!({ "ver": aitp::core::PROTOCOL_VERSION })
         };
         let seed = claims
             .get("iss")
@@ -381,7 +381,7 @@ impl RunnerContext {
     /// uniform sibling source: use the fixture root's `self_aid` when
     /// present, else the same hardcoded fallback AID
     /// `verify_handshake_payload_op` itself falls back to
-    /// (`crates/aitp-rs-adapter/src/lib.rs`) — safe only because every
+    /// (`crates/aitp-conformance/src/rs_adapter/mod.rs`) — safe only because every
     /// fixture that omits `self_aid` never reaches JWT parsing (see the
     /// plan's per-fixture trace table); this is a documented convention
     /// duplication, not a spec mechanism.
@@ -429,8 +429,8 @@ impl RunnerContext {
             let subject = identity.get("subject")?.as_str()?;
             let nonce = map.get("pop_nonce")?.as_str()?;
             let manifest_aid = map.get("manifest")?.get("aid")?.as_str()?;
-            let subject_aid = aitp_core::Aid::parse(manifest_aid).ok()?;
-            let cnf_jkt = aitp_crypto::AitpVerifyingKey::from_aid(&subject_aid)
+            let subject_aid = aitp::core::Aid::parse(manifest_aid).ok()?;
+            let cnf_jkt = aitp::crypto::AitpVerifyingKey::from_aid(&subject_aid)
                 .ok()?
                 .to_jwk_thumbprint()
                 .ok()?;
@@ -504,7 +504,7 @@ impl RunnerContext {
                                     if wrong_input {
                                         complement(&mut bytes);
                                     }
-                                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
+                                    let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(&bytes));
                                     pop.insert("signature".into(), Value::from(sig.into_string()));
                                 }
                             }
@@ -542,7 +542,7 @@ impl RunnerContext {
                                 if wrong_input {
                                     complement(&mut nonce_bytes);
                                 }
-                                let pop_input = aitp_crypto::Digest32::sha256(&nonce_bytes);
+                                let pop_input = aitp::crypto::Digest32::sha256(&nonce_bytes);
                                 let key = map
                                     .get("tct_claims")
                                     .and_then(|c| c.get("iss"))
@@ -761,7 +761,7 @@ fn is_pinned_proof_placeholder(s: &str) -> bool {
 /// The RFC-AITP-0002 §3.1 proof input:
 /// `"aitp-pinned-key-v1" 0x00 sender 0x00 receiver 0x00 message_id 0x00
 /// timestamp 0x00 base64url_decode(pop_nonce)`. Built here, not borrowed
-/// from `aitp-handshake`, so the runner does not share the code under
+/// from `aitp::handshake`, so the runner does not share the code under
 /// test; `pinned_proof_input_reproduces_kat_001` pins it to the spec
 /// bytes.
 fn pinned_proof_input(
@@ -803,7 +803,7 @@ pub(super) fn handshake_proof_input(
 
 /// A §3.1-style signature by `key`: `sign_jcs` over `SHA-256(input)`.
 fn sign_pinned_input(key: &AitpSigningKey, input: &[u8]) -> String {
-    let digest = aitp_crypto::Digest32::sha256(input);
+    let digest = aitp::crypto::Digest32::sha256(input);
     key.sign_jcs(&digest).into_string()
 }
 
@@ -1024,7 +1024,7 @@ fn sign_generic_body(key: &AitpSigningKey, map: &serde_json::Map<String, Value>)
         _ => body,
     };
     let canonical = jcs::canonicalize(&body).ok()?;
-    let digest = aitp_crypto::Digest32::sha256(&canonical);
+    let digest = aitp::crypto::Digest32::sha256(&canonical);
     Some(key.sign_jcs(&digest).into_string())
 }
 
@@ -1051,7 +1051,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
                 sender_key.as_ref(),
             ) {
                 if let Ok(bytes) = base64url::decode_strict(&echo) {
-                    let sig = key.sign_jcs(&aitp_crypto::Digest32::sha256(&bytes));
+                    let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(&bytes));
                     payload_obj.insert("pop_signature".into(), Value::from(sig.into_string()));
                 }
             }
@@ -1068,17 +1068,17 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     unsigned.remove("signature");
     unsigned.insert("payload".into(), payload);
     let canonical = jcs::canonicalize(&Value::Object(unsigned)).ok()?;
-    let mut signing_input = aitp_core::ENVELOPE_SIGNING_DOMAIN_TAG.to_vec();
+    let mut signing_input = aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG.to_vec();
     signing_input.push(0x00);
     signing_input.extend_from_slice(&canonical);
     // Unknown sender AIDs get a syntactically valid filler signed by
     // kp-001; no fixture reaches the envelope signature with one.
     let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_seed(&[0u8; 32]));
     // The Ed25519/ES256 message is `d = sha256(sig_input_v2)`
-    // (aitp_core::envelope_signing_digest), hashed once, never the raw
+    // (aitp::core::envelope_signing_digest), hashed once, never the raw
     // input bytes.
     Some(
-        key.sign_jcs(&aitp_crypto::Digest32::sha256(&signing_input))
+        key.sign_jcs(&aitp::crypto::Digest32::sha256(&signing_input))
             .into_string(),
     )
 }
@@ -1151,7 +1151,7 @@ fn oidc_test_issuer_seed() -> [u8; 32] {
 
 /// `aud` fallback for a minted `__VALID_JWT__` when the fixture omits
 /// `self_aid` at its root — mirrors
-/// `crates/aitp-rs-adapter/src/lib.rs`'s `verify_handshake_payload_op`
+/// `crates/aitp-conformance/src/rs_adapter/mod.rs`'s `verify_handshake_payload_op`
 /// hardcoded fallback AID. Only safe because every fixture that omits
 /// `self_aid` never reaches JWT parsing (the plan's Phase 5 trace
 /// table) — an imprecise `aud` on their minted-but-unverified JWT is
@@ -1162,8 +1162,8 @@ const OIDC_TEST_ADAPTER_FALLBACK_AUD: &str =
     "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
 
 /// Mint an OIDC-profile JWT (RFC-AITP-0002 §2) acceptable to
-/// `aitp_handshake::identity_oidc::verify_oidc`. Ported from
-/// `crates/aitp-handshake/tests/fixtures/mock_oidc.rs`'s
+/// `aitp::handshake::identity_oidc::verify_oidc`. Ported from
+/// `crates/aitp/tests/handshake_fixtures/mock_oidc.rs`'s
 /// `MockOidcIssuer::mint_jwt`/`mint_aitp_jwt` (test-only there,
 /// unreachable from this crate as a module import) — same hand-built
 /// three-segment compact JWT, plain (non-JCS) JSON, no `kid` in the
@@ -1286,8 +1286,8 @@ mod tests {
         for v in doc["vectors"].as_array().unwrap() {
             let aid = v["aid"].as_str().unwrap();
             let key = kat_key_for_aid(aid).unwrap_or_else(|| panic!("{aid}: no key"));
-            let published = aitp_core::Aid::parse(aid).unwrap();
-            let published = aitp_crypto::AitpVerifyingKey::from_aid(&published).unwrap();
+            let published = aitp::core::Aid::parse(aid).unwrap();
+            let published = aitp::crypto::AitpVerifyingKey::from_aid(&published).unwrap();
             assert!(key.verifying_key() == published, "{aid}: key mismatch");
         }
     }
@@ -1384,8 +1384,8 @@ mod tests {
             "AAAAAAAAAAAAAAAAAAAAAA",
         )
         .unwrap();
-        let true_digest = aitp_crypto::Digest32::sha256(&true_input);
-        let good = aitp_crypto::Signature::parse(&sign_pinned_input(&key, &true_input)).unwrap();
+        let true_digest = aitp::crypto::Digest32::sha256(&true_input);
+        let good = aitp::crypto::Signature::parse(&sign_pinned_input(&key, &true_input)).unwrap();
         vk.verify_jcs(&true_digest, &good).unwrap();
 
         for placeholder in [
@@ -1404,7 +1404,7 @@ mod tests {
             let proof = v["envelope"]["payload"]["identity"]["proof"]
                 .as_str()
                 .unwrap();
-            let sig = aitp_crypto::Signature::parse(proof)
+            let sig = aitp::crypto::Signature::parse(proof)
                 .unwrap_or_else(|e| panic!("{placeholder} minted {proof}: {e}"));
             assert!(
                 vk.verify_jcs(&true_digest, &sig).is_err(),
@@ -1425,13 +1425,13 @@ mod tests {
             &other_pop_nonce("AAAAAAAAAAAAAAAAAAAAAA").unwrap(),
         )
         .unwrap();
-        let sig = aitp_crypto::Signature::parse(
+        let sig = aitp::crypto::Signature::parse(
             v["envelope"]["payload"]["identity"]["proof"]
                 .as_str()
                 .unwrap(),
         )
         .unwrap();
-        vk.verify_jcs(&aitp_crypto::Digest32::sha256(&wrong), &sig)
+        vk.verify_jcs(&aitp::crypto::Digest32::sha256(&wrong), &sig)
             .expect("signed over the envelope tuple with the other nonce");
     }
 
@@ -1511,13 +1511,13 @@ mod tests {
         let vk = kat_key_for_aid(SELF_AID).unwrap().verifying_key();
         let check = |b64: &str, sig: &str| {
             let mut bytes = base64url::decode_strict(b64).unwrap();
-            let sig = aitp_crypto::Signature::parse(sig).unwrap();
+            let sig = aitp::crypto::Signature::parse(sig).unwrap();
             let right = vk
-                .verify_jcs(&aitp_crypto::Digest32::sha256(&bytes), &sig)
+                .verify_jcs(&aitp::crypto::Digest32::sha256(&bytes), &sig)
                 .is_ok();
             complement(&mut bytes);
             let wrong = vk
-                .verify_jcs(&aitp_crypto::Digest32::sha256(&bytes), &sig)
+                .verify_jcs(&aitp::crypto::Digest32::sha256(&bytes), &sig)
                 .is_ok();
             (right, wrong)
         };
@@ -1563,7 +1563,7 @@ mod tests {
             &v["delegation"]["chain"][0]["signature"],
             &v["delegation"]["signature"],
         ] {
-            aitp_crypto::Signature::parse(sig.as_str().unwrap()).unwrap();
+            aitp::crypto::Signature::parse(sig.as_str().unwrap()).unwrap();
         }
     }
 
@@ -1690,8 +1690,8 @@ mod tests {
         // `signature: "__VALID_*_SIG__"` field. The runner signs
         // the body (excluding `signature`) with kp-001 and replaces
         // the placeholder with a real Ed25519 signature.
-        use aitp_core::base64url;
-        use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+        use aitp::core::base64url;
+        use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.3",
@@ -1703,11 +1703,11 @@ mod tests {
         // The signature must verify against kp-001.
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
-        let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = aitp_crypto::Digest32::sha256(&canon);
+        let canon = aitp::core::jcs::canonicalize(&body).unwrap();
+        let digest = aitp::crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
-        let sig = aitp_crypto::Signature::parse(&sig_b64).unwrap();
+        let sig = aitp::crypto::Signature::parse(&sig_b64).unwrap();
         pubkey
             .verify_jcs(&digest, &sig)
             .expect("signature verifies");
@@ -1723,7 +1723,7 @@ mod tests {
         // `verify_strict()` — that's precisely what `rev-004` needs
         // to reach the crypto layer instead of bouncing at the
         // base64url parser.
-        use aitp_crypto::{AitpSigningKey, AitpVerifyingKey};
+        use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
         let mut ctx = RunnerContext::new();
         let mut v = json!({
             "version": "aitp/0.3",
@@ -1734,14 +1734,14 @@ mod tests {
         let sig_b64 = v["signature"].as_str().unwrap().to_string();
 
         // Syntactically valid base64url signature (parses cleanly).
-        let sig = aitp_crypto::Signature::parse(&sig_b64).expect("parses as base64url sig");
+        let sig = aitp::crypto::Signature::parse(&sig_b64).expect("parses as base64url sig");
 
         // But fails Ed25519 verify_strict() under kp-001 (the key
         // that signed before the tamper).
         let mut body = v.clone();
         body.as_object_mut().unwrap().remove("signature");
-        let canon = aitp_core::jcs::canonicalize(&body).unwrap();
-        let digest = aitp_crypto::Digest32::sha256(&canon);
+        let canon = aitp::core::jcs::canonicalize(&body).unwrap();
+        let digest = aitp::crypto::Digest32::sha256(&canon);
         let key = AitpSigningKey::from_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         assert!(
@@ -1765,7 +1765,7 @@ mod tests {
         let sig_b64 = v["signature"].as_str().unwrap();
         assert_eq!(sig_b64.len(), 86, "Ed25519 sig is 86 base64url chars");
         assert!(
-            aitp_crypto::Signature::parse(sig_b64).is_ok(),
+            aitp::crypto::Signature::parse(sig_b64).is_ok(),
             "tampered sig must remain syntactically valid base64url"
         );
     }
@@ -1849,7 +1849,7 @@ mod tests {
         assert_eq!(claims["iat"], json!(ctx.now));
         assert_eq!(claims["exp"], json!(ctx.now + 3600));
         let expected_jkt =
-            aitp_crypto::AitpVerifyingKey::from_aid(&aitp_core::Aid::parse(KP_001_AID).unwrap())
+            aitp::crypto::AitpVerifyingKey::from_aid(&aitp::core::Aid::parse(KP_001_AID).unwrap())
                 .unwrap()
                 .to_jwk_thumbprint()
                 .unwrap();
@@ -1859,7 +1859,7 @@ mod tests {
         // test issuer's key (same signer `OidcTestIssuerResolver` in
         // `aitp-rs-adapter` resolves for `OIDC_TEST_ISSUER`).
         let signing_input = format!("{}.{}", segments[0], segments[1]);
-        let sig = aitp_crypto::Signature::parse(segments[2]).unwrap();
+        let sig = aitp::crypto::Signature::parse(segments[2]).unwrap();
         let issuer_key = AitpSigningKey::from_seed(&oidc_test_issuer_seed());
         issuer_key
             .verifying_key()
@@ -1975,13 +1975,13 @@ mod tests {
         let proof = envelope["payload"]["identity"]["proof"].as_str().unwrap();
         assert_ne!(proof, "__VALID_JWT__", "must have been minted already");
 
-        let sender_aid = aitp_core::Aid::parse(KP_001_AID).unwrap();
-        let typed: aitp_core::AitpEnvelope = serde_json::from_value(envelope.clone()).unwrap();
+        let sender_aid = aitp::core::Aid::parse(KP_001_AID).unwrap();
+        let typed: aitp::core::AitpEnvelope = serde_json::from_value(envelope.clone()).unwrap();
         assert_eq!(typed.message_id, message_id);
-        let digest = aitp_core::envelope_signing_digest(&typed).unwrap();
+        let digest = aitp::core::envelope_signing_digest(&typed).unwrap();
         let sig_b64 = envelope["signature"].as_str().unwrap();
-        let sig = aitp_crypto::Signature::parse(sig_b64).unwrap();
-        let pubkey = aitp_crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();
+        let sig = aitp::crypto::Signature::parse(sig_b64).unwrap();
+        let pubkey = aitp::crypto::AitpVerifyingKey::from_aid(&sender_aid).unwrap();
         pubkey.verify_jcs(&digest.into(), &sig).expect(
             "envelope signature must verify over the post-JWT-minting payload bytes \
              (proves the minting pass ran before the signature pass, not after)",

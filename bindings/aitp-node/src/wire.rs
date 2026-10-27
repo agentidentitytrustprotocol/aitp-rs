@@ -2,7 +2,7 @@
 //! peer's JSON (issue #152).
 //!
 //! Each function here routes the caller's text through
-//! [`aitp_core::CheckedJson`] (duplicate-key rejection, RFC-AITP-0001
+//! [`aitp::core::CheckedJson`] (duplicate-key rejection, RFC-AITP-0001
 //! §5.4.5) and then the matching `parse_*_wire` function (member-set
 //! check, RFC-AITP-0001 §7), the same path the HTTP transport and the
 //! conformance adapter use. A plain `serde_json::from_str` on the typed
@@ -14,12 +14,12 @@
 //! [`WireError::code`] is the cause code used where a binding exposes one.
 //! This file is kept identical in `aitp-node` and `aitp-py`.
 
-use aitp_core::{
+use aitp::core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError,
 };
-use aitp_manifest::{parse_manifest_wire, Manifest, ManifestError};
-use aitp_tct::{parse_revocation_snapshot_wire, RevocationListEnvelope, TctError};
+use aitp::manifest::{parse_manifest_wire, Manifest, ManifestError};
+use aitp::tct::{parse_revocation_snapshot_wire, RevocationListEnvelope, TctError};
 
 /// Why wire JSON was rejected before any verification ran.
 #[derive(Debug)]
@@ -61,7 +61,7 @@ impl std::fmt::Display for WireError {
 /// Parse `json`, rejecting a duplicate key anywhere in it.
 fn checked(json: &str) -> Result<CheckedJson, WireError> {
     json.parse()
-        .map_err(|e: aitp_core::CheckedJsonError| WireError::Malformed(e.to_string()))
+        .map_err(|e: aitp::core::CheckedJsonError| WireError::Malformed(e.to_string()))
 }
 
 /// Require the `{"<key>": {...}}` transport wrapper. The `parse_*_wire`
@@ -125,8 +125,10 @@ pub fn revocation_snapshot(json: &str) -> Result<RevocationListEnvelope, WireErr
 
 /// The bundle inside a `{"session_bundle": {...}}` wire envelope.
 #[cfg(feature = "session-bundle")]
-pub fn session_bundle(json: &str) -> Result<aitp_session_bundle::SessionTrustBundle, WireError> {
-    use aitp_session_bundle::{parse_session_bundle_wire, SessionBundleError};
+pub fn session_bundle(
+    json: &str,
+) -> Result<aitp_experimental::session_bundle::SessionTrustBundle, WireError> {
+    use aitp_experimental::session_bundle::{parse_session_bundle_wire, SessionBundleError};
     let value = checked(json)?;
     require_wrapper(&value, "session_bundle")?;
     parse_session_bundle_wire(&value).map_err(|e| match e {
