@@ -22,7 +22,9 @@
       "x86_64-apple-darwin",
       "aarch64-apple-darwin",
       "x86_64-unknown-linux-gnu",
-      "aarch64-unknown-linux-gnu"
+      "aarch64-unknown-linux-gnu",
+      "x86_64-unknown-linux-musl",
+      "aarch64-unknown-linux-musl"
     ]
   },
   "scripts": {
@@ -42,7 +44,7 @@
     "node-forge": "^1.4.0"
   },
   "engines": {
-    "node": ">=16"
+    "node": ">=20"
   },
   "publishConfig": {
     "access": "public",
@@ -52,6 +54,8 @@
     "@agentidentitytrustprotocol/aitp-darwin-x64": "0.23.0",
     "@agentidentitytrustprotocol/aitp-darwin-arm64": "0.23.0",
     "@agentidentitytrustprotocol/aitp-linux-x64-gnu": "0.23.0",
-    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.23.0"
+    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.23.0",
+    "@agentidentitytrustprotocol/aitp-linux-x64-musl": "0.23.0",
+    "@agentidentitytrustprotocol/aitp-linux-arm64-musl": "0.23.0"
   }
 }

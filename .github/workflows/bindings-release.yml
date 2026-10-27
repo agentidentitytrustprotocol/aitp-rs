@@ -12,9 +12,16 @@ name: bindings-release
 # package (`@agentidentitytrustprotocol/aitp`) via `napi prepublish` and
 # `npm publish`.
 #
-# Built with default features, which ship the full capability surface
-# (renewal, session bundles, SPKI pinning, multi-hop delegation). For a
-# minimal `.node`, add `--no-default-features` to the `napi build` steps.
+# Built with default features: the stable surface plus SPKI pinning. The
+# experimental features are not published (STABILITY.md).
+#
+# Targets: macOS x86_64/arm64, Linux glibc x86_64/arm64 and Linux musl
+# x86_64/arm64. The musl addons are built natively in an Alpine container
+# on the matching runner. Windows is built on demand only (STABILITY.md).
+#
+# On a pull request touching the binding, the workflow is a dry run: it
+# builds and smoke-tests every target and assembles the npm package dirs,
+# and publishes nothing.
 #
 # Requires repo secret `NPM_TOKEN`: an npm automation token with publish
 # rights to the `@agentidentitytrustprotocol` scope. The tag version must
@@ -24,6 +31,11 @@ on:
   push:
     tags:
       - 'aitp-node-v*'
+  pull_request:
+    paths:
+      - 'bindings/aitp-node/**'
+      - 'scripts/binding-api.py'
+      - '.github/workflows/bindings-release.yml'
   workflow_dispatch:
     inputs:
       dry_run:
@@ -65,34 +77,66 @@ jobs:
             host: ubuntu-latest
           - target: aarch64-unknown-linux-gnu
             host: ubuntu-24.04-arm  # native arm64
+          - target: x86_64-unknown-linux-musl
+            host: ubuntu-latest
+            musl: true
+          - target: aarch64-unknown-linux-musl
+            host: ubuntu-24.04-arm  # native arm64
+            musl: true
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        if: ${{ !matrix.musl }}
         with:
           node-version: '22'
       - uses: dtolnay/rust-toolchain@6c977a6ca4077a0ceb28ffbe03f59d46e9ac8772 # master
+        if: ${{ !matrix.musl }}
         with:
           toolchain: "1.90.0"        # match rust-toolchain.toml
           targets: ${{ matrix.target }}
       - uses: Swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
+        if: ${{ !matrix.musl }}
         with:
           workspaces: bindings/aitp-node
       - name: Install dependencies
+        if: ${{ !matrix.musl }}
         run: npm install
       - name: Build (native)
+        if: ${{ !matrix.musl }}
         run: npx napi build --platform --release --target ${{ matrix.target }}
+      # Alpine is the musl host, so the build is native there. The addon
+      # must link the C runtime dynamically to load as a shared object:
+      # `-crt-static`. napi would pick a cross linker (`<arch>-linux-musl-gcc`)
+      # for the target; the native `gcc` is the right one here. The same
+      # container smoke-loads it and checks it exports exactly its API
+      # snapshot.
+      - name: Build and smoke-test (musl, in Alpine)
+        if: ${{ matrix.musl }}
+        working-directory: ${{ github.workspace }}
+        run: |
+          docker run --rm -v "$PWD:/w" -w /w/bindings/aitp-node \
+            -e TARGET=${{ matrix.target }} node:22-alpine sh -euxc '
+              apk add --no-cache build-base curl python3
+              curl -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain 1.90.0
+              . "$HOME/.cargo/env"
+              npm install
+              export CARGO_TARGET_X86_64_UNKNOWN_LINUX_MUSL_LINKER=gcc CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER=gcc
+              RUSTFLAGS="-C target-feature=-crt-static" npx napi build --platform --release --target "$TARGET"
+              node -e "require(\"./index.js\"); console.log(\"addon loads\")"
+              python3 ../../scripts/binding-api.py runtime --node
+            '
       # Load the built addon before it can publish: a release-profile
       # binary that links but fails to dlopen (e.g. a mis-aligned
       # LINKEDIT from stripping) must fail here, not on users' machines.
-      # It then checks the addon has no experimental symbol. The x86_64
+      # It then checks the addon exports exactly its API snapshot. The x86_64
       # macOS addon is cross-built on an arm runner, so it is not loadable
       # here; it has only the static check (ci.yml) and the default
       # features of Cargo.toml.
       - name: Smoke-load the addon
-        if: matrix.target != 'x86_64-apple-darwin'
+        if: ${{ matrix.target != 'x86_64-apple-darwin' && !matrix.musl }}
         run: |
           node -e "require('./index.js'); console.log('addon loads')"
-          python3 ../../scripts/check-binding-surface.py runtime --node
+          python3 ../../scripts/binding-api.py runtime --node
       - name: Upload .node artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -132,7 +176,7 @@ jobs:
       # publish the root loader package — that needs `npm publish`. Do
       # both, as two steps.
       - name: Publish platform packages
-        if: ${{ github.event_name == 'push' || !inputs.dry_run }}
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
         run: npx napi prepublish -t npm --no-gh-release
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
@@ -144,7 +188,7 @@ jobs:
       # `--ignore-scripts` stops npm from re-running `prepublishOnly`
       # (which is `napi prepublish`) and republishing the platform packages.
       - name: Publish root loader package
-        if: ${{ always() && (github.event_name == 'push' || !inputs.dry_run) }}
+        if: ${{ always() && (github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run)) }}
         run: npm publish --access public --ignore-scripts
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
