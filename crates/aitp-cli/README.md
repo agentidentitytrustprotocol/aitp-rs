@@ -31,7 +31,7 @@ aitp aid --seed <hex> [--suite ...]
 
 aitp tct inspect --token <jws|->
     Decode and pretty-print a TCT's claims WITHOUT verifying — for
-    inspection only.
+    inspection only. A token whose typ is not aitp-tct+jwt is refused.
 
 aitp tct verify --token <jws|-> [--issuer <aid>] [--audience <aid>] [--at <unix>]
     Verify a TCT's signature and claims, then print the trusted claims.

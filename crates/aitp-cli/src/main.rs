@@ -441,6 +441,12 @@ fn manifest_verify(json: &str, at: Option<i64>) -> CliResult {
 // --- helpers ---------------------------------------------------------------
 
 fn decode_claims(token: &str) -> Result<TctClaims, Box<dyn std::error::Error>> {
+    // `peek_typ` is unverified: this only sharpens the error message.
+    if let Some(typ) = jws::peek_typ(token.trim()) {
+        if typ != jws::TYP_TCT {
+            return Err(format!("token typ is {typ:?}, not a TCT ({:?})", jws::TYP_TCT).into());
+        }
+    }
     let payload = jws::decode_payload_unverified(token.trim())
         .map_err(|e| format!("not a compact JWS: {e}"))?;
     Ok(serde_json::from_slice::<TctClaims>(&payload)?)
