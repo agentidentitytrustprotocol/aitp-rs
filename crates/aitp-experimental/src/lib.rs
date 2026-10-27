@@ -9,6 +9,10 @@
 //!   `SessionBundleServer`, the HTTP endpoint, needs feature `http-server`.
 //! - [`renewal`]: TCT renewal (RFC-AITP-0013, Draft). `RenewalServer`
 //!   needs feature `http-server`; `renew_tct` needs feature `http-client`.
+//! - [`spiffe`]: SPIFFE identity verification (RFC-AITP-0002 §6, registry
+//!   status Proposed), plugged into the handshake as an
+//!   [`aitp::handshake::IdentityVerifier`]. Needs feature
+//!   `spiffe-identity`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
@@ -16,3 +20,5 @@
 pub mod delegation;
 pub mod renewal;
 pub mod session_bundle;
+#[cfg(feature = "spiffe-identity")]
+pub mod spiffe;

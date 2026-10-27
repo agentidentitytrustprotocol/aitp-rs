@@ -1,7 +1,7 @@
 //! TCT in-band renewal (RFC-AITP-0013).
 //!
-//! Gated by the `renewal` Cargo feature: post-v0.1, no
-//! wire-stability guarantee until the feature graduates.
+//! Gated by the `experimental-renewal` Cargo feature, which the
+//! published package does not enable. No stability promise.
 
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{base64url, Timestamp};

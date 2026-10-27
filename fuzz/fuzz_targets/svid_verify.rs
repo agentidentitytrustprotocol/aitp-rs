@@ -1,7 +1,7 @@
 #![no_main]
 
 //! Fuzz target: SPIFFE SVID parsing and verification
-//! (RFC-AITP-0002 §6, `aitp::handshake::identity_spiffe`).
+//! (RFC-AITP-0002 §6, `aitp_experimental::spiffe`).
 //!
 //! The verifier holds a bundle for `prod.example.com` with one
 //! JWT-SVID key and one X.509 CA, so input gets past the bundle lookup
@@ -18,7 +18,7 @@
 //! material, generated for this target and trusted nowhere else.
 
 use aitp::core::{Aid, Timestamp};
-use aitp::handshake::identity_spiffe::{verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext};
+use aitp_experimental::spiffe::{verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext};
 use aitp::handshake::IdentityDescriptor;
 use base64::Engine as _;
 use libfuzzer_sys::fuzz_target;

@@ -10,10 +10,10 @@ import json
 import pytest
 
 import aitp
+from _experimental import HAS_BUNDLE
 
-HAS_BUNDLE = hasattr(aitp, "SessionBundleBuilder")
 pytestmark = pytest.mark.skipif(
-    not HAS_BUNDLE, reason="binding built without --features session-bundle"
+    not HAS_BUNDLE, reason="binding built without --features experimental-session-bundle"
 )
 
 

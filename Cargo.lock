@@ -50,7 +50,6 @@ dependencies = [
  "ring",
  "rustls",
  "rustls-pki-types",
- "rustls-webpki",
  "serde",
  "serde_jcs",
  "serde_json",
@@ -133,11 +132,16 @@ version = "0.23.0"
 dependencies = [
  "aitp",
  "axum",
+ "base64ct",
  "boon",
  "hex",
+ "p521",
  "parking_lot",
  "rand 0.10.2",
  "reqwest",
+ "ring",
+ "rustls-pki-types",
+ "rustls-webpki",
  "serde",
  "serde_json",
  "sha2",
@@ -147,6 +151,7 @@ dependencies = [
  "tracing",
  "url",
  "uuid",
+ "x509-parser",
 ]
 
 [[package]]

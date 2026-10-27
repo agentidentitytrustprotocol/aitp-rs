@@ -15,8 +15,8 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 serde_json = "1.0"
-aitp = { path = "../crates/aitp", default-features = false, features = ["experimental-spiffe-identity", "pinned-admission"] }
-aitp-experimental = { path = "../crates/aitp-experimental" }
+aitp = { path = "../crates/aitp", default-features = false, features = ["pinned-admission"] }
+aitp-experimental = { path = "../crates/aitp-experimental", features = ["spiffe-identity"] }
 base64 = "0.22"
 uuid = "1"
 serde = { version = "1.0", features = ["derive"] }

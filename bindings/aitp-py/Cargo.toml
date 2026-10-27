@@ -20,25 +20,34 @@ crate-type = ["cdylib"]
 # A plain `cargo build` (feature off) links libpython for local
 # testing; the importable wheel must be built with the feature on.
 #
-# The full capability surface ships **by default** — the published wheel
-# exposes renewal, session bundles, SPKI pinning, and multi-hop
-# delegation with no special build. Each capability is still a named
-# feature so a minimal wheel can opt out via `--no-default-features`.
+# The default build, and so the published wheel, has the stable surface
+# plus SPKI pinning. The `experimental-*` features (umbrella
+# `experimental`) add renewal, session bundles and multi-hop delegation
+# to a source build; they carry no stability promise.
 [features]
 extension-module = ["pyo3/extension-module"]
-default = ["renewal", "session-bundle", "spki-pinning", "multihop-delegation"]
-# TCT renewal (RFC-AITP-0013, `aitp_experimental::renewal`).
-renewal = ["dep:aitp-experimental"]
-# Session bundles (RFC-AITP-0010) — exposes `SessionBundleBuilder`.
-session-bundle = ["dep:aitp-experimental"]
+default = ["spki-pinning"]
+# Experimental (no promise; not in the published packages): TCT renewal
+# (RFC-AITP-0013, `aitp_experimental::renewal`).
+experimental-renewal = ["dep:aitp-experimental"]
+# Experimental: Session Trust Bundles (RFC-AITP-0010) — exposes
+# `SessionBundleBuilder`.
+experimental-session-bundle = ["dep:aitp-experimental"]
 # SPKI cert pinning — exposes `compute_spki_hash()` and `SpkiPinVerifier`.
 # Implemented standalone on top of x509-parser + sha2 (no rustls, no
 # `aitp::transport`, no tokio/hyper) to keep the wheel small.
 spki-pinning = ["dep:x509-parser"]
-# Multi-hop delegation (RFC-AITP-0011, `aitp_experimental::delegation`).
+# Experimental: multi-hop delegation (RFC-AITP-0011,
+# `aitp_experimental::delegation`).
 # The strict single-hop `verify_delegation` is always present; this
 # additionally exposes `verify_delegation_multihop`.
-multihop-delegation = ["dep:aitp-experimental"]
+experimental-multihop-delegation = ["dep:aitp-experimental"]
+# Every experimental feature.
+experimental = [
+    "experimental-renewal",
+    "experimental-session-bundle",
+    "experimental-multihop-delegation",
+]
 
 [dependencies]
 aitp = { path = "../../crates/aitp", default-features = false }

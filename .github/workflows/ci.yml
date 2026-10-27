@@ -279,6 +279,10 @@ jobs:
       - run: make api-classification-check
       # No pre-1.0 crate's type in the stable surface (RS-RC5).
       - run: make stable-deps-check
+      # No Draft or Proposed mechanism in the stable surface (RS-RC4).
+      - run: make stable-experimental-check
+      # No experimental symbol in the default binding declarations (RS-RC4).
+      - run: make binding-surface-check
 
   msrv:
     name: cargo-msrv (workspace)

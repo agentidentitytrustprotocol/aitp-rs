@@ -20,6 +20,7 @@ import json
 import pytest
 
 import aitp
+from _experimental import HAS_MULTIHOP
 
 PING_CAP = "demo.write"
 
@@ -170,8 +171,8 @@ def test_multihop_opts_past_the_hop_gate():
     must get PAST the hop gate the strict path rejects at — proven by it
     failing with a *different* error (structure/signature) rather than
     MULTIHOP_NOT_SUPPORTED."""
-    if not hasattr(aitp, "verify_delegation_multihop"):
-        pytest.skip("binding built without --features multihop-delegation")
+    if not HAS_MULTIHOP:
+        pytest.skip("binding built without --features experimental-multihop-delegation")
 
     a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     tampered = _inject_multihop_chain(delegation_token)
@@ -192,8 +193,8 @@ def test_multihop_kwarg_is_the_spec_name():
     -- the binding crates are outside the workspace scan -- so a rename
     here is invisible to every other gate.
     """
-    if not hasattr(aitp, "verify_delegation_multihop"):
-        pytest.skip("multihop-delegation feature not compiled in")
+    if not HAS_MULTIHOP:
+        pytest.skip("experimental-multihop-delegation feature not compiled in")
     try:
         aitp.verify_delegation_multihop(
             "not.a.token", "aid:pubkey:AAAA", [], max_delegation_hops=3
@@ -212,8 +213,8 @@ def test_multihop_issuer_manifests_are_parsed():
     """`issuer_manifests` (RFC-AITP-0011 §3 step 1) takes `{"manifest": ...}`
     envelope JSON strings; anything else is rejected up front with
     ValueError, before any token verification."""
-    if not hasattr(aitp, "verify_delegation_multihop"):
-        pytest.skip("multihop-delegation feature not compiled in")
+    if not HAS_MULTIHOP:
+        pytest.skip("experimental-multihop-delegation feature not compiled in")
     a, _b, _c, delegation_token, b_manifest = _build_delegation_token()
     with pytest.raises(ValueError, match="invalid issuer manifest JSON"):
         aitp.verify_delegation_multihop(delegation_token, a.aid, ["{}"], revoked_jtis=set())

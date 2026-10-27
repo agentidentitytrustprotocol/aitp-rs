@@ -10,7 +10,7 @@
 //! the forbid attribute.
 
 mod agent;
-#[cfg(feature = "session-bundle")]
+#[cfg(feature = "experimental-session-bundle")]
 mod bundle;
 mod delegation;
 mod envelope;
@@ -20,7 +20,7 @@ mod oidc;
 #[cfg(feature = "spki-pinning")]
 mod pinning;
 mod pop;
-#[cfg(feature = "renewal")]
+#[cfg(feature = "experimental-renewal")]
 mod renewal;
 mod revocation;
 mod session;
@@ -65,7 +65,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
         "RevocationVerificationError",
         m.py().get_type::<revocation::RevocationVerificationError>(),
     )?;
-    #[cfg(feature = "multihop-delegation")]
+    #[cfg(feature = "experimental-multihop-delegation")]
     m.add_function(wrap_pyfunction!(
         delegation::verify_delegation_multihop_py,
         m
@@ -74,7 +74,7 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(envelope::verify_envelope_py, m)?)?;
     m.add_function(wrap_pyfunction!(pop::verify_pop_response_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
-    #[cfg(feature = "session-bundle")]
+    #[cfg(feature = "experimental-session-bundle")]
     {
         m.add_class::<bundle::PySessionBundleBuilder>()?;
         m.add_function(wrap_pyfunction!(bundle::verify_session_bundle_py, m)?)?;

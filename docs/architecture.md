@@ -111,7 +111,7 @@ aitp                       the protocol library (crates/aitp)
 │                          (single-hop; multi-hop chains opt-in at runtime)
 ├── handshake              Initiator/Responder state machines, OIDC
 │                          and pinned-key identity proofs, RSA-2048 floor
-│                          on OIDC RSA keys
+│                          on OIDC RSA keys, IdentityVerifier hook
 ├── transport              ManifestServer + HandshakeServer (axum,
 │                          http-server) + ManifestFetcher + JwksFetcher
 │                          (reqwest, http-client), RSA-2048 floor on JWKS keys
@@ -121,7 +121,10 @@ aitp                       the protocol library (crates/aitp)
 
 aitp-experimental          session_bundle: SessionBundleBuilder +
                            verify_session_bundle (RFC-0010), plus
-                           SessionBundleServer (http-server feature)
+                           SessionBundleServer (http-server feature);
+                           delegation (multi-hop, RFC-0011); renewal
+                           (RFC-0013); spiffe: SpiffeVerifier
+                           (spiffe-identity feature)
 aitp-cli                   `aitp` binary — offline keygen / aid /
                            tct inspect+verify / manifest verify;
                            manifest fetch + handshake (http-client)
@@ -255,6 +258,27 @@ language bindings follow the same rule: `verify_delegation` /
 `verifyDelegation` stays strict,
 and chains need the separate `verify_delegation_multihop` /
 `verifyDelegationMultihop` call. Details: [`multihop-delegation.md`](multihop-delegation.md).
+
+## Identity types aitp does not verify
+
+`aitp` verifies `oidc` and `pinned_key` identities itself. Any other
+`IdentityKind` (today `spiffe`, RFC-AITP-0002 §6) is verified by the
+`IdentityVerifier` attached with `PeerConfig::with_identity_verifier`:
+
+- It runs at the step where `aitp` verifies an `oidc` or `pinned_key`
+  proof, after the Manifest and the subject and type matches, and before
+  the envelope signature.
+- `handles(kind)` false, or no verifier attached: `INCOMPATIBLE_IDENTITY_TYPE`
+  (RFC-AITP-0002 §6.6).
+- The verifier's error is returned unchanged: `HandshakeError::Identity`
+  is `IDENTITY_FAILED`, `KeyResolutionFailed` is `KEY_RESOLUTION_FAILED`.
+- It is never called for `oidc` or `pinned_key`.
+- On success the peer key is derived from the sender's AID.
+- `IdentityVerifyContext` is `#[non_exhaustive]` and built only by `aitp`.
+
+`aitp_experimental::spiffe::SpiffeVerifier` (feature `spiffe-identity`)
+is the `spiffe` verifier, over a `SpiffeBundleStore`. `HandshakeServer`
+takes no verifier.
 
 ## Workspace conventions
 

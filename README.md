@@ -118,7 +118,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | RFC | Title | Status | Notes |
 |-----|-------|--------|-------|
 | [0001](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md) | Core wire format | ✅ implemented | JCS canonicalization, envelope, error codes, replay deny list. |
-| [0002](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md) | Identity binding | ✅ implemented | Pinned-key v1 (5-field domain-prefixed proof) + OIDC with `cnf.jkt`. Trust store enforced. SPIFFE (§6, JWT-SVID and X509-SVID) is experimental, behind `experimental-spiffe-identity`. |
+| [0002](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md) | Identity binding | ✅ implemented | Pinned-key v1 (5-field domain-prefixed proof) + OIDC with `cnf.jkt`. Trust store enforced. SPIFFE (§6, JWT-SVID and X509-SVID) is experimental: `aitp_experimental::spiffe::SpiffeVerifier` (feature `spiffe-identity`), attached through the `aitp::handshake::IdentityVerifier` hook. |
 | [0003](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md) | Manifest | ✅ implemented | Builder + verifier + HTTP server + cache-correct fetcher. |
 | [0004](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0004-mutual-handshake.md) | Mutual handshake | ✅ implemented | Four-message exchange + identity-aware grant policy + Manifest-bound TCT expiry + replay protection. |
 | [0005](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0005-tct.md) | TCT | ✅ implemented | Issuance, verification, downstream PoP, renewal flow. |
@@ -142,7 +142,8 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 - **Session Trust Bundle and renewal are opt-in.** N-party trust
   artifacts (RFC-0010, Draft, opt-in) live in the separate
   `aitp-experimental` crate, as does TCT renewal (RFC-0013, Draft). The
-  language SDKs ship both **on by default**.
+  published language SDKs include neither; a source build adds them with
+  the bindings' `experimental` feature.
 - **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
   revocation status for a TCT treats it as revoked (`TCT_REVOKED`). The
   `HandshakeServer` and `run_initiator_handshake` fetch the peer's

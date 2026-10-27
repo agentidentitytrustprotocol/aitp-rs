@@ -300,28 +300,6 @@ class AitpAgent:
         entries: list[dict],
         expires_in_secs: Optional[int] = ...,
     ) -> str: ...
-    # ── renewal (Cargo feature) ────────────────────────────
-    def build_renewal_request(self, current_tct_token: str) -> str:
-        """Holder side. `current_tct_token` is the held TCT compact JWS.
-        Behind the `renewal` Cargo feature (on by default; absent only in a
-        `--no-default-features` wheel)."""
-        ...
-    def process_renewal_request(
-        self,
-        request_payload_json: str,
-        manifest_exp_unix_secs: int,
-        new_ttl_secs: int,
-        revoked_jtis: Optional[RevokedJtis] = None,
-    ) -> str:
-        """Issuer side. Returns a JSON object string
-        `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
-        Requires `build_manifest()` first: grants the Manifest no longer
-        offers are dropped (none left raises). A TCT whose `jti` is in
-        `revoked_jtis`, or a replayed request, raises RuntimeError.
-        `revoked_jtis` entries are normalized (any RFC 9562 text form
-        matches); one that is not a UUID raises `ValueError`.
-        Behind the `renewal` feature (on by default)."""
-        ...
 
 # ── Free functions ──────────────────────────────────────────────────────
 
@@ -335,8 +313,7 @@ def verify_delegation(
     """Verify a delegation token (compact-JWS string) under strict AITP v0.3
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
     (RFC-AITP-0011 multi-hop) is rejected with
-    `DELEGATION_MULTIHOP_NOT_SUPPORTED`. To allow multi-hop chains, use
-    `verify_delegation_multihop` instead.
+    `DELEGATION_MULTIHOP_NOT_SUPPORTED`.
 
     `issuer_manifests` holds the delegator's Manifest, each entry a
     `{"manifest": {...}}` envelope JSON string. The token is verified under
@@ -355,42 +332,6 @@ def verify_delegation(
     a UUID raises `ValueError`."""
     ...
 
-def verify_delegation_multihop(
-    delegation_token: str,
-    verifier_aid: str,
-    issuer_manifests: Sequence[str],
-    max_delegation_hops: int = 3,
-    revoked_jtis: Optional[RevokedJtis] = None,
-    revocation: Optional[Revocation] = None,
-) -> DelegationVerified:
-    """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
-    multi-hop chains up to `max_delegation_hops` total hops. Present by default (the
-    `multihop-delegation` Cargo feature); absent only in a
-    `--no-default-features` wheel. `max_delegation_hops=0` reverts to strict
-    single-hop.
-
-    `issuer_manifests` holds the hop issuers' Manifests, each a
-    `{"manifest": {...}}` envelope JSON string. Every hop is verified under
-    the key resolved from its issuer's verified Manifest (RFC-AITP-0011 §3
-    step 1); a hop whose issuer has no valid Manifest in the list fails
-    with `KEY_RESOLUTION_FAILED`. Malformed JSON raises `ValueError`.
-
-    `revoked_jtis` and `revocation` are as in `verify_delegation`
-    (fail_closed). The list is consulted twice — both only after every
-    signature check: once for the root `voucher.src_jti` (RFC-AITP-0006 §4
-    step 7), and once for every hop's `jti`, meaning each chain entry and the
-    outer token (RFC-AITP-0011 §6). Both are MUST-rejects. A revoked hop
-    invalidates every hop downstream of it; there is no partial-validity
-    model.
-
-    Note that §6 specifies each hop `jti` be checked against the deny list of
-    *that hop's issuer*, which one flat set cannot express — so the set is
-    applied to every hop regardless of issuer. That can only reject more,
-    never accept a revoked hop, but it does mean a set aggregated from
-    several issuers lets any contributor revoke any hop.
-
-    Entries are normalized as in `verify_delegation`."""
-    ...
 class ManifestVerificationError(RuntimeError):
     """A manifest envelope failed verification.
 
@@ -519,44 +460,6 @@ def compute_aid_jkt(aid: str) -> str:
     """RFC 7638 JWK thumbprint of the pubkey embedded in an AID — the
     value to place in an OIDC JWT's `cnf.jkt` claim (RFC-AITP-0002
     §2.2.1). Supports both Ed25519 and P-256 AIDs."""
-    ...
-
-# ── session-bundle (Cargo feature) ─────────────────────────────────
-
-class SessionBundleBuilder:
-    """RFC-AITP-0010 Session Trust Bundle builder. Behind the
-    `session-bundle` Cargo feature (on by default)."""
-
-    def __init__(self, coordinator: AitpAgent) -> None: ...
-    def session_id(self, uuid_str: str) -> "SessionBundleBuilder":
-        """Set the session ID. It is signed into the bundle, so it must be
-        the lowercase hyphenated UUID v4 wire form; uppercase, braced,
-        `urn:uuid:`, unhyphenated and non-v4 forms raise `ValueError`
-        rather than being normalized. Defaults to a fresh one."""
-        ...
-    def issued_at(self, unix_secs: int) -> "SessionBundleBuilder": ...
-    def participant(
-        self, aid: str, tct_token: str
-    ) -> "SessionBundleBuilder":
-        """`tct_token` is the participant's TCT as a compact-JWS string."""
-        ...
-    def build(self) -> str: ...
-
-def verify_session_bundle(
-    bundle_envelope_json: str,
-    verifier_aid: str,
-    coordinator_manifest_json: str,
-    now_unix_secs: Optional[int] = ...,
-    revocation_check: Optional[Callable[[str], bool]] = ...,
-) -> dict:
-    """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
-    "dropped_aids": [...]}`. Behind the `session-bundle` feature (on by default).
-
-    `coordinator_manifest_json` (required; the coordinator's
-    `ManifestEnvelope` JSON) is verified, must designate the bundle's
-    `coordinator`, and supplies the coordinator key (RFC-AITP-0010 §5
-    step 5). There is no AID-only fallback. Raises `RuntimeError` when
-    it names another AID, `ValueError` when it is malformed."""
     ...
 
 # ── spki-pinning (Cargo feature) ────────────────────────────────

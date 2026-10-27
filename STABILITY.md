@@ -11,11 +11,15 @@ These follow [semver](https://semver.org/):
   its signature, in
   [`crates/aitp/public-api.stable.txt`](crates/aitp/public-api.stable.txt),
   together with the `http-client`, `http-server`, `source-ip`,
-  `pinned-admission`, `metrics` and `all` features.
+  `pinned-admission`, `metrics` and `all` features. It includes
+  `aitp::handshake::IdentityVerifier`, the hook that verifies identity
+  types `aitp` does not verify itself, and `IdentityVerifyContext`.
 - **The language SDKs.** `@agentidentitytrustprotocol/aitp` on npm
   (declared in [`bindings/aitp-node/index.d.ts`](bindings/aitp-node/index.d.ts))
   and `aitp-sdk` on PyPI (declared in
-  [`bindings/aitp-py/aitp.pyi`](bindings/aitp-py/aitp.pyi)).
+  [`bindings/aitp-py/aitp.pyi`](bindings/aitp-py/aitp.pyi)). The bindings'
+  `experimental-*` Cargo features are not covered; the published packages
+  do not enable them.
 
 | Change to a covered surface | Release |
 |---|---|
@@ -61,15 +65,15 @@ These can change or disappear in any release, including a patch:
 - **`aitp-experimental`.** Multi-hop delegation
   (`aitp_experimental::delegation`, RFC-AITP-0011, Draft), Session Trust
   Bundles (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft), TCT
-  renewal (`aitp_experimental::renewal`, RFC-AITP-0013, Draft) and their
-  HTTP endpoints and client (features `http-server`, `http-client`). The
-  crate tracks Draft spec text.
-- **Unstable features of `aitp`.** These are
-  `experimental-spiffe-identity` (`handshake::identity_spiffe`),
-  `experimental-axum` (`HandshakeServer::into_router`,
-  `ManifestServer::into_router` and the `with_request_body_limit*`
-  helpers, which expose axum, a pre-1.0 crate), `client-spki-pinning` and
-  `test-util` (`crypto::testing`). Any feature named `experimental-*`
+  renewal (`aitp_experimental::renewal`, RFC-AITP-0013, Draft), SPIFFE
+  identity (`aitp_experimental::spiffe`, RFC-AITP-0002 §6, registry
+  status Proposed; feature `spiffe-identity`) and their HTTP endpoints
+  and client (features `http-server`, `http-client`). The crate tracks
+  Draft spec text.
+- **Unstable features of `aitp`.** These are `experimental-axum`
+  (`HandshakeServer::into_router`, `ManifestServer::into_router` and the
+  `with_request_body_limit*` helpers, which expose axum, a pre-1.0
+  crate), `client-spki-pinning` and `test-util` (`crypto::testing`). Any feature named `experimental-*`
   belongs here. What each one adds is listed in
   [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt).
 - **The CLI's flags and output.** `aitp-cli` is documented in
@@ -158,6 +162,12 @@ the crates and the SDKs. How to report a vulnerability is in
   `aitp`'s dependency graph (`cargo metadata`). axum is pre-1.0, so the
   servers are hosted with `serve(listener)` and their routers are
   behind `experimental-axum`.
+- **No experimental mechanism in the stable surface.**
+  [`scripts/check-stable-experimental.py`](scripts/check-stable-experimental.py)
+  (`make stable-experimental-check`, in the same CI job) fails if
+  `public-api.stable.txt` names TCT renewal, Session Trust Bundles,
+  SPIFFE or multi-hop delegation, apart from the `spiffe` identity-type
+  wire names it lists.
 - **`feature matrix`** ([`ci.yml`](.github/workflows/ci.yml)) builds,
   lints and tests `aitp` and `aitp-experimental` with each feature on its
   own (`cargo hack --each-feature`), and
@@ -165,4 +175,8 @@ the crates and the SDKs. How to report a vulnerability is in
   that `pinned-admission` and `source-ip` alone pull in no HTTP stack.
 - **The SDKs** do not have a signature gate yet. A snapshot check of
   `index.d.ts` and `aitp.pyi` arrives with the bindings work for 1.x
-  (#403).
+  (#403). [`scripts/check-binding-surface.py`](scripts/check-binding-surface.py)
+  fails if `aitp.pyi`, `index.d.ts` or `index.js` (`make
+  binding-surface-check`, CI), or the default build of either binding
+  (`bindings.yml` and the release workflows' smoke steps, before upload),
+  exposes an experimental symbol.
