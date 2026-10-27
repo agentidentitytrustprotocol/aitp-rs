@@ -456,35 +456,9 @@ impl AitpVerifyingKey {
         }
     }
 
-    /// The 32-byte raw Ed25519 public key. **Panics** if this is a
-    /// P-256 key — callers that may hold either should branch on
-    /// [`Self::algorithm`] or use [`Self::try_to_ed25519_bytes`] /
-    /// [`Self::to_compressed`].
-    ///
-    /// Prefer [`Self::try_to_ed25519_bytes`] for new code: it returns
-    /// `None` for P-256 instead of panicking, so an algorithm-agile
-    /// caller cannot inadvertently crash the process.
-    #[deprecated(
-        since = "0.8.1",
-        note = "Use try_to_ed25519_bytes or to_compressed: to_bytes panics on P-256 keys."
-    )]
-    pub fn to_bytes(&self) -> [u8; 32] {
-        match &self.0 {
-            VerifyingKeyInner::Ed25519(vk) => vk.to_bytes(),
-            VerifyingKeyInner::P256(_) => {
-                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed() or try_to_ed25519_bytes()")
-            }
-        }
-    }
-
     /// The 32-byte raw Ed25519 public key, or `None` if this is a
-    /// P-256 key.
-    ///
-    /// Non-panicking counterpart to [`Self::to_bytes`]. Callers that
-    /// require Ed25519-shaped bytes (e.g. the v0.1 pinned-key identity
-    /// wire format, which encodes the raw 32-byte public key) should
-    /// use this and return a structured error on `None` rather than
-    /// risking a process-wide panic from an algorithm-agile path.
+    /// P-256 key, for the wire formats that carry a raw 32-byte Ed25519
+    /// key (the pinned-key identity descriptor).
     pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => Some(vk.to_bytes()),
@@ -493,8 +467,7 @@ impl AitpVerifyingKey {
     }
 
     /// The encoded public key bytes — 32 bytes for Ed25519, 33 bytes
-    /// SEC1-compressed for P-256. Use this instead of
-    /// [`Self::to_bytes`] when handling algorithm-agile flows.
+    /// SEC1-compressed for P-256.
     pub fn to_compressed(&self) -> Vec<u8> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => vk.to_bytes().to_vec(),

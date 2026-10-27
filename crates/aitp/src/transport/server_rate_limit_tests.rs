@@ -1,16 +1,15 @@
-//! RateLimitConfig sliding-window semantics on HandshakeServer
+//! Unit tests for RateLimitConfig sliding-window semantics on
+//! HandshakeServer, through the crate-private `enforce_rate_limit`
 //! (RFC-AITP-0009 §3.1: rate limiting is a MUST, and the pre-auth
 //! source key MUST include a transport identifier).
 
-#![cfg(all(feature = "http-client", feature = "http-server"))]
-
-use aitp::core::{AitpEnvelope, MessageType, Timestamp};
-use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::transport::{
-    sign_envelope_with, HandshakeServer, RateLimitConfig, RateLimitOutcome, TrustedProxy,
-};
+use crate::core::{AitpEnvelope, MessageType, Timestamp};
+use crate::crypto::AitpSigningKey;
+use crate::envelope::sign_envelope_with;
+use crate::handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use crate::transport::server::RateLimitOutcome;
+use crate::transport::{HandshakeServer, RateLimitConfig, TrustedProxy};
 use std::net::IpAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -30,7 +29,7 @@ fn server() -> HandshakeServer<NoOpResolver> {
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
-                aitp::core::base64url::encode(
+                crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
                         .expect("key was constructed as Ed25519, never P-256"),
@@ -261,7 +260,7 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
-                aitp::core::base64url::encode(
+                crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
                         .expect("key was constructed as Ed25519, never P-256"),

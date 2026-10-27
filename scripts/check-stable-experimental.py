@@ -13,7 +13,8 @@ ALLOW passes as a whole.
 WORDS, by RFC:
   - RFC-AITP-0013 (TCT renewal, Draft): renew, renewal
   - RFC-AITP-0010 (Session Trust Bundles, Draft): bundle
-  - RFC-AITP-0002 §6 (SPIFFE, registry status Proposed): spiffe
+  - RFC-AITP-0002 §6 (SPIFFE, registry status Proposed): spiffe, svid,
+    x5c
   - RFC-AITP-0011 (multi-hop delegation, Draft): chain hash, hop limit,
     max delegation hops, hop revocation check, extending
 PATHS, RFC-AITP-0011: DelegationClaims::chain, DelegationClaims::jti,
@@ -36,6 +37,8 @@ WORDS: list[tuple[str, ...]] = [
     ("renewal",),
     ("bundle",),
     ("spiffe",),
+    ("svid",),
+    ("x", "5", "c"),
     ("chain", "hash"),
     ("hop", "limit"),
     ("max", "delegation", "hops"),

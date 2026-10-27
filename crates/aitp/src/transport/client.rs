@@ -867,10 +867,10 @@ fn parse_jwks(
                 .get("n")
                 .and_then(|v| v.as_str())
                 .ok_or_else(|| JwksFetcherError::MalformedJson("RSA jwk missing n".into()))?;
-            if !crate::transport::common::rsa_modulus_bits_ok(n) {
+            if !crate::transport::rsa_floor::rsa_modulus_bits_ok(n) {
                 return Err(JwksFetcherError::UnsupportedJwk(format!(
                     "RSA modulus below the {}-bit minimum",
-                    crate::transport::common::MIN_RSA_MODULUS_BITS
+                    crate::transport::rsa_floor::MIN_RSA_MODULUS_BITS
                 )));
             }
         }

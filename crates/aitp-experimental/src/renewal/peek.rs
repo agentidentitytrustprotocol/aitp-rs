@@ -1,9 +1,11 @@
 //! Unverified TCT claim decode and `pop_nonce` decode.
 
 use crate::renewal::RenewalError;
+use aitp::__private::peek_typ;
+use aitp::__private::{check_members, from_serde_error, reject_duplicate_keys};
+use aitp::core::base64url;
 use aitp::core::nonce_store::{Nonce, NONCE_LEN};
-use aitp::core::{base64url, check_members, from_serde_error, reject_duplicate_keys};
-use aitp::crypto::jws::{decode_payload_unverified, peek_typ, TYP_TCT};
+use aitp::crypto::jws::{decode_payload_unverified, TYP_TCT};
 use aitp::tct::{TctClaims, TctError, TCT_CLAIMS_MEMBERS};
 
 /// The claims of a TCT, decoded without verifying it. Strict as

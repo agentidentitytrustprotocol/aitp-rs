@@ -5,7 +5,8 @@ use crate::renewal::{
     renewal_pop_input, RenewalError, RenewalErrorPayload, RenewalResponseError,
     RenewalResponsePayload, TctRenewalPayload, RENEWAL_RESPONSE_PAYLOAD_MEMBERS,
 };
-use aitp::core::{base64url, check_members, Aid, AitpEnvelope, MessageType, Timestamp};
+use aitp::__private::check_members;
+use aitp::core::{base64url, Aid, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::{sign_jcs, AitpSigner, AitpVerifyingKey, CryptoError, Digest32};
 use aitp::envelope::verify_envelope_signature;
 use aitp::tct::{verify_tct, TctError, TctVerifyContext, VerifiedTct};

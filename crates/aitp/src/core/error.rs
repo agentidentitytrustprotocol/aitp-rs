@@ -5,48 +5,6 @@
 
 use serde::{Deserialize, Serialize};
 
-/// Top-level error type for AITP operations.
-///
-/// Each variant maps to one or more wire-level [`ErrorCode`] values.
-/// Protocol-specific crates have their own narrower error types
-/// (e.g. `TctError`, `ManifestError`) that flatten into this with
-/// `From` impls.
-///
-/// Marked `#[non_exhaustive]` so future error categories can be added
-/// without a semver-major bump. Downstream matches must include a
-/// fall-through arm.
-#[derive(Debug, thiserror::Error)]
-#[non_exhaustive]
-pub enum AitpError {
-    /// Replay-protection or envelope-level rejection.
-    #[error("envelope rejected: {0}")]
-    Envelope(String),
-
-    /// Identity proof was invalid (OIDC, pinned key, etc.).
-    #[error("identity verification failed: {0}")]
-    Identity(String),
-
-    /// Manifest-level error (signature, PoP, expiry).
-    #[error("manifest error: {0}")]
-    Manifest(String),
-
-    /// TCT-level error (signature, audience, expiry, grants).
-    #[error("TCT error: {0}")]
-    Tct(String),
-
-    /// Delegation-token error.
-    #[error("delegation error: {0}")]
-    Delegation(String),
-
-    /// Cryptographic failure (signature, key parsing).
-    #[error("crypto error: {0}")]
-    Crypto(String),
-
-    /// Other / catch-all.
-    #[error("AITP error: {0}")]
-    Other(String),
-}
-
 /// Wire-level error code as it appears on the protocol.
 ///
 /// Serialized as `SCREAMING_SNAKE_CASE` strings matching the registry.

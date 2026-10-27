@@ -4,8 +4,9 @@ use crate::renewal::peek::{decode_renewal_nonce, peek_claims};
 use crate::renewal::{
     renewal_pop_input, RenewalError, RenewalErrorPayload, RenewalResponsePayload, TctRenewalPayload,
 };
+use aitp::__private::reject_duplicate_keys;
 use aitp::core::nonce_store::{IssuedNonce, NonceStore, NonceStoreError};
-use aitp::core::{reject_duplicate_keys, Aid, AitpEnvelope, ErrorCode, MessageType, Timestamp};
+use aitp::core::{Aid, AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigner, AitpVerifyingKey, Digest32, Signature};
 use aitp::envelope::sign_envelope_with;
 use aitp::tct::{

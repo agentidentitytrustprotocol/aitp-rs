@@ -133,17 +133,6 @@ fn from_compressed_rejects_wrong_lengths() {
 }
 
 #[test]
-#[should_panic]
-#[allow(deprecated)]
-fn to_bytes_panics_on_p256() {
-    // `to_bytes` returns the 32-byte raw Ed25519 form and documents a
-    // panic for P-256 keys (which have no 32-byte raw encoding). Lock
-    // that contract so a regression can't silently return wrong bytes.
-    let key = AitpSigningKey::generate_p256();
-    let _ = key.verifying_key().to_bytes();
-}
-
-#[test]
 fn signature_round_trips_through_string() {
     let key = AitpSigningKey::from_seed(&[7u8; 32]);
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(b"x"));

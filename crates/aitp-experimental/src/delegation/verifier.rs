@@ -10,9 +10,8 @@ use crate::delegation::compute_chain_hash;
 use crate::delegation::{
     ChainedDelegationClaims, ChainedDelegationError, VerifiedChainedDelegation,
 };
-use aitp::core::{
-    check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
-};
+use aitp::__private::{check_members, from_serde_error, reject_duplicate_keys};
+use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpVerifyingKey};
 use aitp::delegation::{DelegationError, DelegationRevocation, DELEGATION_CLAIMS_MEMBERS};
 use aitp::manifest::{resolve_verified_manifest, ManifestResolver, VerifyManifestContext};
@@ -177,7 +176,7 @@ pub fn verify_chained_delegation(
 fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     // typ-first gate (RFC-AITP-0006 §4 step 1; D7 / issue #140 follow-up):
     // mirrors `aitp::tct::verifier::peek_header_typ`'s pattern via the
-    // shared `aitp::crypto::jws::peek_typ` helper. Unlike TCT/voucher —
+    // shared `aitp::__private::peek_typ` helper. Unlike TCT/voucher —
     // where a typ mismatch defers silently, letting the *next*
     // `jws::verify_compact` call make the authoritative call — this
     // function's own next step (below) is a strict `deny_unknown_fields`
@@ -189,7 +188,7 @@ fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegation
     // ahead of unknown-fields) and closing a real cross-impl divergence.
     // An absent `typ` falls through unchanged, exactly as TCT/voucher
     // treat it.
-    if let Some(typ) = jws::peek_typ(token) {
+    if let Some(typ) = aitp::__private::peek_typ(token) {
         if typ != jws::TYP_DELEGATION {
             return Err(
                 DelegationError::Crypto(aitp::crypto::CryptoError::TypMismatch {

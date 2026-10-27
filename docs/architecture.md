@@ -201,8 +201,7 @@ features and the module boundaries below stay one-directional:
 - **`aitp::envelope` is the sync envelope codec.** `sign_envelope` /
   `verify_envelope_signature` depend only on `core` + `crypto` — no HTTP,
   no async — so the language bindings (and other sync consumers) can
-  sign/verify without a transport stack; `aitp::transport::common` keeps
-  thin wrappers over it.
+  sign/verify without a transport stack; the transport uses it too.
 - **`aitp::tct` does not depend on `aitp::handshake`.** TCT verification is
   the per-request hot path and must not reach into the state machine.
   `handshake` depends on `tct` + `manifest` — it issues TCTs and verifies

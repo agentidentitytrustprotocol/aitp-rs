@@ -39,10 +39,11 @@ use uuid::Uuid;
 use x509_parser::extensions::GeneralName;
 use x509_parser::oid_registry::{OID_EC_P256, OID_KEY_TYPE_EC_PUBLIC_KEY, OID_SIG_ED25519};
 
+use aitp::__private::{svid_type, x5c, SvidType};
 use aitp::handshake::identity_pinned::PINNED_KEY_PROOF_DOMAIN;
 use aitp::handshake::{
     pinned_key_proof_input, verify_jws_signature, HandshakeError, IdentityDescriptor, IdentityKind,
-    IdentityVerifier, IdentityVerifyContext, JwkParseError, JwkPublicKey, SvidType,
+    IdentityVerifier, IdentityVerifyContext, JwkParseError, JwkPublicKey,
 };
 
 /// Domain prefix of the X509-SVID proof input (RFC-AITP-0002 §6.4.1).
@@ -247,12 +248,10 @@ pub fn verify_spiffe(
     if identity.public_key.is_some() {
         return Err(fail("descriptor must not carry public_key"));
     }
-    let svid_type = identity
-        .svid_type
-        .ok_or_else(|| fail("descriptor is missing svid_type"))?;
+    let svid_type = svid_type(identity).ok_or_else(|| fail("descriptor is missing svid_type"))?;
     // Step 2: the trust domain of `subject`.
     let trust_domain = spiffe_id_trust_domain(&identity.subject)?;
-    match (svid_type, identity.x5c.as_deref()) {
+    match (svid_type, x5c(identity)) {
         (SvidType::JwtSvid, None) => {}
         (SvidType::JwtSvid, Some(_)) => return Err(fail("x5c must be absent for a jwt-svid")),
         (SvidType::X509Svid, Some([_, ..])) => {}
@@ -432,9 +431,7 @@ fn verify_x509_svid(
     bundle: &SpiffeBundle,
     ctx: &SpiffeVerifyContext<'_>,
 ) -> Result<(), HandshakeError> {
-    let chain = identity
-        .x5c
-        .as_deref()
+    let chain = x5c(identity)
         .unwrap_or_default()
         .iter()
         .map(|c| decode_x5c_entry(c).map_err(|e| fail(&e)))

@@ -20,6 +20,7 @@
 //! Replay-deny-list (P8) and JwksFetcher hardening (P9) belong to the
 //! transport crate and are covered by `crates/aitp/tests/transport_*.rs`.
 
+use aitp::__private::bootstrap_verify_peer;
 use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::identity_pinned::{
@@ -27,8 +28,8 @@ use aitp::handshake::identity_pinned::{
 };
 use aitp::handshake::state_machine::{GrantPolicyFn, StaticPinnedKeyStore};
 use aitp::handshake::{
-    bootstrap_verify_peer, verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey,
-    JwksResolver, OidcVerifyContext, PeerConfig, PresentedIdentity, ResolveError,
+    verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey, JwksResolver, OidcVerifyContext,
+    PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use uuid::Uuid;

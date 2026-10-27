@@ -3,7 +3,7 @@
 
 use super::nonce_store::lock;
 use crate::core::Timestamp;
-use crate::crypto::signer::{BoxError, BoxFuture};
+use crate::core::{BoxError, BoxFuture};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::hash::BuildHasher;

@@ -5,7 +5,8 @@ use crate::session_bundle::error::SessionBundleError;
 use crate::session_bundle::types::{
     SessionBundleEnvelope, SessionTrustBundle, SESSION_BUNDLE_MEMBERS,
 };
-use aitp::core::{check_members, from_serde_error, CheckedJson};
+use aitp::__private::{check_members, from_serde_error};
+use aitp::core::CheckedJson;
 use serde_json::Value;
 
 /// Full member set of the `{"session_bundle": {...}}` transport

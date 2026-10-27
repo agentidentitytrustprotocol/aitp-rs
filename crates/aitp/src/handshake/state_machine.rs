@@ -263,7 +263,7 @@ pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> +
 /// pop_nonce) tuple; collecting them in one struct prevents call sites
 /// from forgetting fields.
 #[non_exhaustive]
-pub struct IdentityPresentationContext<'a> {
+pub(crate) struct IdentityPresentationContext<'a> {
     /// Sender's AID (= signer's AID — must match
     /// `signing_key.aid()`).
     pub sender_aid: &'a Aid,
@@ -514,7 +514,7 @@ fn fresh_nonce() -> Result<String, HandshakeError> {
 /// (RFC-AITP-0004 §5.1 steps 3–6).
 ///
 /// Returns the peer's verifying key on success.
-pub fn bootstrap_verify_peer(
+pub(crate) fn bootstrap_verify_peer(
     envelope: &AitpEnvelope,
     payload_manifest: &Manifest,
     payload_identity: &IdentityDescriptor,
@@ -625,7 +625,7 @@ pub fn bootstrap_verify_peer(
 /// signature (step 7) pass: the order is frozen, so a payload failing both
 /// the proof and this check reports `IDENTITY_FAILED`. The OIDC
 /// trust-anchor check stays inside the proof, before any JWKS fetch.
-pub fn apply_peer_policy(
+pub(crate) fn apply_peer_policy(
     payload_identity: &IdentityDescriptor,
     cfg: &PeerConfig<'_>,
 ) -> Result<(), HandshakeError> {

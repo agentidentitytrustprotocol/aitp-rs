@@ -81,7 +81,7 @@ type Slot = Arc<tokio::sync::Mutex<Option<Snapshot>>>;
 
 /// Fetches and caches issuers' signed revocation snapshots from the
 /// `ListRevoked` URL their Manifests advertise
-/// ([`crate::transport::REVOCATION_LIST_URI_EXT`]). See the [module docs](self).
+/// ([`crate::manifest::REVOCATION_LIST_URI_EXT`]). See the [module docs](self).
 ///
 /// Hardened like [`crate::transport::ManifestFetcher`]: HTTPS only, no redirects,
 /// [`HostGuard`] address checks with the vetted addresses pinned into
@@ -158,7 +158,7 @@ impl RevocationFetcher {
         let status = match list_uri {
             None => Err(format!(
                 "issuer {issuer} advertises no {}",
-                crate::transport::REVOCATION_LIST_URI_EXT
+                crate::manifest::REVOCATION_LIST_URI_EXT
             )),
             Some(uri) => self
                 .snapshot(issuer, uri, now)

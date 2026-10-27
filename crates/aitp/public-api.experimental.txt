@@ -66,7 +66,6 @@ pub aitp::crypto::testing::MockOutput::Raw
 pub aitp::crypto::testing::MockOutput::RawHighS
 pub const aitp::crypto::testing::AWS_KMS_RAW_MAX: usize
 pub fn aitp::crypto::testing::MockKmsSigner::aid(&self) -> &aitp::core::aid::Aid
-pub fn aitp::crypto::testing::MockKmsSigner::as_signing_key(&self) -> core::option::Option<&aitp::crypto::keys::AitpSigningKey>
 pub fn aitp::crypto::testing::MockKmsSigner::calls(&self) -> usize
 pub fn aitp::crypto::testing::MockKmsSigner::fail_transient(self, usize, core::option::Option<core::time::Duration>) -> Self
 pub fn aitp::crypto::testing::MockKmsSigner::max_message_len(&self) -> core::option::Option<usize>

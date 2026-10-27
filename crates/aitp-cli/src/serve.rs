@@ -27,6 +27,7 @@ use std::time::Duration;
 
 use aitp::core::{base64url, parse_envelope_wire, Aid, CheckedJson, MessageType, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, Digest32};
+use aitp::envelope::{sign_envelope, verify_envelope_signature};
 use aitp::handshake::admission::{
     ChallengeSource, ConsumeOutcome, InMemoryNonceStore, IssuedNonce, NonceStore, NonceStoreError,
     TokenBucketLimiter,
@@ -38,8 +39,8 @@ use aitp::tct::{
     TctVerifyContext,
 };
 use aitp::transport::{
-    resolve_source_ip, sign_envelope, verify_envelope_signature, HandshakeServer, ManifestServer,
-    RateLimitConfig, RevocationFailMode, RevocationPolicy, TrustedProxy, REVOCATION_LIST_PATH,
+    resolve_source_ip, HandshakeServer, ManifestServer, RateLimitConfig, RevocationFailMode,
+    RevocationPolicy, TrustedProxy, REVOCATION_LIST_PATH,
 };
 use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::{ConnectInfo, Request, State};
