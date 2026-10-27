@@ -2,8 +2,8 @@
 
 The conformance runner exists so that AITP implementations in any language
 can be validated against the same fixtures. This page covers two things:
-the **adapter protocol and runner architecture** (how any implementation
-is driven), and the **conformance matrix** (where `aitp-rs` stands
+how this repo's **runner drives an implementation** (the protocol itself
+is the spec's), and the **conformance matrix** (where `aitp-rs` stands
 today — jump to [the matrix](#v02-conformance-matrix)).
 
 ## Scope
@@ -44,178 +44,72 @@ Rationale:
 The cost — slightly slower than FFI, no in-process race-condition tests —
 is acceptable for a conformance harness.
 
-## Wire protocol
+## Adapter protocol
 
-NDJSON: one JSON object per line on stdin (request) and stdout (response).
+The spec defines the adapter protocol, in
+[`schemas/conformance/ADAPTER.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/ADAPTER.md)
+(`adapter-protocol: 1`). It covers the transport, the request and
+response shapes, `init` and `shutdown`, the operations fixtures use, the
+housekeeping ops, SKIP and the claim gates. This page does not repeat it.
+ADAPTER.md was checked against this runner, and its notes marked
+**aitp-rs** describe the choices `aitp-conformance` makes where the
+protocol leaves one. The ones an adapter author meets first:
 
-### Lifecycle
+- **Request ids** are `req-1`, `req-2`, … numbered over the whole run,
+  `init` included.
+- **SKIPs come from `supported_ops` only.** The runner never reads
+  `supported_features`, which is informational. Which draft and extension
+  fixtures run is chosen by `--feature`.
+- **`OP_NOT_SUPPORTED` is a SKIP.** A declared op may refuse one input it
+  does not implement with `"error_code": "OP_NOT_SUPPORTED"`; the step is
+  a SKIP, not a FAIL. Like every SKIP of a `required_for_core` fixture, it
+  still blocks the `AITP v0.3` claim.
+- **A timeout fails the step; it does not kill the adapter.** A request
+  with no response line within 30 seconds
+  (`SubprocessAdapter::with_timeout` overrides it) fails the fixture step
+  that sent it. The adapter keeps running, so a late response is read as
+  the answer to the next request and fails that one on the `id` check. The
+  runner kills the process only at shutdown, about 500 ms after sending
+  `shutdown`.
+- **Stderr** passes through to the runner's stderr; stdout carries only
+  the protocol.
 
-1. Runner spawns adapter process.
-2. Runner sends `init`. Adapter declares capabilities.
-3. Runner sends operations one at a time.
-4. Runner sends `shutdown` when done.
-5. Adapter exits cleanly.
+To write an adapter, start from the
+[Python template](../adapters/README.md).
 
-### Request
+### `aitp-rs-adapter`
 
-```json
-{"id": "req-001", "op": "verify_tct", "params": {...}}
-```
+The adapter for this implementation (`crates/aitp-conformance/src/rs_adapter/`,
+binary `aitp-rs-adapter`) reports the `aitp-conformance` package version
+(`env!("CARGO_PKG_VERSION")`) in `init`, so the value tracks the workspace
+release. Its live operation list is `supported_ops` in `init()` in
+`rs_adapter/mod.rs`.
 
-| Field | Description |
-|---|---|
-| `id` | Opaque correlation ID, echoed in response. |
-| `op` | Operation name from the fixed vocabulary. |
-| `params` | Operation-specific input as JSON. |
+- It answers every fixture operation ADAPTER.md lists except
+  `verify_a2a_agent_card_binding`, so the `a2a-*` fixtures (extension
+  `aitp-a2a-agent-card`) SKIP.
+- It also answers ops no fixture uses: issuance (`generate_keypair`,
+  `issue_manifest`, `issue_tct`, `issue_delegation_token`,
+  `issue_session_bundle`, `sign_envelope`), `start_handshake`,
+  `revoke_tct`, and the helpers `verify_jcs`, `compute_jwk_thumbprint`,
+  `inject_revocation` and `dump_session`. They are outside the protocol.
+- `verify_session_bundle` requires `coordinator_manifest`; a missing
+  Manifest or one for another AID is `KEY_RESOLUTION_FAILED`
+  (RFC-AITP-0010 §5 step 5).
+- The admission verifier behind `verify_identity_presentation` and
+  `issue_presentation_challenge` lives for one fixture, so a nonce
+  consumed in one sequence step stays consumed in the next. It is built
+  from the first step's `self_aid`, `trust_store`,
+  `max_outstanding_nonces`, `presentation_rate_limit` and
+  `outstanding_challenges`. `begin_fixture` drops it.
 
-### Response — success
+### Inside the runner
 
-```json
-{"id": "req-001", "ok": true, "result": {...}}
-```
-
-### Response — failure
-
-```json
-{"id": "req-001", "ok": false, "error_code": "AUDIENCE_MISMATCH", "message": "..."}
-```
-
-`error_code` matches the AITP error registry exactly. `message` is
-human-readable; the runner ignores it for pass/fail logic.
-
-A refusal made below the protocol layer carries no AITP code. It
-reports the HTTP status the transport would answer with instead of an
-`error_code`. The presentation rate limit of RFC-AITP-0002 §3.4 is one
-(RFC-AITP-0009 §3.1, `id-022`):
-
-```json
-{"id": "req-002", "ok": false, "http_status": 429, "message": "..."}
-```
-
-A fixture that expects this sets `expected.http_status`. It must then
-also expect no `error_code`, and the runner fails the step if the
-adapter returns one.
-
-### Init handshake
-
-```json
-// runner sends:
-{"id": "init", "op": "init", "params": {"version": "1"}}
-
-// adapter responds:
-{
-  "id": "init",
-  "ok": true,
-  "result": {
-    "implementation": "aitp-rs",
-    "version": "<the adapter crate's version>",
-    "repository": "https://github.com/agentidentitytrustprotocol/aitp-rs",
-    "supported_ops": ["verify_tct", "verify_grant_voucher", "verify_manifest", ...],
-    "supported_features": ["pinned_key_identity", "oidc_identity"]
-  }
-}
-```
-
-`aitp-rs-adapter` reports the `aitp-conformance` package version
-(`env!("CARGO_PKG_VERSION")` in
-`crates/aitp-conformance/src/rs_adapter/mod.rs`), so the value tracks the
-workspace release.
-
-`implementation`, `version`, `repository` and `commit` are copied into a
-[conformance report](#conformance-report). Each one is optional in the
-reply: `implementation` and `version` default to `"unknown"`, and a report
-needs `repository` from the reply or `--implementation-repository`.
-
-The runner uses `supported_ops` and `supported_features` to skip fixtures
-the adapter cannot handle. A partial implementation declares only what it
-supports; fixtures requiring missing operations are reported as `SKIP`,
-not `FAIL`.
-
-## Operation vocabulary
-
-Operations are organized by tier. Adapters can support any subset. The
-**authoritative live list** is whatever an adapter returns in its `init`
-response (`supported_ops`); the tables below are the taxonomy, kept in
-sync with `crates/aitp-conformance/src/rs_adapter/`. Draft ops (session
-bundle, multi-hop) are only exercised under their opt-in features.
-
-### Tier A — pure verification
-
-Stateless operations on fully-formed AITP objects.
-
-| Op | Purpose |
-|---|---|
-| `verify_envelope` | Verify envelope signature and structure. |
-| `verify_manifest` | Verify a Manifest. |
-| `verify_tct` | Verify a TCT compact JWS against a known issuer pubkey (optionally a set of revoked `jti`s). |
-| `verify_grant_voucher` | Verify a grant voucher compact JWS under the issuer's own key. |
-| `verify_delegation_token` | Verify a delegation token (compact JWS, embedded voucher). |
-| `verify_revocation_snapshot` | Verify a signed revocation snapshot. |
-| `verify_handshake_payload` | Verify a single handshake message payload (`id-*` / `mh-*` fixtures). |
-| `verify_jcs` | Compute JCS canonical form (return hex). |
-| `compute_jwk_thumbprint` | Compute thumbprint of a pubkey. |
-| `verify_session_bundle` | Verify a Session Trust Bundle (draft, `experimental-session-bundle`). Requires `coordinator_manifest`; a missing Manifest or one for another AID is `KEY_RESOLUTION_FAILED` (RFC-AITP-0010 §5 step 5). |
-| `verify_attestation` | Verify a self-attestation outside a grant context (RFC-AITP-0005 §5.3, extension `aitp-self-attestation`). The issuer must be in the step's `trust_store`. |
-
-Tier A handles the majority of fixture types.
-
-### Tier B — issuance
-
-Stateful: adapter needs access to managed keypairs.
-
-| Op | Purpose |
-|---|---|
-| `generate_keypair` | Generate or import a keypair; return handle. |
-| `issue_manifest` | Sign a Manifest with a keypair handle. |
-| `issue_tct` | Sign a TCT. |
-| `issue_delegation_token` | Sign a delegation token. |
-| `sign_envelope` | Sign an envelope. |
-| `issue_pop_challenge` | Mint a PoP challenge for a grant marked PoP-required. |
-| `issue_session_bundle` | Build a Session Trust Bundle (draft, `experimental-session-bundle`). |
-
-Keypairs are referenced by opaque adapter-assigned handles
-(e.g. `"kp-1"`). Private keys never leave the adapter.
-
-### Tier C — stateful flows
-
-| Op | Purpose |
-|---|---|
-| `start_handshake` | Begin a handshake; return session_id and first envelope. |
-| `process_handshake_message` | Feed an envelope into a session. |
-| `revoke_tct` | Revoke a TCT by JTI. |
-| `authorize_capability_invocation` | Authorize a capability call, enforcing PoP when the grant requires it (`tct-007`). |
-| `produce_pop_response` / `verify_pop_response` | Answer / check a downstream PoP challenge. |
-| `expect_pop_challenge_issued` / `withhold_pop_response` | Assertion helpers for the `tct-007` PoP-enforcement sequence. |
-| `issue_presentation_challenge` | Issue a one-way admission challenge to the step's `source` (RFC-AITP-0002 §3.4, extension `aitp-pinned-admission`). The runner captures `result.pop_nonce` as `__ISSUED_NONCE_<n>__`, numbered from 1 within the sequence. |
-| `verify_identity_presentation` | Admit one `identity_presentation` envelope in the §3.4 check order: `message_id` deny list, presentation rate limit, timestamp, structure, nonce, key, signature, proof, nonce consume. |
-
-The admission verifier lives for one fixture, so a nonce consumed in one
-sequence step stays consumed in the next. It is built from the first
-step's `self_aid`, `trust_store`, `max_outstanding_nonces`,
-`presentation_rate_limit` and `outstanding_challenges`.
-
-Sessions are referenced by adapter-assigned IDs.
-
-### Tier D — test-only
-
-| Op | Purpose |
-|---|---|
-| `set_clock` | Override "now" for time-dependent tests. |
-| `inject_revocation` | Force a JTI into the deny list. |
-| `set_features` | Toggle opt-in draft features for the run. |
-| `dump_session` | Dump session state for debugging. |
-| `begin_fixture` | Drop per-fixture adapter state. The runner sends it before each fixture and ignores an error, so adapters without the op still run. This is how the runner meets the spec's rule that each fixture runs against fresh verifier state (fixture README, "Multi-step sequence form"). |
-
-Adapters that don't support clock override just refuse the op; fixtures
-that need it are skipped.
-
-## Adapter trait
-
-Inside the runner, an adapter is represented by `Adapter`. The default
-backing implementation is `SubprocessAdapter`. An optional in-process
-implementation (`InProcessRustAdapter`) calls the `aitp-rs` crates
-directly for fast local development; CI uses the subprocess path so the
-protocol itself is exercised.
+An adapter is represented by `Adapter`. The default backing
+implementation is `SubprocessAdapter`. An optional in-process
+implementation (`InProcessRustAdapter`) calls `aitp` directly for fast
+local development; CI uses the subprocess path so the protocol itself is
+exercised.
 
 ```rust
 pub trait Adapter {
@@ -225,17 +119,6 @@ pub trait Adapter {
     fn shutdown(&mut self) -> Result<(), AdapterError>;
 }
 ```
-
-Three methods, the trait is intentionally simple.
-
-## Subprocess implementation notes
-
-- **Stderr inherits.** Adapter logs go to the runner's stderr. No
-  structured log protocol; just print.
-- **Synchronous.** One outstanding request at a time.
-- **Timeout.** Default 30 seconds per request. Hung adapters are killed.
-- **Process supervision.** On shutdown, the runner gives the adapter a
-  brief grace period then kills it.
 
 ## Fixture format
 

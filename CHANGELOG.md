@@ -45,6 +45,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Spec pin `8dc2a5c`, whose handshake fixtures `mh-002`–`mh-005`, `mh-007` and `mh-008` state the receiver's `self_aid`. No schema changes.
 - `STABILITY.md` states the compatibility policy. The `aitp` facade follows semver, and while pre-1.0 a breaking change bumps the minor digit. MSRV bumps happen only in a minor release. The internal crates, the `experimental-*` features and `aitp-unstable` carry no promise. `cargo-semver-checks` now has its own workflow, `semver.yml`. On `aitp` it blocks and on the internal crates it is advisory. A `semver-break-approved` label lets an intentional break through, provided `[Unreleased]` has a `### BREAKING` entry.
 
+### Changed
+
+- `STABILITY.md` states the 1.x policy, in sections Covered (the `aitp` stable surface and the npm and PyPI SDKs), Not covered, MSRV and Support window. From 1.0 a breaking change is a major release. A spec-aligning change an application can observe is a fix only when it closes a security hole; otherwise it waits for a major. The MSRV is at most N-2 and moves only in a minor. The latest minor gets bug and security fixes; the previous minor gets security fixes for 6 months. `SECURITY.md` matches.
+- The upgrade guides `docs/upgrading-0.14.md` to `docs/upgrading-0.19.md` and the stale `PROGRESS.md` are deleted. Older CHANGELOG entries link to the guides at the `aitp-v0.23.0` tag.
+- `docs/conformance.md` and `adapters/README.md` link to the spec's [`schemas/conformance/ADAPTER.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/schemas/conformance/ADAPTER.md) for the adapter protocol instead of defining it, and correct what they said: request ids are `req-N`, the runner never reads `supported_features`, `OP_NOT_SUPPORTED` from a declared op is a SKIP, and a timeout fails the step without killing the adapter. The Python template reads `params["tct_token"]`, as the fixtures spell it, and the README's run command passes `--bin aitp-conformance`.
+
 ### Fixed
 
 - A body limit set with `with_request_body_limit` now applies to the handshake routes. They read the raw body, which axum's `DefaultBodyLimit` does not reach, so they kept their fixed 256 KiB cap. An oversized handshake body is refused with `INVALID_ENVELOPE` (RFC-AITP-0009 §3.1).
@@ -279,7 +285,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   bypass (#272). The conformance adapter treats a discarded revocation
   snapshot as absent and applies `revocation_policy.mode` (#271). The Rust
   crates' API and the wire format are unchanged, so 0.19 interoperates
-  with 0.18 peers. See [`docs/upgrading-0.19.md`](docs/upgrading-0.19.md)
+  with 0.18 peers. See [`docs/upgrading-0.19.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.19.md)
   for who is affected and how to migrate.
 - **Bindings: wire-bound UUID inputs are strict, and `revoked_jtis`
   lookups normalize and fail closed**
@@ -363,7 +369,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   (#265), and revocation signing refuses a `jti` that is not a lowercase
   UUID v4 (#268). The wire format is unchanged, so 0.18 interoperates
   with 0.17 peers. See
-  [`docs/upgrading-0.18.md`](docs/upgrading-0.18.md) for who is affected
+  [`docs/upgrading-0.18.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.18.md) for who is affected
   and how to migrate.
 - **A revocation snapshot with an unknown `version` now reports
   `REVOCATION_SNAPSHOT_INVALID`**
@@ -415,7 +421,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     `jti` appeared to verify through `verifyRevocationList`. Verify was
     already strict: an uppercase `jti` on the wire is `malformed`. Pass
     `randomUUID()` / `str(uuid.uuid4())` output unchanged.
-  - The claim in [`docs/upgrading-0.15.md`](docs/upgrading-0.15.md)
+  - The claim in [`docs/upgrading-0.15.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.15.md)
     section 2 that the revocation signing-bytes entry points apply the
     wire parser's `jti` check now holds for the Rust function as well.
 
@@ -599,7 +605,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - **0.16.0: single-hop delegation keys resolved from Manifests, and the
   coordinator Manifest required for session bundles in the bindings.**
   Spec pin `cfd2f16` → `ab214d2`. See
-  [`docs/upgrading-0.16.md`](docs/upgrading-0.16.md) for every change and
+  [`docs/upgrading-0.16.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.16.md) for every change and
   how to migrate.
 - **Single-hop delegation verifies under the issuer's Manifest key**
   (RFC-AITP-0006 §4 step 1,
@@ -687,7 +693,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   handshake defaults, the RFC-AITP-0010 §5 session-bundle order,
   Manifest-resolved multi-hop keys, hardened renewal and a v0.2
   conformance gate.** Spec pin `db7d860` → `cfd2f16`. See
-  [`docs/upgrading-0.15.md`](docs/upgrading-0.15.md) for every change and
+  [`docs/upgrading-0.15.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.15.md) for every change and
   how to migrate.
 - **`parse_*_wire` and `PinnedAdmission::admit_wire` / `admit_wire_at`
   take `&CheckedJson`** instead of `&serde_json::Value`
@@ -907,7 +913,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   fixtures: 92 pass and 2 skip with every feature; 74 pass and 20 skip
   strict), and `tests/proposal-kats` is gone: every vector comes from the
   vendored spec. See
-  [`docs/upgrading-0.14.md`](docs/upgrading-0.14.md) for every change and
+  [`docs/upgrading-0.14.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/aitp-v0.23.0/docs/upgrading-0.14.md) for every change and
   how to migrate.
 
 ## [0.13.2] — 2026-10-08

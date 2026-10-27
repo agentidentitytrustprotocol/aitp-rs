@@ -3,8 +3,9 @@
 Template for a Python conformance adapter.
 
 A conformance adapter speaks NDJSON over stdio. Each stdin line is a request;
-each stdout line is the corresponding response. See
-docs/conformance.md for the full adapter protocol and op vocabulary.
+each stdout line is the corresponding response. The spec
+defines the protocol, in schemas/conformance/ADAPTER.md, and each op's
+inputs, in schemas/conformance/PLACEHOLDERS.md ("Operation key").
 
 This file is a template; replace the TODO bodies with calls into your
 Python AITP implementation.
@@ -33,14 +34,16 @@ def handle_init(_params):
             "issue_tct",
             "issue_manifest",
         ],
-        "supported_features": ["oidc_identity", "pinned_key_identity"],
+        # Informational: the runner chooses opt-in fixtures with --feature.
+        "supported_features": [],
     }
 
 
 def handle_verify_tct(params):
-    # TODO: parse params["tct"], verify against params["expected_audience"]
-    # using params["issuer_pubkey"] (hex 32 bytes), then return verified TCT
-    # info or raise an exception with an AITP error code.
+    # TODO: verify params["tct_token"] (a compact JWS) for
+    # params["expected_audience"]. The issuer key comes from the token's
+    # `iss` AID, or from params["issuer_manifest"] when the fixture has one.
+    # Return {} on success or raise with an AITP error code.
     raise NotImplementedError
 
 
