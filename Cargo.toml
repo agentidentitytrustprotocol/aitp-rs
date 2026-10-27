@@ -136,12 +136,12 @@ ring = "0.17"
 # with no JOSE-library dependency (see `crates/aitp/src/handshake/jwk.rs`),
 # so this dependency's version is no longer semver-visible to
 # `aitp::handshake` or the bindings.
-jsonwebtoken = "9.3"
+jsonwebtoken = "11.1"
 
 # Non-poisoning Mutex for HTTP server state. parking_lot::Mutex never enters
 # a poisoned state on a panic in a locked section — std::sync::Mutex would,
 # and an unwrap on the resulting PoisonError hangs every subsequent request.
-parking_lot = "0.12"
+parking_lot = "0.13"
 
 # Structured logging. Library crates emit spans + events; binaries (or
 # downstream applications) install a subscriber. Default-features-off keeps

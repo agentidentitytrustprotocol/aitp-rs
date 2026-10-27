@@ -45,6 +45,6 @@ rand = { workspace = true }
 
 [dev-dependencies]
 # Validates `--report` output against the vendored spec schema.
-jsonschema = { version = "0.58", default-features = false }
+jsonschema = { version = "0.60", default-features = false }
 sha2 = { workspace = true }
 hex = { workspace = true }
