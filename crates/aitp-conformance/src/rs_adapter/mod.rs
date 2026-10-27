@@ -23,6 +23,7 @@ use aitp::handshake::{
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{TctBuilder, TctClaims};
+use aitp_experimental::spiffe::{SpiffeBundleStore, SpiffeVerifier};
 use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
@@ -828,22 +829,24 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
     // RFC-AITP-0002 §6.2: a `spiffe` fixture's
     // `trust_anchors_config.spiffe_bundles` is the verifier's whole
     // bundle store. The verifier accepts `spiffe` only with the
-    // feature on (§6.6; PLACEHOLDERS.md `id-*` row).
+    // feature on (§6.6; PLACEHOLDERS.md `id-*` row): then it attaches a
+    // `SpiffeVerifier`, over an empty store when the fixture has none.
     let spiffe_enabled = state.has_feature("experimental-spiffe-identity");
     let spiffe_store = if spiffe_enabled {
         match params
             .get("trust_anchors_config")
             .and_then(|c| c.get("spiffe_bundles"))
         {
-            Some(bundles) => match aitp::handshake::SpiffeBundleStore::from_config(bundles) {
+            Some(bundles) => match SpiffeBundleStore::from_config(bundles) {
                 Ok(store) => Some(store),
                 Err(e) => return err(id, "IDENTITY_FAILED", &format!("spiffe_bundles: {e}")),
             },
-            None => None,
+            None => Some(SpiffeBundleStore::new()),
         }
     } else {
         None
     };
+    let spiffe_verifier = spiffe_store.as_ref().map(SpiffeVerifier::new);
 
     // `self_trust_anchors` is the receiver's OIDC `trust_anchors` when the
     // fixture states it. When it is absent the receiver trusts exactly the
@@ -953,8 +956,8 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         envelope.timestamp,
     )
     .with_trust_anchors(&cfg_anchors);
-    if let Some(store) = &spiffe_store {
-        cfg = cfg.with_spiffe_bundles(store);
+    if let Some(verifier) = &spiffe_verifier {
+        cfg = cfg.with_identity_verifier(verifier);
     }
 
     use aitp::core::{check_members, from_serde_error};

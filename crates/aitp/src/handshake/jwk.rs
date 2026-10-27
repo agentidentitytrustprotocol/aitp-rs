@@ -66,7 +66,8 @@ impl JwsAlgorithm {
     /// Whether this algorithm can be used with `key`'s type: EdDSA with
     /// Ed25519, each ES* with its own curve, RS* and PS* with RSA
     /// (RFC-AITP-0002 §6.3 "Key match"). A JWT-SVID additionally never
-    /// takes EdDSA; `identity_spiffe` rejects it before key selection.
+    /// takes EdDSA (`aitp_experimental::spiffe` rejects it before key
+    /// selection).
     pub fn fits(&self, key: &JwkKeyMaterial) -> bool {
         matches!(
             (self, key),
@@ -437,8 +438,7 @@ fn verify_p521(
         .map_err(|_| JwsVerifyError::SignatureInvalid)
 }
 
-/// Test-only signers for every [`JwsAlgorithm`] but EdDSA, shared by
-/// these tests and the JWT-SVID tests in `identity_spiffe`.
+/// Test-only signers for every [`JwsAlgorithm`] but EdDSA.
 #[cfg(test)]
 pub(crate) mod test_signers {
     use super::{JwkPublicKey, JwsAlgorithm};
@@ -515,20 +515,6 @@ pub(crate) mod test_signers {
             }
         }
     }
-
-    /// The nine JWT-SVID algorithms (RFC-AITP-0002 §6.3).
-    #[cfg_attr(not(feature = "experimental-spiffe-identity"), allow(dead_code))]
-    pub(crate) const JWT_SVID_ALGS: [JwsAlgorithm; 9] = [
-        JwsAlgorithm::RS256,
-        JwsAlgorithm::RS384,
-        JwsAlgorithm::RS512,
-        JwsAlgorithm::ES256,
-        JwsAlgorithm::ES384,
-        JwsAlgorithm::ES512,
-        JwsAlgorithm::PS256,
-        JwsAlgorithm::PS384,
-        JwsAlgorithm::PS512,
-    ];
 
     /// `signer`'s JWK, parsed.
     pub(crate) fn parsed(jwk: &serde_json::Value) -> JwkPublicKey {

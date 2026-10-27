@@ -13,6 +13,7 @@ use crate::handshake::identity_oidc::{verify_oidc, JwksResolver, OidcVerifyConte
 use crate::handshake::identity_pinned::{
     sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
 };
+use crate::handshake::identity_verifier::{IdentityVerifier, IdentityVerifyContext};
 use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
@@ -84,11 +85,10 @@ pub struct PeerConfig<'a> {
     /// MUTUAL_COMMIT_ACK is checked for revocation (RFC-AITP-0008).
     /// Required by [`PeerConfig::new`]; see [`RevocationSource`].
     pub revocation: RevocationSource<'a>,
-    /// Local SPIFFE bundle store (RFC-AITP-0002 §6.2). `None` is an empty
-    /// store: a `spiffe` peer fails with `IDENTITY_FAILED` even when
-    /// `manifest.accepted_identity_types` lists `spiffe`.
-    #[cfg(feature = "experimental-spiffe-identity")]
-    pub spiffe_bundles: Option<&'a crate::handshake::identity_spiffe::SpiffeBundleStore>,
+    /// Verifier for the identity types `aitp` does not verify itself
+    /// (see [`IdentityVerifier`]). `None`: a peer presenting one fails
+    /// with `INCOMPATIBLE_IDENTITY_TYPE`.
+    pub identity_verifier: Option<&'a dyn IdentityVerifier>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
 }
@@ -137,8 +137,7 @@ impl<'a> PeerConfig<'a> {
             pinned_key_store,
             grant_policy: None,
             revocation,
-            #[cfg(feature = "experimental-spiffe-identity")]
-            spiffe_bundles: None,
+            identity_verifier: None,
             now,
         }
     }
@@ -149,14 +148,10 @@ impl<'a> PeerConfig<'a> {
         self
     }
 
-    /// Set the SPIFFE bundle store (default: none). See
-    /// [`PeerConfig::spiffe_bundles`].
-    #[cfg(feature = "experimental-spiffe-identity")]
-    pub fn with_spiffe_bundles(
-        mut self,
-        bundles: &'a crate::handshake::identity_spiffe::SpiffeBundleStore,
-    ) -> Self {
-        self.spiffe_bundles = Some(bundles);
+    /// Set the identity verifier (default: none). See
+    /// [`PeerConfig::identity_verifier`].
+    pub fn with_identity_verifier(mut self, verifier: &'a dyn IdentityVerifier) -> Self {
+        self.identity_verifier = Some(verifier);
         self
     }
 
@@ -598,34 +593,24 @@ pub fn bootstrap_verify_peer(
             )?;
             return Ok(verified.key);
         }
-        IdentityKind::Spiffe => {
-            // RFC-AITP-0002 §6.6: a verifier built without SPIFFE support
-            // rejects the type even when its manifest lists it.
-            if !cfg!(feature = "experimental-spiffe-identity") {
-                return Err(
-                    crate::manifest::ManifestError::IncompatibleIdentityType("spiffe").into(),
-                );
-            }
-            #[cfg(feature = "experimental-spiffe-identity")]
-            {
-                use crate::handshake::identity_spiffe::{
-                    verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext,
-                };
-                let empty = SpiffeBundleStore::new();
-                verify_spiffe(
-                    payload_identity,
-                    &SpiffeVerifyContext {
-                        bundles: cfg.spiffe_bundles.unwrap_or(&empty),
-                        sender_aid: &payload_manifest.aid,
-                        receiver_aid: &cfg.manifest.aid,
-                        message_id: &envelope.message_id,
-                        timestamp: envelope.timestamp,
-                        pop_nonce: payload_pop_nonce,
-                        iat_tolerance_secs: 300,
-                        now_unix_secs: cfg.now.0,
-                    },
-                )?;
-            }
+        kind => {
+            // RFC-AITP-0002 §6.6: a type no verifier handles is rejected
+            // even when our Manifest lists it.
+            let verifier = cfg.identity_verifier.filter(|v| v.handles(kind)).ok_or(
+                crate::manifest::ManifestError::IncompatibleIdentityType(kind.as_str()),
+            )?;
+            verifier.verify(
+                payload_identity,
+                &IdentityVerifyContext {
+                    peer_manifest: payload_manifest,
+                    sender_aid: &payload_manifest.aid,
+                    receiver_aid: &cfg.manifest.aid,
+                    message_id: &envelope.message_id,
+                    timestamp: envelope.timestamp,
+                    pop_nonce: payload_pop_nonce,
+                    now: cfg.now,
+                },
+            )?;
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)

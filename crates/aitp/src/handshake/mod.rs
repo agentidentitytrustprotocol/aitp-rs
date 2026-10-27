@@ -17,8 +17,7 @@ pub mod error;
 pub mod identity;
 pub mod identity_oidc;
 pub mod identity_pinned;
-#[cfg(feature = "experimental-spiffe-identity")]
-pub mod identity_spiffe;
+pub mod identity_verifier;
 pub mod jwk;
 pub mod payloads;
 pub mod state_machine;
@@ -31,11 +30,7 @@ pub use identity_pinned::{
     PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, StaticPinnedKeyStore,
     SubjectBinding, VerifiedPinnedKey, POP_NONCE_LEN,
 };
-#[cfg(feature = "experimental-spiffe-identity")]
-pub use identity_spiffe::{
-    spiffe_x509_proof_input, verify_spiffe, SpiffeBundle, SpiffeBundleStore, SpiffeConfigError,
-    SpiffeVerifyContext, SPIFFE_X509_PROOF_DOMAIN,
-};
+pub use identity_verifier::{IdentityVerifier, IdentityVerifyContext};
 pub use jwk::{
     verify_jws_signature, JwkKeyMaterial, JwkParseError, JwkPublicKey, JwsAlgorithm, JwsVerifyError,
 };

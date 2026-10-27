@@ -106,6 +106,7 @@
 #[non_exhaustive] pub struct aitp::facade::SessionContext
 #[non_exhaustive] pub struct aitp::handshake::CompletedHandshake
 #[non_exhaustive] pub struct aitp::handshake::IdentityDescriptor
+#[non_exhaustive] pub struct aitp::handshake::IdentityVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::JwkPublicKey
 #[non_exhaustive] pub struct aitp::handshake::MutualCommitAckPayload
 #[non_exhaustive] pub struct aitp::handshake::MutualCommitPayload
@@ -125,6 +126,7 @@
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyEntry
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::VerifiedPinnedKey
+#[non_exhaustive] pub struct aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::jwk::JwkPublicKey
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitAckPayload
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitPayload
@@ -334,6 +336,9 @@ impl<T: aitp::handshake::admission::MessageIdDenyList + ?core::marker::Sized> ai
 impl<T: aitp::handshake::identity_pinned::PinnedKeyStore + ?core::marker::Sized> aitp::handshake::identity_pinned::PinnedKeyStore for &T
 impl<T: aitp::handshake::identity_pinned::PinnedKeyStore + ?core::marker::Sized> aitp::handshake::identity_pinned::PinnedKeyStore for alloc::boxed::Box<T>
 impl<T: aitp::handshake::identity_pinned::PinnedKeyStore + ?core::marker::Sized> aitp::handshake::identity_pinned::PinnedKeyStore for alloc::sync::Arc<T>
+impl<T: aitp::handshake::identity_verifier::IdentityVerifier + ?core::marker::Sized> aitp::handshake::identity_verifier::IdentityVerifier for &T
+impl<T: aitp::handshake::identity_verifier::IdentityVerifier + ?core::marker::Sized> aitp::handshake::identity_verifier::IdentityVerifier for alloc::boxed::Box<T>
+impl<T: aitp::handshake::identity_verifier::IdentityVerifier + ?core::marker::Sized> aitp::handshake::identity_verifier::IdentityVerifier for alloc::sync::Arc<T>
 pub aitp::core::AidAlgorithm::Ed25519
 pub aitp::core::AidAlgorithm::P256
 pub aitp::core::AidParseError::InvalidChars
@@ -753,6 +758,13 @@ pub aitp::handshake::IdentityDescriptor::x5c: core::option::Option<alloc::vec::V
 pub aitp::handshake::IdentityKind::Oidc
 pub aitp::handshake::IdentityKind::PinnedKey
 pub aitp::handshake::IdentityKind::Spiffe
+pub aitp::handshake::IdentityVerifyContext::message_id: &'a uuid::Uuid
+pub aitp::handshake::IdentityVerifyContext::now: aitp::core::time::Timestamp
+pub aitp::handshake::IdentityVerifyContext::peer_manifest: &'a aitp::manifest::types::Manifest
+pub aitp::handshake::IdentityVerifyContext::pop_nonce: &'a str
+pub aitp::handshake::IdentityVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::IdentityVerifyContext::sender_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::IdentityVerifyContext::timestamp: aitp::core::time::Timestamp
 pub aitp::handshake::JwkKeyMaterial::Ed25519
 pub aitp::handshake::JwkKeyMaterial::Ed25519::x: [u8; 32]
 pub aitp::handshake::JwkKeyMaterial::P256
@@ -815,6 +827,7 @@ pub aitp::handshake::OidcVerifyContext::now_unix_secs: i64
 pub aitp::handshake::OidcVerifyContext::subject_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::OidcVerifyContext::trust_anchors: &'a [aitp::core::raw_url::RawUrl]
 pub aitp::handshake::PeerConfig::grant_policy: core::option::Option<&'a aitp::handshake::state_machine::GrantPolicyFn>
+pub aitp::handshake::PeerConfig::identity_verifier: core::option::Option<&'a dyn aitp::handshake::identity_verifier::IdentityVerifier>
 pub aitp::handshake::PeerConfig::jwks_resolver: &'a dyn aitp::handshake::identity_oidc::JwksResolver
 pub aitp::handshake::PeerConfig::manifest: &'a aitp::manifest::types::Manifest
 pub aitp::handshake::PeerConfig::now: aitp::core::time::Timestamp
@@ -971,6 +984,13 @@ pub aitp::handshake::identity_pinned::SubjectBinding::Unchecked
 pub aitp::handshake::identity_pinned::VerifiedPinnedKey::aid: aitp::core::aid::Aid
 pub aitp::handshake::identity_pinned::VerifiedPinnedKey::algorithm: aitp::core::aid::AidAlgorithm
 pub aitp::handshake::identity_pinned::VerifiedPinnedKey::key: aitp::crypto::keys::AitpVerifyingKey
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::message_id: &'a uuid::Uuid
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::now: aitp::core::time::Timestamp
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::peer_manifest: &'a aitp::manifest::types::Manifest
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::pop_nonce: &'a str
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::sender_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::identity_verifier::IdentityVerifyContext::timestamp: aitp::core::time::Timestamp
 pub aitp::handshake::jwk::JwkKeyMaterial::Ed25519
 pub aitp::handshake::jwk::JwkKeyMaterial::Ed25519::x: [u8; 32]
 pub aitp::handshake::jwk::JwkKeyMaterial::P256
@@ -1037,6 +1057,7 @@ pub aitp::handshake::state_machine::IdentityPresentationContext::pop_nonce: &'a 
 pub aitp::handshake::state_machine::IdentityPresentationContext::receiver_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::state_machine::IdentityPresentationContext::sender_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::state_machine::PeerConfig::grant_policy: core::option::Option<&'a aitp::handshake::state_machine::GrantPolicyFn>
+pub aitp::handshake::state_machine::PeerConfig::identity_verifier: core::option::Option<&'a dyn aitp::handshake::identity_verifier::IdentityVerifier>
 pub aitp::handshake::state_machine::PeerConfig::jwks_resolver: &'a dyn aitp::handshake::identity_oidc::JwksResolver
 pub aitp::handshake::state_machine::PeerConfig::manifest: &'a aitp::manifest::types::Manifest
 pub aitp::handshake::state_machine::PeerConfig::now: aitp::core::time::Timestamp
@@ -1638,7 +1659,9 @@ pub fn &S::as_signing_key(&self) -> core::option::Option<&aitp::crypto::keys::Ai
 pub fn &S::max_message_len(&self) -> core::option::Option<usize>
 pub fn &S::public_key(&self) -> core::result::Result<aitp::crypto::keys::AitpVerifyingKey, aitp::crypto::signer::SignerError>
 pub fn &S::sign(&self, aitp::crypto::signer::SignRequest<'_>) -> core::result::Result<aitp::crypto::signer::BackendSignature, aitp::crypto::signer::SignerError>
+pub fn &T::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
 pub fn &T::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
+pub fn &T::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn T::aid(&self) -> &aitp::core::aid::Aid
 pub fn T::as_signing_key(&self) -> core::option::Option<&aitp::crypto::keys::AitpSigningKey>
 pub fn T::max_message_len(&self) -> core::option::Option<usize>
@@ -1864,6 +1887,8 @@ pub fn aitp::facade::TctStore::needs_refresh(&self, &aitp::core::aid::Aid, aitp:
 pub fn aitp::facade::TctStore::new(f64) -> Self
 pub fn aitp::facade::TctStore::peer_aids(&self) -> alloc::vec::Vec<aitp::core::aid::Aid>
 pub fn aitp::facade::TctStore::remove(&self, &aitp::core::aid::Aid)
+pub fn aitp::handshake::IdentityVerifier::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
+pub fn aitp::handshake::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::JwksResolver::resolve(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::handshake::identity_oidc::ResolveError>
 pub fn aitp::handshake::PinnedKeyStore::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn aitp::handshake::admission::AdmissionError::code(&self) -> core::option::Option<&'static str>
@@ -1936,6 +1961,8 @@ pub fn aitp::handshake::identity_pinned::StaticPinnedKeyStore::remove(&mut self,
 pub fn aitp::handshake::identity_pinned::pinned_key_proof_input(&aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSigner, &aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::string::String, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::verify_pinned_key(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'_>, &dyn aitp::handshake::identity_pinned::PinnedKeyStore) -> core::result::Result<aitp::handshake::identity_pinned::VerifiedPinnedKey, aitp::handshake::error::HandshakeError>
+pub fn aitp::handshake::identity_verifier::IdentityVerifier::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
+pub fn aitp::handshake::identity_verifier::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::jwk::JwkPublicKey::from_jwk_json(&serde_json::value::Value) -> core::result::Result<Self, aitp::handshake::jwk::JwkParseError>
 pub fn aitp::handshake::jwk::JwkPublicKey::new(aitp::handshake::jwk::JwkKeyMaterial) -> Self
 pub fn aitp::handshake::jwk::JwkPublicKey::with_alg(self, aitp::handshake::jwk::JwsAlgorithm) -> Self
@@ -1954,6 +1981,7 @@ pub fn aitp::handshake::state_machine::Initiator::peer_revocation_list_uri(&self
 pub fn aitp::handshake::state_machine::Initiator::start(&aitp::handshake::state_machine::PeerConfig<'_>, aitp::handshake::state_machine::PresentedIdentity, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, alloc::vec::Vec<alloc::string::String>) -> core::result::Result<(Self, aitp::handshake::payloads::MutualHelloPayload), aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::state_machine::PeerConfig<'a>::new(&'a dyn aitp::crypto::signer::AitpSigner, &'a aitp::manifest::types::Manifest, &'a dyn aitp::handshake::identity_oidc::JwksResolver, &'a dyn aitp::handshake::identity_pinned::PinnedKeyStore, aitp::handshake::state_machine::RevocationSource<'a>, aitp::core::time::Timestamp) -> Self
 pub fn aitp::handshake::state_machine::PeerConfig<'a>::with_grant_policy(self, &'a aitp::handshake::state_machine::GrantPolicyFn) -> Self
+pub fn aitp::handshake::state_machine::PeerConfig<'a>::with_identity_verifier(self, &'a dyn aitp::handshake::identity_verifier::IdentityVerifier) -> Self
 pub fn aitp::handshake::state_machine::PeerConfig<'a>::with_trust_anchors(self, &'a [aitp::core::raw_url::RawUrl]) -> Self
 pub fn aitp::handshake::state_machine::PinnedKeyStore::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn aitp::handshake::state_machine::PresentedIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -2199,7 +2227,9 @@ pub fn alloc::boxed::Box<S>::as_signing_key(&self) -> core::option::Option<&aitp
 pub fn alloc::boxed::Box<S>::max_message_len(&self) -> core::option::Option<usize>
 pub fn alloc::boxed::Box<S>::public_key(&self) -> core::result::Result<aitp::crypto::keys::AitpVerifyingKey, aitp::crypto::signer::SignerError>
 pub fn alloc::boxed::Box<S>::sign(&self, aitp::crypto::signer::SignRequest<'_>) -> core::result::Result<aitp::crypto::signer::BackendSignature, aitp::crypto::signer::SignerError>
+pub fn alloc::boxed::Box<T>::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
 pub fn alloc::boxed::Box<T>::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
+pub fn alloc::boxed::Box<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn alloc::string::String::from(aitp::core::aid::Aid) -> alloc::string::String
 pub fn alloc::sync::Arc<S>::aid(&self) -> &aitp::core::aid::Aid
 pub fn alloc::sync::Arc<S>::as_signing_key(&self) -> core::option::Option<&aitp::crypto::keys::AitpSigningKey>
@@ -2209,9 +2239,11 @@ pub fn alloc::sync::Arc<S>::sign(&self, aitp::crypto::signer::SignRequest<'_>) -
 pub fn alloc::sync::Arc<T>::check(&self, &aitp::handshake::admission::ChallengeSource) -> core::result::Result<(), core::time::Duration>
 pub fn alloc::sync::Arc<T>::consume<'a>(&'a self, &'a aitp::core::nonce_store::Nonce, &'a aitp::core::aid::Aid, aitp::core::time::Timestamp) -> aitp::core::nonce_store::BoxFuture<'a, core::result::Result<aitp::core::nonce_store::ConsumeOutcome, aitp::core::nonce_store::NonceStoreError>>
 pub fn alloc::sync::Arc<T>::contains<'a>(&'a self, &'a uuid::Uuid, aitp::core::time::Timestamp) -> aitp::crypto::signer::BoxFuture<'a, core::result::Result<bool, aitp::handshake::admission::DenyListError>>
+pub fn alloc::sync::Arc<T>::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
 pub fn alloc::sync::Arc<T>::insert<'a>(&'a self, &'a uuid::Uuid, aitp::core::time::Timestamp, aitp::core::time::Timestamp) -> aitp::crypto::signer::BoxFuture<'a, core::result::Result<bool, aitp::handshake::admission::DenyListError>>
 pub fn alloc::sync::Arc<T>::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn alloc::sync::Arc<T>::issue<'a>(&'a self, &'a aitp::core::nonce_store::IssuedNonce) -> aitp::core::nonce_store::BoxFuture<'a, core::result::Result<(), aitp::core::nonce_store::NonceStoreError>>
+pub fn alloc::sync::Arc<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn alloc::vec::Vec<aitp::manifest::types::Manifest>::resolve_manifest(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub fn std::collections::hash::map::HashMap<aitp::core::aid::Aid, aitp::manifest::types::Manifest>::resolve_manifest(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub mod aitp
@@ -2249,6 +2281,7 @@ pub mod aitp::handshake::error
 pub mod aitp::handshake::identity
 pub mod aitp::handshake::identity_oidc
 pub mod aitp::handshake::identity_pinned
+pub mod aitp::handshake::identity_verifier
 pub mod aitp::handshake::jwk
 pub mod aitp::handshake::payloads
 pub mod aitp::handshake::state_machine
@@ -2380,6 +2413,7 @@ pub trait aitp::crypto::DynAsyncAitpSigner: core::marker::Send + core::marker::S
 pub trait aitp::crypto::signer::AitpSigner: core::marker::Send + core::marker::Sync
 pub trait aitp::crypto::signer::AsyncAitpSigner: core::marker::Send + core::marker::Sync
 pub trait aitp::crypto::signer::DynAsyncAitpSigner: core::marker::Send + core::marker::Sync
+pub trait aitp::handshake::IdentityVerifier: core::marker::Send + core::marker::Sync
 pub trait aitp::handshake::JwksResolver
 pub trait aitp::handshake::PinnedKeyStore: core::marker::Send + core::marker::Sync
 pub trait aitp::handshake::admission::ChallengeRateLimiter: core::marker::Send + core::marker::Sync
@@ -2387,6 +2421,7 @@ pub trait aitp::handshake::admission::MessageIdDenyList: core::marker::Send + co
 pub trait aitp::handshake::admission::NonceStore: core::marker::Send + core::marker::Sync
 pub trait aitp::handshake::identity_oidc::JwksResolver
 pub trait aitp::handshake::identity_pinned::PinnedKeyStore: core::marker::Send + core::marker::Sync
+pub trait aitp::handshake::identity_verifier::IdentityVerifier: core::marker::Send + core::marker::Sync
 pub trait aitp::handshake::state_machine::PinnedKeyStore: core::marker::Send + core::marker::Sync
 pub trait aitp::manifest::ManifestResolver: core::marker::Send + core::marker::Sync
 pub trait aitp::manifest::resolver::ManifestResolver: core::marker::Send + core::marker::Sync
