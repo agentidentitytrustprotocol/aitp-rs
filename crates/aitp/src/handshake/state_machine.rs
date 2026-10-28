@@ -711,7 +711,10 @@ fn verify_received_tct(
     // sole acceptable key and JWS alg) comes from the handshake state,
     // not from the token.
     let ctx = {
-        let builder = TctVerifyContext::builder(&cfg.manifest.aid, issuer, cfg.now)
+        let builder = TctVerifyContext::builder()
+            .expected_audience(&cfg.manifest.aid)
+            .issuer(issuer)
+            .now(cfg.now)
             .revocation(cfg.revocation.clone());
         // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: the issuer Manifest's
         // expiry caps the TCT's expiry. We have it in scope from

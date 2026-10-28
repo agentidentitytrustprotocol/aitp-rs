@@ -1324,7 +1324,7 @@ fn verify_commit_ack_stateless(
     // TCT signature + expiry last. mh-007 deliberately uses an
     // unexpired TCT (relative to the runner's pinned clock) and
     // depends on this check happening AFTER grant-overflow.
-    let ctx = TctVerifyContext::builder(self_aid, sender_aid, now)
+    let ctx = TctVerifyContext::builder().expected_audience(self_aid).issuer(sender_aid).now(now)
         // Handshake-payload conformance op: no revocation source or
         // issuer Manifest is wired for this synthetic check.
         .revocation(aitp::tct::RevocationSource::FailOpen)
@@ -1658,7 +1658,10 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .and_then(|v| v.as_i64())
         .map(Timestamp);
     let ctx = {
-        let b = aitp::tct::TctVerifyContext::builder(&expected_audience, &issuer, now)
+        let b = aitp::tct::TctVerifyContext::builder()
+            .expected_audience(&expected_audience)
+            .issuer(&issuer)
+            .now(now)
             .revocation(aitp::tct::RevocationSource::Check(&check));
         let b = match issuer_manifest_expires_at {
             Some(exp) => b.issuer_manifest_expires_at(exp),
@@ -3514,7 +3517,10 @@ fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Val
     let Some(sub) = peek_token_aid_claim(token, "sub") else {
         return err(id, "TCT_SIGNATURE_INVALID", "TCT has no decodable sub");
     };
-    let ctx = aitp::tct::TctVerifyContext::builder(&sub, &self_aid, now)
+    let ctx = aitp::tct::TctVerifyContext::builder()
+        .expected_audience(&sub)
+        .issuer(&self_aid)
+        .now(now)
         .skip_manifest_expiry_cap_dangerous()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()

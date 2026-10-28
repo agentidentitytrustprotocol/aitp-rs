@@ -514,6 +514,7 @@ impl core::convert::AsRef<serde_json::value::Value> for aitp::core::CheckedJson
 impl core::convert::From<&str> for aitp::core::RawUrl
 impl core::convert::From<[u8; 32]> for aitp::crypto::Digest32
 impl core::convert::From<aitp::core::Aid> for alloc::string::String
+impl core::convert::From<aitp::core::MissingFieldError> for aitp::tct::TctVerifyContextError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::delegation::DelegationError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::handshake::HandshakeError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::handshake::JwsVerifyError
@@ -2189,6 +2190,7 @@ pub aitp::tct::TctVerifyContext::issuer_manifest_expires_at: core::option::Optio
 pub aitp::tct::TctVerifyContext::now: aitp::core::Timestamp
 pub aitp::tct::TctVerifyContext::revocation: aitp::tct::RevocationSource<'a>
 pub aitp::tct::TctVerifyContextError::ManifestCapDecisionRequired
+pub aitp::tct::TctVerifyContextError::MissingField(aitp::core::MissingFieldError)
 pub aitp::tct::TctVerifyContextError::RevocationDecisionRequired
 pub aitp::tct::VerifiedAttestationParts::claims: aitp::tct::TctClaims
 pub aitp::tct::VerifiedAttestationParts::statement: serde_json::value::Value
@@ -3018,12 +3020,15 @@ pub fn aitp::manifest::parse_manifest_wire(&aitp::core::CheckedJson) -> core::re
 pub fn aitp::manifest::resolve_verified_manifest(&dyn aitp::manifest::ManifestResolver, &aitp::core::Aid, &aitp::manifest::ManifestVerifyContext) -> core::result::Result<aitp::manifest::Manifest, aitp::manifest::ManifestError>
 pub fn aitp::manifest::verify_manifest(&aitp::manifest::Manifest, &aitp::manifest::ManifestVerifyContext) -> core::result::Result<aitp::manifest::VerifiedManifest, aitp::manifest::ManifestError>
 pub fn aitp::tct::AttestationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::tct::AttestationVerifyContext<'a>::builder(&'a aitp::core::Aid, &'a str, aitp::core::Timestamp) -> aitp::tct::AttestationVerifyContextBuilder<'a>
+pub fn aitp::tct::AttestationVerifyContext<'a>::builder() -> aitp::tct::AttestationVerifyContextBuilder<'a>
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::AttestationVerifyContext<'a>, aitp::tct::TctVerifyContextError>
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::issuer(self, &'a aitp::core::Aid) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::Timestamp) -> Self
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::now(self, aitp::core::Timestamp) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::revocation(self, aitp::tct::RevocationSource<'a>) -> Self
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::statement_key(self, &'a str) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::waive_manifest_cap_issuer_has_no_manifest(self) -> Self
 pub fn aitp::tct::Cnf::clone(&self) -> aitp::tct::Cnf
 pub fn aitp::tct::Cnf::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
@@ -3102,17 +3107,22 @@ pub fn aitp::tct::TctClaims::serialize<__S>(&self, __S) -> core::result::Result<
 pub fn aitp::tct::TctError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctError::from(aitp::crypto::CryptoError) -> Self
 pub fn aitp::tct::TctError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-pub fn aitp::tct::TctVerifyContext<'a>::builder(&'a aitp::core::Aid, &'a aitp::core::Aid, aitp::core::Timestamp) -> aitp::tct::TctVerifyContextBuilder<'a>
+pub fn aitp::tct::TctVerifyContext<'a>::builder() -> aitp::tct::TctVerifyContextBuilder<'a>
 pub fn aitp::tct::TctVerifyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctVerifyContextBuilder<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::TctVerifyContext<'a>, aitp::tct::TctVerifyContextError>
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::expected_audience(self, &'a aitp::core::Aid) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::issuer(self, &'a aitp::core::Aid) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::Timestamp) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::now(self, aitp::core::Timestamp) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::revocation(self, aitp::tct::RevocationSource<'a>) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::skip_manifest_expiry_cap_dangerous(self) -> Self
 pub fn aitp::tct::TctVerifyContextError::clone(&self) -> aitp::tct::TctVerifyContextError
 pub fn aitp::tct::TctVerifyContextError::eq(&self, &aitp::tct::TctVerifyContextError) -> bool
 pub fn aitp::tct::TctVerifyContextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::TctVerifyContextError::from(aitp::core::MissingFieldError) -> Self
+pub fn aitp::tct::TctVerifyContextError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::tct::VerifiedAttestation::claims(&self) -> &aitp::tct::TctClaims
 pub fn aitp::tct::VerifiedAttestation::clone(&self) -> aitp::tct::VerifiedAttestation
 pub fn aitp::tct::VerifiedAttestation::eq(&self, &aitp::tct::VerifiedAttestation) -> bool

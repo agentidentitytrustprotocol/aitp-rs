@@ -175,7 +175,7 @@ pub fn verify_session_bundle(
         // `verify_tct` pins the issuer to the coordinator's AID and
         // the audience to the entry's AID — the §3 invariants surface
         // as the bundle-specific error codes below.
-        let tct_ctx = TctVerifyContext::builder(&entry.aid, &bundle.coordinator, ctx.now)
+        let tct_ctx = TctVerifyContext::builder().expected_audience(&entry.aid).issuer(&bundle.coordinator).now(ctx.now)
             // §7 per-pair revocation is applied separately below, after
             // signature verification (RFC-AITP-0008 §3.3 ordering).
             .revocation(aitp::tct::RevocationSource::FailOpen);

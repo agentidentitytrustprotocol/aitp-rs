@@ -406,7 +406,10 @@ fn tct_verify(
     // Offline verify: signature + claim structure. No revocation source
     // or issuer Manifest is available to a CLI, so those checks are
     // explicitly skipped (permissive) — the signature is the gate.
-    let ctx = TctVerifyContext::builder(&audience, &issuer, now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&audience)
+        .issuer(&issuer)
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

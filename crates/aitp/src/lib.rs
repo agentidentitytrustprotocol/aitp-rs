@@ -64,7 +64,10 @@
 //! // resolved — both are deliberately waived; production verifiers
 //! // supply `.revocation(RevocationSource::Check(..))` and
 //! // `.issuer_manifest_expires_at(..)`.
-//! let ctx = TctVerifyContext::builder(bob.aid(), alice.aid(), now)
+//! let ctx = TctVerifyContext::builder()
+//!     .expected_audience(bob.aid())
+//!     .issuer(alice.aid())
+//!     .now(now)
 //!     .revocation(RevocationSource::FailOpen)
 //!     .skip_manifest_expiry_cap_dangerous()
 //!     .build()?;

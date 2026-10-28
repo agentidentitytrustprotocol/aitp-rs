@@ -71,7 +71,10 @@ fn minted_tct_verifies() {
     // Holder receipt: subject == audience == kat-keypair-002.
     let expected_audience = kat_002_aid();
     let issuer = kat_001_aid();
-    let ctx = TctVerifyContext::builder(&expected_audience, &issuer, fixed_now())
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&expected_audience)
+        .issuer(&issuer)
+        .now(fixed_now())
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

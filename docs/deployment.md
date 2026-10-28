@@ -136,7 +136,7 @@ Independent of clustering, production servers/clients should set:
   be fetched or verified. It suits a responder that authorises nothing
   with the TCTs it receives, like the interop peer
   ([interop-peer.md](interop-peer.md)).
-- **Strict TCT verification** — `TctVerifyContext::builder(...)` refuses
+- **Strict TCT verification** — `TctVerifyContext::builder()` refuses
   to construct until the revocation and issuer-Manifest expiry-cap
   decisions are made (RFC-AITP-0005 §10.4, RFC-AITP-0008). Supply a
   revocation hook and the cap; a hook that cannot answer returns

@@ -156,7 +156,10 @@ pub fn verify_renewal_response(
 
     // Step 4. The holder has just been issued this TCT, so it does not
     // consult the issuer's revocation list for it.
-    let builder = TctVerifyContext::builder(ctx.self_aid, &current.iss, ctx.now)
+    let builder = TctVerifyContext::builder()
+        .expected_audience(ctx.self_aid)
+        .issuer(&current.iss)
+        .now(ctx.now)
         .revocation(aitp::tct::RevocationSource::FailOpen);
     let builder = match ctx.issuer_manifest_expires_at {
         Some(exp) => builder.issuer_manifest_expires_at(exp),

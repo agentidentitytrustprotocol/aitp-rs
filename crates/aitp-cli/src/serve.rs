@@ -748,7 +748,10 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
         .ok_or_else(|| invalid("TCT has no valid sub".into()))?;
     // The expected audience is `sub`, which PoP later proves is the
     // presenter; it is never taken from `aud` itself.
-    let ctx = TctVerifyContext::builder(&sub, self_aid, now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&sub)
+        .issuer(self_aid)
+        .now(now)
         .skip_manifest_expiry_cap_dangerous()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()

@@ -180,7 +180,10 @@ fn verify_tct_parsed(
     // `issuer_manifest_expires_at` parameter through the SDK surface is
     // the remaining half of F-1.
     let revocation_check = |q: &aitp::tct::RevocationQuery<'_>| revocation.status(q);
-    let builder = TctVerifyContext::builder(aud_ref, &unverified.iss, Timestamp::now())
+    let builder = TctVerifyContext::builder()
+        .expected_audience(aud_ref)
+        .issuer(&unverified.iss)
+        .now(Timestamp::now())
         .skip_manifest_expiry_cap_dangerous();
     let builder = builder.revocation(revocation.source(&revocation_check));
     let ctx = builder

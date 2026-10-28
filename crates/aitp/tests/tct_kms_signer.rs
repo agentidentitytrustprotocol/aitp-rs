@@ -38,7 +38,10 @@ fn kms_backend_with_der_high_s_mints_a_verifying_tct() {
     let subject = AitpSigningKey::from_ed25519_seed(&[0x22; 32]);
     let issued = issue(&kms, &subject, now).expect("KMS-backed TctBuilder builds");
     assert!(kms.calls() >= 1, "the backend was actually used");
-    let ctx = TctVerifyContext::builder(subject.aid(), kms.aid(), now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(kms.aid())
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -144,7 +147,10 @@ async fn async_kms_backend_mints_tct_and_voucher_on_another_task() {
     .unwrap()
     .expect("async KMS-backed build");
     assert_eq!(kms.calls(), 2, "TCT and voucher, one backend call each");
-    let ctx = TctVerifyContext::builder(subject.aid(), AitpSigner::aid(&*kms), now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(AitpSigner::aid(&*kms))
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

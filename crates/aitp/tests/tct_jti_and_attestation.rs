@@ -29,7 +29,10 @@ fn p256(seed: u8) -> AitpSigningKey {
 }
 
 fn ctx<'a>(aud: &'a Aid, iss: &'a Aid) -> TctVerifyContext<'a> {
-    TctVerifyContext::builder(aud, iss, NOW)
+    TctVerifyContext::builder()
+        .expected_audience(aud)
+        .issuer(iss)
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -212,7 +215,10 @@ fn grant_context_rejects_a_valid_attestation() {
 // --- Item 5: attestation profile -------------------------------------------
 
 fn attestation_ctx<'a>(iss: &'a Aid, key: &'a str) -> AttestationVerifyContext<'a> {
-    AttestationVerifyContext::builder(iss, key, NOW)
+    AttestationVerifyContext::builder()
+        .issuer(iss)
+        .statement_key(key)
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -272,12 +278,18 @@ fn attestation_verifier_rejects_grant_tcts() {
 #[test]
 fn attestation_manifest_cap_is_an_explicit_decision() {
     let iss = ed(1);
-    let err = AttestationVerifyContext::builder(iss.aid(), "k", NOW)
+    let err = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key("k")
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap_err();
     assert_eq!(err, TctVerifyContextError::ManifestCapDecisionRequired);
-    let err = AttestationVerifyContext::builder(iss.aid(), "k", NOW)
+    let err = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key("k")
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .build()
         .unwrap_err();
@@ -291,7 +303,10 @@ fn attestation_manifest_cap_is_an_explicit_decision() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    let capped = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
+    let capped = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key(KAT_EXT_KEY)
+        .now(NOW)
         .issuer_manifest_expires_at(NOW.saturating_add(std::time::Duration::from_secs(86_400)))
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -312,7 +327,10 @@ fn attestation_revocation_is_consulted() {
         .build()
         .unwrap();
     let revoked = |_: &aitp::tct::RevocationQuery<'_>| Ok(aitp::tct::RevocationStatus::Revoked);
-    let c = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
+    let c = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key(KAT_EXT_KEY)
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation(aitp::tct::RevocationSource::Check(&revoked))
         .build()

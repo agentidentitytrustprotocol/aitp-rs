@@ -70,7 +70,10 @@ async fn main() {
     // store is keyed by the issuer's AID.
     let initial_verified = verify_tct(
         &initial.token,
-        &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
+        &TctVerifyContext::builder()
+            .expected_audience(holder.aid())
+            .issuer(issuer.aid())
+            .now(Timestamp::now())
             .revocation(aitp::tct::RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()

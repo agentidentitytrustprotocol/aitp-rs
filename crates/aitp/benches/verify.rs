@@ -54,7 +54,10 @@ fn bench_verify(c: &mut Criterion) {
     let verify_at = Timestamp(NOW.0 + 60);
     c.bench_function("tct_verify", |b| {
         b.iter(|| {
-            let ctx = TctVerifyContext::builder(&subject_aid, &issuer_aid, verify_at)
+            let ctx = TctVerifyContext::builder()
+                .expected_audience(&subject_aid)
+                .issuer(&issuer_aid)
+                .now(verify_at)
                 .revocation(aitp::tct::RevocationSource::FailOpen)
                 .skip_manifest_expiry_cap_dangerous()
                 .build()

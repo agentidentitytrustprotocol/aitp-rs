@@ -152,7 +152,10 @@ pub async fn process_renewal_request(
     // PoP, so it is not consulted here.
     let claims = {
         let peek = peek_claims(&request.current_tct)?;
-        let verify_ctx = TctVerifyContext::builder(&peek.aud, issuer_aid, now)
+        let verify_ctx = TctVerifyContext::builder()
+            .expected_audience(&peek.aud)
+            .issuer(issuer_aid)
+            .now(now)
             .revocation(aitp::tct::RevocationSource::FailOpen)
             .issuer_manifest_expires_at(ctx.manifest_expires_at)
             .build()

@@ -76,7 +76,10 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
     }
     // Holder receipt: subject == audience == caller. Demo verifier —
     // no revocation source or issuer Manifest is resolved here.
-    let ctx = TctVerifyContext::builder(&peeked.sub, server_aid, Timestamp::now())
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&peeked.sub)
+        .issuer(server_aid)
+        .now(Timestamp::now())
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

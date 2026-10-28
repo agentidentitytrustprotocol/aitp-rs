@@ -109,15 +109,14 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
     let subject = AitpSigningKey::from_ed25519_seed(&core::array::from_fn(|i| i as u8));
     let token = v["tct_token"].as_str().unwrap();
 
-    let ctx = TctVerifyContext::builder(
-        subject.aid(),
-        issuer.aid(),
-        Timestamp(input["iat"].as_i64().unwrap() + 100),
-    )
-    .skip_manifest_expiry_cap_dangerous()
-    .revocation(aitp::tct::RevocationSource::FailOpen)
-    .build()
-    .unwrap();
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(issuer.aid())
+        .now(Timestamp(input["iat"].as_i64().unwrap() + 100))
+        .skip_manifest_expiry_cap_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
+        .build()
+        .unwrap();
     let verified = verify_tct(token, &ctx).expect("committed ES256 TCT verifies");
     assert_eq!(
         serde_json::to_value(verified.claims()).unwrap(),

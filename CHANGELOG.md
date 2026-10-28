@@ -115,6 +115,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - `aitp::handshake::{error, identity, identity_oidc, identity_verifier, jwk, payloads, state_machine}::*` and every item of `aitp::handshake::identity_pinned` except `PINNED_KEY_PROOF_DOMAIN` → `aitp::handshake::*`.
   - `aitp::transport::{client, client_config, key_resolution, net_guard, replay_store, retry, revocation, revocation_fetch, server, server_limits, source_ip, tls_pinning}::*` → `aitp::transport::*`. `DEFAULT_MAX_JWKS_BYTES`, `DEFAULT_MAX_MANIFEST_BYTES`, `DEFAULT_OIDC_DISCOVERY_TTL`, `DEFAULT_NEGATIVE_CACHE_TTL`, `DEFAULT_BODY_READ_TIMEOUT`, `DEFAULT_MAX_SESSIONS`, `DEFAULT_REPLAY_WINDOW`, `DEFAULT_SESSION_SWEEP_INTERVAL`, `REVOCATION_LIST_BODY_LIMIT` and `EmptyRevocationProvider`, which were only in those modules, are now at `aitp::transport`.
   - Seam migration: none.
+- `TctVerifyContext::builder()` and `AttestationVerifyContext::builder()` take no arguments, like `OidcVerifyContext::builder()`. The required inputs are setters: `expected_audience`, `issuer` and `now` on `TctVerifyContextBuilder`, and `issuer`, `statement_key` and `now` on `AttestationVerifyContextBuilder`. `build()` reports the first one that was not set as the new `TctVerifyContextError::MissingField`, which wraps an `aitp::core::MissingFieldError`, before the revocation and Manifest-cap decisions.
+  - Seam migration:
+    - `AttestationVerifyContext::builder(issuer, key, NOW)` → `AttestationVerifyContext::builder().issuer(issuer).statement_key(key).now(NOW)`.
+    - `TctVerifyContext::builder(issuer.aid(), issuer.aid(), NOW)` → `TctVerifyContext::builder().expected_audience(issuer.aid()).issuer(issuer.aid()).now(NOW)`.
 
 ### Added
 

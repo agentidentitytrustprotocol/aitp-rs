@@ -46,7 +46,10 @@ fn malformed_jkt_shape_rejected() {
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
     claims["cnf"]["jkt"] = serde_json::json!("not base64url!!");
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -69,7 +72,10 @@ fn jkt_of_wrong_key_rejected() {
     claims["cnf"]["jkt"] =
         serde_json::json!(rogue.verifying_key().to_jwk_thumbprint_sha256().unwrap());
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

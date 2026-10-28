@@ -70,7 +70,10 @@ fn statement() -> Map<String, Value> {
 }
 
 fn attestation_ctx<'a>(issuer: &'a Aid, key: &'a str) -> AttestationVerifyContext<'a> {
-    AttestationVerifyContext::builder(issuer, key, NOW)
+    AttestationVerifyContext::builder()
+        .issuer(issuer)
+        .statement_key(key)
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -258,7 +261,10 @@ fn self_attestation_round_trip_and_rejections() {
     assert_eq!(refusal(&err), "bad-signature", "{err:?}");
 
     // An attestation confers nothing in the grant context.
-    let ctx = TctVerifyContext::builder(issuer.aid(), issuer.aid(), NOW)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(issuer.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

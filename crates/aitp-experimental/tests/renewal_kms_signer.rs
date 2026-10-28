@@ -59,7 +59,10 @@ async fn kms_backend_signs_renewal() {
     let renewed = renew(&issuer, &holder, issued.token, now)
         .await
         .expect("KMS renewal");
-    let ctx = TctVerifyContext::builder(holder.aid(), issuer.aid(), now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(holder.aid())
+        .issuer(issuer.aid())
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
