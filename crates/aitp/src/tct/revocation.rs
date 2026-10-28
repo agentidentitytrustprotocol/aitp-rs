@@ -354,7 +354,10 @@ impl<'a> RevocationQuery<'a> {
 ///
 /// Exhaustive on purpose: each variant is a distinct security decision,
 /// and a new one must be handled by every verifier rather than fall into
-/// a wildcard arm.
+/// a wildcard arm. [`Self::SoftFailSafeSubset`] is `#[non_exhaustive]`,
+/// so a release may add a field to it: match it with
+/// `SoftFailSafeSubset { safe_grants, .. }` and build it with
+/// [`Self::soft_fail_safe_subset`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RevocationStatus {
     /// Not revoked: the artifact keeps its full grant set.
@@ -365,10 +368,18 @@ pub enum RevocationStatus {
     /// applies: the artifact is accepted with its grants narrowed to
     /// those also in `safe_grants`. An empty intersection fails
     /// verification.
+    #[non_exhaustive]
     SoftFailSafeSubset {
         /// The configured safe-grant subset.
         safe_grants: Vec<String>,
     },
+}
+
+impl RevocationStatus {
+    /// [`Self::SoftFailSafeSubset`] with `safe_grants`.
+    pub fn soft_fail_safe_subset(safe_grants: Vec<String>) -> Self {
+        Self::SoftFailSafeSubset { safe_grants }
+    }
 }
 
 /// The revocation status could not be determined and the policy fails

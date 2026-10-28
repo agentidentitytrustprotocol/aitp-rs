@@ -1617,9 +1617,9 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         // the verifier narrows the grants to that subset (RFC-AITP-0008
         // §3.1); an empty intersection is SafeSubsetEmpty.
         Ok(match &snapshot_mode {
-            Some(SnapshotPolicyMode::SoftFail(safe)) => RevocationStatus::SoftFailSafeSubset {
-                safe_grants: safe.clone(),
-            },
+            Some(SnapshotPolicyMode::SoftFail(safe)) => {
+                RevocationStatus::soft_fail_safe_subset(safe.clone())
+            }
             _ => RevocationStatus::Clear,
         })
     };

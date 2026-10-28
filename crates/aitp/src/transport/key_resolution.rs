@@ -99,15 +99,21 @@ pub enum KeyResolutionFailMode {
 /// degradation (where signature verification is impossible but the
 /// session may continue with a restricted grant subset).
 ///
+/// Exhaustive on purpose, like [`crate::tct::RevocationStatus`]. Both
+/// variants are `#[non_exhaustive]`, so a release may add a field to
+/// either: match them as `Resolved(keys, ..)` and
+/// `SoftFailDegraded { safe_grants, .. }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyResolutionOutcome {
     /// Keys resolved cleanly; downstream signature verification
     /// proceeds normally with this set.
+    #[non_exhaustive]
     Resolved(Vec<JwkPublicKey>),
     /// Resolution exhausted all sources; the configured
     /// `safe_grants` are the only grants the session should honor.
     /// Signature verification of issuer-signed claims (OIDC JWTs)
     /// MUST be considered failed by the caller.
+    #[non_exhaustive]
     SoftFailDegraded {
         /// Subset of capabilities the operator pre-declared as safe.
         safe_grants: Vec<String>,

@@ -90,6 +90,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seam migration:
     - `verify_attestation(..).statement` → `.statement()` (now `&Value`).
     - `verify_pinned_key(..).aid` → `.aid()` (now `&Aid`).
+- The data-carrying variants of the exhaustive decision enums are `#[non_exhaustive]`, so a field can be added to them later: `RevocationStatus::SoftFailSafeSubset`, `KeyResolutionOutcome::Resolved` and `KeyResolutionOutcome::SoftFailDegraded`. Match them as `SoftFailSafeSubset { safe_grants, .. }`, `Resolved(keys, ..)` and `SoftFailDegraded { safe_grants, .. }`. A `RevocationCheckFn` builds the soft-fail answer with the new `RevocationStatus::soft_fail_safe_subset(safe_grants)`. The enums stay exhaustive.
+  - Seam migration: none.
 
 ### Added
 

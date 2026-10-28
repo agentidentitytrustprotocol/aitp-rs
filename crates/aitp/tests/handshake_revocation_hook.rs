@@ -294,9 +294,9 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
-        Ok(RevocationStatus::SoftFailSafeSubset {
-            safe_grants: vec!["demo.echo".into()],
-        })
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "demo.echo".into()
+        ]))
     });
     let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
@@ -436,9 +436,9 @@ fn soft_fail_safe_subset_with_empty_intersection_rejects() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
-        Ok(RevocationStatus::SoftFailSafeSubset {
-            safe_grants: vec!["unrelated.cap".into()],
-        })
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "unrelated.cap".into(),
+        ]))
     });
     let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
