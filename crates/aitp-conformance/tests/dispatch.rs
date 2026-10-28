@@ -12,7 +12,8 @@
 use aitp::core::Timestamp;
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::DelegationBuilder;
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::TctBuilder;
 use aitp_conformance::rs_adapter::{handle, AdapterState};
 use serde_json::{json, Value};
@@ -272,7 +273,7 @@ mod single_hop_revocation_check {
         let manifest = ManifestBuilder::new(&b())
             .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, "b")
+                IdentityHint::new(IdentityKind::Oidc, "b")
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -512,12 +513,13 @@ mod session_bundle_wire_shape {
     }
 
     fn manifest_envelope(key: &AitpSigningKey, ttl_secs: u64) -> Value {
-        use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+        use aitp::handshake::IdentityKind;
+        use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope};
         let manifest = ManifestBuilder::new(key)
             .display_name("coordinator")
             .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+                IdentityHint::new(IdentityKind::PinnedKey, "coordinator")
                     .with_public_key(key.aid().identifier().to_string()),
             )
             .offer("session.coordinate")

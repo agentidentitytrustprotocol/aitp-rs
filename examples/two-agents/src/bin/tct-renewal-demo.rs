@@ -17,8 +17,8 @@ use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::TctStore;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, verify_tct, RevocationList, RevocationListEnvelope, TctBuilder,
     TctVerifyContext,
@@ -93,7 +93,7 @@ async fn main() {
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 aitp::core::base64url::encode(
                     &issuer
                         .verifying_key()

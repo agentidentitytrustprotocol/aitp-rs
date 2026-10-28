@@ -119,6 +119,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seam migration:
     - `AttestationVerifyContext::builder(issuer, key, NOW)` → `AttestationVerifyContext::builder().issuer(issuer).statement_key(key).now(NOW)`.
     - `TctVerifyContext::builder(issuer.aid(), issuer.aid(), NOW)` → `TctVerifyContext::builder().expected_audience(issuer.aid()).issuer(issuer.aid()).now(NOW)`.
+- `aitp::manifest::IdentityHintKind` is gone: `IdentityHint::kind` and `IdentityHint::new` take `aitp::handshake::IdentityKind`, the one identity-type enum, also used by `IdentityDescriptor`, `ManifestBuilder::accept_identity_type` and `ManifestError::IncompatibleIdentityType`. The two enums had the same variants (`Oidc`, `PinnedKey`, `Spiffe`) and the same wire names (`oidc`, `pinned_key`, `spiffe`), so every Manifest and handshake payload encodes as before. Replace `aitp::manifest::IdentityHintKind::X` with `aitp::handshake::IdentityKind::X`.
+  - Seam migration: none.
 
 ### Added
 

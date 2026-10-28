@@ -25,9 +25,7 @@ pub(crate) mod verifier;
 pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL, REVOCATION_LIST_URI_EXT};
 pub use error::ManifestError;
 pub use resolver::{resolve_verified_manifest, ManifestResolver};
-pub use types::{
-    IdentityHint, IdentityHintKind, Manifest, ManifestEnvelope, ManifestPop, MANIFEST_MEMBERS,
-};
+pub use types::{IdentityHint, Manifest, ManifestEnvelope, ManifestPop, MANIFEST_MEMBERS};
 pub use verifier::{
     check_identity_type_compatibility, parse_manifest_wire, verify_manifest, ManifestVerifyContext,
     VerifiedManifest,

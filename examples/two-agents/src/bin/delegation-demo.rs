@@ -24,7 +24,8 @@
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
 fn main() {
@@ -82,7 +83,7 @@ fn main() {
     let b_manifest = ManifestBuilder::new(&b)
         .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+            IdentityHint::new(IdentityKind::Oidc, "agent-b")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

@@ -9,7 +9,8 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::DelegationError;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::TctBuilder;
 use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus};
 use aitp_experimental::delegation::{
@@ -87,7 +88,7 @@ fn manifest_with_ttl(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u6
     ManifestBuilder::new(key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+            IdentityHint::new(IdentityKind::Oidc, "agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

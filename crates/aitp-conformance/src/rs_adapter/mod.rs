@@ -17,11 +17,11 @@ use aitp::core::{base64url, jcs, Aid, AitpEnvelope, CheckedJson, MessageType, Ti
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp::delegation::DelegationBuilder;
 use aitp::handshake::{
-    Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, MutualCommitAckPayload,
-    MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity, ResolveError,
-    StaticPinnedKeyStore,
+    IdentityKind, Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm,
+    MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity,
+    ResolveError, StaticPinnedKeyStore,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{TctBuilder, TctClaims};
 use aitp_experimental::spiffe::{SpiffeBundleStore, SpiffeVerifier};
 use serde_json::{json, Value};
@@ -882,7 +882,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "verifier").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "verifier").with_public_key(
                 aitp::core::base64url::encode(
                     &self_key
                         .verifying_key()
@@ -2403,7 +2403,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .ok_or_else(|| "oidc identity_hint.issuer missing".to_string())?
                 .parse()
                 .map_err(|e| format!("issuer parse: {e}"))?;
-            Ok(IdentityHint::new(IdentityHintKind::Oidc, subject).with_issuer(issuer))
+            Ok(IdentityHint::new(IdentityKind::Oidc, subject).with_issuer(issuer))
         }
         "pinned_key" => {
             let pk = v
@@ -2411,7 +2411,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .and_then(|p| p.as_str())
                 .ok_or_else(|| "pinned_key identity_hint.public_key missing".to_string())?
                 .to_string();
-            Ok(IdentityHint::new(IdentityHintKind::PinnedKey, subject).with_public_key(pk))
+            Ok(IdentityHint::new(IdentityKind::PinnedKey, subject).with_public_key(pk))
         }
         other => Err(format!("unknown identity_hint.type: {other}")),
     }
@@ -4450,7 +4450,7 @@ mod manifest_unknown_field_tests {
         let manifest = ManifestBuilder::new(&key)
             .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+                IdentityHint::new(IdentityKind::Oidc, "agent-b")
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -4883,7 +4883,7 @@ mod revocation_unknown_field_tests {
         let b_manifest = ManifestBuilder::new(&b)
             .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, "b")
+                IdentityHint::new(IdentityKind::Oidc, "b")
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -5170,7 +5170,7 @@ mod discarded_snapshot_policy_tests {
                     .unwrap(),
             )
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, name)
+                IdentityHint::new(IdentityKind::Oidc, name)
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())

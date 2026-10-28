@@ -5,8 +5,8 @@
 
 use super::*;
 use crate::crypto::AitpSigningKey;
-use crate::handshake::{Initiator, JwkPublicKey, ResolveError, StaticPinnedKeyStore};
-use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use crate::handshake::{IdentityKind, Initiator, JwkPublicKey, ResolveError, StaticPinnedKeyStore};
+use crate::manifest::{IdentityHint, ManifestBuilder};
 use std::sync::atomic::Ordering;
 
 struct NoOpResolver;
@@ -21,7 +21,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
         .display_name(name)
         .handshake_endpoint("https://localhost/aitp/handshake".parse().unwrap())
         .identity_hint(IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
+            kind: IdentityKind::PinnedKey,
             subject: name.into(),
             issuer: None,
             public_key: Some(crate::core::base64url::encode(

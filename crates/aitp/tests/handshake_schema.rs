@@ -11,11 +11,11 @@
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
-    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
-    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    IdentityKind, Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity,
+    ResolveError, Responder, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use boon::{Compiler, Schemas};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -71,7 +71,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

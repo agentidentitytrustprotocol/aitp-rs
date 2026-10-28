@@ -3,9 +3,10 @@
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
-    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
+    IdentityKind, Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity,
+    ResolveError, Responder,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use serde_json::json;
 use uuid::Uuid;
 
@@ -34,7 +35,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
@@ -533,7 +534,7 @@ fn insufficient_grants_aborts() {
         .display_name("alice")
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "alice").with_public_key(
                 aitp::core::base64url::encode(
                     &alice
                         .verifying_key()

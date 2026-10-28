@@ -7,8 +7,8 @@
 use aitp::core::nonce_store::{InMemoryNonceStore, NonceStore};
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope, TctBuilder,
 };
@@ -57,7 +57,7 @@ fn manifest_at(renew_path: Option<&str>, manifest_ttl: u64) -> Manifest {
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )

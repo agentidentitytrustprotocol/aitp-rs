@@ -4,8 +4,8 @@
 #![cfg(all(feature = "http-client", feature = "http-server"))]
 
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::transport::{
     HandshakeServer, ManifestFetcher, ManifestServer, ServeConfig, DEFAULT_REQUEST_BODY_LIMIT,
 };
@@ -26,7 +26,7 @@ fn manifest(key: &AitpSigningKey) -> Manifest {
         .display_name("serve")
         .handshake_endpoint("https://localhost:9000/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "serve").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "serve").with_public_key(
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )

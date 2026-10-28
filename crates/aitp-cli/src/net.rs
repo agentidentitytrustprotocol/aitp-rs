@@ -16,10 +16,8 @@ use aitp::crypto::AitpSigningKey;
 use aitp::facade::{
     run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, SessionContext, TrustMode,
 };
-use aitp::handshake::{HandshakeError, StaticPinnedKeyStore};
-use aitp::manifest::{
-    IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope, ManifestError,
-};
+use aitp::handshake::{HandshakeError, IdentityKind, StaticPinnedKeyStore};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope, ManifestError};
 use aitp::transport::{ManifestFetcher, RevocationFailMode, RevocationPolicy};
 
 use crate::echo::{self, ChallengeRequest, EchoRequest};
@@ -347,7 +345,7 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
         )
         // The key in AID-identifier form (RFC-AITP-0002 §3.3).
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
+            IdentityHint::new(IdentityKind::PinnedKey, CLI_SUBJECT)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)

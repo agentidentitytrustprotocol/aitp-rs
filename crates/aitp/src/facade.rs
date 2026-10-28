@@ -1215,7 +1215,7 @@ mod initiator_config_knobs {
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
             .identity_hint(crate::manifest::IdentityHint {
-                kind: crate::manifest::IdentityHintKind::PinnedKey,
+                kind: crate::handshake::IdentityKind::PinnedKey,
                 subject: "t".into(),
                 issuer: None,
                 public_key: Some(key.aid().identifier().to_string()),

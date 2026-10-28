@@ -7,10 +7,10 @@ mod fixtures;
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
-    Initiator, MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig, PresentedIdentity,
-    Responder,
+    IdentityKind, Initiator, MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig,
+    PresentedIdentity, Responder,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use fixtures::mock_oidc::MockOidcIssuer;
 use uuid::Uuid;
 
@@ -29,7 +29,7 @@ fn manifest_for_oidc(
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, name)
+            IdentityHint::new(IdentityKind::Oidc, name)
                 .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())

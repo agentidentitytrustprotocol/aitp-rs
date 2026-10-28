@@ -8,7 +8,8 @@ use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{
     verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{RevocationSource, TctBuilder};
 use aitp_experimental::delegation::{
     verify_chained_delegation, ChainVerifyContext, ChainedDelegationError,
@@ -30,7 +31,7 @@ fn manifests() -> Vec<Manifest> {
     vec![ManifestBuilder::new(&b())
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+            IdentityHint::new(IdentityKind::Oidc, "agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

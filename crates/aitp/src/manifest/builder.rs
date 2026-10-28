@@ -7,7 +7,8 @@ use crate::core::Aid;
 use crate::core::RawUrl;
 use crate::core::{base64url, jcs, ExtensionsMap, Timestamp};
 use crate::crypto::{AitpSigner, CryptoError, Digest32, DynAsyncAitpSigner, Signature};
-use crate::manifest::types::{IdentityHint, IdentityHintKind, Manifest, ManifestPop};
+use crate::handshake::IdentityKind;
+use crate::manifest::types::{IdentityHint, Manifest, ManifestPop};
 use crate::manifest::ManifestError;
 use rand::TryRng;
 use serde::Serialize;
@@ -24,11 +25,12 @@ pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
 /// Fluent builder for issuing a Manifest.
 ///
 /// ```ignore
-/// use aitp::manifest::{ManifestBuilder, IdentityHint, IdentityHintKind};
+/// use aitp::manifest::{ManifestBuilder, IdentityHint};
+/// use aitp::handshake::IdentityKind;
 /// let manifest = ManifestBuilder::new(&signing_key)
 ///     .handshake_endpoint("https://a.example.com/handshake".parse()?)
 ///     .identity_hint(IdentityHint {
-///         kind: IdentityHintKind::Oidc,
+///         kind: IdentityKind::Oidc,
 ///         subject: "agent-a".into(),
 ///         issuer: Some("https://idp.example.com".parse()?),
 ///         public_key: None,
@@ -403,7 +405,7 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
 
 fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
     match hint.kind {
-        IdentityHintKind::Oidc => {
+        IdentityKind::Oidc => {
             if hint.issuer.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "oidc requires `issuer`",
@@ -415,14 +417,14 @@ fn validate_identity_hint(hint: &IdentityHint) -> Result<(), ManifestError> {
                 ));
             }
         }
-        IdentityHintKind::PinnedKey => {
+        IdentityKind::PinnedKey => {
             if hint.public_key.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "pinned_key requires `public_key`",
                 ));
             }
         }
-        IdentityHintKind::Spiffe => {
+        IdentityKind::Spiffe => {
             // RFC-AITP-0002 §6.6: `type` and `subject` only.
             if hint.issuer.is_some() {
                 return Err(ManifestError::IdentityHintMalformed(
@@ -576,7 +578,7 @@ mod tests {
         (
             Aid::from_ed25519(&[0u8; 32]),
             IdentityHint {
-                kind: IdentityHintKind::Oidc,
+                kind: IdentityKind::Oidc,
                 subject: "agent-a".into(),
                 issuer: Some(RawUrl::new("https://idp.example.com")),
                 public_key: None,

@@ -21,7 +21,8 @@
 
 use aitp::core::{AidAlgorithm, ExtensionsMap, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::{sign_revocation_list, RevocationEntry, RevocationList, TctBuilder};
 use aitp_experimental::session_bundle::SessionBundleBuilder;
 use uuid::Uuid;
@@ -135,7 +136,7 @@ fn main() {
             .expect("issuer key was constructed as Ed25519, never P-256"),
     );
     let manifest_identity_hint = || {
-        IdentityHint::new(IdentityHintKind::PinnedKey, "xcheck-manifest")
+        IdentityHint::new(IdentityKind::PinnedKey, "xcheck-manifest")
             .with_public_key(manifest_pubkey_b64.clone())
     };
     let manifest_no_extensions = ManifestBuilder::new(&issuer)
@@ -284,7 +285,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     let manifest = ManifestBuilder::new(&signer)
         .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "xcheck-manifest-p256")
+            IdentityHint::new(IdentityKind::PinnedKey, "xcheck-manifest-p256")
                 .with_public_key(signer.aid().identifier().to_string()),
         )
         .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())

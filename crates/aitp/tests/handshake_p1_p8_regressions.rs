@@ -23,13 +23,15 @@
 use aitp::__private::bootstrap_verify_peer;
 use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext};
+use aitp::handshake::{
+    sign_pinned_key_proof, verify_pinned_key, IdentityKind, PinnedKeyVerifyContext,
+};
 use aitp::handshake::{
     verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey, JwksResolver, OidcVerifyContext,
     PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp::handshake::{GrantPolicyFn, StaticPinnedKeyStore};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use uuid::Uuid;
 
 struct NoOpResolver;
@@ -51,13 +53,11 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp::manifest::Manifest {
         .display_name(name)
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
-                base64url::encode(
-                    &key.verifying_key()
-                        .try_to_ed25519_bytes()
-                        .expect("key was constructed as Ed25519, never P-256"),
-                ),
-            ),
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
@@ -329,7 +329,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         .display_name("sender")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "sender")
+            IdentityHint::new(IdentityKind::Oidc, "sender")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::Oidc)

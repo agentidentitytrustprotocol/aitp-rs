@@ -2,9 +2,10 @@
 
 use aitp::core::{jcs, ExtensionsMap, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::handshake::IdentityKind;
 use aitp::manifest::{
-    parse_manifest_wire, verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder,
-    ManifestError, ManifestVerifyContext,
+    parse_manifest_wire, verify_manifest, IdentityHint, ManifestBuilder, ManifestError,
+    ManifestVerifyContext,
 };
 
 fn alice_key() -> AitpSigningKey {
@@ -16,7 +17,7 @@ fn build_alice_manifest_at(now: Timestamp) -> aitp::manifest::Manifest {
     ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+            IdentityHint::new(IdentityKind::Oidc, "alice")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -128,8 +129,7 @@ fn pinned_key_manifest_round_trips() {
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "internal-1")
-                .with_public_key(pubkey_b64),
+            IdentityHint::new(IdentityKind::PinnedKey, "internal-1").with_public_key(pubkey_b64),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
@@ -144,7 +144,7 @@ fn builder_rejects_missing_handshake_endpoint() {
     let key = alice_key();
     let err = ManifestBuilder::new(&key)
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "x")
+            IdentityHint::new(IdentityKind::Oidc, "x")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .build()
@@ -161,7 +161,7 @@ fn builder_rejects_oidc_with_pubkey() {
     let err = ManifestBuilder::new(&key)
         .handshake_endpoint("https://x".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "x")
+            IdentityHint::new(IdentityKind::Oidc, "x")
                 .with_issuer("https://idp.example.com".parse().unwrap())
                 .with_public_key("A".repeat(43)),
         )
@@ -175,7 +175,7 @@ fn builder_rejects_pinned_without_pubkey() {
     let key = alice_key();
     let err = ManifestBuilder::new(&key)
         .handshake_endpoint("https://x".parse().unwrap())
-        .identity_hint(IdentityHint::new(IdentityHintKind::PinnedKey, "x"))
+        .identity_hint(IdentityHint::new(IdentityKind::PinnedKey, "x"))
         .build()
         .unwrap_err();
     assert!(matches!(err, ManifestError::IdentityHintMalformed(_)));
@@ -431,7 +431,7 @@ fn revocation_list_uri_is_advertised_inside_the_signed_body() {
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+            IdentityHint::new(IdentityKind::Oidc, "alice")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -484,7 +484,7 @@ fn a2a_interfaces_extension_key_is_accepted() {
     let m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "alice")
+            IdentityHint::new(IdentityKind::Oidc, "alice")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

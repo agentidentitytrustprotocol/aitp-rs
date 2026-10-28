@@ -13,7 +13,7 @@ use aitp::handshake::{
     IdentityVerifyError, JwkPublicKey, JwksResolver, PeerConfig, ResolveError,
     StaticPinnedKeyStore, VerifiedIdentity,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::RevocationSource;
 use serde_json::json;
 use uuid::Uuid;
@@ -90,7 +90,7 @@ fn manifest(
 fn spiffe_manifest(key: &AitpSigningKey) -> Manifest {
     manifest(
         key,
-        IdentityHint::new(IdentityHintKind::Spiffe, SPIFFE_ID),
+        IdentityHint::new(IdentityKind::Spiffe, SPIFFE_ID),
         aitp::handshake::IdentityKind::Spiffe,
     )
 }
@@ -228,7 +228,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let pk = aitp::core::base64url::encode(&peer.verifying_key().try_to_ed25519_bytes().unwrap());
     let pinned_manifest = manifest(
         &peer,
-        IdentityHint::new(IdentityHintKind::PinnedKey, "peer").with_public_key(pk.clone()),
+        IdentityHint::new(IdentityKind::PinnedKey, "peer").with_public_key(pk.clone()),
         aitp::handshake::IdentityKind::PinnedKey,
     );
     let pinned: IdentityDescriptor = serde_json::from_value(json!({
@@ -243,7 +243,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let issuer = "https://issuer.example.com";
     let oidc_manifest = manifest(
         &peer,
-        IdentityHint::new(IdentityHintKind::Oidc, "peer").with_issuer(issuer.into()),
+        IdentityHint::new(IdentityKind::Oidc, "peer").with_issuer(issuer.into()),
         aitp::handshake::IdentityKind::Oidc,
     );
     let oidc: IdentityDescriptor = serde_json::from_value(json!({

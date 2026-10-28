@@ -38,7 +38,6 @@
 #[non_exhaustive] pub enum aitp::handshake::admission::DenyListError
 #[non_exhaustive] pub enum aitp::handshake::admission::RefusalCause
 #[non_exhaustive] pub enum aitp::handshake::admission::TransportId
-#[non_exhaustive] pub enum aitp::manifest::IdentityHintKind
 #[non_exhaustive] pub enum aitp::manifest::ManifestError
 #[non_exhaustive] pub enum aitp::tct::RevocationSource<'a>
 #[non_exhaustive] pub enum aitp::tct::TctError
@@ -314,7 +313,6 @@ impl core::clone::Clone for aitp::handshake::admission::IdentityPresentationPayl
 impl core::clone::Clone for aitp::handshake::admission::RefusalCause
 impl core::clone::Clone for aitp::handshake::admission::TransportId
 impl core::clone::Clone for aitp::manifest::IdentityHint
-impl core::clone::Clone for aitp::manifest::IdentityHintKind
 impl core::clone::Clone for aitp::manifest::Manifest
 impl core::clone::Clone for aitp::manifest::ManifestEnvelope
 impl core::clone::Clone for aitp::manifest::ManifestPop
@@ -400,7 +398,6 @@ impl core::cmp::Eq for aitp::handshake::admission::IdentityPresentationPayload
 impl core::cmp::Eq for aitp::handshake::admission::RefusalCause
 impl core::cmp::Eq for aitp::handshake::admission::TransportId
 impl core::cmp::Eq for aitp::manifest::IdentityHint
-impl core::cmp::Eq for aitp::manifest::IdentityHintKind
 impl core::cmp::Eq for aitp::manifest::Manifest
 impl core::cmp::Eq for aitp::manifest::ManifestEnvelope
 impl core::cmp::Eq for aitp::manifest::ManifestPop
@@ -481,7 +478,6 @@ impl core::cmp::PartialEq for aitp::handshake::admission::IdentityPresentationPa
 impl core::cmp::PartialEq for aitp::handshake::admission::RefusalCause
 impl core::cmp::PartialEq for aitp::handshake::admission::TransportId
 impl core::cmp::PartialEq for aitp::manifest::IdentityHint
-impl core::cmp::PartialEq for aitp::manifest::IdentityHintKind
 impl core::cmp::PartialEq for aitp::manifest::Manifest
 impl core::cmp::PartialEq for aitp::manifest::ManifestEnvelope
 impl core::cmp::PartialEq for aitp::manifest::ManifestPop
@@ -685,7 +681,6 @@ impl core::fmt::Debug for aitp::handshake::admission::RefusalCause
 impl core::fmt::Debug for aitp::handshake::admission::TokenBucketLimiter
 impl core::fmt::Debug for aitp::handshake::admission::TransportId
 impl core::fmt::Debug for aitp::manifest::IdentityHint
-impl core::fmt::Debug for aitp::manifest::IdentityHintKind
 impl core::fmt::Debug for aitp::manifest::Manifest
 impl core::fmt::Debug for aitp::manifest::ManifestEnvelope
 impl core::fmt::Debug for aitp::manifest::ManifestError
@@ -804,7 +799,6 @@ impl core::marker::Copy for aitp::handshake::NoPinnedKeys
 impl core::marker::Copy for aitp::handshake::SubjectBinding
 impl core::marker::Copy for aitp::handshake::admission::RefusalCause
 impl core::marker::Copy for aitp::handshake::admission::TransportId
-impl core::marker::Copy for aitp::manifest::IdentityHintKind
 impl core::marker::Copy for aitp::tct::TctVerifyContextError
 impl core::marker::Copy for aitp::transport::GuardMode
 impl core::marker::Copy for aitp::transport::TrustedProxy
@@ -893,7 +887,6 @@ impl core::marker::Send for aitp::handshake::admission::RefusalCause
 impl core::marker::Send for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Send for aitp::handshake::admission::TransportId
 impl core::marker::Send for aitp::manifest::IdentityHint
-impl core::marker::Send for aitp::manifest::IdentityHintKind
 impl core::marker::Send for aitp::manifest::Manifest
 impl core::marker::Send for aitp::manifest::ManifestEnvelope
 impl core::marker::Send for aitp::manifest::ManifestError
@@ -1029,7 +1022,6 @@ impl core::marker::Sync for aitp::handshake::admission::RefusalCause
 impl core::marker::Sync for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Sync for aitp::handshake::admission::TransportId
 impl core::marker::Sync for aitp::manifest::IdentityHint
-impl core::marker::Sync for aitp::manifest::IdentityHintKind
 impl core::marker::Sync for aitp::manifest::Manifest
 impl core::marker::Sync for aitp::manifest::ManifestEnvelope
 impl core::marker::Sync for aitp::manifest::ManifestError
@@ -1166,7 +1158,6 @@ impl core::marker::Unpin for aitp::handshake::admission::RefusalCause
 impl core::marker::Unpin for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Unpin for aitp::handshake::admission::TransportId
 impl core::marker::Unpin for aitp::manifest::IdentityHint
-impl core::marker::Unpin for aitp::manifest::IdentityHintKind
 impl core::marker::Unpin for aitp::manifest::Manifest
 impl core::marker::Unpin for aitp::manifest::ManifestEnvelope
 impl core::marker::Unpin for aitp::manifest::ManifestError
@@ -1284,7 +1275,6 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::Ref
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::TokenBucketLimiter
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::TransportId
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::IdentityHint
-impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::IdentityHintKind
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::Manifest
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::ManifestEnvelope
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::ManifestPop
@@ -1388,7 +1378,6 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::Refusa
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::TokenBucketLimiter
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::TransportId
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::IdentityHint
-impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::IdentityHintKind
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::Manifest
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::ManifestEnvelope
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::ManifestPop
@@ -1451,7 +1440,6 @@ impl serde_core::ser::Serialize for aitp::handshake::PinnedKeyEntry
 impl serde_core::ser::Serialize for aitp::handshake::admission::AdmissionChallenge
 impl serde_core::ser::Serialize for aitp::handshake::admission::IdentityPresentationPayload
 impl serde_core::ser::Serialize for aitp::manifest::IdentityHint
-impl serde_core::ser::Serialize for aitp::manifest::IdentityHintKind
 impl serde_core::ser::Serialize for aitp::manifest::Manifest
 impl serde_core::ser::Serialize for aitp::manifest::ManifestEnvelope
 impl serde_core::ser::Serialize for aitp::manifest::ManifestPop
@@ -1626,7 +1614,6 @@ impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::PinnedKeyEntry
 impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::admission::AdmissionChallenge
 impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::admission::IdentityPresentationPayload
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::IdentityHint
-impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::IdentityHintKind
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::Manifest
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::ManifestEnvelope
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::ManifestPop
@@ -2062,12 +2049,9 @@ pub aitp::handshake::admission::RefusalCause::AtCapacity
 pub aitp::handshake::admission::TransportId::Ip(core::net::ip_addr::IpAddr)
 pub aitp::handshake::admission::TransportId::TlsClientCertSha256([u8; 32])
 pub aitp::manifest::IdentityHint::issuer: core::option::Option<aitp::core::RawUrl>
-pub aitp::manifest::IdentityHint::kind: aitp::manifest::IdentityHintKind
+pub aitp::manifest::IdentityHint::kind: aitp::handshake::IdentityKind
 pub aitp::manifest::IdentityHint::public_key: core::option::Option<alloc::string::String>
 pub aitp::manifest::IdentityHint::subject: alloc::string::String
-pub aitp::manifest::IdentityHintKind::Oidc
-pub aitp::manifest::IdentityHintKind::PinnedKey
-pub aitp::manifest::IdentityHintKind::Spiffe
 pub aitp::manifest::Manifest::accepted_identity_types: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub aitp::manifest::Manifest::accepted_signature_algorithms: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub aitp::manifest::Manifest::accepted_trust_anchors: alloc::vec::Vec<aitp::core::RawUrl>
@@ -2959,15 +2943,10 @@ pub fn aitp::manifest::IdentityHint::clone(&self) -> aitp::manifest::IdentityHin
 pub fn aitp::manifest::IdentityHint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::manifest::IdentityHint::eq(&self, &aitp::manifest::IdentityHint) -> bool
 pub fn aitp::manifest::IdentityHint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::manifest::IdentityHint::new(aitp::manifest::IdentityHintKind, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::IdentityHint::new(aitp::handshake::IdentityKind, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::manifest::IdentityHint::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::manifest::IdentityHint::with_issuer(self, aitp::core::RawUrl) -> Self
 pub fn aitp::manifest::IdentityHint::with_public_key(self, impl core::convert::Into<alloc::string::String>) -> Self
-pub fn aitp::manifest::IdentityHintKind::clone(&self) -> aitp::manifest::IdentityHintKind
-pub fn aitp::manifest::IdentityHintKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub fn aitp::manifest::IdentityHintKind::eq(&self, &aitp::manifest::IdentityHintKind) -> bool
-pub fn aitp::manifest::IdentityHintKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::manifest::IdentityHintKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::manifest::Manifest::clone(&self) -> aitp::manifest::Manifest
 pub fn aitp::manifest::Manifest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::manifest::Manifest::eq(&self, &aitp::manifest::Manifest) -> bool

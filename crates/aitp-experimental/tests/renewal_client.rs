@@ -5,7 +5,8 @@
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{sign_revocation_list, RevocationList, RevocationListEnvelope, TctBuilder};
 use aitp::transport::RevocationListProducer;
 use aitp_experimental::renewal::{
@@ -59,7 +60,7 @@ fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example/aitp/handshake/".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
@@ -139,7 +140,7 @@ async fn no_renew_uri_means_no_request() {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )

@@ -51,9 +51,6 @@ PATHS = ["DelegationClaims::chain", "DelegationClaims::jti", "Authority::Prior"]
 ALLOW = {
     # RFC-AITP-0002 §6.1 wire vocabulary of the identity registry.
     "pub aitp::handshake::IdentityKind::Spiffe": "identity type wire name",
-    "pub aitp::handshake::IdentityKind::Spiffe": "identity type wire name",
-    "pub aitp::manifest::IdentityHintKind::Spiffe": "identity hint wire name",
-    "pub aitp::manifest::IdentityHintKind::Spiffe": "identity hint wire name",
 }
 
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

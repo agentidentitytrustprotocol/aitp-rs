@@ -169,7 +169,8 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
     // (man-004 shape) must report `FetchError::UnknownField`, distinct
     // from a body that fails to parse as JSON at all.
     use aitp::crypto::AitpSigningKey;
-    use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use aitp::handshake::IdentityKind;
+    use aitp::manifest::{IdentityHint, ManifestBuilder};
     use axum::{routing::get, Json, Router};
 
     let key = AitpSigningKey::from_ed25519_seed(&[11u8; 32]);
@@ -180,7 +181,7 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+            IdentityHint::new(IdentityKind::Oidc, "agent-b")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -327,7 +328,8 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
     // NOT leak into this HTTP call site, which has a normative wrapper
     // requirement.
     use aitp::crypto::AitpSigningKey;
-    use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use aitp::handshake::IdentityKind;
+    use aitp::manifest::{IdentityHint, ManifestBuilder};
     use axum::{routing::get, Json, Router};
 
     let key = AitpSigningKey::from_ed25519_seed(&[12u8; 32]);
@@ -338,7 +340,7 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-c")
+            IdentityHint::new(IdentityKind::Oidc, "agent-c")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

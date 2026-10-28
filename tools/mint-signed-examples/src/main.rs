@@ -18,7 +18,8 @@
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{DelegationBuilder, DelegationClaims};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{
     sign_revocation_list, GrantVoucherClaims, IssuedTct, RevocationEntry, RevocationList,
     TctBuilder,
@@ -95,7 +96,7 @@ fn mint_manifest() {
         .display_name("kat-keypair-001")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "kat-keypair-001")
+            IdentityHint::new(IdentityKind::PinnedKey, "kat-keypair-001")
                 .with_public_key(pubkey_b64),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

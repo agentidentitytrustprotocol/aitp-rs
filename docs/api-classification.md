@@ -128,7 +128,6 @@ reasons already in the table are kept.
 | `aitp::handshake::admission::TokenBucketLimiter` | struct | private fields |  |
 | `aitp::handshake::admission::TransportId` | enum | non_exhaustive |  |
 | `aitp::manifest::IdentityHint` | struct | non_exhaustive |  |
-| `aitp::manifest::IdentityHintKind` | enum | non_exhaustive |  |
 | `aitp::manifest::Manifest` | struct | non_exhaustive |  |
 | `aitp::manifest::ManifestBuilder` | struct | private fields |  |
 | `aitp::manifest::ManifestEnvelope` | struct | non_exhaustive |  |

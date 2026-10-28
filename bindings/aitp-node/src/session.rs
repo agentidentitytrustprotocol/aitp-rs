@@ -11,12 +11,12 @@ use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
-    Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    IdentityKind, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp::manifest::{IdentityHintKind, Manifest};
+use aitp::manifest::Manifest;
 use aitp::tct::VerifiedTct;
 use napi::bindgen_prelude::*;
 use napi::Env;
@@ -33,7 +33,7 @@ use crate::wire;
 pub struct SessionContext {
     pub jwks: Option<Arc<dyn JwksResolver + Send + Sync + 'static>>,
     pub trust_anchors: Vec<RawUrl>,
-    pub identity_kind: IdentityHintKind,
+    pub identity_kind: IdentityKind,
     pub identity_subject: String,
     pub identity_issuer: Option<RawUrl>,
     /// Local pinned-key trust store (RFC-AITP-0002 §3.2), built from
@@ -50,10 +50,10 @@ impl SessionContext {
         oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<PresentedIdentity> {
         match self.identity_kind {
-            IdentityHintKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
+            IdentityKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
                 subject: self.identity_subject.clone(),
             }),
-            IdentityHintKind::Oidc => {
+            IdentityKind::Oidc => {
                 let cb = oidc_mint_jwt.ok_or_else(|| {
                     Error::from_reason("agent manifest is OIDC; `oidcMintJwt` callable is required")
                 })?;
@@ -72,7 +72,7 @@ impl SessionContext {
                     mint_jwt,
                 })
             }
-            // `IdentityHintKind` is `#[non_exhaustive]`; reject any
+            // `IdentityKind` is `#[non_exhaustive]`; reject any
             // future variant the Node SDK hasn't yet wired up.
             other => Err(Error::from_reason(format!(
                 "unsupported identity_hint kind {other:?}; \

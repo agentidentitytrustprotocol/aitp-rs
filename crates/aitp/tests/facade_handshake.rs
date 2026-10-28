@@ -17,9 +17,9 @@ use aitp::facade::{
     run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, TrustMode,
 };
 use aitp::handshake::{
-    GrantPolicyFn, JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore,
+    GrantPolicyFn, IdentityKind, JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::transport::{HandshakeServer, RevocationFailMode, RevocationPolicy};
 use std::sync::Arc;
 use std::time::Duration;
@@ -50,7 +50,7 @@ fn manifest_with_revocation(
         .display_name(name)
         .handshake_endpoint(handshake_endpoint.parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

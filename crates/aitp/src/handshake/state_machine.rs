@@ -497,12 +497,7 @@ pub(crate) fn bootstrap_verify_peer(
     // mechanism (`identity_hint.kind`). Without this check, a peer
     // whose manifest advertises OIDC could present a pinned-key proof
     // and bypass OIDC trust-anchor checks (type confusion).
-    let expected_kind = match payload_manifest.identity_hint.kind {
-        crate::manifest::IdentityHintKind::Oidc => IdentityKind::Oidc,
-        crate::manifest::IdentityHintKind::PinnedKey => IdentityKind::PinnedKey,
-        crate::manifest::IdentityHintKind::Spiffe => IdentityKind::Spiffe,
-    };
-    if payload_identity.kind != expected_kind {
+    if payload_identity.kind != payload_manifest.identity_hint.kind {
         return Err(HandshakeError::Identity(
             "identity.type does not match manifest.identity_hint.type".into(),
         ));
@@ -1469,7 +1464,7 @@ mod tests {
             .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
             .identity_hint(
                 crate::manifest::IdentityHint::new(
-                    crate::manifest::IdentityHintKind::PinnedKey,
+                    crate::handshake::IdentityKind::PinnedKey,
                     "issuer",
                 )
                 .with_public_key(me.aid().identifier()),

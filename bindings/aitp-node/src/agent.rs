@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use aitp::core::{Aid, RawUrl, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp::handshake::StaticPinnedKeyStore;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::handshake::{IdentityKind, StaticPinnedKeyStore};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{sign_revocation_list, RevocationEntry, RevocationList};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -200,7 +200,7 @@ impl AitpAgent {
                 // Ed25519, the 33-byte SEC1 compressed point for P-256.
                 let pk_bytes = self.key.verifying_key().to_compressed();
                 (
-                    IdentityHint::new(IdentityHintKind::PinnedKey, opts.display_name.clone())
+                    IdentityHint::new(IdentityKind::PinnedKey, opts.display_name.clone())
                         .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
                     aitp::handshake::IdentityKind::PinnedKey,
                     Vec::<url::Url>::new(),
@@ -217,7 +217,7 @@ impl AitpAgent {
                     .parse()
                     .map_err(|e| Error::from_reason(format!("invalid oidcIssuer URL: {e}")))?;
                 (
-                    IdentityHint::new(IdentityHintKind::Oidc, sub)
+                    IdentityHint::new(IdentityKind::Oidc, sub)
                         .with_issuer(RawUrl::from(iss.clone())),
                     aitp::handshake::IdentityKind::Oidc,
                     vec![iss],

@@ -8,7 +8,8 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigner;
 use aitp::delegation::DelegationVerifyContext;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestResolver};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestResolver};
 use aitp::tct::RevocationSource;
 
 /// `key`'s published Manifest: published at `published_at`, valid for
@@ -17,7 +18,7 @@ pub fn manifest_for(key: &dyn AitpSigner, published_at: Timestamp) -> Manifest {
     ManifestBuilder::new(key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+            IdentityHint::new(IdentityKind::Oidc, "agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
