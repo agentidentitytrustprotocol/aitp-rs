@@ -1439,6 +1439,9 @@ async fn receive_envelope<R: JwksResolver + Send + Sync + 'static>(
         EnvelopeParseError::Malformed(msg) => {
             ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {msg}"))
         }
+        EnvelopeParseError::Structure(e) => {
+            ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
+        }
     })?;
     if envelope.message_type != expected {
         return Err(ResponseError::aitp(

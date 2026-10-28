@@ -13,8 +13,7 @@ use std::sync::Arc;
 
 use uuid::Uuid;
 
-use crate::core::{Aid, Timestamp};
-use crate::handshake::error::HandshakeError;
+use crate::core::{Aid, BoxError, Timestamp};
 use crate::handshake::identity::{IdentityDescriptor, IdentityKind};
 use crate::manifest::Manifest;
 
@@ -33,17 +32,55 @@ pub trait IdentityVerifier: Send + Sync {
     fn handles(&self, kind: IdentityKind) -> bool;
 
     /// Verify `identity`. `Ok` means the proof is valid and bound to
-    /// [`IdentityVerifyContext::sender_aid`].
-    ///
-    /// Return [`HandshakeError::Identity`] (`IDENTITY_FAILED`) for a
-    /// defective proof, and [`HandshakeError::KeyResolutionFailed`] only
-    /// when key material could not be reached. The error is returned to
-    /// the handshake unchanged.
+    /// [`IdentityVerifyContext::sender_aid`], and carries the kind and
+    /// subject the proof established. The handshake fails with
+    /// `IDENTITY_FAILED` unless both equal the presented descriptor's.
     fn verify(
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError>;
+    ) -> Result<VerifiedIdentity, IdentityVerifyError>;
+}
+
+/// What an [`IdentityVerifier`] proved about a peer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedIdentity {
+    kind: IdentityKind,
+    subject: String,
+}
+
+impl VerifiedIdentity {
+    /// A proof of `subject` under an identity of `kind`.
+    pub fn new(kind: IdentityKind, subject: impl Into<String>) -> Self {
+        Self {
+            kind,
+            subject: subject.into(),
+        }
+    }
+
+    /// The identity kind the proof was verified as.
+    pub fn kind(&self) -> IdentityKind {
+        self.kind
+    }
+
+    /// The subject the proof established.
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+}
+
+/// Why an [`IdentityVerifier`] refused an identity.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum IdentityVerifyError {
+    /// The proof is defective: malformed, expired, untrusted, wrongly
+    /// bound or badly signed. Reported as `IDENTITY_FAILED`.
+    #[error("{0}")]
+    Rejected(String),
+    /// The key material the proof needs could not be reached. Reported
+    /// as the retryable `KEY_RESOLUTION_FAILED`.
+    #[error("key material unavailable: {0}")]
+    KeyUnavailable(#[source] BoxError),
 }
 
 impl<T: IdentityVerifier + ?Sized> IdentityVerifier for &T {
@@ -54,7 +91,7 @@ impl<T: IdentityVerifier + ?Sized> IdentityVerifier for &T {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         (**self).verify(identity, ctx)
     }
 }
@@ -67,7 +104,7 @@ impl<T: IdentityVerifier + ?Sized> IdentityVerifier for Arc<T> {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         (**self).verify(identity, ctx)
     }
 }
@@ -80,7 +117,7 @@ impl<T: IdentityVerifier + ?Sized> IdentityVerifier for Box<T> {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         (**self).verify(identity, ctx)
     }
 }

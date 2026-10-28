@@ -2,12 +2,14 @@
 #[non_exhaustive] pub enum aitp::core::AidAlgorithm
 #[non_exhaustive] pub enum aitp::core::AidParseError
 #[non_exhaustive] pub enum aitp::core::EnvelopeParseError
+#[non_exhaustive] pub enum aitp::core::EnvelopeStructureError
 #[non_exhaustive] pub enum aitp::core::ErrorCode
 #[non_exhaustive] pub enum aitp::core::MessageType
 #[non_exhaustive] pub enum aitp::core::aid::AidAlgorithm
 #[non_exhaustive] pub enum aitp::core::aid::AidParseError
 #[non_exhaustive] pub enum aitp::core::base64url::Base64UrlError
 #[non_exhaustive] pub enum aitp::core::envelope::EnvelopeParseError
+#[non_exhaustive] pub enum aitp::core::envelope::EnvelopeStructureError
 #[non_exhaustive] pub enum aitp::core::envelope::MessageType
 #[non_exhaustive] pub enum aitp::core::error::ErrorCode
 #[non_exhaustive] pub enum aitp::core::ids::V4Error
@@ -28,11 +30,13 @@
 #[non_exhaustive] pub enum aitp::delegation::DelegationRevocation<'a>
 #[non_exhaustive] pub enum aitp::delegation::error::DelegationError
 #[non_exhaustive] pub enum aitp::delegation::verifier::DelegationRevocation<'a>
+#[non_exhaustive] pub enum aitp::envelope::EnvelopeError
 #[non_exhaustive] pub enum aitp::facade::FacadeError
 #[non_exhaustive] pub enum aitp::facade::IdentityMode
 #[non_exhaustive] pub enum aitp::facade::TrustMode<'a>
 #[non_exhaustive] pub enum aitp::handshake::HandshakeError
 #[non_exhaustive] pub enum aitp::handshake::IdentityKind
+#[non_exhaustive] pub enum aitp::handshake::IdentityVerifyError
 #[non_exhaustive] pub enum aitp::handshake::JwkKeyMaterial
 #[non_exhaustive] pub enum aitp::handshake::JwkParseError
 #[non_exhaustive] pub enum aitp::handshake::JwsAlgorithm
@@ -53,6 +57,7 @@
 #[non_exhaustive] pub enum aitp::handshake::identity_oidc::ResolveError
 #[non_exhaustive] pub enum aitp::handshake::identity_pinned::PinnedKeyEntryError
 #[non_exhaustive] pub enum aitp::handshake::identity_pinned::SubjectBinding
+#[non_exhaustive] pub enum aitp::handshake::identity_verifier::IdentityVerifyError
 #[non_exhaustive] pub enum aitp::handshake::jwk::JwkKeyMaterial
 #[non_exhaustive] pub enum aitp::handshake::jwk::JwkParseError
 #[non_exhaustive] pub enum aitp::handshake::jwk::JwsAlgorithm
@@ -99,6 +104,7 @@
 #[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
 #[non_exhaustive] pub struct aitp::facade::SessionContext
 #[non_exhaustive] pub struct aitp::handshake::CompletedHandshake
+#[non_exhaustive] pub struct aitp::handshake::GrantPolicyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::IdentityDescriptor
 #[non_exhaustive] pub struct aitp::handshake::IdentityVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::JwkPublicKey
@@ -127,6 +133,7 @@
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloAckPayload
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloPayload
 #[non_exhaustive] pub struct aitp::handshake::state_machine::CompletedHandshake
+#[non_exhaustive] pub struct aitp::handshake::state_machine::GrantPolicyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::state_machine::PeerConfig<'a>
 #[non_exhaustive] pub struct aitp::manifest::IdentityHint
 #[non_exhaustive] pub struct aitp::manifest::Manifest
@@ -184,6 +191,7 @@ impl !core::panic::unwind_safe::RefUnwindSafe for aitp::core::nonce_store::Nonce
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::error::CryptoError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::signer::SignerError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::error::DelegationError
+impl !core::panic::unwind_safe::RefUnwindSafe for aitp::envelope::EnvelopeError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::facade::FacadeError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::facade::IdentityMode
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::facade::TctStore
@@ -193,13 +201,16 @@ impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::Pi
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::PinnedAdmissionBuilder
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::error::HandshakeError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::PinnedKeyEntryError
+impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_verifier::IdentityVerifyError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwsVerifyError
+impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::GrantPolicyError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::OidcMintError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::PresentedIdentity
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::error::ManifestError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::tct::error::TctError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client::FetchError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client::JwksFetcher
+impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client::JwksFetcherError
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client::ManifestFetcher
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionPolicy
 impl !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionPolicyBuilder
@@ -212,6 +223,7 @@ impl !core::panic::unwind_safe::UnwindSafe for aitp::core::nonce_store::NonceSto
 impl !core::panic::unwind_safe::UnwindSafe for aitp::crypto::error::CryptoError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::crypto::signer::SignerError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::delegation::error::DelegationError
+impl !core::panic::unwind_safe::UnwindSafe for aitp::envelope::EnvelopeError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::facade::FacadeError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::facade::IdentityMode
 impl !core::panic::unwind_safe::UnwindSafe for aitp::facade::TctStore
@@ -221,13 +233,16 @@ impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::Pinne
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::PinnedAdmissionBuilder
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::error::HandshakeError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::PinnedKeyEntryError
+impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_verifier::IdentityVerifyError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwsVerifyError
+impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::GrantPolicyError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::OidcMintError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::PresentedIdentity
 impl !core::panic::unwind_safe::UnwindSafe for aitp::manifest::error::ManifestError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::tct::error::TctError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::client::FetchError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::client::JwksFetcher
+impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::client::JwksFetcherError
 impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::client::ManifestFetcher
 impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionPolicy
 impl !core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionPolicyBuilder
@@ -241,6 +256,7 @@ impl aitp::core::envelope::AitpEnvelope
 impl aitp::core::envelope::MessageType
 impl aitp::core::envelope::Sender
 impl aitp::core::error::ErrorCode
+impl aitp::core::error::UnknownErrorCode
 impl aitp::core::extensions::ExtensionsMap
 impl aitp::core::nonce_store::InMemoryNonceStore
 impl aitp::core::nonce_store::IssuedNonce
@@ -274,8 +290,10 @@ impl aitp::handshake::identity_pinned::PinnedKeyEntry
 impl aitp::handshake::identity_pinned::PinnedKeyStore for aitp::handshake::identity_pinned::NoPinnedKeys
 impl aitp::handshake::identity_pinned::PinnedKeyStore for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl aitp::handshake::identity_pinned::StaticPinnedKeyStore
+impl aitp::handshake::identity_verifier::VerifiedIdentity
 impl aitp::handshake::jwk::JwkPublicKey
 impl aitp::handshake::jwk::JwsAlgorithm
+impl aitp::handshake::state_machine::GrantPolicyError
 impl aitp::handshake::state_machine::Initiator
 impl aitp::handshake::state_machine::OidcMintError
 impl aitp::handshake::state_machine::PresentedIdentity
@@ -318,9 +336,11 @@ impl core::clone::Clone for aitp::core::aid::Aid
 impl core::clone::Clone for aitp::core::aid::AidAlgorithm
 impl core::clone::Clone for aitp::core::envelope::AitpEnvelope
 impl core::clone::Clone for aitp::core::envelope::EnvelopeParseError
+impl core::clone::Clone for aitp::core::envelope::EnvelopeStructureError
 impl core::clone::Clone for aitp::core::envelope::MessageType
 impl core::clone::Clone for aitp::core::envelope::Sender
 impl core::clone::Clone for aitp::core::error::ErrorCode
+impl core::clone::Clone for aitp::core::error::UnknownErrorCode
 impl core::clone::Clone for aitp::core::extensions::ExtensionsMap
 impl core::clone::Clone for aitp::core::ids::InvalidTag
 impl core::clone::Clone for aitp::core::ids::V4Error
@@ -350,6 +370,7 @@ impl core::clone::Clone for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::clone::Clone for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::clone::Clone for aitp::handshake::identity_pinned::SubjectBinding
 impl core::clone::Clone for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::clone::Clone for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::clone::Clone for aitp::handshake::jwk::JwkKeyMaterial
 impl core::clone::Clone for aitp::handshake::jwk::JwkPublicKey
 impl core::clone::Clone for aitp::handshake::jwk::JwsAlgorithm
@@ -397,9 +418,11 @@ impl core::cmp::Eq for aitp::core::aid::AidParseError
 impl core::cmp::Eq for aitp::core::base64url::Base64UrlError
 impl core::cmp::Eq for aitp::core::envelope::AitpEnvelope
 impl core::cmp::Eq for aitp::core::envelope::EnvelopeParseError
+impl core::cmp::Eq for aitp::core::envelope::EnvelopeStructureError
 impl core::cmp::Eq for aitp::core::envelope::MessageType
 impl core::cmp::Eq for aitp::core::envelope::Sender
 impl core::cmp::Eq for aitp::core::error::ErrorCode
+impl core::cmp::Eq for aitp::core::error::UnknownErrorCode
 impl core::cmp::Eq for aitp::core::extensions::ExtensionsMap
 impl core::cmp::Eq for aitp::core::ids::InvalidTag
 impl core::cmp::Eq for aitp::core::ids::V4Error
@@ -425,6 +448,7 @@ impl core::cmp::Eq for aitp::handshake::identity::IdentityKind
 impl core::cmp::Eq for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::cmp::Eq for aitp::handshake::identity_pinned::SubjectBinding
 impl core::cmp::Eq for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::cmp::Eq for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::cmp::Eq for aitp::handshake::jwk::JwkKeyMaterial
 impl core::cmp::Eq for aitp::handshake::jwk::JwkPublicKey
 impl core::cmp::Eq for aitp::handshake::jwk::JwsAlgorithm
@@ -468,9 +492,11 @@ impl core::cmp::PartialEq for aitp::core::aid::AidParseError
 impl core::cmp::PartialEq for aitp::core::base64url::Base64UrlError
 impl core::cmp::PartialEq for aitp::core::envelope::AitpEnvelope
 impl core::cmp::PartialEq for aitp::core::envelope::EnvelopeParseError
+impl core::cmp::PartialEq for aitp::core::envelope::EnvelopeStructureError
 impl core::cmp::PartialEq for aitp::core::envelope::MessageType
 impl core::cmp::PartialEq for aitp::core::envelope::Sender
 impl core::cmp::PartialEq for aitp::core::error::ErrorCode
+impl core::cmp::PartialEq for aitp::core::error::UnknownErrorCode
 impl core::cmp::PartialEq for aitp::core::extensions::ExtensionsMap
 impl core::cmp::PartialEq for aitp::core::ids::InvalidTag
 impl core::cmp::PartialEq for aitp::core::ids::V4Error
@@ -496,6 +522,7 @@ impl core::cmp::PartialEq for aitp::handshake::identity::IdentityKind
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::SubjectBinding
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::cmp::PartialEq for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::cmp::PartialEq for aitp::handshake::jwk::JwkKeyMaterial
 impl core::cmp::PartialEq for aitp::handshake::jwk::JwkPublicKey
 impl core::cmp::PartialEq for aitp::handshake::jwk::JwsAlgorithm
@@ -545,7 +572,10 @@ impl core::convert::From<aitp::crypto::error::CryptoError> for aitp::tct::error:
 impl core::convert::From<aitp::crypto::signer::SignerError> for aitp::crypto::error::CryptoError
 impl core::convert::From<aitp::crypto::signer::SignerError> for aitp::handshake::admission::AdmissionError
 impl core::convert::From<aitp::crypto::signer::SignerError> for aitp::transport::revocation::RevocationError
+impl core::convert::From<aitp::envelope::EnvelopeError> for aitp::facade::FacadeError
 impl core::convert::From<aitp::handshake::error::HandshakeError> for aitp::facade::FacadeError
+impl core::convert::From<aitp::handshake::identity_verifier::IdentityVerifyError> for aitp::handshake::error::HandshakeError
+impl core::convert::From<aitp::handshake::state_machine::GrantPolicyError> for aitp::handshake::error::HandshakeError
 impl core::convert::From<aitp::manifest::error::ManifestError> for aitp::facade::FacadeError
 impl core::convert::From<aitp::manifest::error::ManifestError> for aitp::handshake::error::HandshakeError
 impl core::convert::From<aitp::manifest::error::ManifestError> for aitp::transport::client::FetchError
@@ -583,6 +613,8 @@ impl core::error::Error for aitp::core::CheckedJsonError
 impl core::error::Error for aitp::core::aid::AidParseError
 impl core::error::Error for aitp::core::base64url::Base64UrlError
 impl core::error::Error for aitp::core::envelope::EnvelopeParseError
+impl core::error::Error for aitp::core::envelope::EnvelopeStructureError
+impl core::error::Error for aitp::core::error::UnknownErrorCode
 impl core::error::Error for aitp::core::ids::InvalidTag
 impl core::error::Error for aitp::core::ids::V4Error
 impl core::error::Error for aitp::core::jcs::JcsError
@@ -590,14 +622,17 @@ impl core::error::Error for aitp::core::nonce_store::NonceStoreError
 impl core::error::Error for aitp::crypto::error::CryptoError
 impl core::error::Error for aitp::crypto::signer::SignerError
 impl core::error::Error for aitp::delegation::error::DelegationError
+impl core::error::Error for aitp::envelope::EnvelopeError
 impl core::error::Error for aitp::facade::FacadeError
 impl core::error::Error for aitp::handshake::admission::AdmissionError
 impl core::error::Error for aitp::handshake::admission::DenyListError
 impl core::error::Error for aitp::handshake::error::HandshakeError
 impl core::error::Error for aitp::handshake::identity_oidc::ResolveError
 impl core::error::Error for aitp::handshake::identity_pinned::PinnedKeyEntryError
+impl core::error::Error for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::error::Error for aitp::handshake::jwk::JwkParseError
 impl core::error::Error for aitp::handshake::jwk::JwsVerifyError
+impl core::error::Error for aitp::handshake::state_machine::GrantPolicyError
 impl core::error::Error for aitp::handshake::state_machine::OidcMintError
 impl core::error::Error for aitp::manifest::error::ManifestError
 impl core::error::Error for aitp::tct::error::TctError
@@ -615,9 +650,11 @@ impl core::fmt::Debug for aitp::core::aid::AidParseError
 impl core::fmt::Debug for aitp::core::base64url::Base64UrlError
 impl core::fmt::Debug for aitp::core::envelope::AitpEnvelope
 impl core::fmt::Debug for aitp::core::envelope::EnvelopeParseError
+impl core::fmt::Debug for aitp::core::envelope::EnvelopeStructureError
 impl core::fmt::Debug for aitp::core::envelope::MessageType
 impl core::fmt::Debug for aitp::core::envelope::Sender
 impl core::fmt::Debug for aitp::core::error::ErrorCode
+impl core::fmt::Debug for aitp::core::error::UnknownErrorCode
 impl core::fmt::Debug for aitp::core::extensions::ExtensionsMap
 impl core::fmt::Debug for aitp::core::ids::InvalidTag
 impl core::fmt::Debug for aitp::core::ids::V4Error
@@ -640,6 +677,7 @@ impl core::fmt::Debug for aitp::delegation::error::DelegationError
 impl core::fmt::Debug for aitp::delegation::types::DelegationClaims
 impl core::fmt::Debug for aitp::delegation::types::VerifiedDelegation
 impl core::fmt::Debug for aitp::delegation::verifier::DelegationRevocation<'_>
+impl core::fmt::Debug for aitp::envelope::EnvelopeError
 impl core::fmt::Debug for aitp::facade::FacadeError
 impl core::fmt::Debug for aitp::facade::SessionContext
 impl core::fmt::Debug for aitp::facade::TctStore
@@ -666,6 +704,8 @@ impl core::fmt::Debug for aitp::handshake::identity_pinned::PinnedKeyEntryError
 impl core::fmt::Debug for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::fmt::Debug for aitp::handshake::identity_pinned::SubjectBinding
 impl core::fmt::Debug for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::fmt::Debug for aitp::handshake::identity_verifier::IdentityVerifyError
+impl core::fmt::Debug for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::fmt::Debug for aitp::handshake::jwk::JwkKeyMaterial
 impl core::fmt::Debug for aitp::handshake::jwk::JwkParseError
 impl core::fmt::Debug for aitp::handshake::jwk::JwkPublicKey
@@ -676,6 +716,7 @@ impl core::fmt::Debug for aitp::handshake::payloads::MutualCommitPayload
 impl core::fmt::Debug for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::fmt::Debug for aitp::handshake::payloads::MutualHelloPayload
 impl core::fmt::Debug for aitp::handshake::state_machine::CompletedHandshake
+impl core::fmt::Debug for aitp::handshake::state_machine::GrantPolicyError
 impl core::fmt::Debug for aitp::handshake::state_machine::HandshakeRevocationDecision
 impl core::fmt::Debug for aitp::handshake::state_machine::Initiator
 impl core::fmt::Debug for aitp::handshake::state_machine::OidcMintError
@@ -735,6 +776,9 @@ impl core::fmt::Display for aitp::core::aid::Aid
 impl core::fmt::Display for aitp::core::aid::AidParseError
 impl core::fmt::Display for aitp::core::base64url::Base64UrlError
 impl core::fmt::Display for aitp::core::envelope::EnvelopeParseError
+impl core::fmt::Display for aitp::core::envelope::EnvelopeStructureError
+impl core::fmt::Display for aitp::core::error::ErrorCode
+impl core::fmt::Display for aitp::core::error::UnknownErrorCode
 impl core::fmt::Display for aitp::core::ids::InvalidTag
 impl core::fmt::Display for aitp::core::ids::V4Error
 impl core::fmt::Display for aitp::core::jcs::JcsError
@@ -743,6 +787,7 @@ impl core::fmt::Display for aitp::core::raw_url::RawUrl
 impl core::fmt::Display for aitp::crypto::error::CryptoError
 impl core::fmt::Display for aitp::crypto::signer::SignerError
 impl core::fmt::Display for aitp::delegation::error::DelegationError
+impl core::fmt::Display for aitp::envelope::EnvelopeError
 impl core::fmt::Display for aitp::facade::FacadeError
 impl core::fmt::Display for aitp::handshake::admission::AdmissionError
 impl core::fmt::Display for aitp::handshake::admission::ChallengeSource
@@ -750,9 +795,11 @@ impl core::fmt::Display for aitp::handshake::admission::DenyListError
 impl core::fmt::Display for aitp::handshake::error::HandshakeError
 impl core::fmt::Display for aitp::handshake::identity_oidc::ResolveError
 impl core::fmt::Display for aitp::handshake::identity_pinned::PinnedKeyEntryError
+impl core::fmt::Display for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::fmt::Display for aitp::handshake::jwk::JwkParseError
 impl core::fmt::Display for aitp::handshake::jwk::JwsAlgorithm
 impl core::fmt::Display for aitp::handshake::jwk::JwsVerifyError
+impl core::fmt::Display for aitp::handshake::state_machine::GrantPolicyError
 impl core::fmt::Display for aitp::handshake::state_machine::OidcMintError
 impl core::fmt::Display for aitp::manifest::error::ManifestError
 impl core::fmt::Display for aitp::tct::error::TctError
@@ -799,9 +846,11 @@ impl core::marker::Send for aitp::core::aid::AidParseError
 impl core::marker::Send for aitp::core::base64url::Base64UrlError
 impl core::marker::Send for aitp::core::envelope::AitpEnvelope
 impl core::marker::Send for aitp::core::envelope::EnvelopeParseError
+impl core::marker::Send for aitp::core::envelope::EnvelopeStructureError
 impl core::marker::Send for aitp::core::envelope::MessageType
 impl core::marker::Send for aitp::core::envelope::Sender
 impl core::marker::Send for aitp::core::error::ErrorCode
+impl core::marker::Send for aitp::core::error::UnknownErrorCode
 impl core::marker::Send for aitp::core::extensions::ExtensionsMap
 impl core::marker::Send for aitp::core::ids::InvalidTag
 impl core::marker::Send for aitp::core::ids::V4Error
@@ -823,6 +872,7 @@ impl core::marker::Send for aitp::crypto::signer::SignerError
 impl core::marker::Send for aitp::delegation::error::DelegationError
 impl core::marker::Send for aitp::delegation::types::DelegationClaims
 impl core::marker::Send for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Send for aitp::envelope::EnvelopeError
 impl core::marker::Send for aitp::facade::FacadeError
 impl core::marker::Send for aitp::facade::IdentityMode
 impl core::marker::Send for aitp::facade::SessionContext
@@ -850,6 +900,8 @@ impl core::marker::Send for aitp::handshake::identity_pinned::PinnedKeyEntryErro
 impl core::marker::Send for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Send for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Send for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Send for aitp::handshake::identity_verifier::IdentityVerifyError
+impl core::marker::Send for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Send for aitp::handshake::jwk::JwkKeyMaterial
 impl core::marker::Send for aitp::handshake::jwk::JwkParseError
 impl core::marker::Send for aitp::handshake::jwk::JwkPublicKey
@@ -860,6 +912,7 @@ impl core::marker::Send for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Send for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Send for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Send for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Send for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Send for aitp::handshake::state_machine::HandshakeRevocationDecision
 impl core::marker::Send for aitp::handshake::state_machine::Initiator
 impl core::marker::Send for aitp::handshake::state_machine::OidcMintError
@@ -919,9 +972,11 @@ impl core::marker::Sync for aitp::core::aid::AidParseError
 impl core::marker::Sync for aitp::core::base64url::Base64UrlError
 impl core::marker::Sync for aitp::core::envelope::AitpEnvelope
 impl core::marker::Sync for aitp::core::envelope::EnvelopeParseError
+impl core::marker::Sync for aitp::core::envelope::EnvelopeStructureError
 impl core::marker::Sync for aitp::core::envelope::MessageType
 impl core::marker::Sync for aitp::core::envelope::Sender
 impl core::marker::Sync for aitp::core::error::ErrorCode
+impl core::marker::Sync for aitp::core::error::UnknownErrorCode
 impl core::marker::Sync for aitp::core::extensions::ExtensionsMap
 impl core::marker::Sync for aitp::core::ids::InvalidTag
 impl core::marker::Sync for aitp::core::ids::V4Error
@@ -943,6 +998,7 @@ impl core::marker::Sync for aitp::crypto::signer::SignerError
 impl core::marker::Sync for aitp::delegation::error::DelegationError
 impl core::marker::Sync for aitp::delegation::types::DelegationClaims
 impl core::marker::Sync for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Sync for aitp::envelope::EnvelopeError
 impl core::marker::Sync for aitp::facade::FacadeError
 impl core::marker::Sync for aitp::facade::IdentityMode
 impl core::marker::Sync for aitp::facade::SessionContext
@@ -970,6 +1026,8 @@ impl core::marker::Sync for aitp::handshake::identity_pinned::PinnedKeyEntryErro
 impl core::marker::Sync for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Sync for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Sync for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Sync for aitp::handshake::identity_verifier::IdentityVerifyError
+impl core::marker::Sync for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Sync for aitp::handshake::jwk::JwkKeyMaterial
 impl core::marker::Sync for aitp::handshake::jwk::JwkParseError
 impl core::marker::Sync for aitp::handshake::jwk::JwkPublicKey
@@ -980,6 +1038,7 @@ impl core::marker::Sync for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Sync for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Sync for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Sync for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Sync for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Sync for aitp::handshake::state_machine::HandshakeRevocationDecision
 impl core::marker::Sync for aitp::handshake::state_machine::Initiator
 impl core::marker::Sync for aitp::handshake::state_machine::OidcMintError
@@ -1039,9 +1098,11 @@ impl core::marker::Unpin for aitp::core::aid::AidParseError
 impl core::marker::Unpin for aitp::core::base64url::Base64UrlError
 impl core::marker::Unpin for aitp::core::envelope::AitpEnvelope
 impl core::marker::Unpin for aitp::core::envelope::EnvelopeParseError
+impl core::marker::Unpin for aitp::core::envelope::EnvelopeStructureError
 impl core::marker::Unpin for aitp::core::envelope::MessageType
 impl core::marker::Unpin for aitp::core::envelope::Sender
 impl core::marker::Unpin for aitp::core::error::ErrorCode
+impl core::marker::Unpin for aitp::core::error::UnknownErrorCode
 impl core::marker::Unpin for aitp::core::extensions::ExtensionsMap
 impl core::marker::Unpin for aitp::core::ids::InvalidTag
 impl core::marker::Unpin for aitp::core::ids::V4Error
@@ -1063,6 +1124,7 @@ impl core::marker::Unpin for aitp::crypto::signer::SignerError
 impl core::marker::Unpin for aitp::delegation::error::DelegationError
 impl core::marker::Unpin for aitp::delegation::types::DelegationClaims
 impl core::marker::Unpin for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Unpin for aitp::envelope::EnvelopeError
 impl core::marker::Unpin for aitp::facade::FacadeError
 impl core::marker::Unpin for aitp::facade::IdentityMode
 impl core::marker::Unpin for aitp::facade::SessionContext
@@ -1090,6 +1152,8 @@ impl core::marker::Unpin for aitp::handshake::identity_pinned::PinnedKeyEntryErr
 impl core::marker::Unpin for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Unpin for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Unpin for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Unpin for aitp::handshake::identity_verifier::IdentityVerifyError
+impl core::marker::Unpin for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Unpin for aitp::handshake::jwk::JwkKeyMaterial
 impl core::marker::Unpin for aitp::handshake::jwk::JwkParseError
 impl core::marker::Unpin for aitp::handshake::jwk::JwkPublicKey
@@ -1100,6 +1164,7 @@ impl core::marker::Unpin for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Unpin for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Unpin for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Unpin for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Unpin for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Unpin for aitp::handshake::state_machine::HandshakeRevocationDecision
 impl core::marker::Unpin for aitp::handshake::state_machine::Initiator
 impl core::marker::Unpin for aitp::handshake::state_machine::OidcMintError
@@ -1161,9 +1226,11 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::aid::AidParseError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::base64url::Base64UrlError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::envelope::AitpEnvelope
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::envelope::EnvelopeParseError
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::envelope::EnvelopeStructureError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::envelope::MessageType
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::envelope::Sender
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::error::ErrorCode
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::error::UnknownErrorCode
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::extensions::ExtensionsMap
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::ids::InvalidTag
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::core::ids::V4Error
@@ -1198,6 +1265,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinne
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::SubjectBinding
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwkKeyMaterial
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwkParseError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwkPublicKey
@@ -1228,7 +1296,6 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::TctClaims
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::VerifiedTct
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::verifier::TctVerifyContextError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::verifier::VerifiedAttestation
-impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client::JwksFetcherError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client_config::ClientConfig
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionOutcome
@@ -1254,9 +1321,11 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::core::aid::AidParseError
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::base64url::Base64UrlError
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::envelope::AitpEnvelope
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::envelope::EnvelopeParseError
+impl core::panic::unwind_safe::UnwindSafe for aitp::core::envelope::EnvelopeStructureError
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::envelope::MessageType
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::envelope::Sender
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::error::ErrorCode
+impl core::panic::unwind_safe::UnwindSafe for aitp::core::error::UnknownErrorCode
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::extensions::ExtensionsMap
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::ids::InvalidTag
 impl core::panic::unwind_safe::UnwindSafe for aitp::core::ids::V4Error
@@ -1291,6 +1360,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::SubjectBinding
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwkKeyMaterial
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwkParseError
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwkPublicKey
@@ -1321,7 +1391,6 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::TctClaims
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::VerifiedTct
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::verifier::TctVerifyContextError
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::verifier::VerifiedAttestation
-impl core::panic::unwind_safe::UnwindSafe for aitp::transport::client::JwksFetcherError
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::client_config::ClientConfig
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionOutcome
@@ -1341,6 +1410,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::transport::server::ServeConf
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::source_ip::TrustedProxy
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::source_ip::TrustedProxyParseError
 impl core::str::traits::FromStr for aitp::core::CheckedJson
+impl core::str::traits::FromStr for aitp::core::error::ErrorCode
 impl core::str::traits::FromStr for aitp::core::raw_url::RawUrl
 impl core::str::traits::FromStr for aitp::handshake::jwk::JwsAlgorithm
 impl core::str::traits::FromStr for aitp::transport::source_ip::TrustedProxy
@@ -1434,12 +1504,14 @@ impl<'a> aitp::tct::verifier::TctVerifyContextBuilder<'a>
 impl<'a> core::clone::Clone for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::clone::Clone for aitp::delegation::verifier::DelegationRevocation<'a>
 impl<'a> core::clone::Clone for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::clone::Clone for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::clone::Clone for aitp::handshake::state_machine::PeerConfig<'a>
 impl<'a> core::clone::Clone for aitp::handshake::state_machine::RevocationSource<'a>
 impl<'a> core::cmp::Eq for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::cmp::PartialEq for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::fmt::Debug for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::fmt::Debug for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::fmt::Debug for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::fmt::Debug for aitp::tct::verifier::AttestationVerifyContextBuilder<'a>
 impl<'a> core::marker::Copy for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::marker::Copy for aitp::delegation::verifier::DelegationRevocation<'a>
@@ -1452,6 +1524,7 @@ impl<'a> core::marker::Send for aitp::facade::TrustMode<'a>
 impl<'a> core::marker::Send for aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 impl<'a> core::marker::Send for aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> core::marker::Send for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::marker::Send for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::marker::Send for aitp::handshake::state_machine::PeerConfig<'a>
 impl<'a> core::marker::Send for aitp::handshake::state_machine::RevocationSource<'a>
 impl<'a> core::marker::Send for aitp::tct::revocation::VerifyRevocationListContext<'a>
@@ -1467,6 +1540,7 @@ impl<'a> core::marker::Sync for aitp::facade::TrustMode<'a>
 impl<'a> core::marker::Sync for aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 impl<'a> core::marker::Sync for aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> core::marker::Sync for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::marker::Sync for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::marker::Sync for aitp::handshake::state_machine::PeerConfig<'a>
 impl<'a> core::marker::Sync for aitp::handshake::state_machine::RevocationSource<'a>
 impl<'a> core::marker::Sync for aitp::tct::revocation::VerifyRevocationListContext<'a>
@@ -1482,6 +1556,7 @@ impl<'a> core::marker::Unpin for aitp::facade::TrustMode<'a>
 impl<'a> core::marker::Unpin for aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 impl<'a> core::marker::Unpin for aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> core::marker::Unpin for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::marker::Unpin for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::marker::Unpin for aitp::handshake::state_machine::PeerConfig<'a>
 impl<'a> core::marker::Unpin for aitp::handshake::state_machine::RevocationSource<'a>
 impl<'a> core::marker::Unpin for aitp::tct::revocation::VerifyRevocationListContext<'a>
@@ -1492,10 +1567,12 @@ impl<'a> core::marker::Unpin for aitp::tct::verifier::TctVerifyContextBuilder<'a
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::panic::unwind_safe::RefUnwindSafe for aitp::tct::revocation::VerifyRevocationListContext<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for aitp::crypto::signer::SignRequest<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
+impl<'a> core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::GrantPolicyContext<'a>
 impl<'a> core::panic::unwind_safe::UnwindSafe for aitp::tct::revocation::VerifyRevocationListContext<'a>
 impl<'de> serde_core::de::Deserialize<'de> for aitp::core::aid::Aid
 impl<'de> serde_core::de::Deserialize<'de> for aitp::core::envelope::AitpEnvelope
@@ -1581,8 +1658,12 @@ pub aitp::core::AitpEnvelope::signature: alloc::string::String
 pub aitp::core::AitpEnvelope::timestamp: aitp::core::time::Timestamp
 pub aitp::core::AitpEnvelope::version: alloc::string::String
 pub aitp::core::EnvelopeParseError::Malformed(alloc::string::String)
+pub aitp::core::EnvelopeParseError::Structure(aitp::core::envelope::EnvelopeStructureError)
 pub aitp::core::EnvelopeParseError::UnknownField(alloc::string::String)
 pub aitp::core::EnvelopeParseError::UnknownVersion(alloc::string::String)
+pub aitp::core::EnvelopeStructureError::NegativeTimestamp(aitp::core::time::Timestamp)
+pub aitp::core::EnvelopeStructureError::PayloadNotObject
+pub aitp::core::EnvelopeStructureError::SignatureFormat
 pub aitp::core::ErrorCode::AudienceMismatch
 pub aitp::core::ErrorCode::ChallengeRefused
 pub aitp::core::ErrorCode::DelegationAudienceMismatch
@@ -1655,8 +1736,12 @@ pub aitp::core::envelope::AitpEnvelope::signature: alloc::string::String
 pub aitp::core::envelope::AitpEnvelope::timestamp: aitp::core::time::Timestamp
 pub aitp::core::envelope::AitpEnvelope::version: alloc::string::String
 pub aitp::core::envelope::EnvelopeParseError::Malformed(alloc::string::String)
+pub aitp::core::envelope::EnvelopeParseError::Structure(aitp::core::envelope::EnvelopeStructureError)
 pub aitp::core::envelope::EnvelopeParseError::UnknownField(alloc::string::String)
 pub aitp::core::envelope::EnvelopeParseError::UnknownVersion(alloc::string::String)
+pub aitp::core::envelope::EnvelopeStructureError::NegativeTimestamp(aitp::core::time::Timestamp)
+pub aitp::core::envelope::EnvelopeStructureError::PayloadNotObject
+pub aitp::core::envelope::EnvelopeStructureError::SignatureFormat
 pub aitp::core::envelope::MessageType::Error
 pub aitp::core::envelope::MessageType::IdentityPresentation
 pub aitp::core::envelope::MessageType::MutualCommit
@@ -1870,6 +1955,15 @@ pub aitp::delegation::verifier::VerifyDelegationContext::issuer_manifests: core:
 pub aitp::delegation::verifier::VerifyDelegationContext::now: aitp::core::time::Timestamp
 pub aitp::delegation::verifier::VerifyDelegationContext::revocation: aitp::delegation::verifier::DelegationRevocation<'a>
 pub aitp::delegation::verifier::VerifyDelegationContext::verifier: &'a aitp::core::aid::Aid
+pub aitp::envelope::EnvelopeError::Canonicalization(aitp::core::jcs::JcsError)
+pub aitp::envelope::EnvelopeError::MessageId(aitp::core::ids::V4Error)
+pub aitp::envelope::EnvelopeError::SenderMismatch
+pub aitp::envelope::EnvelopeError::SenderMismatch::sender: aitp::core::aid::Aid
+pub aitp::envelope::EnvelopeError::SenderMismatch::signer: aitp::core::aid::Aid
+pub aitp::envelope::EnvelopeError::Signer(aitp::crypto::signer::SignerError)
+pub aitp::envelope::EnvelopeError::Structure(aitp::core::envelope::EnvelopeStructureError)
+pub aitp::envelope::EnvelopeError::UnsupportedVersion(alloc::string::String)
+pub aitp::facade::FacadeError::Envelope(aitp::envelope::EnvelopeError)
 pub aitp::facade::FacadeError::Handshake(aitp::handshake::error::HandshakeError)
 pub aitp::facade::FacadeError::Http(alloc::string::String)
 pub aitp::facade::FacadeError::Manifest(aitp::transport::client::FetchError)
@@ -1904,10 +1998,16 @@ pub aitp::facade::TrustMode::Oidc::trust_anchors: &'a [aitp::core::raw_url::RawU
 pub aitp::facade::TrustMode::PinnedKeys(&'a dyn aitp::handshake::identity_pinned::PinnedKeyStore)
 pub aitp::handshake::CompletedHandshake::grant_voucher: core::option::Option<alloc::string::String>
 pub aitp::handshake::CompletedHandshake::tct: aitp::tct::types::VerifiedTct
-pub aitp::handshake::HandshakeError::Canonicalization(alloc::string::String)
+pub aitp::handshake::GrantPolicyContext::candidate_grants: &'a [alloc::string::String]
+pub aitp::handshake::GrantPolicyContext::now: aitp::core::time::Timestamp
+pub aitp::handshake::GrantPolicyContext::peer_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::GrantPolicyContext::peer_identity: &'a aitp::handshake::identity::IdentityDescriptor
+pub aitp::handshake::HandshakeError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::handshake::HandshakeError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::handshake::HandshakeError::GrantOverflow
+pub aitp::handshake::HandshakeError::GrantPolicy(aitp::handshake::state_machine::GrantPolicyError)
 pub aitp::handshake::HandshakeError::Identity(alloc::string::String)
+pub aitp::handshake::HandshakeError::IdentityVerifier(aitp::handshake::identity_verifier::IdentityVerifyError)
 pub aitp::handshake::HandshakeError::IncompatibleTrustAnchors
 pub aitp::handshake::HandshakeError::InsufficientGrants
 pub aitp::handshake::HandshakeError::InvalidEnvelope(alloc::string::String)
@@ -1920,7 +2020,7 @@ pub aitp::handshake::HandshakeError::NonceMismatch
 pub aitp::handshake::HandshakeError::PeerMismatch
 pub aitp::handshake::HandshakeError::PolicyViolation
 pub aitp::handshake::HandshakeError::PopVerificationFailed
-pub aitp::handshake::HandshakeError::Rng(alloc::string::String)
+pub aitp::handshake::HandshakeError::Rng(aitp::core::BoxError)
 pub aitp::handshake::HandshakeError::State(&'static str)
 pub aitp::handshake::HandshakeError::Tct(aitp::tct::error::TctError)
 pub aitp::handshake::HandshakeError::UnknownField(alloc::string::String)
@@ -1944,6 +2044,8 @@ pub aitp::handshake::IdentityVerifyContext::pop_nonce: &'a str
 pub aitp::handshake::IdentityVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::IdentityVerifyContext::sender_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::IdentityVerifyContext::timestamp: aitp::core::time::Timestamp
+pub aitp::handshake::IdentityVerifyError::KeyUnavailable(aitp::core::BoxError)
+pub aitp::handshake::IdentityVerifyError::Rejected(alloc::string::String)
 pub aitp::handshake::JwkKeyMaterial::Ed25519
 pub aitp::handshake::JwkKeyMaterial::Ed25519::x: [u8; 32]
 pub aitp::handshake::JwkKeyMaterial::P256
@@ -2065,7 +2167,7 @@ pub aitp::handshake::admission::AdmissionError::InvalidSignature
 pub aitp::handshake::admission::AdmissionError::RateLimited
 pub aitp::handshake::admission::AdmissionError::RateLimited::retry_after: core::time::Duration
 pub aitp::handshake::admission::AdmissionError::Replay
-pub aitp::handshake::admission::AdmissionError::Rng(alloc::string::String)
+pub aitp::handshake::admission::AdmissionError::Rng(aitp::core::BoxError)
 pub aitp::handshake::admission::AdmissionError::Signer(aitp::crypto::signer::SignerError)
 pub aitp::handshake::admission::AdmissionError::Store(aitp::core::nonce_store::NonceStoreError)
 pub aitp::handshake::admission::AdmissionError::TimestampExpired
@@ -2095,10 +2197,12 @@ pub aitp::handshake::admission::NonceStoreError::Duplicate
 pub aitp::handshake::admission::RefusalCause::AtCapacity
 pub aitp::handshake::admission::TransportId::Ip(core::net::ip_addr::IpAddr)
 pub aitp::handshake::admission::TransportId::TlsClientCert([u8; 32])
-pub aitp::handshake::error::HandshakeError::Canonicalization(alloc::string::String)
+pub aitp::handshake::error::HandshakeError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::handshake::error::HandshakeError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::handshake::error::HandshakeError::GrantOverflow
+pub aitp::handshake::error::HandshakeError::GrantPolicy(aitp::handshake::state_machine::GrantPolicyError)
 pub aitp::handshake::error::HandshakeError::Identity(alloc::string::String)
+pub aitp::handshake::error::HandshakeError::IdentityVerifier(aitp::handshake::identity_verifier::IdentityVerifyError)
 pub aitp::handshake::error::HandshakeError::IncompatibleTrustAnchors
 pub aitp::handshake::error::HandshakeError::InsufficientGrants
 pub aitp::handshake::error::HandshakeError::InvalidEnvelope(alloc::string::String)
@@ -2111,7 +2215,7 @@ pub aitp::handshake::error::HandshakeError::NonceMismatch
 pub aitp::handshake::error::HandshakeError::PeerMismatch
 pub aitp::handshake::error::HandshakeError::PolicyViolation
 pub aitp::handshake::error::HandshakeError::PopVerificationFailed
-pub aitp::handshake::error::HandshakeError::Rng(alloc::string::String)
+pub aitp::handshake::error::HandshakeError::Rng(aitp::core::BoxError)
 pub aitp::handshake::error::HandshakeError::State(&'static str)
 pub aitp::handshake::error::HandshakeError::Tct(aitp::tct::error::TctError)
 pub aitp::handshake::error::HandshakeError::UnknownField(alloc::string::String)
@@ -2164,6 +2268,8 @@ pub aitp::handshake::identity_verifier::IdentityVerifyContext::pop_nonce: &'a st
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::receiver_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::sender_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::timestamp: aitp::core::time::Timestamp
+pub aitp::handshake::identity_verifier::IdentityVerifyError::KeyUnavailable(aitp::core::BoxError)
+pub aitp::handshake::identity_verifier::IdentityVerifyError::Rejected(alloc::string::String)
 pub aitp::handshake::jwk::JwkKeyMaterial::Ed25519
 pub aitp::handshake::jwk::JwkKeyMaterial::Ed25519::x: [u8; 32]
 pub aitp::handshake::jwk::JwkKeyMaterial::P256
@@ -2220,6 +2326,10 @@ pub aitp::handshake::payloads::MutualHelloPayload::pop_nonce: alloc::string::Str
 pub aitp::handshake::payloads::MutualHelloPayload::requested_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::handshake::state_machine::CompletedHandshake::grant_voucher: core::option::Option<alloc::string::String>
 pub aitp::handshake::state_machine::CompletedHandshake::tct: aitp::tct::types::VerifiedTct
+pub aitp::handshake::state_machine::GrantPolicyContext::candidate_grants: &'a [alloc::string::String]
+pub aitp::handshake::state_machine::GrantPolicyContext::now: aitp::core::time::Timestamp
+pub aitp::handshake::state_machine::GrantPolicyContext::peer_aid: &'a aitp::core::aid::Aid
+pub aitp::handshake::state_machine::GrantPolicyContext::peer_identity: &'a aitp::handshake::identity::IdentityDescriptor
 pub aitp::handshake::state_machine::HandshakeRevocationDecision::Clear
 pub aitp::handshake::state_machine::HandshakeRevocationDecision::Revoked
 pub aitp::handshake::state_machine::HandshakeRevocationDecision::SoftFailSafeSubset
@@ -2269,7 +2379,7 @@ pub aitp::manifest::Manifest::signature: alloc::string::String
 pub aitp::manifest::Manifest::version: alloc::string::String
 pub aitp::manifest::ManifestEnvelope::manifest: aitp::manifest::types::Manifest
 pub aitp::manifest::ManifestError::AidMismatch
-pub aitp::manifest::ManifestError::Canonicalization(alloc::string::String)
+pub aitp::manifest::ManifestError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::manifest::ManifestError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::manifest::ManifestError::Expired
 pub aitp::manifest::ManifestError::IdentityHintMalformed(&'static str)
@@ -2278,7 +2388,7 @@ pub aitp::manifest::ManifestError::Malformed(alloc::string::String)
 pub aitp::manifest::ManifestError::MissingField(&'static str)
 pub aitp::manifest::ManifestError::NotFound
 pub aitp::manifest::ManifestError::PopFailed
-pub aitp::manifest::ManifestError::Rng(alloc::string::String)
+pub aitp::manifest::ManifestError::Rng(aitp::core::BoxError)
 pub aitp::manifest::ManifestError::SignatureInvalid
 pub aitp::manifest::ManifestError::UnknownField(alloc::string::String)
 pub aitp::manifest::ManifestError::VersionUnknown
@@ -2286,7 +2396,7 @@ pub aitp::manifest::ManifestPop::challenge: alloc::string::String
 pub aitp::manifest::ManifestPop::signature: alloc::string::String
 pub aitp::manifest::VerifyManifestContext::now: aitp::core::time::Timestamp
 pub aitp::manifest::error::ManifestError::AidMismatch
-pub aitp::manifest::error::ManifestError::Canonicalization(alloc::string::String)
+pub aitp::manifest::error::ManifestError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::manifest::error::ManifestError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::manifest::error::ManifestError::Expired
 pub aitp::manifest::error::ManifestError::IdentityHintMalformed(&'static str)
@@ -2295,7 +2405,7 @@ pub aitp::manifest::error::ManifestError::Malformed(alloc::string::String)
 pub aitp::manifest::error::ManifestError::MissingField(&'static str)
 pub aitp::manifest::error::ManifestError::NotFound
 pub aitp::manifest::error::ManifestError::PopFailed
-pub aitp::manifest::error::ManifestError::Rng(alloc::string::String)
+pub aitp::manifest::error::ManifestError::Rng(aitp::core::BoxError)
 pub aitp::manifest::error::ManifestError::SignatureInvalid
 pub aitp::manifest::error::ManifestError::UnknownField(alloc::string::String)
 pub aitp::manifest::error::ManifestError::VersionUnknown
@@ -2431,7 +2541,7 @@ pub aitp::tct::TctClaims::ver: alloc::string::String
 pub aitp::tct::TctError::AttestationMarker
 pub aitp::tct::TctError::AttestationStatementMissing(alloc::string::String)
 pub aitp::tct::TctError::AudienceMismatch
-pub aitp::tct::TctError::Canonicalization(alloc::string::String)
+pub aitp::tct::TctError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::tct::TctError::ClaimsMalformed(alloc::string::String)
 pub aitp::tct::TctError::CnfMalformed
 pub aitp::tct::TctError::Crypto(aitp::crypto::error::CryptoError)
@@ -2472,7 +2582,7 @@ pub aitp::tct::VerifyRevocationListContext::now: aitp::core::time::Timestamp
 pub aitp::tct::error::TctError::AttestationMarker
 pub aitp::tct::error::TctError::AttestationStatementMissing(alloc::string::String)
 pub aitp::tct::error::TctError::AudienceMismatch
-pub aitp::tct::error::TctError::Canonicalization(alloc::string::String)
+pub aitp::tct::error::TctError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::tct::error::TctError::ClaimsMalformed(alloc::string::String)
 pub aitp::tct::error::TctError::CnfMalformed
 pub aitp::tct::error::TctError::Crypto(aitp::crypto::error::CryptoError)
@@ -2558,7 +2668,7 @@ pub aitp::tct::verifier::VerifiedAttestation::token: alloc::string::String
 pub aitp::transport::FetchError::InsecureUrl
 pub aitp::transport::FetchError::MalformedJson(alloc::string::String)
 pub aitp::transport::FetchError::MalformedWrapper
-pub aitp::transport::FetchError::Network(alloc::string::String)
+pub aitp::transport::FetchError::Network(aitp::core::BoxError)
 pub aitp::transport::FetchError::OversizedResponse
 pub aitp::transport::FetchError::OversizedResponse::limit: usize
 pub aitp::transport::FetchError::Timeout
@@ -2581,7 +2691,7 @@ pub aitp::transport::HostGuardError::Resolution::host: alloc::string::String
 pub aitp::transport::HostGuardError::Resolution::message: alloc::string::String
 pub aitp::transport::JwksFetcherError::InsecureUrl
 pub aitp::transport::JwksFetcherError::MalformedJson(alloc::string::String)
-pub aitp::transport::JwksFetcherError::Network(alloc::string::String)
+pub aitp::transport::JwksFetcherError::Network(aitp::core::BoxError)
 pub aitp::transport::JwksFetcherError::OversizedResponse
 pub aitp::transport::JwksFetcherError::OversizedResponse::limit: usize
 pub aitp::transport::JwksFetcherError::UnsupportedJwk(alloc::string::String)
@@ -2597,7 +2707,7 @@ pub aitp::transport::RateLimitConfig::requests_per_source_per_60s: u32
 pub aitp::transport::RateLimitConfig::trusted_proxies: alloc::vec::Vec<aitp::transport::source_ip::TrustedProxy>
 pub aitp::transport::RevocationError::Expired
 pub aitp::transport::RevocationError::Malformed(alloc::string::String)
-pub aitp::transport::RevocationError::Network(alloc::string::String)
+pub aitp::transport::RevocationError::Network(aitp::core::BoxError)
 pub aitp::transport::RevocationError::NoSnapshotFailClosed
 pub aitp::transport::RevocationError::SignatureInvalid(aitp::tct::error::TctError)
 pub aitp::transport::RevocationError::Signer(aitp::crypto::signer::SignerError)
@@ -2621,7 +2731,7 @@ pub aitp::transport::ServeConfig::request_body_limit: usize
 pub aitp::transport::client::FetchError::InsecureUrl
 pub aitp::transport::client::FetchError::MalformedJson(alloc::string::String)
 pub aitp::transport::client::FetchError::MalformedWrapper
-pub aitp::transport::client::FetchError::Network(alloc::string::String)
+pub aitp::transport::client::FetchError::Network(aitp::core::BoxError)
 pub aitp::transport::client::FetchError::OversizedResponse
 pub aitp::transport::client::FetchError::OversizedResponse::limit: usize
 pub aitp::transport::client::FetchError::Timeout
@@ -2631,7 +2741,7 @@ pub aitp::transport::client::FetchError::VerificationFailed(aitp::manifest::erro
 pub aitp::transport::client::FetchError::WrongContentType(alloc::string::String)
 pub aitp::transport::client::JwksFetcherError::InsecureUrl
 pub aitp::transport::client::JwksFetcherError::MalformedJson(alloc::string::String)
-pub aitp::transport::client::JwksFetcherError::Network(alloc::string::String)
+pub aitp::transport::client::JwksFetcherError::Network(aitp::core::BoxError)
 pub aitp::transport::client::JwksFetcherError::OversizedResponse
 pub aitp::transport::client::JwksFetcherError::OversizedResponse::limit: usize
 pub aitp::transport::client::JwksFetcherError::UnsupportedJwk(alloc::string::String)
@@ -2657,7 +2767,7 @@ pub aitp::transport::net_guard::HostGuardError::Resolution::host: alloc::string:
 pub aitp::transport::net_guard::HostGuardError::Resolution::message: alloc::string::String
 pub aitp::transport::revocation::RevocationError::Expired
 pub aitp::transport::revocation::RevocationError::Malformed(alloc::string::String)
-pub aitp::transport::revocation::RevocationError::Network(alloc::string::String)
+pub aitp::transport::revocation::RevocationError::Network(aitp::core::BoxError)
 pub aitp::transport::revocation::RevocationError::NoSnapshotFailClosed
 pub aitp::transport::revocation::RevocationError::SignatureInvalid(aitp::tct::error::TctError)
 pub aitp::transport::revocation::RevocationError::Signer(aitp::crypto::signer::SignerError)
@@ -2689,9 +2799,9 @@ pub async fn aitp::crypto::signer::check_public_key_async(&dyn aitp::crypto::sig
 pub async fn aitp::crypto::signer::sign_jcs_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, &aitp::crypto::digest::Digest32) -> core::result::Result<aitp::crypto::keys::Signature, aitp::crypto::signer::SignerError>
 pub async fn aitp::crypto::signer::sign_raw_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::signer::SignerError>
 pub async fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<alloc::string::String, aitp::delegation::error::DelegationError>
-pub async fn aitp::envelope::sign_envelope_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
-pub async fn aitp::envelope::sign_envelope_with_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
-pub async fn aitp::envelope::sign_prepared_envelope_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::AitpEnvelope) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
+pub async fn aitp::envelope::sign_envelope_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
+pub async fn aitp::envelope::sign_envelope_with_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
+pub async fn aitp::envelope::sign_prepared_envelope_async(&dyn aitp::crypto::signer::DynAsyncAitpSigner, aitp::core::envelope::AitpEnvelope) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::facade::run_initiator_handshake(aitp::facade::InitiatorConfig<'_>) -> core::result::Result<aitp::facade::SessionContext, aitp::facade::FacadeError>
 pub async fn aitp::handshake::admission::PinnedAdmission::admit(&self, &aitp::core::envelope::AitpEnvelope, &aitp::handshake::admission::ChallengeSource) -> core::result::Result<aitp::handshake::admission::Admitted, aitp::handshake::admission::AdmissionError>
 pub async fn aitp::handshake::admission::PinnedAdmission::admit_at(&self, &aitp::core::envelope::AitpEnvelope, &aitp::handshake::admission::ChallengeSource, aitp::core::time::Timestamp) -> core::result::Result<aitp::handshake::admission::Admitted, aitp::handshake::admission::AdmissionError>
@@ -2723,6 +2833,7 @@ pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16]
 pub const aitp::core::PROTOCOL_VERSION: &str
 pub const aitp::core::envelope::AITP_ENVELOPE_MEMBERS: &[&str]
 pub const aitp::core::envelope::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16]
+pub const aitp::core::error::ErrorCode::ALL: &'static [aitp::core::error::ErrorCode]
 pub const aitp::core::nonce_store::InMemoryNonceStore::DEFAULT_CAPACITY: usize
 pub const aitp::core::nonce_store::NONCE_LEN: usize
 pub const aitp::crypto::jws::TYP_DELEGATION: &str
@@ -2793,6 +2904,7 @@ pub const aitp::transport::server::RateLimitConfig::RECOMMENDED_PER_SOURCE: u32
 pub const aitp::transport::server_limits::DEFAULT_REQUEST_BODY_LIMIT: usize
 pub const aitp::transport::server_limits::RECOMMENDED_MAX_HEADER_BYTES: usize
 pub const aitp::transport::server_limits::REVOCATION_LIST_BODY_LIMIT: usize
+pub const fn aitp::core::error::ErrorCode::as_str(self) -> &'static str
 pub const fn aitp::crypto::digest::Digest32::as_bytes(&self) -> &[u8; 32]
 pub const fn aitp::crypto::digest::Digest32::from_bytes([u8; 32]) -> Self
 pub const fn aitp::transport::retry::RetryPolicy::aggressive() -> Self
@@ -2810,7 +2922,7 @@ pub fn &S::public_key(&self) -> core::result::Result<aitp::crypto::keys::AitpVer
 pub fn &S::sign(&self, aitp::crypto::signer::SignRequest<'_>) -> core::result::Result<aitp::crypto::signer::BackendSignature, aitp::crypto::signer::SignerError>
 pub fn &T::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
 pub fn &T::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
-pub fn &T::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
+pub fn &T::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<aitp::handshake::identity_verifier::VerifiedIdentity, aitp::handshake::identity_verifier::IdentityVerifyError>
 pub fn T::aid(&self) -> &aitp::core::aid::Aid
 pub fn T::max_message_len(&self) -> core::option::Option<usize>
 pub fn T::public_key(&self) -> core::pin::Pin<alloc::boxed::Box<(dyn core::future::future::Future<Output = core::result::Result<aitp::crypto::keys::AitpVerifyingKey, aitp::crypto::signer::SignerError>> + core::marker::Send + '_)>>
@@ -2860,8 +2972,8 @@ pub fn aitp::core::base64url::Base64UrlError::fmt(&self, &mut core::fmt::Formatt
 pub fn aitp::core::base64url::decode_strict(&str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::core::base64url::Base64UrlError>
 pub fn aitp::core::base64url::decode_strict_exact<const N: usize>(&str) -> core::result::Result<[u8; N], aitp::core::base64url::Base64UrlError>
 pub fn aitp::core::base64url::encode(&[u8]) -> alloc::string::String
-pub fn aitp::core::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
-pub fn aitp::core::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
+pub fn aitp::core::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), aitp::core::envelope::EnvelopeStructureError>
+pub fn aitp::core::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), aitp::core::envelope::EnvelopeStructureError>
 pub fn aitp::core::envelope::AitpEnvelope::clone(&self) -> aitp::core::envelope::AitpEnvelope
 pub fn aitp::core::envelope::AitpEnvelope::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::core::envelope::AitpEnvelope::eq(&self, &aitp::core::envelope::AitpEnvelope) -> bool
@@ -2871,6 +2983,10 @@ pub fn aitp::core::envelope::AitpEnvelope::unsigned(aitp::core::aid::Aid, aitp::
 pub fn aitp::core::envelope::EnvelopeParseError::clone(&self) -> aitp::core::envelope::EnvelopeParseError
 pub fn aitp::core::envelope::EnvelopeParseError::eq(&self, &aitp::core::envelope::EnvelopeParseError) -> bool
 pub fn aitp::core::envelope::EnvelopeParseError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::core::envelope::EnvelopeParseError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub fn aitp::core::envelope::EnvelopeStructureError::clone(&self) -> aitp::core::envelope::EnvelopeStructureError
+pub fn aitp::core::envelope::EnvelopeStructureError::eq(&self, &aitp::core::envelope::EnvelopeStructureError) -> bool
+pub fn aitp::core::envelope::EnvelopeStructureError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::core::envelope::MessageType::as_wire_str(&self) -> &'static str
 pub fn aitp::core::envelope::MessageType::clone(&self) -> aitp::core::envelope::MessageType
 pub fn aitp::core::envelope::MessageType::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
@@ -2884,8 +3000,8 @@ pub fn aitp::core::envelope::Sender::eq(&self, &aitp::core::envelope::Sender) ->
 pub fn aitp::core::envelope::Sender::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::core::envelope::Sender::new(aitp::core::aid::Aid) -> Self
 pub fn aitp::core::envelope::Sender::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
-pub fn aitp::core::envelope::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
-pub fn aitp::core::envelope::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), alloc::string::String>
+pub fn aitp::core::envelope::check_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), aitp::core::envelope::EnvelopeStructureError>
+pub fn aitp::core::envelope::check_unsigned_envelope_structure(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<(), aitp::core::envelope::EnvelopeStructureError>
 pub fn aitp::core::envelope::envelope_signing_digest(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<[u8; 32], aitp::core::jcs::JcsError>
 pub fn aitp::core::envelope::envelope_signing_input(&aitp::core::envelope::AitpEnvelope) -> core::result::Result<alloc::vec::Vec<u8>, aitp::core::jcs::JcsError>
 pub fn aitp::core::envelope::parse_envelope_wire(&aitp::core::CheckedJson) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::core::envelope::EnvelopeParseError>
@@ -2895,9 +3011,14 @@ pub fn aitp::core::error::ErrorCode::clone(&self) -> aitp::core::error::ErrorCod
 pub fn aitp::core::error::ErrorCode::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::core::error::ErrorCode::eq(&self, &aitp::core::error::ErrorCode) -> bool
 pub fn aitp::core::error::ErrorCode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::core::error::ErrorCode::from_str(&str) -> core::result::Result<Self, Self::Err>
 pub fn aitp::core::error::ErrorCode::hash<__H: core::hash::Hasher>(&self, &mut __H)
 pub fn aitp::core::error::ErrorCode::is_retryable(self) -> bool
 pub fn aitp::core::error::ErrorCode::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn aitp::core::error::UnknownErrorCode::as_str(&self) -> &str
+pub fn aitp::core::error::UnknownErrorCode::clone(&self) -> aitp::core::error::UnknownErrorCode
+pub fn aitp::core::error::UnknownErrorCode::eq(&self, &aitp::core::error::UnknownErrorCode) -> bool
+pub fn aitp::core::error::UnknownErrorCode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::core::extensions::ExtensionsMap::clone(&self) -> aitp::core::extensions::ExtensionsMap
 pub fn aitp::core::extensions::ExtensionsMap::default() -> aitp::core::extensions::ExtensionsMap
 pub fn aitp::core::extensions::ExtensionsMap::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
@@ -3119,11 +3240,14 @@ pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::new(&'a aitp::co
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::resolver::ManifestResolver) -> Self
 pub fn aitp::delegation::verifier::verify_delegation(&str, &aitp::delegation::verifier::VerifyDelegationContext<'_>) -> core::result::Result<aitp::delegation::types::VerifiedDelegation, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::verify_delegation(&str, &aitp::delegation::verifier::VerifyDelegationContext<'_>) -> core::result::Result<aitp::delegation::types::VerifiedDelegation, aitp::delegation::error::DelegationError>
-pub fn aitp::envelope::sign_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
-pub fn aitp::envelope::sign_envelope_with(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
-pub fn aitp::envelope::sign_prepared_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::AitpEnvelope) -> core::result::Result<aitp::core::envelope::AitpEnvelope, alloc::string::String>
+pub fn aitp::envelope::EnvelopeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::envelope::EnvelopeError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub fn aitp::envelope::sign_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
+pub fn aitp::envelope::sign_envelope_with(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::time::Timestamp) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
+pub fn aitp::envelope::sign_prepared_envelope(&dyn aitp::crypto::signer::AitpSigner, aitp::core::envelope::AitpEnvelope) -> core::result::Result<aitp::core::envelope::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub fn aitp::envelope::verify_envelope_signature(&aitp::core::envelope::AitpEnvelope, &aitp::crypto::keys::AitpVerifyingKey) -> core::result::Result<(), aitp::crypto::error::CryptoError>
 pub fn aitp::facade::FacadeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::facade::FacadeError::from(aitp::envelope::EnvelopeError) -> Self
 pub fn aitp::facade::FacadeError::from(aitp::handshake::error::HandshakeError) -> Self
 pub fn aitp::facade::FacadeError::from(aitp::manifest::error::ManifestError) -> Self
 pub fn aitp::facade::FacadeError::from(aitp::transport::client::FetchError) -> Self
@@ -3147,7 +3271,7 @@ pub fn aitp::facade::TctStore::new(f64) -> Self
 pub fn aitp::facade::TctStore::peer_aids(&self) -> alloc::vec::Vec<aitp::core::aid::Aid>
 pub fn aitp::facade::TctStore::remove(&self, &aitp::core::aid::Aid)
 pub fn aitp::handshake::IdentityVerifier::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
-pub fn aitp::handshake::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
+pub fn aitp::handshake::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<aitp::handshake::identity_verifier::VerifiedIdentity, aitp::handshake::identity_verifier::IdentityVerifyError>
 pub fn aitp::handshake::JwksResolver::resolve(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::handshake::identity_oidc::ResolveError>
 pub fn aitp::handshake::PinnedKeyStore::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn aitp::handshake::admission::AdmissionChallenge::clone(&self) -> aitp::handshake::admission::AdmissionChallenge
@@ -3227,6 +3351,8 @@ pub fn aitp::handshake::admission::present_pinned(&dyn aitp::crypto::signer::Ait
 pub fn aitp::handshake::error::HandshakeError::error_code(&self) -> aitp::core::error::ErrorCode
 pub fn aitp::handshake::error::HandshakeError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::error::HandshakeError::from(aitp::crypto::error::CryptoError) -> Self
+pub fn aitp::handshake::error::HandshakeError::from(aitp::handshake::identity_verifier::IdentityVerifyError) -> Self
+pub fn aitp::handshake::error::HandshakeError::from(aitp::handshake::state_machine::GrantPolicyError) -> Self
 pub fn aitp::handshake::error::HandshakeError::from(aitp::manifest::error::ManifestError) -> Self
 pub fn aitp::handshake::error::HandshakeError::from(aitp::tct::error::TctError) -> Self
 pub fn aitp::handshake::error::HandshakeError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
@@ -3288,9 +3414,17 @@ pub fn aitp::handshake::identity_pinned::pinned_key_proof_input(&aitp::core::aid
 pub fn aitp::handshake::identity_pinned::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSigner, &aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::string::String, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::verify_pinned_key(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'_>, &dyn aitp::handshake::identity_pinned::PinnedKeyStore) -> core::result::Result<aitp::handshake::identity_pinned::VerifiedPinnedKey, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_verifier::IdentityVerifier::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
-pub fn aitp::handshake::identity_verifier::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
+pub fn aitp::handshake::identity_verifier::IdentityVerifier::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<aitp::handshake::identity_verifier::VerifiedIdentity, aitp::handshake::identity_verifier::IdentityVerifyError>
 pub fn aitp::handshake::identity_verifier::IdentityVerifyContext<'a>::clone(&self) -> aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
 pub fn aitp::handshake::identity_verifier::IdentityVerifyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::identity_verifier::IdentityVerifyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::identity_verifier::IdentityVerifyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::clone(&self) -> aitp::handshake::identity_verifier::VerifiedIdentity
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::eq(&self, &aitp::handshake::identity_verifier::VerifiedIdentity) -> bool
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::kind(&self) -> aitp::handshake::identity::IdentityKind
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::new(aitp::handshake::identity::IdentityKind, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::handshake::identity_verifier::VerifiedIdentity::subject(&self) -> &str
 pub fn aitp::handshake::jwk::JwkKeyMaterial::clone(&self) -> aitp::handshake::jwk::JwkKeyMaterial
 pub fn aitp::handshake::jwk::JwkKeyMaterial::eq(&self, &aitp::handshake::jwk::JwkKeyMaterial) -> bool
 pub fn aitp::handshake::jwk::JwkKeyMaterial::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3337,6 +3471,11 @@ pub fn aitp::handshake::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSig
 pub fn aitp::handshake::state_machine::CompletedHandshake::clone(&self) -> aitp::handshake::state_machine::CompletedHandshake
 pub fn aitp::handshake::state_machine::CompletedHandshake::eq(&self, &aitp::handshake::state_machine::CompletedHandshake) -> bool
 pub fn aitp::handshake::state_machine::CompletedHandshake::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::state_machine::GrantPolicyContext<'a>::clone(&self) -> aitp::handshake::state_machine::GrantPolicyContext<'a>
+pub fn aitp::handshake::state_machine::GrantPolicyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::state_machine::GrantPolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::state_machine::GrantPolicyError::new(impl core::convert::Into<aitp::core::BoxError>) -> Self
+pub fn aitp::handshake::state_machine::GrantPolicyError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::handshake::state_machine::HandshakeRevocationDecision::clone(&self) -> aitp::handshake::state_machine::HandshakeRevocationDecision
 pub fn aitp::handshake::state_machine::HandshakeRevocationDecision::eq(&self, &aitp::handshake::state_machine::HandshakeRevocationDecision) -> bool
 pub fn aitp::handshake::state_machine::HandshakeRevocationDecision::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3575,6 +3714,7 @@ pub fn aitp::transport::client::JwksFetcher::with_host_guard(self, aitp::transpo
 pub fn aitp::transport::client::JwksFetcher::with_max_bytes(self, usize) -> Self
 pub fn aitp::transport::client::JwksFetcher::with_timeout(core::time::Duration) -> Self
 pub fn aitp::transport::client::JwksFetcherError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::transport::client::JwksFetcherError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::transport::client::ManifestFetcher::cached(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub fn aitp::transport::client::ManifestFetcher::default() -> Self
 pub fn aitp::transport::client::ManifestFetcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3733,7 +3873,7 @@ pub fn alloc::boxed::Box<S>::public_key(&self) -> core::result::Result<aitp::cry
 pub fn alloc::boxed::Box<S>::sign(&self, aitp::crypto::signer::SignRequest<'_>) -> core::result::Result<aitp::crypto::signer::BackendSignature, aitp::crypto::signer::SignerError>
 pub fn alloc::boxed::Box<T>::handles(&self, aitp::handshake::identity::IdentityKind) -> bool
 pub fn alloc::boxed::Box<T>::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
-pub fn alloc::boxed::Box<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
+pub fn alloc::boxed::Box<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<aitp::handshake::identity_verifier::VerifiedIdentity, aitp::handshake::identity_verifier::IdentityVerifyError>
 pub fn alloc::string::String::from(aitp::core::aid::Aid) -> alloc::string::String
 pub fn alloc::sync::Arc<S>::aid(&self) -> &aitp::core::aid::Aid
 pub fn alloc::sync::Arc<S>::max_message_len(&self) -> core::option::Option<usize>
@@ -3746,7 +3886,7 @@ pub fn alloc::sync::Arc<T>::handles(&self, aitp::handshake::identity::IdentityKi
 pub fn alloc::sync::Arc<T>::insert<'a>(&'a self, &'a uuid::Uuid, aitp::core::time::Timestamp, aitp::core::time::Timestamp) -> aitp::core::BoxFuture<'a, core::result::Result<bool, aitp::handshake::admission::DenyListError>>
 pub fn alloc::sync::Arc<T>::is_trusted(&self, &aitp::crypto::keys::AitpVerifyingKey) -> bool
 pub fn alloc::sync::Arc<T>::issue<'a>(&'a self, &'a aitp::core::nonce_store::IssuedNonce) -> aitp::core::BoxFuture<'a, core::result::Result<(), aitp::core::nonce_store::NonceStoreError>>
-pub fn alloc::sync::Arc<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
+pub fn alloc::sync::Arc<T>::verify(&self, &aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_verifier::IdentityVerifyContext<'_>) -> core::result::Result<aitp::handshake::identity_verifier::VerifiedIdentity, aitp::handshake::identity_verifier::IdentityVerifyError>
 pub fn alloc::vec::Vec<aitp::manifest::types::Manifest>::resolve_manifest(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub fn std::collections::hash::map::HashMap<aitp::core::aid::Aid, aitp::manifest::types::Manifest>::resolve_manifest(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
 pub mod aitp
@@ -3820,7 +3960,9 @@ pub struct aitp::core::ExtensionsMap(_)
 pub struct aitp::core::InMemoryNonceStore
 pub struct aitp::core::RawUrl(_)
 pub struct aitp::core::Timestamp(pub i64)
+pub struct aitp::core::UnknownErrorCode(_)
 pub struct aitp::core::aid::Aid(_)
+pub struct aitp::core::error::UnknownErrorCode(_)
 pub struct aitp::core::extensions::ExtensionsMap(_)
 pub struct aitp::core::nonce_store::InMemoryNonceStore
 pub struct aitp::core::raw_url::RawUrl(_)
@@ -3838,11 +3980,13 @@ pub struct aitp::crypto::signer::BlockingSigner<S>(pub S)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::delegation::builder::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::facade::TctStore
+pub struct aitp::handshake::GrantPolicyError(_)
 pub struct aitp::handshake::Initiator
 pub struct aitp::handshake::NoPinnedKeys
 pub struct aitp::handshake::OidcMintError(_)
 pub struct aitp::handshake::Responder
 pub struct aitp::handshake::StaticPinnedKeyStore
+pub struct aitp::handshake::VerifiedIdentity
 pub struct aitp::handshake::admission::ChallengeSource
 pub struct aitp::handshake::admission::InMemoryMessageIdDenyList
 pub struct aitp::handshake::admission::InMemoryNonceStore
@@ -3852,6 +3996,8 @@ pub struct aitp::handshake::admission::RecommendedLimiter
 pub struct aitp::handshake::admission::TokenBucketLimiter
 pub struct aitp::handshake::identity_pinned::NoPinnedKeys
 pub struct aitp::handshake::identity_pinned::StaticPinnedKeyStore
+pub struct aitp::handshake::identity_verifier::VerifiedIdentity
+pub struct aitp::handshake::state_machine::GrantPolicyError(_)
 pub struct aitp::handshake::state_machine::Initiator
 pub struct aitp::handshake::state_machine::NoPinnedKeys
 pub struct aitp::handshake::state_machine::OidcMintError(_)
@@ -3944,18 +4090,19 @@ pub type aitp::core::BoxFuture<'a, T> = core::pin::Pin<alloc::boxed::Box<(dyn co
 pub type aitp::core::CheckedJson::Err = aitp::core::CheckedJsonError
 pub type aitp::core::CheckedJson::Target = serde_json::value::Value
 pub type aitp::core::aid::Aid::Error = aitp::core::aid::AidParseError
+pub type aitp::core::error::ErrorCode::Err = aitp::core::error::UnknownErrorCode
 pub type aitp::core::nonce_store::Nonce = [u8; 16]
 pub type aitp::core::raw_url::RawUrl::Err = core::convert::Infallible
 pub type aitp::delegation::SourceRevocationCheck<'a> = (dyn core::ops::function::Fn(&uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + core::marker::Send + core::marker::Sync + 'a)
 pub type aitp::delegation::verifier::SourceRevocationCheck<'a> = (dyn core::ops::function::Fn(&uuid::Uuid) -> core::result::Result<bool, aitp::delegation::error::DelegationError> + core::marker::Send + core::marker::Sync + 'a)
-pub type aitp::handshake::GrantPolicyFn = (dyn core::ops::function::Fn(&aitp::handshake::identity::IdentityDescriptor, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String> + core::marker::Send + core::marker::Sync)
+pub type aitp::handshake::GrantPolicyFn = (dyn core::ops::function::Fn(&aitp::handshake::state_machine::GrantPolicyContext<'_>) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, aitp::handshake::state_machine::GrantPolicyError> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::LocalOidcMintJwtFn = dyn core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, aitp::handshake::state_machine::OidcMintError>
 pub type aitp::handshake::OidcMintJwtFn = (dyn core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, aitp::handshake::state_machine::OidcMintError> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::RevocationCheckFn = (dyn core::ops::function::Fn(&aitp::core::aid::Aid, &uuid::Uuid) -> core::result::Result<aitp::handshake::state_machine::HandshakeRevocationDecision, aitp::handshake::error::HandshakeError> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::SessionId = uuid::Uuid
 pub type aitp::handshake::admission::Nonce = [u8; 16]
 pub type aitp::handshake::jwk::JwsAlgorithm::Err = aitp::handshake::jwk::JwkParseError
-pub type aitp::handshake::state_machine::GrantPolicyFn = (dyn core::ops::function::Fn(&aitp::handshake::identity::IdentityDescriptor, &[alloc::string::String]) -> alloc::vec::Vec<alloc::string::String> + core::marker::Send + core::marker::Sync)
+pub type aitp::handshake::state_machine::GrantPolicyFn = (dyn core::ops::function::Fn(&aitp::handshake::state_machine::GrantPolicyContext<'_>) -> core::result::Result<alloc::vec::Vec<alloc::string::String>, aitp::handshake::state_machine::GrantPolicyError> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::state_machine::LocalOidcMintJwtFn = dyn core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, aitp::handshake::state_machine::OidcMintError>
 pub type aitp::handshake::state_machine::OidcMintJwtFn = (dyn core::ops::function::Fn(&str) -> core::result::Result<alloc::string::String, aitp::handshake::state_machine::OidcMintError> + core::marker::Send + core::marker::Sync)
 pub type aitp::handshake::state_machine::RevocationCheckFn = (dyn core::ops::function::Fn(&aitp::core::aid::Aid, &uuid::Uuid) -> core::result::Result<aitp::handshake::state_machine::HandshakeRevocationDecision, aitp::handshake::error::HandshakeError> + core::marker::Send + core::marker::Sync)

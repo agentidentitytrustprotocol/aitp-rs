@@ -181,7 +181,7 @@ pub enum AdmissionError {
     Signer(#[from] SignerError),
     /// The OS CSPRNG failed.
     #[error("rng: {0}")]
-    Rng(String),
+    Rng(#[source] crate::core::BoxError),
 }
 
 impl AdmissionError {
@@ -426,7 +426,7 @@ impl PinnedAdmission {
             let mut nonce: Nonce = [0; crate::handshake::POP_NONCE_LEN];
             rand::rngs::SysRng
                 .try_fill_bytes(&mut nonce)
-                .map_err(|e| AdmissionError::Rng(e.to_string()))?;
+                .map_err(|e| AdmissionError::Rng(e.into()))?;
             let rec = IssuedNonce::new(
                 nonce,
                 self.verifier_aid.clone(),

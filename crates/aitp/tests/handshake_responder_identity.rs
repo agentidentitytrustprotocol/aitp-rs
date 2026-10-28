@@ -88,11 +88,11 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
     // is `Send + Sync` and outlives `cfg`, so closures can't borrow
     // local stack state directly. Capture into a thread-local so the
     // test can read what the policy actually saw.
-    let policy_box: Box<GrantPolicyFn> = Box::new(|id, grants| {
+    let policy_box: Box<GrantPolicyFn> = Box::new(|ctx| {
         TEST_CAPTURE.with(|c| {
-            *c.borrow_mut() = Some(id.clone());
+            *c.borrow_mut() = Some(ctx.peer_identity.clone());
         });
-        grants.to_vec()
+        Ok(ctx.candidate_grants.to_vec())
     });
     let policy_ref: &GrantPolicyFn = &*policy_box;
 

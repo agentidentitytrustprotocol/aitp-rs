@@ -1396,6 +1396,7 @@ fn handshake_error_code(e: &aitp::handshake::HandshakeError) -> String {
         // `error_code_mapping_tests::handshake_codes` assertion is the
         // only thing that would catch a missing/misplaced arm.
         UnknownField(_) => "UNKNOWN_FIELD".to_string(),
+        IdentityVerifier(_) | GrantPolicy(_) => e.error_code().as_str().to_string(),
         // HandshakeError is #[non_exhaustive]; future variants default
         // to INTERNAL_ERROR so the adapter never panics on a new variant.
         _ => "INTERNAL_ERROR".to_string(),

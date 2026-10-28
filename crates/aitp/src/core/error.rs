@@ -161,6 +161,104 @@ pub enum ErrorCode {
 }
 
 impl ErrorCode {
+    /// Every registered code, in declaration order.
+    pub const ALL: &'static [ErrorCode] = &[
+        Self::InvalidEnvelope,
+        Self::InvalidSignature,
+        Self::ReplayDetected,
+        Self::TimestampExpired,
+        Self::UnknownVersion,
+        Self::TokenAlgMismatch,
+        Self::TokenTypMismatch,
+        Self::UnknownField,
+        Self::IdentityFailed,
+        Self::ChallengeRefused,
+        Self::ManifestExpired,
+        Self::ManifestSignatureInvalid,
+        Self::ManifestPopFailed,
+        Self::ManifestVersionUnknown,
+        Self::TrustFailed,
+        Self::PolicyViolation,
+        Self::KeyResolutionFailed,
+        Self::IncompatibleTrustAnchors,
+        Self::IncompatibleIdentityType,
+        Self::PopVerificationFailed,
+        Self::NonceMismatch,
+        Self::AudienceMismatch,
+        Self::GrantOverflow,
+        Self::InsufficientGrants,
+        Self::HandshakeModeUnsupported,
+        Self::TctExpired,
+        Self::PopChallengeInvalid,
+        Self::PopResponseInvalid,
+        Self::DelegationAudienceMismatch,
+        Self::DelegationScopeExceeded,
+        Self::DelegationInvalidVoucher,
+        Self::DelegationSourceTctRevoked,
+        Self::DelegationInvalidSignature,
+        Self::DelegationExpired,
+        Self::DelegationPopFailed,
+        Self::DelegationMultihopNotSupported,
+        Self::ManifestNotFound,
+        Self::TctSignatureInvalid,
+        Self::TctRevoked,
+        Self::TctExpiresAfterManifest,
+        Self::ManifestInvalid,
+        Self::RevocationSnapshotInvalid,
+        Self::RevocationSnapshotSignatureInvalid,
+        Self::PeerMismatch,
+    ];
+
+    /// The registered wire string, e.g. `"INVALID_ENVELOPE"`. The same
+    /// string serde writes.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InvalidEnvelope => "INVALID_ENVELOPE",
+            Self::InvalidSignature => "INVALID_SIGNATURE",
+            Self::ReplayDetected => "REPLAY_DETECTED",
+            Self::TimestampExpired => "TIMESTAMP_EXPIRED",
+            Self::UnknownVersion => "UNKNOWN_VERSION",
+            Self::TokenAlgMismatch => "TOKEN_ALG_MISMATCH",
+            Self::TokenTypMismatch => "TOKEN_TYP_MISMATCH",
+            Self::UnknownField => "UNKNOWN_FIELD",
+            Self::IdentityFailed => "IDENTITY_FAILED",
+            Self::ChallengeRefused => "CHALLENGE_REFUSED",
+            Self::ManifestExpired => "MANIFEST_EXPIRED",
+            Self::ManifestSignatureInvalid => "MANIFEST_SIGNATURE_INVALID",
+            Self::ManifestPopFailed => "MANIFEST_POP_FAILED",
+            Self::ManifestVersionUnknown => "MANIFEST_VERSION_UNKNOWN",
+            Self::TrustFailed => "TRUST_FAILED",
+            Self::PolicyViolation => "POLICY_VIOLATION",
+            Self::KeyResolutionFailed => "KEY_RESOLUTION_FAILED",
+            Self::IncompatibleTrustAnchors => "INCOMPATIBLE_TRUST_ANCHORS",
+            Self::IncompatibleIdentityType => "INCOMPATIBLE_IDENTITY_TYPE",
+            Self::PopVerificationFailed => "POP_VERIFICATION_FAILED",
+            Self::NonceMismatch => "NONCE_MISMATCH",
+            Self::AudienceMismatch => "AUDIENCE_MISMATCH",
+            Self::GrantOverflow => "GRANT_OVERFLOW",
+            Self::InsufficientGrants => "INSUFFICIENT_GRANTS",
+            Self::HandshakeModeUnsupported => "HANDSHAKE_MODE_UNSUPPORTED",
+            Self::TctExpired => "TCT_EXPIRED",
+            Self::PopChallengeInvalid => "POP_CHALLENGE_INVALID",
+            Self::PopResponseInvalid => "POP_RESPONSE_INVALID",
+            Self::DelegationAudienceMismatch => "DELEGATION_AUDIENCE_MISMATCH",
+            Self::DelegationScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
+            Self::DelegationInvalidVoucher => "DELEGATION_INVALID_VOUCHER",
+            Self::DelegationSourceTctRevoked => "DELEGATION_SOURCE_TCT_REVOKED",
+            Self::DelegationInvalidSignature => "DELEGATION_INVALID_SIGNATURE",
+            Self::DelegationExpired => "DELEGATION_EXPIRED",
+            Self::DelegationPopFailed => "DELEGATION_POP_FAILED",
+            Self::DelegationMultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
+            Self::ManifestNotFound => "MANIFEST_NOT_FOUND",
+            Self::TctSignatureInvalid => "TCT_SIGNATURE_INVALID",
+            Self::TctRevoked => "TCT_REVOKED",
+            Self::TctExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
+            Self::ManifestInvalid => "MANIFEST_INVALID",
+            Self::RevocationSnapshotInvalid => "REVOCATION_SNAPSHOT_INVALID",
+            Self::RevocationSnapshotSignatureInvalid => "REVOCATION_SNAPSHOT_SIGNATURE_INVALID",
+            Self::PeerMismatch => "PEER_MISMATCH",
+        }
+    }
     /// The registry's `Retryable` column: whether the same request may
     /// succeed later without the caller changing it. Codes whose
     /// registry table has no such column are not retryable.
@@ -172,12 +270,59 @@ impl ErrorCode {
     }
 }
 
+impl std::fmt::Display for ErrorCode {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A string that is not a registered error code (`ErrorCode`'s
+/// [`FromStr`](std::str::FromStr)).
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[error("`{0}` is not a registered AITP error code")]
+pub struct UnknownErrorCode(String);
+
+impl UnknownErrorCode {
+    /// The string that was parsed.
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::str::FromStr for ErrorCode {
+    type Err = UnknownErrorCode;
+
+    /// Parse a registered wire string. Matching is exact: the registry
+    /// strings are upper case.
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|c| c.as_str() == s)
+            .ok_or_else(|| UnknownErrorCode(s.to_owned()))
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     /// Pinned wire strings — the contract with the AITP error-code registry.
     /// Drift here would silently break interop with other implementations.
+    #[test]
+    fn as_str_display_and_from_str_agree_with_serde() {
+        for &code in ErrorCode::ALL {
+            let wire = serde_json::to_value(code).unwrap();
+            assert_eq!(wire.as_str(), Some(code.as_str()), "{code:?}");
+            assert_eq!(code.to_string(), code.as_str());
+            assert_eq!(code.as_str().parse::<ErrorCode>(), Ok(code));
+        }
+        assert_eq!(
+            "invalid_envelope".parse::<ErrorCode>(),
+            Err(UnknownErrorCode("invalid_envelope".into()))
+        );
+    }
+
     #[test]
     fn pinned_wire_strings() {
         let cases: &[(ErrorCode, &str)] = &[
@@ -347,6 +492,15 @@ mod tests {
             44,
             "ErrorCode variant count and pinned_wire_strings row count have diverged"
         );
+        // `ErrorCode::ALL` has every variant once.
+        assert_eq!(ErrorCode::ALL.len(), cases.len());
+        for (code, _) in cases {
+            assert_eq!(
+                ErrorCode::ALL.iter().filter(|c| *c == code).count(),
+                1,
+                "{code:?}"
+            );
+        }
     }
 
     #[test]

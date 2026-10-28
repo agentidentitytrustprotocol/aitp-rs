@@ -246,16 +246,38 @@ pub type RevocationCheckFn =
 
 /// Identity-aware grant-policy hook (RFC-AITP-0004 §4.1).
 ///
-/// Receives the peer's identity descriptor and the
-/// `peer_requested ∩ self.offered` intersection; returns the subset
-/// the policy permits. Returning empty triggers `PolicyViolation`.
-///
-/// The return value MUST be a subset of the supplied intersection — i.e.
-/// the policy may only *narrow* the grant set, never add a capability the
-/// issuer does not offer. A capability outside the issuer's
-/// `offered_capabilities` will be rejected by the verifying peer with
-/// [`HandshakeError::GrantOverflow`] (RFC-AITP-0004 §5.3/§5.4).
-pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> + Send + Sync;
+/// Returns the subset of [`GrantPolicyContext::candidate_grants`] the
+/// policy permits. It can only narrow: a returned capability outside the
+/// candidates is dropped. An empty result, or an error, fails the
+/// handshake with `POLICY_VIOLATION`.
+pub type GrantPolicyFn =
+    dyn Fn(&GrantPolicyContext<'_>) -> Result<Vec<String>, GrantPolicyError> + Send + Sync;
+
+/// What a [`GrantPolicyFn`] decides on.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct GrantPolicyContext<'a> {
+    /// The peer's verified identity descriptor.
+    pub peer_identity: &'a IdentityDescriptor,
+    /// The peer's AID, the subject of the TCT being issued.
+    pub peer_aid: &'a Aid,
+    /// `peer_requested ∩ self.offered`, in the peer's request order.
+    pub candidate_grants: &'a [String],
+    /// The handshake's clock.
+    pub now: Timestamp,
+}
+
+/// A [`GrantPolicyFn`] failed to decide.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct GrantPolicyError(crate::core::BoxError);
+
+impl GrantPolicyError {
+    /// Wrap any error or message.
+    pub fn new(error: impl Into<crate::core::BoxError>) -> Self {
+        Self(error.into())
+    }
+}
 
 /// Inputs the issuing side needs to mint a fresh identity proof bound
 /// to an outbound envelope. RFC-AITP-0002 §3.1 requires every pinned-key
@@ -522,7 +544,7 @@ fn fresh_nonce() -> Result<String, HandshakeError> {
     let mut buf = [0u8; 16];
     rand::rngs::SysRng
         .try_fill_bytes(&mut buf)
-        .map_err(|e| HandshakeError::Rng(e.to_string()))?;
+        .map_err(|e| HandshakeError::Rng(e.into()))?;
     Ok(base64url::encode(&buf))
 }
 
@@ -615,7 +637,7 @@ pub(crate) fn bootstrap_verify_peer(
             let verifier = cfg.identity_verifier.filter(|v| v.handles(kind)).ok_or(
                 crate::manifest::ManifestError::IncompatibleIdentityType(kind.as_str()),
             )?;
-            verifier.verify(
+            let verified = verifier.verify(
                 payload_identity,
                 &IdentityVerifyContext {
                     peer_manifest: payload_manifest,
@@ -627,6 +649,12 @@ pub(crate) fn bootstrap_verify_peer(
                     now: cfg.now,
                 },
             )?;
+            if verified.kind() != kind || verified.subject() != payload_identity.subject {
+                return Err(HandshakeError::Identity(
+                    "the identity verifier proved a different identity than the one presented"
+                        .into(),
+                ));
+            }
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)
@@ -708,7 +736,13 @@ fn issue_tct_for_peer(
         .cloned()
         .collect();
     if let Some(policy) = cfg.grant_policy {
-        grants = policy(peer_identity, &grants);
+        let permitted = policy(&GrantPolicyContext {
+            peer_identity,
+            peer_aid,
+            candidate_grants: &grants,
+            now: cfg.now,
+        })?;
+        grants.retain(|g| permitted.contains(g));
     }
     if grants.is_empty() {
         return Err(HandshakeError::PolicyViolation);
@@ -1480,5 +1514,82 @@ mod tests {
         )
         .expect("P-256 pinned key verifies");
         assert_eq!(verified.key, p256.verifying_key());
+    }
+
+    fn grant_policy_issue(policy: &GrantPolicyFn) -> Result<Vec<String>, HandshakeError> {
+        struct NoKeys;
+        impl JwksResolver for NoKeys {
+            fn resolve(
+                &self,
+                _issuer: &url::Url,
+            ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError>
+            {
+                Ok(vec![])
+            }
+        }
+        let me = AitpSigningKey::from_seed(&[0x70; 32]);
+        let peer = AitpSigningKey::from_seed(&[0x71; 32]);
+        let manifest = crate::manifest::ManifestBuilder::new(&me)
+            .display_name("issuer")
+            .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
+            .identity_hint(
+                crate::manifest::IdentityHint::new(
+                    crate::manifest::IdentityHintKind::PinnedKey,
+                    "issuer",
+                )
+                .with_public_key(me.aid().identifier()),
+            )
+            .offer("chat.send")
+            .offer("files.read")
+            .build()
+            .unwrap();
+        let store = StaticPinnedKeyStore::new([]);
+        let cfg = PeerConfig::new(
+            &me,
+            &manifest,
+            &NoKeys,
+            &store,
+            RevocationSource::FailOpen,
+            Timestamp::now(),
+        )
+        .with_grant_policy(policy);
+        let identity: IdentityDescriptor = serde_json::from_value(serde_json::json!({
+            "type": "pinned_key",
+            "subject": "peer",
+            "public_key": peer.aid().identifier(),
+            "proof": "x",
+        }))
+        .unwrap();
+        issue_tct_for_peer(
+            &cfg,
+            &identity,
+            peer.aid(),
+            &peer.verifying_key(),
+            &["chat.send".into(), "files.read".into(), "admin".into()],
+        )
+        .map(|issued| issued.claims.grants)
+    }
+
+    #[test]
+    fn grant_policy_sees_the_candidates_and_can_only_narrow() {
+        let policy: &GrantPolicyFn = &|ctx| {
+            assert_eq!(ctx.candidate_grants, ["chat.send", "files.read"]);
+            assert_eq!(ctx.peer_identity.subject, "peer");
+            Ok(vec!["files.read".into(), "admin".into()])
+        };
+        assert_eq!(grant_policy_issue(policy).unwrap(), ["files.read"]);
+    }
+
+    #[test]
+    fn a_failing_or_empty_grant_policy_is_policy_violation() {
+        let failing: &GrantPolicyFn = &|_| Err(GrantPolicyError::new("policy store down"));
+        let err = grant_policy_issue(failing).unwrap_err();
+        assert!(matches!(err, HandshakeError::GrantPolicy(_)), "{err}");
+        assert_eq!(err.error_code(), crate::core::ErrorCode::PolicyViolation);
+        let empty: &GrantPolicyFn = &|_| Ok(vec![]);
+        assert!(matches!(
+            grant_policy_issue(empty).unwrap_err(),
+            HandshakeError::PolicyViolation
+        ));
     }
 }

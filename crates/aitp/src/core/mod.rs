@@ -39,10 +39,11 @@ pub(crate) mod unknown_field;
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
     check_envelope_structure, check_unsigned_envelope_structure, envelope_signing_digest,
-    envelope_signing_input, parse_envelope_wire, AitpEnvelope, EnvelopeParseError, MessageType,
-    Sender, AITP_ENVELOPE_MEMBERS, ENVELOPE_SIGNING_DOMAIN_TAG,
+    envelope_signing_input, parse_envelope_wire, AitpEnvelope, EnvelopeParseError,
+    EnvelopeStructureError, MessageType, Sender, AITP_ENVELOPE_MEMBERS,
+    ENVELOPE_SIGNING_DOMAIN_TAG,
 };
-pub use error::ErrorCode;
+pub use error::{ErrorCode, UnknownErrorCode};
 pub use extensions::ExtensionsMap;
 pub use nonce_store::{InMemoryNonceStore, NonceStore};
 pub use raw_url::RawUrl;

@@ -42,13 +42,13 @@ pub enum ManifestError {
     MissingField(&'static str),
     /// Canonicalization failed.
     #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
+    Canonicalization(#[source] crate::core::jcs::JcsError),
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
     /// Source of randomness for the PoP challenge failed.
     #[error("rng failure: {0}")]
-    Rng(String),
+    Rng(#[source] crate::core::BoxError),
     /// A top-level or nested member outside the schema-declared member set
     /// (RFC-AITP-0001 §7), found by [`crate::manifest::verifier::parse_manifest_wire`]
     /// before any expiry/PoP/signature check runs (RFC-AITP-0003 §5 step 2).

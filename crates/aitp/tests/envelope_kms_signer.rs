@@ -5,7 +5,7 @@
 use aitp::core::{MessageType, Timestamp};
 use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, AitpVerifyingKey};
-use aitp::envelope::{sign_envelope, sign_envelope_with, verify_envelope_signature};
+use aitp::envelope::{sign_envelope, sign_envelope_with, verify_envelope_signature, EnvelopeError};
 use uuid::Uuid;
 
 fn p256(seed: u8) -> AitpSigningKey {
@@ -37,7 +37,7 @@ fn kms_backend_with_wrong_key_is_refused() {
     let kms = MockKmsSigner::new(p256(3)).sign_with(p256(4));
     let err = sign_envelope(&kms, MessageType::MutualHello, serde_json::json!({}))
         .expect_err("wrong-key backend must fail");
-    assert!(err.starts_with("signing backend failed"), "{err}");
+    assert!(matches!(err, EnvelopeError::Signer(_)), "{err}");
 }
 
 // ---- async signing path -------------------------------------------------
@@ -91,12 +91,9 @@ async fn async_wrong_key_backend_is_refused() {
     let err = sign_envelope_async(&kms, MessageType::MutualHello, serde_json::json!({}))
         .await
         .expect_err("wrong-key backend must fail");
-    assert_eq!(
-        err,
-        format!(
-            "signing backend failed: {}",
-            SignerError::VerificationFailed
-        )
+    assert!(
+        matches!(err, EnvelopeError::Signer(SignerError::VerificationFailed)),
+        "{err}"
     );
 }
 
@@ -136,5 +133,5 @@ fn non_v4_message_id_is_refused_before_signing() {
         aitp::core::Timestamp(1_700_000_000),
     )
     .unwrap_err();
-    assert!(err.starts_with("message_id:"), "{err}");
+    assert!(matches!(err, EnvelopeError::MessageId(_)), "{err}");
 }

@@ -56,9 +56,8 @@ impl RevocationProvider for HttpRevocationProvider {
         // sync HTTP for the demo — production would use the async client
         // and a runtime handle.
         let body = ureq_get(url.as_str())
-            .map_err(|e| aitp::transport::RevocationError::Network(e.to_string()))?;
-        serde_json::from_str(&body)
-            .map_err(|e| aitp::transport::RevocationError::Network(e.to_string()))
+            .map_err(|e| aitp::transport::RevocationError::Network(e.into()))?;
+        serde_json::from_str(&body).map_err(|e| aitp::transport::RevocationError::Network(e.into()))
     }
 }
 

@@ -378,12 +378,13 @@ fn p7_grant_policy_filters_intersection() {
     let resolver = NoOpResolver;
     // Grant policy strips chat.send entirely — only files.read should
     // appear in the issued TCT.
-    let policy_box: Box<GrantPolicyFn> = Box::new(|_id, grants| {
-        grants
+    let policy_box: Box<GrantPolicyFn> = Box::new(|ctx| {
+        Ok(ctx
+            .candidate_grants
             .iter()
             .filter(|g| g.as_str() != "chat.send")
             .cloned()
-            .collect()
+            .collect())
     });
     let policy_ref: &GrantPolicyFn = &*policy_box;
     let cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([peer.verifying_key()]);

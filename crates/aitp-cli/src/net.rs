@@ -360,9 +360,7 @@ fn error_code(error: &FacadeError) -> Option<String> {
         }
         _ => return None,
     };
-    serde_json::to_value(code)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
+    Some(code.as_str().to_owned())
 }
 
 fn runtime() -> std::io::Result<tokio::runtime::Runtime> {

@@ -150,6 +150,9 @@ pub enum EnvelopeParseError {
     /// etc.).
     #[error("malformed envelope: {0}")]
     Malformed(String),
+    /// A typed member breaks a schema rule (RFC-AITP-0001 §5.4 step 2).
+    #[error("malformed envelope: {0}")]
+    Structure(#[source] EnvelopeStructureError),
 }
 
 /// Parse a raw wire-form JSON value into an [`AitpEnvelope`], enforcing
@@ -206,7 +209,7 @@ pub fn parse_envelope_wire(value: &CheckedJson) -> Result<AitpEnvelope, Envelope
             EnvelopeParseError::Malformed(e.to_string())
         }
     })?;
-    check_envelope_structure(&envelope).map_err(EnvelopeParseError::Malformed)?;
+    check_envelope_structure(&envelope).map_err(EnvelopeParseError::Structure)?;
     Ok(envelope)
 }
 
@@ -223,17 +226,35 @@ const ENVELOPE_SIGNATURE_B64_LEN: usize = 86;
 /// members are typed: `version` is checked on its own, `message_type` is
 /// an enum, `message_id` deserializes only in the strict UUID v4 form,
 /// `sender.agent_id` is a validated [`Aid`], and `extensions` is a map.
-pub fn check_unsigned_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
+pub fn check_unsigned_envelope_structure(
+    envelope: &AitpEnvelope,
+) -> Result<(), EnvelopeStructureError> {
     if !envelope.payload.is_object() {
-        return Err("payload: must be a JSON object".into());
+        return Err(EnvelopeStructureError::PayloadNotObject);
     }
     if envelope.timestamp.0 < 0 {
-        return Err(format!(
-            "timestamp: must be >= 0, got {}",
-            envelope.timestamp.0
+        return Err(EnvelopeStructureError::NegativeTimestamp(
+            envelope.timestamp,
         ));
     }
     Ok(())
+}
+
+/// An `aitp-envelope.schema.json` rule a typed [`AitpEnvelope`] breaks
+/// ([`check_envelope_structure`]). The wire code is `INVALID_ENVELOPE`.
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+#[non_exhaustive]
+pub enum EnvelopeStructureError {
+    /// `payload` is not a JSON object.
+    #[error("payload: must be a JSON object")]
+    PayloadNotObject,
+    /// `timestamp` is negative.
+    #[error("timestamp: must be >= 0, got {}", .0 .0)]
+    NegativeTimestamp(Timestamp),
+    /// `signature` is not an optional `ed25519.`/`p256.` tag followed by
+    /// 86 base64url characters.
+    #[error("signature: must be an optional `ed25519.`/`p256.` tag and 86 base64url characters")]
+    SignatureFormat,
 }
 
 /// [`check_unsigned_envelope_structure`], plus the `signature` pattern
@@ -244,7 +265,7 @@ pub fn check_unsigned_envelope_structure(envelope: &AitpEnvelope) -> Result<(), 
 /// a failure is `INVALID_ENVELOPE`, reported before the signature step,
 /// not `INVALID_SIGNATURE`. [`parse_envelope_wire`] runs this on every
 /// envelope it returns.
-pub fn check_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
+pub fn check_envelope_structure(envelope: &AitpEnvelope) -> Result<(), EnvelopeStructureError> {
     check_unsigned_envelope_structure(envelope)?;
     let sig = envelope.signature.as_str();
     let b64 = sig
@@ -254,10 +275,7 @@ pub fn check_envelope_structure(envelope: &AitpEnvelope) -> Result<(), String> {
     if b64.len() != ENVELOPE_SIGNATURE_B64_LEN
         || !b64.bytes().all(crate::core::aid::is_base64url_byte)
     {
-        return Err(
-            "signature: must be an optional `ed25519.`/`p256.` tag and 86 base64url characters"
-                .into(),
-        );
+        return Err(EnvelopeStructureError::SignatureFormat);
     }
     Ok(())
 }
@@ -730,7 +748,10 @@ mod tests {
             v["payload"] = payload.clone();
             let err = parse_envelope_wire(&checked(&v)).unwrap_err();
             assert!(
-                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("payload")),
+                matches!(
+                    &err,
+                    EnvelopeParseError::Structure(EnvelopeStructureError::PayloadNotObject)
+                ),
                 "{payload}: {err:?}"
             );
         }
@@ -748,7 +769,10 @@ mod tests {
             v["timestamp"] = ts.clone();
             let err = parse_envelope_wire(&checked(&v)).unwrap_err();
             assert!(
-                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("timestamp")),
+                matches!(
+                    &err,
+                    EnvelopeParseError::Structure(EnvelopeStructureError::NegativeTimestamp(_))
+                ),
                 "{ts}: {err:?}"
             );
         }
@@ -794,7 +818,10 @@ mod tests {
             v["signature"] = json!(sig);
             let err = parse_envelope_wire(&checked(&v)).unwrap_err();
             assert!(
-                matches!(&err, EnvelopeParseError::Malformed(m) if m.contains("signature")),
+                matches!(
+                    &err,
+                    EnvelopeParseError::Structure(EnvelopeStructureError::SignatureFormat)
+                ),
                 "{sig:?}: {err:?}"
             );
         }

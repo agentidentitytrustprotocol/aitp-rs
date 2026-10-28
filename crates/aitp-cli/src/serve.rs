@@ -611,8 +611,10 @@ async fn echo_challenge(
     };
     match serde_json::to_value(payload)
         .map_err(|e| e.to_string())
-        .and_then(|p| sign_envelope(peer.key.as_ref(), MessageType::PopChallenge, p))
-    {
+        .and_then(|p| {
+            sign_envelope(peer.key.as_ref(), MessageType::PopChallenge, p)
+                .map_err(|e| e.to_string())
+        }) {
         Ok(envelope) => Json(envelope).into_response(),
         Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, "echo_busy", &e),
     }

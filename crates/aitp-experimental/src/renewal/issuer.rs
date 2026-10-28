@@ -267,7 +267,12 @@ fn sign_payload(
     now: Timestamp,
 ) -> Result<AitpEnvelope, RenewalError> {
     let payload =
-        serde_json::to_value(payload).map_err(|e| TctError::Canonicalization(e.to_string()))?;
-    sign_envelope_with(issuer_key, message_type, payload, message_id, now)
-        .map_err(|e| TctError::Canonicalization(e).into())
+        serde_json::to_value(payload).map_err(|e| TctError::Canonicalization(e.into()))?;
+    Ok(sign_envelope_with(
+        issuer_key,
+        message_type,
+        payload,
+        message_id,
+        now,
+    )?)
 }

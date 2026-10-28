@@ -180,9 +180,7 @@ pub fn tct_revocation_code(e: &aitp::tct::TctError) -> Option<&'static str> {
 /// `INCOMPATIBLE_IDENTITY_TYPE`, `TCT_REVOKED`, ...), as the HTTP
 /// transport reports it.
 pub fn handshake_code(e: &aitp::handshake::HandshakeError) -> Option<String> {
-    serde_json::to_value(e.error_code())
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
+    Some(e.error_code().as_str().to_owned())
 }
 
 /// [`tct_revocation_code`] for a delegation failure (RFC-AITP-0006 §4
