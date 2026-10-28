@@ -120,7 +120,7 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
     .unwrap();
     let verified = verify_tct(token, &ctx).expect("committed ES256 TCT verifies");
     assert_eq!(
-        serde_json::to_value(&verified.claims()).unwrap(),
+        serde_json::to_value(verified.claims()).unwrap(),
         v["decoded_claims"]
     );
     let dh = v["_must_not_verify"]["double_hash_jws"].as_str().unwrap();

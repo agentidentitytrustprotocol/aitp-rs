@@ -78,7 +78,7 @@ fn minted_tct_verifies() {
         .unwrap();
     let verified = verify_tct(token, &ctx).expect("minted TCT verifies");
     assert_eq!(
-        serde_json::to_value(&verified.claims()).unwrap(),
+        serde_json::to_value(verified.claims()).unwrap(),
         v["decoded_claims"],
         "decoded_claims companion diverges from the token payload"
     );
@@ -140,7 +140,7 @@ fn minted_delegation_verifies() {
     let verified =
         aitp::delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
     assert_eq!(
-        serde_json::to_value(&verified.claims()).unwrap(),
+        serde_json::to_value(verified.claims()).unwrap(),
         v["decoded_claims"],
         "decoded_claims companion diverges from the token payload"
     );
