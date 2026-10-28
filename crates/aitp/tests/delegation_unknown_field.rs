@@ -48,8 +48,9 @@ fn voucher_for_b() -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 /// Acceptance criterion 1 (library half): an outer delegation token

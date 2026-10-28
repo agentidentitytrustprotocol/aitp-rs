@@ -54,12 +54,9 @@ fn main() {
         .expect("A issues TCT to B");
     println!(
         "A → B: TCT granting {:?} (+ grant voucher)",
-        a_to_b.claims.grants
+        a_to_b.claims().grants
     );
-    let voucher = a_to_b
-        .voucher
-        .as_deref()
-        .expect("voucher minted by default");
+    let voucher = a_to_b.voucher().expect("voucher minted by default");
 
     // ── B → C: delegate a subset (demo.read only) ──────────────────────
     // B delegates against A's voucher; the voucher is embedded verbatim

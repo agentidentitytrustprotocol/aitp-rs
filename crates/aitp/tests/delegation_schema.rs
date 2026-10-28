@@ -55,6 +55,7 @@ fn minted_single_hop_claims_validate() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .voucher
         .unwrap();
     let token = DelegationBuilder::new(&b, &voucher)

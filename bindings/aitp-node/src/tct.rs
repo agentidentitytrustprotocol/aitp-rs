@@ -50,6 +50,7 @@ pub struct JsIssuedTct {
 
 impl From<aitp::tct::IssuedTct> for JsIssuedTct {
     fn from(issued: aitp::tct::IssuedTct) -> Self {
+        let issued = issued.into_parts();
         Self {
             tct: issued.token,
             grant_voucher: issued.voucher,

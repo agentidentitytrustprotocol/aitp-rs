@@ -176,12 +176,13 @@ fn main() {
         .issued_at(Timestamp(NOW))
         .build()
         .expect("issue participant TCT")
+        .into_parts()
         .token;
 
     let bundle = SessionBundleBuilder::new(&issuer)
         .session_id(Uuid::parse_str("6ba7b810-9dad-11d1-80b4-00c04fd430c8").unwrap())
         .issued_at(Timestamp(NOW))
-        .participant(participant.aid().clone(), tct)
+        .participant(participant.aid().clone(), tct.to_string())
         .build()
         .expect("build session bundle");
 
@@ -352,6 +353,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         .jti(Uuid::from_u128(0x5d3c_2b1a_0f9e_4d8c_8b7a_6f5e_4d3c_2b1a))
         .build()
         .expect("issue p256 TCT")
+        .into_parts()
         .token;
     let mut statement = serde_json::Map::new();
     statement.insert(
@@ -366,6 +368,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         .jti(Uuid::from_u128(0x6e4d_3c2b_1a0f_4e9d_9c8b_7a6f_5e4d_3c2b))
         .build()
         .expect("issue p256 self-attestation")
+        .into_parts()
         .token;
 
     // Session bundle coordinated by the P-256 key.
@@ -379,11 +382,12 @@ fn mint_p256_vectors() -> serde_json::Value {
         .jti(Uuid::from_u128(0x7f5e_4d3c_2b1a_4f0e_8d9c_8b7a_6f5e_4d3c))
         .build()
         .expect("issue p256 bundle TCT")
+        .into_parts()
         .token;
     let bundle = SessionBundleBuilder::new(&signer)
         .session_id(Uuid::parse_str("1f0e2d3c-4b5a-4968-8776-655443322110").unwrap())
         .issued_at(Timestamp(NOW))
-        .participant(participant.aid().clone(), bundle_tct)
+        .participant(participant.aid().clone(), bundle_tct.to_string())
         .build()
         .expect("build p256 session bundle");
 

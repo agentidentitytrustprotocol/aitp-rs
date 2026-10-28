@@ -945,7 +945,8 @@ mod tests {
             .grants(grants.iter().copied())
             .issued_at(Timestamp::now())
             .build()
-            .unwrap();
+            .unwrap()
+            .into_parts();
         (issued.token, issued.claims)
     }
 

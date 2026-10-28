@@ -21,8 +21,8 @@ pub const ATTESTATION_GRANT: &str = "aitp.attestation";
 ///     .ttl(Duration::from_secs(3600))
 ///     .subject_pubkey(subject_verifying_key)
 ///     .build()?;
-/// // issued.token   — the TCT compact JWS
-/// // issued.voucher — the grant voucher compact JWS (Some by default)
+/// // issued.token()   — the TCT compact JWS
+/// // issued.voucher() — the grant voucher compact JWS (Some by default)
 /// ```
 ///
 /// A self-attestation (a signed statement by the issuer about itself,

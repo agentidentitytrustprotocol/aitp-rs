@@ -21,7 +21,8 @@ fn issue(issuer: &AitpSigningKey, subject: &AitpSigningKey, ttl: u64) -> String 
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 /// TCT expiring exactly at the issuer Manifest's expiry verifies.

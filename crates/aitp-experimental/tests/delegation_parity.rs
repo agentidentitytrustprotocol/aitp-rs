@@ -51,6 +51,7 @@ fn token(scope: &[&str], ttl: u64) -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .voucher
         .unwrap();
     DelegationBuilder::new(&b(), &voucher)

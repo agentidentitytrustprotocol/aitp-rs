@@ -56,8 +56,9 @@ fn voucher_for_b(grants: &BTreeSet<String>) -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 /// Non-empty grant tokens from a small alphabet so subsets/supersets

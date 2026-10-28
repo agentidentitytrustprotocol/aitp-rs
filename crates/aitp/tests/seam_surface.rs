@@ -231,14 +231,17 @@ fn self_attestation_round_trip_and_rejections() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    assert_eq!(issued.claims.grants, [ATTESTATION_GRANT]);
+    assert_eq!(issued.claims().grants, [ATTESTATION_GRANT]);
 
-    let v =
-        verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), STATEMENT_KEY)).unwrap();
+    let v = verify_attestation(
+        issued.token(),
+        &attestation_ctx(issuer.aid(), STATEMENT_KEY),
+    )
+    .unwrap();
     assert_eq!(v.statement(), &json!({"statement": "seam attestation"}));
 
-    let err =
-        verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), "org.other")).unwrap_err();
+    let err = verify_attestation(issued.token(), &attestation_ctx(issuer.aid(), "org.other"))
+        .unwrap_err();
     assert!(
         matches!(&err, TctError::AttestationStatementMissing(k) if k == "org.other"),
         "{err:?}"
@@ -246,14 +249,14 @@ fn self_attestation_round_trip_and_rejections() {
     assert_eq!(refusal(&err), "no-statement");
 
     // Genuinely signed by `issuer`, but claiming another `iss`.
-    let mut claims = serde_json::to_value(&issued.claims).unwrap();
+    let mut claims = serde_json::to_value(issued.claims()).unwrap();
     claims["iss"] = json!(p256(7).aid());
     let spoofed = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
     let err =
         verify_attestation(&spoofed, &attestation_ctx(issuer.aid(), STATEMENT_KEY)).unwrap_err();
     assert_eq!(refusal(&err), "wrong-issuer", "{err:?}");
 
-    let (head, sig) = issued.token.rsplit_once('.').unwrap();
+    let (head, sig) = issued.token().rsplit_once('.').unwrap();
     let flipped = if sig.starts_with('A') { "B" } else { "A" };
     let tampered = format!("{head}.{flipped}{}", &sig[1..]);
     let err =
@@ -269,7 +272,7 @@ fn self_attestation_round_trip_and_rejections() {
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
-    assert!(verify_tct(&issued.token, &ctx).is_err());
+    assert!(verify_tct(issued.token(), &ctx).is_err());
 }
 
 /// The bytes `TctBuilder::self_attestation` signs for a fixed key, clock
@@ -284,6 +287,7 @@ fn self_attestation_golden_bytes() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .token;
     assert_eq!(token, GOLDEN_ATTESTATION);
 }

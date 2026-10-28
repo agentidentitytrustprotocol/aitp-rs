@@ -268,13 +268,14 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .token;
 
     let session_id = Uuid::new_v4();
     let bundle = SessionBundleBuilder::new(&coordinator)
         .session_id(session_id)
         .issued_at(NOW)
-        .participant(alice.aid().clone(), tct)
+        .participant(alice.aid().clone(), tct.to_string())
         .build()
         .expect("bundle builds");
     let envelope = SessionBundleEnvelope {

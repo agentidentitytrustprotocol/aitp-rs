@@ -139,7 +139,8 @@ reasons already in the table are kept.
 | `aitp::tct::AttestationVerifyContextBuilder` | struct | private fields |  |
 | `aitp::tct::Cnf` | struct | non_exhaustive |  |
 | `aitp::tct::GrantVoucherClaims` | struct | non_exhaustive |  |
-| `aitp::tct::IssuedTct` | struct | non_exhaustive |  |
+| `aitp::tct::IssuedTct` | struct | private fields |  |
+| `aitp::tct::IssuedTctParts` | struct | non_exhaustive |  |
 | `aitp::tct::PopChallenge` | struct | non_exhaustive |  |
 | `aitp::tct::PopResponse` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationEntry` | struct | non_exhaustive |  |

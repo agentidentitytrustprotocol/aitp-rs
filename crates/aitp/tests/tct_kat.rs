@@ -50,12 +50,12 @@ fn builder_reproduces_tct_signed_example() {
         .expect("builder ok");
 
     assert_eq!(
-        issued.token,
+        issued.token(),
         v["tct_token"].as_str().unwrap(),
         "builder-minted TCT diverges from the spec signed-example"
     );
     assert_eq!(
-        serde_json::to_value(&issued.claims).unwrap(),
+        serde_json::to_value(issued.claims()).unwrap(),
         v["decoded_claims"],
         "decoded claims diverge from the vector"
     );
@@ -90,7 +90,7 @@ fn builder_reproduces_voucher_signed_example() {
         .expect("builder ok");
 
     assert_eq!(
-        issued.voucher.as_deref().unwrap(),
+        issued.voucher().unwrap(),
         v["voucher_token"].as_str().unwrap(),
         "builder-minted voucher diverges from the spec signed-example"
     );
@@ -151,5 +151,5 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
         .jti(Uuid::parse_str(input["jti"].as_str().unwrap()).unwrap())
         .build()
         .expect("builder ok");
-    assert_eq!(issued.token, token);
+    assert_eq!(issued.token(), token);
 }

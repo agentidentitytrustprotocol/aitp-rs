@@ -27,7 +27,8 @@ fn issue_tct(coord: &dyn AitpSigner, holder: &AitpSigningKey) -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 #[test]

@@ -83,7 +83,8 @@ fn held_tct(issuer: &AitpSigningKey, holder: &AitpSigningKey) -> String {
         .issued_at(Timestamp::now())
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 #[tokio::test]
@@ -202,8 +203,9 @@ async fn refusal_is_surfaced_with_its_code() {
         .issued_at(Timestamp::now())
         .build()
         .unwrap()
+        .into_parts()
         .token;
-    let err = renew_tct_with_insecure_localhost(&holder, withdrawn, &m)
+    let err = renew_tct_with_insecure_localhost(&holder, withdrawn.to_string(), &m)
         .await
         .unwrap_err();
     match err {

@@ -121,6 +121,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     - `TctVerifyContext::builder(issuer.aid(), issuer.aid(), NOW)` → `TctVerifyContext::builder().expected_audience(issuer.aid()).issuer(issuer.aid()).now(NOW)`.
 - `aitp::manifest::IdentityHintKind` is gone: `IdentityHint::kind` and `IdentityHint::new` take `aitp::handshake::IdentityKind`, the one identity-type enum, also used by `IdentityDescriptor`, `ManifestBuilder::accept_identity_type` and `ManifestError::IncompatibleIdentityType`. The two enums had the same variants (`Oidc`, `PinnedKey`, `Spiffe`) and the same wire names (`oidc`, `pinned_key`, `spiffe`), so every Manifest and handshake payload encodes as before. Replace `aitp::manifest::IdentityHintKind::X` with `aitp::handshake::IdentityKind::X`.
   - Seam migration: none.
+- `IssuedTct`, what `TctBuilder::build` and `build_async` return, has private fields like the verification results: read it with `token()`, `claims()` and `voucher()` (`Option<&str>`), or take the owned pieces with `into_parts()`, which returns the new `#[non_exhaustive]` `IssuedTctParts { token, claims, voucher }`. Only `aitp` constructs it. The minted bytes are unchanged.
+  - Seam migration:
+    - `issued.claims.grants` → `issued.claims().grants`, and `serde_json::to_value(&issued.claims)` → `serde_json::to_value(issued.claims())`.
+    - `&issued.token` → `issued.token()` (three `verify_attestation` / `verify_tct` calls), and `issued.token.rsplit_once('.')` → `issued.token().rsplit_once('.')`.
+    - In the golden attestation test, `.build().unwrap().token` → `.build().unwrap().into_parts().token`.
 
 ### Added
 

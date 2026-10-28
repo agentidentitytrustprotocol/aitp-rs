@@ -26,7 +26,8 @@ fn mint_token() -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 fn bench_issue(c: &mut Criterion) {

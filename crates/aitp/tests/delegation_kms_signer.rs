@@ -27,8 +27,9 @@ fn voucher_for(a: &dyn AitpSigner, b: &dyn AitpSigner) -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 #[test]

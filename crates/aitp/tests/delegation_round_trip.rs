@@ -52,8 +52,9 @@ fn voucher_for_b() -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 /// B → C: delegate `read_data`, 1h TTL.
@@ -173,6 +174,7 @@ fn voucher_issued_by_third_party_rejected() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .voucher
         .unwrap();
     // Hand-mint with aud = A (the builder would derive aud from the
@@ -392,7 +394,7 @@ fn tct_presented_as_delegation_rejected() {
         .unwrap();
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
-    let err = verify_delegation(&issued.token, &ctx).unwrap_err();
+    let err = verify_delegation(issued.token(), &ctx).unwrap_err();
     // `peek_claims` now has a typ-first gate (D7 / issue #140 follow-up),
     // mirroring `aitp::tct::verify_tct`/`verify_voucher`'s established
     // `peek_header_typ` pattern: the TCT's header `typ` (`aitp-tct+jwt`)

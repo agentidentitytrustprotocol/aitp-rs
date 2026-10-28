@@ -406,8 +406,8 @@ fn grant_overflow_aborts() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    commit_ack_payload.tct = over_claimed.token;
-    commit_ack_payload.grant_voucher = over_claimed.voucher;
+    commit_ack_payload.tct = over_claimed.token().to_string();
+    commit_ack_payload.grant_voucher = over_claimed.voucher().map(str::to_owned);
 
     let commit_ack_mid = Uuid::new_v4();
     let commit_ack_envelope = envelope_with(

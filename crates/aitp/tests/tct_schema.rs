@@ -56,7 +56,7 @@ fn issue() -> aitp::tct::IssuedTct {
 #[test]
 fn minted_tct_claims_validate() {
     let issued = issue();
-    let value = serde_json::to_value(&issued.claims).unwrap();
+    let value = serde_json::to_value(issued.claims()).unwrap();
     if let Err(e) = validate_against(&value, schema_path_for("aitp-tct.schema.json")) {
         panic!("TCT claims failed schema validation:\n{e}");
     }
@@ -65,7 +65,7 @@ fn minted_tct_claims_validate() {
 #[test]
 fn tct_claims_with_unknown_field_rejected() {
     let issued = issue();
-    let mut value = serde_json::to_value(&issued.claims).unwrap();
+    let mut value = serde_json::to_value(issued.claims()).unwrap();
     value
         .as_object_mut()
         .unwrap()
@@ -81,7 +81,7 @@ fn tct_claims_with_unknown_field_rejected() {
 #[test]
 fn minted_voucher_claims_validate() {
     let issued = issue();
-    let voucher_token = issued.voucher.as_deref().unwrap();
+    let voucher_token = issued.voucher().unwrap();
     let payload = aitp::crypto::jws::decode_payload_unverified(voucher_token).unwrap();
     let value: serde_json::Value = serde_json::from_slice(&payload).unwrap();
     if let Err(e) = validate_against(&value, schema_path_for("aitp-grant-voucher.schema.json")) {
@@ -95,7 +95,7 @@ fn minted_tokens_match_compact_jws_pattern() {
     // non-empty base64url segments.
     let issued = issue();
     let re = regex_lite();
-    for token in [issued.token.as_str(), issued.voucher.as_deref().unwrap()] {
+    for token in [issued.token(), issued.voucher().unwrap()] {
         assert!(
             re(token),
             "token does not match CompactJws pattern: {token}"

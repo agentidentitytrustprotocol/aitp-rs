@@ -30,7 +30,8 @@ fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: u64) -> Str
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 fn manifest_for(key: &AitpSigningKey, ttl_secs: u64) -> Manifest {

@@ -173,8 +173,8 @@ fn mint_tct() {
                 "ttl_secs": TCT_TTL,
                 "grants": ["macp.mode.task.v1"],
             },
-            "tct_token": issued.token,
-            "decoded_claims": issued.claims,
+            "tct_token": issued.token(),
+            "decoded_claims": issued.claims(),
         }),
     );
 }
@@ -198,7 +198,10 @@ fn mint_companion_tct() -> IssuedTct {
 }
 
 fn mint_grant_voucher() -> String {
-    let voucher = mint_companion_tct().voucher.expect("voucher minted");
+    let voucher = mint_companion_tct()
+        .into_parts()
+        .voucher
+        .expect("voucher minted");
     let payload = jws::decode_payload_unverified(&voucher).expect("voucher payload");
     let claims: GrantVoucherClaims = serde_json::from_slice(&payload).expect("voucher claims");
     write_pretty(
@@ -222,7 +225,7 @@ fn mint_grant_voucher() -> String {
             "decoded_claims": claims,
         }),
     );
-    voucher
+    voucher.to_string()
 }
 
 fn mint_delegation(voucher: &str) {

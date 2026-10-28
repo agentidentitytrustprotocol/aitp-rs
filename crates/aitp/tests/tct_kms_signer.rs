@@ -46,7 +46,7 @@ fn kms_backend_with_der_high_s_mints_a_verifying_tct() {
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
-    verify_tct(&issued.token, &ctx).expect("KMS-minted TCT verifies");
+    verify_tct(issued.token(), &ctx).expect("KMS-minted TCT verifies");
 }
 
 #[test]
@@ -89,12 +89,12 @@ fn kms_backend_signs_pop_response_and_revocation_list() {
     let issued = holder_tct(&issuer, &holder, now);
 
     let challenge = PopChallenge::new(
-        issued.claims.jti,
+        issued.claims().jti,
         base64url::encode(&[7u8; 16]),
         Timestamp(now.0 + 60),
     );
     let resp = sign_pop_response(&challenge, &holder).expect("KMS PoP signs");
-    verify_pop_response(&challenge, &resp, &issued.claims, now).expect("KMS PoP verifies");
+    verify_pop_response(&challenge, &resp, issued.claims(), now).expect("KMS PoP verifies");
 
     let body = RevocationList::new(issuer.aid().clone(), now, Timestamp(now.0 + 600), vec![]);
     let env = sign_revocation_list(body, &issuer).expect("KMS revocation list signs");
@@ -155,8 +155,8 @@ async fn async_kms_backend_mints_tct_and_voucher_on_another_task() {
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
-    verify_tct(&issued.token, &ctx).expect("verifies");
-    assert!(issued.voucher.is_some());
+    verify_tct(issued.token(), &ctx).expect("verifies");
+    assert!(issued.voucher().is_some());
 }
 
 #[tokio::test]
@@ -190,8 +190,8 @@ async fn async_build_matches_sync_build_for_deterministic_keys() {
             .build_async()
             .await
             .unwrap();
-        assert_eq!(sync.token, asyn.token);
-        assert_eq!(sync.voucher, asyn.voucher);
+        assert_eq!(sync.token(), asyn.token());
+        assert_eq!(sync.voucher(), asyn.voucher());
     }
 }
 

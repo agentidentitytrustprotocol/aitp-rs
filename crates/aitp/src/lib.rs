@@ -46,8 +46,8 @@
 //! let bob = AitpSigningKey::from_ed25519_seed(&[0x22; 32]);
 //! let now = Timestamp(1_700_000_000);
 //!
-//! // `issued.token` is the opaque compact JWS that goes on the wire;
-//! // `issued.voucher` is the companion grant voucher bob can later
+//! // `issued.token()` is the opaque compact JWS that goes on the wire;
+//! // `issued.voucher()` is the companion grant voucher bob can later
 //! // delegate with.
 //! let issued = TctBuilder::new(&alice)
 //!     .subject(bob.aid().clone())
@@ -71,7 +71,7 @@
 //!     .revocation(RevocationSource::FailOpen)
 //!     .skip_manifest_expiry_cap_dangerous()
 //!     .build()?;
-//! let verified = verify_tct(&issued.token, &ctx)?;
+//! let verified = verify_tct(issued.token(), &ctx)?;
 //! assert_eq!(verified.claims().grants, vec!["demo.echo".to_string()]);
 //! # Ok(())
 //! # }

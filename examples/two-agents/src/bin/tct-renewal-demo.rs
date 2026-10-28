@@ -69,7 +69,7 @@ async fn main() {
     // The holder verifies what it receives before storing it — the
     // store is keyed by the issuer's AID.
     let initial_verified = verify_tct(
-        &initial.token,
+        initial.token(),
         &TctVerifyContext::builder()
             .expected_audience(holder.aid())
             .issuer(issuer.aid())
@@ -82,7 +82,10 @@ async fn main() {
     .expect("initial TCT verifies");
 
     let store = TctStore::default();
-    store.insert(initial_verified.clone(), initial.voucher.clone());
+    store.insert(
+        initial_verified.clone(),
+        initial.voucher().map(str::to_owned),
+    );
 
     // Stand up the issuer's handshake server. Its Manifest advertises the
     // renewal endpoint; the server mounts the route at that path.

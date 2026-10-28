@@ -239,8 +239,8 @@ pub fn renewal_response_envelope(
     now: Timestamp,
 ) -> Result<AitpEnvelope, RenewalError> {
     let payload = RenewalResponsePayload {
-        tct: renewed.token.clone(),
-        grant_voucher: renewed.voucher.clone(),
+        tct: renewed.token().to_owned(),
+        grant_voucher: renewed.voucher().map(str::to_owned),
         pop_nonce_echo: pop_nonce.to_string(),
     };
     sign_payload(issuer_key, MessageType::Tct, &payload, message_id, now)

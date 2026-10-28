@@ -2511,9 +2511,9 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         "id": id,
         "ok": true,
         "result": {
-            "tct_token": issued.token,
-            "tct_claims": issued.claims,
-            "grant_voucher": issued.voucher,
+            "tct_token": issued.token(),
+            "tct_claims": issued.claims(),
+            "grant_voucher": issued.voucher(),
         }
     })
 }
@@ -4806,7 +4806,7 @@ mod revocation_unknown_field_tests {
             "rev-swallow-1-baseline",
             "verify_tct",
             json!({
-                "tct_token": issued.token,
+                "tct_token": issued.token(),
                 "issuer": issuer_key.aid().as_str(),
                 "expected_audience": subject_key.aid().as_str(),
                 "now": 1_700_000_100,
@@ -4825,7 +4825,7 @@ mod revocation_unknown_field_tests {
             "rev-swallow-1",
             "verify_tct",
             json!({
-                "tct_token": issued.token,
+                "tct_token": issued.token(),
                 "issuer": issuer_key.aid().as_str(),
                 "expected_audience": subject_key.aid().as_str(),
                 "now": 1_700_000_100,
@@ -4861,6 +4861,7 @@ mod revocation_unknown_field_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let token = aitp::delegation::DelegationBuilder::new(&b, &voucher)
@@ -4990,6 +4991,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .token;
         Tct {
             issuer,
@@ -5150,6 +5152,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .token;
         parts[2] = other.rsplit('.').next().unwrap().to_string();
         let forged = parts.join(".");
@@ -5202,6 +5205,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let single_hop = aitp_experimental::delegation::ChainedDelegationBuilder::new(&b, &voucher)

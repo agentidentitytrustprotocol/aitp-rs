@@ -251,6 +251,7 @@ mod single_hop_revocation_check {
             .issued_at(Timestamp(NOW))
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let payload = jws::decode_payload_unverified(&voucher).unwrap();
@@ -405,6 +406,7 @@ mod session_bundle_wire_shape {
             .issued_at(Timestamp(NOW))
             .build()
             .unwrap()
+            .into_parts()
             .token;
 
         let gen = handle(
@@ -723,7 +725,7 @@ mod verify_tct_as_issuer {
             .issued_at(Timestamp(NOW - 60))
             .build()
             .unwrap();
-        (tct.token, tct.claims.jti.to_string())
+        (tct.token().to_owned(), tct.claims().jti.to_string())
     }
 
     fn challenge(jti: &str, expires_at: i64) -> PopChallenge {

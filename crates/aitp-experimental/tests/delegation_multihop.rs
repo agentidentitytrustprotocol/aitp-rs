@@ -46,8 +46,9 @@ fn voucher_for_b() -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 /// B → C (chain[0]): jti-bearing, both grants, 100 min.
@@ -791,6 +792,7 @@ async fn async_extensions_are_byte_identical_to_sync() {
             .issued_at(NOW)
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let hop1 = ChainedDelegationBuilder::new(&b, &voucher)
