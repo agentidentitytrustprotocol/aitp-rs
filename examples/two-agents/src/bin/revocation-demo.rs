@@ -111,7 +111,8 @@ async fn main() {
     // The consumer reads the list from the issuer's listener. A real
     // consumer takes the URL from the issuer's verified Manifest.
     let list_uri = format!("http://127.0.0.1:{port}{REVOCATION_LIST_PATH}");
-    let fetcher = RevocationFetcher::new(RevocationPolicy::default()).with_insecure_localhost(true);
+    let fetcher =
+        RevocationFetcher::new(RevocationPolicy::default()).with_insecure_localhost_dangerous();
     let now = Timestamp::now();
     let prepared = fetcher.prepare(issuer.aid(), Some(&list_uri), now).await;
 

@@ -56,7 +56,9 @@ pub async fn renew_tct(
 }
 
 /// [`renew_tct`] that also accepts a plain-`http` `renew_uri` on
-/// `localhost` / `127.0.0.1`. Never use it in production.
+/// `localhost` / `127.0.0.1` and admits loopback addresses through the
+/// host guard ([`HostGuard::allow_loopback_dangerous`]). Never use it in
+/// production.
 pub async fn renew_tct_with_insecure_localhost(
     holder_key: &dyn AitpSigner,
     current: String,
@@ -76,7 +78,11 @@ async fn renew(
     let pop_nonce = base64url::encode(&rand_bytes_16());
     let request = build_renewal_request(holder_key, current, pop_nonce)?;
 
-    let addrs = HostGuard::default()
+    let mut guard = HostGuard::default();
+    if allow_insecure_localhost {
+        guard = guard.allow_loopback_dangerous();
+    }
+    let addrs = guard
         .resolve_checked(&url)
         .await
         .map_err(|e| RenewClientError::Http(format!("renewal endpoint rejected: {e}")))?;

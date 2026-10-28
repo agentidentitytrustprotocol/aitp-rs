@@ -126,6 +126,7 @@ reasons already in the table are kept.
 | `aitp::manifest::ManifestEnvelope` | struct | non_exhaustive |  |
 | `aitp::manifest::ManifestError` | enum | non_exhaustive |  |
 | `aitp::manifest::ManifestPop` | struct | non_exhaustive |  |
+| `aitp::manifest::VerifiedManifest` | struct | private fields |  |
 | `aitp::manifest::VerifyManifestContext` | struct | non_exhaustive |  |
 | `aitp::tct::AttestationVerifyContext` | struct | non_exhaustive |  |
 | `aitp::tct::AttestationVerifyContextBuilder` | struct | private fields |  |

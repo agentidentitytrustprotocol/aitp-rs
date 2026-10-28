@@ -96,10 +96,11 @@ The initiator then surfaces a `FacadeError::Protocol` carrying the peer's
 The Mutual Handshake spec mandates HTTPS in production. The demo runs on
 `localhost` and uses HTTP so you don't need to mint a self-signed cert
 just to read the output. `ManifestFetcher` refuses plain HTTP by
-default; `agent-a` opts in with `.with_insecure_localhost(true)` (and
-`InitiatorConfig::with_insecure_localhost(true)`), which allows HTTP only
-for `localhost` / `127.0.0.1`. Non-local origins are still rejected with
-`FetchError::InsecureUrl`.
+default; `agent-a` opts in with `.with_insecure_localhost_dangerous()` (and
+`InitiatorConfig::with_insecure_localhost_dangerous()`), which allows HTTP
+only for `localhost` / `127.0.0.1` and admits loopback addresses through
+the default `DenyPrivate` host guard. Non-local origins are still rejected
+with `FetchError::InsecureUrl`.
 
 ## The other demos
 

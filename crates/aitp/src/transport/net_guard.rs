@@ -3,10 +3,9 @@
 //! Several client fetch paths in this crate GET a URL whose host the
 //! *peer* controls (`peer_origin` for `/.well-known/aitp-manifest`,
 //! issuer hosts for `/.well-known/aitp-keys`). Without a guard, a
-//! malicious peer origin can steer those GETs at internal
-//! infrastructure — cloud metadata services (`169.254.169.254`),
-//! RFC 1918 hosts, loopback daemons — a classic server-side request
-//! forgery (SSRF) pattern.
+//! peer origin can steer those GETs at internal infrastructure — cloud
+//! metadata services (`169.254.169.254`), RFC 1918 hosts, loopback
+//! daemons — a server-side request forgery (SSRF) pattern.
 //!
 //! [`HostGuard`] classifies every address a URL's host resolves to and
 //! applies a [`GuardMode`]:
@@ -16,10 +15,22 @@
 //!   metadata range) — are **always rejected** (except under
 //!   [`GuardMode::AllowAll`]).
 //! - *Private* addresses (loopback, RFC 1918, CGNAT `100.64/10`, IPv6
-//!   unique-local) are legitimate in intranet agent-to-agent
-//!   deployments, so the default mode ([`GuardMode::WarnPrivate`])
-//!   logs a warning and allows them. Internet-facing deployments
-//!   should opt in to [`GuardMode::DenyPrivate`] explicitly.
+//!   unique-local) are rejected by the default mode
+//!   ([`GuardMode::DenyPrivate`]). Intranet agent-to-agent deployments
+//!   opt in to [`GuardMode::WarnPrivate`] (allow with a warning) with
+//!   `HostGuard::new(GuardMode::WarnPrivate)`.
+//!
+//! # Loopback
+//!
+//! [`HostGuard::allow_loopback_dangerous`] admits loopback addresses
+//! (`127.0.0.0/8`, `::1`) and only those, whatever the mode; the other
+//! private ranges still follow the mode. The fetchers' local-development
+//! switch (`with_insecure_localhost_dangerous` on
+//! [`ManifestFetcher`](crate::transport::ManifestFetcher),
+//! [`RevocationFetcher`](crate::transport::RevocationFetcher) and
+//! [`InitiatorConfig`](crate::facade::InitiatorConfig)) applies the same
+//! loopback allowance to the guard it uses, so a demo on
+//! `http://localhost` needs that one opt-in.
 //!
 //! The vetted addresses are returned so callers can **pin** them into
 //! the HTTP client (`reqwest::ClientBuilder::resolve_to_addrs`),
@@ -39,10 +50,10 @@ use url::{Host, Url};
 #[non_exhaustive]
 pub enum GuardMode {
     /// Reject always-forbidden ranges; log a warning for private
-    /// ranges but allow the fetch. The default mode.
+    /// ranges but allow the fetch. For intranet deployments whose peers
+    /// live on private addresses.
     WarnPrivate,
-    /// Reject always-forbidden and private ranges. The production
-    /// posture for internet-facing deployments.
+    /// Reject always-forbidden and private ranges. The default mode.
     DenyPrivate,
     /// No address checks at all. For air-gapped/test networks where
     /// the operator explicitly accepts fetches to any address.
@@ -53,15 +64,20 @@ pub enum GuardMode {
 #[derive(Debug, Clone)]
 pub struct HostGuard {
     mode: GuardMode,
+    allow_loopback: bool,
 }
 
 impl Default for HostGuard {
-    /// [`GuardMode::WarnPrivate`] — see the module docs; internet-facing
-    /// deployments should use [`HostGuard::strict`].
+    /// [`GuardMode::DenyPrivate`], no loopback allowance — see the
+    /// module docs.
+    ///
+    /// ```
+    /// use aitp::transport::net_guard::{HostGuard, GuardMode};
+    ///
+    /// assert_eq!(HostGuard::default().mode(), GuardMode::DenyPrivate);
+    /// ```
     fn default() -> Self {
-        Self {
-            mode: GuardMode::WarnPrivate,
-        }
+        Self::new(GuardMode::DenyPrivate)
     }
 }
 
@@ -178,30 +194,27 @@ fn classify(ip: IpAddr) -> AddrClass {
 }
 
 impl HostGuard {
-    /// Build a guard with an explicit mode.
+    /// Build a guard with an explicit mode and no loopback allowance.
     pub fn new(mode: GuardMode) -> Self {
-        Self { mode }
+        Self {
+            mode,
+            allow_loopback: false,
+        }
     }
 
-    /// [`GuardMode::DenyPrivate`] — the internet-facing production
-    /// posture (opt-in; the default is `WarnPrivate`).
+    /// Admit loopback addresses (`127.0.0.0/8`, `::1`) in every mode.
+    /// The other private ranges still follow the mode. For local
+    /// development and tests whose peers run on the same host.
     ///
     /// ```
     /// use aitp::transport::net_guard::{HostGuard, GuardMode};
     ///
-    /// // Internet-facing services should reject peer/IdP hosts that
-    /// // resolve into private or link-local address space (SSRF guard).
-    /// let guard = HostGuard::strict();
+    /// let guard = HostGuard::default().allow_loopback_dangerous();
     /// assert_eq!(guard.mode(), GuardMode::DenyPrivate);
     /// ```
-    pub fn strict() -> Self {
-        Self::new(GuardMode::DenyPrivate)
-    }
-
-    /// [`GuardMode::AllowAll`] — no address checks. For air-gapped or
-    /// test networks only.
-    pub fn permissive() -> Self {
-        Self::new(GuardMode::AllowAll)
+    pub fn allow_loopback_dangerous(mut self) -> Self {
+        self.allow_loopback = true;
+        self
     }
 
     /// The configured mode.
@@ -210,12 +223,24 @@ impl HostGuard {
     }
 
     /// Resolve `url`'s host and classify **every** returned address
-    /// (an attacker can mix public and internal records in one answer,
-    /// so one bad address rejects the whole set). On success, returns
+    /// (one answer can mix public and internal records, so one
+    /// rejected address rejects the whole set). On success, returns
     /// the full vetted address list — pin it into the HTTP client via
     /// `resolve_to_addrs` so the connection cannot be re-resolved to
     /// an unchecked address (DNS rebinding).
     pub async fn resolve_checked(&self, url: &Url) -> Result<Vec<SocketAddr>, HostGuardError> {
+        self.resolve_checked_with(url, false).await
+    }
+
+    /// [`Self::resolve_checked`], also admitting loopback addresses when
+    /// `allow_loopback` is set. The fetchers' insecure-localhost switch
+    /// passes it here.
+    pub(crate) async fn resolve_checked_with(
+        &self,
+        url: &Url,
+        allow_loopback: bool,
+    ) -> Result<Vec<SocketAddr>, HostGuardError> {
+        let allow_loopback = allow_loopback || self.allow_loopback;
         let host = url.host().ok_or(HostGuardError::MissingHost)?;
         // `Url::port_or_known_default` knows http/https; AITP fetches
         // are always one of those, but fall back to 443 defensively.
@@ -243,6 +268,7 @@ impl HostGuard {
         for sa in &addrs {
             match classify(sa.ip()) {
                 AddrClass::Public => {}
+                AddrClass::Private("loopback") if allow_loopback => {}
                 AddrClass::Forbidden(class) => {
                     return Err(HostGuardError::ForbiddenAddress {
                         host: host.to_string(),
@@ -263,9 +289,8 @@ impl HostGuard {
                             host = %host,
                             addr = %sa.ip(),
                             class,
-                            "outbound fetch to a private address; \
-                             use GuardMode::DenyPrivate to reject these, or opt in to \
-                             WarnPrivate/AllowAll explicitly if this is intentional"
+                            "outbound fetch to a private address allowed by \
+                             GuardMode::WarnPrivate"
                         );
                     }
                     // Handled by the early return above.
@@ -329,9 +354,24 @@ mod tests {
         assert_eq!(v6("::ffff:10.0.0.1"), AddrClass::Private("rfc1918"));
     }
 
+    fn warn() -> HostGuard {
+        HostGuard::new(GuardMode::WarnPrivate)
+    }
+
+    #[test]
+    fn default_is_deny_private() {
+        let guard = HostGuard::default();
+        assert_eq!(guard.mode(), GuardMode::DenyPrivate);
+        assert!(!guard.allow_loopback);
+    }
+
     #[tokio::test]
     async fn ip_literal_forbidden_is_rejected_in_all_checking_modes() {
-        for guard in [HostGuard::default(), HostGuard::strict()] {
+        for guard in [
+            HostGuard::default(),
+            warn(),
+            HostGuard::default().allow_loopback_dangerous(),
+        ] {
             let url = Url::parse("https://169.254.169.254/").unwrap();
             let err = guard.resolve_checked(&url).await.unwrap_err();
             assert!(matches!(err, HostGuardError::ForbiddenAddress { .. }));
@@ -341,7 +381,7 @@ mod tests {
 
     #[tokio::test]
     async fn ip_literal_forbidden_is_allowed_under_allow_all() {
-        let guard = HostGuard::permissive();
+        let guard = HostGuard::new(GuardMode::AllowAll);
         let url = Url::parse("https://169.254.169.254/").unwrap();
         let addrs = guard.resolve_checked(&url).await.unwrap();
         assert_eq!(addrs.len(), 1);
@@ -352,10 +392,13 @@ mod tests {
     async fn private_literal_mode_dependent() {
         let url = Url::parse("http://10.0.0.7:8080/x").unwrap();
         // WarnPrivate: allowed (with a warning).
-        let addrs = HostGuard::default().resolve_checked(&url).await.unwrap();
+        let addrs = warn().resolve_checked(&url).await.unwrap();
         assert_eq!(addrs, vec!["10.0.0.7:8080".parse().unwrap()]);
-        // DenyPrivate: rejected.
-        let err = HostGuard::strict().resolve_checked(&url).await.unwrap_err();
+        // DenyPrivate (the default): rejected.
+        let err = HostGuard::default()
+            .resolve_checked(&url)
+            .await
+            .unwrap_err();
         assert!(matches!(
             err,
             HostGuardError::ForbiddenAddress {
@@ -369,11 +412,52 @@ mod tests {
     async fn localhost_domain_resolves_to_loopback_and_follows_mode() {
         let url = Url::parse("https://localhost:9443/").unwrap();
         // WarnPrivate allows...
-        let addrs = HostGuard::default().resolve_checked(&url).await.unwrap();
+        let addrs = warn().resolve_checked(&url).await.unwrap();
         assert!(!addrs.is_empty());
         assert!(addrs.iter().all(|a| a.port() == 9443));
         // ...DenyPrivate rejects.
-        let err = HostGuard::strict().resolve_checked(&url).await.unwrap_err();
+        let err = HostGuard::default()
+            .resolve_checked(&url)
+            .await
+            .unwrap_err();
         assert!(matches!(err, HostGuardError::ForbiddenAddress { .. }));
+    }
+
+    #[tokio::test]
+    async fn loopback_allowance_admits_loopback_only() {
+        let guard = HostGuard::default().allow_loopback_dangerous();
+        for url in [
+            "https://127.0.0.1:9443/",
+            "https://[::1]:9443/",
+            "https://localhost:9443/",
+        ] {
+            let url = Url::parse(url).unwrap();
+            let addrs = guard.resolve_checked(&url).await.unwrap();
+            assert!(addrs.iter().all(|a| a.ip().is_loopback()));
+        }
+        for (url, class) in [
+            ("https://10.0.0.7/", "rfc1918"),
+            ("https://192.168.1.1/", "rfc1918"),
+            ("https://100.64.0.1/", "cgnat"),
+            ("https://[fd12:3456::1]/", "unique-local"),
+            ("https://169.254.169.254/", "link-local"),
+        ] {
+            let url = Url::parse(url).unwrap();
+            let err = guard.resolve_checked(&url).await.unwrap_err();
+            assert!(
+                matches!(err, HostGuardError::ForbiddenAddress { class: c, .. } if c == class),
+                "{url}: {err:?}"
+            );
+        }
+        // The crate-internal per-call allowance behaves the same.
+        let url = Url::parse("https://127.0.0.1/").unwrap();
+        HostGuard::default()
+            .resolve_checked_with(&url, true)
+            .await
+            .unwrap();
+        HostGuard::default()
+            .resolve_checked_with(&url, false)
+            .await
+            .unwrap_err();
     }
 }

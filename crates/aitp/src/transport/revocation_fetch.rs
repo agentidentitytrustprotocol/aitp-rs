@@ -96,7 +96,7 @@ pub struct RevocationFetcher {
     timeout: Duration,
     max_bytes: usize,
     host_guard: HostGuard,
-    allow_insecure_localhost: bool,
+    insecure_localhost: bool,
     provider: Option<Arc<dyn RevocationProvider>>,
     slots: Mutex<HashMap<Aid, Slot>>,
 }
@@ -108,7 +108,7 @@ impl std::fmt::Debug for RevocationFetcher {
             .field("timeout", &self.timeout)
             .field("max_bytes", &self.max_bytes)
             .field("host_guard", &self.host_guard)
-            .field("allow_insecure_localhost", &self.allow_insecure_localhost)
+            .field("insecure_localhost", &self.insecure_localhost)
             .field("provider", &self.provider.is_some())
             .finish_non_exhaustive()
     }
@@ -129,7 +129,7 @@ impl RevocationFetcher {
             timeout: DEFAULT_REVOCATION_FETCH_TIMEOUT,
             max_bytes: DEFAULT_MAX_REVOCATION_LIST_BYTES,
             host_guard: HostGuard::default(),
-            allow_insecure_localhost: false,
+            insecure_localhost: false,
             provider: None,
             slots: Mutex::new(HashMap::new()),
         }
@@ -148,16 +148,18 @@ impl RevocationFetcher {
     }
 
     /// Override the SSRF [`HostGuard`] (default
-    /// [`crate::transport::GuardMode::WarnPrivate`]).
+    /// [`crate::transport::GuardMode::DenyPrivate`]).
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
         self
     }
 
-    /// Tolerate `http://localhost` / `http://127.0.0.1` list URLs (local
-    /// dev and tests). Default `false`.
-    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
-        self.allow_insecure_localhost = allow;
+    /// Tolerate `http://localhost` / `http://127.0.0.1` list URLs and
+    /// admit loopback addresses (`127.0.0.0/8`, `::1`) through the host
+    /// guard, as [`HostGuard::allow_loopback_dangerous`] does. For local
+    /// dev and tests.
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 
@@ -248,7 +250,7 @@ impl RevocationFetcher {
             .map_err(|e| RevocationError::Network(format!("invalid list URL: {e}").into()))?;
         let localhost_http = url.scheme() == "http"
             && matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"));
-        if url.scheme() != "https" && !(localhost_http && self.allow_insecure_localhost) {
+        if url.scheme() != "https" && !(localhost_http && self.insecure_localhost) {
             return Err(RevocationError::Network(
                 "list URL is not https (RFC-AITP-0008 §1.4)".into(),
             ));
@@ -259,7 +261,7 @@ impl RevocationFetcher {
         if !localhost_http {
             let addrs = self
                 .host_guard
-                .resolve_checked(&url)
+                .resolve_checked_with(&url, self.insecure_localhost)
                 .await
                 .map_err(|e| RevocationError::Network(e.into()))?;
             if let Some(url::Host::Domain(domain)) = url.host() {

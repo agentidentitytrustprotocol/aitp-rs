@@ -201,8 +201,9 @@ struct NetArgs {
     /// Per-request HTTP timeout, in seconds.
     #[arg(long, default_value_t = 10, value_name = "SECS")]
     timeout: u64,
-    /// Allow a plain `http://localhost` / `http://127.0.0.1` peer (local
-    /// development only; RFC-AITP-0003 §4.1 requires HTTPS).
+    /// Allow a plain `http://localhost` / `http://127.0.0.1` peer and
+    /// loopback addresses (local development only; RFC-AITP-0003 §4.1
+    /// requires HTTPS, and other hosts on private addresses are refused).
     #[arg(long)]
     insecure_localhost: bool,
 }

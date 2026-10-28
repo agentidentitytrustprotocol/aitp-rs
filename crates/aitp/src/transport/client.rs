@@ -1,7 +1,7 @@
 //! HTTP client primitives: Manifest fetcher + JWKS resolver.
 
 use crate::core::{Aid, CheckedJson, Timestamp};
-use crate::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use crate::manifest::{verify_manifest, VerifiedManifest, VerifyManifestContext};
 use crate::transport::client_config::ClientConfig;
 use crate::transport::net_guard::HostGuard;
 use crate::transport::retry::RetryPolicy;
@@ -82,13 +82,13 @@ fn is_transient(err: &FetchError) -> bool {
     }
 }
 
-/// Cache entry — keyed on `Aid`, holding the parsed Manifest plus its
+/// Cache entry — keyed on `Aid`, holding the verified Manifest plus its
 /// own published/expires window. We honor `expires_at` on lookup
 /// (RFC-AITP-0003 §4.2) so the cache never serves a Manifest the issuer
 /// has marked stale, and we honor `published_at` for inline-replace
 /// ordering (newer publish wins).
 struct CacheEntry {
-    manifest: Manifest,
+    manifest: VerifiedManifest,
     published_at: Timestamp,
     expires_at: Timestamp,
 }
@@ -98,7 +98,7 @@ struct CacheEntry {
 /// Because `peer_origin` is peer-controlled, every fetch is SSRF-guarded:
 /// redirects are rejected outright, the host's resolved addresses are
 /// classified by a [`HostGuard`] (link-local/metadata ranges always
-/// rejected; private ranges warn by default — see [`crate::transport::net_guard`]),
+/// rejected; private ranges rejected by default — see [`crate::transport::net_guard`]),
 /// and for domain hosts the vetted addresses are pinned into the
 /// connection so DNS rebinding cannot swap in an unchecked address.
 pub struct ManifestFetcher {
@@ -114,9 +114,10 @@ pub struct ManifestFetcher {
     client_cfg: ClientConfig,
     /// SSRF guard applied to every non-localhost-exempt fetch.
     host_guard: HostGuard,
-    /// Tolerate `http://localhost` / `http://127.0.0.1` origins
-    /// (local dev). Default `false`.
-    allow_insecure_localhost: bool,
+    /// Tolerate `http://localhost` / `http://127.0.0.1` origins and
+    /// admit loopback addresses through the guard (local dev). Default
+    /// `false`.
+    insecure_localhost: bool,
 }
 
 impl std::fmt::Debug for ManifestFetcher {
@@ -126,7 +127,7 @@ impl std::fmt::Debug for ManifestFetcher {
             .field("max_bytes", &self.max_bytes)
             .field("retry_policy", &self.retry_policy)
             .field("host_guard", &self.host_guard)
-            .field("allow_insecure_localhost", &self.allow_insecure_localhost)
+            .field("insecure_localhost", &self.insecure_localhost)
             .finish_non_exhaustive()
     }
 }
@@ -144,7 +145,7 @@ impl ManifestFetcher {
             retry_policy: RetryPolicy::none(),
             client_cfg,
             host_guard: HostGuard::default(),
-            allow_insecure_localhost: false,
+            insecure_localhost: false,
         }
     }
 
@@ -192,20 +193,22 @@ impl ManifestFetcher {
     }
 
     /// Override the SSRF [`HostGuard`] (default:
-    /// [`crate::transport::net_guard::GuardMode::WarnPrivate`]). Use
-    /// [`HostGuard::strict`] for internet-facing deployments and
-    /// [`HostGuard::permissive`] for air-gapped/test networks.
+    /// [`crate::transport::net_guard::GuardMode::DenyPrivate`]). Pass
+    /// `HostGuard::new(GuardMode::WarnPrivate)` for intranet peers and
+    /// `HostGuard::new(GuardMode::AllowAll)` for air-gapped/test
+    /// networks.
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
         self
     }
 
-    /// Whether `http://localhost` / `http://127.0.0.1` origins are
-    /// tolerated (local dev convenience). **Default `false`**: every
-    /// origin must be `https://` (RFC-AITP-0003 §4.1). Local demos and
-    /// tests opt in with `.with_insecure_localhost(true)`.
-    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
-        self.allow_insecure_localhost = allow;
+    /// Tolerate `http://localhost` / `http://127.0.0.1` origins and
+    /// admit loopback addresses (`127.0.0.0/8`, `::1`) through the host
+    /// guard, as [`HostGuard::allow_loopback_dangerous`] does. For local
+    /// demos and tests. Without it every origin must be `https://`
+    /// (RFC-AITP-0003 §4.1) and the guard's mode decides loopback.
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 
@@ -213,17 +216,18 @@ impl ManifestFetcher {
     ///
     /// `peer_origin` is something like `https://agent-b.example.com`. The
     /// fetcher GETs `peer_origin.join("/.well-known/aitp-manifest")`,
-    /// parses `{"manifest": {...}}`, verifies, caches, and returns.
+    /// parses `{"manifest": {...}}`, verifies, caches, and returns the
+    /// [`VerifiedManifest`].
     #[instrument(level = "debug", skip(self), fields(origin = %peer_origin))]
-    pub async fn fetch(&self, peer_origin: &Url) -> Result<Manifest, FetchError> {
+    pub async fn fetch(&self, peer_origin: &Url) -> Result<VerifiedManifest, FetchError> {
         let mut localhost_exempt = false;
         if peer_origin.scheme() != "https" {
             // `http://localhost` is tolerated for local dev (demo)
-            // only when `allow_insecure_localhost` is set (default `false`).
+            // only when `insecure_localhost` is set (default `false`).
             let is_localhost_http = peer_origin.scheme() == "http"
                 && (peer_origin.host_str() == Some("localhost")
                     || peer_origin.host_str() == Some("127.0.0.1"));
-            if !(is_localhost_http && self.allow_insecure_localhost) {
+            if !(is_localhost_http && self.insecure_localhost) {
                 return Err(FetchError::InsecureUrl);
             }
             static LOCALHOST_WARN: std::sync::Once = std::sync::Once::new();
@@ -231,7 +235,7 @@ impl ManifestFetcher {
                 warn!(
                     "fetching manifests over http://localhost — development \
                      convenience only; never enable \
-                     `ManifestFetcher::with_insecure_localhost(true)` in production"
+                     `ManifestFetcher::with_insecure_localhost_dangerous` in production"
                 );
             });
             // localhost / 127.0.0.1 is loopback by definition — the
@@ -252,14 +256,18 @@ impl ManifestFetcher {
         let client: &reqwest::Client = if localhost_exempt {
             &self.client
         } else {
-            let addrs = self.host_guard.resolve_checked(&url).await.map_err(|e| {
-                if e.is_transient() {
-                    FetchError::Network(e.into())
-                } else {
-                    warn!(error = %e, "manifest fetch rejected by host guard");
-                    FetchError::InsecureUrl
-                }
-            })?;
+            let addrs = self
+                .host_guard
+                .resolve_checked_with(&url, self.insecure_localhost)
+                .await
+                .map_err(|e| {
+                    if e.is_transient() {
+                        FetchError::Network(e.into())
+                    } else {
+                        warn!(error = %e, "manifest fetch rejected by host guard");
+                        FetchError::InsecureUrl
+                    }
+                })?;
             match url.host() {
                 Some(url::Host::Domain(domain)) => {
                     pinned_client = self.pinned_client(domain, &addrs);
@@ -315,7 +323,7 @@ impl ManifestFetcher {
         &self,
         client: &reqwest::Client,
         url: &Url,
-    ) -> Result<Manifest, FetchError> {
+    ) -> Result<VerifiedManifest, FetchError> {
         let resp = client
             .get(url.clone())
             .timeout(self.timeout)
@@ -384,16 +392,15 @@ impl ManifestFetcher {
             crate::manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
             other => FetchError::MalformedJson(other.to_string()),
         })?;
-        verify_manifest(&manifest, &VerifyManifestContext::now())?;
-        let aid = manifest.aid.clone();
-        self.insert_cache(aid, manifest.clone());
-        Ok(manifest)
+        let verified = verify_manifest(&manifest, &VerifyManifestContext::now())?;
+        self.insert_cache(verified.clone());
+        Ok(verified)
     }
 
     /// Look up a previously-cached Manifest by AID. Returns `None` when
     /// the cached entry's `expires_at` has passed (RFC-AITP-0003 §4.2):
     /// stale Manifests are not served.
-    pub fn cached(&self, aid: &Aid) -> Option<Manifest> {
+    pub fn cached(&self, aid: &Aid) -> Option<VerifiedManifest> {
         let now = Timestamp::now();
         let cache = self.cache.lock();
         let result = cache
@@ -408,43 +415,40 @@ impl ManifestFetcher {
         result
     }
 
-    /// Replace a cached Manifest with one carried inline in a handshake
-    /// payload — but only if the inline copy's `published_at` is
-    /// strictly newer than what's already cached. This prevents an
-    /// attacker who replays an older signed Manifest from rolling back
-    /// the cached view of a peer's policy.
+    /// Cache a verified Manifest received inline (e.g. in a handshake
+    /// payload), but only if its `published_at` is strictly newer than
+    /// the cached copy's, so an older signed Manifest cannot replace a
+    /// newer cached one. It takes a [`VerifiedManifest`], so only a
+    /// Manifest that passed [`verify_manifest`] enters the cache.
     ///
     /// Returns `true` if the cache was updated.
-    pub fn maybe_replace_inline(&self, manifest: Manifest) -> bool {
-        let aid = manifest.aid.clone();
+    pub fn maybe_replace_inline(&self, manifest: VerifiedManifest) -> bool {
+        let aid = manifest.manifest().aid.clone();
+        let published_at = manifest.manifest().published_at;
         let mut cache = self.cache.lock();
         let current_published = cache.get(&aid).map(|e| e.published_at);
         match current_published {
-            Some(existing) if manifest.published_at.0 <= existing.0 => false,
+            Some(existing) if published_at.0 <= existing.0 => false,
             _ => {
-                cache.insert(
-                    aid,
-                    CacheEntry {
-                        published_at: manifest.published_at,
-                        expires_at: manifest.expires_at,
-                        manifest,
-                    },
-                );
+                cache.insert(aid, CacheEntry::new(manifest));
                 true
             }
         }
     }
 
-    fn insert_cache(&self, aid: Aid, manifest: Manifest) {
-        let mut cache = self.cache.lock();
-        cache.insert(
-            aid,
-            CacheEntry {
-                published_at: manifest.published_at,
-                expires_at: manifest.expires_at,
-                manifest,
-            },
-        );
+    fn insert_cache(&self, manifest: VerifiedManifest) {
+        let aid = manifest.manifest().aid.clone();
+        self.cache.lock().insert(aid, CacheEntry::new(manifest));
+    }
+}
+
+impl CacheEntry {
+    fn new(manifest: VerifiedManifest) -> Self {
+        Self {
+            published_at: manifest.manifest().published_at,
+            expires_at: manifest.manifest().expires_at,
+            manifest,
+        }
     }
 }
 
@@ -577,9 +581,9 @@ impl JwksFetcher {
     }
 
     /// Override the SSRF [`HostGuard`] (default:
-    /// [`crate::transport::net_guard::GuardMode::WarnPrivate`]). Use
-    /// [`HostGuard::strict`] for internet-facing deployments where no
-    /// legitimate IdP/peer key host is on a private network.
+    /// [`crate::transport::net_guard::GuardMode::DenyPrivate`]). Pass
+    /// `HostGuard::new(GuardMode::WarnPrivate)` when an IdP or peer key
+    /// host is on a private network.
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
         self
@@ -964,14 +968,15 @@ mod cache_tests {
     use crate::crypto::AitpSigningKey;
     use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 
-    fn build_manifest(published_at: Timestamp, expires_at: Timestamp) -> Manifest {
-        let key = AitpSigningKey::generate();
+    /// A Manifest signed by `key`, published at `published_at` for
+    /// `ttl_secs`, verified at its publish time.
+    fn verified(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> VerifiedManifest {
         let pubkey_b64 = crate::core::base64url::encode(
             &key.verifying_key()
                 .try_to_ed25519_bytes()
                 .expect("key was constructed as Ed25519, never P-256"),
         );
-        let mut m = ManifestBuilder::new(&key)
+        let m = ManifestBuilder::new(key)
             .handshake_endpoint("https://peer.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
                 kind: IdentityHintKind::PinnedKey,
@@ -982,33 +987,30 @@ mod cache_tests {
             .offer("test.action")
             .accept_identity_type("pinned_key")
             .display_name("peer")
-            .ttl_secs(86400)
+            .ttl_secs(ttl_secs)
             .published_at(published_at)
             .build()
             .unwrap();
-        // ttl_secs got applied at build time but published_at was
-        // overridden, so re-apply expires_at directly.
-        m.expires_at = expires_at;
-        m
+        verify_manifest(&m, &VerifyManifestContext::at(published_at)).unwrap()
     }
 
     #[test]
     fn fresh_cache_hit_returns_manifest() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = build_manifest(now, Timestamp(now.0 + 3600));
-        let aid = m.aid.clone();
-        fetcher.insert_cache(aid.clone(), m);
-        assert!(fetcher.cached(&aid).is_some());
+        let m = verified(&AitpSigningKey::generate(), now, 3600);
+        let aid = m.manifest().aid.clone();
+        fetcher.insert_cache(m.clone());
+        assert_eq!(fetcher.cached(&aid), Some(m));
     }
 
     #[test]
     fn expired_entry_is_not_served() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = build_manifest(Timestamp(now.0 - 7200), Timestamp(now.0 - 1));
-        let aid = m.aid.clone();
-        fetcher.insert_cache(aid.clone(), m);
+        let m = verified(&AitpSigningKey::generate(), Timestamp(now.0 - 7200), 7199);
+        let aid = m.manifest().aid.clone();
+        fetcher.insert_cache(m);
         assert!(
             fetcher.cached(&aid).is_none(),
             "expired manifest must not be served"
@@ -1018,42 +1020,37 @@ mod cache_tests {
     #[test]
     fn newer_inline_replaces_older_cached() {
         let fetcher = ManifestFetcher::new();
+        let key = AitpSigningKey::generate();
         let now = Timestamp::now();
-        let older = build_manifest(Timestamp(now.0 - 100), Timestamp(now.0 + 3600));
-        let aid = older.aid.clone();
-        fetcher.insert_cache(aid.clone(), older);
-        let newer = build_manifest(Timestamp(now.0), Timestamp(now.0 + 3600));
-        // Manifests for the same AID must use the same key — clone the
-        // older one's AID into the newer.
-        let mut newer = newer;
-        newer.aid = aid.clone();
-        assert!(fetcher.maybe_replace_inline(newer));
+        let older = verified(&key, Timestamp(now.0 - 100), 3600);
+        let aid = older.manifest().aid.clone();
+        fetcher.insert_cache(older);
+        let newer = verified(&key, now, 3600);
+        assert!(fetcher.maybe_replace_inline(newer.clone()));
+        assert_eq!(fetcher.cached(&aid), Some(newer));
     }
 
     #[test]
     fn older_inline_does_not_replace_newer_cached() {
         let fetcher = ManifestFetcher::new();
+        let key = AitpSigningKey::generate();
         let now = Timestamp::now();
-        let newer = build_manifest(Timestamp(now.0), Timestamp(now.0 + 3600));
-        let aid = newer.aid.clone();
-        fetcher.insert_cache(aid.clone(), newer);
-        let mut older = build_manifest(Timestamp(now.0 - 100), Timestamp(now.0 + 3600));
-        older.aid = aid.clone();
+        let newer = verified(&key, now, 3600);
+        fetcher.insert_cache(newer);
+        let older = verified(&key, Timestamp(now.0 - 100), 3600);
         assert!(
             !fetcher.maybe_replace_inline(older),
-            "rollback must be rejected"
+            "an older published_at must not replace the cached copy"
         );
     }
 
     #[test]
     fn equal_published_at_does_not_replace() {
         let fetcher = ManifestFetcher::new();
+        let key = AitpSigningKey::generate();
         let now = Timestamp::now();
-        let first = build_manifest(Timestamp(now.0), Timestamp(now.0 + 3600));
-        let aid = first.aid.clone();
-        fetcher.insert_cache(aid.clone(), first);
-        let mut same = build_manifest(Timestamp(now.0), Timestamp(now.0 + 7200));
-        same.aid = aid;
+        fetcher.insert_cache(verified(&key, now, 3600));
+        let same = verified(&key, now, 7200);
         // Equal `published_at` is not strictly newer — must not replace.
         assert!(!fetcher.maybe_replace_inline(same));
     }

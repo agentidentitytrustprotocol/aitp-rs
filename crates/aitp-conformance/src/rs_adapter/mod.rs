@@ -1430,7 +1430,7 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
         &manifest,
         &aitp::manifest::VerifyManifestContext::at(now),
     ) {
-        Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
+        Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &manifest_error_code(&e), &e.to_string()),
     }
 }

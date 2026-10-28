@@ -145,7 +145,7 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .expect("facade handshake succeeds");
@@ -189,7 +189,7 @@ async fn facade_fails_closed_without_peer_revocation_list() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
     };
 
     let err = run_initiator_handshake(config())
@@ -234,7 +234,7 @@ async fn the_server_grant_policy_narrows_the_issued_tct() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .expect_err("a server policy granting nothing refuses the handshake");
@@ -267,7 +267,7 @@ async fn facade_surfaces_peer_protocol_rejection() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .expect_err("untrusted initiator must be rejected");
@@ -285,7 +285,7 @@ async fn facade_surfaces_peer_protocol_rejection() {
 
 #[tokio::test]
 async fn facade_refuses_http_localhost_peer_by_default() {
-    // #198: without `with_insecure_localhost(true)` the plain-HTTP
+    // #198: without `with_insecure_localhost_dangerous()` the plain-HTTP
     // loopback origin is refused at the Manifest fetch (RFC-AITP-0003
     // §4.1), before any handshake traffic.
     let (bob, bob_origin) = spawn_bob(0x75, false).await;

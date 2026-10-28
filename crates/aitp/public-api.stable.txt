@@ -306,6 +306,7 @@ impl aitp::manifest::resolver::ManifestResolver for std::collections::hash::map:
 impl aitp::manifest::types::IdentityHint
 impl aitp::manifest::types::ManifestEnvelope
 impl aitp::manifest::types::ManifestPop
+impl aitp::manifest::verifier::VerifiedManifest
 impl aitp::manifest::verifier::VerifyManifestContext
 impl aitp::tct::pop::PopChallenge
 impl aitp::tct::revocation::RevocationEntry
@@ -386,6 +387,7 @@ impl core::clone::Clone for aitp::manifest::types::IdentityHintKind
 impl core::clone::Clone for aitp::manifest::types::Manifest
 impl core::clone::Clone for aitp::manifest::types::ManifestEnvelope
 impl core::clone::Clone for aitp::manifest::types::ManifestPop
+impl core::clone::Clone for aitp::manifest::verifier::VerifiedManifest
 impl core::clone::Clone for aitp::tct::pop::PopChallenge
 impl core::clone::Clone for aitp::tct::pop::PopResponse
 impl core::clone::Clone for aitp::tct::revocation::RevocationEntry
@@ -463,6 +465,7 @@ impl core::cmp::Eq for aitp::manifest::types::IdentityHintKind
 impl core::cmp::Eq for aitp::manifest::types::Manifest
 impl core::cmp::Eq for aitp::manifest::types::ManifestEnvelope
 impl core::cmp::Eq for aitp::manifest::types::ManifestPop
+impl core::cmp::Eq for aitp::manifest::verifier::VerifiedManifest
 impl core::cmp::Eq for aitp::tct::pop::PopChallenge
 impl core::cmp::Eq for aitp::tct::pop::PopResponse
 impl core::cmp::Eq for aitp::tct::revocation::RevocationEntry
@@ -536,6 +539,7 @@ impl core::cmp::PartialEq for aitp::manifest::types::IdentityHintKind
 impl core::cmp::PartialEq for aitp::manifest::types::Manifest
 impl core::cmp::PartialEq for aitp::manifest::types::ManifestEnvelope
 impl core::cmp::PartialEq for aitp::manifest::types::ManifestPop
+impl core::cmp::PartialEq for aitp::manifest::verifier::VerifiedManifest
 impl core::cmp::PartialEq for aitp::tct::pop::PopChallenge
 impl core::cmp::PartialEq for aitp::tct::pop::PopResponse
 impl core::cmp::PartialEq for aitp::tct::revocation::RevocationEntry
@@ -727,6 +731,7 @@ impl core::fmt::Debug for aitp::manifest::types::IdentityHintKind
 impl core::fmt::Debug for aitp::manifest::types::Manifest
 impl core::fmt::Debug for aitp::manifest::types::ManifestEnvelope
 impl core::fmt::Debug for aitp::manifest::types::ManifestPop
+impl core::fmt::Debug for aitp::manifest::verifier::VerifiedManifest
 impl core::fmt::Debug for aitp::tct::error::TctError
 impl core::fmt::Debug for aitp::tct::pop::PopChallenge
 impl core::fmt::Debug for aitp::tct::pop::PopResponse
@@ -923,6 +928,7 @@ impl core::marker::Send for aitp::manifest::types::IdentityHintKind
 impl core::marker::Send for aitp::manifest::types::Manifest
 impl core::marker::Send for aitp::manifest::types::ManifestEnvelope
 impl core::marker::Send for aitp::manifest::types::ManifestPop
+impl core::marker::Send for aitp::manifest::verifier::VerifiedManifest
 impl core::marker::Send for aitp::manifest::verifier::VerifyManifestContext
 impl core::marker::Send for aitp::tct::error::TctError
 impl core::marker::Send for aitp::tct::pop::PopChallenge
@@ -1049,6 +1055,7 @@ impl core::marker::Sync for aitp::manifest::types::IdentityHintKind
 impl core::marker::Sync for aitp::manifest::types::Manifest
 impl core::marker::Sync for aitp::manifest::types::ManifestEnvelope
 impl core::marker::Sync for aitp::manifest::types::ManifestPop
+impl core::marker::Sync for aitp::manifest::verifier::VerifiedManifest
 impl core::marker::Sync for aitp::manifest::verifier::VerifyManifestContext
 impl core::marker::Sync for aitp::tct::error::TctError
 impl core::marker::Sync for aitp::tct::pop::PopChallenge
@@ -1176,6 +1183,7 @@ impl core::marker::Unpin for aitp::manifest::types::IdentityHintKind
 impl core::marker::Unpin for aitp::manifest::types::Manifest
 impl core::marker::Unpin for aitp::manifest::types::ManifestEnvelope
 impl core::marker::Unpin for aitp::manifest::types::ManifestPop
+impl core::marker::Unpin for aitp::manifest::verifier::VerifiedManifest
 impl core::marker::Unpin for aitp::manifest::verifier::VerifyManifestContext
 impl core::marker::Unpin for aitp::tct::error::TctError
 impl core::marker::Unpin for aitp::tct::pop::PopChallenge
@@ -1283,6 +1291,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::types::Identity
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::types::Manifest
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::types::ManifestEnvelope
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::types::ManifestPop
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::verifier::VerifiedManifest
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::verifier::VerifyManifestContext
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::pop::PopChallenge
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::pop::PopResponse
@@ -1377,6 +1386,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::types::IdentityHin
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::types::Manifest
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::types::ManifestEnvelope
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::types::ManifestPop
+impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::verifier::VerifiedManifest
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::verifier::VerifyManifestContext
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::pop::PopChallenge
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::pop::PopResponse
@@ -1971,7 +1981,6 @@ pub aitp::facade::IdentityMode::Oidc::mint: alloc::boxed::Box<aitp::handshake::s
 pub aitp::facade::IdentityMode::Oidc::subject: alloc::string::String
 pub aitp::facade::IdentityMode::PinnedKey
 pub aitp::facade::IdentityMode::PinnedKey::subject: alloc::string::String
-pub aitp::facade::InitiatorConfig::allow_insecure_localhost: bool
 pub aitp::facade::InitiatorConfig::host_guard: aitp::transport::net_guard::HostGuard
 pub aitp::facade::InitiatorConfig::http_timeout: core::time::Duration
 pub aitp::facade::InitiatorConfig::identity_mode: aitp::facade::IdentityMode
@@ -2816,7 +2825,7 @@ pub async fn aitp::prelude::sign_raw_async(&dyn aitp::crypto::signer::DynAsyncAi
 pub async fn aitp::tct::builder::TctBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<aitp::tct::types::IssuedTct, aitp::tct::error::TctError>
 pub async fn aitp::transport::client::JwksFetcher::resolve(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::transport::client::JwksFetcherError>
 pub async fn aitp::transport::client::JwksFetcher::resolve_with_kid_hint(&self, &url::Url, core::option::Option<&str>) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::transport::client::JwksFetcherError>
-pub async fn aitp::transport::client::ManifestFetcher::fetch(&self, &url::Url) -> core::result::Result<aitp::manifest::types::Manifest, aitp::transport::client::FetchError>
+pub async fn aitp::transport::client::ManifestFetcher::fetch(&self, &url::Url) -> core::result::Result<aitp::manifest::verifier::VerifiedManifest, aitp::transport::client::FetchError>
 pub async fn aitp::transport::net_guard::HostGuard::resolve_checked(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<core::net::socket_addr::SocketAddr>, aitp::transport::net_guard::HostGuardError>
 pub async fn aitp::transport::revocation_fetch::RevocationFetcher::prepare(&self, &aitp::core::aid::Aid, core::option::Option<&str>, aitp::core::time::Timestamp) -> aitp::transport::revocation_fetch::PreparedRevocation
 pub async fn aitp::transport::server::HandshakeServer<R>::serve(self, tokio::net::tcp::listener::TcpListener) -> std::io::error::Result<()>
@@ -3250,7 +3259,7 @@ pub fn aitp::facade::FacadeError::source(&self) -> core::option::Option<&(dyn co
 pub fn aitp::facade::InitiatorConfig<'a>::new(&'a dyn aitp::crypto::signer::AitpSigner, &'a aitp::manifest::types::Manifest, url::Url, aitp::facade::TrustMode<'a>, aitp::facade::IdentityMode, alloc::vec::Vec<alloc::string::String>) -> Self
 pub fn aitp::facade::InitiatorConfig<'a>::with_host_guard(self, aitp::transport::net_guard::HostGuard) -> Self
 pub fn aitp::facade::InitiatorConfig<'a>::with_http_timeout(self, core::time::Duration) -> Self
-pub fn aitp::facade::InitiatorConfig<'a>::with_insecure_localhost(self, bool) -> Self
+pub fn aitp::facade::InitiatorConfig<'a>::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::facade::InitiatorConfig<'a>::with_revocation_policy(self, aitp::transport::revocation::RevocationPolicy) -> Self
 pub fn aitp::facade::SessionContext::clone(&self) -> aitp::facade::SessionContext
 pub fn aitp::facade::SessionContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3555,12 +3564,17 @@ pub fn aitp::manifest::types::ManifestPop::eq(&self, &aitp::manifest::types::Man
 pub fn aitp::manifest::types::ManifestPop::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::manifest::types::ManifestPop::new(impl core::convert::Into<alloc::string::String>, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::manifest::types::ManifestPop::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn aitp::manifest::verifier::VerifiedManifest::clone(&self) -> aitp::manifest::verifier::VerifiedManifest
+pub fn aitp::manifest::verifier::VerifiedManifest::eq(&self, &aitp::manifest::verifier::VerifiedManifest) -> bool
+pub fn aitp::manifest::verifier::VerifiedManifest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::manifest::verifier::VerifiedManifest::into_manifest(self) -> aitp::manifest::types::Manifest
+pub fn aitp::manifest::verifier::VerifiedManifest::manifest(&self) -> &aitp::manifest::types::Manifest
 pub fn aitp::manifest::verifier::VerifyManifestContext::at(aitp::core::time::Timestamp) -> Self
 pub fn aitp::manifest::verifier::VerifyManifestContext::now() -> Self
 pub fn aitp::manifest::verifier::check_identity_type_compatibility(&aitp::manifest::types::Manifest, &'static str) -> core::result::Result<(), aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::verifier::parse_manifest_wire(&aitp::core::CheckedJson) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
-pub fn aitp::manifest::verifier::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<(), aitp::manifest::error::ManifestError>
-pub fn aitp::manifest::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<(), aitp::manifest::error::ManifestError>
+pub fn aitp::manifest::verifier::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<aitp::manifest::verifier::VerifiedManifest, aitp::manifest::error::ManifestError>
+pub fn aitp::manifest::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::VerifyManifestContext) -> core::result::Result<aitp::manifest::verifier::VerifiedManifest, aitp::manifest::error::ManifestError>
 pub fn aitp::prelude::AitpSigner::aid(&self) -> &aitp::core::aid::Aid
 pub fn aitp::prelude::AitpSigner::max_message_len(&self) -> core::option::Option<usize>
 pub fn aitp::prelude::AitpSigner::public_key(&self) -> core::result::Result<aitp::crypto::keys::AitpVerifyingKey, aitp::crypto::signer::SignerError>
@@ -3713,14 +3727,14 @@ pub fn aitp::transport::client::JwksFetcher::with_max_bytes(self, usize) -> Self
 pub fn aitp::transport::client::JwksFetcher::with_timeout(core::time::Duration) -> Self
 pub fn aitp::transport::client::JwksFetcherError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::client::JwksFetcherError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-pub fn aitp::transport::client::ManifestFetcher::cached(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::types::Manifest>
+pub fn aitp::transport::client::ManifestFetcher::cached(&self, &aitp::core::aid::Aid) -> core::option::Option<aitp::manifest::verifier::VerifiedManifest>
 pub fn aitp::transport::client::ManifestFetcher::default() -> Self
 pub fn aitp::transport::client::ManifestFetcher::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::transport::client::ManifestFetcher::maybe_replace_inline(&self, aitp::manifest::types::Manifest) -> bool
+pub fn aitp::transport::client::ManifestFetcher::maybe_replace_inline(&self, aitp::manifest::verifier::VerifiedManifest) -> bool
 pub fn aitp::transport::client::ManifestFetcher::new() -> Self
 pub fn aitp::transport::client::ManifestFetcher::with_client_config(self, aitp::transport::client_config::ClientConfig) -> Self
 pub fn aitp::transport::client::ManifestFetcher::with_host_guard(self, aitp::transport::net_guard::HostGuard) -> Self
-pub fn aitp::transport::client::ManifestFetcher::with_insecure_localhost(self, bool) -> Self
+pub fn aitp::transport::client::ManifestFetcher::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::transport::client::ManifestFetcher::with_max_bytes(self, usize) -> Self
 pub fn aitp::transport::client::ManifestFetcher::with_retry_policy(self, aitp::transport::retry::RetryPolicy) -> Self
 pub fn aitp::transport::client::ManifestFetcher::with_timeout(self, core::time::Duration) -> Self
@@ -3760,13 +3774,12 @@ pub fn aitp::transport::key_resolution::StaticPinnedIssuerKeyStore::new(std::col
 pub fn aitp::transport::net_guard::GuardMode::clone(&self) -> aitp::transport::net_guard::GuardMode
 pub fn aitp::transport::net_guard::GuardMode::eq(&self, &aitp::transport::net_guard::GuardMode) -> bool
 pub fn aitp::transport::net_guard::GuardMode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::transport::net_guard::HostGuard::allow_loopback_dangerous(self) -> Self
 pub fn aitp::transport::net_guard::HostGuard::clone(&self) -> aitp::transport::net_guard::HostGuard
 pub fn aitp::transport::net_guard::HostGuard::default() -> Self
 pub fn aitp::transport::net_guard::HostGuard::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::net_guard::HostGuard::mode(&self) -> aitp::transport::net_guard::GuardMode
 pub fn aitp::transport::net_guard::HostGuard::new(aitp::transport::net_guard::GuardMode) -> Self
-pub fn aitp::transport::net_guard::HostGuard::permissive() -> Self
-pub fn aitp::transport::net_guard::HostGuard::strict() -> Self
 pub fn aitp::transport::net_guard::HostGuardError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::net_guard::HostGuardError::is_transient(&self) -> bool
 pub fn aitp::transport::replay_store::InMemoryReplayGuard::check_and_record(&self, &str, core::time::Duration) -> bool
@@ -3812,7 +3825,7 @@ pub fn aitp::transport::revocation_fetch::RevocationFetcher::fmt(&self, &mut cor
 pub fn aitp::transport::revocation_fetch::RevocationFetcher::new(aitp::transport::revocation::RevocationPolicy) -> Self
 pub fn aitp::transport::revocation_fetch::RevocationFetcher::policy(&self) -> &aitp::transport::revocation::RevocationPolicy
 pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_host_guard(self, aitp::transport::net_guard::HostGuard) -> Self
-pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_insecure_localhost(self, bool) -> Self
+pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_provider(self, alloc::sync::Arc<dyn aitp::transport::revocation::RevocationProvider>) -> Self
 pub fn aitp::transport::revocation_fetch::RevocationFetcher::with_timeout(self, core::time::Duration) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3830,7 +3843,7 @@ pub fn aitp::transport::server::HandshakeServer<R>::with_revocation_producer(sel
 pub fn aitp::transport::server::HandshakeServer<R>::with_session_sweep_interval(self, core::time::Duration) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::with_session_ttl<S: aitp::crypto::signer::AitpSigner + 'static>(S, aitp::manifest::types::Manifest, alloc::vec::Vec<aitp::core::raw_url::RawUrl>, R, alloc::vec::Vec<alloc::string::String>, core::time::Duration) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::with_session_ttl_and_replay_window<S: aitp::crypto::signer::AitpSigner + 'static>(S, aitp::manifest::types::Manifest, alloc::vec::Vec<aitp::core::raw_url::RawUrl>, R, alloc::vec::Vec<alloc::string::String>, core::time::Duration, core::time::Duration) -> Self
-pub fn aitp::transport::server::HandshakeServer<R>::without_rate_limit(self) -> Self
+pub fn aitp::transport::server::HandshakeServer<R>::without_rate_limit_dangerous(self) -> Self
 pub fn aitp::transport::server::HandshakeServer<R>::without_session_sweeper(self) -> Self
 pub fn aitp::transport::server::ManifestServer::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::server::ManifestServer::new(aitp::manifest::types::Manifest) -> Self
@@ -3993,7 +4006,9 @@ pub struct aitp::handshake::state_machine::OidcMintError(_)
 pub struct aitp::handshake::state_machine::Responder
 pub struct aitp::handshake::state_machine::StaticPinnedKeyStore
 pub struct aitp::manifest::ManifestBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::manifest::VerifiedManifest
 pub struct aitp::manifest::builder::ManifestBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::manifest::verifier::VerifiedManifest
 pub struct aitp::prelude::Aid(_)
 pub struct aitp::prelude::AitpSigningKey(_)
 pub struct aitp::prelude::AitpVerifyingKey(_)

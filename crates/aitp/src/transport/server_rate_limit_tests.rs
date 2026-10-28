@@ -126,8 +126,8 @@ fn recommended_defaults_match_rfc_0009() {
 
 /// An explicit opt-out, for deployments that enforce §3.1 upstream.
 #[test]
-fn without_rate_limit_always_allows() {
-    let srv = server().without_rate_limit();
+fn without_rate_limit_dangerous_always_allows() {
+    let srv = server().without_rate_limit_dangerous();
     for _ in 0..10_000 {
         assert!(matches!(
             srv.enforce_rate_limit(Some(ip("1.1.1.1")), None),
