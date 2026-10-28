@@ -56,6 +56,18 @@ impl NetOpts {
         }
     }
 
+    /// [`Self::host_guard`] for the interop endpoints, also admitting
+    /// loopback addresses with `--insecure-localhost`, as the library's
+    /// fetchers do.
+    fn interop_guard(&self) -> HostGuard {
+        let guard = self.host_guard();
+        if self.insecure_localhost {
+            guard.allow_loopback_dangerous()
+        } else {
+            guard
+        }
+    }
+
     fn fetcher(&self) -> ManifestFetcher {
         let fetcher = ManifestFetcher::new()
             .with_timeout(self.timeout)
@@ -138,7 +150,7 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
     args.grants = vec![echo::ECHO_CAP.into()];
     runtime()?.block_on(async {
         let peer = &args.peer;
-        let client = interop_client(peer, &args.net)?;
+        let client = interop_client(peer, &args.net).await?;
         let session = run_handshake(&args).await?;
         let tct = session.held_tct().token().to_owned();
         let challenge: AitpEnvelope = post(
@@ -269,7 +281,7 @@ pub(crate) fn enroll(peer: url::Url, key: &AitpSigningKey, net: NetOpts) -> CliR
 }
 
 async fn enroll_async(peer: url::Url, key: &AitpSigningKey, net: NetOpts) -> CliResult {
-    let client = interop_client(&peer, &net)?;
+    let client = interop_client(&peer, &net).await?;
     let challenge: Challenge = post(
         &client,
         &peer,
@@ -291,8 +303,10 @@ async fn enroll_async(peer: url::Url, key: &AitpSigningKey, net: NetOpts) -> Cli
 }
 
 /// A client for the interop peer's own endpoints: HTTPS only (or
-/// loopback HTTP with `--insecure-localhost`), no redirects.
-fn interop_client(
+/// loopback HTTP with `--insecure-localhost`), no redirects. The peer's
+/// host goes through the same [`HostGuard`] as the other fetches, and
+/// the vetted addresses are pinned into the client.
+async fn interop_client(
     peer: &url::Url,
     net: &NetOpts,
 ) -> Result<reqwest::Client, Box<dyn std::error::Error>> {
@@ -305,10 +319,18 @@ fn interop_client(
         )
         .into());
     }
-    Ok(reqwest::Client::builder()
+    let addrs = net
+        .interop_guard()
+        .resolve_checked(peer)
+        .await
+        .map_err(|e| format!("refusing {peer}: {e}"))?;
+    let mut builder = reqwest::Client::builder()
         .timeout(net.timeout)
-        .redirect(reqwest::redirect::Policy::none())
-        .build()?)
+        .redirect(reqwest::redirect::Policy::none());
+    if let Some(url::Host::Domain(domain)) = peer.host() {
+        builder = builder.resolve_to_addrs(domain, &addrs);
+    }
+    Ok(builder.build()?)
 }
 
 /// POST `body` as JSON to `path` under `peer` and decode a 2xx reply;
@@ -437,5 +459,23 @@ mod tests {
             .resolve_checked(&metadata)
             .await
             .is_err());
+    }
+
+    #[tokio::test]
+    async fn the_interop_client_goes_through_the_guard() {
+        let private = url::Url::parse("https://10.0.0.7/").unwrap();
+        let metadata = url::Url::parse("https://169.254.169.254/").unwrap();
+        let loopback = url::Url::parse("http://127.0.0.1:8080/").unwrap();
+        assert!(interop_client(&private, &opts(false)).await.is_err());
+        assert!(interop_client(&private, &opts(true)).await.is_ok());
+        assert!(interop_client(&metadata, &opts(true)).await.is_err());
+        // Loopback HTTP needs `--insecure-localhost`, which also admits
+        // the loopback address through the guard.
+        assert!(interop_client(&loopback, &opts(false)).await.is_err());
+        let local = NetOpts {
+            insecure_localhost: true,
+            ..opts(false)
+        };
+        assert!(interop_client(&loopback, &local).await.is_ok());
     }
 }
