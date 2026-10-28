@@ -182,7 +182,7 @@ impl TokenBucketLimiter {
     }
 
     /// Change the bound on tracked sources.
-    pub fn max_sources(mut self, max: usize) -> Self {
+    pub fn with_max_sources(mut self, max: usize) -> Self {
         self.max_sources = max.max(1);
         self
     }
@@ -325,7 +325,7 @@ mod tests {
 
     #[test]
     fn source_bound_refuses_new_sources_instead_of_resetting() {
-        let l = TokenBucketLimiter::new(1, 0.001).max_sources(2);
+        let l = TokenBucketLimiter::new(1, 0.001).with_max_sources(2);
         let t0 = Instant::now();
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0).unwrap();
@@ -344,7 +344,7 @@ mod tests {
     /// not once per request.
     #[test]
     fn full_table_prune_is_throttled() {
-        let l = TokenBucketLimiter::new(1, 2.0).max_sources(2);
+        let l = TokenBucketLimiter::new(1, 2.0).with_max_sources(2);
         let t0 = Instant::now();
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0).unwrap();
@@ -372,7 +372,7 @@ mod tests {
                 "rate {rate}"
             );
             // The full-table path computes its wait from the rate too.
-            let l = TokenBucketLimiter::new(1, rate).max_sources(1);
+            let l = TokenBucketLimiter::new(1, rate).with_max_sources(1);
             l.check_key_at("a", t0).unwrap();
             assert_eq!(l.check_key_at("b", t0), Err(Duration::MAX), "rate {rate}");
         }
@@ -385,7 +385,7 @@ mod tests {
         for _ in 0..100 {
             l.check_key_at("a", t0).unwrap();
         }
-        let l = TokenBucketLimiter::new(1, f64::INFINITY).max_sources(1);
+        let l = TokenBucketLimiter::new(1, f64::INFINITY).with_max_sources(1);
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0 + Duration::from_millis(1)).unwrap();
     }

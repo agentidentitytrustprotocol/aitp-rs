@@ -341,7 +341,10 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// handshake aborts with `POLICY_VIOLATION`.
     requested_grants: Vec<String>,
     sessions: Mutex<HashMap<Uuid, SessionEntry>>,
-    session_ttl: Duration,
+    /// Lifetime of an in-progress session. Under a `Mutex` so
+    /// [`HandshakeServer::with_session_ttl`] can change it on an
+    /// already-`Arc`'d server.
+    session_ttl: Mutex<Duration>,
     /// Hard cap on the number of in-progress sessions retained
     /// server-side. When an insert would exceed this, the oldest
     /// entry is evicted regardless of its TTL. Atomic so
@@ -365,7 +368,9 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// Held under a `Mutex` only so the builder can swap it on an
     /// already-`Arc`'d server; the guard itself is cheap to clone.
     replay_guard: Mutex<Arc<dyn crate::transport::replay_store::ReplayGuard>>,
-    replay_window: Duration,
+    /// Under a `Mutex` so [`HandshakeServer::with_replay_window`] can
+    /// change it on an already-`Arc`'d server.
+    replay_window: Mutex<Duration>,
     /// Optional rate-limit configuration. Off by default; operators
     /// replace via [`HandshakeServer::with_rate_limit`]. Enforcement
     /// is per-key sliding 60s windows backed by `rate_limit_events`.
@@ -439,8 +444,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// state machine. `requested_grants` are the capabilities this
     /// responder asks of the initiator (RFC-AITP-0004 §4.1).
     ///
-    /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`].
-    /// Use [`Self::with_session_ttl`] to override.
+    /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`]
+    /// ([`Self::with_session_ttl`]), and `message_id`s are remembered for
+    /// [`DEFAULT_REPLAY_WINDOW`] ([`Self::with_replay_window`]).
     ///
     /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM).
     /// A backend failure while answering a request is a local fault: it
@@ -453,55 +459,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         jwks_resolver: R,
         requested_grants: Vec<String>,
     ) -> Self {
-        Self::with_session_ttl(
-            signing_key,
-            manifest,
-            trust_anchors,
-            jwks_resolver,
-            requested_grants,
-            DEFAULT_SESSION_TTL,
-        )
-    }
-
-    /// Same as [`Self::new`] with an explicit session TTL. Tests use
-    /// short TTLs to exercise the expiry path; production callers
-    /// should prefer [`Self::new`].
-    ///
-    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
-    /// see [`Self::new`].
-    pub fn with_session_ttl<S: AitpSigner + 'static>(
-        signing_key: S,
-        manifest: Manifest,
-        trust_anchors: Vec<crate::core::RawUrl>,
-        jwks_resolver: R,
-        requested_grants: Vec<String>,
-        session_ttl: Duration,
-    ) -> Self {
-        Self::with_session_ttl_and_replay_window(
-            signing_key,
-            manifest,
-            trust_anchors,
-            jwks_resolver,
-            requested_grants,
-            session_ttl,
-            DEFAULT_REPLAY_WINDOW,
-        )
-    }
-
-    /// Same as [`Self::with_session_ttl`] with an explicit replay-deny-list
-    /// window. Tests use short windows to exercise eviction.
-    ///
-    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
-    /// see [`Self::new`].
-    pub fn with_session_ttl_and_replay_window<S: AitpSigner + 'static>(
-        signing_key: S,
-        manifest: Manifest,
-        trust_anchors: Vec<crate::core::RawUrl>,
-        jwks_resolver: R,
-        requested_grants: Vec<String>,
-        session_ttl: Duration,
-        replay_window: Duration,
-    ) -> Self {
         Self {
             state: Arc::new(HandshakeState {
                 signing_key: Arc::new(signing_key),
@@ -510,14 +467,14 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 jwks_resolver,
                 requested_grants,
                 sessions: Mutex::new(HashMap::new()),
-                session_ttl,
+                session_ttl: Mutex::new(DEFAULT_SESSION_TTL),
                 max_sessions: std::sync::atomic::AtomicUsize::new(DEFAULT_MAX_SESSIONS),
                 session_sweep_interval: Mutex::new(Some(DEFAULT_SESSION_SWEEP_INTERVAL)),
                 sweeper_started: std::sync::atomic::AtomicBool::new(false),
                 replay_guard: Mutex::new(Arc::new(
                     crate::transport::replay_store::InMemoryReplayGuard::new(),
                 )),
-                replay_window,
+                replay_window: Mutex::new(DEFAULT_REPLAY_WINDOW),
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
@@ -529,6 +486,21 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
             }),
             revocation_producer: None,
         }
+    }
+
+    /// Override the lifetime of an in-progress handshake session
+    /// (default [`DEFAULT_SESSION_TTL`]).
+    pub fn with_session_ttl(self, ttl: Duration) -> Self {
+        *self.state.session_ttl.lock() = ttl;
+        self
+    }
+
+    /// Override how long an accepted `message_id` is remembered by the
+    /// replay deny list (default [`DEFAULT_REPLAY_WINDOW`]). RFC-AITP-0001
+    /// §5.5 requires at least the timestamp tolerance.
+    pub fn with_replay_window(self, window: Duration) -> Self {
+        *self.state.replay_window.lock() = window;
+        self
     }
 
     /// Override the in-flight session cap (default
@@ -1006,7 +978,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     let session_id = Uuid::new_v4();
     {
         let mut sessions = state.sessions.lock();
-        sweep_expired(&mut sessions, state.session_ttl);
+        sweep_expired(&mut sessions, *state.session_ttl.lock());
         let cap = state
             .max_sessions
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -1077,10 +1049,11 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         })?;
     let mut entry = {
         let mut sessions = state.sessions.lock();
+        let session_ttl = *state.session_ttl.lock();
         let expired_present = sessions
             .get(&session_id)
-            .is_some_and(|e| Instant::now().duration_since(e.created_at) > state.session_ttl);
-        sweep_expired(&mut sessions, state.session_ttl);
+            .is_some_and(|e| Instant::now().duration_since(e.created_at) > session_ttl);
+        sweep_expired(&mut sessions, session_ttl);
         if expired_present {
             return Err(ResponseError::aitp(
                 ErrorCode::TimestampExpired,
@@ -1620,7 +1593,8 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     // Clone the guard Arc out from under the short lock, then run the
     // (self-synchronizing) check without holding the server-state lock.
     let guard = state.replay_guard.lock().clone();
-    if guard.check_and_record(&mid.to_string(), state.replay_window) {
+    let window = *state.replay_window.lock();
+    if guard.check_and_record(&mid.to_string(), window) {
         Ok(())
     } else {
         crate::transport::obs::replay_rejected();
@@ -1640,7 +1614,7 @@ fn spawn_sweeper_task<R: JwksResolver + Send + Sync + 'static>(
     interval: Duration,
 ) -> tokio::task::JoinHandle<()> {
     let weak = Arc::downgrade(state);
-    let ttl = state.session_ttl;
+    let ttl = *state.session_ttl.lock();
     handle.spawn(async move {
         let mut ticker = tokio::time::interval(interval);
         // Don't fire a spurious immediate tick: the first call to

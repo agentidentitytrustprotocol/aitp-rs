@@ -96,7 +96,14 @@ fn p1_legacy_two_field_proof_rejected() {
         legacy_sig,
     );
 
-    let ctx = PinnedKeyVerifyContext::new(sender.aid(), receiver.aid(), &mid, ts, pop_nonce);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(receiver.aid())
+        .message_id(&mid)
+        .timestamp(ts)
+        .pop_nonce(pop_nonce)
+        .build()
+        .unwrap();
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -140,8 +147,14 @@ fn p1_wrong_receiver_in_proof_rejected() {
         ),
         proof,
     );
-    let ctx =
-        PinnedKeyVerifyContext::new(sender.aid(), intended_receiver.aid(), &mid, ts, pop_nonce);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(intended_receiver.aid())
+        .message_id(&mid)
+        .timestamp(ts)
+        .pop_nonce(pop_nonce)
+        .build()
+        .unwrap();
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -172,7 +185,14 @@ fn p1_wrong_pop_nonce_in_proof_rejected() {
         ),
         proof,
     );
-    let ctx = PinnedKeyVerifyContext::new(sender.aid(), receiver.aid(), &mid, ts, &other_nonce);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(receiver.aid())
+        .message_id(&mid)
+        .timestamp(ts)
+        .pop_nonce(&other_nonce)
+        .build()
+        .unwrap();
     let err = verify_pinned_key(
         &descriptor,
         &ctx,
@@ -206,15 +226,16 @@ fn oidc_descriptor_with_public_key_rejected() {
             .expect("key was constructed as Ed25519, never P-256"),
     ));
     let anchors = ["https://idp.example.com".parse().unwrap()];
-    let ctx = OidcVerifyContext::new(
-        receiver.aid(),
-        "nonce",
-        &anchors,
-        &resolver,
-        sender.aid(),
-        std::time::Duration::from_secs(300),
-        aitp::core::Timestamp(1_700_000_000),
-    );
+    let ctx = OidcVerifyContext::builder()
+        .expected_audience(receiver.aid())
+        .expected_nonce("nonce")
+        .trust_anchors(&anchors)
+        .jwks_resolver(&resolver)
+        .subject_aid(sender.aid())
+        .iat_tolerance(std::time::Duration::from_secs(300))
+        .now(aitp::core::Timestamp(1_700_000_000))
+        .build()
+        .expect("every required input is set");
     let err = verify_oidc(&descriptor, &ctx).unwrap_err();
     assert!(
         matches!(err, HandshakeError::Identity(ref s) if s.contains("public_key")),

@@ -10,7 +10,7 @@
 //! requested AID, so artifact verifiers never use an unverified one.
 
 use crate::core::Aid;
-use crate::manifest::verifier::{verify_manifest, VerifyManifestContext};
+use crate::manifest::verifier::{verify_manifest, ManifestVerifyContext};
 use crate::manifest::{Manifest, ManifestError};
 use std::collections::HashMap;
 
@@ -81,7 +81,7 @@ impl ManifestResolver for HashMap<Aid, Manifest> {
 pub fn resolve_verified_manifest(
     resolver: &dyn ManifestResolver,
     aid: &Aid,
-    ctx: &VerifyManifestContext,
+    ctx: &ManifestVerifyContext,
 ) -> Result<Manifest, ManifestError> {
     let manifest = resolver
         .resolve_manifest(aid)
@@ -118,8 +118,8 @@ mod tests {
             .unwrap()
     }
 
-    fn ctx() -> VerifyManifestContext {
-        VerifyManifestContext { now: NOW }
+    fn ctx() -> ManifestVerifyContext {
+        ManifestVerifyContext { now: NOW }
     }
 
     #[test]

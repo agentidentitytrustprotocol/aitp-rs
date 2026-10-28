@@ -8,8 +8,8 @@ use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, AitpVerifyingKey, CryptoError, SignerError};
 use aitp::tct::{
     sign_pop_response, sign_revocation_list, verify_pop_response, verify_revocation_list,
-    verify_tct, PopChallenge, RevocationList, TctBuilder, TctError, TctVerifyContext,
-    VerifyRevocationListContext,
+    verify_tct, PopChallenge, RevocationList, RevocationListVerifyContext, TctBuilder, TctError,
+    TctVerifyContext,
 };
 
 fn p256(seed: u8) -> AitpSigningKey {
@@ -95,7 +95,7 @@ fn kms_backend_signs_pop_response_and_revocation_list() {
 
     let body = RevocationList::new(issuer.aid().clone(), now, Timestamp(now.0 + 600), vec![]);
     let env = sign_revocation_list(body, &issuer).expect("KMS revocation list signs");
-    verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer.aid(), now))
+    verify_revocation_list(&env, &RevocationListVerifyContext::new(issuer.aid(), now))
         .expect("KMS revocation list verifies");
 
     let bad = MockKmsSigner::new(p256(0x43)).sign_with(p256(0x44));

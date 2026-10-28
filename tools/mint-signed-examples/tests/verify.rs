@@ -3,10 +3,10 @@
 //! this confirms the signatures are real.
 
 use aitp::core::{Aid, Timestamp};
-use aitp::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use aitp::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use aitp::tct::{
-    verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope, TctVerifyContext,
-    VerifyRevocationListContext,
+    verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope,
+    RevocationListVerifyContext, TctVerifyContext,
 };
 use std::path::PathBuf;
 
@@ -59,7 +59,7 @@ fn minted_manifest_verifies() {
         return;
     };
     let m: Manifest = serde_json::from_value(v["manifest"].clone()).unwrap();
-    verify_manifest(&m, &VerifyManifestContext::at(fixed_now())).expect("minted manifest verifies");
+    verify_manifest(&m, &ManifestVerifyContext::at(fixed_now())).expect("minted manifest verifies");
 }
 
 #[test]
@@ -131,7 +131,7 @@ fn minted_delegation_verifies() {
         .build()
         .unwrap();
     let issuer_manifests = vec![b_manifest];
-    let ctx = aitp::delegation::VerifyDelegationContext::new(
+    let ctx = aitp::delegation::DelegationVerifyContext::new(
         &verifier_aid,
         fixed_now(),
         aitp::tct::RevocationSource::FailOpen,
@@ -157,6 +157,6 @@ fn minted_revocation_snapshot_verifies() {
     obj.remove("signing_input");
     let env: RevocationListEnvelope = serde_json::from_value(v).unwrap();
     let issuer = env.revocation_list.issuer.clone();
-    let ctx = VerifyRevocationListContext::new(&issuer, fixed_now());
+    let ctx = RevocationListVerifyContext::new(&issuer, fixed_now());
     verify_revocation_list(&env, &ctx).expect("minted revocation snapshot verifies");
 }

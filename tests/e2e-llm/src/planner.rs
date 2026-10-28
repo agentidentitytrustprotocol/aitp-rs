@@ -16,7 +16,7 @@ use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, Trust
 use aitp::handshake::StaticPinnedKeyStore;
 use aitp::manifest::Manifest;
 use aitp::tct::{
-    verify_revocation_list, RevocationListEnvelope, VerifiedTct, VerifyRevocationListContext,
+    verify_revocation_list, RevocationListEnvelope, RevocationListVerifyContext, VerifiedTct,
 };
 use aitp::transport::ManifestFetcher;
 use aitp_example_two_agents::build_demo_manifest;
@@ -115,7 +115,7 @@ pub async fn fetch_revocation_snapshot(
         resp.json().await.context("decoding revocation snapshot")?;
     verify_revocation_list(
         &envelope,
-        &VerifyRevocationListContext::new(worker_aid, Timestamp::now()),
+        &RevocationListVerifyContext::new(worker_aid, Timestamp::now()),
     )
     .map_err(|e| anyhow!("served revocation snapshot failed verification: {e}"))?;
     Ok(envelope)

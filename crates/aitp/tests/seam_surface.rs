@@ -330,8 +330,15 @@ fn pinned_key_proof_round_trip() {
     );
     assert_eq!(descriptor.kind, IdentityKind::PinnedKey);
     let store: StaticPinnedKeyStore = [vk].into_iter().collect();
-    let ctx = PinnedKeyVerifyContext::new(sender.aid(), &receiver, &message_id, NOW, &pop_nonce)
-        .with_subject(SubjectBinding::SenderAid);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(&receiver)
+        .message_id(&message_id)
+        .timestamp(NOW)
+        .pop_nonce(&pop_nonce)
+        .subject(SubjectBinding::SenderAid)
+        .build()
+        .unwrap();
     let verified = verify_pinned_key(&descriptor, &ctx, &store).unwrap();
     assert_eq!(verified.aid(), sender.aid());
 

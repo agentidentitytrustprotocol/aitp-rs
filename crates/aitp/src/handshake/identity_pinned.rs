@@ -354,6 +354,7 @@ impl StaticPinnedKeyStore {
 }
 
 /// Inputs for verifying a pinned-key identity proof.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct PinnedKeyVerifyContext<'a> {
     /// The sender's AID (per `envelope.sender.agent_id`).
@@ -376,29 +377,88 @@ pub struct PinnedKeyVerifyContext<'a> {
 }
 
 impl<'a> PinnedKeyVerifyContext<'a> {
-    /// The inputs from the envelope and the handshake payload, with
-    /// `subject` left [`SubjectBinding::Unchecked`].
-    pub fn new(
-        sender_aid: &'a Aid,
-        receiver_aid: &'a Aid,
-        message_id: &'a Uuid,
-        timestamp: Timestamp,
-        pop_nonce: &'a str,
-    ) -> Self {
-        Self {
-            sender_aid,
-            receiver_aid,
-            message_id,
-            timestamp,
-            pop_nonce,
+    /// Start a builder. Every input except
+    /// [`PinnedKeyVerifyContextBuilder::subject`] (default
+    /// [`SubjectBinding::Unchecked`]) is required.
+    pub fn builder() -> PinnedKeyVerifyContextBuilder<'a> {
+        PinnedKeyVerifyContextBuilder {
+            sender_aid: None,
+            receiver_aid: None,
+            message_id: None,
+            timestamp: None,
+            pop_nonce: None,
             subject: SubjectBinding::Unchecked,
         }
     }
+}
 
-    /// Set what the descriptor's `subject` must be.
-    pub fn with_subject(mut self, subject: SubjectBinding) -> Self {
+/// Builder for [`PinnedKeyVerifyContext`]. See
+/// [`PinnedKeyVerifyContext::builder`].
+#[derive(Debug)]
+pub struct PinnedKeyVerifyContextBuilder<'a> {
+    sender_aid: Option<&'a Aid>,
+    receiver_aid: Option<&'a Aid>,
+    message_id: Option<&'a Uuid>,
+    timestamp: Option<Timestamp>,
+    pop_nonce: Option<&'a str>,
+    subject: SubjectBinding,
+}
+
+impl<'a> PinnedKeyVerifyContextBuilder<'a> {
+    /// The sender's AID (`envelope.sender.agent_id`). Required.
+    pub fn sender_aid(mut self, aid: &'a Aid) -> Self {
+        self.sender_aid = Some(aid);
+        self
+    }
+
+    /// The verifying peer's own AID. Required.
+    pub fn receiver_aid(mut self, aid: &'a Aid) -> Self {
+        self.receiver_aid = Some(aid);
+        self
+    }
+
+    /// The envelope's `message_id`. Required.
+    pub fn message_id(mut self, message_id: &'a Uuid) -> Self {
+        self.message_id = Some(message_id);
+        self
+    }
+
+    /// The envelope's `timestamp`. Required.
+    pub fn timestamp(mut self, timestamp: Timestamp) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    /// The handshake's `pop_nonce`, as the base64url string. Required.
+    pub fn pop_nonce(mut self, pop_nonce: &'a str) -> Self {
+        self.pop_nonce = Some(pop_nonce);
+        self
+    }
+
+    /// What the descriptor's `subject` must be. Default
+    /// [`SubjectBinding::Unchecked`].
+    pub fn subject(mut self, subject: SubjectBinding) -> Self {
         self.subject = subject;
         self
+    }
+
+    /// The context, or the first required input that was not set.
+    pub fn build(self) -> Result<PinnedKeyVerifyContext<'a>, crate::core::MissingFieldError> {
+        use crate::core::MissingFieldError;
+        Ok(PinnedKeyVerifyContext {
+            sender_aid: self
+                .sender_aid
+                .ok_or(MissingFieldError::new("sender_aid"))?,
+            receiver_aid: self
+                .receiver_aid
+                .ok_or(MissingFieldError::new("receiver_aid"))?,
+            message_id: self
+                .message_id
+                .ok_or(MissingFieldError::new("message_id"))?,
+            timestamp: self.timestamp.ok_or(MissingFieldError::new("timestamp"))?,
+            pop_nonce: self.pop_nonce.ok_or(MissingFieldError::new("pop_nonce"))?,
+            subject: self.subject,
+        })
     }
 }
 

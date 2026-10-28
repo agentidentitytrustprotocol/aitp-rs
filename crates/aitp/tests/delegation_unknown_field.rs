@@ -5,7 +5,7 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::Manifest;
 use aitp::tct::TctBuilder;
@@ -24,7 +24,7 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
 }
 
-fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> DelegationVerifyContext<'_> {
     common::verify_ctx(verifier, now, issuer_manifests())
 }
 

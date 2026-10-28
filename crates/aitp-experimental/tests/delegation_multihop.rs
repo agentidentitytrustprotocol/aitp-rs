@@ -13,8 +13,8 @@ use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, 
 use aitp::tct::TctBuilder;
 use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus};
 use aitp_experimental::delegation::{
-    compute_chain_hash, verify_chained_delegation, ChainedDelegationBuilder,
-    ChainedDelegationError, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    compute_chain_hash, verify_chained_delegation, ChainVerifyContext, ChainedDelegationBuilder,
+    ChainedDelegationError, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use std::collections::HashMap;
 use std::sync::OnceLock;
@@ -114,8 +114,8 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     })
 }
 
-fn multihop_ctx(verifier: &aitp::core::Aid) -> VerifyChainContext<'_> {
-    VerifyChainContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
+fn multihop_ctx(verifier: &aitp::core::Aid) -> ChainVerifyContext<'_> {
+    ChainVerifyContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
         .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
         .with_issuer_manifests(issuer_manifests())
 }
@@ -141,7 +141,7 @@ fn chain_rejected_without_opt_in() {
     let token = outer(&hop1());
     let a_key = a();
     // A hop budget of 0: structural rejection.
-    let ctx = VerifyChainContext::new(
+    let ctx = ChainVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,
@@ -158,7 +158,7 @@ fn hop_limit_enforced_before_signatures() {
     let token = outer(&hop1());
     let a_key = a();
     // total_hops = chain(1) + 2 = 3 > max_delegation_hops 2.
-    let ctx = VerifyChainContext::new(
+    let ctx = ChainVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,
@@ -243,7 +243,7 @@ fn truncated_chain_rejected() {
         .build()
         .unwrap();
     let a_key = a();
-    let full_ctx = VerifyChainContext::new(
+    let full_ctx = ChainVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,
@@ -421,8 +421,8 @@ fn multihop_without_hop_source_fails_closed() {
 fn ctx_with<'a>(
     verifier: &'a Aid,
     resolver: &'a dyn aitp::manifest::ManifestResolver,
-) -> VerifyChainContext<'a> {
-    VerifyChainContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
+) -> ChainVerifyContext<'a> {
+    ChainVerifyContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
         .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
         .with_issuer_manifests(resolver)
 }
@@ -445,7 +445,7 @@ fn key_resolution_cause(err: ChainedDelegationError, issuer: &Aid) -> ManifestEr
 fn multihop_without_manifest_source_rejected() {
     let token = outer(&hop1());
     let a_key = a();
-    let ctx = VerifyChainContext::new(
+    let ctx = ChainVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,
@@ -602,7 +602,7 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
         manifest_for(&AitpSigningKey::from_ed25519_seed(&kat_002_seed), published),
         manifest_for(&AitpSigningKey::from_ed25519_seed(&[0xffu8; 32]), published),
     ];
-    let ctx = VerifyChainContext::new(
+    let ctx = ChainVerifyContext::new(
         verifier.aid(),
         Timestamp(1_711_900_100),
         RevocationSource::FailOpen,
@@ -897,7 +897,7 @@ fn builder_extending_rejects_prior_hop_with_duplicate_member() {
 #[test]
 fn new_defaults_to_three_hops() {
     let a_key = a();
-    let ctx = VerifyChainContext::new(
+    let ctx = ChainVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,

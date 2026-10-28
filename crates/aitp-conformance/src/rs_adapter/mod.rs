@@ -1435,7 +1435,7 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or_else(|| state.now());
     match aitp::manifest::verify_manifest(
         &manifest,
-        &aitp::manifest::VerifyManifestContext::at(now),
+        &aitp::manifest::ManifestVerifyContext::at(now),
     ) {
         Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &manifest_error_code(&e), &e.to_string()),
@@ -1845,7 +1845,7 @@ fn accepted_snapshot(
 ) -> Result<aitp::tct::RevocationListEnvelope, (String, String)> {
     let env = aitp::tct::parse_revocation_snapshot_wire(&checked(snapshot))
         .map_err(|e| (revocation_error_code(&e), e.to_string()))?;
-    let ctx = aitp::tct::VerifyRevocationListContext::new(expected_issuer, now);
+    let ctx = aitp::tct::RevocationListVerifyContext::new(expected_issuer, now);
     aitp::tct::verify_revocation_list(&env, &ctx).map_err(|e| {
         let code = match e {
             // No dedicated registry code: an expired snapshot is not one
@@ -2127,14 +2127,14 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     // sending `set_features` with `experimental-multihop-delegation`.
     let scope = if state.has_feature("experimental-multihop-delegation") {
         let ctx =
-            aitp_experimental::delegation::VerifyChainContext::new(&verifier_aid, now, revocation)
+            aitp_experimental::delegation::ChainVerifyContext::new(&verifier_aid, now, revocation)
                 .with_issuer_manifests(&issuer_manifests)
                 .with_hop_revocation_check(&hop_revocation_closure);
         aitp_experimental::delegation::verify_chained_delegation(&token, &ctx)
             .map(|v| v.effective_grants)
             .map_err(|e| (chained_delegation_error_code(&e), e.to_string()))
     } else {
-        let ctx = aitp::delegation::VerifyDelegationContext::new(&verifier_aid, now, revocation)
+        let ctx = aitp::delegation::DelegationVerifyContext::new(&verifier_aid, now, revocation)
             .with_issuer_manifests(&issuer_manifests);
         aitp::delegation::verify_delegation(&token, &ctx)
             .map(|v| v.into_parts().effective_grants)
@@ -3183,7 +3183,7 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .and_then(|v| v.as_i64())
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
-    let ctx = aitp::tct::VerifyRevocationListContext::new(&expected_issuer, now);
+    let ctx = aitp::tct::RevocationListVerifyContext::new(&expected_issuer, now);
     if let Err(e) = aitp::tct::verify_revocation_list(&env, &ctx) {
         return err(id, &revocation_error_code(&e), &e.to_string());
     }
@@ -3743,7 +3743,7 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
 
 fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     use aitp_experimental::session_bundle::{
-        verify_session_bundle, BundleOutcome, CoordinatorKeySource, VerifySessionBundleContext,
+        verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleVerifyContext,
     };
 
     // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
@@ -3837,7 +3837,7 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         Some(&check)
     };
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
@@ -5589,15 +5589,16 @@ mod oidc_test_issuer_tests {
         );
         let anchors: Vec<aitp::core::RawUrl> = vec![oidc_test_issuer().0.parse().unwrap()];
         let resolver = OidcTestIssuerResolver;
-        let ctx = OidcVerifyContext::new(
-            audience_key.aid(),
-            nonce,
-            &anchors,
-            &resolver,
-            subject_key.aid(),
-            std::time::Duration::from_secs(300),
-            now_ts,
-        );
+        let ctx = OidcVerifyContext::builder()
+            .expected_audience(audience_key.aid())
+            .expected_nonce(nonce)
+            .trust_anchors(&anchors)
+            .jwks_resolver(&resolver)
+            .subject_aid(subject_key.aid())
+            .iat_tolerance(std::time::Duration::from_secs(300))
+            .now(now_ts)
+            .build()
+            .expect("every required input is set");
         let result = verify_oidc(&descriptor, &ctx);
         assert!(
             result.is_ok(),

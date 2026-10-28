@@ -60,14 +60,14 @@ async fn commit_after_session_ttl_is_rejected() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
     // 50ms TTL; the test sleeps 200ms between HELLO and COMMIT.
-    let server = HandshakeServer::with_session_ttl(
+    let server = HandshakeServer::new(
         AitpSigningKey::from_ed25519_seed(&[0x72; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-        Duration::from_millis(50),
     )
+    .with_session_ttl(Duration::from_millis(50))
     .with_pinned_key_store(std::sync::Arc::new(
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))
@@ -187,14 +187,14 @@ async fn fresh_session_within_ttl_is_accepted() {
     let bob_manifest = manifest_for(&bob, "bob", &endpoint);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
-    let server = HandshakeServer::with_session_ttl(
+    let server = HandshakeServer::new(
         AitpSigningKey::from_ed25519_seed(&[0x74; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-        Duration::from_secs(60),
     )
+    .with_session_ttl(Duration::from_secs(60))
     .with_pinned_key_store(std::sync::Arc::new(
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))

@@ -9,7 +9,7 @@ use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
-    SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
+    SessionBundleBuilder, SessionBundleEnvelope, SessionBundleVerifyContext,
 };
 
 use crate::wire;
@@ -160,7 +160,7 @@ pub fn verify_session_bundle_js(
 
     let outcome = verify_session_bundle(
         &bundle,
-        &VerifySessionBundleContext {
+        &SessionBundleVerifyContext {
             verifier_aid: &verifier,
             now,
             revocation_check: closure.as_deref(),

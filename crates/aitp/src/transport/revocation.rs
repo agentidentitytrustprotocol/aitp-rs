@@ -9,8 +9,8 @@
 use crate::core::{Aid, BoxFuture, Timestamp};
 use crate::crypto::AitpSigner;
 use crate::tct::{
-    sign_revocation_list, verify_revocation_list, RevocationList, RevocationListEnvelope, TctError,
-    VerifyRevocationListContext,
+    sign_revocation_list, verify_revocation_list, RevocationList, RevocationListEnvelope,
+    RevocationListVerifyContext, TctError,
 };
 use std::sync::Arc;
 
@@ -311,7 +311,7 @@ pub(crate) fn verify_snapshot(
     // these two errors, and collapsing either into `SignatureInvalid`
     // here would misreport a structural rejection — whose signature was
     // never reached — as a cryptographic one.
-    verify_revocation_list(env, &VerifyRevocationListContext::new(issuer, now)).map_err(
+    verify_revocation_list(env, &RevocationListVerifyContext::new(issuer, now)).map_err(
         |e| match e {
             TctError::Expired => RevocationError::Expired,
             TctError::UnknownField(field) => RevocationError::UnknownField(field),

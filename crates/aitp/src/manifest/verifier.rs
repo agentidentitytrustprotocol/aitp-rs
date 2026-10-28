@@ -8,13 +8,13 @@ use crate::manifest::ManifestError;
 
 /// Inputs for verifying a Manifest.
 #[non_exhaustive]
-pub struct VerifyManifestContext {
+pub struct ManifestVerifyContext {
     /// Current time, used for expiry check. Pass `Timestamp::now()` in
     /// production; pass a pinned value in tests.
     pub now: Timestamp,
 }
 
-impl VerifyManifestContext {
+impl ManifestVerifyContext {
     /// Build a context using the system clock.
     pub fn now() -> Self {
         Self::at(Timestamp::now())
@@ -73,7 +73,7 @@ impl VerifiedManifest {
 /// the fresh `payload.identity` field.
 pub fn verify_manifest(
     manifest: &Manifest,
-    ctx: &VerifyManifestContext,
+    ctx: &ManifestVerifyContext,
 ) -> Result<VerifiedManifest, ManifestError> {
     // 1. Version check.
     if manifest.version != crate::core::PROTOCOL_VERSION {

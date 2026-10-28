@@ -10,7 +10,7 @@ use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, 
 use aitp::tct::{TctBuilder, TctError};
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleBuilder,
-    SessionBundleError, SessionTrustBundle, VerifySessionBundleContext,
+    SessionBundleError, SessionBundleVerifyContext, SessionTrustBundle,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -81,7 +81,7 @@ fn verify(
 ) -> Result<BundleOutcome, SessionBundleError> {
     verify_session_bundle(
         bundle,
-        &VerifySessionBundleContext {
+        &SessionBundleVerifyContext {
             verifier_aid: verifier.aid(),
             now,
             revocation_check: None,

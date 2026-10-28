@@ -111,15 +111,16 @@ fn ctx<'a>(
     nonce: &'a str,
     anchors: &'a [RawUrl],
 ) -> OidcVerifyContext<'a> {
-    OidcVerifyContext::new(
-        audience_aid,
-        nonce,
-        anchors,
-        resolver,
-        subject_aid,
-        std::time::Duration::from_secs(300),
-        aitp::core::Timestamp(NOW),
-    )
+    OidcVerifyContext::builder()
+        .expected_audience(audience_aid)
+        .expected_nonce(nonce)
+        .trust_anchors(anchors)
+        .jwks_resolver(resolver)
+        .subject_aid(subject_aid)
+        .iat_tolerance(std::time::Duration::from_secs(300))
+        .now(aitp::core::Timestamp(NOW))
+        .build()
+        .expect("every required input is set")
 }
 
 fn mint_valid_jwt(

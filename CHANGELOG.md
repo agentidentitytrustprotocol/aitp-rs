@@ -15,16 +15,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - `aitp-rs-adapter` is merged into the unpublished `aitp-conformance`: the library is `aitp_conformance::rs_adapter`, and `cargo build -p aitp-conformance` builds both binaries. The binary keeps its name.
 - The bindings (`aitp-py`, `aitp-node`) depend on `aitp` with `default-features = false`, and on `aitp-experimental` for `session-bundle`.
 - `aitp-handshake` (re-exported as `aitp::handshake`): `JwkPublicKey.alg` is now `Option<JwsAlgorithm>`. It holds the JWK's own `alg` member, which pins the key to that algorithm (RFC 7517 §4.4); `None` allows any algorithm that fits the key type (`JwsAlgorithm::fits`). `from_jwk_json` used to ignore the member. It now rejects an `alg` that does not fit the key type. `JwsAlgorithm` gains `ES384`, `ES512`, `RS384`, `RS512`, `PS256`, `PS384` and `PS512`, and `JwkKeyMaterial` gains `P384` and `P521`. `JwsVerifyError::AlgMismatch` keeps only the `header` field.
-- `aitp`: every public struct and enum of the stable surface is now `#[non_exhaustive]` or has a private field, except six listed with their reasons in `docs/api-classification.md`: `Timestamp` and `BlockingSigner` (newtypes), `NoPinnedKeys` (a unit value), and the decisions `HandshakeRevocationDecision`, `RevocationOutcome` and `KeyResolutionOutcome`, whose callers must handle each outcome. Newly `#[non_exhaustive]`: the enums `DelegationRevocation`, `EnvelopeParseError`, `FacadeError`, `FetchError`, `IdentityMode`, `JwkKeyMaterial`, `JwksFetcherError`, `JwsAlgorithm`, `KeyResolutionFailMode`, `PresentedIdentity`, `RevocationFailMode`, `RevocationSource` and `TrustMode`, and the structs `AitpEnvelope`, `Cnf`, `CompletedHandshake`, `DelegationClaims`, `GrantVoucherClaims`, `IdentityDescriptor`, `IdentityHint`, `InvalidTag`, `IssuedTct`, `JwkPublicKey`, `Manifest`, `ManifestEnvelope`, `ManifestPop`, `MutualCommitAckPayload`, `MutualCommitPayload`, `MutualHelloAckPayload`, `MutualHelloPayload`, `OidcVerifyContext`, `PinnedKeyVerifyContext`, `PopChallenge`, `PopResponse`, `RateLimitConfig`, `RevocationEntry`, `RevocationList`, `RevocationListEnvelope`, `RevocationPolicy`, `Sender`, `SessionContext`, `TctClaims`, `VerifiedDelegation`, `VerifiedTct` and `VerifyManifestContext`. A `match` on one of these enums outside `aitp` needs a wildcard arm. A struct can no longer be built with a literal; its public fields can still be read and set. Build it with its constructor instead:
+- `aitp`: every public struct and enum of the stable surface is now `#[non_exhaustive]` or has a private field, except six listed with their reasons in `docs/api-classification.md`: `Timestamp` and `BlockingSigner` (newtypes), `NoPinnedKeys` (a unit value), and the decisions `HandshakeRevocationDecision`, `RevocationOutcome` and `KeyResolutionOutcome`, whose callers must handle each outcome. Newly `#[non_exhaustive]`: the enums `DelegationRevocation`, `EnvelopeParseError`, `FacadeError`, `FetchError`, `IdentityMode`, `JwkKeyMaterial`, `JwksFetcherError`, `JwsAlgorithm`, `KeyResolutionFailMode`, `PresentedIdentity`, `RevocationFailMode`, `RevocationSource` and `TrustMode`, and the structs `AitpEnvelope`, `Cnf`, `CompletedHandshake`, `DelegationClaims`, `GrantVoucherClaims`, `IdentityDescriptor`, `IdentityHint`, `InvalidTag`, `IssuedTct`, `JwkPublicKey`, `Manifest`, `ManifestEnvelope`, `ManifestPop`, `MutualCommitAckPayload`, `MutualCommitPayload`, `MutualHelloAckPayload`, `MutualHelloPayload`, `OidcVerifyContext`, `PinnedKeyVerifyContext`, `PopChallenge`, `PopResponse`, `RateLimitConfig`, `RevocationEntry`, `RevocationList`, `RevocationListEnvelope`, `RevocationPolicy`, `Sender`, `SessionContext`, `TctClaims`, `VerifiedDelegation`, `VerifiedTct` and `ManifestVerifyContext`. A `match` on one of these enums outside `aitp` needs a wildcard arm. A struct can no longer be built with a literal; its public fields can still be read and set. Build it with its constructor instead:
   - `AitpEnvelope::unsigned(sender_aid, message_type, payload, message_id, timestamp)`, then sign it; `Sender::new`.
-  - `IdentityHint::new(kind, subject)` with `with_issuer` and `with_public_key`; `ManifestEnvelope::new`, `ManifestPop::new`, `VerifyManifestContext::at(now)`.
+  - `IdentityHint::new(kind, subject)` with `with_issuer` and `with_public_key`; `ManifestEnvelope::new`, `ManifestPop::new`, `ManifestVerifyContext::at(now)`.
   - `PopChallenge::new(tct_jti, nonce, expires_at)`; `RevocationList::new(issuer, published_at, expires_at, entries)`; `RevocationEntry::new(jti, revoked_at)` with `with_reason`.
   - `JwkPublicKey::new(key)` with `with_kid` and `with_alg`; `OidcVerifyContext::new`; `IdentityDescriptor::pinned_key` and `oidc`; `PinnedKeyVerifyContext::new` with `with_subject`.
   - `RateLimitConfig::default()` with `with_requests_per_source_per_60s`, `with_requests_per_aid_per_60s` and `with_trusted_proxies`; `RevocationPolicy::default()` with `with_fail_mode`, `with_max_staleness_secs` and `with_cache_ttl_secs`.
   - The other structs are outputs of `aitp` (verified claims, handshake results, decoded payloads) and have no constructor.
 - `aitp` no longer has a type from a pre-1.0 crate in its stable surface. `HandshakeServer::router` and `ManifestServer::router`, which returned an axum 0.8 `Router`, are gone. Host a server with `serve(listener)`, which takes a `tokio::net::TcpListener`, or with `serve_with(listener, config, shutdown)`, which takes a `ServeConfig` (`with_request_body_limit`, default `DEFAULT_REQUEST_BODY_LIMIT`) and returns once `shutdown` completes and the requests in flight finish. `HandshakeServer::serve` also serves its Manifest at `/.well-known/aitp-manifest`, so there is no need to merge a `ManifestServer`. Both pass the peer address to the rate limiter, which a router served with `into_make_service()` did not. To mount a server next to your own routes, enable the new `experimental-axum` feature, which carries no promise, and call `into_router()`. `with_request_body_limit` and `with_request_body_limit_default` move behind that feature too.
 - `aitp` drops its chrono dependency, and `Timestamp` loses `From<chrono::DateTime<Utc>>`: use `Timestamp(dt.timestamp())`.
-- Multi-hop delegation (RFC-AITP-0011) moves to `aitp_experimental::delegation`, which carries no promise. `aitp::delegation` loses `DelegationClaims::{jti, chain, chain_hash}`, `DelegationBuilder::{extending, extending_async, jti}`, `compute_chain_hash`, `DEFAULT_MAX_DELEGATION_HOPS`, `HopRevocationCheck`, `VerifyDelegationContext::{max_delegation_hops, hop_revocation_check}` with their `with_*` setters, and `DelegationError::{HopLimitExceeded, ChainHashMismatch, Canonicalization, JtiNotV4}`. In `aitp_experimental::delegation` they are `ChainedDelegationClaims`, `ChainedDelegationBuilder`, `compute_chain_hash`, `DEFAULT_MAX_DELEGATION_HOPS`, `HopRevocationCheck`, `VerifyChainContext`, `verify_chained_delegation` and `ChainedDelegationError`, whose `Delegation` variant wraps a `DelegationError`. `VerifyChainContext::new` sets a hop budget of `DEFAULT_MAX_DELEGATION_HOPS`; `with_max_delegation_hops(0)` rejects chains as `aitp` does. `aitp::delegation::verify_delegation` now rejects a token carrying a `chain` claim with `DelegationError::MultihopNotSupported` (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) ahead of every other claim check, and one carrying `jti` or `chain_hash` with `DelegationError::ClaimsMalformed` (`INVALID_ENVELOPE`). A malformed `jti` used to give `DELEGATION_INVALID_SIGNATURE`, and a stray `chain_hash` on a single-hop token was accepted. The bindings' `multihop-delegation` feature now depends on `aitp-experimental`.
+- Multi-hop delegation (RFC-AITP-0011) moves to `aitp_experimental::delegation`, which carries no promise. `aitp::delegation` loses `DelegationClaims::{jti, chain, chain_hash}`, `DelegationBuilder::{extending, extending_async, jti}`, `compute_chain_hash`, `DEFAULT_MAX_DELEGATION_HOPS`, `HopRevocationCheck`, `DelegationVerifyContext::{max_delegation_hops, hop_revocation_check}` with their `with_*` setters, and `DelegationError::{HopLimitExceeded, ChainHashMismatch, Canonicalization, JtiNotV4}`. In `aitp_experimental::delegation` they are `ChainedDelegationClaims`, `ChainedDelegationBuilder`, `compute_chain_hash`, `DEFAULT_MAX_DELEGATION_HOPS`, `HopRevocationCheck`, `ChainVerifyContext`, `verify_chained_delegation` and `ChainedDelegationError`, whose `Delegation` variant wraps a `DelegationError`. `ChainVerifyContext::new` sets a hop budget of `DEFAULT_MAX_DELEGATION_HOPS`; `with_max_delegation_hops(0)` rejects chains as `aitp` does. `aitp::delegation::verify_delegation` now rejects a token carrying a `chain` claim with `DelegationError::MultihopNotSupported` (`DELEGATION_MULTIHOP_NOT_SUPPORTED`) ahead of every other claim check, and one carrying `jti` or `chain_hash` with `DelegationError::ClaimsMalformed` (`INVALID_ENVELOPE`). A malformed `jti` used to give `DELEGATION_INVALID_SIGNATURE`, and a stray `chain_hash` on a single-hop token was accepted. The bindings' `multihop-delegation` feature now depends on `aitp-experimental`.
 - TCT renewal (RFC-AITP-0013) moves to `aitp_experimental::renewal`, which carries no promise, and the `aitp` feature `experimental-renewal` is gone. `aitp` loses the `tct` renewal items (`TctRenewalPayload`, `renewal_pop_input`, `RENEWAL_POP_DOMAIN_TAG`, `build_renewal_request`, `parse_renewal_request`, `process_renewal_request`, `RenewalContext`, `RenewalGrantPolicyFn`, `renewal_error_code`, the response and error payloads and envelopes, `RenewalResponseContext`, `RenewedTct`, `RenewalResponseError`, `verify_renewal_response`), `TctError::{RenewalNonceMalformed, RenewalReplayed, RenewalGrantsWithdrawn, RenewalNonceStore, RenewalRequestMalformed}`, `facade::{renew_tct, renew_tct_with_insecure_localhost, RenewedTct}`, `FacadeError::{Renewal, RenewalNotAdvertised, RenewalResponse}`, `transport::{RENEW_URI_EXT, renew_uri_from_manifest}` and `HandshakeServer::{with_renewal_nonce_store, with_renewal_grant_policy}`; `HandshakeServer` no longer mounts a renewal route. In `aitp_experimental::renewal` the items keep their names; the issuer errors are the new `RenewalError` (`RequestMalformed`, `NonceMalformed`, `Replayed`, `GrantsWithdrawn`, `NonceStore`, and `Tct` wrapping a `TctError`), with `error_code()` in place of `renewal_error_code` and `is_local_fault()`. `TctRenewalPayload` is `#[non_exhaustive]` with `TctRenewalPayload::new`.
   - The renewal endpoint is `RenewalServer::new(signer, manifest, revocation, nonce_store)` (feature `http-server`), which refuses a signer whose AID is not the Manifest's. The revocation producer is required. `router()` mounts the route at the Manifest's `renew_uri` path and returns `RenewalServerError::NotAdvertised` or `PathCollision` instead of skipping the route. Merge it with `HandshakeServer::into_router()` (`experimental-axum`) and serve with `into_make_service_with_connect_info::<SocketAddr>()`.
   - `RenewalServer` rate limits per source by default with `RateLimitConfig::default()`, on counters separate from the handshake server's; `without_rate_limit()` turns it off. With the rate limit on, a request without a client address gets a retryable error envelope with HTTP 500, where all such requests used to share one bucket.
@@ -71,7 +71,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Seam migration: none. `seam_surface.rs` is unchanged.
 - `aitp` has one revocation model, in `aitp::tct::revocation`, used by TCT, attestation, delegation and handshake verification:
   - A lookup is a `RevocationCheckFn`: `dyn Fn(&RevocationQuery<'_>) -> Result<RevocationStatus, RevocationUnavailable> + Send + Sync`. `RevocationQuery` carries `issuer`, `jti` and `now`. `RevocationStatus` is `Clear`, `Revoked` or `SoftFailSafeSubset { safe_grants }`, and is exhaustive. `RevocationUnavailable::new` wraps the cause.
-  - `RevocationSource` is `Check(&RevocationCheckFn)` or `FailOpen`, and moves from `aitp::handshake` to `aitp::tct`. `TctVerifyContextBuilder` and `AttestationVerifyContextBuilder` take `.revocation(source)` in place of `revocation_check` and `accept_unchecked_revocation_dangerous`; `TctVerifyContext::revocation_check` and `AttestationVerifyContext::revocation_check` are `revocation`. `VerifyDelegationContext::new` and `PeerConfig::new` take a `RevocationSource`.
+  - `RevocationSource` is `Check(&RevocationCheckFn)` or `FailOpen`, and moves from `aitp::handshake` to `aitp::tct`. `TctVerifyContextBuilder` and `AttestationVerifyContextBuilder` take `.revocation(source)` in place of `revocation_check` and `accept_unchecked_revocation_dangerous`; `TctVerifyContext::revocation_check` and `AttestationVerifyContext::revocation_check` are `revocation`. `DelegationVerifyContext::new` and `PeerConfig::new` take a `RevocationSource`.
   - `aitp::tct::RevocationCheckFn`, which took a `&Uuid` and returned `Result<bool, TctError>`, takes the query and returns the status. Gone: `aitp::handshake::{HandshakeRevocationDecision, RevocationCheckFn}`, `aitp::delegation::{DelegationRevocation, SourceRevocationCheck}`, `aitp::transport::{RevocationCache, RevocationOutcome, apply_safe_subset, revocation_list_uri_from_manifest}` and `aitp::transport::revocation::DEFAULT_REVOCATION_CACHE_TTL`. On the consumer side `RevocationFetcher::prepare` returns a `PreparedRevocation` whose `decide(&query)` answers a `RevocationCheckFn`, and the new `RevocationFetcher::with_provider` reads snapshots from a `RevocationProvider` in place of HTTP. `RevocationProvider::fetch` and `RevocationListProducer::current` return a `BoxFuture`, and `current` returns a `Result`; an error from the producer answers HTTP 503.
   - `VerifiedTct`, `VerifiedDelegation`, `CompletedHandshake` and `SessionContext` gain `effective_grants`: the grants narrowed to the safe subset under `SoftFailSafeSubset`, else all of them. An empty intersection is the new `TctError::SafeSubsetEmpty` and `DelegationError::SafeSubsetEmpty` (`POLICY_VIOLATION`). `TctError::RevocationUnavailable` and `DelegationError::RevocationUnavailable` carry a `RevocationUnavailable` in place of `String`.
   - `aitp_experimental`: `RenewalContext::new` takes a `RevocationSource`, and the renewed grants are narrowed by a soft-fail subset. `HopRevocationCheck` is a `RevocationCheckFn` queried with each hop's issuer and `jti`, and `VerifiedChainedDelegation` gains `effective_grants`. `RenewalServer` fails closed when its producer errors.
@@ -97,6 +97,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 - Instants are `aitp::core::Timestamp` and durations are `std::time::Duration` across the stable API. `TctBuilder::ttl`, `DelegationBuilder::ttl` and `ManifestBuilder::ttl` replace `ttl_secs(i64)`; `TctVerifyContextBuilder::clock_skew` and `AttestationVerifyContextBuilder::clock_skew` replace `clock_skew_secs` (and the context fields are `clock_skew: Duration`); `PinnedAdmissionBuilder::timestamp_tolerance` replaces `timestamp_tolerance_secs`; `EmptyRevocationProvider::with_ttl` replaces `with_ttl_secs`; `RevocationPolicy` has `max_staleness` / `cache_ttl` with `with_max_staleness` / `with_cache_ttl`; `RevocationError::Stale` carries `max_staleness: Duration`; `OidcVerifyContext` has `iat_tolerance: Duration` and `now: Timestamp`. `Timestamp::plus_secs` is replaced by `saturating_add(Duration)` and `saturating_sub(Duration)`, and `is_within_tolerance_of` takes a `Duration`. The constants are `DEFAULT_TCT_TTL`, `DEFAULT_DELEGATION_TTL`, `DEFAULT_MANIFEST_TTL` and `aitp::core::DEFAULT_TIMESTAMP_TOLERANCE`, all `Duration`. Durations count whole seconds; a fraction of a second is dropped. The wire encoding of every timestamp is unchanged.
   - Seam migration: `.ttl_secs(3_600)` → `.ttl(std::time::Duration::from_secs(3_600))` in the golden TCT test.
 - Each protocol constant has one definition. `aitp::core::nonce_store::NONCE_LEN` is the decoded `pop_nonce` length, and `aitp::handshake::POP_NONCE_LEN` is gone. The RFC-AITP-0009 §3.1 recommended rates are `aitp::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S` and `RECOMMENDED_REQUESTS_PER_AID_PER_60S`, available under every feature set; `RateLimitConfig::RECOMMENDED_PER_SOURCE`, `RateLimitConfig::RECOMMENDED_PER_AID`, `RecommendedLimiter::PER_TRANSPORT_PER_MINUTE` and `RecommendedLimiter::PER_LABEL_PER_MINUTE` are gone. The values and both defaults are unchanged.
+  - Seam migration: none.
+- Contexts and policies with several inputs of the same type are built with a builder. `OidcVerifyContext::builder()` and `PinnedKeyVerifyContext::builder()` set each input by name, and `build()` returns `aitp::core::MissingFieldError` naming the first required input that was not set; `OidcVerifyContext::new`, `PinnedKeyVerifyContext::new` and `PinnedKeyVerifyContext::with_subject` are gone (the builder's `subject` sets the binding). `RetryPolicy::builder()` starts from the `conservative()` values and replaces `RetryPolicy::custom`; an attempt count of 0 counts as 1, and a multiplier below 1.0 counts as 1.0. `HandshakeServer::new` takes the session TTL and replay window from `with_session_ttl(Duration)` and `with_replay_window(Duration)`, which replace the `with_session_ttl` and `with_session_ttl_and_replay_window` constructors. `OidcVerifyContext` and `PinnedKeyVerifyContext` implement `Debug`.
+  - Seam migration: `PinnedKeyVerifyContext::new(sender.aid(), &receiver, &message_id, NOW, &pop_nonce).with_subject(SubjectBinding::SenderAid)` → `PinnedKeyVerifyContext::builder().sender_aid(sender.aid()).receiver_aid(&receiver).message_id(&message_id).timestamp(NOW).pop_nonce(&pop_nonce).subject(SubjectBinding::SenderAid).build().unwrap()`.
+- Verification contexts are named `<Input>VerifyContext`: `VerifyDelegationContext` → `DelegationVerifyContext`, `VerifyManifestContext` → `ManifestVerifyContext` and `VerifyRevocationListContext` → `RevocationListVerifyContext`, alongside `TctVerifyContext`, `AttestationVerifyContext`, `OidcVerifyContext` and `PinnedKeyVerifyContext`. Builder setters take the bare name and setters on a finished value take `with_`: `KeyResolutionPolicyBuilder`'s `with_pinned_issuer_store`, `with_fetcher`, `with_cache_ttl`, `with_negative_cache_ttl` and `with_fail_mode` are `pinned_issuer_store`, `fetcher`, `cache_ttl`, `negative_cache_ttl` and `fail_mode`, and `TokenBucketLimiter::max_sources` is `with_max_sources`. In `aitp-experimental`, `VerifyChainContext` is `ChainVerifyContext` and `VerifySessionBundleContext` is `SessionBundleVerifyContext`.
   - Seam migration: none.
 
 ### Added
@@ -256,7 +260,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     warning once per process. `Initiator` and `Responder` gain
     `peer_aid()` and `peer_revocation_list_uri()` so a caller can fetch
     the peer's list before verifying its TCT.
-  - **`aitp-delegation`.** `VerifyDelegationContext::new(verifier, now,
+  - **`aitp-delegation`.** `DelegationVerifyContext::new(verifier, now,
     revocation)` takes a `DelegationRevocation` (`Check(&hook)` or
     `FailOpen`), replacing `with_revocation_check`. The source hook
     (`SourceRevocationCheck`) and `HopRevocationCheck` return
@@ -704,7 +708,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [#237](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/237),
   [#246](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/246)).
   `verify_delegation` needs the delegator's Manifest through
-  `VerifyDelegationContext::with_issuer_manifests` for every token, not
+  `DelegationVerifyContext::with_issuer_manifests` for every token, not
   only for multi-hop chains. Without it the token fails with
   `DelegationError::KeyResolutionFailed` (`KEY_RESOLUTION_FAILED`).
   Python `verify_delegation(token, verifier_aid, issuer_manifests,
@@ -844,7 +848,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   ([#197](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/197),
   [#195](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/195),
   [#233](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/233)).
-  `VerifySessionBundleContext` gains the required
+  `SessionBundleVerifyContext` gains the required
   `coordinator_key: CoordinatorKeySource` (`Manifest(&m)` or
   `UnverifiedAidDangerous`). A supplied coordinator Manifest is verified,
   must match `bundle.coordinator`, and caps participant TCT expiry.
@@ -858,7 +862,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   [#202](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/202),
   [#234](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/234)).
   Pass the Manifests with
-  `VerifyDelegationContext::with_issuer_manifests`, or a chain fails with
+  `DelegationVerifyContext::with_issuer_manifests`, or a chain fails with
   the new `DelegationError::KeyResolutionFailed` (`KEY_RESOLUTION_FAILED`).
   The Python and Node multi-hop verifiers take a required
   `issuer_manifests` / `issuerManifests` third argument.
@@ -1527,7 +1531,7 @@ release-plz-generated `crates/*/CHANGELOG.md` files.
 
 - **Delegation revocation is reachable from the SDKs.** `verify_delegation` and
   `verify_delegation_multihop` built their context with
-  `VerifyDelegationContext::new`, which hardcodes `revocation_check` and
+  `DelegationVerifyContext::new`, which hardcodes `revocation_check` and
   `hop_revocation_check` to `None`, and neither binding exposed a parameter to
   override them. The hooks were unreachable from Python and Node, so every
   delegation redeemed through an SDK skipped **RFC-AITP-0006 §4 step 7** (a
@@ -1634,7 +1638,7 @@ release-plz-generated `crates/*/CHANGELOG.md` files.
 
 ### Note on scope
 
-`VerifyRevocationListContext` deliberately gains **no** staleness knob. It
+`RevocationListVerifyContext` deliberately gains **no** staleness knob. It
 remains `{expected_issuer, now}`: verification establishes authenticity and
 non-expiry, and RFC-AITP-0008 §3 puts freshness policy at the consuming peer.
 Collapsing authenticity and freshness into one switch is how a `soft_fail`
@@ -1681,16 +1685,16 @@ documents that `published_at` staleness belongs to the caller.
   RFC-AITP-0001/0003/0008/0010 moved `0.2.0-draft` → `0.2.1-draft`.
 
 - **`max_hops` → `max_delegation_hops`**, the name RFC-AITP-0011 §2 uses:
-  - Rust: `VerifyDelegationContext.max_hops` → `.max_delegation_hops`;
+  - Rust: `DelegationVerifyContext.max_hops` → `.max_delegation_hops`;
     `DEFAULT_MAX_HOPS` → `DEFAULT_MAX_DELEGATION_HOPS`; `.with_max_hops()` →
     `.with_max_delegation_hops()`
   - Node: `verifyDelegationMultihop(_, _, maxHops)` → `maxDelegationHops`
   - Python: `verify_delegation_multihop(…, max_hops=)` → `max_delegation_hops=`
 
-- **`VerifyRevocationListContext` and `VerifyDelegationContext` are
+- **`RevocationListVerifyContext` and `DelegationVerifyContext` are
   `#[non_exhaustive]`.** Build them with `::new()` plus the builder methods
-  instead of a struct literal. New: `VerifyRevocationListContext::new`,
-  `VerifyDelegationContext::with_revocation_check` /
+  instead of a struct literal. New: `RevocationListVerifyContext::new`,
+  `DelegationVerifyContext::with_revocation_check` /
   `::with_hop_revocation_check`.
 
 ### Added
@@ -2228,7 +2232,7 @@ and the v0.1 conformance gate. 44/44 fixtures pass (37 `core` + 7
   byte-identical to pre-rc.1 (both fields skip-if-none in JCS view).
 - **`DelegationStep`** type alias for `GrantProof`. Each `chain[i]` is
   a step; the most-recent step lives in the top-level `grant_proof`.
-- **`VerifyDelegationContext::max_hops`** caps total chain length
+- **`DelegationVerifyContext::max_hops`** caps total chain length
   (default 3 from RFC-AITP-0011 §2). Setting `0` reverts to strict
   v0.1 posture (rejects any chain with `MultihopNotSupported`).
 - **Verifier per-hop checks** (RFC-AITP-0011 §3-§6): hop-0 source-TCT
@@ -2623,7 +2627,7 @@ This release implements the consumer side of all three.
 
 - **`aitp-tct::revocation` module.** New types `RevocationList`,
   `RevocationListEnvelope`, `RevocationEntry`,
-  `VerifyRevocationListContext`. New helpers
+  `RevocationListVerifyContext`. New helpers
   `sign_revocation_list` and `verify_revocation_list`. Includes a
   KAT byte-match test that reproduces the spec rc.2
   `kat-revocation-001` canonical bytes byte-for-byte.

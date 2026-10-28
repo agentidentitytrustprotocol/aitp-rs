@@ -24,11 +24,13 @@ pub mod state_machine;
 
 pub use error::HandshakeError;
 pub use identity::{IdentityDescriptor, IdentityKind};
-pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
+pub use identity_oidc::{
+    verify_oidc, JwksResolver, OidcVerifyContext, OidcVerifyContextBuilder, ResolveError,
+};
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyEntry,
-    PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, StaticPinnedKeyStore,
-    SubjectBinding, VerifiedPinnedKey, VerifiedPinnedKeyParts,
+    PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, PinnedKeyVerifyContextBuilder,
+    StaticPinnedKeyStore, SubjectBinding, VerifiedPinnedKey, VerifiedPinnedKeyParts,
 };
 pub use identity_verifier::{
     IdentityVerifier, IdentityVerifyContext, IdentityVerifyError, VerifiedIdentity,

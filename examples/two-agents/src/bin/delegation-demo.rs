@@ -23,7 +23,7 @@
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
@@ -91,7 +91,7 @@ fn main() {
         .build()
         .expect("B publishes its Manifest");
     let issuer_manifests = vec![b_manifest];
-    let ctx = VerifyDelegationContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
+    let ctx = DelegationVerifyContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
         .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &ctx) {
         Ok(v) => println!(
@@ -119,7 +119,7 @@ fn main() {
     // The token binds `aud == voucher issuer == A`. Anyone else verifying
     // it — here C tries — is rejected.
     let wrong_ctx =
-        VerifyDelegationContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
+        DelegationVerifyContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
             .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),

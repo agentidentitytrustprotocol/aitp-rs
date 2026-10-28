@@ -111,27 +111,127 @@ pub struct OidcVerifyContext<'a> {
 }
 
 impl<'a> OidcVerifyContext<'a> {
-    /// A context that checks an ID token for `subject_aid` against
-    /// `trust_anchors`, keys from `jwks_resolver`, the expected `aud`
-    /// and `nonce`, and `iat` within `iat_tolerance` of `now`.
-    pub fn new(
-        expected_audience: &'a Aid,
-        expected_nonce: &'a str,
-        trust_anchors: &'a [crate::core::RawUrl],
-        jwks_resolver: &'a dyn JwksResolver,
-        subject_aid: &'a Aid,
-        iat_tolerance: std::time::Duration,
-        now: crate::core::Timestamp,
-    ) -> Self {
-        Self {
-            expected_audience,
-            expected_nonce,
-            trust_anchors,
-            jwks_resolver,
-            subject_aid,
-            iat_tolerance,
-            now,
+    /// Start a builder. Every input except
+    /// [`OidcVerifyContextBuilder::iat_tolerance`] (default
+    /// [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`]) is required.
+    pub fn builder() -> OidcVerifyContextBuilder<'a> {
+        OidcVerifyContextBuilder {
+            expected_audience: None,
+            expected_nonce: None,
+            trust_anchors: None,
+            jwks_resolver: None,
+            subject_aid: None,
+            iat_tolerance: crate::core::DEFAULT_TIMESTAMP_TOLERANCE,
+            now: None,
         }
+    }
+}
+
+impl std::fmt::Debug for OidcVerifyContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcVerifyContext")
+            .field("expected_audience", &self.expected_audience)
+            .field("expected_nonce", &self.expected_nonce)
+            .field("trust_anchors", &self.trust_anchors)
+            .field("subject_aid", &self.subject_aid)
+            .field("iat_tolerance", &self.iat_tolerance)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Builder for [`OidcVerifyContext`]. See [`OidcVerifyContext::builder`].
+pub struct OidcVerifyContextBuilder<'a> {
+    expected_audience: Option<&'a Aid>,
+    expected_nonce: Option<&'a str>,
+    trust_anchors: Option<&'a [crate::core::RawUrl]>,
+    jwks_resolver: Option<&'a dyn JwksResolver>,
+    subject_aid: Option<&'a Aid>,
+    iat_tolerance: std::time::Duration,
+    now: Option<crate::core::Timestamp>,
+}
+
+impl std::fmt::Debug for OidcVerifyContextBuilder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcVerifyContextBuilder")
+            .field("expected_audience", &self.expected_audience)
+            .field("expected_nonce", &self.expected_nonce)
+            .field("trust_anchors", &self.trust_anchors)
+            .field("subject_aid", &self.subject_aid)
+            .field("iat_tolerance", &self.iat_tolerance)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> OidcVerifyContextBuilder<'a> {
+    /// The verifier's own AID, the expected `aud` claim. Required.
+    pub fn expected_audience(mut self, aid: &'a Aid) -> Self {
+        self.expected_audience = Some(aid);
+        self
+    }
+
+    /// The `pop_nonce` sent with the handshake message, the expected
+    /// `nonce` claim. Required.
+    pub fn expected_nonce(mut self, nonce: &'a str) -> Self {
+        self.expected_nonce = Some(nonce);
+        self
+    }
+
+    /// The accepted OIDC issuers. Required.
+    pub fn trust_anchors(mut self, anchors: &'a [crate::core::RawUrl]) -> Self {
+        self.trust_anchors = Some(anchors);
+        self
+    }
+
+    /// Where the issuer's keys come from. Required.
+    pub fn jwks_resolver(mut self, resolver: &'a dyn JwksResolver) -> Self {
+        self.jwks_resolver = Some(resolver);
+        self
+    }
+
+    /// The subject AID, whose key the JWT's `cnf.jkt` must match.
+    /// Required.
+    pub fn subject_aid(mut self, aid: &'a Aid) -> Self {
+        self.subject_aid = Some(aid);
+        self
+    }
+
+    /// The `iat` freshness window, counted in whole seconds. Default
+    /// [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`].
+    pub fn iat_tolerance(mut self, tolerance: std::time::Duration) -> Self {
+        self.iat_tolerance = tolerance;
+        self
+    }
+
+    /// The time `iat` and `exp` are evaluated at. Required.
+    pub fn now(mut self, now: crate::core::Timestamp) -> Self {
+        self.now = Some(now);
+        self
+    }
+
+    /// The context, or the first required input that was not set.
+    pub fn build(self) -> Result<OidcVerifyContext<'a>, crate::core::MissingFieldError> {
+        use crate::core::MissingFieldError;
+        Ok(OidcVerifyContext {
+            expected_audience: self
+                .expected_audience
+                .ok_or(MissingFieldError::new("expected_audience"))?,
+            expected_nonce: self
+                .expected_nonce
+                .ok_or(MissingFieldError::new("expected_nonce"))?,
+            trust_anchors: self
+                .trust_anchors
+                .ok_or(MissingFieldError::new("trust_anchors"))?,
+            jwks_resolver: self
+                .jwks_resolver
+                .ok_or(MissingFieldError::new("jwks_resolver"))?,
+            subject_aid: self
+                .subject_aid
+                .ok_or(MissingFieldError::new("subject_aid"))?,
+            iat_tolerance: self.iat_tolerance,
+            now: self.now.ok_or(MissingFieldError::new("now"))?,
+        })
     }
 }
 

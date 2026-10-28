@@ -83,9 +83,10 @@ Per-node memory is bounded, partly out of the box and partly by you:
   maximum of concurrent in-flight sessions; raise it for high-volume
   responders.
 - Session TTL — half-finished sessions expire after `DEFAULT_SESSION_TTL`
-  (60 s). To change it, construct the server with
-  `HandshakeServer::with_session_ttl(...)`, a constructor that takes
-  `new`'s arguments plus the TTL (it is not a builder method).
+  (60 s). Change it with `HandshakeServer::with_session_ttl(Duration)`.
+  The replay deny list remembers each `message_id` for
+  `DEFAULT_REPLAY_WINDOW` (300 s); change it with
+  `HandshakeServer::with_replay_window(Duration)`.
 - Expired sessions are swept on every HELLO and COMMIT, and by a
   background sweeper that `serve()` starts every
   `DEFAULT_SESSION_SWEEP_INTERVAL` (30 s), so a burst that goes quiet

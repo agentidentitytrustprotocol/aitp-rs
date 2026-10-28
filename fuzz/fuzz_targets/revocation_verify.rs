@@ -13,12 +13,12 @@ use libfuzzer_sys::fuzz_target;
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::tct::{verify_revocation_list, RevocationListEnvelope, VerifyRevocationListContext};
+use aitp::tct::{verify_revocation_list, RevocationListEnvelope, RevocationListVerifyContext};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(envelope) = serde_json::from_slice::<RevocationListEnvelope>(data) {
         let issuer = AitpSigningKey::from_ed25519_seed(&[9u8; 32]).aid().clone();
-        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp::now());
+        let ctx = RevocationListVerifyContext::new(&issuer, Timestamp::now());
         let _ = verify_revocation_list(&envelope, &ctx);
     }
 });

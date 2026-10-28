@@ -5,7 +5,7 @@ use crate::session_bundle::error::SessionBundleError;
 use crate::session_bundle::types::SessionTrustBundle;
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{AitpVerifyingKey, Signature};
-use aitp::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use aitp::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use aitp::tct::{verify_tct, TctError, TctVerifyContext};
 use uuid::Uuid;
 
@@ -32,7 +32,7 @@ pub enum CoordinatorKeySource<'a> {
 }
 
 /// Inputs for [`verify_session_bundle`].
-pub struct VerifySessionBundleContext<'a> {
+pub struct SessionBundleVerifyContext<'a> {
     /// Verifier's own AID. The bundle MUST list this AID in
     /// `participants[]`; otherwise verification returns
     /// [`SessionBundleError::NotMember`].
@@ -93,7 +93,7 @@ pub enum BundleOutcome {
 ///    was pinned to that AID in step 7).
 pub fn verify_session_bundle(
     bundle: &SessionTrustBundle,
-    ctx: &VerifySessionBundleContext<'_>,
+    ctx: &SessionBundleVerifyContext<'_>,
 ) -> Result<BundleOutcome, SessionBundleError> {
     // 1.
     if bundle.version != DEFAULT_BUNDLE_VERSION {
@@ -131,7 +131,7 @@ pub fn verify_session_bundle(
     // 5. Coordinator key resolution.
     let (coord_key, coordinator_manifest_expires_at) = match ctx.coordinator_key {
         CoordinatorKeySource::Manifest(manifest) => {
-            verify_manifest(manifest, &VerifyManifestContext::at(ctx.now))
+            verify_manifest(manifest, &ManifestVerifyContext::at(ctx.now))
                 .map_err(SessionBundleError::CoordinatorManifest)?;
             if manifest.aid != bundle.coordinator {
                 return Err(SessionBundleError::CoordinatorManifestMismatch);

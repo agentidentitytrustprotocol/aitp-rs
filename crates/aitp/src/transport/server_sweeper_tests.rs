@@ -41,14 +41,14 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
 fn server(ttl: Duration) -> HandshakeServer<NoOpResolver> {
     let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
     let manifest = manifest_for(&bob, "bob");
-    HandshakeServer::with_session_ttl(
+    HandshakeServer::new(
         bob,
         manifest,
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-        ttl,
     )
+    .with_session_ttl(ttl)
     .with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([
         AitpSigningKey::from_ed25519_seed(&[0x71; 32]).verifying_key(),
     ])))

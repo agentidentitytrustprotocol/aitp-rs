@@ -5,7 +5,7 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey, CryptoError};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::{Manifest, ManifestError};
 use aitp::tct::{
@@ -27,7 +27,7 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
 }
 
-fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> DelegationVerifyContext<'_> {
     common::verify_ctx(verifier, now, issuer_manifests())
 }
 
@@ -513,7 +513,7 @@ fn no_manifest_source_rejected() {
     // MUST NOT verify the token.
     let token = delegate_to_c(&voucher_for_b());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(
+    let ctx = DelegationVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,
@@ -543,7 +543,7 @@ fn key_not_designated_by_issuer_manifest_rejected() {
     let resolver: HashMap<Aid, Manifest> =
         HashMap::from([(b().aid().clone(), common::manifest_for(&rotated_b, NOW))]);
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(
+    let ctx = DelegationVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
         RevocationSource::FailOpen,

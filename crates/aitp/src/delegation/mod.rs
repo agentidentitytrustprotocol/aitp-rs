@@ -20,4 +20,4 @@ pub use error::DelegationError;
 pub use types::{
     DelegationClaims, VerifiedDelegation, VerifiedDelegationParts, DELEGATION_CLAIMS_MEMBERS,
 };
-pub use verifier::{verify_delegation, VerifyDelegationContext};
+pub use verifier::{verify_delegation, DelegationVerifyContext};

@@ -252,7 +252,7 @@ async fn duplicate_top_level_key_in_body_is_rejected_and_not_stored() {
 async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
     use aitp::tct::TctBuilder;
     use aitp_experimental::session_bundle::{
-        verify_session_bundle, SessionBundleBuilder, VerifySessionBundleContext,
+        verify_session_bundle, SessionBundleBuilder, SessionBundleVerifyContext,
     };
 
     const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -314,7 +314,7 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
 
     // 1. The fetched bundle still verifies after a JSON round trip.
     let got: SessionBundleEnvelope = serde_json::from_slice(&bytes).unwrap();
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -400,7 +400,7 @@ async fn bare_body_is_rejected_and_not_stored() {
 #[tokio::test]
 async fn bundle_uri_is_advertised_in_the_signed_manifest() {
     use aitp::manifest::{verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder};
-    use aitp::manifest::{ManifestError, VerifyManifestContext};
+    use aitp::manifest::{ManifestError, ManifestVerifyContext};
     use aitp_experimental::session_bundle::{
         advertise_bundle_uri, bundle_uri_from_manifest, RFC_AITP_0010_BUNDLE_URI,
     };
@@ -428,7 +428,7 @@ async fn bundle_uri_is_advertised_in_the_signed_manifest() {
     let manifest = advertise_bundle_uri(builder(), &bundle_uri)
         .build()
         .unwrap();
-    let ctx = VerifyManifestContext::at(NOW);
+    let ctx = ManifestVerifyContext::at(NOW);
     verify_manifest(&manifest, &ctx).expect("advertising Manifest verifies");
     assert_eq!(
         bundle_uri_from_manifest(&manifest),

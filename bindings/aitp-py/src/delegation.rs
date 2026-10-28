@@ -14,7 +14,7 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::crypto::AitpVerifyingKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 
 use crate::helpers::{
     binding_revocation, delegation_revocation_code, runtime_error, BindingRevocation,
@@ -22,7 +22,7 @@ use crate::helpers::{
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
-    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    verify_chained_delegation, ChainVerifyContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use pyo3::exceptions::{PyDeprecationWarning, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -166,7 +166,7 @@ pub fn verify_delegation_py(
     // hops.
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), source)
+    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_issuer_manifests(&manifests);
 
     let verified = verify_delegation(delegation_token, &ctx).map_err(verify_failed)?;
@@ -220,7 +220,7 @@ pub fn verify_delegation_multihop_py(
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), source)
+    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_max_delegation_hops(max_delegation_hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);

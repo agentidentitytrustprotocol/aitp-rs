@@ -17,7 +17,7 @@ use crate::handshake::identity_verifier::{IdentityVerifier, IdentityVerifyContex
 use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
-use crate::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use crate::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use crate::tct::verifier::{check_revocation, verify_tct_before_revocation};
 use crate::tct::{
     IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext, VerifiedTct,
@@ -486,7 +486,7 @@ pub(crate) fn bootstrap_verify_peer(
             "manifest.aid does not match sender.agent_id".into(),
         ));
     }
-    verify_manifest(payload_manifest, &VerifyManifestContext { now: cfg.now })?;
+    verify_manifest(payload_manifest, &ManifestVerifyContext { now: cfg.now })?;
     if payload_identity.subject != payload_manifest.identity_hint.subject {
         return Err(HandshakeError::Identity(
             "identity.subject != manifest.identity_hint.subject".into(),

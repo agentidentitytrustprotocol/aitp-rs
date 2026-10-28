@@ -1,7 +1,7 @@
 //! HTTP client primitives: Manifest fetcher + JWKS resolver.
 
 use crate::core::{Aid, CheckedJson, Timestamp};
-use crate::manifest::{verify_manifest, VerifiedManifest, VerifyManifestContext};
+use crate::manifest::{verify_manifest, ManifestVerifyContext, VerifiedManifest};
 use crate::transport::client_config::ClientConfig;
 use crate::transport::net_guard::HostGuard;
 use crate::transport::retry::RetryPolicy;
@@ -392,7 +392,7 @@ impl ManifestFetcher {
             crate::manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
             other => FetchError::MalformedJson(other.to_string()),
         })?;
-        let verified = verify_manifest(&manifest, &VerifyManifestContext::now())?;
+        let verified = verify_manifest(&manifest, &ManifestVerifyContext::now())?;
         self.insert_cache(verified.clone());
         Ok(verified)
     }
@@ -991,7 +991,7 @@ mod cache_tests {
             .published_at(published_at)
             .build()
             .unwrap();
-        verify_manifest(&m, &VerifyManifestContext::at(published_at)).unwrap()
+        verify_manifest(&m, &ManifestVerifyContext::at(published_at)).unwrap()
     }
 
     #[test]

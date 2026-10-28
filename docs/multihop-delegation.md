@@ -37,7 +37,7 @@ reconstruction. `total_hops = chain.len() + 2` (§2).
 (`crates/aitp-experimental/src/delegation/types.rs`); the RFC §2 recommended
 ceiling is exported as `DEFAULT_MAX_DELEGATION_HOPS = 3`, which with `+2`
 admits a single-entry `chain` (the A → B → C → D example).
-`VerifyChainContext::new` sets it; `with_max_delegation_hops(n)` changes it.
+`ChainVerifyContext::new` sets it; `with_max_delegation_hops(n)` changes it.
 
 ## Verification (`verify_chained_delegation`)
 
@@ -85,7 +85,7 @@ with single-hop report as `ChainedDelegationError::Delegation(DelegationError::�
      entry, with a matching `chain_hash` → else `InvalidVoucher`.
 4. **Revocation**, only after every signature check: `voucher.src_jti`
    against the `RevocationSource::Check` hook passed to
-   `VerifyChainContext::new` (queried with the verifier's own AID), then
+   `ChainVerifyContext::new` (queried with the verifier's own AID), then
    each hop's `iss` and `jti` against `with_hop_revocation_check` →
    `SourceTctRevoked`. A soft-fail safe subset narrows
    `VerifiedChainedDelegation::effective_grants`; an empty intersection is
@@ -144,11 +144,11 @@ verifyDelegationMultihop(delegationJws, verifierAid, issuerManifests, 3);   // m
 
 ```rust
 use aitp::tct::RevocationSource;
-use aitp_experimental::delegation::{verify_chained_delegation, VerifyChainContext};
+use aitp_experimental::delegation::{verify_chained_delegation, ChainVerifyContext};
 
 // Any `ManifestResolver` (here a `Vec<Manifest>` of the hop issuers'
 // Manifests): each hop verifies under its issuer's verified Manifest key.
-let ctx = VerifyChainContext::new(&my_aid, now, RevocationSource::Check(&is_revoked))
+let ctx = ChainVerifyContext::new(&my_aid, now, RevocationSource::Check(&is_revoked))
     .with_issuer_manifests(&issuer_manifests)
     .with_hop_revocation_check(&is_hop_revoked);
 let verified = verify_chained_delegation(&delegation_jws, &ctx)?;

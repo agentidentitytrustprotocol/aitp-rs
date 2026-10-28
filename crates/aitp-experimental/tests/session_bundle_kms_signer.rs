@@ -8,7 +8,7 @@ use aitp::crypto::{AitpSigner, AitpSigningKey, CryptoError, SignerError};
 use aitp::tct::TctBuilder;
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, SessionBundleBuilder, SessionBundleError,
-    VerifySessionBundleContext,
+    SessionBundleVerifyContext,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -39,7 +39,7 @@ fn kms_coordinator_signs_a_verifying_bundle() {
         .participant(alice.aid().clone(), issue_tct(&coord, &alice))
         .build()
         .expect("KMS-backed bundle builds");
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -168,7 +168,7 @@ async fn async_bundle_future_is_send() {
     .await
     .unwrap()
     .expect("async bundle builds on another task");
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,

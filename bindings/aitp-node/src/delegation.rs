@@ -10,11 +10,11 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpVerifyingKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
-    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    verify_chained_delegation, ChainVerifyContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use napi::bindgen_prelude::*;
 use napi::Env;
@@ -103,7 +103,7 @@ pub fn verify_delegation_js(
     // `verify_delegation` rejects any chain-bearing token before per-hop
     // work, which is why only the root check is wired here: there are no
     // hops.
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_issuer_manifests(&manifests);
 
     let verified = verify_delegation(&token, &ctx).map_err(|e| verify_failed(env, &e))?;
@@ -162,7 +162,7 @@ pub fn verify_delegation_multihop_js(
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_max_delegation_hops(hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);

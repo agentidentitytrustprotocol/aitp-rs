@@ -41,6 +41,7 @@ reasons already in the table are kept.
 | `aitp::core::ExtensionsMap` | struct | private fields |  |
 | `aitp::core::InMemoryNonceStore` | struct | private fields |  |
 | `aitp::core::MessageType` | enum | non_exhaustive |  |
+| `aitp::core::MissingFieldError` | struct | private fields |  |
 | `aitp::core::RawUrl` | struct | private fields |  |
 | `aitp::core::Sender` | struct | non_exhaustive |  |
 | `aitp::core::Timestamp` | struct | exhaustive | A newtype over Unix seconds: its one field is the value. |
@@ -65,9 +66,9 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationBuilder` | struct | private fields |  |
 | `aitp::delegation::DelegationClaims` | struct | non_exhaustive |  |
 | `aitp::delegation::DelegationError` | enum | non_exhaustive |  |
+| `aitp::delegation::DelegationVerifyContext` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifiedDelegation` | struct | private fields |  |
 | `aitp::delegation::VerifiedDelegationParts` | struct | non_exhaustive |  |
-| `aitp::delegation::VerifyDelegationContext` | struct | non_exhaustive |  |
 | `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |
 | `aitp::facade::FacadeError` | enum | non_exhaustive |  |
 | `aitp::facade::IdentityMode` | enum | non_exhaustive |  |
@@ -98,10 +99,12 @@ reasons already in the table are kept.
 | `aitp::handshake::NoPinnedKeys` | struct | exhaustive | A unit value callers write as `NoPinnedKeys`. |
 | `aitp::handshake::OidcMintError` | struct | private fields |  |
 | `aitp::handshake::OidcVerifyContext` | struct | non_exhaustive |  |
+| `aitp::handshake::OidcVerifyContextBuilder` | struct | private fields |  |
 | `aitp::handshake::PeerConfig` | struct | non_exhaustive |  |
 | `aitp::handshake::PinnedKeyEntry` | struct | non_exhaustive |  |
 | `aitp::handshake::PinnedKeyEntryError` | enum | non_exhaustive |  |
 | `aitp::handshake::PinnedKeyVerifyContext` | struct | non_exhaustive |  |
+| `aitp::handshake::PinnedKeyVerifyContextBuilder` | struct | private fields |  |
 | `aitp::handshake::PresentedIdentity` | enum | non_exhaustive |  |
 | `aitp::handshake::ResolveError` | enum | non_exhaustive |  |
 | `aitp::handshake::Responder` | struct | private fields |  |
@@ -131,8 +134,8 @@ reasons already in the table are kept.
 | `aitp::manifest::ManifestEnvelope` | struct | non_exhaustive |  |
 | `aitp::manifest::ManifestError` | enum | non_exhaustive |  |
 | `aitp::manifest::ManifestPop` | struct | non_exhaustive |  |
+| `aitp::manifest::ManifestVerifyContext` | struct | non_exhaustive |  |
 | `aitp::manifest::VerifiedManifest` | struct | private fields |  |
-| `aitp::manifest::VerifyManifestContext` | struct | non_exhaustive |  |
 | `aitp::tct::AttestationVerifyContext` | struct | non_exhaustive |  |
 | `aitp::tct::AttestationVerifyContextBuilder` | struct | private fields |  |
 | `aitp::tct::Cnf` | struct | non_exhaustive |  |
@@ -143,6 +146,7 @@ reasons already in the table are kept.
 | `aitp::tct::RevocationEntry` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationList` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationListEnvelope` | struct | non_exhaustive |  |
+| `aitp::tct::RevocationListVerifyContext` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationQuery` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationSource` | enum | non_exhaustive |  |
 | `aitp::tct::RevocationStatus` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
@@ -157,7 +161,6 @@ reasons already in the table are kept.
 | `aitp::tct::VerifiedAttestationParts` | struct | non_exhaustive |  |
 | `aitp::tct::VerifiedTct` | struct | private fields |  |
 | `aitp::tct::VerifiedTctParts` | struct | non_exhaustive |  |
-| `aitp::tct::VerifyRevocationListContext` | struct | non_exhaustive |  |
 | `aitp::transport::ClientConfig` | struct | private fields |  |
 | `aitp::transport::FetchError` | enum | non_exhaustive |  |
 | `aitp::transport::GuardMode` | enum | non_exhaustive |  |
@@ -176,6 +179,7 @@ reasons already in the table are kept.
 | `aitp::transport::PreparedRevocation` | struct | private fields |  |
 | `aitp::transport::RateLimitConfig` | struct | non_exhaustive |  |
 | `aitp::transport::RetryPolicy` | struct | private fields |  |
+| `aitp::transport::RetryPolicyBuilder` | struct | private fields |  |
 | `aitp::transport::RevocationError` | enum | non_exhaustive |  |
 | `aitp::transport::RevocationFailMode` | enum | non_exhaustive |  |
 | `aitp::transport::RevocationFetcher` | struct | private fields |  |

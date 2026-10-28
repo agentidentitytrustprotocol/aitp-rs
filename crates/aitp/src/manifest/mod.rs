@@ -29,6 +29,6 @@ pub use types::{
     IdentityHint, IdentityHintKind, Manifest, ManifestEnvelope, ManifestPop, MANIFEST_MEMBERS,
 };
 pub use verifier::{
-    check_identity_type_compatibility, parse_manifest_wire, verify_manifest, VerifiedManifest,
-    VerifyManifestContext,
+    check_identity_type_compatibility, parse_manifest_wire, verify_manifest, ManifestVerifyContext,
+    VerifiedManifest,
 };
