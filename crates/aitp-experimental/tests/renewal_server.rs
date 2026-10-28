@@ -61,7 +61,7 @@ fn manifest_at(renew_path: Option<&str>, manifest_ttl: u64) -> Manifest {
                 base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .offer("demo.write")
         .ttl(std::time::Duration::from_secs(manifest_ttl));

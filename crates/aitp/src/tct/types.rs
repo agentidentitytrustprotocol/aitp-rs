@@ -62,7 +62,7 @@ pub struct TctClaims {
     /// OPTIONAL extensions slot (RFC-AITP-0012). Unknown keys inside
     /// `ext` MUST be ignored; unknown claims outside it are rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
+    pub ext: Option<crate::core::ExtensionsMap>,
 }
 
 /// Full set of top-level members `aitp-tct.schema.json` declares,
@@ -112,7 +112,7 @@ pub struct GrantVoucherClaims {
     pub src_jti: Uuid,
     /// OPTIONAL extensions slot, same semantics as the TCT `ext` claim.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
+    pub ext: Option<crate::core::ExtensionsMap>,
 }
 
 /// Full set of top-level members `aitp-grant-voucher.schema.json` declares,

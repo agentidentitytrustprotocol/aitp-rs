@@ -985,7 +985,7 @@ mod cache_tests {
                 public_key: Some(pubkey_b64),
             })
             .offer("test.action")
-            .accept_identity_type("pinned_key")
+            .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
             .display_name("peer")
             .ttl(std::time::Duration::from_secs(ttl_secs))
             .published_at(published_at)

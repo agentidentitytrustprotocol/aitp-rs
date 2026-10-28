@@ -71,7 +71,11 @@ impl IdentityVerifier for Fake {
     }
 }
 
-fn manifest(key: &AitpSigningKey, hint: IdentityHint, accepted: &str) -> Manifest {
+fn manifest(
+    key: &AitpSigningKey,
+    hint: IdentityHint,
+    accepted: aitp::handshake::IdentityKind,
+) -> Manifest {
     ManifestBuilder::new(key)
         .display_name("peer")
         .handshake_endpoint("https://peer.example.com/handshake".parse().unwrap())
@@ -87,7 +91,7 @@ fn spiffe_manifest(key: &AitpSigningKey) -> Manifest {
     manifest(
         key,
         IdentityHint::new(IdentityHintKind::Spiffe, SPIFFE_ID),
-        "spiffe",
+        aitp::handshake::IdentityKind::Spiffe,
     )
 }
 
@@ -225,7 +229,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let pinned_manifest = manifest(
         &peer,
         IdentityHint::new(IdentityHintKind::PinnedKey, "peer").with_public_key(pk.clone()),
-        "pinned_key",
+        aitp::handshake::IdentityKind::PinnedKey,
     );
     let pinned: IdentityDescriptor = serde_json::from_value(json!({
         "type": "pinned_key", "subject": "peer", "public_key": pk, "proof": "x",
@@ -240,7 +244,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let oidc_manifest = manifest(
         &peer,
         IdentityHint::new(IdentityHintKind::Oidc, "peer").with_issuer(issuer.into()),
-        "oidc",
+        aitp::handshake::IdentityKind::Oidc,
     );
     let oidc: IdentityDescriptor = serde_json::from_value(json!({
         "type": "oidc", "subject": "peer", "issuer": issuer, "proof": "a.b.c",

@@ -61,7 +61,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp::manifest::Manifest {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
@@ -334,7 +334,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
             IdentityHint::new(IdentityHintKind::Oidc, "sender")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .build()
         .unwrap();

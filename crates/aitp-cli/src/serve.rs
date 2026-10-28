@@ -280,7 +280,7 @@ fn interop_manifest(
             IdentityHint::new(IdentityHintKind::PinnedKey, PEER_NAME)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer(ECHO_CAP)
         .ttl(MANIFEST_TTL)
         .build()?)

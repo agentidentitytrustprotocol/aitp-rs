@@ -99,7 +99,7 @@ async fn main() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .ttl(std::time::Duration::from_secs(86_400))
         .extension(RENEW_URI_EXT, renew_uri.into())

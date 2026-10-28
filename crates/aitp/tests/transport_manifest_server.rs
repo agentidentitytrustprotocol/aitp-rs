@@ -26,7 +26,7 @@ async fn round_trip_manifest_server() {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .ttl(std::time::Duration::from_secs(3600))
         .build()

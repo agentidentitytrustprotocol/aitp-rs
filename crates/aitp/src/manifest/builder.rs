@@ -239,17 +239,18 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
         self
     }
 
-    /// Append an identity type (`"oidc"`, `"pinned_key"`).
+    /// Append an accepted identity type; the Manifest carries its wire
+    /// name ([`IdentityKind::as_str`](crate::handshake::IdentityKind::as_str)).
     ///
     /// Once at least one type is appended, the manifest's
     /// `accepted_identity_types` field is serialized in the
     /// canonical bytes — even if the list is later cleared. Callers
     /// who want the absent (default `["oidc"]`) semantic should not
     /// call this method at all.
-    pub fn accept_identity_type(mut self, ty: impl Into<String>) -> Self {
+    pub fn accept_identity_type(mut self, kind: crate::handshake::IdentityKind) -> Self {
         self.accepted_identity_types
             .get_or_insert_with(Vec::new)
-            .push(ty.into());
+            .push(kind.as_str().to_owned());
         self
     }
 

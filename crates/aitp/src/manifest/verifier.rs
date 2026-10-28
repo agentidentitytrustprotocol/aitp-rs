@@ -229,30 +229,19 @@ pub fn parse_manifest_wire(value: &CheckedJson) -> Result<Manifest, ManifestErro
 /// - **Non-empty array** (`Some(non_empty)`): peer must present
 ///   a type from the list.
 ///
-/// `our_identity_type` is `"pinned_key"` or `"oidc"` (RFC-AITP-0002
-/// §2 vocabulary).
+/// `our_identity_type` is compared by its RFC-AITP-0002 §2 wire name.
 pub fn check_identity_type_compatibility(
     peer_manifest: &crate::manifest::Manifest,
-    our_identity_type: &'static str,
+    our_identity_type: crate::handshake::IdentityKind,
 ) -> Result<(), ManifestError> {
-    let allowed: &[String] = match peer_manifest.accepted_identity_types.as_deref() {
+    let ours = our_identity_type.as_str();
+    let accepted = match peer_manifest.accepted_identity_types.as_deref() {
         // Absent → spec default ["oidc"].
-        None => {
-            // Inline a static slice so we don't allocate per call.
-            const DEFAULT: [&str; 1] = ["oidc"];
-            return if our_identity_type == DEFAULT[0] {
-                Ok(())
-            } else {
-                Err(ManifestError::IncompatibleIdentityType(our_identity_type))
-            };
-        }
-        // Explicit empty → reject every peer.
-        Some([]) => {
-            return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
-        }
-        Some(v) => v,
+        None => our_identity_type == crate::handshake::IdentityKind::Oidc,
+        // Explicit empty → reject every peer; otherwise the list decides.
+        Some(list) => list.iter().any(|t| t == ours),
     };
-    if !allowed.iter().any(|t| t == our_identity_type) {
+    if !accepted {
         return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
     }
     Ok(())

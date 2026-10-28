@@ -22,7 +22,11 @@ impl JwksResolver for NoOpResolver {
     }
 }
 
-fn manifest_for(key: &AitpSigningKey, hint_subject: &str, accepts: &[&str]) -> Manifest {
+fn manifest_for(
+    key: &AitpSigningKey,
+    hint_subject: &str,
+    accepts: &[aitp::handshake::IdentityKind],
+) -> Manifest {
     let builder = ManifestBuilder::new(key)
         .display_name(hint_subject)
         .handshake_endpoint("https://peer.example.com/handshake".parse().unwrap())
@@ -63,10 +67,13 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
 /// Alice (pinned_key) says HELLO to bob, whose Manifest accepts
 /// `bob_accepts` and whose pinned-key store trusts alice only when
 /// `bob_trusts_alice`.
-fn bob_on_hello(bob_accepts: &[&str], bob_trusts_alice: bool) -> Result<(), HandshakeError> {
+fn bob_on_hello(
+    bob_accepts: &[aitp::handshake::IdentityKind],
+    bob_trusts_alice: bool,
+) -> Result<(), HandshakeError> {
     let alice = AitpSigningKey::from_ed25519_seed(&[0x81; 32]);
     let bob = AitpSigningKey::from_ed25519_seed(&[0x82; 32]);
-    let alice_manifest = manifest_for(&alice, "alice", &["pinned_key"]);
+    let alice_manifest = manifest_for(&alice, "alice", &[aitp::handshake::IdentityKind::PinnedKey]);
     let bob_manifest = manifest_for(&bob, "bob", bob_accepts);
     let resolver = NoOpResolver;
 
@@ -126,11 +133,13 @@ fn bob_on_hello(bob_accepts: &[&str], bob_trusts_alice: bool) -> Result<(), Hand
 
 #[test]
 fn unaccepted_type_with_valid_proof_is_incompatible_identity_type() {
-    let err = bob_on_hello(&["oidc"], true).unwrap_err();
+    let err = bob_on_hello(&[aitp::handshake::IdentityKind::Oidc], true).unwrap_err();
     assert!(
         matches!(
             err,
-            HandshakeError::Manifest(ManifestError::IncompatibleIdentityType("pinned_key"))
+            HandshakeError::Manifest(ManifestError::IncompatibleIdentityType(
+                aitp::handshake::IdentityKind::PinnedKey
+            ))
         ),
         "got {err:?}"
     );
@@ -139,7 +148,7 @@ fn unaccepted_type_with_valid_proof_is_incompatible_identity_type() {
 #[test]
 fn failed_proof_wins_over_unaccepted_type() {
     // Step 6 (the pinned-key trust store) fails before step 8 runs.
-    let err = bob_on_hello(&["oidc"], false).unwrap_err();
+    let err = bob_on_hello(&[aitp::handshake::IdentityKind::Oidc], false).unwrap_err();
     assert!(matches!(err, HandshakeError::Identity(_)), "got {err:?}");
 }
 
@@ -149,7 +158,9 @@ fn absent_accepted_identity_types_defaults_to_oidc() {
     assert!(
         matches!(
             err,
-            HandshakeError::Manifest(ManifestError::IncompatibleIdentityType("pinned_key"))
+            HandshakeError::Manifest(ManifestError::IncompatibleIdentityType(
+                aitp::handshake::IdentityKind::PinnedKey
+            ))
         ),
         "got {err:?}"
     );
@@ -157,5 +168,12 @@ fn absent_accepted_identity_types_defaults_to_oidc() {
 
 #[test]
 fn accepted_type_with_valid_proof_succeeds() {
-    bob_on_hello(&["oidc", "pinned_key"], true).unwrap();
+    bob_on_hello(
+        &[
+            aitp::handshake::IdentityKind::Oidc,
+            aitp::handshake::IdentityKind::PinnedKey,
+        ],
+        true,
+    )
+    .unwrap();
 }

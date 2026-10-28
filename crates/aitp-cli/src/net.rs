@@ -350,7 +350,7 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
             IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .build()
 }
 

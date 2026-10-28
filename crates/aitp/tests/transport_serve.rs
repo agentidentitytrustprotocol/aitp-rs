@@ -30,7 +30,7 @@ fn manifest(key: &AitpSigningKey) -> Manifest {
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .ttl(std::time::Duration::from_secs(3600))
         .build()

@@ -99,7 +99,7 @@ fn mint_manifest() {
                 .with_public_key(pubkey_b64),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("macp.mode.task.v1")
         .ttl(std::time::Duration::from_secs(MANIFEST_TTL))
         .published_at(Timestamp(FIXED_NOW))

@@ -38,7 +38,7 @@ fn manifest_for(key: &AitpSigningKey, hint_subject: &str) -> Manifest {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()

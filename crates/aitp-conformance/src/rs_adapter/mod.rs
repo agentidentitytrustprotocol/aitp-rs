@@ -749,6 +749,11 @@ fn key_source_matches(entry: &Value, needed: &str) -> bool {
 /// any other `self_aid` lands as `OP_NOT_SUPPORTED` (the bootstrap
 /// verifier needs a verifier-side signing key, and we can't derive
 /// one from an arbitrary AID since AIDs are public keys).
+/// The identity type a fixture names by its RFC-AITP-0002 wire string.
+fn identity_kind(v: &Value) -> Option<aitp::handshake::IdentityKind> {
+    serde_json::from_value(v.clone()).ok()
+}
+
 fn kat_seed_for_aid(aid_str: &str) -> Option<[u8; 32]> {
     match aid_str {
         "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik" => Some([0u8; 32]),
@@ -899,16 +904,28 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         .and_then(|v| v.as_array())
     {
         Some(types) if types.is_empty() => self_manifest.accept_no_identity_types(),
-        Some(types) => types
-            .iter()
-            .filter_map(|t| t.as_str())
-            .fold(self_manifest, |b, t| b.accept_identity_type(t)),
+        Some(types) => {
+            let mut b = self_manifest;
+            for t in types {
+                match identity_kind(t) {
+                    Some(kind) => b = b.accept_identity_type(kind),
+                    None => {
+                        return err(
+                            id,
+                            "INVALID_REQUEST",
+                            "unknown self_accepted_identity_types entry",
+                        )
+                    }
+                }
+            }
+            b
+        }
         None => {
             let b = self_manifest
-                .accept_identity_type("pinned_key")
-                .accept_identity_type("oidc");
+                .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
+                .accept_identity_type(aitp::handshake::IdentityKind::Oidc);
             if spiffe_enabled {
-                b.accept_identity_type("spiffe")
+                b.accept_identity_type(aitp::handshake::IdentityKind::Spiffe)
             } else {
                 b
             }
@@ -2337,8 +2354,17 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
         .get("accepted_identity_types")
         .and_then(|v| v.as_array())
     {
-        for ty in types.iter().filter_map(|t| t.as_str()) {
-            b = b.accept_identity_type(ty);
+        for t in types {
+            match identity_kind(t) {
+                Some(kind) => b = b.accept_identity_type(kind),
+                None => {
+                    return err(
+                        id,
+                        "INVALID_REQUEST",
+                        "unknown accepted_identity_types entry",
+                    )
+                }
+            }
         }
     }
     let manifest = match b.build() {

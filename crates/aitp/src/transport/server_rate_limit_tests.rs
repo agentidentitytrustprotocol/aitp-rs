@@ -36,7 +36,7 @@ fn server() -> HandshakeServer<NoOpResolver> {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
@@ -267,7 +267,7 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();

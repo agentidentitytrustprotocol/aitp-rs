@@ -37,7 +37,7 @@ pub fn build_demo_manifest(
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, display_name).with_public_key(pubkey_b64),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         // Every TCT issuer MUST advertise its `ListRevoked` URL
         // (RFC-AITP-0008 §1.4); `HandshakeServer` serves it at this path.
         .revocation_list_uri(

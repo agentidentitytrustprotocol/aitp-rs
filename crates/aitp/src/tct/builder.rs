@@ -4,7 +4,6 @@ use crate::core::{ids, Aid, Timestamp, PROTOCOL_VERSION};
 use crate::crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
 use crate::tct::types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims};
 use crate::tct::TctError;
-use serde_json::{Map, Value};
 use uuid::Uuid;
 
 /// The reserved marker grant of a self-attestation TCT (RFC-AITP-0005
@@ -55,7 +54,7 @@ pub struct TctBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     /// Override `issued_at` for tests / fixed-clock scenarios.
     now_override: Option<Timestamp>,
     jti: JtiSource,
-    ext: Option<Map<String, Value>>,
+    ext: Option<crate::core::ExtensionsMap>,
     attestation: bool,
 }
 
@@ -254,8 +253,8 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
 
     /// Set the signed `ext` claim (RFC-AITP-0012): a map of namespaced
     /// keys (`com.example.thing`). Not copied into the grant voucher.
-    pub fn ext(mut self, ext: Map<String, Value>) -> Self {
-        self.ext = Some(ext);
+    pub fn ext(mut self, ext: impl Into<crate::core::ExtensionsMap>) -> Self {
+        self.ext = Some(ext.into());
         self
     }
 

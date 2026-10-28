@@ -202,7 +202,7 @@ impl AitpAgent {
                 (
                     IdentityHint::new(IdentityHintKind::PinnedKey, opts.display_name.clone())
                         .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
-                    "pinned_key",
+                    aitp::handshake::IdentityKind::PinnedKey,
                     Vec::<url::Url>::new(),
                 )
             }
@@ -219,7 +219,7 @@ impl AitpAgent {
                 (
                     IdentityHint::new(IdentityHintKind::Oidc, sub)
                         .with_issuer(RawUrl::from(iss.clone())),
-                    "oidc",
+                    aitp::handshake::IdentityKind::Oidc,
                     vec![iss],
                 )
             }
@@ -243,9 +243,12 @@ impl AitpAgent {
         builder = match opts.accepted_identity_types {
             None => builder.accept_identity_type(accepted_type),
             Some(types) if types.is_empty() => builder.accept_no_identity_types(),
-            Some(types) => types
-                .into_iter()
-                .fold(builder, |b, t| b.accept_identity_type(t)),
+            Some(types) => types.into_iter().try_fold(builder, |b, t| {
+                let kind: aitp::handshake::IdentityKind =
+                    serde_json::from_value(serde_json::Value::String(t))
+                        .map_err(|_| Error::from_reason("unknown acceptedIdentityTypes entry"))?;
+                Ok::<_, Error>(b.accept_identity_type(kind))
+            })?,
         };
 
         let anchors: Vec<url::Url> = match opts.accepted_trust_anchors {

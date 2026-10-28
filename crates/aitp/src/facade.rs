@@ -103,10 +103,10 @@ impl IdentityMode {
     /// Wire identity-type string (`"pinned_key"` / `"oidc"`) used for
     /// the `accepted_identity_types` compatibility check
     /// (RFC-AITP-0003 §3.2).
-    fn presented_type(&self) -> &'static str {
+    fn presented_type(&self) -> crate::handshake::IdentityKind {
         match self {
-            IdentityMode::PinnedKey { .. } => "pinned_key",
-            IdentityMode::Oidc { .. } => "oidc",
+            IdentityMode::PinnedKey { .. } => crate::handshake::IdentityKind::PinnedKey,
+            IdentityMode::Oidc { .. } => crate::handshake::IdentityKind::Oidc,
         }
     }
 
@@ -1285,7 +1285,10 @@ mod identity_mode_tests {
         let m = IdentityMode::PinnedKey {
             subject: "alice".into(),
         };
-        assert_eq!(m.presented_type(), "pinned_key");
+        assert_eq!(
+            m.presented_type(),
+            crate::handshake::IdentityKind::PinnedKey
+        );
         match m.into_presented_identity() {
             PresentedIdentity::PinnedKey { subject } => assert_eq!(subject, "alice"),
             _ => panic!("expected a PinnedKey PresentedIdentity"),
@@ -1309,7 +1312,7 @@ mod identity_mode_tests {
                 Ok(format!("header.{nonce}.sig"))
             }),
         };
-        assert_eq!(m.presented_type(), "oidc");
+        assert_eq!(m.presented_type(), crate::handshake::IdentityKind::Oidc);
         match m.into_presented_identity() {
             PresentedIdentity::OidcMinter {
                 issuer: got_issuer,

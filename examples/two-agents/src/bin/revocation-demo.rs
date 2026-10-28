@@ -79,7 +79,7 @@ async fn main() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         // RFC-AITP-0005 §11: a TCT issuer MUST advertise its ListRevoked
         // URL inside the signed Manifest.

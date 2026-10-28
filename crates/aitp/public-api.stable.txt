@@ -626,6 +626,7 @@ impl core::convert::From<alloc::string::String> for aitp::core::raw_url::RawUrl
 impl core::convert::From<i64> for aitp::core::time::Timestamp
 impl core::convert::From<serde_json::error::Error> for aitp::core::jcs::JcsError
 impl core::convert::From<serde_json::error::Error> for aitp::facade::FacadeError
+impl core::convert::From<serde_json::map::Map<alloc::string::String, serde_json::value::Value>> for aitp::core::extensions::ExtensionsMap
 impl core::convert::From<url::Url> for aitp::core::raw_url::RawUrl
 impl core::convert::TryFrom<alloc::string::String> for aitp::core::aid::Aid
 impl core::default::Default for aitp::core::extensions::ExtensionsMap
@@ -1726,6 +1727,7 @@ impl<'de> serde_core::de::Deserialize<'de> for aitp::tct::revocation::Revocation
 impl<'de> serde_core::de::Deserialize<'de> for aitp::tct::types::Cnf
 impl<'de> serde_core::de::Deserialize<'de> for aitp::tct::types::GrantVoucherClaims
 impl<'de> serde_core::de::Deserialize<'de> for aitp::tct::types::TctClaims
+impl<K: core::convert::Into<alloc::string::String>> core::iter::traits::collect::FromIterator<(K, serde_json::value::Value)> for aitp::core::extensions::ExtensionsMap
 impl<R: aitp::handshake::identity_oidc::JwksResolver + core::marker::Send + core::marker::Sync + 'static> aitp::transport::server::HandshakeServer<R>
 impl<R: aitp::handshake::identity_oidc::JwksResolver + core::marker::Send + core::marker::Sync + 'static> core::fmt::Debug for aitp::transport::server::HandshakeServer<R>
 impl<R> !core::panic::unwind_safe::RefUnwindSafe for aitp::transport::server::HandshakeServer<R>
@@ -1996,7 +1998,7 @@ pub aitp::crypto::signer::SignerError::VerificationFailed
 pub aitp::delegation::DelegationClaims::aud: aitp::core::aid::Aid
 pub aitp::delegation::DelegationClaims::cnf: aitp::tct::types::Cnf
 pub aitp::delegation::DelegationClaims::exp: aitp::core::time::Timestamp
-pub aitp::delegation::DelegationClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::delegation::DelegationClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::delegation::DelegationClaims::iss: aitp::core::aid::Aid
 pub aitp::delegation::DelegationClaims::scope: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::DelegationClaims::sub: aitp::core::aid::Aid
@@ -2055,7 +2057,7 @@ pub aitp::delegation::error::DelegationError::VersionUnknown
 pub aitp::delegation::types::DelegationClaims::aud: aitp::core::aid::Aid
 pub aitp::delegation::types::DelegationClaims::cnf: aitp::tct::types::Cnf
 pub aitp::delegation::types::DelegationClaims::exp: aitp::core::time::Timestamp
-pub aitp::delegation::types::DelegationClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::delegation::types::DelegationClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::delegation::types::DelegationClaims::iss: aitp::core::aid::Aid
 pub aitp::delegation::types::DelegationClaims::scope: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::types::DelegationClaims::sub: aitp::core::aid::Aid
@@ -2487,7 +2489,7 @@ pub aitp::manifest::ManifestError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::manifest::ManifestError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::manifest::ManifestError::Expired
 pub aitp::manifest::ManifestError::IdentityHintMalformed(&'static str)
-pub aitp::manifest::ManifestError::IncompatibleIdentityType(&'static str)
+pub aitp::manifest::ManifestError::IncompatibleIdentityType(aitp::handshake::identity::IdentityKind)
 pub aitp::manifest::ManifestError::Malformed(alloc::string::String)
 pub aitp::manifest::ManifestError::MissingField(&'static str)
 pub aitp::manifest::ManifestError::NotFound
@@ -2504,7 +2506,7 @@ pub aitp::manifest::error::ManifestError::Canonicalization(aitp::core::jcs::JcsE
 pub aitp::manifest::error::ManifestError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::manifest::error::ManifestError::Expired
 pub aitp::manifest::error::ManifestError::IdentityHintMalformed(&'static str)
-pub aitp::manifest::error::ManifestError::IncompatibleIdentityType(&'static str)
+pub aitp::manifest::error::ManifestError::IncompatibleIdentityType(aitp::handshake::identity::IdentityKind)
 pub aitp::manifest::error::ManifestError::Malformed(alloc::string::String)
 pub aitp::manifest::error::ManifestError::MissingField(&'static str)
 pub aitp::manifest::error::ManifestError::NotFound
@@ -2588,7 +2590,7 @@ pub aitp::prelude::SignerError::VerificationFailed
 pub aitp::prelude::TctClaims::aud: aitp::core::aid::Aid
 pub aitp::prelude::TctClaims::cnf: aitp::tct::types::Cnf
 pub aitp::prelude::TctClaims::exp: aitp::core::time::Timestamp
-pub aitp::prelude::TctClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::prelude::TctClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::prelude::TctClaims::grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::prelude::TctClaims::iat: aitp::core::time::Timestamp
 pub aitp::prelude::TctClaims::iss: aitp::core::aid::Aid
@@ -2603,7 +2605,7 @@ pub aitp::tct::AttestationVerifyContext::revocation: aitp::tct::revocation::Revo
 pub aitp::tct::AttestationVerifyContext::statement_key: &'a str
 pub aitp::tct::Cnf::jkt: alloc::string::String
 pub aitp::tct::GrantVoucherClaims::exp: aitp::core::time::Timestamp
-pub aitp::tct::GrantVoucherClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::tct::GrantVoucherClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::tct::GrantVoucherClaims::grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::GrantVoucherClaims::iat: aitp::core::time::Timestamp
 pub aitp::tct::GrantVoucherClaims::iss: aitp::core::aid::Aid
@@ -2643,7 +2645,7 @@ pub aitp::tct::RevocationStatus::SoftFailSafeSubset::safe_grants: alloc::vec::Ve
 pub aitp::tct::TctClaims::aud: aitp::core::aid::Aid
 pub aitp::tct::TctClaims::cnf: aitp::tct::types::Cnf
 pub aitp::tct::TctClaims::exp: aitp::core::time::Timestamp
-pub aitp::tct::TctClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::tct::TctClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::tct::TctClaims::grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::TctClaims::iat: aitp::core::time::Timestamp
 pub aitp::tct::TctClaims::iss: aitp::core::aid::Aid
@@ -2747,7 +2749,7 @@ pub aitp::tct::revocation::RevocationStatus::Revoked
 pub aitp::tct::revocation::RevocationStatus::SoftFailSafeSubset::safe_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::types::Cnf::jkt: alloc::string::String
 pub aitp::tct::types::GrantVoucherClaims::exp: aitp::core::time::Timestamp
-pub aitp::tct::types::GrantVoucherClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::tct::types::GrantVoucherClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::tct::types::GrantVoucherClaims::grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::types::GrantVoucherClaims::iat: aitp::core::time::Timestamp
 pub aitp::tct::types::GrantVoucherClaims::iss: aitp::core::aid::Aid
@@ -2760,7 +2762,7 @@ pub aitp::tct::types::IssuedTct::voucher: core::option::Option<alloc::string::St
 pub aitp::tct::types::TctClaims::aud: aitp::core::aid::Aid
 pub aitp::tct::types::TctClaims::cnf: aitp::tct::types::Cnf
 pub aitp::tct::types::TctClaims::exp: aitp::core::time::Timestamp
-pub aitp::tct::types::TctClaims::ext: core::option::Option<serde_json::map::Map<alloc::string::String, serde_json::value::Value>>
+pub aitp::tct::types::TctClaims::ext: core::option::Option<aitp::core::extensions::ExtensionsMap>
 pub aitp::tct::types::TctClaims::grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::types::TctClaims::iat: aitp::core::time::Timestamp
 pub aitp::tct::types::TctClaims::iss: aitp::core::aid::Aid
@@ -3130,10 +3132,13 @@ pub fn aitp::core::error::UnknownErrorCode::clone(&self) -> aitp::core::error::U
 pub fn aitp::core::error::UnknownErrorCode::eq(&self, &aitp::core::error::UnknownErrorCode) -> bool
 pub fn aitp::core::error::UnknownErrorCode::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::core::extensions::ExtensionsMap::clone(&self) -> aitp::core::extensions::ExtensionsMap
+pub fn aitp::core::extensions::ExtensionsMap::contains_key(&self, &str) -> bool
 pub fn aitp::core::extensions::ExtensionsMap::default() -> aitp::core::extensions::ExtensionsMap
 pub fn aitp::core::extensions::ExtensionsMap::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::core::extensions::ExtensionsMap::eq(&self, &aitp::core::extensions::ExtensionsMap) -> bool
 pub fn aitp::core::extensions::ExtensionsMap::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::core::extensions::ExtensionsMap::from(serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> Self
+pub fn aitp::core::extensions::ExtensionsMap::from_iter<I: core::iter::traits::collect::IntoIterator<Item = (K, serde_json::value::Value)>>(I) -> Self
 pub fn aitp::core::extensions::ExtensionsMap::get(&self, &str) -> core::option::Option<&serde_json::value::Value>
 pub fn aitp::core::extensions::ExtensionsMap::insert(&mut self, impl core::convert::Into<alloc::string::String>, serde_json::value::Value)
 pub fn aitp::core::extensions::ExtensionsMap::is_empty(&self) -> bool
@@ -3672,7 +3677,7 @@ pub fn aitp::manifest::builder::ManifestBuilder<'_>::default() -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::build(self) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::builder::ManifestBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::signer::AitpSigner) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::new_async(&'a dyn aitp::crypto::signer::DynAsyncAitpSigner) -> Self
-pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::accept_identity_type(self, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::accept_identity_type(self, aitp::handshake::identity::IdentityKind) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::accept_no_identity_types(self) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::accept_trust_anchor(self, url::Url) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::accept_trust_anchor_raw(self, aitp::core::raw_url::RawUrl) -> Self
@@ -3686,7 +3691,7 @@ pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::published_at(self, aitp:
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::require(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::revocation_list_uri(self, url::Url) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::ttl(self, core::time::Duration) -> Self
-pub fn aitp::manifest::check_identity_type_compatibility(&aitp::manifest::types::Manifest, &'static str) -> core::result::Result<(), aitp::manifest::error::ManifestError>
+pub fn aitp::manifest::check_identity_type_compatibility(&aitp::manifest::types::Manifest, aitp::handshake::identity::IdentityKind) -> core::result::Result<(), aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::error::ManifestError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::manifest::error::ManifestError::from(aitp::crypto::error::CryptoError) -> Self
 pub fn aitp::manifest::error::ManifestError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
@@ -3731,7 +3736,7 @@ pub fn aitp::manifest::verifier::VerifiedManifest::eq(&self, &aitp::manifest::ve
 pub fn aitp::manifest::verifier::VerifiedManifest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::manifest::verifier::VerifiedManifest::into_manifest(self) -> aitp::manifest::types::Manifest
 pub fn aitp::manifest::verifier::VerifiedManifest::manifest(&self) -> &aitp::manifest::types::Manifest
-pub fn aitp::manifest::verifier::check_identity_type_compatibility(&aitp::manifest::types::Manifest, &'static str) -> core::result::Result<(), aitp::manifest::error::ManifestError>
+pub fn aitp::manifest::verifier::check_identity_type_compatibility(&aitp::manifest::types::Manifest, aitp::handshake::identity::IdentityKind) -> core::result::Result<(), aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::verifier::parse_manifest_wire(&aitp::core::CheckedJson) -> core::result::Result<aitp::manifest::types::Manifest, aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::verifier::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::ManifestVerifyContext) -> core::result::Result<aitp::manifest::verifier::VerifiedManifest, aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::verify_manifest(&aitp::manifest::types::Manifest, &aitp::manifest::verifier::ManifestVerifyContext) -> core::result::Result<aitp::manifest::verifier::VerifiedManifest, aitp::manifest::error::ManifestError>
@@ -3756,7 +3761,7 @@ pub fn aitp::tct::builder::TctBuilder<'a, (dyn aitp::crypto::signer::AitpSigner 
 pub fn aitp::tct::builder::TctBuilder<'a, (dyn aitp::crypto::signer::DynAsyncAitpSigner + 'a)>::new_async(&'a dyn aitp::crypto::signer::DynAsyncAitpSigner) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::audience(self, aitp::core::aid::Aid) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::derived_jti(self, impl core::convert::Into<alloc::string::String>, impl core::convert::AsRef<[u8]>) -> Self
-pub fn aitp::tct::builder::TctBuilder<'a, S>::ext(self, serde_json::map::Map<alloc::string::String, serde_json::value::Value>) -> Self
+pub fn aitp::tct::builder::TctBuilder<'a, S>::ext(self, impl core::convert::Into<aitp::core::extensions::ExtensionsMap>) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::grants<I, G>(self, I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = G>, G: core::convert::Into<alloc::string::String>
 pub fn aitp::tct::builder::TctBuilder<'a, S>::issued_at(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::jti(self, uuid::Uuid) -> Self

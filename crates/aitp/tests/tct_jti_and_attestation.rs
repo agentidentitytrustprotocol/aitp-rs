@@ -164,7 +164,7 @@ fn ext_setter_is_signed_and_round_trips() {
     let ext = statement("ext");
     let issued = base(&iss, &sub).ext(ext.clone()).build().unwrap();
     let v = verify_tct(&issued.token, &ctx(sub.aid(), iss.aid())).unwrap();
-    assert_eq!(v.claims().ext.as_ref(), Some(&ext));
+    assert_eq!(v.claims().ext, Some(ext.into()));
     // The voucher mirrors the TCT and stays ext-free.
     let voucher = verify_voucher(issued.voucher.as_deref().unwrap(), iss.aid()).unwrap();
     assert_eq!(voucher.ext, None);

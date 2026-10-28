@@ -39,7 +39,7 @@ fn manifest_for(key: &dyn AitpSigner, name: &str) -> Manifest {
             IdentityHint::new(IdentityHintKind::PinnedKey, name)
                 .with_public_key(aitp::core::base64url::encode(&vk(key).to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()

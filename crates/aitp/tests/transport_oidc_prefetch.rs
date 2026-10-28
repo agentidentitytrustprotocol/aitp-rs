@@ -64,7 +64,7 @@ fn manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifest {
                 .with_issuer(RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .build()
         .unwrap()

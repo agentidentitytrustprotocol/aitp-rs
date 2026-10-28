@@ -557,7 +557,7 @@ pub(crate) fn bootstrap_verify_peer(
             // RFC-AITP-0002 §6.6: a type no verifier handles is rejected
             // even when our Manifest lists it.
             let verifier = cfg.identity_verifier.filter(|v| v.handles(kind)).ok_or(
-                crate::manifest::ManifestError::IncompatibleIdentityType(kind.as_str()),
+                crate::manifest::ManifestError::IncompatibleIdentityType(kind),
             )?;
             let verified = verifier.verify(
                 payload_identity,
@@ -595,10 +595,7 @@ pub(crate) fn apply_peer_policy(
     payload_identity: &IdentityDescriptor,
     cfg: &PeerConfig<'_>,
 ) -> Result<(), HandshakeError> {
-    crate::manifest::check_identity_type_compatibility(
-        cfg.manifest,
-        payload_identity.kind.as_str(),
-    )?;
+    crate::manifest::check_identity_type_compatibility(cfg.manifest, payload_identity.kind)?;
     Ok(())
 }
 

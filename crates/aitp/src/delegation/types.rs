@@ -41,7 +41,7 @@ pub struct DelegationClaims {
     /// OPTIONAL extensions slot (RFC-AITP-0012); unknown keys inside
     /// `ext` MUST be ignored, unknown claims outside it rejected.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
+    pub ext: Option<crate::core::ExtensionsMap>,
 }
 
 /// Full set of top-level members `aitp-delegation.schema.json` declares,

@@ -1789,7 +1789,7 @@ mod tests {
         );
         assert_eq!(
             handshake_error_code(&HandshakeError::Manifest(
-                ManifestError::IncompatibleIdentityType("oidc")
+                ManifestError::IncompatibleIdentityType(crate::handshake::IdentityKind::Oidc)
             )),
             ErrorCode::IncompatibleIdentityType,
         );

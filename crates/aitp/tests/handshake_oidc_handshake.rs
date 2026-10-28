@@ -33,7 +33,7 @@ fn manifest_for_oidc(
                 .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .published_at(NOW)
         .build()

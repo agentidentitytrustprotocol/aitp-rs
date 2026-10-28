@@ -63,7 +63,7 @@ fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .ttl(std::time::Duration::from_secs(86_400));
     if let Some(uri) = renew_uri {
@@ -143,7 +143,7 @@ async fn no_renew_uri_means_no_request() {
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();

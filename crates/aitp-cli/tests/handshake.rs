@@ -47,7 +47,7 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();

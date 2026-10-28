@@ -66,7 +66,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
@@ -137,7 +137,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
