@@ -15,7 +15,7 @@ pub mod error;
 pub mod types;
 pub mod verifier;
 
-pub use builder::{DelegationBuilder, DEFAULT_DELEGATION_TTL_SECS};
+pub use builder::{DelegationBuilder, DEFAULT_DELEGATION_TTL};
 pub use error::DelegationError;
 pub use types::{
     DelegationClaims, VerifiedDelegation, VerifiedDelegationParts, DELEGATION_CLAIMS_MEMBERS,

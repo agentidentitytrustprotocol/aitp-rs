@@ -85,7 +85,7 @@ type Slot = Arc<tokio::sync::Mutex<Option<Snapshot>>>;
 /// ([`crate::manifest::REVOCATION_LIST_URI_EXT`]), or from a
 /// [`RevocationProvider`] ([`Self::with_provider`]). Each snapshot is
 /// verified (signature, expiry, staleness) before it is cached for
-/// [`RevocationPolicy::cache_ttl_secs`]. See the [module docs](self).
+/// [`RevocationPolicy::cache_ttl`]. See the [module docs](self).
 ///
 /// Hardened like [`crate::transport::ManifestFetcher`]: HTTPS only, no redirects,
 /// [`HostGuard`] address checks with the vetted addresses pinned into
@@ -219,7 +219,9 @@ impl RevocationFetcher {
         let mut cached = slot.lock().await;
         if let Some(snap) = cached.as_ref() {
             let age = now.0.saturating_sub(snap.cached_at.0);
-            if age <= self.policy.cache_ttl_secs as i64 && !snap.expires_at.is_in_the_past(now) {
+            if age <= crate::core::time::duration_secs(self.policy.cache_ttl)
+                && !snap.expires_at.is_in_the_past(now)
+            {
                 crate::transport::obs::revocation_cache("hit");
                 return Ok(Arc::clone(&snap.revoked));
             }
@@ -230,7 +232,7 @@ impl RevocationFetcher {
             (None, Some(uri)) => self.fetch(uri).await?,
             (None, None) => return Err(RevocationError::NoSnapshotFailClosed),
         };
-        verify_snapshot(&env, issuer, now, self.policy.max_staleness_secs)?;
+        verify_snapshot(&env, issuer, now, self.policy.max_staleness)?;
         crate::transport::obs::revocation_cache("refresh");
         let revoked: Arc<HashSet<Uuid>> =
             Arc::new(env.revocation_list.entries.iter().map(|e| e.jti).collect());

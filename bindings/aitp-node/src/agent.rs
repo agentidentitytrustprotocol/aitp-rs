@@ -230,11 +230,16 @@ impl AitpAgent {
             }
         };
 
+        let (published_at, ttl) = crate::helpers::ttl_window(
+            aitp::core::Timestamp::now(),
+            i64::from(opts.ttl_secs.unwrap_or(3600)),
+        );
         let mut builder = ManifestBuilder::new(&self.key)
             .display_name(&opts.display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .ttl_secs(opts.ttl_secs.unwrap_or(3600) as i64);
+            .published_at(published_at)
+            .ttl(ttl);
         builder = match opts.accepted_identity_types {
             None => builder.accept_identity_type(accepted_type),
             Some(types) if types.is_empty() => builder.accept_no_identity_types(),

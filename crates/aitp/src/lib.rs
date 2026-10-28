@@ -50,7 +50,7 @@
 //!     .subject(bob.aid().clone())
 //!     .audience(bob.aid().clone())  // v0.2: audience == subject
 //!     .grants(["demo.echo"])
-//!     .ttl_secs(3600)
+//!     .ttl(std::time::Duration::from_secs(3600))
 //!     .subject_pubkey(bob.verifying_key())
 //!     .issued_at(now)
 //!     .build()?;

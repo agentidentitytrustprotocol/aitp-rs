@@ -37,14 +37,14 @@ pub struct TctVerifyContext<'a> {
     pub issuer_manifest_expires_at: Option<Timestamp>,
     /// Where the token's revocation status comes from (RFC-AITP-0008).
     pub revocation: RevocationSource<'a>,
-    /// Symmetric clock-skew tolerance, in seconds, applied to the `exp`
-    /// and `iat` freshness checks. `0` (the default) is strict: a TCT
+    /// Symmetric clock-skew tolerance, counted in whole seconds, applied
+    /// to the `exp` and `iat` freshness checks. Zero (the default) is strict: a TCT
     /// one second past `exp`, or with `iat` one second in the future, is
     /// rejected. A small positive value (e.g. 5–30s) absorbs benign
     /// clock drift between issuer and verifier without materially
     /// widening the acceptance window. Set via
-    /// [`TctVerifyContextBuilder::clock_skew_secs`].
-    pub clock_skew_secs: i64,
+    /// [`TctVerifyContextBuilder::clock_skew`].
+    pub clock_skew: std::time::Duration,
 }
 
 /// Error returned by [`TctVerifyContextBuilder::build`] when a security-
@@ -112,7 +112,7 @@ impl<'a> TctVerifyContext<'a> {
             now,
             issuer_manifest_expires_at: None,
             revocation: None,
-            clock_skew_secs: 0,
+            clock_skew: std::time::Duration::ZERO,
             manifest_cap_decided: false,
         }
     }
@@ -125,7 +125,7 @@ pub struct TctVerifyContextBuilder<'a> {
     now: Timestamp,
     issuer_manifest_expires_at: Option<Timestamp>,
     revocation: Option<RevocationSource<'a>>,
-    clock_skew_secs: i64,
+    clock_skew: std::time::Duration,
     manifest_cap_decided: bool,
 }
 
@@ -140,7 +140,7 @@ impl std::fmt::Debug for TctVerifyContextBuilder<'_> {
                 &self.issuer_manifest_expires_at,
             )
             .field("revocation", &self.revocation)
-            .field("clock_skew_secs", &self.clock_skew_secs)
+            .field("clock_skew", &self.clock_skew)
             .finish_non_exhaustive()
     }
 }
@@ -173,11 +173,11 @@ impl<'a> TctVerifyContextBuilder<'a> {
         self
     }
 
-    /// Set the symmetric clock-skew tolerance (seconds) for the `exp` /
-    /// `iat` freshness checks. Defaults to `0` (strict). Negative values
-    /// are clamped to `0`.
-    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
-        self.clock_skew_secs = secs.max(0);
+    /// Set the symmetric clock-skew tolerance for the `exp` / `iat`
+    /// freshness checks, counted in whole seconds. Defaults to zero
+    /// (strict).
+    pub fn clock_skew(mut self, skew: std::time::Duration) -> Self {
+        self.clock_skew = skew;
         self
     }
 
@@ -195,7 +195,7 @@ impl<'a> TctVerifyContextBuilder<'a> {
             now: self.now,
             issuer_manifest_expires_at: self.issuer_manifest_expires_at,
             revocation,
-            clock_skew_secs: self.clock_skew_secs,
+            clock_skew: self.clock_skew,
         })
     }
 }
@@ -303,7 +303,7 @@ pub(crate) fn verify_tct_before_revocation(
     let core = CoreChecks {
         issuer: ctx.issuer,
         now: ctx.now,
-        clock_skew_secs: ctx.clock_skew_secs,
+        clock_skew: ctx.clock_skew,
         issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
     };
     core.verify(token, |claims| {
@@ -331,7 +331,7 @@ pub(crate) fn verify_tct_before_revocation(
 struct CoreChecks<'a> {
     issuer: &'a Aid,
     now: Timestamp,
-    clock_skew_secs: i64,
+    clock_skew: std::time::Duration,
     issuer_manifest_expires_at: Option<Timestamp>,
 }
 
@@ -384,7 +384,7 @@ impl CoreChecks<'_> {
         // Freshness checks with symmetric skew tolerance (default 0). A TCT
         // is "expired" only once `now` is past `exp + skew`, and "not yet
         // valid" only once `iat` is beyond `now + skew`.
-        let skew = self.clock_skew_secs;
+        let skew = crate::core::time::duration_secs(self.clock_skew);
         if claims.exp.0 < self.now.0.saturating_sub(skew) {
             return Err(TctError::Expired);
         }
@@ -453,8 +453,8 @@ pub struct AttestationVerifyContext<'a> {
     pub issuer_manifest_expires_at: Option<Timestamp>,
     /// Where the attestation's revocation status comes from.
     pub revocation: RevocationSource<'a>,
-    /// Symmetric clock-skew tolerance, seconds.
-    pub clock_skew_secs: i64,
+    /// Symmetric clock-skew tolerance, counted in whole seconds.
+    pub clock_skew: std::time::Duration,
 }
 
 impl<'a> AttestationVerifyContext<'a> {
@@ -471,7 +471,7 @@ impl<'a> AttestationVerifyContext<'a> {
             now,
             issuer_manifest_expires_at: None,
             revocation: None,
-            clock_skew_secs: 0,
+            clock_skew: std::time::Duration::ZERO,
             manifest_cap_decided: false,
         }
     }
@@ -488,7 +488,7 @@ impl std::fmt::Debug for AttestationVerifyContext<'_> {
                 &self.issuer_manifest_expires_at,
             )
             .field("revocation", &self.revocation)
-            .field("clock_skew_secs", &self.clock_skew_secs)
+            .field("clock_skew", &self.clock_skew)
             .finish()
     }
 }
@@ -501,7 +501,7 @@ pub struct AttestationVerifyContextBuilder<'a> {
     now: Timestamp,
     issuer_manifest_expires_at: Option<Timestamp>,
     revocation: Option<RevocationSource<'a>>,
-    clock_skew_secs: i64,
+    clock_skew: std::time::Duration,
     manifest_cap_decided: bool,
 }
 
@@ -533,9 +533,10 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
         self
     }
 
-    /// Symmetric clock-skew tolerance in seconds (negative clamps to 0).
-    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
-        self.clock_skew_secs = secs.max(0);
+    /// Symmetric clock-skew tolerance, counted in whole seconds.
+    /// Defaults to zero (strict).
+    pub fn clock_skew(mut self, skew: std::time::Duration) -> Self {
+        self.clock_skew = skew;
         self
     }
 
@@ -553,7 +554,7 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
             now: self.now,
             issuer_manifest_expires_at: self.issuer_manifest_expires_at,
             revocation,
-            clock_skew_secs: self.clock_skew_secs,
+            clock_skew: self.clock_skew,
         })
     }
 }
@@ -622,7 +623,7 @@ pub fn verify_attestation(
     let core = CoreChecks {
         issuer: ctx.issuer,
         now: ctx.now,
-        clock_skew_secs: ctx.clock_skew_secs,
+        clock_skew: ctx.clock_skew,
         issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
     };
     let claims = core.verify(token, |c| {
@@ -765,30 +766,22 @@ mod builder_tests {
     }
 
     #[test]
-    fn clock_skew_defaults_to_zero_and_clamps_negatives() {
+    fn clock_skew_defaults_to_zero() {
         let (aud, iss) = aids();
         let strict = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
             .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .unwrap();
-        assert_eq!(strict.clock_skew_secs, 0);
+        assert_eq!(strict.clock_skew, std::time::Duration::ZERO);
 
         let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
             .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
-            .clock_skew_secs(-5)
+            .clock_skew(std::time::Duration::from_secs(30))
             .build()
             .unwrap();
-        assert_eq!(ctx.clock_skew_secs, 0, "negative skew clamps to 0");
-
-        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .revocation(RevocationSource::FailOpen)
-            .skip_manifest_expiry_cap_dangerous()
-            .clock_skew_secs(30)
-            .build()
-            .unwrap();
-        assert_eq!(ctx.clock_skew_secs, 30);
+        assert_eq!(ctx.clock_skew, std::time::Duration::from_secs(30));
     }
 }
 

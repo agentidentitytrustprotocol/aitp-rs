@@ -30,7 +30,7 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(NOW);
     if accept.is_empty() {
         // Empty input list = explicit-empty test (BUG-6 case):

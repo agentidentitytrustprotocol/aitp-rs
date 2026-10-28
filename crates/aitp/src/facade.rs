@@ -1005,14 +1005,14 @@ mod tct_store_tests {
     use crate::crypto::AitpSigningKey;
     use crate::tct::TctBuilder;
 
-    fn build_tct(issued_at: Timestamp, ttl_secs: i64) -> (VerifiedTct, Option<String>) {
+    fn build_tct(issued_at: Timestamp, ttl_secs: u64) -> (VerifiedTct, Option<String>) {
         let issuer = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let holder = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
         let issued = TctBuilder::new(&issuer)
             .subject(holder.aid().clone())
             .audience(holder.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .subject_pubkey(holder.verifying_key())
             .issued_at(issued_at)
             .build()

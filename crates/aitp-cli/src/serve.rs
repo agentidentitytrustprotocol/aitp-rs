@@ -72,12 +72,12 @@ const DRAIN_LIMIT: usize = 1024 * 1024;
 /// Whole-request deadline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an enrolment or echo challenge is accepted.
-const CHALLENGE_TTL_SECS: i64 = 60;
+const CHALLENGE_TTL: Duration = Duration::from_secs(60);
 /// Outstanding challenges held at once, per kind; beyond that,
 /// `enrol_busy` / `echo_busy`.
 const MAX_OUTSTANDING_CHALLENGES: usize = 10_000;
 /// Manifest lifetime. The peer re-signs it every half lifetime.
-const MANIFEST_TTL_SECS: i64 = 24 * 3600;
+const MANIFEST_TTL: Duration = Duration::from_secs(24 * 3600);
 
 /// `aitp serve` options. Each can also come from the environment, the
 /// way a container platform passes configuration.
@@ -117,7 +117,7 @@ pub(crate) struct ServeArgs {
     client_ip_header: Option<HeaderName>,
     /// How long an enrolment lasts, in seconds.
     #[arg(long, env = "AITP_ENROL_TTL", default_value_t = 24 * 3600)]
-    enrol_ttl: i64,
+    enrol_ttl: u64,
     /// Most enrolled keys held at once; at the cap the oldest goes first.
     #[arg(long, env = "AITP_ENROL_CAP", default_value_t = 10_000)]
     enrol_cap: usize,
@@ -215,7 +215,7 @@ struct Interop {
     key: Arc<AitpSigningKey>,
     aid: Aid,
     enrolled: Arc<EnrolledKeys>,
-    enrol_ttl: i64,
+    enrol_ttl: u64,
     nonces: InMemoryNonceStore,
     challenge_limiter: TokenBucketLimiter,
     enrol_limiter: TokenBucketLimiter,
@@ -282,12 +282,12 @@ fn interop_manifest(
         )
         .accept_identity_type("pinned_key")
         .offer(ECHO_CAP)
-        .ttl_secs(MANIFEST_TTL_SECS)
+        .ttl(MANIFEST_TTL)
         .build()?)
 }
 
 async fn refresh_manifest(peer: Arc<Interop>, key: Arc<AitpSigningKey>, public_url: url::Url) {
-    let every = Duration::from_secs((MANIFEST_TTL_SECS / 2) as u64);
+    let every = MANIFEST_TTL / 2;
     let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
     loop {
         ticker.tick().await;
@@ -441,7 +441,7 @@ async fn enroll_challenge(
         );
     }
     let now = Timestamp::now();
-    let expires_at = now.plus_secs(CHALLENGE_TTL_SECS);
+    let expires_at = now.saturating_add(CHALLENGE_TTL);
     let record = IssuedNonce::new(
         nonce,
         peer.aid.clone(),
@@ -521,7 +521,7 @@ async fn enroll(
             )
         }
     }
-    let expires_at = now.plus_secs(peer.enrol_ttl);
+    let expires_at = now.saturating_add(Duration::from_secs(peer.enrol_ttl));
     let canonical = request.key.to_aid();
     peer.enrolled.insert(request.key, expires_at);
     info!(aid = %canonical, source = source.transport_key(), "enrolled");
@@ -588,7 +588,7 @@ async fn echo_challenge(
         peer.aid.clone(),
         source.transport_key(),
         now,
-        now.plus_secs(CHALLENGE_TTL_SECS),
+        now.saturating_add(CHALLENGE_TTL),
     );
     match peer.echo_nonces.issue(&record).await {
         Ok(()) => {}
@@ -887,8 +887,14 @@ mod tests {
     #[test]
     fn enrolled_keys_expire() {
         let store = EnrolledKeys::new(10);
-        store.insert(vk(1), Timestamp::now().plus_secs(60));
-        store.insert(vk(2), Timestamp::now().plus_secs(-1));
+        store.insert(
+            vk(1),
+            Timestamp::now().saturating_add(std::time::Duration::from_secs(60)),
+        );
+        store.insert(
+            vk(2),
+            Timestamp::now().saturating_sub(std::time::Duration::from_secs(1)),
+        );
         assert!(store.is_trusted(&vk(1)));
         assert!(!store.is_trusted(&vk(2)));
         assert!(!store.is_trusted(&vk(3)));
@@ -898,11 +904,14 @@ mod tests {
     #[test]
     fn cap_evicts_the_oldest_enrolment() {
         let store = EnrolledKeys::new(2);
-        let later = Timestamp::now().plus_secs(60);
+        let later = Timestamp::now().saturating_add(std::time::Duration::from_secs(60));
         store.insert(vk(1), later);
         store.insert(vk(2), later);
         // Re-enrolling 1 makes 2 the oldest.
-        store.insert(vk(1), later.plus_secs(1));
+        store.insert(
+            vk(1),
+            later.saturating_add(std::time::Duration::from_secs(1)),
+        );
         store.insert(vk(3), later);
         assert!(store.is_trusted(&vk(1)));
         assert!(!store.is_trusted(&vk(2)));
@@ -912,9 +921,9 @@ mod tests {
     #[test]
     fn order_stays_bounded_under_re_enrolment() {
         let store = EnrolledKeys::new(2);
-        let t = Timestamp::now().plus_secs(60);
+        let t = Timestamp::now().saturating_add(std::time::Duration::from_secs(60));
         for i in 0..100 {
-            store.insert(vk(1), t.plus_secs(i));
+            store.insert(vk(1), t.saturating_add(std::time::Duration::from_secs(i)));
         }
         assert!(store.inner.lock().unwrap().order.len() <= 4);
         assert!(store.is_trusted(&vk(1)));
@@ -966,7 +975,7 @@ mod tests {
             peer.aid.clone(),
             "test",
             now,
-            now.plus_secs(60),
+            now.saturating_add(std::time::Duration::from_secs(60)),
         );
         peer.echo_nonces.issue(&record).await.unwrap();
         let payload = serde_json::to_value(echo::ChallengePayload {

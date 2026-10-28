@@ -63,14 +63,14 @@ pub trait RevocationProvider: Send + Sync {
 /// [`RevocationFailMode::FailOpen`].
 pub struct EmptyRevocationProvider {
     issuer_key: Arc<dyn AitpSigner>,
-    ttl_secs: i64,
+    ttl: std::time::Duration,
 }
 
 impl std::fmt::Debug for EmptyRevocationProvider {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("EmptyRevocationProvider")
             .field("issuer", self.issuer_key.aid())
-            .field("ttl_secs", &self.ttl_secs)
+            .field("ttl", &self.ttl)
             .finish_non_exhaustive()
     }
 }
@@ -84,13 +84,14 @@ impl EmptyRevocationProvider {
     pub fn new<S: AitpSigner + 'static>(issuer_key: S) -> Self {
         Self {
             issuer_key: Arc::new(issuer_key),
-            ttl_secs: 3600,
+            ttl: std::time::Duration::from_secs(3600),
         }
     }
 
-    /// Override the validity window (seconds) of the signed empty lists.
-    pub fn with_ttl_secs(mut self, ttl_secs: i64) -> Self {
-        self.ttl_secs = ttl_secs;
+    /// Override the validity window of the signed empty lists, counted
+    /// in whole seconds.
+    pub fn with_ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 }
@@ -104,7 +105,7 @@ impl EmptyRevocationProvider {
                 version: crate::core::PROTOCOL_VERSION.into(),
                 issuer: self.issuer_key.aid().clone(),
                 published_at: now,
-                expires_at: Timestamp(now.0 + self.ttl_secs),
+                expires_at: now.saturating_add(self.ttl),
                 entries: vec![],
                 extensions: None,
             },
@@ -145,14 +146,17 @@ pub enum RevocationError {
     /// Snapshot's `expires_at` predates `now`.
     #[error("snapshot is expired")]
     Expired,
-    /// Snapshot violated [`RevocationPolicy::max_staleness_secs`] from
+    /// Snapshot violated [`RevocationPolicy::max_staleness`] from
     /// the verifier's clock relative to `published_at`.
-    #[error("snapshot is stale (published {published_at:?}, max_staleness={max_staleness_secs}s)")]
+    #[error(
+        "snapshot is stale (published {published_at:?}, max_staleness={}s)",
+        max_staleness.as_secs()
+    )]
     Stale {
         /// `published_at` of the offending snapshot.
         published_at: Timestamp,
-        /// Configured maximum staleness, seconds.
-        max_staleness_secs: u64,
+        /// Configured maximum staleness.
+        max_staleness: std::time::Duration,
     },
     /// No snapshot available and policy refuses to fail open.
     #[error("revocation provider returned no snapshot and policy is fail-closed")]
@@ -249,12 +253,14 @@ pub struct RevocationPolicy {
     pub fail_mode: RevocationFailMode,
     /// Maximum age of a snapshot's `published_at` relative to the
     /// verifier's `now`. Snapshots older than this are treated as
-    /// no-snapshot and the fail mode applies. Default 86400s (24 h).
-    pub max_staleness_secs: u64,
+    /// no-snapshot and the fail mode applies. Default 24 h. Counted in
+    /// whole seconds.
+    pub max_staleness: std::time::Duration,
     /// In-memory cache TTL for an already-verified snapshot. Default
-    /// 60s — keeps verification cheap for back-to-back handshakes
-    /// without hiding a fresh issuer push for too long.
-    pub cache_ttl_secs: u64,
+    /// 60 s — keeps verification cheap for back-to-back handshakes
+    /// without hiding a fresh issuer push for too long. Counted in whole
+    /// seconds.
+    pub cache_ttl: std::time::Duration,
 }
 
 impl RevocationPolicy {
@@ -264,15 +270,15 @@ impl RevocationPolicy {
         self
     }
 
-    /// Set `max_staleness_secs`.
-    pub fn with_max_staleness_secs(mut self, secs: u64) -> Self {
-        self.max_staleness_secs = secs;
+    /// Set `max_staleness`.
+    pub fn with_max_staleness(mut self, max_staleness: std::time::Duration) -> Self {
+        self.max_staleness = max_staleness;
         self
     }
 
-    /// Set `cache_ttl_secs`.
-    pub fn with_cache_ttl_secs(mut self, secs: u64) -> Self {
-        self.cache_ttl_secs = secs;
+    /// Set `cache_ttl`.
+    pub fn with_cache_ttl(mut self, cache_ttl: std::time::Duration) -> Self {
+        self.cache_ttl = cache_ttl;
         self
     }
 }
@@ -281,20 +287,20 @@ impl Default for RevocationPolicy {
     fn default() -> Self {
         Self {
             fail_mode: RevocationFailMode::default(),
-            max_staleness_secs: 86_400,
-            cache_ttl_secs: 60,
+            max_staleness: std::time::Duration::from_secs(86_400),
+            cache_ttl: std::time::Duration::from_secs(60),
         }
     }
 }
 
 /// Verify a fetched snapshot for `issuer` at `now`: signature, expiry and
-/// structure (RFC-AITP-0008 §1.5), then `max_staleness_secs` (§3.2).
+/// structure (RFC-AITP-0008 §1.5), then `max_staleness` (§3.2).
 /// Used by [`crate::transport::revocation_fetch::RevocationFetcher`].
 pub(crate) fn verify_snapshot(
     env: &RevocationListEnvelope,
     issuer: &Aid,
     now: Timestamp,
-    max_staleness_secs: u64,
+    max_staleness: std::time::Duration,
 ) -> Result<(), RevocationError> {
     // Verify signature + expiry. `TctError::UnknownField` and
     // `TctError::ClaimsMalformed` each get their own arm rather than
@@ -322,11 +328,11 @@ pub(crate) fn verify_snapshot(
     )?;
     // Apply max-staleness.
     let age = now.0.saturating_sub(env.revocation_list.published_at.0);
-    if age > max_staleness_secs as i64 {
+    if age > crate::core::time::duration_secs(max_staleness) {
         crate::transport::obs::revocation_cache("stale");
         return Err(RevocationError::Stale {
             published_at: env.revocation_list.published_at,
-            max_staleness_secs,
+            max_staleness,
         });
     }
     Ok(())
@@ -347,7 +353,13 @@ mod tests {
             .unwrap();
         assert!(env.revocation_list.entries.is_empty());
         assert!(env.revocation_list.extensions.is_none());
-        verify_snapshot(&env, &issuer, Timestamp::now(), 60).unwrap();
+        verify_snapshot(
+            &env,
+            &issuer,
+            Timestamp::now(),
+            std::time::Duration::from_secs(60),
+        )
+        .unwrap();
     }
 
     #[tokio::test]

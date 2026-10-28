@@ -1,8 +1,8 @@
 //! Unix-second timestamps with freshness checks.
 
-use crate::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS;
+use crate::core::DEFAULT_TIMESTAMP_TOLERANCE;
 use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// A Unix timestamp in seconds.
 ///
@@ -22,20 +22,27 @@ impl Timestamp {
         Self(secs)
     }
 
-    /// Add seconds, saturating on overflow.
-    pub fn plus_secs(self, secs: i64) -> Self {
-        Self(self.0.saturating_add(secs))
+    /// `self` plus the whole seconds of `d` (a fraction of a second is
+    /// dropped), saturating on overflow.
+    pub fn saturating_add(self, d: Duration) -> Self {
+        Self(self.0.saturating_add(duration_secs(d)))
     }
 
-    /// True if `self` is within `±tolerance` seconds of `reference`.
+    /// `self` minus the whole seconds of `d` (a fraction of a second is
+    /// dropped), saturating on overflow.
+    pub fn saturating_sub(self, d: Duration) -> Self {
+        Self(self.0.saturating_sub(duration_secs(d)))
+    }
+
+    /// True if `self` is within `±tolerance` of `reference`, counting
+    /// the whole seconds of `tolerance`.
     ///
     /// `self.0` is deserialized verbatim from the wire, so the difference
     /// is computed with `checked_sub` + `unsigned_abs` to avoid an `i64`
     /// overflow (e.g. `i64::MIN - reference`, or `i64::MIN.abs()`) on
     /// attacker-controlled extremes — a debug panic / release wraparound.
-    /// A negative `tolerance_secs` is treated as zero tolerance.
-    pub fn is_within_tolerance_of(self, reference: Timestamp, tolerance_secs: i64) -> bool {
-        let tolerance = tolerance_secs.max(0) as u64;
+    pub fn is_within_tolerance_of(self, reference: Timestamp, tolerance: Duration) -> bool {
+        let tolerance = tolerance.as_secs();
         match self.0.checked_sub(reference.0) {
             Some(diff) => diff.unsigned_abs() <= tolerance,
             // Difference doesn't fit in i64 → far outside any tolerance.
@@ -45,7 +52,7 @@ impl Timestamp {
 
     /// True if `self` is within the default ±300s window of `reference`.
     pub fn is_fresh(self, reference: Timestamp) -> bool {
-        self.is_within_tolerance_of(reference, DEFAULT_TIMESTAMP_TOLERANCE_SECS)
+        self.is_within_tolerance_of(reference, DEFAULT_TIMESTAMP_TOLERANCE)
     }
 
     /// True if `self` is in the past (relative to `reference`).
@@ -57,6 +64,11 @@ impl Timestamp {
     pub fn is_in_the_future(self, reference: Timestamp) -> bool {
         self.0 > reference.0
     }
+}
+
+/// The whole seconds of `d` as an `i64`, saturating at `i64::MAX`.
+pub(crate) fn duration_secs(d: Duration) -> i64 {
+    i64::try_from(d.as_secs()).unwrap_or(i64::MAX)
 }
 
 impl From<i64> for Timestamp {
@@ -82,12 +94,34 @@ mod tests {
         let now = Timestamp(1_700_000_000);
         // These would panic in debug / wrap in release with naive
         // `(a - b).abs()`. Must simply be "not fresh".
-        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(now, 300));
-        assert!(!Timestamp(i64::MAX).is_within_tolerance_of(now, 300));
-        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(Timestamp(i64::MAX), 300));
-        // A negative tolerance is clamped to zero.
-        assert!(!Timestamp(1_700_000_001).is_within_tolerance_of(now, -5));
-        assert!(now.is_within_tolerance_of(now, -5));
+        let tol = Duration::from_secs(300);
+        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(now, tol));
+        assert!(!Timestamp(i64::MAX).is_within_tolerance_of(now, tol));
+        assert!(!Timestamp(i64::MIN).is_within_tolerance_of(Timestamp(i64::MAX), tol));
+        // A zero tolerance admits only the same second.
+        assert!(!Timestamp(1_700_000_001).is_within_tolerance_of(now, Duration::ZERO));
+        assert!(now.is_within_tolerance_of(now, Duration::ZERO));
+        // A fraction of a second is dropped.
+        assert!(!Timestamp(1_700_000_001).is_within_tolerance_of(now, Duration::from_millis(999)));
+    }
+
+    #[test]
+    fn saturating_arithmetic() {
+        let t = Timestamp(100);
+        assert_eq!(t.saturating_add(Duration::from_secs(5)), Timestamp(105));
+        assert_eq!(t.saturating_sub(Duration::from_secs(5)), Timestamp(95));
+        assert_eq!(
+            t.saturating_add(Duration::from_millis(1_999)),
+            Timestamp(101)
+        );
+        assert_eq!(
+            Timestamp(i64::MAX).saturating_add(Duration::MAX),
+            Timestamp(i64::MAX)
+        );
+        assert_eq!(
+            Timestamp(i64::MIN).saturating_sub(Duration::MAX),
+            Timestamp(i64::MIN)
+        );
     }
 
     #[test]

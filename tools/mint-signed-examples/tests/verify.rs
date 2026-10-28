@@ -127,7 +127,7 @@ fn minted_delegation_verifies() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(Timestamp(fixed_now().0 - 100))
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
     let issuer_manifests = vec![b_manifest];

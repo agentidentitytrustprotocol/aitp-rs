@@ -45,7 +45,7 @@ pub fn build_demo_manifest(
                 .parse()
                 .unwrap(),
         )
-        .ttl_secs(3600);
+        .ttl(std::time::Duration::from_secs(3600));
     for cap in offered {
         builder = builder.offer(*cap);
     }

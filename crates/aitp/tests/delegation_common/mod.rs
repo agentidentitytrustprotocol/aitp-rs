@@ -22,7 +22,7 @@ pub fn manifest_for(key: &dyn AitpSigner, published_at: Timestamp) -> Manifest {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(published_at)
-        .ttl_secs(86_400)
+        .ttl(std::time::Duration::from_secs(86_400))
         .build()
         .unwrap()
 }

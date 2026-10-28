@@ -273,7 +273,7 @@ fn self_attestation_golden_bytes() {
     let token = TctBuilder::new(&ed25519(8))
         .self_attestation()
         .ext(statement())
-        .ttl_secs(3_600)
+        .ttl(std::time::Duration::from_secs(3_600))
         .derived_jti("com.example.seam", b"golden")
         .issued_at(NOW)
         .build()

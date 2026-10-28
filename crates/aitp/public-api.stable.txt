@@ -2176,9 +2176,9 @@ pub aitp::handshake::MutualHelloPayload::pop_nonce: alloc::string::String
 pub aitp::handshake::MutualHelloPayload::requested_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::handshake::OidcVerifyContext::expected_audience: &'a aitp::core::aid::Aid
 pub aitp::handshake::OidcVerifyContext::expected_nonce: &'a str
-pub aitp::handshake::OidcVerifyContext::iat_tolerance_secs: i64
+pub aitp::handshake::OidcVerifyContext::iat_tolerance: core::time::Duration
 pub aitp::handshake::OidcVerifyContext::jwks_resolver: &'a dyn aitp::handshake::identity_oidc::JwksResolver
-pub aitp::handshake::OidcVerifyContext::now_unix_secs: i64
+pub aitp::handshake::OidcVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::handshake::OidcVerifyContext::subject_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::OidcVerifyContext::trust_anchors: &'a [aitp::core::raw_url::RawUrl]
 pub aitp::handshake::PeerConfig::grant_policy: core::option::Option<&'a aitp::handshake::state_machine::GrantPolicyFn>
@@ -2302,9 +2302,9 @@ pub aitp::handshake::identity::IdentityKind::PinnedKey
 pub aitp::handshake::identity::IdentityKind::Spiffe
 pub aitp::handshake::identity_oidc::OidcVerifyContext::expected_audience: &'a aitp::core::aid::Aid
 pub aitp::handshake::identity_oidc::OidcVerifyContext::expected_nonce: &'a str
-pub aitp::handshake::identity_oidc::OidcVerifyContext::iat_tolerance_secs: i64
+pub aitp::handshake::identity_oidc::OidcVerifyContext::iat_tolerance: core::time::Duration
 pub aitp::handshake::identity_oidc::OidcVerifyContext::jwks_resolver: &'a dyn aitp::handshake::identity_oidc::JwksResolver
-pub aitp::handshake::identity_oidc::OidcVerifyContext::now_unix_secs: i64
+pub aitp::handshake::identity_oidc::OidcVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::handshake::identity_oidc::OidcVerifyContext::subject_aid: &'a aitp::core::aid::Aid
 pub aitp::handshake::identity_oidc::OidcVerifyContext::trust_anchors: &'a [aitp::core::raw_url::RawUrl]
 pub aitp::handshake::identity_oidc::ResolveError::Malformed(alloc::string::String)
@@ -2558,7 +2558,7 @@ pub aitp::prelude::TctClaims::iss: aitp::core::aid::Aid
 pub aitp::prelude::TctClaims::jti: uuid::Uuid
 pub aitp::prelude::TctClaims::sub: aitp::core::aid::Aid
 pub aitp::prelude::TctClaims::ver: alloc::string::String
-pub aitp::tct::AttestationVerifyContext::clock_skew_secs: i64
+pub aitp::tct::AttestationVerifyContext::clock_skew: core::time::Duration
 pub aitp::tct::AttestationVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::AttestationVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
 pub aitp::tct::AttestationVerifyContext::now: aitp::core::time::Timestamp
@@ -2638,7 +2638,7 @@ pub aitp::tct::TctError::SelfIssued
 pub aitp::tct::TctError::SignatureInvalid
 pub aitp::tct::TctError::UnknownField(alloc::string::String)
 pub aitp::tct::TctError::VersionUnknown
-pub aitp::tct::TctVerifyContext::clock_skew_secs: i64
+pub aitp::tct::TctVerifyContext::clock_skew: core::time::Duration
 pub aitp::tct::TctVerifyContext::expected_audience: &'a aitp::core::aid::Aid
 pub aitp::tct::TctVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::TctVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
@@ -2733,13 +2733,13 @@ pub aitp::tct::types::TctClaims::ver: alloc::string::String
 pub aitp::tct::types::VerifiedTctParts::claims: aitp::tct::types::TctClaims
 pub aitp::tct::types::VerifiedTctParts::effective_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::tct::types::VerifiedTctParts::token: alloc::string::String
-pub aitp::tct::verifier::AttestationVerifyContext::clock_skew_secs: i64
+pub aitp::tct::verifier::AttestationVerifyContext::clock_skew: core::time::Duration
 pub aitp::tct::verifier::AttestationVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::verifier::AttestationVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
 pub aitp::tct::verifier::AttestationVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::tct::verifier::AttestationVerifyContext::revocation: aitp::tct::revocation::RevocationSource<'a>
 pub aitp::tct::verifier::AttestationVerifyContext::statement_key: &'a str
-pub aitp::tct::verifier::TctVerifyContext::clock_skew_secs: i64
+pub aitp::tct::verifier::TctVerifyContext::clock_skew: core::time::Duration
 pub aitp::tct::verifier::TctVerifyContext::expected_audience: &'a aitp::core::aid::Aid
 pub aitp::tct::verifier::TctVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::verifier::TctVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
@@ -2795,7 +2795,7 @@ pub aitp::transport::RevocationError::NoSnapshotFailClosed
 pub aitp::transport::RevocationError::SignatureInvalid(aitp::tct::error::TctError)
 pub aitp::transport::RevocationError::Signer(aitp::crypto::signer::SignerError)
 pub aitp::transport::RevocationError::Stale
-pub aitp::transport::RevocationError::Stale::max_staleness_secs: u64
+pub aitp::transport::RevocationError::Stale::max_staleness: core::time::Duration
 pub aitp::transport::RevocationError::Stale::published_at: aitp::core::time::Timestamp
 pub aitp::transport::RevocationError::UnknownField(alloc::string::String)
 pub aitp::transport::RevocationFailMode::FailClosed
@@ -2803,9 +2803,9 @@ pub aitp::transport::RevocationFailMode::FailOpen
 pub aitp::transport::RevocationFailMode::FailOpenIfUnadvertised
 pub aitp::transport::RevocationFailMode::SoftFail
 pub aitp::transport::RevocationFailMode::SoftFail::safe_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::transport::RevocationPolicy::cache_ttl_secs: u64
+pub aitp::transport::RevocationPolicy::cache_ttl: core::time::Duration
 pub aitp::transport::RevocationPolicy::fail_mode: aitp::transport::revocation::RevocationFailMode
-pub aitp::transport::RevocationPolicy::max_staleness_secs: u64
+pub aitp::transport::RevocationPolicy::max_staleness: core::time::Duration
 pub aitp::transport::ServeConfig::request_body_limit: usize
 pub aitp::transport::client::FetchError::InsecureUrl
 pub aitp::transport::client::FetchError::MalformedJson(alloc::string::String)
@@ -2849,7 +2849,7 @@ pub aitp::transport::revocation::RevocationError::NoSnapshotFailClosed
 pub aitp::transport::revocation::RevocationError::SignatureInvalid(aitp::tct::error::TctError)
 pub aitp::transport::revocation::RevocationError::Signer(aitp::crypto::signer::SignerError)
 pub aitp::transport::revocation::RevocationError::Stale
-pub aitp::transport::revocation::RevocationError::Stale::max_staleness_secs: u64
+pub aitp::transport::revocation::RevocationError::Stale::max_staleness: core::time::Duration
 pub aitp::transport::revocation::RevocationError::Stale::published_at: aitp::core::time::Timestamp
 pub aitp::transport::revocation::RevocationError::UnknownField(alloc::string::String)
 pub aitp::transport::revocation::RevocationFailMode::FailClosed
@@ -2857,9 +2857,9 @@ pub aitp::transport::revocation::RevocationFailMode::FailOpen
 pub aitp::transport::revocation::RevocationFailMode::FailOpenIfUnadvertised
 pub aitp::transport::revocation::RevocationFailMode::SoftFail
 pub aitp::transport::revocation::RevocationFailMode::SoftFail::safe_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::transport::revocation::RevocationPolicy::cache_ttl_secs: u64
+pub aitp::transport::revocation::RevocationPolicy::cache_ttl: core::time::Duration
 pub aitp::transport::revocation::RevocationPolicy::fail_mode: aitp::transport::revocation::RevocationFailMode
-pub aitp::transport::revocation::RevocationPolicy::max_staleness_secs: u64
+pub aitp::transport::revocation::RevocationPolicy::max_staleness: core::time::Duration
 pub aitp::transport::server::RateLimitConfig::requests_per_aid_per_60s: core::option::Option<u32>
 pub aitp::transport::server::RateLimitConfig::requests_per_source_per_60s: u32
 pub aitp::transport::server::RateLimitConfig::trusted_proxies: alloc::vec::Vec<aitp::transport::source_ip::TrustedProxy>
@@ -2899,7 +2899,7 @@ pub async fn aitp::transport::server::ManifestServer::serve(self, tokio::net::tc
 pub async fn aitp::transport::server::ManifestServer::serve_with<F>(self, tokio::net::tcp::listener::TcpListener, aitp::transport::server::ServeConfig, F) -> std::io::error::Result<()> where F: core::future::future::Future<Output = ()> + core::marker::Send + 'static
 pub const aitp::core::AID_PUBKEY_IDENTIFIER_LEN: usize
 pub const aitp::core::AITP_ENVELOPE_MEMBERS: &[&str]
-pub const aitp::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64
+pub const aitp::core::DEFAULT_TIMESTAMP_TOLERANCE: core::time::Duration
 pub const aitp::core::ED25519_SIGNATURE_BASE64URL_LEN: usize
 pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16]
 pub const aitp::core::PROTOCOL_VERSION: &str
@@ -2911,9 +2911,9 @@ pub const aitp::core::nonce_store::NONCE_LEN: usize
 pub const aitp::crypto::jws::TYP_DELEGATION: &str
 pub const aitp::crypto::jws::TYP_GRANT_VOUCHER: &str
 pub const aitp::crypto::jws::TYP_TCT: &str
-pub const aitp::delegation::DEFAULT_DELEGATION_TTL_SECS: i64
+pub const aitp::delegation::DEFAULT_DELEGATION_TTL: core::time::Duration
 pub const aitp::delegation::DELEGATION_CLAIMS_MEMBERS: &[&str]
-pub const aitp::delegation::builder::DEFAULT_DELEGATION_TTL_SECS: i64
+pub const aitp::delegation::builder::DEFAULT_DELEGATION_TTL: core::time::Duration
 pub const aitp::delegation::types::DELEGATION_CLAIMS_MEMBERS: &[&str]
 pub const aitp::handshake::MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::MUTUAL_COMMIT_PAYLOAD_MEMBERS: &[&str]
@@ -2935,14 +2935,14 @@ pub const aitp::handshake::payloads::MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::payloads::MUTUAL_COMMIT_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::payloads::MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS: &[&str]
 pub const aitp::handshake::payloads::MUTUAL_HELLO_PAYLOAD_MEMBERS: &[&str]
-pub const aitp::manifest::DEFAULT_MANIFEST_TTL_SECS: i64
+pub const aitp::manifest::DEFAULT_MANIFEST_TTL: core::time::Duration
 pub const aitp::manifest::MANIFEST_MEMBERS: &[&str]
 pub const aitp::manifest::REVOCATION_LIST_URI_EXT: &str
-pub const aitp::manifest::builder::DEFAULT_MANIFEST_TTL_SECS: i64
+pub const aitp::manifest::builder::DEFAULT_MANIFEST_TTL: core::time::Duration
 pub const aitp::manifest::builder::REVOCATION_LIST_URI_EXT: &str
 pub const aitp::manifest::types::MANIFEST_MEMBERS: &[&str]
 pub const aitp::tct::ATTESTATION_GRANT: &str
-pub const aitp::tct::DEFAULT_TCT_TTL_SECS: i64
+pub const aitp::tct::DEFAULT_TCT_TTL: core::time::Duration
 pub const aitp::tct::GRANT_VOUCHER_CLAIMS_MEMBERS: &[&str]
 pub const aitp::tct::REVOCATION_ENVELOPE_MEMBERS: &[&str]
 pub const aitp::tct::REVOCATION_LIST_MEMBERS: &[&str]
@@ -3164,10 +3164,11 @@ pub fn aitp::core::time::Timestamp::hash<__H: core::hash::Hasher>(&self, &mut __
 pub fn aitp::core::time::Timestamp::is_fresh(self, aitp::core::time::Timestamp) -> bool
 pub fn aitp::core::time::Timestamp::is_in_the_future(self, aitp::core::time::Timestamp) -> bool
 pub fn aitp::core::time::Timestamp::is_in_the_past(self, aitp::core::time::Timestamp) -> bool
-pub fn aitp::core::time::Timestamp::is_within_tolerance_of(self, aitp::core::time::Timestamp, i64) -> bool
+pub fn aitp::core::time::Timestamp::is_within_tolerance_of(self, aitp::core::time::Timestamp, core::time::Duration) -> bool
 pub fn aitp::core::time::Timestamp::now() -> Self
 pub fn aitp::core::time::Timestamp::partial_cmp(&self, &aitp::core::time::Timestamp) -> core::option::Option<core::cmp::Ordering>
-pub fn aitp::core::time::Timestamp::plus_secs(self, i64) -> Self
+pub fn aitp::core::time::Timestamp::saturating_add(self, core::time::Duration) -> Self
+pub fn aitp::core::time::Timestamp::saturating_sub(self, core::time::Duration) -> Self
 pub fn aitp::core::time::Timestamp::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::crypto::AitpSigner::aid(&self) -> &aitp::core::aid::Aid
 pub fn aitp::crypto::AitpSigner::max_message_len(&self) -> core::option::Option<usize>
@@ -3289,7 +3290,7 @@ pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signe
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::delegatee(self, aitp::core::aid::Aid) -> Self
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::now(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::scope<I, C>(self, I) -> Self where I: core::iter::traits::collect::IntoIterator<Item = C>, C: core::convert::Into<alloc::string::String>
-pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::ttl_secs(self, i64) -> Self
+pub fn aitp::delegation::builder::DelegationBuilder<'a, S>::ttl(self, core::time::Duration) -> Self
 pub fn aitp::delegation::error::DelegationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::error::DelegationError::from(aitp::crypto::error::CryptoError) -> Self
 pub fn aitp::delegation::error::DelegationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
@@ -3418,7 +3419,7 @@ pub fn aitp::handshake::admission::PinnedAdmissionBuilder::nonce_ttl(self, core:
 pub fn aitp::handshake::admission::PinnedAdmissionBuilder::presentation_rate_limiter(self, alloc::sync::Arc<dyn aitp::handshake::admission::ChallengeRateLimiter>) -> Self
 pub fn aitp::handshake::admission::PinnedAdmissionBuilder::rate_limiter(self, alloc::sync::Arc<dyn aitp::handshake::admission::ChallengeRateLimiter>) -> Self
 pub fn aitp::handshake::admission::PinnedAdmissionBuilder::subject_binding(self, aitp::handshake::identity_pinned::SubjectBinding) -> Self
-pub fn aitp::handshake::admission::PinnedAdmissionBuilder::timestamp_tolerance_secs(self, i64) -> Self
+pub fn aitp::handshake::admission::PinnedAdmissionBuilder::timestamp_tolerance(self, core::time::Duration) -> Self
 pub fn aitp::handshake::admission::RecommendedLimiter::check(&self, &aitp::handshake::admission::ChallengeSource) -> core::result::Result<(), core::time::Duration>
 pub fn aitp::handshake::admission::RecommendedLimiter::check_at(&self, &aitp::handshake::admission::ChallengeSource, std::time::Instant) -> core::result::Result<(), core::time::Duration>
 pub fn aitp::handshake::admission::RecommendedLimiter::default() -> Self
@@ -3461,7 +3462,7 @@ pub fn aitp::handshake::identity::IdentityKind::fmt(&self, &mut core::fmt::Forma
 pub fn aitp::handshake::identity::IdentityKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::handshake::identity_oidc::JwksResolver::prefetch<'a>(&'a self, &'a url::Url) -> aitp::core::BoxFuture<'a, ()>
 pub fn aitp::handshake::identity_oidc::JwksResolver::resolve(&self, &url::Url) -> core::result::Result<alloc::vec::Vec<aitp::handshake::jwk::JwkPublicKey>, aitp::handshake::identity_oidc::ResolveError>
-pub fn aitp::handshake::identity_oidc::OidcVerifyContext<'a>::new(&'a aitp::core::aid::Aid, &'a str, &'a [aitp::core::raw_url::RawUrl], &'a dyn aitp::handshake::identity_oidc::JwksResolver, &'a aitp::core::aid::Aid, i64, i64) -> Self
+pub fn aitp::handshake::identity_oidc::OidcVerifyContext<'a>::new(&'a aitp::core::aid::Aid, &'a str, &'a [aitp::core::raw_url::RawUrl], &'a dyn aitp::handshake::identity_oidc::JwksResolver, &'a aitp::core::aid::Aid, core::time::Duration, aitp::core::time::Timestamp) -> Self
 pub fn aitp::handshake::identity_oidc::ResolveError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::identity_oidc::verify_oidc(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_oidc::OidcVerifyContext<'_>) -> core::result::Result<(), aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::NoPinnedKeys::clone(&self) -> aitp::handshake::identity_pinned::NoPinnedKeys
@@ -3625,7 +3626,7 @@ pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::offer(self, impl core::c
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::published_at(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::require(self, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::revocation_list_uri(self, url::Url) -> Self
-pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::ttl_secs(self, i64) -> Self
+pub fn aitp::manifest::builder::ManifestBuilder<'a, S>::ttl(self, core::time::Duration) -> Self
 pub fn aitp::manifest::check_identity_type_compatibility(&aitp::manifest::types::Manifest, &'static str) -> core::result::Result<(), aitp::manifest::error::ManifestError>
 pub fn aitp::manifest::error::ManifestError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::manifest::error::ManifestError::from(aitp::crypto::error::CryptoError) -> Self
@@ -3703,7 +3704,7 @@ pub fn aitp::tct::builder::TctBuilder<'a, S>::jti(self, uuid::Uuid) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::self_attestation(self) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::subject(self, aitp::core::aid::Aid) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::subject_pubkey(self, aitp::crypto::keys::AitpVerifyingKey) -> Self
-pub fn aitp::tct::builder::TctBuilder<'a, S>::ttl_secs(self, i64) -> Self
+pub fn aitp::tct::builder::TctBuilder<'a, S>::ttl(self, core::time::Duration) -> Self
 pub fn aitp::tct::builder::TctBuilder<'a, S>::without_voucher(self) -> Self
 pub fn aitp::tct::error::TctError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::error::TctError::from(aitp::crypto::error::CryptoError) -> Self
@@ -3790,7 +3791,7 @@ pub fn aitp::tct::types::VerifiedTctParts::fmt(&self, &mut core::fmt::Formatter<
 pub fn aitp::tct::verifier::AttestationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::AttestationVerifyContext<'a>::builder(&'a aitp::core::aid::Aid, &'a str, aitp::core::time::Timestamp) -> aitp::tct::verifier::AttestationVerifyContextBuilder<'a>
 pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::verifier::AttestationVerifyContext<'a>, aitp::tct::verifier::TctVerifyContextError>
-pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::clock_skew_secs(self, i64) -> Self
+pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
 pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::revocation(self, aitp::tct::revocation::RevocationSource<'a>) -> Self
@@ -3799,7 +3800,7 @@ pub fn aitp::tct::verifier::TctVerifyContext<'a>::builder(&'a aitp::core::aid::A
 pub fn aitp::tct::verifier::TctVerifyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::TctVerifyContextBuilder<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::verifier::TctVerifyContext<'a>, aitp::tct::verifier::TctVerifyContextError>
-pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::clock_skew_secs(self, i64) -> Self
+pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
 pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::time::Timestamp) -> Self
 pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::revocation(self, aitp::tct::revocation::RevocationSource<'a>) -> Self
 pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::skip_manifest_expiry_cap_dangerous(self) -> Self
@@ -3916,7 +3917,7 @@ pub fn aitp::transport::retry::RetryPolicy::with_jitter_ratio(self, f64) -> Self
 pub fn aitp::transport::revocation::EmptyRevocationProvider::fetch<'a>(&'a self, &'a aitp::core::aid::Aid) -> aitp::core::BoxFuture<'a, core::result::Result<aitp::tct::revocation::RevocationListEnvelope, aitp::transport::revocation::RevocationError>>
 pub fn aitp::transport::revocation::EmptyRevocationProvider::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::revocation::EmptyRevocationProvider::new<S: aitp::crypto::signer::AitpSigner + 'static>(S) -> Self
-pub fn aitp::transport::revocation::EmptyRevocationProvider::with_ttl_secs(self, i64) -> Self
+pub fn aitp::transport::revocation::EmptyRevocationProvider::with_ttl(self, core::time::Duration) -> Self
 pub fn aitp::transport::revocation::RevocationError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::transport::revocation::RevocationError::from(aitp::crypto::signer::SignerError) -> Self
 pub fn aitp::transport::revocation::RevocationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
@@ -3927,9 +3928,9 @@ pub fn aitp::transport::revocation::RevocationFailMode::fmt(&self, &mut core::fm
 pub fn aitp::transport::revocation::RevocationPolicy::clone(&self) -> aitp::transport::revocation::RevocationPolicy
 pub fn aitp::transport::revocation::RevocationPolicy::default() -> Self
 pub fn aitp::transport::revocation::RevocationPolicy::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::transport::revocation::RevocationPolicy::with_cache_ttl_secs(self, u64) -> Self
+pub fn aitp::transport::revocation::RevocationPolicy::with_cache_ttl(self, core::time::Duration) -> Self
 pub fn aitp::transport::revocation::RevocationPolicy::with_fail_mode(self, aitp::transport::revocation::RevocationFailMode) -> Self
-pub fn aitp::transport::revocation::RevocationPolicy::with_max_staleness_secs(self, u64) -> Self
+pub fn aitp::transport::revocation::RevocationPolicy::with_max_staleness(self, core::time::Duration) -> Self
 pub fn aitp::transport::revocation::RevocationProvider::fetch<'a>(&'a self, &'a aitp::core::aid::Aid) -> aitp::core::BoxFuture<'a, core::result::Result<aitp::tct::revocation::RevocationListEnvelope, aitp::transport::revocation::RevocationError>>
 pub fn aitp::transport::revocation_fetch::PreparedRevocation::clone(&self) -> aitp::transport::revocation_fetch::PreparedRevocation
 pub fn aitp::transport::revocation_fetch::PreparedRevocation::decide(&self, &aitp::tct::revocation::RevocationQuery<'_>) -> core::result::Result<aitp::tct::revocation::RevocationStatus, aitp::tct::revocation::RevocationUnavailable>

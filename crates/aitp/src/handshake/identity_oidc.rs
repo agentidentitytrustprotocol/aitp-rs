@@ -102,26 +102,26 @@ pub struct OidcVerifyContext<'a> {
     pub jwks_resolver: &'a dyn JwksResolver,
     /// Subject AID (whose key the JWT's `cnf.jkt` MUST match).
     pub subject_aid: &'a Aid,
-    /// Freshness window for the `iat` claim, in seconds. RFC-AITP-0002
-    /// §2.2 says ±300s; this lets tests pin a tighter window.
-    pub iat_tolerance_secs: i64,
+    /// Freshness window for the `iat` claim, counted in whole seconds.
+    /// RFC-AITP-0002 §2.2 says ±300 s; this lets tests pin a tighter
+    /// window.
+    pub iat_tolerance: std::time::Duration,
     /// Current time for `iat` / `exp` evaluation.
-    pub now_unix_secs: i64,
+    pub now: crate::core::Timestamp,
 }
 
 impl<'a> OidcVerifyContext<'a> {
     /// A context that checks an ID token for `subject_aid` against
     /// `trust_anchors`, keys from `jwks_resolver`, the expected `aud`
-    /// and `nonce`, and `iat` within `iat_tolerance_secs` of
-    /// `now_unix_secs`.
+    /// and `nonce`, and `iat` within `iat_tolerance` of `now`.
     pub fn new(
         expected_audience: &'a Aid,
         expected_nonce: &'a str,
         trust_anchors: &'a [crate::core::RawUrl],
         jwks_resolver: &'a dyn JwksResolver,
         subject_aid: &'a Aid,
-        iat_tolerance_secs: i64,
-        now_unix_secs: i64,
+        iat_tolerance: std::time::Duration,
+        now: crate::core::Timestamp,
     ) -> Self {
         Self {
             expected_audience,
@@ -129,8 +129,8 @@ impl<'a> OidcVerifyContext<'a> {
             trust_anchors,
             jwks_resolver,
             subject_aid,
-            iat_tolerance_secs,
-            now_unix_secs,
+            iat_tolerance,
+            now,
         }
     }
 }
@@ -254,10 +254,10 @@ pub fn verify_oidc(
         return Err(HandshakeError::Identity("sub mismatch".into()));
     }
 
-    if claims.exp <= ctx.now_unix_secs {
+    if claims.exp <= ctx.now.0 {
         return Err(HandshakeError::Identity("jwt exp in the past".into()));
     }
-    if (ctx.now_unix_secs - claims.iat).abs() > ctx.iat_tolerance_secs {
+    if !crate::core::Timestamp(claims.iat).is_within_tolerance_of(ctx.now, ctx.iat_tolerance) {
         return Err(HandshakeError::Identity("iat outside tolerance".into()));
     }
 

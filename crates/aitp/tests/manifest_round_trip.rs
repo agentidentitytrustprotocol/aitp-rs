@@ -22,7 +22,7 @@ fn build_alice_manifest_at(now: Timestamp) -> aitp::manifest::Manifest {
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a manifest")
 }
@@ -438,7 +438,7 @@ fn revocation_list_uri_is_advertised_inside_the_signed_body() {
         .offer("demo.echo")
         .revocation_list_uri(uri.parse().unwrap())
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
     assert_eq!(
@@ -494,7 +494,7 @@ fn a2a_interfaces_extension_key_is_accepted() {
             serde_json::json!(["https://alice.example.com/a2a/v1"]),
         )
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a manifest");
     let wire = serde_json::to_string(&m).unwrap();

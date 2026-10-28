@@ -46,7 +46,7 @@ fn issue() -> aitp::tct::IssuedTct {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["demo.echo", "demo.respond"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(1_700_000_000))
         .build()

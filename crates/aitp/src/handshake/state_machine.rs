@@ -531,8 +531,8 @@ pub(crate) fn bootstrap_verify_peer(
                 trust_anchors: cfg.trust_anchors,
                 jwks_resolver: cfg.jwks_resolver,
                 subject_aid: &payload_manifest.aid,
-                iat_tolerance_secs: 300,
-                now_unix_secs: cfg.now.0,
+                iat_tolerance: crate::core::DEFAULT_TIMESTAMP_TOLERANCE,
+                now: cfg.now,
             };
             verify_oidc(payload_identity, &ctx)?;
         }
@@ -673,19 +673,19 @@ fn issue_tct_for_peer(
     // Bound expiry by the issuing-peer Manifest's expiry. If our own
     // Manifest is already past expiry, refuse to issue.
     let manifest_expires = cfg.manifest.expires_at.0;
-    let default_expires = cfg.now.0 + crate::tct::DEFAULT_TCT_TTL_SECS;
+    let default_expires = cfg.now.saturating_add(crate::tct::DEFAULT_TCT_TTL).0;
     let effective_expires = default_expires.min(manifest_expires);
     let ttl = effective_expires.saturating_sub(cfg.now.0);
-    if ttl == 0 {
+    let Ok(ttl @ 1..) = u64::try_from(ttl) else {
         return Err(HandshakeError::InvalidEnvelope(
             "issuing peer's manifest is expired; cannot issue TCT".into(),
         ));
-    }
+    };
     TctBuilder::new(cfg.signing_key)
         .subject(peer_aid.clone())
         .audience(peer_aid.clone())
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(peer_pubkey.clone())
         .issued_at(cfg.now)
         .build()

@@ -159,7 +159,7 @@ async fn id_016_bound_refuses_new_challenge_outstanding_stay_valid() {
 async fn expired_nonces_free_capacity_and_are_refused() {
     let a = admission_with(Arc::new(InMemoryNonceStore::new(1)));
     let c1 = a.challenge_at(&src("s"), NOW).await.unwrap();
-    let later = NOW.plus_secs(301);
+    let later = NOW.saturating_add(std::time::Duration::from_secs(301));
     // The expired record no longer counts against the bound.
     let _c2 = a.challenge_at(&src("s"), later).await.unwrap();
     let env = present_pinned(&subject_ed(), "s", &c1, later).unwrap();
@@ -177,8 +177,11 @@ async fn expired_challenge_rejected() {
     .nonce_ttl(Duration::from_secs(30))
     .build();
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
-    assert_eq!(ch.expires_at, NOW.plus_secs(30));
-    let t = NOW.plus_secs(31);
+    assert_eq!(
+        ch.expires_at,
+        NOW.saturating_add(std::time::Duration::from_secs(30))
+    );
+    let t = NOW.saturating_add(std::time::Duration::from_secs(31));
     let env = present_pinned(&subject_ed(), "s", &ch, t).unwrap();
     let e = a.admit_at(&env, &src("p"), t).await.unwrap_err();
     assert!(e.to_string().contains("expired"), "{e}");
@@ -194,7 +197,10 @@ fn ttl_is_clamped_to_300s() {
     .nonce_ttl(Duration::from_secs(3600))
     .build();
     let ch = futures_block(a.challenge_at(&src("s"), NOW)).unwrap();
-    assert_eq!(ch.expires_at, NOW.plus_secs(300));
+    assert_eq!(
+        ch.expires_at,
+        NOW.saturating_add(std::time::Duration::from_secs(300))
+    );
 }
 
 #[tokio::test]
@@ -263,7 +269,13 @@ async fn tampered_payload_fails_envelope_signature() {
 async fn stale_timestamp_and_unknown_member_rejected() {
     let a = admission();
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
-    let env = present_pinned(&subject_ed(), "s", &ch, NOW.plus_secs(-301)).unwrap();
+    let env = present_pinned(
+        &subject_ed(),
+        "s",
+        &ch,
+        NOW.saturating_sub(std::time::Duration::from_secs(301)),
+    )
+    .unwrap();
     assert_eq!(
         code(&a.admit_at(&env, &src("p"), NOW).await.unwrap_err()),
         "TIMESTAMP_EXPIRED"
@@ -632,7 +644,13 @@ async fn rejected_presentation_is_not_recorded() {
 async fn timestamp_checked_before_structure() {
     let a = admission();
     let ch = a.challenge_at(&src("c"), NOW).await.unwrap();
-    let mut env = present_pinned(&subject_ed(), "s", &ch, NOW.plus_secs(-301)).unwrap();
+    let mut env = present_pinned(
+        &subject_ed(),
+        "s",
+        &ch,
+        NOW.saturating_sub(std::time::Duration::from_secs(301)),
+    )
+    .unwrap();
     env.message_type = MessageType::MutualHello;
     assert_eq!(
         code(&a.admit_at(&env, &src("p"), NOW).await.unwrap_err()),

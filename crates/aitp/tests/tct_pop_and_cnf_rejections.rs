@@ -28,7 +28,7 @@ fn issue() -> IssuedTct {
         .subject(subject_key().aid().clone())
         .audience(subject_key().aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject_key().verifying_key())
         .issued_at(NOW)
         .build()

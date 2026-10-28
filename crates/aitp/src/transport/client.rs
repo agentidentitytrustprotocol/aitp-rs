@@ -970,7 +970,7 @@ mod cache_tests {
 
     /// A Manifest signed by `key`, published at `published_at` for
     /// `ttl_secs`, verified at its publish time.
-    fn verified(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> VerifiedManifest {
+    fn verified(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u64) -> VerifiedManifest {
         let pubkey_b64 = crate::core::base64url::encode(
             &key.verifying_key()
                 .try_to_ed25519_bytes()
@@ -987,7 +987,7 @@ mod cache_tests {
             .offer("test.action")
             .accept_identity_type("pinned_key")
             .display_name("peer")
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .published_at(published_at)
             .build()
             .unwrap();

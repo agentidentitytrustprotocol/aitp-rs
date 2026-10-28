@@ -400,7 +400,7 @@ fn grant_overflow_aborts() {
         .subject(alice.aid().clone())
         .audience(alice.aid().clone())
         .grants(["super.power"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(alice.verifying_key())
         .issued_at(NOW)
         .build()

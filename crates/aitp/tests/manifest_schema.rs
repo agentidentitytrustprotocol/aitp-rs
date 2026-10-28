@@ -64,7 +64,7 @@ fn populated_manifest() -> aitp::manifest::Manifest {
             "vendor.example/feature",
             serde_json::json!({"enabled": true}),
         )
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap()
 }

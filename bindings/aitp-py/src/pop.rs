@@ -107,7 +107,7 @@ pub fn new_pop_challenge_py(tct_token: &str, ttl_secs: i64) -> PyResult<String> 
     let challenge = PopChallenge::new(
         claims.jti,
         base64url::encode(&nonce),
-        Timestamp::now().plus_secs(ttl_secs),
+        Timestamp::now().saturating_add(std::time::Duration::from_secs(ttl_secs.unsigned_abs())),
     );
     serde_json::to_string(&challenge).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

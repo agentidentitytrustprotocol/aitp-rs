@@ -25,12 +25,12 @@ fn not_revoked(_: &RevocationQuery<'_>) -> Result<RevocationStatus, RevocationUn
     Ok(RevocationStatus::Clear)
 }
 
-fn issue(issuer: &AitpSigningKey, holder: &AitpSigningKey, now: Timestamp, ttl: i64) -> IssuedTct {
+fn issue(issuer: &AitpSigningKey, holder: &AitpSigningKey, now: Timestamp, ttl: u64) -> IssuedTct {
     TctBuilder::new(issuer)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(GRANTS.iter().copied())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(holder.verifying_key())
         .issued_at(now)
         .build()
@@ -44,7 +44,7 @@ async fn renew(
     issuer: &AitpSigningKey,
     manifest_exp: Timestamp,
     now: Timestamp,
-    ttl: i64,
+    ttl: u64,
 ) -> Result<IssuedTct, RenewalError> {
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
@@ -55,7 +55,7 @@ async fn renew(
         &store,
         now,
     )
-    .ttl_secs(ttl);
+    .ttl(std::time::Duration::from_secs(ttl));
     process_renewal_request(request, issuer, &ctx).await
 }
 
@@ -752,7 +752,7 @@ async fn holder_rejects_a_bad_response() {
         .subject(x.holder.aid().clone())
         .audience(x.holder.aid().clone())
         .grants(["demo.echo", "demo.admin"])
-        .ttl_secs(600)
+        .ttl(std::time::Duration::from_secs(600))
         .subject_pubkey(x.holder.verifying_key())
         .issued_at(x.now)
         .build()

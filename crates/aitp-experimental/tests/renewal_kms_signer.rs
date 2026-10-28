@@ -21,7 +21,7 @@ fn holder_tct(issuer: &dyn AitpSigner, holder: &dyn AitpSigner, now: Timestamp) 
         .subject(holder_aid.clone())
         .audience(holder_aid.clone())
         .grants(["demo.echo"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(AitpVerifyingKey::from_aid(&holder_aid).unwrap())
         .issued_at(now)
         .build()
@@ -46,7 +46,7 @@ async fn renew(
         &store,
         now,
     )
-    .ttl_secs(600);
+    .ttl(std::time::Duration::from_secs(600));
     process_renewal_request(&req, issuer, &ctx).await
 }
 

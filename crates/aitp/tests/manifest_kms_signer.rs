@@ -20,7 +20,7 @@ fn build(signer: &dyn AitpSigner, now: Timestamp) -> Result<Manifest, ManifestEr
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
 }
 
@@ -87,7 +87,7 @@ fn build_async<'a>(
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build_async()
 }
 

@@ -47,11 +47,11 @@ fn issuer() -> AitpSigningKey {
     AitpSigningKey::from_ed25519_seed(&ISSUER_SEED)
 }
 
-fn manifest(advertise: bool, manifest_ttl: i64) -> Manifest {
+fn manifest(advertise: bool, manifest_ttl: u64) -> Manifest {
     manifest_at(advertise.then_some(RENEW_PATH), manifest_ttl)
 }
 
-fn manifest_at(renew_path: Option<&str>, manifest_ttl: i64) -> Manifest {
+fn manifest_at(renew_path: Option<&str>, manifest_ttl: u64) -> Manifest {
     let key = issuer();
     let mut b = ManifestBuilder::new(&key)
         .display_name("issuer")
@@ -64,7 +64,7 @@ fn manifest_at(renew_path: Option<&str>, manifest_ttl: i64) -> Manifest {
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
         .offer("demo.write")
-        .ttl_secs(manifest_ttl);
+        .ttl(std::time::Duration::from_secs(manifest_ttl));
     if let Some(path) = renew_path {
         b = b.extension(RENEW_URI_EXT, format!("http://127.0.0.1{path}").into());
     }
@@ -142,13 +142,13 @@ fn tct(
     holder: &AitpSigningKey,
     grants: &[&str],
     issued_at: Timestamp,
-    ttl: i64,
+    ttl: u64,
 ) -> aitp::tct::IssuedTct {
     TctBuilder::new(signer)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(grants.iter().copied())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(holder.verifying_key())
         .issued_at(issued_at)
         .build()

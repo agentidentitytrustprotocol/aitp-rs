@@ -130,7 +130,7 @@ pub fn new_pop_challenge_js(tct_token: &str, ttl_secs: i64) -> Result<String> {
     let challenge = PopChallenge::new(
         claims.jti,
         base64url::encode(&nonce),
-        Timestamp::now().plus_secs(ttl_secs),
+        Timestamp::now().saturating_add(std::time::Duration::from_secs(ttl_secs.unsigned_abs())),
     );
     serde_json::to_string(&challenge).map_err(|e| Error::from_reason(e.to_string()))
 }

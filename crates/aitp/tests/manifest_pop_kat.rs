@@ -106,7 +106,7 @@ fn builder_pop_uses_decoded_challenge() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a manifest");
 
@@ -140,7 +140,7 @@ fn legacy_ascii_bytes_pop_is_rejected() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
 

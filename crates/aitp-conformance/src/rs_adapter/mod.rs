@@ -563,7 +563,11 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     // that is both stale and malformed, or stale with an unknown
     // `version`, is TIMESTAMP_EXPIRED. A `timestamp` that is missing or
     // not an integer skips the window and fails the structural step.
-    if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
+    if let Some(tolerance) = params
+        .get("tolerance_seconds")
+        .and_then(|v| v.as_i64())
+        .map(|t| std::time::Duration::from_secs(t.max(0).unsigned_abs()))
+    {
         let now = params
             .get("now")
             .and_then(|v| v.as_i64())
@@ -578,7 +582,10 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                 return err(
                     id,
                     "TIMESTAMP_EXPIRED",
-                    &format!("envelope timestamp outside the {tolerance}s window"),
+                    &format!(
+                        "envelope timestamp outside the {}s window",
+                        tolerance.as_secs()
+                    ),
                 );
             }
         }
@@ -908,7 +915,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         }
     };
     let self_manifest = match self_manifest
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(state.now())
         .build()
     {
@@ -2307,13 +2314,13 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(3600);
 
     let mut b = ManifestBuilder::new(key)
         .handshake_endpoint(endpoint)
         .identity_hint(identity_hint)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .published_at(state.now());
     for anchor in trust_anchors {
         b = b.accept_trust_anchor_raw(anchor);
@@ -2438,7 +2445,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(3600);
     let issued_at = params
         .get("issued_at")
@@ -2450,7 +2457,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         .subject(subject)
         .audience(audience)
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(subject_pubkey)
         .issued_at(issued_at);
     if let Some(jti) = params
@@ -2511,7 +2518,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(1800);
 
     // Single-hop: the delegator presents the grant voucher its TCT
@@ -2537,7 +2544,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
                 let b = b
                     .delegatee(delegatee.clone())
                     .scope(scope.clone())
-                    .ttl_secs(ttl)
+                    .ttl(std::time::Duration::from_secs(ttl))
                     .now(now);
                 match jti {
                     Some(jti) => b.jti(jti),
@@ -2552,7 +2559,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
             .and_then(|b| {
                 b.delegatee(delegatee)
                     .scope(scope)
-                    .ttl_secs(ttl)
+                    .ttl(std::time::Duration::from_secs(ttl))
                     .now(now)
                     .build()
             })
@@ -4417,7 +4424,7 @@ mod manifest_unknown_field_tests {
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .offer("demo.echo")
             .published_at(Timestamp(1_711_900_000))
-            .ttl_secs(86_400)
+            .ttl(std::time::Duration::from_secs(86_400))
             .build()
             .unwrap();
         (serde_json::to_value(&manifest).unwrap(), key)
@@ -4747,7 +4754,7 @@ mod revocation_unknown_field_tests {
             .subject(subject_key.aid().clone())
             .audience(subject_key.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(subject_key.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -4817,7 +4824,7 @@ mod revocation_unknown_field_tests {
             .subject(b.aid().clone())
             .audience(b.aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -4828,7 +4835,7 @@ mod revocation_unknown_field_tests {
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .build()
             .unwrap();
@@ -4849,7 +4856,7 @@ mod revocation_unknown_field_tests {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
 
@@ -4946,7 +4953,7 @@ mod discarded_snapshot_policy_tests {
             .subject(subject.aid().clone())
             .audience(subject.aid().clone())
             .grants(["demo.echo", "demo.read"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(subject.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5106,7 +5113,7 @@ mod discarded_snapshot_policy_tests {
             .subject(t.subject.aid().clone())
             .audience(t.subject.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(t.subject.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5136,7 +5143,7 @@ mod discarded_snapshot_policy_tests {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
         serde_json::to_value(m).unwrap()
@@ -5158,7 +5165,7 @@ mod discarded_snapshot_policy_tests {
             .subject(b.aid().clone())
             .audience(b.aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5169,7 +5176,7 @@ mod discarded_snapshot_policy_tests {
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .jti(Uuid::new_v4())
             .build()
@@ -5179,7 +5186,7 @@ mod discarded_snapshot_policy_tests {
                 .unwrap()
                 .delegatee(d.aid().clone())
                 .scope(["read_data"])
-                .ttl_secs(1800)
+                .ttl(std::time::Duration::from_secs(1800))
                 .now(Timestamp(1_700_000_000))
                 .build()
                 .unwrap();
@@ -5569,6 +5576,7 @@ mod oidc_test_issuer_tests {
             .to_jwk_thumbprint_sha256()
             .unwrap();
         let now = 1_711_900_000_i64;
+        let now_ts = aitp::core::Timestamp(now);
         let nonce = "test-nonce-oidc-resolver";
 
         let jwt =
@@ -5587,8 +5595,8 @@ mod oidc_test_issuer_tests {
             &anchors,
             &resolver,
             subject_key.aid(),
-            300,
-            now,
+            std::time::Duration::from_secs(300),
+            now_ts,
         );
         let result = verify_oidc(&descriptor, &ctx);
         assert!(

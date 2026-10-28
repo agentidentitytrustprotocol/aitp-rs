@@ -22,7 +22,7 @@ fn issue_tct(coord: &dyn AitpSigner, holder: &AitpSigningKey) -> String {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(NOW)
         .build()

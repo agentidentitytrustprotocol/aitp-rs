@@ -22,12 +22,12 @@ fn key(seed: u8) -> AitpSigningKey {
     AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
-fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> String {
+fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: u64) -> String {
     TctBuilder::new(coord)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(ttl_secs)
+        .ttl(std::time::Duration::from_secs(ttl_secs))
         .subject_pubkey(holder.verifying_key())
         .issued_at(NOW)
         .build()

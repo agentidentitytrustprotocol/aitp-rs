@@ -51,7 +51,7 @@ fn voucher_for_b(grants: &BTreeSet<String>) -> String {
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(grants.iter().cloned())
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -97,7 +97,7 @@ proptest! {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(scope.iter().cloned())
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(NOW)
             .build()
             .expect("subset scope must build");
@@ -138,7 +138,7 @@ proptest! {
     #[test]
     fn delegation_expiry_never_exceeds_voucher(
         grants in grant_set(4),
-        ttl in 1i64..100_000,
+        ttl in 1u64..100_000,
     ) {
         let voucher = voucher_for_b(&grants);
         let scope: Vec<String> = grants.iter().take(1).cloned().collect();
@@ -146,7 +146,7 @@ proptest! {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(scope)
-            .ttl_secs(ttl)
+            .ttl(std::time::Duration::from_secs(ttl))
             .now(NOW)
             .build()
             .expect("single-grant delegation builds");

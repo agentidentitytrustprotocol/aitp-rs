@@ -1,6 +1,6 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
-use crate::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS;
+use crate::core::DEFAULT_TIMESTAMP_TOLERANCE;
 use crate::core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, BoxFuture, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
@@ -71,12 +71,12 @@ pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
 /// Validity window of the default signed empty snapshot a
 /// [`HandshakeServer`] serves when no [`RevocationListProducer`] is
 /// attached.
-const DEFAULT_EMPTY_SNAPSHOT_TTL_SECS: i64 = 3600;
+const DEFAULT_EMPTY_SNAPSHOT_TTL: Duration = Duration::from_secs(3600);
 
 /// How long a default signed empty snapshot is reused before it is
 /// re-signed. Bounds signing-backend load (a KMS call per poll on an
 /// unauthenticated GET) while keeping `published_at` fresh well inside
-/// any sane `max_staleness_secs`.
+/// any sane `max_staleness`.
 const DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS: i64 = 60;
 
 /// Producer of the local issuer's [`RevocationListEnvelope`] for the
@@ -407,7 +407,7 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
 /// MUST be at least the timestamp tolerance; 5 minutes is a generous
-/// floor that aligns with our default `iat_tolerance_secs`.
+/// floor that aligns with [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`].
 pub const DEFAULT_REPLAY_WINDOW: Duration = Duration::from_secs(300);
 
 /// Maximum acceptable POST body size for handshake endpoints when no
@@ -838,7 +838,7 @@ impl SignedEmptySnapshot {
     fn new(signing_key: Arc<dyn AitpSigner>) -> Self {
         Self {
             provider: crate::transport::revocation::EmptyRevocationProvider::new(signing_key)
-                .with_ttl_secs(DEFAULT_EMPTY_SNAPSHOT_TTL_SECS),
+                .with_ttl(DEFAULT_EMPTY_SNAPSHOT_TTL),
             cached: Mutex::new(None),
         }
     }
@@ -1450,11 +1450,12 @@ async fn receive_envelope<R: JwksResolver + Send + Sync + 'static>(
         .and_then(|v| v.as_i64())
         .map(Timestamp)
     {
-        if !ts.is_within_tolerance_of(Timestamp::now(), DEFAULT_TIMESTAMP_TOLERANCE_SECS) {
+        if !ts.is_within_tolerance_of(Timestamp::now(), DEFAULT_TIMESTAMP_TOLERANCE) {
             return Err(ResponseError::aitp(
                 ErrorCode::TimestampExpired,
                 format!(
-                    "envelope timestamp outside the {DEFAULT_TIMESTAMP_TOLERANCE_SECS}s window"
+                    "envelope timestamp outside the {}s window",
+                    DEFAULT_TIMESTAMP_TOLERANCE.as_secs()
                 ),
             ));
         }

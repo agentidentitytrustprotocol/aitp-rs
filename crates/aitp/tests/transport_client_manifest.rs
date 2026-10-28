@@ -185,7 +185,7 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
     let mut manifest_value = serde_json::to_value(&manifest).unwrap();
@@ -343,7 +343,7 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
     let unwrapped = serde_json::to_value(&manifest).unwrap();

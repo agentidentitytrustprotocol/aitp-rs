@@ -35,17 +35,17 @@ fn manifests() -> Vec<Manifest> {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(NOW)
-        .ttl_secs(86_400)
+        .ttl(std::time::Duration::from_secs(86_400))
         .build()
         .unwrap()]
 }
 
-fn token(scope: &[&str], ttl: i64) -> String {
+fn token(scope: &[&str], ttl: u64) -> String {
     let voucher = TctBuilder::new(&a())
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data", "write_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -56,7 +56,7 @@ fn token(scope: &[&str], ttl: i64) -> String {
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(scope.iter().copied())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .now(NOW)
         .build()
         .unwrap()

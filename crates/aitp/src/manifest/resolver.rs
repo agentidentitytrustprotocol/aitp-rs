@@ -102,7 +102,7 @@ mod tests {
 
     const NOW: Timestamp = Timestamp(1_700_000_000);
 
-    fn manifest(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> Manifest {
+    fn manifest(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u64) -> Manifest {
         ManifestBuilder::new(key)
             .handshake_endpoint("https://agent.example.com/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
@@ -113,7 +113,7 @@ mod tests {
             })
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(published_at)
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .build()
             .unwrap()
     }

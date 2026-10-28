@@ -22,7 +22,7 @@ fn voucher_for(a: &dyn AitpSigner, b: &dyn AitpSigner) -> String {
         .subject(b.aid().clone())
         .audience(b.aid().clone())
         .grants(["read_data", "write_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(AitpVerifyingKey::from_aid(b.aid()).unwrap())
         .issued_at(NOW)
         .build()
@@ -40,7 +40,7 @@ fn kms_delegator_mints_a_verifying_delegation() {
         .unwrap()
         .delegatee(c.aid().clone())
         .scope(["read_data"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .now(NOW)
         .build()
         .expect("KMS-backed delegation builds");

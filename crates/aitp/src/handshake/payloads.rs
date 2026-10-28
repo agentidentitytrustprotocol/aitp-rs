@@ -191,7 +191,7 @@ mod tests {
             .subject(subject_aid.clone())
             .audience(subject_aid.clone())
             .grants(["demo.echo"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(subject_pk)
             .issued_at(crate::core::Timestamp(1_700_000_000))
             .build()

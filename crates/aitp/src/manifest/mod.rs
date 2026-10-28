@@ -22,7 +22,7 @@ pub mod resolver;
 pub mod types;
 pub mod verifier;
 
-pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL_SECS, REVOCATION_LIST_URI_EXT};
+pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL, REVOCATION_LIST_URI_EXT};
 pub use error::ManifestError;
 pub use resolver::{resolve_verified_manifest, ManifestResolver};
 pub use types::{

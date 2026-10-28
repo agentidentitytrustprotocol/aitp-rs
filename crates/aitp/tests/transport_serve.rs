@@ -32,7 +32,7 @@ fn manifest(key: &AitpSigningKey) -> Manifest {
         )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap()
 }

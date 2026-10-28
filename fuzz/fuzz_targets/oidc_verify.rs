@@ -57,8 +57,8 @@ fn verify(identity: &IdentityDescriptor) {
         &anchors,
         &KatIssuer,
         &subject,
-        300,
-        NOW,
+        std::time::Duration::from_secs(300),
+        aitp::core::Timestamp(NOW),
     );
     let _ = verify_oidc(identity, &ctx);
 }

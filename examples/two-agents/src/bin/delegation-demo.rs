@@ -48,7 +48,7 @@ fn main() {
         .grants(["demo.read", "demo.write"])
         .subject_pubkey(b.verifying_key())
         .issued_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("A issues TCT to B");
     println!(
@@ -69,7 +69,7 @@ fn main() {
         .delegatee(c.aid().clone())
         .scope(["demo.read"])
         .now(now)
-        .ttl_secs(1800)
+        .ttl(std::time::Duration::from_secs(1800))
         .build()
         .expect("B delegates demo.read to C");
     println!("B → C: delegation token minted (scope [\"demo.read\"])\n");
@@ -87,7 +87,7 @@ fn main() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("B publishes its Manifest");
     let issuer_manifests = vec![b_manifest];

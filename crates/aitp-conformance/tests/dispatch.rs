@@ -245,7 +245,7 @@ mod single_hop_revocation_check {
             .subject(b().aid().clone())
             .audience(b().aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b().verifying_key())
             .issued_at(Timestamp(NOW))
             .build()
@@ -259,7 +259,7 @@ mod single_hop_revocation_check {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(NOW))
             .build()
             .unwrap();
@@ -277,7 +277,7 @@ mod single_hop_revocation_check {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(NOW))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
         serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
@@ -399,7 +399,7 @@ mod session_bundle_wire_shape {
             .subject(part.aid().clone())
             .audience(part.aid().clone())
             .grants(["session.participate"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(part.verifying_key())
             .issued_at(Timestamp(NOW))
             .build()
@@ -511,7 +511,7 @@ mod session_bundle_wire_shape {
         assert_err(&resp, "v", "UNKNOWN_FIELD");
     }
 
-    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: i64) -> Value {
+    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: u64) -> Value {
         use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
         let manifest = ManifestBuilder::new(key)
             .display_name("coordinator")
@@ -522,7 +522,7 @@ mod session_bundle_wire_shape {
             )
             .offer("session.coordinate")
             .published_at(Timestamp(NOW))
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .build()
             .unwrap();
         serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
@@ -716,7 +716,7 @@ mod verify_tct_as_issuer {
             .subject(holder().aid().clone())
             .audience(holder().aid().clone())
             .grants(["macp.mode.task.v1"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(holder().verifying_key())
             .issued_at(Timestamp(NOW - 60))
             .build()

@@ -212,8 +212,8 @@ fn oidc_descriptor_with_public_key_rejected() {
         &anchors,
         &resolver,
         sender.aid(),
-        300,
-        1_700_000_000,
+        std::time::Duration::from_secs(300),
+        aitp::core::Timestamp(1_700_000_000),
     );
     let err = verify_oidc(&descriptor, &ctx).unwrap_err();
     assert!(

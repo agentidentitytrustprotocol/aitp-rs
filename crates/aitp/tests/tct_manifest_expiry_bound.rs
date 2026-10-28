@@ -11,12 +11,12 @@ use aitp::tct::{verify_tct, TctBuilder, TctError, TctVerifyContext};
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
-fn issue(issuer: &AitpSigningKey, subject: &AitpSigningKey, ttl: i64) -> String {
+fn issue(issuer: &AitpSigningKey, subject: &AitpSigningKey, ttl: u64) -> String {
     TctBuilder::new(issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(subject.verifying_key())
         .issued_at(NOW)
         .build()

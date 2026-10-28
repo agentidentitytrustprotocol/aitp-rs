@@ -57,7 +57,7 @@ use crate::core::envelope::{envelope_signing_digest, parse_envelope_wire, Envelo
 use crate::core::CheckedJson;
 use crate::core::{
     base64url, check_members, from_serde_error, Aid, AitpEnvelope, MessageType, Sender, Timestamp,
-    DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
+    DEFAULT_TIMESTAMP_TOLERANCE, PROTOCOL_VERSION,
 };
 use crate::crypto::{AitpSigner, Digest32, DynAsyncAitpSigner, Signature, SignerError};
 use crate::handshake::identity_pinned::{
@@ -298,7 +298,7 @@ pub struct PinnedAdmissionBuilder {
     presentation_limiter: Arc<dyn ChallengeRateLimiter>,
     deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
-    tolerance_secs: i64,
+    tolerance: Duration,
     subject: SubjectBinding,
 }
 
@@ -307,7 +307,7 @@ impl std::fmt::Debug for PinnedAdmissionBuilder {
         f.debug_struct("PinnedAdmissionBuilder")
             .field("verifier_aid", &self.verifier_aid)
             .field("ttl", &self.ttl)
-            .field("tolerance_secs", &self.tolerance_secs)
+            .field("tolerance", &self.tolerance)
             .field("subject", &self.subject)
             .finish_non_exhaustive()
     }
@@ -347,10 +347,11 @@ impl PinnedAdmissionBuilder {
         self
     }
 
-    /// Envelope timestamp tolerance in seconds, clamped to
-    /// `0..=`[`DEFAULT_TIMESTAMP_TOLERANCE_SECS`]. Default 300.
-    pub fn timestamp_tolerance_secs(mut self, secs: i64) -> Self {
-        self.tolerance_secs = secs.clamp(0, DEFAULT_TIMESTAMP_TOLERANCE_SECS);
+    /// Envelope timestamp tolerance, capped at
+    /// [`DEFAULT_TIMESTAMP_TOLERANCE`] (the default, 300 s) and counted in
+    /// whole seconds.
+    pub fn timestamp_tolerance(mut self, tolerance: Duration) -> Self {
+        self.tolerance = tolerance.min(DEFAULT_TIMESTAMP_TOLERANCE);
         self
     }
 
@@ -372,7 +373,7 @@ impl PinnedAdmissionBuilder {
             presentation_limiter: self.presentation_limiter,
             deny_list: self.deny_list,
             ttl: self.ttl,
-            tolerance_secs: self.tolerance_secs,
+            tolerance: self.tolerance,
             subject: self.subject,
         }
     }
@@ -388,7 +389,7 @@ pub struct PinnedAdmission {
     presentation_limiter: Arc<dyn ChallengeRateLimiter>,
     deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
-    tolerance_secs: i64,
+    tolerance: Duration,
     subject: SubjectBinding,
 }
 
@@ -397,7 +398,7 @@ impl std::fmt::Debug for PinnedAdmission {
         f.debug_struct("PinnedAdmission")
             .field("verifier_aid", &self.verifier_aid)
             .field("ttl", &self.ttl)
-            .field("tolerance_secs", &self.tolerance_secs)
+            .field("tolerance", &self.tolerance)
             .field("subject", &self.subject)
             .finish_non_exhaustive()
     }
@@ -419,7 +420,7 @@ impl PinnedAdmission {
             presentation_limiter: Arc::new(RecommendedLimiter::default()),
             deny_list: Arc::new(InMemoryMessageIdDenyList::default()),
             ttl: MAX_NONCE_TTL,
-            tolerance_secs: DEFAULT_TIMESTAMP_TOLERANCE_SECS,
+            tolerance: DEFAULT_TIMESTAMP_TOLERANCE,
             subject: SubjectBinding::Unchecked,
         }
     }
@@ -456,7 +457,7 @@ impl PinnedAdmission {
         self.limiter
             .check(source)
             .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
-        let expires_at = now.plus_secs(self.ttl.as_secs() as i64);
+        let expires_at = now.saturating_add(self.ttl);
         // A duplicate means the CSPRNG repeated 128 bits; one retry is
         // already paranoid.
         for _ in 0..2 {
@@ -596,7 +597,7 @@ impl PinnedAdmission {
             .check(source)
             .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
         if let Some(ts) = timestamp {
-            if !ts.is_within_tolerance_of(now, self.tolerance_secs) {
+            if !ts.is_within_tolerance_of(now, self.tolerance) {
                 return Err(AdmissionError::TimestampExpired);
             }
         }
@@ -685,7 +686,7 @@ impl PinnedAdmission {
         // Record until the timestamp leaves the window; past that, step 3
         // rejects a replay by itself. A concurrent twin that recorded
         // first makes this one the replay.
-        let until = env.timestamp.plus_secs(self.tolerance_secs);
+        let until = env.timestamp.saturating_add(self.tolerance);
         if !self
             .deny_list
             .insert(&env.message_id, until, now)

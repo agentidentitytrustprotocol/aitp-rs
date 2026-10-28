@@ -239,7 +239,7 @@ fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> JsDelegationV
 /// * `delegatee_aid_str` — recipient's AID. Its embedded key drives
 ///   `cnf.jkt`; no separate public-key argument is needed in v0.2.
 /// * `scope` — subset of the voucher's grants to delegate.
-/// * `ttl_secs` — token lifetime; `None` uses `DEFAULT_DELEGATION_TTL_SECS`
+/// * `ttl_secs` — token lifetime; `None` uses `DEFAULT_DELEGATION_TTL`
 ///   (capped at the voucher's expiry).
 pub(crate) fn build_delegation_token_json(
     issuer_key: &aitp::crypto::AitpSigningKey,
@@ -255,8 +255,9 @@ pub(crate) fn build_delegation_token_json(
         .map_err(|e| Error::from_reason(format!("delegation build failed: {e}")))?
         .delegatee(delegatee_aid)
         .scope(scope);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (now, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.now(now).ttl(ttl);
     }
 
     builder
@@ -287,8 +288,9 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .audience(delegatee_aid)
         .grants(verified.grants.clone())
         .subject_pubkey(delegatee_pk);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (issued_at, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.issued_at(issued_at).ttl(ttl);
     }
 
     let issued = builder

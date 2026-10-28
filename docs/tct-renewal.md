@@ -188,7 +188,7 @@ per transport source, then the content type and body are checked, then
   `with_grant_policy` hook;
 - the `NonceStore` passed to `new` as the replay guard (use a shared store
   when several replicas serve one issuer);
-- TTL `aitp::tct::DEFAULT_TCT_TTL_SECS`, capped by the Manifest window.
+- TTL `aitp::tct::DEFAULT_TCT_TTL`, capped by the Manifest window.
 
 Rate limiting:
 

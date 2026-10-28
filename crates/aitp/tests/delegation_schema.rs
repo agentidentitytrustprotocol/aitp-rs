@@ -50,7 +50,7 @@ fn minted_single_hop_claims_validate() {
         .subject(b.aid().clone())
         .audience(b.aid().clone())
         .grants(["read_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b.verifying_key())
         .issued_at(NOW)
         .build()

@@ -69,8 +69,8 @@ fn ctx<'a>(
         anchors,
         resolver,
         subject_aid,
-        300,
-        NOW,
+        std::time::Duration::from_secs(300),
+        aitp::core::Timestamp(NOW),
     )
 }
 

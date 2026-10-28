@@ -161,7 +161,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["x"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject.verifying_key())
         .issued_at(aitp::core::Timestamp(1_700_000_000))
         .build()

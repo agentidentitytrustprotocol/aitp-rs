@@ -196,7 +196,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
         .accept_trust_anchor("https://idp.example.com".parse().expect("valid URL"))
         .offer("demo.echo")
         .published_at(Timestamp(PUBLISHED_AT))
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a well-formed manifest");
 

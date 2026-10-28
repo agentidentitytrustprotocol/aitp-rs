@@ -186,11 +186,14 @@ impl PyAitpAgent {
                 }
             };
 
+        let (published_at, ttl) =
+            crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs.unwrap_or(3600));
         let mut builder = ManifestBuilder::new(&self.key)
             .display_name(display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .ttl_secs(ttl_secs.unwrap_or(3600));
+            .published_at(published_at)
+            .ttl(ttl);
         // The peer identity types this agent accepts (RFC-AITP-0004 §5.1
         // step 8). Defaults to its own type; `[]` accepts nothing.
         builder = match accepted_identity_types {

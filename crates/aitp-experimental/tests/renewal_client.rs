@@ -65,7 +65,7 @@ fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
         )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
-        .ttl_secs(86_400);
+        .ttl(std::time::Duration::from_secs(86_400));
     if let Some(uri) = renew_uri {
         b = b.extension(RENEW_URI_EXT, uri.into());
     }
@@ -77,7 +77,7 @@ fn held_tct(issuer: &AitpSigningKey, holder: &AitpSigningKey) -> String {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(600)
+        .ttl(std::time::Duration::from_secs(600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(Timestamp::now())
         .build()
@@ -196,7 +196,7 @@ async fn refusal_is_surfaced_with_its_code() {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["legacy.cap"])
-        .ttl_secs(600)
+        .ttl(std::time::Duration::from_secs(600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(Timestamp::now())
         .build()

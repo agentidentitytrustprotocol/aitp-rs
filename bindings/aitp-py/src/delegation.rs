@@ -301,8 +301,9 @@ pub(crate) fn build_delegation_token(
         .map_err(|e| PyRuntimeError::new_err(format!("delegation build failed: {e}")))?
         .delegatee(delegatee_aid)
         .scope(scope);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (now, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.now(now).ttl(ttl);
     }
 
     builder
@@ -332,8 +333,9 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .audience(delegatee_aid)
         .grants(verified.grants.clone())
         .subject_pubkey(delegatee_pk);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (issued_at, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.issued_at(issued_at).ttl(ttl);
     }
 
     let issued = builder

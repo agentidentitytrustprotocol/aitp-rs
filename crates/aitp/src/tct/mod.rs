@@ -44,4 +44,4 @@ pub use verifier::{
 };
 
 /// Recommended TCT TTL (1 hour).
-pub const DEFAULT_TCT_TTL_SECS: i64 = 3600;
+pub const DEFAULT_TCT_TTL: std::time::Duration = std::time::Duration::from_secs(3600);

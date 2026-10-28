@@ -65,7 +65,7 @@ pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
 pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
 
 /// Default timestamp tolerance for replay protection (300 seconds, ±).
-pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
+pub const DEFAULT_TIMESTAMP_TOLERANCE: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Length of an AID identifier component when method = `pubkey`
 /// (Ed25519 raw public key encoded as unpadded base64url).

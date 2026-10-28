@@ -15,7 +15,7 @@ use uuid::Uuid;
 const NOW: Timestamp = Timestamp(1_711_900_000);
 /// The spec's KAT statement key (agentidentitytrustprotocol#80).
 const KAT_EXT_KEY: &str = "io.agentidentitytrustprotocol.kat";
-const HUNDRED_YEARS: i64 = 3_155_760_000;
+const HUNDRED_YEARS: u64 = 3_155_760_000;
 const V7: &str = "01890a5d-ac96-774b-bcce-b302099a8057";
 /// Version nibble 4, variant bits `11` (Microsoft).
 const BAD_VARIANT: &str = "770e8400-e29b-41d4-c716-446655440702";
@@ -225,7 +225,7 @@ fn self_attestation_round_trip() {
         let issued = TctBuilder::new(&iss)
             .self_attestation()
             .ext(statement("rt"))
-            .ttl_secs(HUNDRED_YEARS)
+            .ttl(std::time::Duration::from_secs(HUNDRED_YEARS))
             .issued_at(NOW)
             .build()
             .unwrap();
@@ -287,12 +287,12 @@ fn attestation_manifest_cap_is_an_explicit_decision() {
     let issued = TctBuilder::new(&iss)
         .self_attestation()
         .ext(statement("cap"))
-        .ttl_secs(HUNDRED_YEARS)
+        .ttl(std::time::Duration::from_secs(HUNDRED_YEARS))
         .issued_at(NOW)
         .build()
         .unwrap();
     let capped = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
-        .issuer_manifest_expires_at(NOW.plus_secs(86_400))
+        .issuer_manifest_expires_at(NOW.saturating_add(std::time::Duration::from_secs(86_400)))
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap();
@@ -362,7 +362,9 @@ fn self_attestation_kats_reproduce() {
                 d["input"].as_str().unwrap().as_bytes(),
             )
             .ext(input["ext"].as_object().unwrap().clone())
-            .ttl_secs(input["exp"].as_i64().unwrap() - iat)
+            .ttl(std::time::Duration::from_secs(
+                (input["exp"].as_i64().unwrap() - iat).unsigned_abs(),
+            ))
             .issued_at(Timestamp(iat))
             .build()
             .unwrap();

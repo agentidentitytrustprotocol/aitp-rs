@@ -263,7 +263,7 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         .subject(alice.aid().clone())
         .audience(alice.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(alice.verifying_key())
         .issued_at(NOW)
         .build()

@@ -29,7 +29,7 @@ fn arb_json() -> impl Strategy<Value = serde_json::Value> {
 }
 
 /// Build a valid Manifest with varied but well-formed inputs.
-fn build_manifest(seed: u8, caps: &[String], ttl: i64) -> Manifest {
+fn build_manifest(seed: u8, caps: &[String], ttl: u64) -> Manifest {
     let key = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
     let mut b = ManifestBuilder::new(&key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
@@ -43,7 +43,7 @@ fn build_manifest(seed: u8, caps: &[String], ttl: i64) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .published_at(NOW);
     for c in caps {
         b = b.offer(c.clone());
@@ -73,7 +73,7 @@ proptest! {
     fn built_manifest_round_trips(
         seed in any::<u8>(),
         caps in prop::collection::vec("[a-z.]{1,12}", 0..6),
-        ttl in 60i64..2_000_000i64,
+        ttl in 60u64..2_000_000u64,
     ) {
         let manifest = build_manifest(seed, &caps, ttl);
         let json = serde_json::to_vec(&manifest).expect("serialize");

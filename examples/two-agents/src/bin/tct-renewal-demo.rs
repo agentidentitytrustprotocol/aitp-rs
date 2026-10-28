@@ -60,7 +60,7 @@ async fn main() {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(60)
+        .ttl(std::time::Duration::from_secs(60))
         .subject_pubkey(holder.verifying_key())
         .issued_at(now)
         .build()
@@ -101,7 +101,7 @@ async fn main() {
         )
         .accept_identity_type("pinned_key")
         .offer("demo.echo")
-        .ttl_secs(86_400)
+        .ttl(std::time::Duration::from_secs(86_400))
         .extension(RENEW_URI_EXT, renew_uri.into())
         .build()
         .unwrap();

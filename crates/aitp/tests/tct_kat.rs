@@ -40,7 +40,9 @@ fn builder_reproduces_tct_signed_example() {
                 .iter()
                 .map(|g| g.as_str().unwrap().to_string()),
         )
-        .ttl_secs(input["ttl_secs"].as_i64().unwrap())
+        .ttl(std::time::Duration::from_secs(
+            input["ttl_secs"].as_u64().unwrap(),
+        ))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(input["iat"].as_i64().unwrap()))
         .jti(Uuid::parse_str(input["jti"].as_str().unwrap()).unwrap())
@@ -78,7 +80,9 @@ fn builder_reproduces_voucher_signed_example() {
                 .iter()
                 .map(|g| g.as_str().unwrap().to_string()),
         )
-        .ttl_secs(input["ttl_secs"].as_i64().unwrap())
+        .ttl(std::time::Duration::from_secs(
+            input["ttl_secs"].as_u64().unwrap(),
+        ))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(input["iat"].as_i64().unwrap()))
         .jti(Uuid::parse_str(input["src_jti"].as_str().unwrap()).unwrap())
@@ -140,7 +144,9 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
                 .iter()
                 .map(|g| g.as_str().unwrap().to_string()),
         )
-        .ttl_secs(input["ttl_secs"].as_i64().unwrap())
+        .ttl(std::time::Duration::from_secs(
+            input["ttl_secs"].as_u64().unwrap(),
+        ))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(input["iat"].as_i64().unwrap()))
         .jti(Uuid::parse_str(input["jti"].as_str().unwrap()).unwrap())

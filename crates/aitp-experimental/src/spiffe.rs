@@ -228,10 +228,11 @@ pub struct SpiffeVerifyContext<'a> {
     pub timestamp: Timestamp,
     /// The handshake message's `pop_nonce`.
     pub pop_nonce: &'a str,
-    /// Allowed JWT-SVID `iat` skew in seconds (RFC-AITP-0002 §2.2: 300).
-    pub iat_tolerance_secs: i64,
-    /// Current time (Unix seconds).
-    pub now_unix_secs: i64,
+    /// Allowed JWT-SVID `iat` skew, counted in whole seconds
+    /// (RFC-AITP-0002 §2.2: 300 s).
+    pub iat_tolerance: std::time::Duration,
+    /// Current time.
+    pub now: Timestamp,
 }
 
 /// Verify a `spiffe` identity descriptor (RFC-AITP-0002 §6.5).
@@ -334,8 +335,8 @@ impl IdentityVerifier for SpiffeVerifier<'_> {
                 message_id: ctx.message_id,
                 timestamp: ctx.timestamp,
                 pop_nonce: ctx.pop_nonce,
-                iat_tolerance_secs: 300,
-                now_unix_secs: ctx.now.0,
+                iat_tolerance: aitp::core::DEFAULT_TIMESTAMP_TOLERANCE,
+                now: ctx.now,
             },
         )?;
         Ok(VerifiedIdentity::new(
@@ -413,10 +414,10 @@ fn verify_jwt_svid(
     if aud != ctx.receiver_aid.as_str() {
         return Err(fail("aud mismatch"));
     }
-    if claims.exp <= ctx.now_unix_secs {
+    if claims.exp <= ctx.now.0 {
         return Err(fail("exp in the past"));
     }
-    if (ctx.now_unix_secs - claims.iat).abs() > ctx.iat_tolerance_secs {
+    if !Timestamp(claims.iat).is_within_tolerance_of(ctx.now, ctx.iat_tolerance) {
         return Err(fail("iat outside tolerance"));
     }
     if claims.nonce != ctx.pop_nonce {
@@ -468,7 +469,7 @@ fn verify_x509_svid(
     let leaf_cert_der = CertificateDer::from(leaf_der.as_slice());
     let ee = webpki::EndEntityCert::try_from(&leaf_cert_der)
         .map_err(|e| fail(&format!("leaf certificate: {e}")))?;
-    let now = u64::try_from(ctx.now_unix_secs).map_err(|_| fail("current time before epoch"))?;
+    let now = u64::try_from(ctx.now.0).map_err(|_| fail("current time before epoch"))?;
     let time = UnixTime::since_unix_epoch(Duration::from_secs(now));
     // X509-SVID §4.4 lets a leaf carry the serverAuth or clientAuth
     // EKU, or none. webpki checks one purpose at a time.
@@ -708,8 +709,8 @@ mod tests {
             message_id: &message_id,
             timestamp: Timestamp(now),
             pop_nonce: nonce,
-            iat_tolerance_secs: 300,
-            now_unix_secs: now,
+            iat_tolerance: std::time::Duration::from_secs(300),
+            now: Timestamp(now),
         };
         verify_spiffe(&identity, &ctx)
     }

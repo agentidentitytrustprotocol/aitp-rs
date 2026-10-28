@@ -89,8 +89,8 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
         &*store,
         now,
     );
-    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_i64) {
-        ctx = ctx.ttl_secs(ttl);
+    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_u64) {
+        ctx = ctx.ttl(std::time::Duration::from_secs(ttl));
     }
     if policy.get("mint_grant_voucher").and_then(Value::as_bool) == Some(false) {
         ctx = ctx.without_voucher();

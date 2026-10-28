@@ -11,7 +11,7 @@ use aitp::crypto::{AitpSigner, AitpVerifyingKey, Digest32, Signature};
 use aitp::envelope::sign_envelope_with;
 use aitp::tct::{
     verify_tct, IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext,
-    DEFAULT_TCT_TTL_SECS,
+    DEFAULT_TCT_TTL,
 };
 use uuid::Uuid;
 
@@ -58,8 +58,8 @@ pub struct RenewalContext<'a> {
     /// intersection. `None` keeps the intersection.
     pub grant_policy: Option<&'a RenewalGrantPolicyFn>,
     /// Requested lifetime of the renewed TCT, capped by
-    /// [`Self::manifest_expires_at`]. Default [`DEFAULT_TCT_TTL_SECS`].
-    pub ttl_secs: i64,
+    /// [`Self::manifest_expires_at`]. Default [`DEFAULT_TCT_TTL`]. Counted in whole seconds.
+    pub ttl: std::time::Duration,
     /// Whether to mint a companion grant voucher (§4 step 8). Default
     /// `true`.
     pub mint_voucher: bool,
@@ -83,15 +83,15 @@ impl<'a> RenewalContext<'a> {
             revocation,
             nonce_store,
             grant_policy: None,
-            ttl_secs: DEFAULT_TCT_TTL_SECS,
+            ttl: DEFAULT_TCT_TTL,
             mint_voucher: true,
             now,
         }
     }
 
     /// Set the requested TTL (still capped by the Manifest window).
-    pub fn ttl_secs(mut self, ttl_secs: i64) -> Self {
-        self.ttl_secs = ttl_secs;
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -209,12 +209,13 @@ pub async fn process_renewal_request(
 
     // Steps 7 and 8. Step 2 bounds `claims.exp` by the Manifest and puts
     // it after `now`, so the capped lifetime is positive.
-    let ttl = ctx.ttl_secs.min(ctx.manifest_expires_at.0 - now.0);
+    let window = u64::try_from(ctx.manifest_expires_at.0.saturating_sub(now.0)).unwrap_or(0);
+    let ttl = ctx.ttl.min(std::time::Duration::from_secs(window));
     let mut builder = TctBuilder::new(issuer_key)
         .subject(claims.sub.clone())
         .audience(claims.aud.clone())
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(ttl)
         .subject_pubkey(holder_pk)
         .issued_at(now)
         .jti(Uuid::new_v4());
