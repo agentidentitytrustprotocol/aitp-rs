@@ -76,7 +76,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
 
     // ── 3. Delegation works while the TCT is live ────────────────────
     let task = "Reply with exactly one short sentence about delegated authority.";
-    let response = planner::delegate_task(&worker.origin, &outcome.tct.token(), task)
+    let response = planner::delegate_task(&worker.origin, outcome.tct.token(), task)
         .await
         .expect("/work succeeds while the TCT is live");
     assert!(
@@ -104,7 +104,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     // ── 6. And the worker now refuses the same TCT ───────────────────
     // Note this rejection happens during TCT verification, *before* the
     // LLM call — so the negative leg costs no API credits.
-    let (status, body) = planner::try_delegate_task(&worker.origin, &outcome.tct.token(), task)
+    let (status, body) = planner::try_delegate_task(&worker.origin, outcome.tct.token(), task)
         .await
         .expect("request reaches the worker");
     assert_eq!(
