@@ -6,14 +6,14 @@
 
 use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::transport::{
-    sign_envelope_with, HandshakeServer, RevocationFailMode, RevocationFetcher, RevocationPolicy,
-    REVOCATION_LIST_PATH,
+    HandshakeServer, RevocationFailMode, RevocationFetcher, RevocationPolicy, REVOCATION_LIST_PATH,
 };
 use std::sync::Arc;
 use std::time::Duration;

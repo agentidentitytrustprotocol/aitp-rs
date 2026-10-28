@@ -40,7 +40,7 @@ pub const TYP_DELEGATION: &str = "aitp-delegation+jwt";
 
 /// The sole acceptable JOSE `alg` value for an AID algorithm
 /// (RFC-AITP-0001 §5.4.5): `EdDSA` for Ed25519, `ES256` for P-256.
-pub fn jose_alg(algorithm: AidAlgorithm) -> Result<&'static str, CryptoError> {
+pub(crate) fn jose_alg(algorithm: AidAlgorithm) -> Result<&'static str, CryptoError> {
     match algorithm {
         AidAlgorithm::Ed25519 => Ok("EdDSA"),
         AidAlgorithm::P256 => Ok("ES256"),
@@ -195,7 +195,7 @@ pub fn decode_payload_unverified(token: &str) -> Result<Vec<u8>, CryptoError> {
 /// opinion" and let the full, verified path make the final call either
 /// way; this function's opinion is never trusted for anything but that
 /// gate.
-pub fn peek_typ(token: &str) -> Option<String> {
+pub(crate) fn peek_typ(token: &str) -> Option<String> {
     let header_b64 = token.split('.').next()?;
     let header_bytes = base64url::decode_strict(header_b64).ok()?;
     let header_value: serde_json::Value = serde_json::from_slice(&header_bytes).ok()?;

@@ -5,12 +5,12 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use aitp::__private::bootstrap_verify_peer;
 use aitp::core::{AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
-    bootstrap_verify_peer, HandshakeError, IdentityDescriptor, IdentityKind, IdentityVerifier,
-    IdentityVerifyContext, JwkPublicKey, JwksResolver, PeerConfig, ResolveError, RevocationSource,
-    StaticPinnedKeyStore,
+    HandshakeError, IdentityDescriptor, IdentityKind, IdentityVerifier, IdentityVerifyContext,
+    JwkPublicKey, JwksResolver, PeerConfig, ResolveError, RevocationSource, StaticPinnedKeyStore,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use serde_json::json;

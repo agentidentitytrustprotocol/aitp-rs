@@ -342,7 +342,7 @@ impl<P: RevocationProvider> RevocationCache<P> {
 
     /// Construct for the issuer whose (already verified) Manifest is
     /// `manifest`, polling the `ListRevoked` URL it advertises under
-    /// [`REVOCATION_LIST_URI_EXT`] (RFC-AITP-0008 §1.4). `make_provider`
+    /// [`crate::manifest::REVOCATION_LIST_URI_EXT`] (RFC-AITP-0008 §1.4). `make_provider`
     /// builds the provider for that URL.
     ///
     /// A Manifest without the key (or with a non-HTTPS value) is not
@@ -542,18 +542,6 @@ pub(crate) fn verify_snapshot(
     Ok(())
 }
 
-/// Manifest extension key (RFC-AITP-0012 namespace) carrying the
-/// issuer's `ListRevoked` URL. Every TCT issuer MUST advertise it
-/// (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4); issuers set it with
-/// [`crate::manifest::ManifestBuilder::revocation_list_uri`]. Wire format:
-///
-/// ```json
-/// "extensions": {
-///   "rfc-aitp-0008.revocation_list_uri": "https://issuer.example/.well-known/aitp-revocation-list"
-/// }
-/// ```
-pub const REVOCATION_LIST_URI_EXT: &str = crate::manifest::REVOCATION_LIST_URI_EXT;
-
 /// Helper: pull a revocation list URI out of a Manifest's
 /// `extensions` map, if any. Returns `None` when the extension is
 /// missing, not a string, or not an HTTPS URL.
@@ -567,7 +555,7 @@ pub fn revocation_list_uri_from_manifest(manifest: &crate::manifest::Manifest) -
     manifest
         .extensions
         .as_ref()?
-        .get(REVOCATION_LIST_URI_EXT)
+        .get(crate::manifest::REVOCATION_LIST_URI_EXT)
         .and_then(|v| v.as_str())
         .and_then(|s| url::Url::parse(s).ok())
         .filter(|u| u.scheme() == "https")

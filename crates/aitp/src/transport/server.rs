@@ -1,10 +1,12 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
+use crate::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS;
 use crate::core::{
     check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
+use crate::envelope::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 use crate::handshake::{
     HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, NoPinnedKeys,
     PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
@@ -12,7 +14,6 @@ use crate::handshake::{
 };
 use crate::manifest::{Manifest, ManifestEnvelope};
 use crate::tct::RevocationListEnvelope;
-use crate::transport::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 pub use crate::transport::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
 use axum::{
     body::{to_bytes, Body},
@@ -231,8 +232,8 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
 /// (RFC-AITP-0009 §3.1, which makes rate limiting a MUST).
 ///
 /// On by default with [`RateLimitConfig::default`], the §3.1
-/// recommended values. [`HandshakeServer::enforce_rate_limit`] counts
-/// events over the most recent 60-second window and rejects with HTTP
+/// recommended values. The handshake handlers count events over the
+/// most recent 60-second window and rejects with HTTP
 /// 429 once a key crosses its limit.
 ///
 /// The transport limit always applies. Its key is the peer IP (IPv6
@@ -309,9 +310,9 @@ fn transport_key(source: Option<std::net::IpAddr>) -> String {
     }
 }
 
-/// Outcome of a [`HandshakeServer::enforce_rate_limit`] check.
+/// Outcome of a rate-limit check.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RateLimitOutcome {
+pub(crate) enum RateLimitOutcome {
     /// Both keys (IP and AID, where supplied) are within their windows.
     Allow,
     /// At least one key exceeded its 60s window — HTTP 429.
@@ -390,19 +391,13 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
 /// floor that aligns with our default `iat_tolerance_secs`.
 pub const DEFAULT_REPLAY_WINDOW: Duration = Duration::from_secs(300);
 
-/// Maximum acceptable absolute drift (seconds) between a sender's
-/// envelope timestamp and the server's clock. RFC-AITP-0001 §5.5 says
-/// "MUST be ≤ 300 s" — older messages MUST be rejected as
-/// `TIMESTAMP_EXPIRED`.
-pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
-
 /// Maximum acceptable POST body size for handshake endpoints when no
 /// limit is configured: a router from `into_router` served without
 /// `with_request_body_limit`. AITP payloads are bounded — even a
 /// Manifest fits well under 32 KB. 256 KB is a generous ceiling that
 /// still rejects accidental gigabyte uploads. [`HandshakeServer::serve`]
 /// applies [`ServeConfig::request_body_limit`] instead.
-pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
+pub(crate) const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
 
 /// The body limit a handler reads, set by [`HandshakeServer::serve_with`]
 /// or `with_request_body_limit` as a request extension. The handshake
@@ -650,7 +645,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// Set how the initiator-issued TCT's revocation status is checked
     /// at COMMIT (RFC-AITP-0008). The default is `fail_closed`: an
     /// initiator whose Manifest advertises no reachable, valid
-    /// `ListRevoked` snapshot ([`crate::transport::REVOCATION_LIST_URI_EXT`]) is
+    /// `ListRevoked` snapshot ([`crate::manifest::REVOCATION_LIST_URI_EXT`]) is
     /// rejected with `TCT_REVOKED`. Pass
     /// [`RevocationFailMode::FailOpen`](crate::transport::RevocationFailMode::FailOpen)
     /// to opt out.
@@ -693,14 +688,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` after [`Self::without_rate_limit`].
-    ///
-    /// The handshake handlers ([`Self::serve`]'s `hello` / `commit`
-    /// routes) call this internally per RFC-AITP-0009 §3.1 — after the
-    /// replay deny-list check and before timestamp validation. Calling
-    /// it again from operator middleware double-counts the request;
-    /// most operators only need [`Self::with_rate_limit`].
-    pub fn enforce_rate_limit(
+    /// Returns `Allow` after `without_rate_limit`.
+    #[cfg(test)]
+    pub(crate) fn enforce_rate_limit(
         &self,
         client_ip: Option<std::net::IpAddr>,
         peer_aid: Option<&crate::core::Aid>,
@@ -758,16 +748,18 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
             .route("/aitp/handshake/commit", post(handle_commit::<R>));
-        let advertised = self.state.manifest.extensions.as_ref().is_some_and(|e| {
-            e.get(crate::transport::revocation::REVOCATION_LIST_URI_EXT)
-                .is_some()
-        });
+        let advertised = self
+            .state
+            .manifest
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.get(crate::manifest::REVOCATION_LIST_URI_EXT).is_some());
         if !advertised {
             // RFC-AITP-0005 §11 / RFC-AITP-0008 §1.4: a TCT issuer MUST
             // advertise its ListRevoked URL. Peers still accept the
             // Manifest, but treat this issuer's revocation as unavailable.
             warn!(
-                key = crate::transport::revocation::REVOCATION_LIST_URI_EXT,
+                key = crate::manifest::REVOCATION_LIST_URI_EXT,
                 "handshake server Manifest does not advertise its ListRevoked URL; \
                  set it with ManifestBuilder::revocation_list_uri"
             );
@@ -1479,8 +1471,7 @@ fn request_source<R: JwksResolver + Send + Sync>(
     extract_source_ip(request, proxies)
 }
 
-/// Sliding-window rate-limit evaluation shared by
-/// [`HandshakeServer::enforce_rate_limit`] and the handshake handlers.
+/// Sliding-window rate-limit evaluation for the handshake handlers.
 /// On `Allow` the event is recorded; on `DenyTooManyRequests` nothing
 /// is recorded, so a denied caller does not accelerate its own deny.
 /// Returns `Allow` when no policy is configured.
@@ -1657,6 +1648,10 @@ fn evict_oldest_to_capacity<V>(
 #[cfg(test)]
 #[path = "server_sweeper_tests.rs"]
 mod sweeper_tests;
+
+#[cfg(all(test, feature = "http-client"))]
+#[path = "server_rate_limit_tests.rs"]
+mod rate_limit_tests;
 
 #[cfg(test)]
 mod tests {

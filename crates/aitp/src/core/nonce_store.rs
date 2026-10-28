@@ -4,32 +4,23 @@
 //!
 //! `crate::handshake::admission` re-exports every item under its 0.14 path.
 
-use crate::core::{Aid, Timestamp};
+use crate::core::{Aid, BoxError, BoxFuture, Timestamp};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
-use std::future::Future;
 use std::hash::BuildHasher;
-use std::pin::Pin;
 use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
-
-/// Boxed error from a store backend. Same type as
-/// `crate::crypto::signer::BoxError`.
-pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-/// Boxed `Send` future returned by [`NonceStore`] methods. Same type as
-/// `crate::crypto::signer::BoxFuture`.
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// Length in bytes of a [`Nonce`]: 16, the `pop_nonce` length of
 /// RFC-AITP-0002 §3.1 (22 unpadded base64url characters).
 pub const NONCE_LEN: usize = 16;
 
 /// Gauge name for the records an [`InMemoryNonceStore`] holds, emitted
-/// with the `metrics` feature (aitp-rs#205 A-4). Re-exported as
+/// with the `metrics` feature (aitp-rs#205 A-4); public as
 /// `crate::handshake::admission::metrics_names::NONCES_OUTSTANDING`.
-pub const NONCES_OUTSTANDING_GAUGE: &str = "aitp_admission_nonces_outstanding";
+#[cfg(any(feature = "metrics", feature = "pinned-admission"))]
+pub(crate) const NONCES_OUTSTANDING_GAUGE: &str = "aitp_admission_nonces_outstanding";
 
 /// A single-use nonce: 16 bytes from a CSPRNG (RFC-AITP-0002 §3.1).
 pub type Nonce = [u8; NONCE_LEN];

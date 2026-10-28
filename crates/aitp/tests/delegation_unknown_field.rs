@@ -86,7 +86,7 @@ fn outer_claims_unknown_member_rejected_via_verify_delegation() {
 /// last occurrence winning. Raw-text tampering of an otherwise-validly-
 /// signed token's payload segment — a defect no `serde_json::Value` can
 /// even represent, which is exactly why the JWS-payload "peek" in
-/// `peek_claims` must run [`aitp::core::reject_duplicate_keys`] against
+/// `peek_claims` must run [`aitp::__private::reject_duplicate_keys`] against
 /// the raw decoded bytes before ever building a `Value` from them.
 #[test]
 fn outer_claims_duplicate_member_rejected_via_verify_delegation() {

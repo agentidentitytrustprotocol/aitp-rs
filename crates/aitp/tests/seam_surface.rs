@@ -17,10 +17,10 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 
 use aitp::core::nonce_store::{
-    BoxFuture, ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError, NONCE_LEN,
+    ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError, NONCE_LEN,
 };
 use aitp::core::{
-    base64url, ids, Aid, AidAlgorithm, CheckedJson, ExtensionsMap, RawUrl, Timestamp,
+    base64url, ids, Aid, AidAlgorithm, BoxFuture, CheckedJson, ExtensionsMap, RawUrl, Timestamp,
 };
 use aitp::crypto::testing::{p256_high_s_twin, MockKmsSigner, MockOutput};
 use aitp::crypto::{
@@ -187,8 +187,7 @@ fn crypto_items() {
         check_public_key(&key).unwrap();
         let async_pk: AitpVerifyingKey = ready(AsyncAitpSigner::public_key(&key)).unwrap();
         assert_eq!(async_pk, AitpSigner::public_key(&key).unwrap());
-        let boxed: aitp::crypto::signer::BoxFuture<'_, _> =
-            Box::pin(AsyncAitpSigner::public_key(&key));
+        let boxed: BoxFuture<'_, _> = Box::pin(AsyncAitpSigner::public_key(&key));
         assert_eq!(ready(boxed).unwrap(), async_pk);
     }
 

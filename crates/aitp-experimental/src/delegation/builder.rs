@@ -17,10 +17,8 @@
 //! [`ChainedDelegationBuilder::build_async`]. Validation and output are the same.
 
 use crate::delegation::{ChainedDelegationClaims, ChainedDelegationError};
-use aitp::core::{
-    base64url, check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, Timestamp,
-    PROTOCOL_VERSION,
-};
+use aitp::__private::{check_members, from_serde_error, reject_duplicate_keys};
+use aitp::core::{base64url, jcs, Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
 use aitp::delegation::{DelegationError, DEFAULT_DELEGATION_TTL_SECS, DELEGATION_CLAIMS_MEMBERS};
 use aitp::tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};

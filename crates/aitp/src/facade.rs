@@ -10,6 +10,7 @@ use crate::core::{
     EnvelopeParseError, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
+use crate::envelope::{sign_envelope_with, verify_envelope_signature};
 use crate::handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
@@ -18,8 +19,7 @@ use crate::handshake::{
 use crate::manifest::Manifest;
 use crate::tct::VerifiedTct;
 use crate::transport::{
-    sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
-    RevocationFetcher, RevocationPolicy,
+    FetchError, HostGuard, ManifestFetcher, RevocationFetcher, RevocationPolicy,
 };
 use std::time::Duration;
 use uuid::Uuid;
@@ -67,7 +67,7 @@ pub enum TrustMode<'a> {
 /// now presents the configured type and pre-checks it against the peer
 /// Manifest's `accepted_identity_types` before the handshake starts.
 #[non_exhaustive]
-pub enum IdentityMode<'a> {
+pub enum IdentityMode {
     /// Present a pinned-key identity: the facade self-signs a
     /// proof-of-possession over the outbound HELLO envelope.
     PinnedKey {
@@ -76,40 +76,17 @@ pub enum IdentityMode<'a> {
         /// rejects a mismatch).
         subject: String,
     },
-    /// Present an OIDC identity: the caller supplies a compact JWT
-    /// already minted by the issuer.
-    ///
-    /// **Nonce constraint.** The JWT's `nonce` claim MUST equal the
-    /// handshake `pop_nonce` the facade generates for the HELLO, or the
-    /// peer rejects the proof (RFC-AITP-0002 §3.1). Because the facade
-    /// generates that nonce internally, a JWT minted entirely ahead of
-    /// time cannot satisfy this. For the production OIDC path, prefer
-    /// [`IdentityMode::OidcWithMintCallback`], which mints the JWT
-    /// *after* the nonce is known. This pre-minted variant remains for
-    /// callers that drive the lower-level [`Initiator`] state machine
-    /// themselves.
-    Oidc {
-        /// OIDC issuer URI — MUST match the initiator Manifest's
-        /// `identity_hint.issuer`.
-        issuer: url::Url,
-        /// Subject identifier at the issuer.
-        subject: String,
-        /// Compact-serialized JWT minted by the issuer.
-        proof_jwt: &'a str,
-    },
     /// Present an OIDC identity, minting the JWT **after** the handshake
     /// `pop_nonce` is generated. The facade generates the nonce, invokes
     /// `mint(pop_nonce)`, and binds the returned JWT into the HELLO
-    /// proof. This removes the chicken-and-egg of the plain
-    /// [`IdentityMode::Oidc`] variant (whose JWT would have to already
-    /// carry the not-yet-known nonce).
+    /// proof.
     ///
-    /// This is the production-grade OIDC presentation path. The callback
+    /// The callback
     /// MUST return a compact JWT whose `nonce` claim equals the supplied
     /// `pop_nonce`; the receiving peer's `verify_oidc` enforces this. A
     /// callback error is surfaced as a handshake failure before any HTTP
     /// is sent.
-    OidcWithMintCallback {
+    Oidc {
         /// OIDC issuer URI — MUST match the initiator Manifest's
         /// `identity_hint.issuer`.
         issuer: url::Url,
@@ -122,33 +99,24 @@ pub enum IdentityMode<'a> {
     },
 }
 
-impl IdentityMode<'_> {
+impl IdentityMode {
     /// Wire identity-type string (`"pinned_key"` / `"oidc"`) used for
     /// the `accepted_identity_types` compatibility check
     /// (RFC-AITP-0003 §3.2).
     fn presented_type(&self) -> &'static str {
         match self {
             IdentityMode::PinnedKey { .. } => "pinned_key",
-            IdentityMode::Oidc { .. } | IdentityMode::OidcWithMintCallback { .. } => "oidc",
+            IdentityMode::Oidc { .. } => "oidc",
         }
     }
 
     /// Lower into the handshake-layer [`PresentedIdentity`], consuming
-    /// `self` so the [`IdentityMode::OidcWithMintCallback`] closure can be
+    /// `self` so the [`IdentityMode::Oidc`] closure can be
     /// moved into [`PresentedIdentity::OidcMinter`] rather than cloned.
     fn into_presented_identity(self) -> PresentedIdentity {
         match self {
             IdentityMode::PinnedKey { subject } => PresentedIdentity::PinnedKey { subject },
             IdentityMode::Oidc {
-                issuer,
-                subject,
-                proof_jwt,
-            } => PresentedIdentity::Oidc {
-                issuer,
-                subject,
-                proof_jwt: proof_jwt.to_string(),
-            },
-            IdentityMode::OidcWithMintCallback {
                 issuer,
                 subject,
                 mint,
@@ -720,10 +688,10 @@ pub struct InitiatorConfig<'a> {
     pub trust_mode: TrustMode<'a>,
     /// Identity this initiator presents to the peer
     /// ([`IdentityMode::PinnedKey`], [`IdentityMode::Oidc`], or the
-    /// production OIDC path [`IdentityMode::OidcWithMintCallback`]).
+    /// production OIDC path [`IdentityMode::Oidc`]).
     /// Independent of `trust_mode`: presentation and verification are
     /// configured separately.
-    pub identity_mode: IdentityMode<'a>,
+    pub identity_mode: IdentityMode,
     /// Capabilities to request from the peer.
     pub requested_grants: Vec<String>,
     /// Per-request HTTP timeout for the Manifest fetch and the handshake
@@ -789,7 +757,7 @@ impl<'a> InitiatorConfig<'a> {
         own_manifest: &'a Manifest,
         peer_origin: url::Url,
         trust_mode: TrustMode<'a>,
-        identity_mode: IdentityMode<'a>,
+        identity_mode: IdentityMode,
         requested_grants: Vec<String>,
     ) -> Self {
         Self {
@@ -1233,29 +1201,6 @@ mod identity_mode_tests {
     }
 
     #[test]
-    fn oidc_mode_presents_oidc_type() {
-        let issuer: url::Url = "https://idp.example.com/".parse().unwrap();
-        let m = IdentityMode::Oidc {
-            issuer: issuer.clone(),
-            subject: "alice@example.com".into(),
-            proof_jwt: "eyJ.fake.jwt",
-        };
-        assert_eq!(m.presented_type(), "oidc");
-        match m.into_presented_identity() {
-            PresentedIdentity::Oidc {
-                issuer: got_issuer,
-                subject,
-                proof_jwt,
-            } => {
-                assert_eq!(got_issuer, issuer);
-                assert_eq!(subject, "alice@example.com");
-                assert_eq!(proof_jwt, "eyJ.fake.jwt");
-            }
-            _ => panic!("expected an Oidc PresentedIdentity"),
-        }
-    }
-
-    #[test]
     fn oidc_mint_callback_mode_presents_oidc_and_forwards_nonce() {
         use std::sync::{Arc, Mutex};
 
@@ -1264,7 +1209,7 @@ mod identity_mode_tests {
         // facade forwards the handshake nonce verbatim.
         let seen = Arc::new(Mutex::new(None::<String>));
         let seen_in_cb = Arc::clone(&seen);
-        let m = IdentityMode::OidcWithMintCallback {
+        let m = IdentityMode::Oidc {
             issuer: issuer.clone(),
             subject: "alice@example.com".into(),
             mint: Box::new(move |nonce: &str| {

@@ -18,12 +18,13 @@ use crate::renewal::{
     renewal_error_envelope, renewal_response_envelope, RenewalContext, RenewalError,
     RenewalGrantPolicyFn, RENEW_URI_EXT,
 };
+use aitp::__private::DEFAULT_MAX_BODY_BYTES;
 use aitp::core::nonce_store::{NonceStore, NonceStoreError};
 use aitp::core::{ErrorCode, Timestamp};
 use aitp::crypto::AitpSigner;
 use aitp::manifest::Manifest;
 use aitp::tct::TctError;
-use aitp::transport::server::{DEFAULT_BODY_READ_TIMEOUT, DEFAULT_MAX_BODY_BYTES};
+use aitp::transport::server::DEFAULT_BODY_READ_TIMEOUT;
 use aitp::transport::{
     resolve_source_ip, RateLimitConfig, RevocationListProducer, REVOCATION_LIST_PATH,
 };

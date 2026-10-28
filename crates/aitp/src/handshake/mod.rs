@@ -23,7 +23,7 @@ pub mod payloads;
 pub mod state_machine;
 
 pub use error::HandshakeError;
-pub use identity::{IdentityDescriptor, IdentityKind, SvidType};
+pub use identity::{IdentityDescriptor, IdentityKind};
 pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveError};
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyEntry,
@@ -40,7 +40,6 @@ pub use payloads::{
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 pub use state_machine::{
-    apply_peer_policy, bootstrap_verify_peer, CompletedHandshake, GrantPolicyFn,
-    HandshakeRevocationDecision, Initiator, OidcMintJwtFn, PeerConfig, PresentedIdentity,
-    Responder, RevocationCheckFn, RevocationSource, SessionId,
+    CompletedHandshake, GrantPolicyFn, HandshakeRevocationDecision, Initiator, OidcMintJwtFn,
+    PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, RevocationSource, SessionId,
 };

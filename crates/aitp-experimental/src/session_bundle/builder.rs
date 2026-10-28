@@ -5,9 +5,8 @@
 
 use crate::session_bundle::error::SessionBundleError;
 use crate::session_bundle::types::{ParticipantEntry, SessionTrustBundle};
-use aitp::core::{
-    check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, ExtensionsMap, Timestamp,
-};
+use aitp::__private::{check_members, from_serde_error, reject_duplicate_keys};
+use aitp::core::{jcs, Aid, ExtensionsMap, Timestamp};
 use aitp::crypto::{AitpSigner, CryptoError, Digest32, DynAsyncAitpSigner, Signature};
 use aitp::tct::{TctClaims, TCT_CLAIMS_MEMBERS};
 use serde::Serialize;

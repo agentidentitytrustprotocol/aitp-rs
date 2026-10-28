@@ -40,8 +40,8 @@ breaking release lists its breaks under `### BREAKING` in
 
 ### Decision and outcome enums are exhaustive on purpose
 
-`HandshakeRevocationDecision`, `RevocationOutcome`, `KeyResolutionOutcome`
-and `RateLimitOutcome` report a security or admission decision. They are
+`HandshakeRevocationDecision`, `RevocationOutcome` and
+`KeyResolutionOutcome` report a security or admission decision. They are
 not `#[non_exhaustive]`, so a caller's `match` must name every outcome and
 cannot let a new one fall into a wildcard arm that admits or ignores it.
 Adding a variant to one of them is therefore always a breaking change: a

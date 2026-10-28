@@ -8,7 +8,8 @@
 //! deserialization, for each of the four messages. Every step must
 //! return, never panic.
 
-use aitp::core::{check_members, from_serde_error, CheckedJson};
+use aitp::__private::{check_members, from_serde_error};
+use aitp::core::{CheckedJson};
 use aitp::handshake::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,

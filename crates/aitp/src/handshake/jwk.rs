@@ -234,7 +234,7 @@ impl JwkPublicKey {
     ///
     /// Does **not** apply any key-strength policy (e.g. an RSA modulus
     /// floor) — that is a transport-specific hardening decision left to
-    /// the caller (see `aitp::transport::common::rsa_modulus_bits_ok`).
+    /// the caller (see the JWKS fetcher's RSA modulus floor).
     pub fn from_jwk_json(value: &serde_json::Value) -> Result<Self, JwkParseError> {
         let kid = value.get("kid").and_then(|v| v.as_str()).map(String::from);
         let kty = value

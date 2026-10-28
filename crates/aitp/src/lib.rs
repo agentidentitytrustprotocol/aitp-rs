@@ -86,6 +86,9 @@ pub mod transport;
 #[cfg(feature = "http-client")]
 pub mod facade;
 
+#[doc(hidden)]
+pub mod __private;
+
 /// Convenience re-exports of the most common types.
 pub mod prelude {
     pub use crate::core::{Aid, AitpEnvelope, Timestamp};

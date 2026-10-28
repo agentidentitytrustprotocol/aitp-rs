@@ -16,8 +16,8 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-#[cfg(any(feature = "http-client", feature = "http-server"))]
-pub mod common;
+#[cfg(feature = "http-client")]
+mod rsa_floor;
 
 #[cfg(feature = "http-client")]
 pub mod client;
@@ -81,8 +81,8 @@ pub use key_resolution::{
 
 #[cfg(feature = "http-server")]
 pub use server::{
-    HandshakeServer, ManifestServer, RateLimitConfig, RateLimitOutcome, RevocationListProducer,
-    ServeConfig, DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
+    HandshakeServer, ManifestServer, RateLimitConfig, RevocationListProducer, ServeConfig,
+    DEFAULT_SESSION_TTL, REVOCATION_LIST_PATH,
 };
 
 #[cfg(feature = "source-ip")]
@@ -94,19 +94,12 @@ pub use server_limits::{with_request_body_limit, with_request_body_limit_default
 pub use server_limits::{DEFAULT_REQUEST_BODY_LIMIT, RECOMMENDED_MAX_HEADER_BYTES};
 
 #[cfg(any(feature = "http-client", feature = "http-server"))]
-pub use common::{
-    sign_envelope, sign_envelope_async, sign_envelope_with, sign_envelope_with_async,
-    verify_envelope_signature,
-};
-
-#[cfg(any(feature = "http-client", feature = "http-server"))]
 pub use replay_store::{InMemoryReplayGuard, ReplayGuard};
 
 #[cfg(any(feature = "http-client", feature = "http-server"))]
 pub use revocation::{
     apply_safe_subset, revocation_list_uri_from_manifest, RevocationCache, RevocationError,
     RevocationFailMode, RevocationOutcome, RevocationPolicy, RevocationProvider,
-    REVOCATION_LIST_URI_EXT,
 };
 
 #[cfg(feature = "http-client")]

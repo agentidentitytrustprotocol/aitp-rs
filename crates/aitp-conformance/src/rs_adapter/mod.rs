@@ -960,13 +960,13 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         cfg = cfg.with_identity_verifier(verifier);
     }
 
-    use aitp::core::{check_members, from_serde_error};
+    use aitp::__private::{apply_peer_policy, bootstrap_verify_peer};
+    use aitp::__private::{check_members, from_serde_error};
     use aitp::handshake::payloads::{
         MutualCommitAckPayload, MutualHelloAckPayload, MutualHelloPayload,
         MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
         MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
-    use aitp::handshake::state_machine::{apply_peer_policy, bootstrap_verify_peer};
     use aitp::handshake::HandshakeError;
 
     let hello_family = matches!(

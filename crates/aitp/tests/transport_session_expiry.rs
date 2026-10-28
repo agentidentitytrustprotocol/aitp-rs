@@ -6,11 +6,12 @@
 
 use aitp::core::{MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::transport::{sign_envelope_with, HandshakeServer};
+use aitp::transport::HandshakeServer;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uuid::Uuid;

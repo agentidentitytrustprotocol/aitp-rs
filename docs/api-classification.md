@@ -33,7 +33,6 @@ reasons already in the table are kept.
 | `aitp::core::AidAlgorithm` | enum | non_exhaustive |  |
 | `aitp::core::AidParseError` | enum | non_exhaustive |  |
 | `aitp::core::AitpEnvelope` | struct | non_exhaustive |  |
-| `aitp::core::AitpError` | enum | non_exhaustive |  |
 | `aitp::core::CheckedJson` | struct | private fields |  |
 | `aitp::core::CheckedJsonError` | struct | private fields |  |
 | `aitp::core::EnvelopeParseError` | enum | non_exhaustive |  |
@@ -44,7 +43,6 @@ reasons already in the table are kept.
 | `aitp::core::RawUrl` | struct | private fields |  |
 | `aitp::core::Sender` | struct | non_exhaustive |  |
 | `aitp::core::Timestamp` | struct | exhaustive | A newtype over Unix seconds: its one field is the value. |
-| `aitp::core::UnknownField` | struct | non_exhaustive |  |
 | `aitp::core::base64url::Base64UrlError` | enum | non_exhaustive |  |
 | `aitp::core::ids::InvalidTag` | struct | non_exhaustive |  |
 | `aitp::core::ids::V4Error` | enum | non_exhaustive |  |
@@ -102,7 +100,6 @@ reasons already in the table are kept.
 | `aitp::handshake::RevocationSource` | enum | non_exhaustive |  |
 | `aitp::handshake::StaticPinnedKeyStore` | struct | private fields |  |
 | `aitp::handshake::SubjectBinding` | enum | non_exhaustive |  |
-| `aitp::handshake::SvidType` | enum | non_exhaustive |  |
 | `aitp::handshake::VerifiedPinnedKey` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionChallenge` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionError` | enum | non_exhaustive |  |
@@ -117,7 +114,6 @@ reasons already in the table are kept.
 | `aitp::handshake::admission::RefusalCause` | enum | non_exhaustive |  |
 | `aitp::handshake::admission::TokenBucketLimiter` | struct | private fields |  |
 | `aitp::handshake::admission::TransportId` | enum | non_exhaustive |  |
-| `aitp::handshake::state_machine::IdentityPresentationContext` | struct | non_exhaustive |  |
 | `aitp::manifest::IdentityHint` | struct | non_exhaustive |  |
 | `aitp::manifest::IdentityHintKind` | enum | non_exhaustive |  |
 | `aitp::manifest::Manifest` | struct | non_exhaustive |  |
@@ -162,7 +158,6 @@ reasons already in the table are kept.
 | `aitp::transport::ManifestServer` | struct | private fields |  |
 | `aitp::transport::PreparedRevocation` | struct | private fields |  |
 | `aitp::transport::RateLimitConfig` | struct | non_exhaustive |  |
-| `aitp::transport::RateLimitOutcome` | enum | exhaustive | An admission decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::transport::RetryPolicy` | struct | private fields |  |
 | `aitp::transport::RevocationCache` | struct | private fields |  |
 | `aitp::transport::RevocationError` | enum | non_exhaustive |  |
