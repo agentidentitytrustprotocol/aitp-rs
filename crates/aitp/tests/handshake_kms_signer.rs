@@ -64,7 +64,7 @@ fn envelope_with(
 fn pinned_handshake_with_kms_backed_initiator() {
     let alice = MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[0xA1; 32]).unwrap())
         .output(MockOutput::DerHighS);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -161,7 +161,7 @@ fn kms_backend_with_wrong_key_fails_locally_at_hello() {
     let alice_manifest = manifest_for(&good, "alice");
     let alice =
         MockKmsSigner::new(good).sign_with(AitpSigningKey::from_p256_seed(&[0xA4; 32]).unwrap());
-    let bob = AitpSigningKey::from_seed(&[0xB4; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB4; 32]);
     let resolver = NoOpResolver;
     let cfg = PeerConfig::new(
         &alice,

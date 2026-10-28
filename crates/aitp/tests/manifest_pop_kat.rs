@@ -92,7 +92,7 @@ fn pop_signing_input_matches_spec_kat() {
 /// `challenge.as_bytes()`.
 #[test]
 fn builder_pop_uses_decoded_challenge() {
-    let key = AitpSigningKey::from_seed(&[1u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
     let manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
@@ -126,7 +126,7 @@ fn builder_pop_uses_decoded_challenge() {
 /// (RFC-AITP-0003 §5), rejects it.
 #[test]
 fn legacy_ascii_bytes_pop_is_rejected() {
-    let key = AitpSigningKey::from_seed(&[2u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(

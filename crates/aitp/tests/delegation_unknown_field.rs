@@ -29,13 +29,13 @@ fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
 }
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 
 fn voucher_for_b() -> String {
@@ -66,7 +66,7 @@ fn outer_claims_unknown_member_rejected_via_verify_delegation() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
         "rogue": "nope",
     });
@@ -97,7 +97,7 @@ fn outer_claims_duplicate_member_rejected_via_verify_delegation() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -149,7 +149,7 @@ fn embedded_voucher_unknown_member_rejected_not_invalid_voucher() {
         "aud": a_key.aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_token,
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &outer_claims).unwrap();

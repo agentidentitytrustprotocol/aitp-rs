@@ -87,7 +87,7 @@ fn resign_commit_tct(
     payload: &mut aitp::handshake::MutualCommitPayload,
     mutate: impl FnOnce(&mut serde_json::Value),
 ) {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
     let bytes = aitp::crypto::jws::decode_payload_unverified(&payload.tct).unwrap();
     let mut claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     mutate(&mut claims);
@@ -106,8 +106,8 @@ struct StagedCommit {
 }
 
 fn stage_through_commit() -> StagedCommit {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xBB; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xBB; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -370,7 +370,7 @@ fn invalid_tct_signature_skips_revocation_lookup() {
 fn wrong_audience_skips_revocation_lookup() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let stranger = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let stranger = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let stranger_aid = stranger.aid().clone();
     resign_commit_tct(&mut staged.commit_payload, |claims| {
         claims["aud"] = serde_json::to_value(&stranger_aid).unwrap();

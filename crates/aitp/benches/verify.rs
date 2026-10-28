@@ -10,10 +10,10 @@ use std::hint::black_box;
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn issuer() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn subject() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 
 fn mint_token() -> String {

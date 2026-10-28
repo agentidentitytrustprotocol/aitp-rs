@@ -498,7 +498,7 @@ mod tests {
     }
 
     fn issuer_key() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA0; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA0; 32])
     }
 
     fn sample_body(issuer: Aid) -> RevocationList {
@@ -539,7 +539,7 @@ mod tests {
     fn wrong_issuer_is_rejected() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let other = AitpSigningKey::from_seed(&[0xB0; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
         let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
@@ -557,7 +557,7 @@ mod tests {
     fn wrong_issuer_is_distinguishable_from_malformed() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let other = AitpSigningKey::from_seed(&[0xB0; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
         let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
 
         // Self-consistent: it verifies against its own issuer.

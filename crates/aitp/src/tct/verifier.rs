@@ -85,8 +85,8 @@ impl<'a> TctVerifyContext<'a> {
     /// use aitp::core::Timestamp;
     /// use aitp::crypto::AitpSigningKey;
     ///
-    /// let audience = AitpSigningKey::from_seed(&[1; 32]).aid().clone();
-    /// let issuer = AitpSigningKey::from_seed(&[2; 32]).aid().clone();
+    /// let audience = AitpSigningKey::from_ed25519_seed(&[1; 32]).aid().clone();
+    /// let issuer = AitpSigningKey::from_ed25519_seed(&[2; 32]).aid().clone();
     ///
     /// // build() fails until BOTH silent-accept surfaces are decided...
     /// assert!(TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
@@ -404,7 +404,9 @@ impl CoreChecks<'_> {
         // its (deliberately redundant) thumbprint. A mismatch means the
         // issuer bound a different key — reject.
         let subject_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
-        let expected_jkt = subject_key.to_jwk_thumbprint().map_err(TctError::Crypto)?;
+        let expected_jkt = subject_key
+            .to_jwk_thumbprint_sha256()
+            .map_err(TctError::Crypto)?;
         if claims.cnf.jkt != expected_jkt {
             return Err(TctError::CnfMalformed);
         }
@@ -708,8 +710,8 @@ mod builder_tests {
     use crate::crypto::AitpSigningKey;
 
     fn aids() -> (crate::core::Aid, crate::core::Aid) {
-        let a = AitpSigningKey::from_seed(&[0x10; 32]).aid().clone();
-        let b = AitpSigningKey::from_seed(&[0x20; 32]).aid().clone();
+        let a = AitpSigningKey::from_ed25519_seed(&[0x10; 32]).aid().clone();
+        let b = AitpSigningKey::from_ed25519_seed(&[0x20; 32]).aid().clone();
         (a, b)
     }
 
@@ -804,13 +806,13 @@ mod claim_set_tests {
 
     fn issuer_subject() -> (AitpSigningKey, AitpSigningKey) {
         (
-            AitpSigningKey::from_seed(&[0x50; 32]),
-            AitpSigningKey::from_seed(&[0x51; 32]),
+            AitpSigningKey::from_ed25519_seed(&[0x50; 32]),
+            AitpSigningKey::from_ed25519_seed(&[0x51; 32]),
         )
     }
 
     fn base_tct_claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> serde_json::Value {
-        let jkt = subject.verifying_key().to_jwk_thumbprint().unwrap();
+        let jkt = subject.verifying_key().to_jwk_thumbprint_sha256().unwrap();
         json!({
             "ver": "aitp/0.3",
             "jti": "550e8400-e29b-41d4-a716-446655440000",

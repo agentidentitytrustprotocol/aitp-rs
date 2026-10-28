@@ -24,7 +24,7 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
     // 1. Spawn the LLM-backed worker.
     let worker_seed = expand_seed("worker-seed-tier3-llm-handshake-demo");
     let planner_seed = expand_seed("planner-seed-tier3-llm-handshake-demo");
-    let planner_aid = aitp::crypto::AitpSigningKey::from_seed(&planner_seed)
+    let planner_aid = aitp::crypto::AitpSigningKey::from_ed25519_seed(&planner_seed)
         .aid()
         .clone();
     let worker = worker::spawn("aitp-worker", &worker_seed, provider, &[planner_aid])

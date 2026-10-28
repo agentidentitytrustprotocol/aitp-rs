@@ -29,7 +29,7 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
         let id = v["id"].as_str().unwrap();
         // Non-Ed25519 entries (e.g. kat-keypair-005-p256) use a
         // different seed encoding (`private_scalar_hex` for ECDSA)
-        // and aren't derived through `AitpSigningKey::from_seed`.
+        // and aren't derived through `AitpSigningKey::from_ed25519_seed`.
         // Skip them; algorithm-specific KAT tests live with the
         // matching verifier.
         let Some(seed_hex) = v["seed_hex"].as_str() else {
@@ -43,7 +43,7 @@ fn keypair_kat_seed_to_pubkey_to_aid() {
         let mut seed = [0u8; 32];
         seed.copy_from_slice(&seed_bytes);
 
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
         let actual_pubkey = aitp::core::base64url::encode(
             &key.verifying_key()
                 .try_to_ed25519_bytes()
@@ -151,10 +151,10 @@ fn jwk_thumbprint_kat() {
 
         // 32 bytes → Ed25519 raw pubkey (OKP form); 33 bytes → P-256
         // SEC1-compressed (EC form). The algorithm-agile dispatch in
-        // AitpVerifyingKey::to_jwk_thumbprint covers both.
+        // AitpVerifyingKey::to_jwk_thumbprint_sha256 covers both.
         let vk = aitp::crypto::AitpVerifyingKey::from_compressed(&pubkey_bytes)
             .unwrap_or_else(|e| panic!("{id}: pubkey parse failed: {e}"));
-        let actual_jkt = vk.to_jwk_thumbprint().unwrap();
+        let actual_jkt = vk.to_jwk_thumbprint_sha256().unwrap();
         assert_eq!(actual_jkt, expected_jkt, "{id}: JWK thumbprint mismatch");
     }
 }

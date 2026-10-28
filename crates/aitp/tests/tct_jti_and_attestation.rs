@@ -21,7 +21,7 @@ const V7: &str = "01890a5d-ac96-774b-bcce-b302099a8057";
 const BAD_VARIANT: &str = "770e8400-e29b-41d4-c716-446655440702";
 
 fn ed(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
 fn p256(seed: u8) -> AitpSigningKey {
@@ -54,7 +54,7 @@ fn claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> Value {
         "iat": NOW.0,
         "exp": NOW.0 + 3600,
         "grants": ["demo.echo"],
-        "cnf": {"jkt": subject.verifying_key().to_jwk_thumbprint().unwrap()},
+        "cnf": {"jkt": subject.verifying_key().to_jwk_thumbprint_sha256().unwrap()},
     })
 }
 

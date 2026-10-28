@@ -27,8 +27,8 @@ fn builder_reproduces_tct_signed_example() {
     let v = vector("tct/kat-keypair-001-issues-002.json");
     let input = &v["_kat_input"];
 
-    let issuer = AitpSigningKey::from_seed(&[0u8; 32]); // kat-keypair-001
-    let subject = AitpSigningKey::from_seed(&core::array::from_fn(|i| i as u8)); // kat-keypair-002
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0u8; 32]); // kat-keypair-001
+    let subject = AitpSigningKey::from_ed25519_seed(&core::array::from_fn(|i| i as u8)); // kat-keypair-002
 
     let issued = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
@@ -64,8 +64,8 @@ fn builder_reproduces_voucher_signed_example() {
     let v = vector("grant-voucher/kat-voucher-001.json");
     let input = &v["_kat_input"];
 
-    let issuer = AitpSigningKey::from_seed(&[0u8; 32]); // kat-keypair-001
-    let subject = AitpSigningKey::from_seed(&core::array::from_fn(|i| i as u8)); // kat-keypair-002
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0u8; 32]); // kat-keypair-001
+    let subject = AitpSigningKey::from_ed25519_seed(&core::array::from_fn(|i| i as u8)); // kat-keypair-002
 
     // The voucher KAT's companion TCT is jti …440001 with two grants.
     let issued = TctBuilder::new(&issuer)
@@ -102,7 +102,7 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
     let v = vector("tct/kat-keypair-005-issues-002.json");
     let input = &v["_kat_input"];
     let issuer = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-    let subject = AitpSigningKey::from_seed(&core::array::from_fn(|i| i as u8));
+    let subject = AitpSigningKey::from_ed25519_seed(&core::array::from_fn(|i| i as u8));
     let token = v["tct_token"].as_str().unwrap();
 
     let ctx = TctVerifyContext::builder(

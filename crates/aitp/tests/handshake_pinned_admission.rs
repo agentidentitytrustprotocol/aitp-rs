@@ -44,7 +44,7 @@ fn src(name: &str) -> ChallengeSource {
     for (i, b) in name.bytes().enumerate() {
         fp[i % 32] ^= b.wrapping_add(i as u8);
     }
-    ChallengeSource::tls_client_cert(fp)
+    ChallengeSource::tls_client_cert_sha256(fp)
 }
 
 fn code(e: &AdmissionError) -> &'static str {

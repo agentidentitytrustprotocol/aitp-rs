@@ -69,8 +69,8 @@ const OIDC_ISSUER_ED25519_SEED: [u8; 32] = [0x55u8; 32];
 const OIDC_ISSUER_P256_SEED: [u8; 32] = [0x66u8; 32];
 
 fn main() {
-    let issuer = AitpSigningKey::from_seed(&KP_001_SEED);
-    let participant = AitpSigningKey::from_seed(&KP_002_SEED);
+    let issuer = AitpSigningKey::from_ed25519_seed(&KP_001_SEED);
+    let participant = AitpSigningKey::from_ed25519_seed(&KP_002_SEED);
 
     // ── Revocation snapshot ──────────────────────────────────────────
     // Field-for-field the spec's committed
@@ -199,9 +199,9 @@ fn main() {
     let body = serde_json::to_value(&bundle).expect("bundle serializes");
 
     // ── OIDC identity binding ────────────────────────────────────────
-    let oidc_sender = AitpSigningKey::from_seed(&OIDC_SENDER_SEED);
-    let oidc_verifier = AitpSigningKey::from_seed(&OIDC_VERIFIER_SEED);
-    let oidc_issuer_eddsa = AitpSigningKey::from_seed(&OIDC_ISSUER_ED25519_SEED);
+    let oidc_sender = AitpSigningKey::from_ed25519_seed(&OIDC_SENDER_SEED);
+    let oidc_verifier = AitpSigningKey::from_ed25519_seed(&OIDC_VERIFIER_SEED);
+    let oidc_issuer_eddsa = AitpSigningKey::from_ed25519_seed(&OIDC_ISSUER_ED25519_SEED);
     let oidc_issuer_es256 =
         AitpSigningKey::from_p256_seed(&OIDC_ISSUER_P256_SEED).expect("valid p256 seed");
 
@@ -261,8 +261,8 @@ fn mint_p256_vectors() -> serde_json::Value {
     use aitp::core::MessageType;
 
     let signer = AitpSigningKey::from_p256_seed(&KP_005_P256_SCALAR).expect("valid p256 scalar");
-    let verifier = AitpSigningKey::from_seed(&P256_VERIFIER_SEED);
-    let participant = AitpSigningKey::from_seed(&KP_002_SEED);
+    let verifier = AitpSigningKey::from_ed25519_seed(&P256_VERIFIER_SEED);
+    let participant = AitpSigningKey::from_ed25519_seed(&KP_002_SEED);
 
     // Revocation snapshot: also the TCT legs' revocation source.
     let snapshot = sign_revocation_list(
@@ -443,7 +443,7 @@ fn mint_oidc_vector(
         "cnf": {
             "jkt": sender
                 .verifying_key()
-                .to_jwk_thumbprint()
+                .to_jwk_thumbprint_sha256()
                 .expect("sender jwk thumbprint"),
         },
     });

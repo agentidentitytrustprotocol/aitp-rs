@@ -313,7 +313,9 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             return Err(TctError::CnfMalformed);
         }
 
-        let jkt = subject_pk.to_jwk_thumbprint().map_err(TctError::Crypto)?;
+        let jkt = subject_pk
+            .to_jwk_thumbprint_sha256()
+            .map_err(TctError::Crypto)?;
         let jti = match self.jti {
             JtiSource::Random => ids::random_v4(),
             JtiSource::Fixed(jti) => {

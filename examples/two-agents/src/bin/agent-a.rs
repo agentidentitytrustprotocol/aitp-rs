@@ -35,7 +35,7 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let key = AitpSigningKey::from_seed(&expand_seed(&cli.seed));
+    let key = AitpSigningKey::from_ed25519_seed(&expand_seed(&cli.seed));
     // We offer demo.echo so B's symmetric grant request is satisfiable;
     // pinned-key identity "agent-a" matches our Manifest identity hint.
     let manifest = build_demo_manifest(&key, "agent-a", cli.port, &["demo.echo"]);

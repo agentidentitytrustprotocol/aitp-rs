@@ -19,10 +19,10 @@ impl JwksResolver for NoOpResolver {
 }
 
 fn alice_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn bob_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB2; 32])
 }
 
 fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
@@ -195,7 +195,7 @@ fn peer_substitution_aborts() {
     // unintended peer.
     let alice = alice_key();
     let bob = bob_key();
-    let mallory = AitpSigningKey::from_seed(&[0x3C; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0x3C; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let mallory_manifest = manifest_for(&mallory, "mallory");

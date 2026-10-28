@@ -45,7 +45,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     // scenario produced it).
     let worker_seed = expand_seed("worker-seed-tier3-revocation-scenario");
     let planner_seed = expand_seed("planner-seed-tier3-revocation-scenario");
-    let planner_aid = aitp::crypto::AitpSigningKey::from_seed(&planner_seed)
+    let planner_aid = aitp::crypto::AitpSigningKey::from_ed25519_seed(&planner_seed)
         .aid()
         .clone();
     let worker = worker::spawn("aitp-worker-rev", &worker_seed, provider, &[planner_aid])
@@ -142,8 +142,8 @@ async fn work_endpoint_refuses_a_tct_from_an_unknown_issuer() {
     use aitp::core::Timestamp;
     use aitp::crypto::AitpSigningKey;
     use aitp::tct::TctBuilder;
-    let stranger = AitpSigningKey::from_seed(&expand_seed("a-key-the-worker-never-saw"));
-    let holder = AitpSigningKey::from_seed(&expand_seed("some-holder-key-for-foreign-tct"));
+    let stranger = AitpSigningKey::from_ed25519_seed(&expand_seed("a-key-the-worker-never-saw"));
+    let holder = AitpSigningKey::from_ed25519_seed(&expand_seed("some-holder-key-for-foreign-tct"));
     let forged = TctBuilder::new(&stranger)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())

@@ -57,7 +57,7 @@ pub fn canonicalize_serializable<T: serde::Serialize>(value: &T) -> Result<Vec<u
 ///
 /// This is the standard signing input for AITP signatures: every signed object
 /// is canonicalized then hashed, and the hash is signed with Ed25519.
-pub fn canonicalize_and_hash<T: serde::Serialize>(value: &T) -> Result<[u8; 32], JcsError> {
+pub fn canonicalize_and_hash_sha256<T: serde::Serialize>(value: &T) -> Result<[u8; 32], JcsError> {
     let bytes = canonicalize_serializable(value)?;
     let digest = Sha256::digest(&bytes);
     Ok(digest.into())

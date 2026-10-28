@@ -47,14 +47,17 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
 
 #[test]
 fn pinned_key_initiator_against_pinned_key_only_peer_passes() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD1; 32]), &["pinned_key"]);
+    let m = manifest_for(
+        &AitpSigningKey::from_ed25519_seed(&[0xD1; 32]),
+        &["pinned_key"],
+    );
     check_identity_type_compatibility(&m, "pinned_key").expect("compatible");
 }
 
 #[test]
 fn pinned_key_initiator_against_mixed_peer_passes() {
     let m = manifest_for(
-        &AitpSigningKey::from_seed(&[0xD2; 32]),
+        &AitpSigningKey::from_ed25519_seed(&[0xD2; 32]),
         &["oidc", "pinned_key"],
     );
     check_identity_type_compatibility(&m, "pinned_key").expect("compatible");
@@ -62,7 +65,7 @@ fn pinned_key_initiator_against_mixed_peer_passes() {
 
 #[test]
 fn pinned_key_initiator_against_oidc_only_peer_is_blocked() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD3; 32]), &["oidc"]);
+    let m = manifest_for(&AitpSigningKey::from_ed25519_seed(&[0xD3; 32]), &["oidc"]);
     let err = check_identity_type_compatibility(&m, "pinned_key").expect_err("incompatible");
     assert!(
         matches!(err, ManifestError::IncompatibleIdentityType("pinned_key")),
@@ -72,7 +75,7 @@ fn pinned_key_initiator_against_oidc_only_peer_is_blocked() {
 
 #[test]
 fn empty_accepted_list_rejects_every_peer() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD4; 32]), &[]);
+    let m = manifest_for(&AitpSigningKey::from_ed25519_seed(&[0xD4; 32]), &[]);
     let err = check_identity_type_compatibility(&m, "pinned_key").expect_err("blocked");
     assert!(matches!(
         err,
@@ -87,7 +90,10 @@ fn empty_accepted_list_rejects_every_peer() {
 
 #[test]
 fn oidc_initiator_against_pinned_key_only_peer_is_blocked() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD5; 32]), &["pinned_key"]);
+    let m = manifest_for(
+        &AitpSigningKey::from_ed25519_seed(&[0xD5; 32]),
+        &["pinned_key"],
+    );
     let err = check_identity_type_compatibility(&m, "oidc").expect_err("incompatible");
     assert!(matches!(
         err,

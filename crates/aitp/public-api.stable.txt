@@ -2268,7 +2268,7 @@ pub aitp::handshake::admission::NonceStoreError::Backend(aitp::core::BoxError)
 pub aitp::handshake::admission::NonceStoreError::Duplicate
 pub aitp::handshake::admission::RefusalCause::AtCapacity
 pub aitp::handshake::admission::TransportId::Ip(core::net::ip_addr::IpAddr)
-pub aitp::handshake::admission::TransportId::TlsClientCert([u8; 32])
+pub aitp::handshake::admission::TransportId::TlsClientCertSha256([u8; 32])
 pub aitp::handshake::error::HandshakeError::Canonicalization(aitp::core::jcs::JcsError)
 pub aitp::handshake::error::HandshakeError::Crypto(aitp::crypto::error::CryptoError)
 pub aitp::handshake::error::HandshakeError::GrantOverflow
@@ -3117,7 +3117,7 @@ pub fn aitp::core::jcs::JcsError::fmt(&self, &mut core::fmt::Formatter<'_>) -> c
 pub fn aitp::core::jcs::JcsError::from(serde_json::error::Error) -> Self
 pub fn aitp::core::jcs::JcsError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::core::jcs::canonicalize(&serde_json::value::Value) -> core::result::Result<alloc::vec::Vec<u8>, aitp::core::jcs::JcsError>
-pub fn aitp::core::jcs::canonicalize_and_hash<T: serde_core::ser::Serialize>(&T) -> core::result::Result<[u8; 32], aitp::core::jcs::JcsError>
+pub fn aitp::core::jcs::canonicalize_and_hash_sha256<T: serde_core::ser::Serialize>(&T) -> core::result::Result<[u8; 32], aitp::core::jcs::JcsError>
 pub fn aitp::core::jcs::canonicalize_serializable<T: serde_core::ser::Serialize>(&T) -> core::result::Result<alloc::vec::Vec<u8>, aitp::core::jcs::JcsError>
 pub fn aitp::core::nonce_store::ConsumeOutcome::clone(&self) -> aitp::core::nonce_store::ConsumeOutcome
 pub fn aitp::core::nonce_store::ConsumeOutcome::eq(&self, &aitp::core::nonce_store::ConsumeOutcome) -> bool
@@ -3182,8 +3182,8 @@ pub fn aitp::crypto::DynAsyncAitpSigner::max_message_len(&self) -> core::option:
 pub fn aitp::crypto::DynAsyncAitpSigner::public_key(&self) -> aitp::core::BoxFuture<'_, core::result::Result<aitp::crypto::keys::AitpVerifyingKey, aitp::crypto::signer::SignerError>>
 pub fn aitp::crypto::DynAsyncAitpSigner::sign<'a>(&'a self, aitp::crypto::signer::SignRequest<'a>) -> aitp::core::BoxFuture<'a, core::result::Result<aitp::crypto::signer::BackendSignature, aitp::crypto::signer::SignerError>>
 pub fn aitp::crypto::check_public_key(&dyn aitp::crypto::signer::AitpSigner) -> core::result::Result<(), aitp::crypto::signer::SignerError>
-pub fn aitp::crypto::compute_jwk_thumbprint(&[u8; 32]) -> alloc::string::String
-pub fn aitp::crypto::compute_jwk_thumbprint_p256(&[u8; 32], &[u8; 32]) -> alloc::string::String
+pub fn aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&[u8; 32]) -> alloc::string::String
+pub fn aitp::crypto::compute_jwk_thumbprint_p256_sha256(&[u8; 32], &[u8; 32]) -> alloc::string::String
 pub fn aitp::crypto::digest::Digest32::as_ref(&self) -> &[u8]
 pub fn aitp::crypto::digest::Digest32::clone(&self) -> aitp::crypto::digest::Digest32
 pub fn aitp::crypto::digest::Digest32::eq(&self, &aitp::crypto::digest::Digest32) -> bool
@@ -3202,8 +3202,6 @@ pub fn aitp::crypto::keys::AitpSigningKey::algorithm(&self) -> aitp::core::aid::
 pub fn aitp::crypto::keys::AitpSigningKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::crypto::keys::AitpSigningKey::from_ed25519_seed(&[u8; 32]) -> Self
 pub fn aitp::crypto::keys::AitpSigningKey::from_p256_seed(&[u8; 32]) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
-pub fn aitp::crypto::keys::AitpSigningKey::from_seed(&[u8; 32]) -> Self
-pub fn aitp::crypto::keys::AitpSigningKey::generate() -> Self
 pub fn aitp::crypto::keys::AitpSigningKey::generate_ed25519() -> Self
 pub fn aitp::crypto::keys::AitpSigningKey::generate_p256() -> Self
 pub fn aitp::crypto::keys::AitpSigningKey::max_message_len(&self) -> core::option::Option<usize>
@@ -3219,13 +3217,13 @@ pub fn aitp::crypto::keys::AitpVerifyingKey::clone(&self) -> aitp::crypto::keys:
 pub fn aitp::crypto::keys::AitpVerifyingKey::eq(&self, &Self) -> bool
 pub fn aitp::crypto::keys::AitpVerifyingKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::crypto::keys::AitpVerifyingKey::from_aid(&aitp::core::aid::Aid) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
-pub fn aitp::crypto::keys::AitpVerifyingKey::from_bytes(&[u8; 32]) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
 pub fn aitp::crypto::keys::AitpVerifyingKey::from_compressed(&[u8]) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
+pub fn aitp::crypto::keys::AitpVerifyingKey::from_ed25519_bytes(&[u8; 32]) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
 pub fn aitp::crypto::keys::AitpVerifyingKey::from_p256_affine(&[u8; 32], &[u8; 32]) -> core::result::Result<Self, aitp::crypto::error::CryptoError>
 pub fn aitp::crypto::keys::AitpVerifyingKey::hash<H: core::hash::Hasher>(&self, &mut H)
 pub fn aitp::crypto::keys::AitpVerifyingKey::to_aid(&self) -> aitp::core::aid::Aid
 pub fn aitp::crypto::keys::AitpVerifyingKey::to_compressed(&self) -> alloc::vec::Vec<u8>
-pub fn aitp::crypto::keys::AitpVerifyingKey::to_jwk_thumbprint(&self) -> core::result::Result<alloc::string::String, aitp::crypto::error::CryptoError>
+pub fn aitp::crypto::keys::AitpVerifyingKey::to_jwk_thumbprint_sha256(&self) -> core::result::Result<alloc::string::String, aitp::crypto::error::CryptoError>
 pub fn aitp::crypto::keys::AitpVerifyingKey::try_to_ed25519_bytes(&self) -> core::option::Option<[u8; 32]>
 pub fn aitp::crypto::keys::AitpVerifyingKey::verify_jcs(&self, &aitp::crypto::digest::Digest32, &aitp::crypto::keys::Signature) -> core::result::Result<(), aitp::crypto::error::CryptoError>
 pub fn aitp::crypto::keys::AitpVerifyingKey::verify_raw(&self, &[u8], &[u8]) -> core::result::Result<(), aitp::crypto::error::CryptoError>
@@ -3282,8 +3280,8 @@ pub fn aitp::crypto::signer::SignerError::with_source(self, impl core::convert::
 pub fn aitp::crypto::signer::check_public_key(&dyn aitp::crypto::signer::AitpSigner) -> core::result::Result<(), aitp::crypto::signer::SignerError>
 pub fn aitp::crypto::signer::sign_jcs(&dyn aitp::crypto::signer::AitpSigner, &aitp::crypto::digest::Digest32) -> core::result::Result<aitp::crypto::keys::Signature, aitp::crypto::signer::SignerError>
 pub fn aitp::crypto::signer::sign_raw(&dyn aitp::crypto::signer::AitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::signer::SignerError>
-pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint(&[u8; 32]) -> alloc::string::String
-pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint_p256(&[u8; 32], &[u8; 32]) -> alloc::string::String
+pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint_ed25519_sha256(&[u8; 32]) -> alloc::string::String
+pub fn aitp::crypto::thumbprint::compute_jwk_thumbprint_p256_sha256(&[u8; 32], &[u8; 32]) -> alloc::string::String
 pub fn aitp::delegation::builder::DelegationBuilder<'_, S>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::build(self) -> core::result::Result<alloc::string::String, aitp::delegation::error::DelegationError>
 pub fn aitp::delegation::builder::DelegationBuilder<'a, (dyn aitp::crypto::signer::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::signer::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::error::DelegationError>
@@ -3387,7 +3385,7 @@ pub fn aitp::handshake::admission::ChallengeSource::eq(&self, &aitp::handshake::
 pub fn aitp::handshake::admission::ChallengeSource::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::admission::ChallengeSource::ip(core::net::ip_addr::IpAddr) -> Self
 pub fn aitp::handshake::admission::ChallengeSource::label(&self) -> core::option::Option<&str>
-pub fn aitp::handshake::admission::ChallengeSource::tls_client_cert([u8; 32]) -> Self
+pub fn aitp::handshake::admission::ChallengeSource::tls_client_cert_sha256([u8; 32]) -> Self
 pub fn aitp::handshake::admission::ChallengeSource::transport(&self) -> &aitp::handshake::admission::TransportId
 pub fn aitp::handshake::admission::ChallengeSource::transport_key(&self) -> &str
 pub fn aitp::handshake::admission::ChallengeSource::with_label(self, impl core::convert::Into<alloc::string::String>) -> Self

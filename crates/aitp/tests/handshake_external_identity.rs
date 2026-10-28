@@ -113,8 +113,8 @@ fn envelope(sender: &AitpSigningKey) -> AitpEnvelope {
 fn verify_spiffe_peer(
     verifier: Option<&dyn IdentityVerifier>,
 ) -> Result<AitpVerifyingKey, HandshakeError> {
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     let my_manifest = spiffe_manifest(&me);
     let peer_manifest = spiffe_manifest(&peer);
     let store = StaticPinnedKeyStore::new([]);
@@ -194,9 +194,9 @@ fn a_verifier_proving_another_identity_is_identity_failed() {
 fn on_success_the_peer_key_is_the_sender_aid_key() {
     let fake = Fake::new(true, proved_spiffe_id);
     let key = verify_spiffe_peer(Some(&fake)).unwrap();
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     assert_eq!(key, AitpVerifyingKey::from_aid(peer.aid()).unwrap());
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
     assert_eq!(
         fake.seen.lock().unwrap().as_deref(),
         Some(me.aid().as_str())
@@ -206,8 +206,8 @@ fn on_success_the_peer_key_is_the_sender_aid_key() {
 #[test]
 fn the_verifier_is_never_called_for_native_kinds() {
     let fake = Fake::new(true, proved_spiffe_id);
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     let my_manifest = spiffe_manifest(&me);
     let store = StaticPinnedKeyStore::new([]);
     let cfg = PeerConfig::new(

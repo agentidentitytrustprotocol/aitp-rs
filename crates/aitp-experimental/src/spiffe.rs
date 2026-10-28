@@ -423,7 +423,7 @@ fn verify_jwt_svid(
         return Err(fail("nonce mismatch"));
     }
     let expected_jkt = AitpVerifyingKey::from_aid(ctx.sender_aid)
-        .and_then(|k| k.to_jwk_thumbprint())
+        .and_then(|k| k.to_jwk_thumbprint_sha256())
         .map_err(|e| fail(&format!("sender AID thumbprint: {e}")))?;
     if claims.cnf.jkt != expected_jkt {
         return Err(fail("cnf.jkt mismatch"));
@@ -551,7 +551,7 @@ fn check_leaf(
         let x: &[u8; 32] = key_bytes
             .try_into()
             .map_err(|_| fail("leaf Ed25519 key is not 32 bytes"))?;
-        AitpVerifyingKey::from_bytes(x).map_err(|e| fail(&format!("leaf key: {e}")))
+        AitpVerifyingKey::from_ed25519_bytes(x).map_err(|e| fail(&format!("leaf key: {e}")))
     } else if spki.algorithm.algorithm == OID_KEY_TYPE_EC_PUBLIC_KEY {
         let curve = spki
             .algorithm
@@ -678,7 +678,7 @@ mod tests {
         let subject = "spiffe://prod.example.com/ns/payments/sa/agent";
         let (now, nonce, message_id) = (1_800_000_000, "bQ88kiChryTKduskLXSCNg", Uuid::nil());
         let jkt = AitpVerifyingKey::from_aid(&sender)
-            .and_then(|k| k.to_jwk_thumbprint())
+            .and_then(|k| k.to_jwk_thumbprint_sha256())
             .unwrap();
         jwk["use"] = "jwt-svid".into();
         jwk["kid"] = "k1".into();
@@ -730,7 +730,7 @@ mod tests {
     /// `verify_jws_signature` accepts that pair (OIDC allows it).
     #[test]
     fn jwt_svid_rejects_eddsa_under_an_ed25519_key() {
-        let key = aitp::crypto::AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
         let jwk = json!({"kty": "OKP", "crv": "Ed25519",
             "x": Base64UrlUnpadded::encode_string(&x)});

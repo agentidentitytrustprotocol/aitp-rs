@@ -27,8 +27,8 @@ fn issue(issuer: &AitpSigningKey, subject: &AitpSigningKey, ttl: i64) -> String 
 /// TCT expiring exactly at the issuer Manifest's expiry verifies.
 #[test]
 fn tct_expires_at_manifest_boundary_passes() {
-    let issuer = AitpSigningKey::from_seed(&[0xC1; 32]);
-    let subject = AitpSigningKey::from_seed(&[0xC2; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xC1; 32]);
+    let subject = AitpSigningKey::from_ed25519_seed(&[0xC2; 32]);
     let manifest_exp = Timestamp(NOW.0 + 3600);
     let token = issue(&issuer, &subject, 3600); // exp = NOW + 3600 = manifest_exp
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
@@ -42,8 +42,8 @@ fn tct_expires_at_manifest_boundary_passes() {
 /// TCT expiring AFTER the issuer Manifest's expiry is rejected.
 #[test]
 fn tct_expires_after_manifest_is_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0xC3; 32]);
-    let subject = AitpSigningKey::from_seed(&[0xC4; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xC3; 32]);
+    let subject = AitpSigningKey::from_ed25519_seed(&[0xC4; 32]);
     let manifest_exp = Timestamp(NOW.0 + 1800); // 30 min
     let token = issue(&issuer, &subject, 3600); // 60 min > 30 min manifest
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
@@ -63,8 +63,8 @@ fn tct_expires_after_manifest_is_rejected() {
 /// skip when unavailable).
 #[test]
 fn manifest_expiry_check_is_optional() {
-    let issuer = AitpSigningKey::from_seed(&[0xC5; 32]);
-    let subject = AitpSigningKey::from_seed(&[0xC6; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xC5; 32]);
+    let subject = AitpSigningKey::from_ed25519_seed(&[0xC6; 32]);
     let token = issue(&issuer, &subject, 86_400); // 24 hours, no bound
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)

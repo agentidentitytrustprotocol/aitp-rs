@@ -151,9 +151,9 @@ mod tests {
 
     #[test]
     fn signed_request_parses_and_verifies() {
-        let peer = AitpSigningKey::from_seed(&[1; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         for key in [
-            AitpSigningKey::from_seed(&[2; 32]),
+            AitpSigningKey::from_ed25519_seed(&[2; 32]),
             AitpSigningKey::from_p256_seed(&[3; 32]).unwrap(),
         ] {
             let req = sign_enroll(&key, &challenge(&peer)).unwrap();
@@ -165,9 +165,9 @@ mod tests {
 
     #[test]
     fn signature_is_bound_to_the_peer() {
-        let peer = AitpSigningKey::from_seed(&[1; 32]);
-        let other = AitpSigningKey::from_seed(&[9; 32]);
-        let key = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[9; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let req = sign_enroll(&key, &challenge(&peer)).unwrap();
         let parsed = parse_enroll(&serde_json::to_vec(&req).unwrap()).unwrap();
         let digest = signing_digest(&parsed.aid, other.aid(), &parsed.nonce);

@@ -39,7 +39,7 @@ impl RevocationListProducer for StaticProducer {
 
 #[tokio::test]
 async fn well_known_revocation_list_serves_signed_snapshot() {
-    let issuer = AitpSigningKey::from_seed(&[0x42; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let now = Timestamp::now();
     let revoked_jti = Uuid::new_v4();
     let envelope = sign_revocation_list(
@@ -71,7 +71,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
         .build()
         .unwrap();
 
-    let server_key = AitpSigningKey::from_seed(&[0x42; 32]);
+    let server_key = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let server = HandshakeServer::new(
         server_key,
         manifest,
@@ -111,7 +111,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
 /// verifier agreeing with each other and still fail here.
 #[tokio::test]
 async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
-    let issuer = AitpSigningKey::from_seed(&[0x77; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let now = Timestamp::now();
     let envelope = sign_revocation_list(
         RevocationList::new(
@@ -143,7 +143,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
         .unwrap();
 
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x77; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x77; 32]),
         manifest,
         vec![],
         NoOpResolver,
@@ -222,7 +222,7 @@ async fn serve(server: HandshakeServer<NoOpResolver>) -> u16 {
 /// same wire parser a consumer runs.
 #[tokio::test]
 async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
-    let issuer = AitpSigningKey::from_seed(&[0x51; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x51; 32]);
     let origin: url::Url = "https://issuer.example".parse().unwrap();
     let manifest = advertising_manifest(&issuer, &origin);
 
@@ -244,7 +244,7 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     );
 
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x51; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x51; 32]),
         manifest,
         vec![],
         NoOpResolver,

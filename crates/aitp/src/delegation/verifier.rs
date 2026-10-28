@@ -229,7 +229,7 @@ fn check_hop_claims(
     // cnf.jkt MUST match the key encoded in `sub` (RFC-AITP-0001 §5.4.4).
     let sub_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(DelegationError::Crypto)?;
     let expected_jkt = sub_key
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(DelegationError::Crypto)?;
     if claims.cnf.jkt != expected_jkt {
         return Err(DelegationError::CnfMalformed);

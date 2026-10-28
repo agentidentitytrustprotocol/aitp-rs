@@ -339,7 +339,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_provider_signs_an_empty_list_without_extensions() {
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let issuer = key.aid().clone();
         let env = EmptyRevocationProvider::new(key)
             .fetch(&issuer)

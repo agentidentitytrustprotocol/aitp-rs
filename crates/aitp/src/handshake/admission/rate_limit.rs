@@ -23,7 +23,7 @@ pub enum TransportId {
     /// proxy's.
     Ip(IpAddr),
     /// SHA-256 fingerprint of the mTLS client certificate.
-    TlsClientCert([u8; 32]),
+    TlsClientCertSha256([u8; 32]),
 }
 
 /// Who is asking for a challenge: a transport identity plus an optional
@@ -61,9 +61,9 @@ impl ChallengeSource {
 
     /// A source identified by its mTLS client certificate's SHA-256
     /// fingerprint.
-    pub fn tls_client_cert(sha256_fingerprint: [u8; 32]) -> Self {
+    pub fn tls_client_cert_sha256(sha256_fingerprint: [u8; 32]) -> Self {
         Self {
-            transport: TransportId::TlsClientCert(sha256_fingerprint),
+            transport: TransportId::TlsClientCertSha256(sha256_fingerprint),
             transport_key: format!("cert:{}", base64url::encode(&sha256_fingerprint)),
             label: None,
         }

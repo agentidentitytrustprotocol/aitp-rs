@@ -275,7 +275,7 @@ pub fn verify_oidc(
         .ok_or_else(|| HandshakeError::Identity("missing cnf claim".into()))?;
     let expected_jkt = AitpVerifyingKey::from_aid(ctx.subject_aid)
         .map_err(|e| HandshakeError::Identity(format!("subject AID parse failed: {e}")))?
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(|e| HandshakeError::Identity(format!("subject AID jkt failed: {e}")))?;
     if cnf.jkt != expected_jkt {
         return Err(HandshakeError::Identity("cnf.jkt mismatch".into()));

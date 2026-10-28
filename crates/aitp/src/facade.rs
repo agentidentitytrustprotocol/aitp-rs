@@ -1006,8 +1006,8 @@ mod tct_store_tests {
     use crate::tct::TctBuilder;
 
     fn build_tct(issued_at: Timestamp, ttl_secs: i64) -> (VerifiedTct, Option<String>) {
-        let issuer = AitpSigningKey::from_seed(&[1u8; 32]);
-        let holder = AitpSigningKey::from_seed(&[2u8; 32]);
+        let issuer = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
+        let holder = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
         let issued = TctBuilder::new(&issuer)
             .subject(holder.aid().clone())
             .audience(holder.aid().clone())
@@ -1064,7 +1064,7 @@ mod tct_store_tests {
     #[test]
     fn unknown_peer_does_not_need_refresh() {
         let store = TctStore::default();
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         assert!(!store.needs_refresh(key.aid(), Timestamp(1_700_000_000)));
     }
 
@@ -1171,7 +1171,7 @@ mod facade_http_tests {
     /// before its unknown sibling member is looked at.
     #[test]
     fn previous_revision_response_envelope_is_unknown_version() {
-        let key = crate::crypto::AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = crate::crypto::AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let env = sign_envelope_with(
             &key,
             MessageType::MutualHelloAck,
@@ -1210,7 +1210,7 @@ mod initiator_config_knobs {
     use crate::crypto::AitpSigningKey;
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
-        let key = AitpSigningKey::from_seed(&[0x33; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
         let manifest = crate::manifest::ManifestBuilder::new(&key)
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())

@@ -8,7 +8,7 @@ use aitp::manifest::{
 };
 
 fn alice_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[1u8; 32])
+    AitpSigningKey::from_ed25519_seed(&[1u8; 32])
 }
 
 fn build_alice_manifest_at(now: Timestamp) -> aitp::manifest::Manifest {
@@ -193,7 +193,7 @@ fn pop_corruption_surfaces_as_pop_failed_not_signature_invalid() {
     // Replace the PoP signature with a different, well-formed Ed25519
     // signature (a self-sign over unrelated bytes) so it parses but does
     // not match — isolating verification (not a parse) failure.
-    let other = AitpSigningKey::from_seed(&[2u8; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
     m.proof_of_possession.signature = other
         .sign_jcs(&aitp::crypto::Digest32::sha256(b"unrelated"))
         .into_string();

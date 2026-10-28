@@ -159,7 +159,7 @@ mod tests {
     use serde_json::json;
 
     fn alice() -> crate::crypto::AitpSigningKey {
-        crate::crypto::AitpSigningKey::from_seed(&[0xA1; 32])
+        crate::crypto::AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
 
     fn build_manifest(key: &crate::crypto::AitpSigningKey) -> crate::manifest::Manifest {
@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn round_trip_mutual_commit_and_ack() {
         let key = alice();
-        let subject = crate::crypto::AitpSigningKey::from_seed(&[0xB2; 32]);
+        let subject = crate::crypto::AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
         let issued = build_tct(&key, subject.aid(), subject.verifying_key());
         let commit = MutualCommitPayload {
             tct: issued.token.clone(),
@@ -311,7 +311,7 @@ mod tests {
         let back: MutualHelloAckPayload = serde_json::from_str(&s).unwrap();
         assert_eq!(back, hello_ack);
 
-        let subject = crate::crypto::AitpSigningKey::from_seed(&[0xB2; 32]);
+        let subject = crate::crypto::AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
         let issued = build_tct(&key, subject.aid(), subject.verifying_key());
         let commit = MutualCommitPayload {
             tct: issued.token.clone(),

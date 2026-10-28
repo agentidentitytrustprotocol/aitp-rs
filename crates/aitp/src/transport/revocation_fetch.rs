@@ -381,7 +381,7 @@ mod tests {
     use crate::transport::revocation::EmptyRevocationProvider;
 
     fn aid(seed: u8) -> Aid {
-        AitpSigningKey::from_seed(&[seed; 32]).aid().clone()
+        AitpSigningKey::from_ed25519_seed(&[seed; 32]).aid().clone()
     }
 
     fn query<'a>(issuer: &'a Aid, jti: &'a Uuid) -> RevocationQuery<'a> {
@@ -579,7 +579,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_snapshot_decides_revoked_and_clear() {
-        let key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let now = Timestamp::now();
         let jti = Uuid::new_v4();
         let env = make_envelope(jti, &key, now, Timestamp(now.0 + 3600));
@@ -603,7 +603,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_provider_reads_everything_as_unrevoked() {
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let issuer = key.aid().clone();
         let p = prepare_with(
             EmptyRevocationProvider::new(key),
@@ -652,7 +652,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_snapshot_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(
             Uuid::new_v4(),
@@ -666,7 +666,7 @@ mod tests {
 
     #[tokio::test]
     async fn stale_snapshot_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let now = Timestamp::now();
         // Published two days ago, still inside expires_at, but past the
         // 24h staleness bound.
@@ -682,7 +682,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_signature_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[5u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[5u8; 32]);
         let now = Timestamp::now();
         let mut env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         env.signature = "A".repeat(86);
@@ -694,7 +694,7 @@ mod tests {
     /// malformed snapshot, never as a signature failure.
     #[tokio::test]
     async fn unknown_version_is_malformed_not_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[0x5A; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x5A; 32]);
         let now = Timestamp::now();
         let mut env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         env.revocation_list.version = "aitp/9.9".into();
@@ -709,7 +709,7 @@ mod tests {
     /// classification: unknown member, not signature failure.
     #[tokio::test]
     async fn unknown_member_snapshot_is_not_reported_as_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         let mut raw = serde_json::to_value(&env).unwrap();
@@ -735,7 +735,7 @@ mod tests {
     /// issue #144: a missing required member is a malformed snapshot.
     #[tokio::test]
     async fn claims_malformed_snapshot_is_not_reported_as_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         let mut raw = serde_json::to_value(&env).unwrap();
@@ -814,7 +814,7 @@ mod tests {
                 self.1.fetch(issuer)
             }
         }
-        let key = AitpSigningKey::from_seed(&[12u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[12u8; 32]);
         let issuer = key.aid().clone();
         let provider = Arc::new(Counting(
             std::sync::atomic::AtomicUsize::new(0),

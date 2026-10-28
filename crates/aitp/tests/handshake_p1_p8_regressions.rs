@@ -74,8 +74,8 @@ fn p1_legacy_two_field_proof_rejected() {
     // Sign a legacy proof input ("message_id|timestamp") and verify
     // under the new context: must fail because the verifier reconstructs
     // the 5-field domain-prefixed input.
-    let sender = AitpSigningKey::from_seed(&[0x10; 32]);
-    let receiver = AitpSigningKey::from_seed(&[0x11; 32]);
+    let sender = AitpSigningKey::from_ed25519_seed(&[0x10; 32]);
+    let receiver = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let pop_nonce_owned = nonce(0xA1);
@@ -111,9 +111,9 @@ fn p1_legacy_two_field_proof_rejected() {
 
 #[test]
 fn p1_wrong_receiver_in_proof_rejected() {
-    let sender = AitpSigningKey::from_seed(&[0x20; 32]);
-    let intended_receiver = AitpSigningKey::from_seed(&[0x21; 32]);
-    let attacker_receiver = AitpSigningKey::from_seed(&[0x22; 32]);
+    let sender = AitpSigningKey::from_ed25519_seed(&[0x20; 32]);
+    let intended_receiver = AitpSigningKey::from_ed25519_seed(&[0x21; 32]);
+    let attacker_receiver = AitpSigningKey::from_ed25519_seed(&[0x22; 32]);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let pop_nonce_owned = nonce(0xB1);
@@ -153,8 +153,8 @@ fn p1_wrong_receiver_in_proof_rejected() {
 
 #[test]
 fn p1_wrong_pop_nonce_in_proof_rejected() {
-    let sender = AitpSigningKey::from_seed(&[0x30; 32]);
-    let receiver = AitpSigningKey::from_seed(&[0x31; 32]);
+    let sender = AitpSigningKey::from_ed25519_seed(&[0x30; 32]);
+    let receiver = AitpSigningKey::from_ed25519_seed(&[0x31; 32]);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
 
@@ -190,8 +190,8 @@ fn oidc_descriptor_with_public_key_rejected() {
     // carries `public_key` MUST be rejected by verifiers — the key is
     // already encoded in the AID and a second copy is ambiguous w.r.t.
     // the JWT `cnf.jkt` binding.
-    let sender = AitpSigningKey::from_seed(&[0x70; 32]);
-    let receiver = AitpSigningKey::from_seed(&[0x71; 32]);
+    let sender = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+    let receiver = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     let resolver = NoOpResolver;
     let mut descriptor = IdentityDescriptor::oidc(
         "https://idp.example.com".parse().unwrap(),
@@ -226,8 +226,8 @@ fn oidc_descriptor_with_public_key_rejected() {
 
 #[test]
 fn p3_untrusted_pinned_key_rejected_with_store_configured() {
-    let untrusted_sender = AitpSigningKey::from_seed(&[0x40; 32]);
-    let receiver = AitpSigningKey::from_seed(&[0x41; 32]);
+    let untrusted_sender = AitpSigningKey::from_ed25519_seed(&[0x40; 32]);
+    let receiver = AitpSigningKey::from_ed25519_seed(&[0x41; 32]);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let pop_nonce_owned = nonce(0xF1);
@@ -296,8 +296,8 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
 
 #[test]
 fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
-    let sender = AitpSigningKey::from_seed(&[0x50; 32]);
-    let receiver = AitpSigningKey::from_seed(&[0x51; 32]);
+    let sender = AitpSigningKey::from_ed25519_seed(&[0x50; 32]);
+    let receiver = AitpSigningKey::from_ed25519_seed(&[0x51; 32]);
     let mid = Uuid::new_v4();
     let ts = Timestamp::now();
     let pop_nonce_owned = nonce(0xC1);
@@ -370,8 +370,8 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
 #[test]
 fn p7_grant_policy_filters_intersection() {
     use aitp::handshake::Initiator;
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let peer = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let mut issuer_manifest = manifest_for(&issuer, "issuer");
     issuer_manifest.offered_capabilities = vec!["chat.send".into(), "files.read".into()];
 

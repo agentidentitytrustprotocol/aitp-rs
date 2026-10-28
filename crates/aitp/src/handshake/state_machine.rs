@@ -1416,7 +1416,7 @@ mod tests {
         // pinned-key algorithm: 44-char compressed `public_key`, tagged
         // proof, and it verifies against a store holding the key.
         let p256 = AitpSigningKey::generate_p256();
-        let other = AitpSigningKey::from_seed(&[1u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let mid = Uuid::new_v4();
         let ts = Timestamp(1_700_000_000);
         let nonce = base64url::encode(&[42u8; 16]);
@@ -1461,8 +1461,8 @@ mod tests {
                 Ok(vec![])
             }
         }
-        let me = AitpSigningKey::from_seed(&[0x70; 32]);
-        let peer = AitpSigningKey::from_seed(&[0x71; 32]);
+        let me = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
         let manifest = crate::manifest::ManifestBuilder::new(&me)
             .display_name("issuer")
             .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())

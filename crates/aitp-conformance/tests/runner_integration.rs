@@ -154,9 +154,9 @@ fn unsupported_op_yields_skip() {
 fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
     // Build a TCT whose `issuer` AID is a *random* pubkey not signed by
     // the corresponding key — TCT signature verification must fail.
-    let issuer = aitp::crypto::AitpSigningKey::from_seed(&[0xA0; 32]);
-    let other = aitp::crypto::AitpSigningKey::from_seed(&[0xB0; 32]);
-    let subject = aitp::crypto::AitpSigningKey::from_seed(&[0xC0; 32]);
+    let issuer = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
+    let other = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
+    let subject = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[0xC0; 32]);
     let tct = aitp::tct::TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())

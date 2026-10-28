@@ -35,7 +35,7 @@ fn voucher_for(a: &dyn AitpSigner, b: &dyn AitpSigner) -> String {
 fn kms_delegator_mints_a_verifying_delegation() {
     let a = MockKmsSigner::new(p256(0xA1)).output(MockOutput::RandomizedDer);
     let b = MockKmsSigner::new(p256(0xB1)).output(MockOutput::DerHighS);
-    let c = AitpSigningKey::from_seed(&[0xC1; 32]);
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC1; 32]);
     let token = DelegationBuilder::new(&b, &voucher_for(&a, &b))
         .unwrap()
         .delegatee(c.aid().clone())
@@ -53,9 +53,9 @@ fn kms_delegator_mints_a_verifying_delegation() {
 
 #[test]
 fn kms_delegator_with_wrong_key_returns_signer_error() {
-    let a = AitpSigningKey::from_seed(&[0xA2; 32]);
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA2; 32]);
     let b = MockKmsSigner::new(p256(0xB2)).sign_with(p256(0xB3));
-    let c = AitpSigningKey::from_seed(&[0xC2; 32]);
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC2; 32]);
     let err = DelegationBuilder::new(&b, &voucher_for(&a, &b))
         .unwrap()
         .delegatee(c.aid().clone())
@@ -83,7 +83,10 @@ type MakeKey = fn(u8) -> AitpSigningKey;
 #[tokio::test]
 async fn async_delegations_are_byte_identical_to_sync() {
     let cases: [(MakeKey, MockOutput); 3] = [
-        (|s| AitpSigningKey::from_seed(&[s; 32]), MockOutput::Raw),
+        (
+            |s| AitpSigningKey::from_ed25519_seed(&[s; 32]),
+            MockOutput::Raw,
+        ),
         (p256, MockOutput::Raw),
         (p256, MockOutput::Der),
     ];
@@ -116,9 +119,9 @@ async fn async_delegations_are_byte_identical_to_sync() {
 
 #[tokio::test]
 async fn async_constructors_validate_like_sync() {
-    let a = AitpSigningKey::from_seed(&[0xA5; 32]);
-    let b = AitpSigningKey::from_seed(&[0xB5; 32]);
-    let stranger = MockKmsSigner::new(AitpSigningKey::from_seed(&[0xE5; 32]));
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA5; 32]);
+    let b = AitpSigningKey::from_ed25519_seed(&[0xB5; 32]);
+    let stranger = MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[0xE5; 32]));
     let voucher = voucher_for(&a, &b);
     assert!(matches!(
         DelegationBuilder::new_async(&stranger, &voucher).err(),
@@ -128,9 +131,9 @@ async fn async_constructors_validate_like_sync() {
 
 #[tokio::test]
 async fn async_wrong_key_backend_returns_signer_error() {
-    let a = AitpSigningKey::from_seed(&[0xA6; 32]);
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA6; 32]);
     let b = MockKmsSigner::new(p256(0xB6)).sign_with(p256(0xB7));
-    let c = AitpSigningKey::from_seed(&[0xC6; 32]);
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC6; 32]);
     let err = DelegationBuilder::new_async(&b, &voucher_for(&a, &b))
         .unwrap()
         .delegatee(c.aid().clone())
@@ -150,13 +153,13 @@ async fn async_wrong_key_backend_returns_signer_error() {
 
 #[tokio::test(flavor = "multi_thread")]
 async fn async_delegation_future_is_send() {
-    let a = AitpSigningKey::from_seed(&[0xA7; 32]);
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA7; 32]);
     let b_kms = MockKmsSigner::new(p256(0xB8)).output(MockOutput::RandomizedDer);
     let b_aid = b_kms.aid().clone();
     let manifests = vec![common::manifest_for(&b_kms, NOW)];
     let voucher = voucher_for(&a, &b_kms);
     let b: Arc<dyn aitp::crypto::DynAsyncAitpSigner> = Arc::new(b_kms);
-    let c = AitpSigningKey::from_seed(&[0xC7; 32]);
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC7; 32]);
     let c_aid = c.aid().clone();
     // tokio::spawn requires the future to be Send + 'static.
     let token = tokio::spawn(async move {

@@ -49,8 +49,8 @@ fn manifest_for(
 
 #[tokio::test]
 async fn commit_after_session_ttl_is_rejected() {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -61,7 +61,7 @@ async fn commit_after_session_ttl_is_rejected() {
 
     // 50ms TTL; the test sleeps 200ms between HELLO and COMMIT.
     let server = HandshakeServer::with_session_ttl(
-        AitpSigningKey::from_seed(&[0x72; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x72; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
@@ -177,8 +177,8 @@ async fn fresh_session_within_ttl_is_accepted() {
     // Sanity: confirm the same setup completes successfully when the
     // COMMIT comes well within the TTL window. Without this, the
     // expiry test could "pass" because of an unrelated regression.
-    let alice = AitpSigningKey::from_seed(&[0x73; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x74; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x73; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x74; 32]);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -188,7 +188,7 @@ async fn fresh_session_within_ttl_is_accepted() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
     let server = HandshakeServer::with_session_ttl(
-        AitpSigningKey::from_seed(&[0x74; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x74; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,

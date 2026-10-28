@@ -39,7 +39,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
 
 /// Bob's server with the given TTL; trusts Alice (seed 0x71).
 fn server(ttl: Duration) -> HandshakeServer<NoOpResolver> {
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
     let manifest = manifest_for(&bob, "bob");
     HandshakeServer::with_session_ttl(
         bob,
@@ -50,17 +50,17 @@ fn server(ttl: Duration) -> HandshakeServer<NoOpResolver> {
         ttl,
     )
     .with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([
-        AitpSigningKey::from_seed(&[0x71; 32]).verifying_key(),
+        AitpSigningKey::from_ed25519_seed(&[0x71; 32]).verifying_key(),
     ])))
 }
 
 /// Drive a real HELLO through `Responder::on_hello` and park the
 /// resulting session in the server's table, as the HELLO handler does.
 fn insert_session<R: JwksResolver + Send + Sync + 'static>(state: &HandshakeState<R>) {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let pinned =
-        StaticPinnedKeyStore::new([AitpSigningKey::from_seed(&[0x72; 32]).verifying_key()]);
+        StaticPinnedKeyStore::new([AitpSigningKey::from_ed25519_seed(&[0x72; 32]).verifying_key()]);
     let resolver = NoOpResolver;
     let init_cfg = PeerConfig::new(
         &alice,

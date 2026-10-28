@@ -32,13 +32,13 @@ fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
 }
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 
 /// A → B: TCT + voucher with two grants, 2h TTL.
@@ -148,7 +148,7 @@ fn missing_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 3600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
@@ -163,7 +163,7 @@ fn missing_voucher_rejected() {
 fn voucher_issued_by_third_party_rejected() {
     // B embeds a voucher minted by some other agent (not the verifier):
     // verification under A's own key fails.
-    let mallory = AitpSigningKey::from_seed(&[0xD1; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xD1; 32]);
     let foreign_voucher = TctBuilder::new(&mallory)
         .subject(b().aid().clone())
         .audience(b().aid().clone())
@@ -184,7 +184,7 @@ fn voucher_issued_by_third_party_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": foreign_voucher,
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -206,7 +206,7 @@ fn voucher_issued_by_third_party_rejected() {
 fn voucher_subject_mismatch_rejected() {
     // B's voucher embedded in a token issued by Mallory:
     // voucher.sub != outer iss (RFC-AITP-0006 §4 step 4).
-    let mallory = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xD2; 32]);
     let claims = serde_json::json!({
         "ver": PROTOCOL_VERSION,
         "iss": mallory.aid(),
@@ -214,7 +214,7 @@ fn voucher_subject_mismatch_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
@@ -231,7 +231,7 @@ fn voucher_subject_mismatch_rejected() {
 #[test]
 fn audience_mismatch_rejected() {
     let token = delegate_to_c(&voucher_for_b());
-    let other = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0xD3; 32]);
     let ctx = verify_ctx(other.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
@@ -260,7 +260,7 @@ fn exp_beyond_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 7200 + 1,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -281,7 +281,7 @@ fn scope_exceeding_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data", "admin"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -295,7 +295,7 @@ fn scope_exceeding_voucher_rejected() {
 
 #[test]
 fn forged_cnf_jkt_rejected() {
-    let rogue = AitpSigningKey::from_seed(&[0xD4; 32]);
+    let rogue = AitpSigningKey::from_ed25519_seed(&[0xD4; 32]);
     let claims = serde_json::json!({
         "ver": PROTOCOL_VERSION,
         "iss": b().aid(),
@@ -304,7 +304,7 @@ fn forged_cnf_jkt_rejected() {
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
         // jkt of a different key than sub encodes
-        "cnf": { "jkt": rogue.verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": rogue.verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -539,7 +539,7 @@ fn key_not_designated_by_issuer_manifest_rejected() {
     // served for B designates a different (rotated, RFC-AITP-0003 §8.1)
     // key.
     let token = delegate_to_c(&voucher_for_b());
-    let rotated_b = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let rotated_b = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let resolver: HashMap<Aid, Manifest> =
         HashMap::from([(b().aid().clone(), common::manifest_for(&rotated_b, NOW))]);
     let a_key = a();
@@ -580,7 +580,7 @@ fn signed_by_key_other_than_issuer_manifest_key_is_invalid_signature() {
     // by someone else: DELEGATION_INVALID_SIGNATURE.
     let payload = jws::decode_payload_unverified(&delegate_to_c(&voucher_for_b())).unwrap();
     let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-    let mallory = AitpSigningKey::from_seed(&[0xE1; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xE1; 32]);
     let forged = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     let err =

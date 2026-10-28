@@ -16,7 +16,7 @@ use aitp_experimental::session_bundle::{
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
 fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: i64) -> String {

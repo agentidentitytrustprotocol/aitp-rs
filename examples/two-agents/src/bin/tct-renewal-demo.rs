@@ -49,8 +49,8 @@ impl RevocationListProducer for EmptyList {
 
 #[tokio::main]
 async fn main() {
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let now = Timestamp::now();
 
     // Initial TCT minted in-process — pretend it came from a prior
@@ -114,7 +114,7 @@ async fn main() {
     .expect("sign revocation list");
     let revocation: Arc<dyn RevocationListProducer> = Arc::new(EmptyList(list));
     let handshake = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x60; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x60; 32]),
         manifest.clone(),
         vec![],
         NoOpResolver,
@@ -122,7 +122,7 @@ async fn main() {
     )
     .with_revocation_producer(revocation.clone());
     let renewal = RenewalServer::new(
-        Arc::new(AitpSigningKey::from_seed(&[0x60; 32])),
+        Arc::new(AitpSigningKey::from_ed25519_seed(&[0x60; 32])),
         manifest.clone(),
         revocation,
         Arc::new(InMemoryNonceStore::default()),

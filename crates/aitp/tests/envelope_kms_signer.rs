@@ -16,7 +16,7 @@ fn p256(seed: u8) -> AitpSigningKey {
 fn kms_backend_signs_a_verifying_envelope() {
     for kms in [
         MockKmsSigner::new(p256(1)).output(MockOutput::DerHighS),
-        MockKmsSigner::new(AitpSigningKey::from_seed(&[2; 32])),
+        MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[2; 32])),
     ] {
         let vk = AitpVerifyingKey::from_aid(kms.aid()).unwrap();
         let env = sign_envelope_with(
@@ -51,8 +51,8 @@ use std::sync::Arc;
 fn deterministic_pairs() -> Vec<(AitpSigningKey, MockKmsSigner)> {
     vec![
         (
-            AitpSigningKey::from_seed(&[0x11; 32]),
-            MockKmsSigner::new(AitpSigningKey::from_seed(&[0x11; 32])),
+            AitpSigningKey::from_ed25519_seed(&[0x11; 32]),
+            MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[0x11; 32])),
         ),
         (
             p256(0x12),
@@ -123,7 +123,7 @@ async fn async_envelope_future_is_send() {
 /// signer refuses one before calling the backend.
 #[test]
 fn non_v4_message_id_is_refused_before_signing() {
-    let key = aitp::crypto::AitpSigningKey::from_seed(&[7; 32]);
+    let key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[7; 32]);
     let v7 = uuid::Uuid::parse_str("01890a5d-ac96-774b-bcce-b302099a8057").unwrap();
     let err = aitp::envelope::sign_envelope_with(
         &key,

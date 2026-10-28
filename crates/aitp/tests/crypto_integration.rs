@@ -1,14 +1,14 @@
 //! End-to-end sign/verify round-trip tests.
 //!
 //! These exercise the full `AitpSigningKey` ↔ `AitpVerifyingKey` ↔
-//! `Signature` triangle, using both `from_seed` (for reproducibility) and
-//! `generate` (for "real" key flows).
+//! `Signature` triangle, using both `from_ed25519_seed` (for reproducibility) and
+//! `generate_ed25519` (for "real" key flows).
 
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 
 #[test]
 fn happy_path_sign_then_verify_via_aid() {
-    let key = AitpSigningKey::from_seed(&[1u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
     let msg = b"hello aitp";
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(msg));
     // Verifier learns the key from the AID alone.
@@ -19,8 +19,8 @@ fn happy_path_sign_then_verify_via_aid() {
 
 #[test]
 fn wrong_key_fails_verification() {
-    let alice = AitpSigningKey::from_seed(&[1u8; 32]);
-    let bob = AitpSigningKey::from_seed(&[2u8; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
     let msg = b"alice wrote this";
     let sig = alice.sign_jcs(&aitp::crypto::Digest32::sha256(msg));
     let bob_vk = AitpVerifyingKey::from_aid(bob.aid()).unwrap();
@@ -31,7 +31,7 @@ fn wrong_key_fails_verification() {
 
 #[test]
 fn mutated_message_fails_verification() {
-    let key = AitpSigningKey::from_seed(&[3u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
     let mut msg = b"trust me".to_vec();
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(&msg));
     msg[0] ^= 0x01;
@@ -43,7 +43,7 @@ fn mutated_message_fails_verification() {
 
 #[test]
 fn mutated_signature_fails_verification() {
-    let key = AitpSigningKey::from_seed(&[4u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
     let msg = b"don't tamper";
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(msg));
     let mut s = sig.into_string();
@@ -60,7 +60,7 @@ fn mutated_signature_fails_verification() {
 
 #[test]
 fn empty_message_round_trip() {
-    let key = AitpSigningKey::from_seed(&[5u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[5u8; 32]);
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(b""));
     key.verifying_key()
         .verify_jcs(&aitp::crypto::Digest32::sha256(b""), &sig)
@@ -69,7 +69,7 @@ fn empty_message_round_trip() {
 
 #[test]
 fn one_megabyte_message_round_trip() {
-    let key = AitpSigningKey::from_seed(&[6u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[6u8; 32]);
     let msg = vec![0xABu8; 1024 * 1024];
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(&msg));
     key.verifying_key()
@@ -79,8 +79,8 @@ fn one_megabyte_message_round_trip() {
 
 #[test]
 fn from_seed_is_reproducible() {
-    let k1 = AitpSigningKey::from_seed(&[42u8; 32]);
-    let k2 = AitpSigningKey::from_seed(&[42u8; 32]);
+    let k1 = AitpSigningKey::from_ed25519_seed(&[42u8; 32]);
+    let k2 = AitpSigningKey::from_ed25519_seed(&[42u8; 32]);
     assert_eq!(k1.aid(), k2.aid());
     let msg = b"deterministic";
     assert_eq!(
@@ -93,7 +93,7 @@ fn from_seed_is_reproducible() {
 fn from_compressed_round_trips_ed25519() {
     // 32-byte input → Ed25519. The `cnf`/pinned-key wire form decodes
     // through here, so a length-confusion bug is a key-substitution vector.
-    let key = AitpSigningKey::from_seed(&[0x21; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x21; 32]);
     let compressed = key.verifying_key().to_compressed();
     assert_eq!(compressed.len(), 32);
     let parsed = AitpVerifyingKey::from_compressed(&compressed).expect("ed25519 compressed parses");
@@ -134,7 +134,7 @@ fn from_compressed_rejects_wrong_lengths() {
 
 #[test]
 fn signature_round_trips_through_string() {
-    let key = AitpSigningKey::from_seed(&[7u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
     let sig = key.sign_jcs(&aitp::crypto::Digest32::sha256(b"x"));
     let s = sig.as_str().to_string();
     let again = Signature::parse(&s).unwrap();
@@ -143,7 +143,7 @@ fn signature_round_trips_through_string() {
 
 #[test]
 fn from_aid_round_trips_through_pubkey_bytes() {
-    let key = AitpSigningKey::from_seed(&[8u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[8u8; 32]);
     let vk = AitpVerifyingKey::from_aid(key.aid()).unwrap();
     assert_eq!(
         vk.try_to_ed25519_bytes().expect("key from_aid is Ed25519"),
@@ -155,9 +155,9 @@ fn from_aid_round_trips_through_pubkey_bytes() {
 
 #[test]
 fn thumbprint_is_43_chars_and_deterministic() {
-    let key = AitpSigningKey::from_seed(&[9u8; 32]);
-    let t1 = key.verifying_key().to_jwk_thumbprint().unwrap();
-    let t2 = key.verifying_key().to_jwk_thumbprint().unwrap();
+    let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
+    let t1 = key.verifying_key().to_jwk_thumbprint_sha256().unwrap();
+    let t2 = key.verifying_key().to_jwk_thumbprint_sha256().unwrap();
     assert_eq!(t1, t2);
     assert_eq!(t1.len(), 43);
     // Charset is base64url-unpadded.

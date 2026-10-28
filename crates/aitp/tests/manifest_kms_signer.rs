@@ -48,7 +48,7 @@ fn kms_backend_builds_a_verifying_manifest() {
 #[test]
 fn kms_backend_ed25519_builds_a_verifying_manifest() {
     let now = Timestamp(1_700_000_000);
-    let kms = MockKmsSigner::new(AitpSigningKey::from_seed(&[6; 32]));
+    let kms = MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[6; 32]));
     let m = build(&kms, now).expect("KMS-backed ManifestBuilder builds");
     verify_manifest(&m, &VerifyManifestContext::at(now)).expect("KMS manifest verifies");
 }
@@ -100,7 +100,10 @@ fn build_async<'a>(
 async fn async_manifest_matches_sync_for_deterministic_keys() {
     let now = Timestamp(1_700_000_000);
     let cases: [(fn() -> AitpSigningKey, MockOutput); 3] = [
-        (|| AitpSigningKey::from_seed(&[0x21; 32]), MockOutput::Raw),
+        (
+            || AitpSigningKey::from_ed25519_seed(&[0x21; 32]),
+            MockOutput::Raw,
+        ),
         (
             || AitpSigningKey::from_p256_seed(&[0x22; 32]).unwrap(),
             MockOutput::Raw,

@@ -230,13 +230,13 @@ mod single_hop_revocation_check {
     const NOW: i64 = 1_700_000_000;
 
     fn a() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
     fn b() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xB1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
     }
     fn c() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
     }
 
     /// Returns (voucher's src_jti, the B->C delegation token).
@@ -383,10 +383,10 @@ mod session_bundle_wire_shape {
     const NOW: i64 = 1_711_900_000;
 
     fn coordinator() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC0; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC0; 32])
     }
     fn participant() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
 
     /// Issue a bundle via the adapter and return its `session_bundle`
@@ -560,7 +560,7 @@ mod session_bundle_wire_shape {
 
         // bundle-007: a Manifest for another AID resolves no coordinator
         // key (RFC-AITP-0007 §1).
-        let other = AitpSigningKey::from_seed(&[0x77; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
         let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
         assert_err(&resp, "v", "KEY_RESOLUTION_FAILED");
 
@@ -701,13 +701,13 @@ mod verify_tct_as_issuer {
     const NOW: i64 = 1_711_900_000;
 
     fn issuer() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
     fn holder() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xB1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
     }
     fn stranger() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
     }
 
     /// (token, jti): a TCT the issuer granted to the holder.

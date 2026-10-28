@@ -23,16 +23,16 @@ use uuid::Uuid;
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 fn d() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xD1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xD1; 32])
 }
 
 fn voucher_for_b() -> String {
@@ -76,10 +76,10 @@ fn outer(h1: &str) -> String {
 }
 
 fn mallory() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xE1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xE1; 32])
 }
 fn e() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xE7; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xE7; 32])
 }
 
 /// `key`'s published Manifest, valid for `ttl_secs` from `published_at`.
@@ -203,7 +203,7 @@ fn scope_inflation_across_hops_rejected() {
         "aud": a().aid(),
         "scope": ["write_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": Uuid::new_v4(),
         "chain": [narrow_h1.clone()],
         "chain_hash": compute_chain_hash(std::slice::from_ref(&narrow_h1)).unwrap(),
@@ -312,7 +312,7 @@ fn continuity_break_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": Uuid::new_v4(),
         "chain": [h1.clone()],
         "chain_hash": compute_chain_hash(std::slice::from_ref(&h1)).unwrap(),
@@ -336,7 +336,7 @@ fn expiry_inflation_across_hops_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 6001,
-        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": Uuid::new_v4(),
         "chain": [h1.clone()],
         "chain_hash": compute_chain_hash(std::slice::from_ref(&h1)).unwrap(),
@@ -360,7 +360,7 @@ fn duplicate_hop_jti_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": "550e8400-e29b-41d4-a716-446655440011", // == h1's jti
         "chain": [h1.clone()],
         "chain_hash": compute_chain_hash(std::slice::from_ref(&h1)).unwrap(),
@@ -476,7 +476,7 @@ fn hop_key_not_designated_by_issuer_manifest_rejected() {
     // served for B designates a different (rotated, RFC-AITP-0003 §8.1)
     // key. The AID-embedded key alone MUST NOT verify the hop.
     let token = outer(&hop1());
-    let rotated_b = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let rotated_b = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let resolver: HashMap<Aid, Manifest> = HashMap::from([
         (b().aid().clone(), manifest_for(&rotated_b, NOW)),
         (c().aid().clone(), manifest_for(&c(), NOW)),
@@ -576,7 +576,7 @@ fn kat(id: &str) -> serde_json::Value {
 fn spec_multihop_chain_kat_verifies_end_to_end() {
     let v = kat("kat-multihop-chain-001");
     let outer_token = v["outer_delegation_jws"].as_str().unwrap();
-    let verifier = AitpSigningKey::from_seed(&[0u8; 32]); // kat-keypair-001 (A)
+    let verifier = AitpSigningKey::from_ed25519_seed(&[0u8; 32]); // kat-keypair-001 (A)
 
     // chain_hash recomputation matches the pinned value.
     let chain: Vec<String> = v["chain"]
@@ -599,8 +599,8 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
     }
     let published = Timestamp(1_711_900_000);
     let manifests = vec![
-        manifest_for(&AitpSigningKey::from_seed(&kat_002_seed), published),
-        manifest_for(&AitpSigningKey::from_seed(&[0xffu8; 32]), published),
+        manifest_for(&AitpSigningKey::from_ed25519_seed(&kat_002_seed), published),
+        manifest_for(&AitpSigningKey::from_ed25519_seed(&[0xffu8; 32]), published),
     ];
     let ctx = VerifyChainContext::new(
         verifier.aid(),
@@ -641,8 +641,8 @@ fn builder_reproduces_spec_outer_delegation() {
     // byte-for-byte from the pinned seeds and the carried chain entry.
     let v = kat("kat-multihop-chain-001");
     let h1 = v["chain"][0].as_str().unwrap();
-    let c_key = AitpSigningKey::from_seed(&[0xffu8; 32]); // kat-keypair-003 (C)
-    let d_key = AitpSigningKey::from_seed(&[0x01u8; 32]); // kat-keypair-004 (D)
+    let c_key = AitpSigningKey::from_ed25519_seed(&[0xffu8; 32]); // kat-keypair-003 (C)
+    let d_key = AitpSigningKey::from_ed25519_seed(&[0x01u8; 32]); // kat-keypair-004 (D)
 
     // Outer exp is 1711902000; drive the ttl to land exactly there.
     let now = Timestamp(1_711_900_000);
@@ -671,7 +671,7 @@ fn outer_claims_with_jti(h1: &str, jti: &str) -> serde_json::Value {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": d().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": jti,
         "chain": [h1],
         "chain_hash": compute_chain_hash(&[h1.to_string()]).unwrap(),
@@ -721,7 +721,7 @@ fn non_v4_chain_hop_jti_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 3000,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
         "jti": "0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e",
     });
@@ -771,13 +771,16 @@ async fn async_extensions_are_byte_identical_to_sync() {
     let jti1 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440901").unwrap();
     let jti2 = Uuid::parse_str("770e8400-e29b-41d4-a716-446655440902").unwrap();
     let cases: [(MakeKey, MockOutput); 3] = [
-        (|s| AitpSigningKey::from_seed(&[s; 32]), MockOutput::Raw),
+        (
+            |s| AitpSigningKey::from_ed25519_seed(&[s; 32]),
+            MockOutput::Raw,
+        ),
         (p256, MockOutput::Raw),
         (p256, MockOutput::Der),
     ];
     for (make, output) in cases {
         let (a, b, c) = (make(0xA3), make(0xB4), make(0xC4));
-        let d = AitpSigningKey::from_seed(&[0xD4; 32]);
+        let d = AitpSigningKey::from_ed25519_seed(&[0xD4; 32]);
         let voucher = TctBuilder::new(&a)
             .subject(b.aid().clone())
             .audience(b.aid().clone())
@@ -829,7 +832,7 @@ async fn async_extensions_are_byte_identical_to_sync() {
             .unwrap();
         assert_eq!(sync2, async2);
     }
-    let stranger = MockKmsSigner::new(AitpSigningKey::from_seed(&[0xE5; 32]));
+    let stranger = MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[0xE5; 32]));
     assert!(matches!(
         ChainedDelegationBuilder::extending_async(&stranger, "not.a.jws").err(),
         Some(ChainedDelegationError::Delegation(DelegationError::Crypto(
@@ -848,7 +851,7 @@ fn prior_hop_claims() -> serde_json::Value {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 3600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "jti": Uuid::new_v4(),
     })
 }

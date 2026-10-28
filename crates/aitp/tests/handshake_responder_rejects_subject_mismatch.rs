@@ -62,8 +62,8 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
 
 #[test]
 fn responder_rejects_subject_disagreeing_with_manifest_hint() {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
 
     // Alice's Manifest declares the subject "alice", but she presents
     // the subject "mallory" in the handshake.

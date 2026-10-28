@@ -30,7 +30,7 @@ fn arb_json() -> impl Strategy<Value = serde_json::Value> {
 
 /// Build a valid Manifest with varied but well-formed inputs.
 fn build_manifest(seed: u8, caps: &[String], ttl: i64) -> Manifest {
-    let key = AitpSigningKey::from_seed(&[seed; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
     let mut b = ManifestBuilder::new(&key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
         .identity_hint(

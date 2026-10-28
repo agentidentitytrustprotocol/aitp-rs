@@ -42,7 +42,7 @@ pub async fn handshake(
     planner_port_for_manifest: u16,
     worker_origin: &Url,
 ) -> anyhow::Result<HandshakeOutcome> {
-    let key = AitpSigningKey::from_seed(seed);
+    let key = AitpSigningKey::from_ed25519_seed(seed);
     // The planner offers the same capability the worker requests, so the
     // mutual intersection is non-empty on both sides.
     let manifest = build_demo_manifest(

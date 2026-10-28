@@ -208,7 +208,7 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
 
         let cnf_key = AitpVerifyingKey::from_aid(&delegatee).map_err(DelegationError::Crypto)?;
         let jkt = cnf_key
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .map_err(DelegationError::Crypto)?;
 
         let claims = DelegationClaims {

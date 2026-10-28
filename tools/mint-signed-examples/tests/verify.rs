@@ -114,7 +114,7 @@ fn minted_delegation_verifies() {
     for (i, b) in seed.iter_mut().enumerate() {
         *b = i as u8;
     }
-    let b_key = aitp::crypto::AitpSigningKey::from_seed(&seed);
+    let b_key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&seed);
     assert_eq!(b_key.aid(), &kat_002_aid());
     let b_manifest = aitp::manifest::ManifestBuilder::new(&b_key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())

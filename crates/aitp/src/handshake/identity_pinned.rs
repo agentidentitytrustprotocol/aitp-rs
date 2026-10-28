@@ -730,8 +730,8 @@ mod tests {
 
     #[test]
     fn round_trip_full_context() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1_700_000_000);
         let nonce = fixed_nonce();
@@ -753,9 +753,9 @@ mod tests {
 
     #[test]
     fn changing_receiver_aid_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
-        let other_receiver = AitpSigningKey::from_seed(&[5u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
+        let other_receiver = AitpSigningKey::from_ed25519_seed(&[5u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         let desc = descriptor_for(&key, key.aid(), receiver.aid(), &mid, ts, fixed_nonce());
@@ -777,9 +777,9 @@ mod tests {
 
     #[test]
     fn changing_sender_aid_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let other = AitpSigningKey::from_seed(&[6u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[6u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         // Sign claiming to be `key`, but the verifier reconstructs with `other` as sender.
@@ -802,8 +802,8 @@ mod tests {
 
     #[test]
     fn changing_message_id_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid_a = Uuid::nil();
         let mid_b = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1);
@@ -826,8 +826,8 @@ mod tests {
 
     #[test]
     fn changing_timestamp_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts_a = Timestamp(1);
         let ts_b = Timestamp(2);
@@ -850,8 +850,8 @@ mod tests {
 
     #[test]
     fn changing_pop_nonce_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         let nonce_a = "AAECAwQFBgcICQoLDA0ODw";
@@ -875,8 +875,8 @@ mod tests {
 
     #[test]
     fn malformed_pop_nonce_returns_error_not_panic() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let result = sign_pinned_key_proof(
             &key,
             key.aid(),
@@ -892,8 +892,8 @@ mod tests {
     fn legacy_two_field_proof_fails_under_new_verifier() {
         // Manually mint a signature using the old `message_id|timestamp`
         // layout — the v0.1 verifier MUST reject it.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1_700_000_000);
         let legacy_input = format!("{}|{}", mid, ts.0);
@@ -960,8 +960,8 @@ mod tests {
 
     #[test]
     fn issuer_on_pinned_key_is_rejected_before_signature_work() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -988,8 +988,8 @@ mod tests {
 
     #[test]
     fn subject_binding_sender_aid_requires_subject_to_equal_the_sender_aid() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let mut c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1017,7 +1017,7 @@ mod tests {
     #[test]
     fn p256_pinned_key_round_trip_returns_verified_key() {
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let desc = descriptor_for(
@@ -1043,7 +1043,7 @@ mod tests {
     fn p256_untagged_proof_rejected_as_algorithm_mismatch() {
         // id-011: an untagged proof reads as Ed25519; a P-256 key refuses it.
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1064,7 +1064,7 @@ mod tests {
         // id-012: the 65-byte SEC1 uncompressed form is not permitted.
         use p256::elliptic_curve::sec1::ToSec1Point as _;
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1085,7 +1085,7 @@ mod tests {
     #[test]
     fn p256_public_key_must_be_compressed_prefix() {
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1105,7 +1105,7 @@ mod tests {
 
     #[test]
     fn ed25519_key_and_p256_key_never_alias_in_the_store() {
-        let ed = AitpSigningKey::from_seed(&[3u8; 32]);
+        let ed = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let p = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
         let store = store_of(&[&ed]);
         assert!(store.is_trusted(&ed.verifying_key()));
@@ -1117,8 +1117,8 @@ mod tests {
     fn store_is_consulted_before_the_proof() {
         // An untrusted key with a garbage proof must fail at the store,
         // so the error names the store, not the signature.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1143,8 +1143,8 @@ mod tests {
     fn non_pinned_type_rejected_without_consulting_store() {
         // id-011b: an `oidc`-typed descriptor carrying a valid pinned
         // proof and public_key is not run through the pinned path.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1169,8 +1169,8 @@ mod tests {
     #[test]
     fn pop_nonce_must_be_exactly_16_bytes() {
         // id-014: 15 and 17 bytes are rejected on both sides.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let good = ctx(key.aid(), receiver.aid(), &mid);
         let desc = descriptor_for(

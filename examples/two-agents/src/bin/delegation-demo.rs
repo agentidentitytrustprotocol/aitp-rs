@@ -30,9 +30,9 @@ use aitp::tct::TctBuilder;
 fn main() {
     println!("aitp-rs delegation demo — single-hop (RFC-AITP-0006)\n");
 
-    let a = AitpSigningKey::from_seed(&[0xA1; 32]); // grantor
-    let b = AitpSigningKey::from_seed(&[0xB2; 32]); // delegator
-    let c = AitpSigningKey::from_seed(&[0xC3; 32]); // delegatee
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]); // grantor
+    let b = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]); // delegator
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC3; 32]); // delegatee
     println!("A (grantor):   {}", a.aid());
     println!("B (delegator): {}", b.aid());
     println!("C (delegatee): {}\n", c.aid());

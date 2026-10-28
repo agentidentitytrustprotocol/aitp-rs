@@ -108,7 +108,7 @@ impl AdapterState {
     fn key_for(&self, handle: &str) -> Option<AitpSigningKey> {
         self.keypair_seeds
             .get(handle)
-            .map(AitpSigningKey::from_seed)
+            .map(AitpSigningKey::from_ed25519_seed)
     }
 }
 
@@ -509,7 +509,7 @@ fn compute_jwk_thumbprint(id: &str, params: Value) -> Value {
     }
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&bytes);
-    let thumbprint = aitp::crypto::compute_jwk_thumbprint(&buf);
+    let thumbprint = aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&buf);
     json!({"id": id, "ok": true, "result": {"thumbprint": thumbprint}})
 }
 
@@ -824,7 +824,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             )
         }
     };
-    let self_key = AitpSigningKey::from_seed(&self_seed);
+    let self_key = AitpSigningKey::from_ed25519_seed(&self_seed);
 
     // RFC-AITP-0002 §6.2: a `spiffe` fixture's
     // `trust_anchors_config.spiffe_bundles` is the verifier's whole
@@ -1360,7 +1360,7 @@ impl JwksResolver for OidcTestIssuerResolver {
         if issuer != &test_issuer {
             return Ok(vec![]);
         }
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
         let Some(x) = key.verifying_key().try_to_ed25519_bytes() else {
             return Ok(vec![]);
         };
@@ -2244,7 +2244,7 @@ fn generate_keypair(state: &mut AdapterState, id: &str, params: Value) -> Value 
         }
         s
     };
-    let key = AitpSigningKey::from_seed(&seed);
+    let key = AitpSigningKey::from_ed25519_seed(&seed);
     let aid = key.aid().as_str().to_string();
     let pubkey = base64url::encode(
         &key.verifying_key()
@@ -2423,7 +2423,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     };
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pk_bytes);
-    let subject_pubkey = match AitpVerifyingKey::from_bytes(&buf) {
+    let subject_pubkey = match AitpVerifyingKey::from_ed25519_bytes(&buf) {
         Ok(p) => p,
         Err(e) => return err(id, "INVALID_REQUEST", &format!("subject_public_key: {e}")),
     };
@@ -4407,7 +4407,7 @@ mod manifest_unknown_field_tests {
     use super::*;
 
     fn signed_manifest_value() -> (Value, aitp::crypto::AitpSigningKey) {
-        let key = aitp::crypto::AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let manifest = ManifestBuilder::new(&key)
             .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
             .identity_hint(
@@ -4535,7 +4535,7 @@ mod revocation_unknown_field_tests {
     use super::*;
 
     fn issuer() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xE1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xE1; 32])
     }
 
     fn signed_snapshot_value(issuer_key: &AitpSigningKey) -> Value {
@@ -4742,7 +4742,7 @@ mod revocation_unknown_field_tests {
     #[test]
     fn verify_tct_surfaces_unparseable_issuer_revocation_snapshot_instead_of_ignoring_it() {
         let issuer_key = issuer();
-        let subject_key = AitpSigningKey::from_seed(&[0xE2; 32]);
+        let subject_key = AitpSigningKey::from_ed25519_seed(&[0xE2; 32]);
         let issued = TctBuilder::new(&issuer_key)
             .subject(subject_key.aid().clone())
             .audience(subject_key.aid().clone())
@@ -4809,9 +4809,9 @@ mod revocation_unknown_field_tests {
     /// deny list rather than surfacing the defect.
     #[test]
     fn verify_delegation_surfaces_unparseable_revocation_snapshot_instead_of_skipping_it() {
-        let a = AitpSigningKey::from_seed(&[0xE3; 32]);
-        let b = AitpSigningKey::from_seed(&[0xE4; 32]);
-        let c = AitpSigningKey::from_seed(&[0xE5; 32]);
+        let a = AitpSigningKey::from_ed25519_seed(&[0xE3; 32]);
+        let b = AitpSigningKey::from_ed25519_seed(&[0xE4; 32]);
+        let c = AitpSigningKey::from_ed25519_seed(&[0xE5; 32]);
 
         let voucher = TctBuilder::new(&a)
             .subject(b.aid().clone())
@@ -4905,7 +4905,7 @@ mod discarded_snapshot_policy_tests {
     const NOW: i64 = 1_700_000_100;
 
     fn key(seed: u8) -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[seed; 32])
+        AitpSigningKey::from_ed25519_seed(&[seed; 32])
     }
 
     fn snapshot(issuer_key: &AitpSigningKey, revoked: &[Uuid]) -> Value {
@@ -5336,7 +5336,7 @@ mod handshake_unknown_field_tests {
     /// successful result), so a dummy signature would surface
     /// INVALID_SIGNATURE before ever reaching UNKNOWN_FIELD.
     fn signed_envelope(message_type: MessageType, payload: Value) -> Value {
-        let key = AitpSigningKey::from_seed(&[0x11; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
         let message_id = Uuid::new_v4();
         let timestamp = Timestamp(1_700_000_000);
         let envelope = AitpEnvelope::unsigned(
@@ -5505,7 +5505,7 @@ mod oidc_test_issuer_tests {
     /// exactly one candidate key).
     fn mint_test_issuer_jwt(sub: &str, aud: &Aid, nonce: &str, cnf_jkt: &str, now: i64) -> String {
         let (issuer, seed) = oidc_test_issuer();
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
         let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
         let claims = json!({
             "iss": issuer,
@@ -5562,11 +5562,11 @@ mod oidc_test_issuer_tests {
 
     #[test]
     fn oidc_test_issuer_resolver_makes_verify_oidc_accept() {
-        let subject_key = AitpSigningKey::from_seed(&[0x61; 32]);
-        let audience_key = AitpSigningKey::from_seed(&[0x62; 32]);
+        let subject_key = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
+        let audience_key = AitpSigningKey::from_ed25519_seed(&[0x62; 32]);
         let cnf_jkt = AitpVerifyingKey::from_aid(subject_key.aid())
             .unwrap()
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .unwrap();
         let now = 1_711_900_000_i64;
         let nonce = "test-nonce-oidc-resolver";

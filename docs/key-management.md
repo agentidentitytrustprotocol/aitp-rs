@@ -15,11 +15,11 @@ either freshly or from a stored seed:
 use aitp::crypto::AitpSigningKey;
 
 // Fresh, from the OS CSPRNG:
-let key = AitpSigningKey::generate();          // Ed25519 (default suite)
+let key = AitpSigningKey::generate_ed25519();          // Ed25519 (default suite)
 let key = AitpSigningKey::generate_p256();     // P-256
 
 // Restored from a stored 32-byte seed:
-let key = AitpSigningKey::from_seed(&seed);              // Ed25519
+let key = AitpSigningKey::from_ed25519_seed(&seed);              // Ed25519
 let key = AitpSigningKey::from_p256_seed(&seed)?;        // P-256 (validates the scalar)
 ```
 

@@ -124,7 +124,7 @@ mod tests {
 
     #[test]
     fn verified_manifest_resolves() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         let source = vec![manifest(&key, NOW, 3600)];
         let got = resolve_verified_manifest(&source, key.aid(), &ctx()).unwrap();
         assert_eq!(&got.aid, key.aid());
@@ -132,8 +132,8 @@ mod tests {
 
     #[test]
     fn missing_manifest_is_not_found() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
-        let other = AitpSigningKey::from_seed(&[2; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let source = vec![manifest(&other, NOW, 3600)];
         assert!(matches!(
             resolve_verified_manifest(&source, key.aid(), &ctx()),
@@ -145,8 +145,8 @@ mod tests {
     fn manifest_for_another_key_is_aid_mismatch() {
         // A map entry under `aid` whose Manifest was published by a
         // different key does not designate `aid`.
-        let key = AitpSigningKey::from_seed(&[1; 32]);
-        let rotated = AitpSigningKey::from_seed(&[2; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let rotated = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let source = HashMap::from([(key.aid().clone(), manifest(&rotated, NOW, 3600))]);
         assert!(matches!(
             resolve_verified_manifest(&source, key.aid(), &ctx()),
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn unverifiable_manifest_error_is_returned() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         let expired = vec![manifest(&key, Timestamp(NOW.0 - 120), 60)];
         assert!(matches!(
             resolve_verified_manifest(&expired, key.aid(), &ctx()),
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn newest_published_manifest_wins() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         // The older copy has expired; the newer one is current.
         let source = vec![
             manifest(&key, Timestamp(NOW.0 - 120), 60),

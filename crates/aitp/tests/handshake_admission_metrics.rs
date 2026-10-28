@@ -32,7 +32,7 @@ fn admission_emits_bounded_counters_and_gauge() {
             )
             .rate_limiter(Arc::new(TokenBucketLimiter::new(100, 0.01)))
             .build();
-            let src = ChallengeSource::tls_client_cert([7; 32]);
+            let src = ChallengeSource::tls_client_cert_sha256([7; 32]);
             let ch = a.challenge_at(&src, NOW).await.unwrap();
             a.challenge_at(&src, NOW).await.unwrap();
             a.challenge_at(&src, NOW).await.unwrap_err(); // at capacity

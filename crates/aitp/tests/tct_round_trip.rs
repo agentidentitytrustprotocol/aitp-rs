@@ -9,11 +9,11 @@ use aitp::tct::{
 use uuid::Uuid;
 
 fn issuer_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA0; 32])
 }
 
 fn subject_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB0; 32])
 }
 
 fn issue_at(now: Timestamp) -> IssuedTct {
@@ -122,7 +122,7 @@ fn spoofed_issuer_claim_rejected() {
     let subject = subject_key();
     let issued = issue_at(now);
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
-    let victim = AitpSigningKey::from_seed(&[0xDD; 32]);
+    let victim = AitpSigningKey::from_ed25519_seed(&[0xDD; 32]);
     claims["iss"] = serde_json::to_value(victim.aid()).unwrap();
     let forged = forge(&issuer, &claims); // really signed by `issuer`
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
@@ -151,7 +151,7 @@ fn wrong_audience_rejected() {
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let issued = issue_at(now);
-    let other = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let ctx = TctVerifyContext::builder(other.aid(), issuer.aid(), now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
@@ -168,7 +168,7 @@ fn audience_subject_mismatch_rejected() {
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let issued = issue_at(now);
-    let evil = AitpSigningKey::from_seed(&[0xEE; 32]);
+    let evil = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
     claims["aud"] = serde_json::to_value(evil.aid()).unwrap();
     let forged = forge(&issuer, &claims);
@@ -441,7 +441,7 @@ fn builder_rejects_empty_grants() {
 fn builder_rejects_audience_neq_subject() {
     let issuer = issuer_key();
     let subject = subject_key();
-    let other = AitpSigningKey::from_seed(&[0x77; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let err = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(other.aid().clone())
@@ -473,7 +473,7 @@ fn builder_rejects_subject_pubkey_aid_mismatch() {
     // key other than the one the subject AID encodes.
     let issuer = issuer_key();
     let subject = subject_key();
-    let other = AitpSigningKey::from_seed(&[0x78; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x78; 32]);
     let err = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())

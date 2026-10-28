@@ -71,7 +71,7 @@ async fn kms_backend_signs_renewal() {
 async fn issuer_backend_with_wrong_key_is_a_local_fault() {
     let now = Timestamp(1_700_000_000);
     let good = p256(0x53);
-    let holder = AitpSigningKey::from_seed(&[0x54; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x54; 32]);
     let issued = holder_tct(&good, &holder, now);
     let bad = MockKmsSigner::new(p256(0x53)).sign_with(p256(0x55));
     let err = renew(&bad, &holder, issued.token, now).await.unwrap_err();

@@ -26,4 +26,4 @@ pub use signer::{
     AitpSigner, AsyncAitpSigner, BackendSignature, BlockingSigner, DynAsyncAitpSigner, SignRequest,
     SignerError,
 };
-pub use thumbprint::{compute_jwk_thumbprint, compute_jwk_thumbprint_p256};
+pub use thumbprint::{compute_jwk_thumbprint_ed25519_sha256, compute_jwk_thumbprint_p256_sha256};

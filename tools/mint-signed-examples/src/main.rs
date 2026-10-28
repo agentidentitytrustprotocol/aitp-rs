@@ -65,7 +65,7 @@ fn key_from_hex(seed_hex: &str) -> AitpSigningKey {
     let bytes = hex::decode(seed_hex).expect("hex");
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&bytes);
-    AitpSigningKey::from_seed(&seed)
+    AitpSigningKey::from_ed25519_seed(&seed)
 }
 
 fn output_root() -> PathBuf {

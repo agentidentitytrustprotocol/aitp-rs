@@ -92,6 +92,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     - `verify_pinned_key(..).aid` → `.aid()` (now `&Aid`).
 - The data-carrying variants of the exhaustive decision enums are `#[non_exhaustive]`, so a field can be added to them later: `RevocationStatus::SoftFailSafeSubset`, `KeyResolutionOutcome::Resolved` and `KeyResolutionOutcome::SoftFailDegraded`. Match them as `SoftFailSafeSubset { safe_grants, .. }`, `Resolved(keys, ..)` and `SoftFailDegraded { safe_grants, .. }`. A `RevocationCheckFn` builds the soft-fail answer with the new `RevocationStatus::soft_fail_safe_subset(safe_grants)`. The enums stay exhaustive.
   - Seam migration: none.
+- Rust names that hid a fixed algorithm say it. The renames are `aitp::crypto::compute_jwk_thumbprint` → `compute_jwk_thumbprint_ed25519_sha256`, `compute_jwk_thumbprint_p256` → `compute_jwk_thumbprint_p256_sha256`, `AitpVerifyingKey::to_jwk_thumbprint` → `to_jwk_thumbprint_sha256`, `AitpVerifyingKey::from_bytes` → `from_ed25519_bytes`, `aitp::core::jcs::canonicalize_and_hash` → `canonicalize_and_hash_sha256`, `ChallengeSource::tls_client_cert` → `tls_client_cert_sha256` and `TransportId::TlsClientCert` → `TlsClientCertSha256`. `AitpSigningKey::generate()` and `AitpSigningKey::from_seed()`, the Ed25519-only twins of `generate_ed25519()` and `from_ed25519_seed()`, are gone. Thumbprints, wire members, error codes and the conformance op names are unchanged.
+  - Seam migration: none.
 
 ### Added
 

@@ -50,7 +50,7 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let Some(seed) = kat_seed_for_aid(self_aid) else {
         return err(id, "OP_NOT_SUPPORTED", "self_aid is not a KAT keypair");
     };
-    let issuer = AitpSigningKey::from_seed(&seed);
+    let issuer = AitpSigningKey::from_ed25519_seed(&seed);
     let now = step_now(state, &params);
     let manifest = params
         .get("issuer_manifest")

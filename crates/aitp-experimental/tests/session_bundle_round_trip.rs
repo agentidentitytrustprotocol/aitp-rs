@@ -19,7 +19,7 @@ use uuid::Uuid;
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
 fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> String {
@@ -651,7 +651,7 @@ fn participant_tct_with_unknown_claim_rejected_as_unknown_field_not_internal_err
         "iat": NOW.0,
         "exp": NOW.0 + 3600,
         "grants": ["session.participate"],
-        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "rogue": "nope",
     });
     let bad_tct =

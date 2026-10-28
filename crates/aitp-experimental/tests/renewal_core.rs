@@ -61,8 +61,8 @@ async fn renew(
 
 #[tokio::test]
 async fn round_trip_renewal_succeeds() {
-    let issuer = AitpSigningKey::from_seed(&[0x01; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x02; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x01; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x02; 32]);
     let now = Timestamp(1_700_000_000);
     let manifest_exp = Timestamp(now.0 + 86_400);
 
@@ -86,9 +86,9 @@ async fn round_trip_renewal_succeeds() {
 
 #[tokio::test]
 async fn renewal_with_wrong_holder_key_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x10; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x11; 32]);
-    let attacker = AitpSigningKey::from_seed(&[0x12; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x10; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+    let attacker = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
     let request = build_renewal_request(
@@ -108,8 +108,8 @@ async fn renewal_with_wrong_holder_key_rejected() {
 
 #[tokio::test]
 async fn renewal_bounded_by_manifest_expiry() {
-    let issuer = AitpSigningKey::from_seed(&[0x20; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x21; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x20; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x21; 32]);
     let now = Timestamp(1_700_000_000);
     let manifest_exp = Timestamp(now.0 + 600); // 10 min left
     let original = issue(&issuer, &holder, now, 60);
@@ -127,8 +127,8 @@ async fn renewal_bounded_by_manifest_expiry() {
 
 #[tokio::test]
 async fn renewal_after_manifest_expired_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x30; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x31; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x30; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x31; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
     let request =
@@ -151,8 +151,8 @@ async fn renewal_after_manifest_expired_rejected() {
 /// where the old `skip_manifest_expiry_cap_dangerous` waiver let it in.
 #[tokio::test]
 async fn renewal_of_tct_outliving_rotated_manifest_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x32; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x33; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x32; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 3600);
     let request =
@@ -168,8 +168,8 @@ async fn renewal_of_tct_outliving_rotated_manifest_rejected() {
 
 #[tokio::test]
 async fn renewal_of_expired_tct_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x34; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x35; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x34; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x35; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
     let request =
@@ -186,9 +186,9 @@ async fn renewal_of_expired_tct_rejected() {
 
 #[tokio::test]
 async fn renewal_of_foreign_issuer_token_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x40; 32]);
-    let other_issuer = AitpSigningKey::from_seed(&[0x41; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x42; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x40; 32]);
+    let other_issuer = AitpSigningKey::from_ed25519_seed(&[0x41; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let now = Timestamp(1_700_000_000);
     let foreign = issue(&other_issuer, &holder, now, 60);
     let request =
@@ -209,8 +209,8 @@ async fn renewal_of_foreign_issuer_token_rejected() {
 /// `serde_json::Value` can even represent.
 #[tokio::test]
 async fn renewal_of_token_with_duplicate_claim_is_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x50; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x51; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x50; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x51; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
 
@@ -245,8 +245,8 @@ async fn renewal_of_token_with_duplicate_claim_is_rejected() {
 /// #196: the same signed request presented twice mints only once.
 #[tokio::test]
 async fn replayed_pop_nonce_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let request =
@@ -274,9 +274,9 @@ async fn replayed_pop_nonce_rejected() {
 /// burn the holder's nonce.
 #[tokio::test]
 async fn failed_pop_does_not_record_nonce() {
-    let issuer = AitpSigningKey::from_seed(&[0x62; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x63; 32]);
-    let attacker = AitpSigningKey::from_seed(&[0x64; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x62; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x63; 32]);
+    let attacker = AitpSigningKey::from_ed25519_seed(&[0x64; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let nonce = base64url::encode(&[0x9a; 16]);
@@ -306,8 +306,8 @@ async fn failed_pop_does_not_record_nonce() {
 
 #[tokio::test]
 async fn pop_nonce_of_wrong_length_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x65; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x66; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x65; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x66; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     for len in [0usize, 8, 15, 17, 32] {
@@ -342,8 +342,8 @@ async fn pop_nonce_of_wrong_length_rejected() {
 /// revoked-but-unexpired TCT renew. It must not.
 #[tokio::test]
 async fn renewal_of_revoked_tct_rejected() {
-    let issuer = AitpSigningKey::from_seed(&[0x70; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x71; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let revoked_jti = original.claims.jti;
@@ -378,8 +378,8 @@ async fn renewal_of_revoked_tct_rejected() {
 /// A grant the issuer's Manifest no longer offers is dropped.
 #[tokio::test]
 async fn withdrawn_grant_is_dropped() {
-    let issuer = AitpSigningKey::from_seed(&[0x72; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x73; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x73; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let request =
@@ -402,8 +402,8 @@ async fn withdrawn_grant_is_dropped() {
 /// Every grant withdrawn (by the Manifest or by policy): refused.
 #[tokio::test]
 async fn all_grants_withdrawn_refused() {
-    let issuer = AitpSigningKey::from_seed(&[0x74; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x75; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x74; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x75; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let store = InMemoryNonceStore::new(16);
@@ -448,8 +448,8 @@ async fn all_grants_withdrawn_refused() {
 
 #[tokio::test]
 async fn grant_policy_narrows_and_voucher_is_optional() {
-    let issuer = AitpSigningKey::from_seed(&[0x76; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x77; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x76; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let request =
@@ -480,8 +480,8 @@ async fn grant_policy_narrows_and_voucher_is_optional() {
 
 #[tokio::test]
 async fn nonce_store_at_capacity_is_a_local_error() {
-    let issuer = AitpSigningKey::from_seed(&[0x78; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x79; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x78; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x79; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let store = InMemoryNonceStore::new(1);
@@ -520,7 +520,7 @@ async fn nonce_store_at_capacity_is_a_local_error() {
 #[test]
 fn renewal_future_is_send() {
     fn assert_send<T: Send>(_: &T) {}
-    let issuer = AitpSigningKey::from_seed(&[0x7a; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x7a; 32]);
     let store = InMemoryNonceStore::new(1);
     let offered = offered();
     let ctx = RenewalContext::new(
@@ -601,9 +601,9 @@ fn renewal_pop_input_matches_kats() {
 /// bad PoP is refused for the PoP.
 #[tokio::test]
 async fn pop_is_checked_before_revocation() {
-    let issuer = AitpSigningKey::from_seed(&[0x7b; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x7c; 32]);
-    let other = AitpSigningKey::from_seed(&[0x7d; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x7b; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x7c; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x7d; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let revoked = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Revoked);
@@ -631,8 +631,8 @@ async fn pop_is_checked_before_revocation() {
 /// §4 step 6: a grant the policy returns outside its input is dropped.
 #[tokio::test]
 async fn grant_policy_cannot_widen() {
-    let issuer = AitpSigningKey::from_seed(&[0x7e; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x7f; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x7e; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x7f; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let request =
@@ -687,8 +687,8 @@ struct Exchange {
 }
 
 async fn exchange() -> Exchange {
-    let issuer = AitpSigningKey::from_seed(&[0x83; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x84; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x83; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x84; 32]);
     let now = Timestamp(1_700_000_000);
     let current = issue(&issuer, &holder, now, 600).token;
     let nonce = base64url::encode(&[0xae; 16]);

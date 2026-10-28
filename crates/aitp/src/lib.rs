@@ -39,8 +39,8 @@
 //! use aitp::tct::{verify_tct, RevocationSource, TctBuilder, TctVerifyContext};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let alice = AitpSigningKey::from_seed(&[0x11; 32]);
-//! let bob = AitpSigningKey::from_seed(&[0x22; 32]);
+//! let alice = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+//! let bob = AitpSigningKey::from_ed25519_seed(&[0x22; 32]);
 //! let now = Timestamp(1_700_000_000);
 //!
 //! // `issued.token` is the opaque compact JWS that goes on the wire;

@@ -229,7 +229,7 @@ fn sig_001_ed25519_small_order_key_rejected() {
     let msg = hex::decode(v["message_hex"].as_str().unwrap()).unwrap();
     let raw = Base64UrlUnpadded::decode_vec(v["signature_b64url"].as_str().unwrap()).unwrap();
     // A small-order key may parse, but must never verify anything.
-    if let Ok(vk) = AitpVerifyingKey::from_bytes(&pk) {
+    if let Ok(vk) = AitpVerifyingKey::from_ed25519_bytes(&pk) {
         assert!(vk.verify_raw(&msg, &raw).is_err());
         let d = Digest32::from_bytes(msg.clone().try_into().unwrap());
         let s = Signature::parse(v["signature_b64url"].as_str().unwrap()).unwrap();
@@ -387,7 +387,7 @@ fn kat_envelope_002_ed25519_with_extensions_verifies_and_v1_does_not() {
     assert!(v["envelope"]["extensions"]
         .as_object()
         .is_some_and(|m| !m.is_empty()));
-    let (d, vk) = check_envelope_kat(&v, &AitpSigningKey::from_seed(&[0u8; 32]));
+    let (d, vk) = check_envelope_kat(&v, &AitpSigningKey::from_ed25519_seed(&[0u8; 32]));
 
     // Dropping `extensions` changes the input, so the signature fails.
     let mut stripped: aitp::core::AitpEnvelope =

@@ -40,8 +40,8 @@ fn validate_against(value: &serde_json::Value, path: PathBuf) -> Result<(), Stri
 }
 
 fn issue() -> aitp::tct::IssuedTct {
-    let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
-    let subject = AitpSigningKey::from_seed(&[0xB0; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
+    let subject = AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
     TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
@@ -119,7 +119,7 @@ fn regex_lite() -> impl Fn(&str) -> bool {
 
 #[test]
 fn signed_revocation_list_validates_against_spec_schema() {
-    let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
     let body = RevocationList::new(
         issuer.aid().clone(),
         Timestamp(1_700_000_000),
@@ -138,7 +138,7 @@ fn signed_revocation_list_validates_against_spec_schema() {
 
 #[test]
 fn empty_entries_revocation_list_validates() {
-    let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
     let body = RevocationList::new(
         issuer.aid().clone(),
         Timestamp(1_700_000_000),
@@ -154,7 +154,7 @@ fn empty_entries_revocation_list_validates() {
 
 #[test]
 fn revocation_list_with_present_but_empty_extensions_validates_against_spec_schema() {
-    let issuer = AitpSigningKey::from_seed(&[0xA0; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
     let body = {
         let mut list = RevocationList::new(
             issuer.aid().clone(),

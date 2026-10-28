@@ -998,7 +998,7 @@ mod cache_tests {
     fn fresh_cache_hit_returns_manifest() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = verified(&AitpSigningKey::generate(), now, 3600);
+        let m = verified(&AitpSigningKey::generate_ed25519(), now, 3600);
         let aid = m.manifest().aid.clone();
         fetcher.insert_cache(m.clone());
         assert_eq!(fetcher.cached(&aid), Some(m));
@@ -1008,7 +1008,11 @@ mod cache_tests {
     fn expired_entry_is_not_served() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = verified(&AitpSigningKey::generate(), Timestamp(now.0 - 7200), 7199);
+        let m = verified(
+            &AitpSigningKey::generate_ed25519(),
+            Timestamp(now.0 - 7200),
+            7199,
+        );
         let aid = m.manifest().aid.clone();
         fetcher.insert_cache(m);
         assert!(
@@ -1020,7 +1024,7 @@ mod cache_tests {
     #[test]
     fn newer_inline_replaces_older_cached() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         let older = verified(&key, Timestamp(now.0 - 100), 3600);
         let aid = older.manifest().aid.clone();
@@ -1033,7 +1037,7 @@ mod cache_tests {
     #[test]
     fn older_inline_does_not_replace_newer_cached() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         let newer = verified(&key, now, 3600);
         fetcher.insert_cache(newer);
@@ -1047,7 +1051,7 @@ mod cache_tests {
     #[test]
     fn equal_published_at_does_not_replace() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         fetcher.insert_cache(verified(&key, now, 3600));
         let same = verified(&key, now, 7200);

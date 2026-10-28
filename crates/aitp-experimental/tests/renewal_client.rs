@@ -28,7 +28,7 @@ impl RevocationListProducer for StaticProducer {
 
 /// Serve `seed`'s renewal endpoint for `m` on `listener`.
 fn spawn_renewal(seed: [u8; 32], m: &Manifest, listener: TcpListener) {
-    let key = AitpSigningKey::from_seed(&seed);
+    let key = AitpSigningKey::from_ed25519_seed(&seed);
     let now = Timestamp::now();
     let list = sign_revocation_list(
         RevocationList::new(key.aid().clone(), now, Timestamp(now.0 + 3600), vec![]),
@@ -87,8 +87,8 @@ fn held_tct(issuer: &AitpSigningKey, holder: &AitpSigningKey) -> String {
 
 #[tokio::test]
 async fn renews_at_the_advertised_uri() {
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     // A non-default path: only reading the Manifest finds it.
@@ -115,8 +115,8 @@ async fn renews_at_the_advertised_uri() {
 
 #[tokio::test]
 async fn no_renew_uri_means_no_request() {
-    let issuer = AitpSigningKey::from_seed(&[0x62; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x63; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x62; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x63; 32]);
 
     // Count every request that reaches the issuer's host.
     let hits = Arc::new(AtomicUsize::new(0));
@@ -184,8 +184,8 @@ async fn refusal_is_surfaced_with_its_code() {
     use aitp::core::ErrorCode;
     use aitp_experimental::renewal::RenewalResponseError;
 
-    let issuer = AitpSigningKey::from_seed(&[0x64; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x65; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x64; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x65; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));

@@ -177,7 +177,7 @@ fn committed_manifest_example_signs_the_inner_body_only() {
 #[test]
 fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
     const PUBLISHED_AT: i64 = 1_700_000_000;
-    let key = AitpSigningKey::from_seed(&[9u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
 
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint(

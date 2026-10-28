@@ -17,13 +17,13 @@ use aitp_experimental::delegation::{
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA2; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB2; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC2; 32])
 }
 
 fn manifests() -> Vec<Manifest> {

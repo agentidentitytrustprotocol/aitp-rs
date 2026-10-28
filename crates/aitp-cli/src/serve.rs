@@ -881,7 +881,7 @@ mod tests {
     use super::*;
 
     fn vk(seed: u8) -> AitpVerifyingKey {
-        AitpSigningKey::from_seed(&[seed; 32]).verifying_key()
+        AitpSigningKey::from_ed25519_seed(&[seed; 32]).verifying_key()
     }
 
     #[test]
@@ -993,8 +993,8 @@ mod tests {
 
     #[tokio::test]
     async fn echo_accepts_pop_once() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (tct, claims) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, claims.jti).await;
         let resp = echo::respond(&holder, &peer.aid, claims.jti, ch).unwrap();
@@ -1011,9 +1011,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_wrong_answer_burns_the_challenge() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
-        let thief = AitpSigningKey::from_seed(&[3; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
+        let thief = AitpSigningKey::from_ed25519_seed(&[3; 32]);
         let (tct, claims) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, claims.jti).await;
         let now = Timestamp::now();
@@ -1033,8 +1033,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_challenge_is_bound_to_its_jti() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (_, first) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let (tct2, second) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, first.jti).await;
@@ -1048,14 +1048,14 @@ mod tests {
 
     #[test]
     fn own_tct_checks_issuer_audience_and_grant() {
-        let peer = AitpSigningKey::from_seed(&[1; 32]);
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (tct, _) = issue(&peer, &holder, &[ECHO_CAP]);
         let (no_grant, _) = issue(&peer, &holder, &["something.else"]);
         // After both are minted: an `iat` past `now` is not yet valid.
         let now = Timestamp::now();
         assert!(verify_own_tct(&tct, peer.aid(), now).is_ok());
-        let other = AitpSigningKey::from_seed(&[3; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[3; 32]);
         assert_eq!(
             code(verify_own_tct(&tct, other.aid(), now)),
             "TCT_SIGNATURE_INVALID"

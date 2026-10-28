@@ -34,7 +34,7 @@ impl JwksResolver for NoOpResolver {
 /// empty and every pinned-key initiator is refused. Returns the
 /// responder's key and origin.
 async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
-    let key = AitpSigningKey::from_seed(&[seed; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let origin = format!("http://localhost:{port}");
@@ -55,10 +55,12 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
     let trusted = if reject_cli {
         StaticPinnedKeyStore::default()
     } else {
-        StaticPinnedKeyStore::new([AitpSigningKey::from_seed(&[CLI_SEED; 32]).verifying_key()])
+        StaticPinnedKeyStore::new([
+            AitpSigningKey::from_ed25519_seed(&[CLI_SEED; 32]).verifying_key()
+        ])
     };
     let handshake = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[seed; 32]),
+        AitpSigningKey::from_ed25519_seed(&[seed; 32]),
         manifest.clone(),
         vec![],
         NoOpResolver,
@@ -123,7 +125,9 @@ async fn handshake_prints_tct_claims() {
     assert_eq!(claims["iss"], peer.aid().to_string());
     assert_eq!(
         claims["aud"],
-        AitpSigningKey::from_seed(&[CLI_SEED; 32]).aid().to_string()
+        AitpSigningKey::from_ed25519_seed(&[CLI_SEED; 32])
+            .aid()
+            .to_string()
     );
     assert!(claims["grants"]
         .as_array()
@@ -170,7 +174,9 @@ async fn offers_default_to_the_requested_grants() {
 #[tokio::test(flavor = "multi_thread")]
 async fn handshake_refuses_peer_that_is_not_the_pinned_aid() {
     let (_peer, origin) = spawn_peer(0x73, false).await;
-    let someone_else = AitpSigningKey::from_seed(&[0x99; 32]).aid().to_string();
+    let someone_else = AitpSigningKey::from_ed25519_seed(&[0x99; 32])
+        .aid()
+        .to_string();
     let key = key_file("mismatch");
 
     aitp()

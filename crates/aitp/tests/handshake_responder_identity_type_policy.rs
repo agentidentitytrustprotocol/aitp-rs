@@ -64,8 +64,8 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
 /// `bob_accepts` and whose pinned-key store trusts alice only when
 /// `bob_trusts_alice`.
 fn bob_on_hello(bob_accepts: &[&str], bob_trusts_alice: bool) -> Result<(), HandshakeError> {
-    let alice = AitpSigningKey::from_seed(&[0x81; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x82; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x81; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x82; 32]);
     let alice_manifest = manifest_for(&alice, "alice", &["pinned_key"]);
     let bob_manifest = manifest_for(&bob, "bob", bob_accepts);
     let resolver = NoOpResolver;

@@ -46,7 +46,7 @@ fn key_from_hex(seed_hex: &str) -> AitpSigningKey {
     let bytes = hex::decode(seed_hex).expect("hex");
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&bytes);
-    AitpSigningKey::from_seed(&seed)
+    AitpSigningKey::from_ed25519_seed(&seed)
 }
 
 fn aid_for_role(role: &str) -> String {
@@ -580,11 +580,11 @@ fn mint_valid_jwt(
     secret: &[u8],
 ) -> String {
     // cnf.jkt is the SHA-256 thumbprint of the canonical JWK form per
-    // RFC-AITP-0002 §2.2.1 (matches aitp::crypto::compute_jwk_thumbprint).
+    // RFC-AITP-0002 §2.2.1 (matches aitp::crypto::compute_jwk_thumbprint_ed25519_sha256).
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&buf);
     let claims = json!({
         "sub": subject,
         "iat": FIXED_NOW,
@@ -605,7 +605,7 @@ fn mint_jwt_missing_aud(
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&buf);
     let claims = json!({
         "sub": subject,
         "iat": FIXED_NOW,
@@ -625,7 +625,7 @@ fn mint_jwt_wrong_aud(
     let pubkey_bytes = base64url::decode_strict(sender_pubkey_b64).unwrap();
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pubkey_bytes);
-    let jkt = aitp::crypto::compute_jwk_thumbprint(&buf);
+    let jkt = aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&buf);
     // Audience targets a DIFFERENT peer than the one verifying.
     let wrong = key_from_hex(KAT_003_SEED_HEX).aid().as_str().to_string();
     let claims = json!({

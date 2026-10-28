@@ -51,7 +51,7 @@ fn demo_runs_end_to_end() {
         // agent-b fails closed: pin agent-a's AID (RFC-AITP-0002 §3.2).
         .arg("--trust")
         .arg(
-            AitpSigningKey::from_seed(&expand_seed("integration-test-alice-seed"))
+            AitpSigningKey::from_ed25519_seed(&expand_seed("integration-test-alice-seed"))
                 .aid()
                 .as_str(),
         )
