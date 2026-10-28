@@ -34,6 +34,7 @@
 //! against a different sender, receiver, message, timestamp, or
 //! handshake nonce.
 
+use crate::core::nonce_store::NONCE_LEN;
 use crate::core::{base64url, Aid, AidAlgorithm, Timestamp};
 use crate::crypto::{AitpVerifyingKey, Signature};
 use crate::handshake::error::HandshakeError;
@@ -44,11 +45,6 @@ use uuid::Uuid;
 /// a signature minted under one AITP version from being replayed
 /// against a future version with a different proof-input layout.
 pub const PINNED_KEY_PROOF_DOMAIN: &[u8] = b"aitp-pinned-key-v1\0";
-
-/// Decoded length of a `pop_nonce` (RFC-AITP-0002 §3.4, proposal #72
-/// Item 5): exactly 16 bytes. Any other length is `IDENTITY_FAILED`,
-/// rejected before signature verification.
-pub const POP_NONCE_LEN: usize = 16;
 
 /// Build the canonical pinned-key proof input bytes.
 ///
@@ -84,9 +80,9 @@ pub(crate) fn handshake_proof_input(
 ) -> Result<Vec<u8>, HandshakeError> {
     let pop_nonce_bytes = base64url::decode_strict(pop_nonce)
         .map_err(|_| HandshakeError::Identity("pop_nonce is not valid base64url".into()))?;
-    if pop_nonce_bytes.len() != POP_NONCE_LEN {
+    if pop_nonce_bytes.len() != NONCE_LEN {
         return Err(HandshakeError::Identity(format!(
-            "pop_nonce must decode to exactly {POP_NONCE_LEN} bytes, got {}",
+            "pop_nonce must decode to exactly {NONCE_LEN} bytes, got {}",
             pop_nonce_bytes.len()
         )));
     }

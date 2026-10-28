@@ -674,7 +674,7 @@ fn challenge_refusal_is_a_code_and_challenge_rate_limit_is_http_429() {
 
     let mut state = AdapterState::default();
     let open = json!({"self_aid": aid, "source": "198.51.100.8"});
-    for i in 0..aitp::handshake::admission::RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+    for i in 0..aitp::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
         let r = handle(
             &mut state,
             &format!("o{i}"),

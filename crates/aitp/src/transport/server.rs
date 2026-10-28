@@ -271,13 +271,6 @@ pub struct RateLimitConfig {
 }
 
 impl RateLimitConfig {
-    /// RFC-AITP-0009 §3.1 recommended handshake requests per source IP
-    /// per 60 s.
-    pub const RECOMMENDED_PER_SOURCE: u32 = 30;
-    /// RFC-AITP-0009 §3.1 recommended handshake requests per initiator
-    /// AID per 60 s.
-    pub const RECOMMENDED_PER_AID: u32 = 10;
-
     /// Set `requests_per_source_per_60s`.
     pub fn with_requests_per_source_per_60s(mut self, n: u32) -> Self {
         self.requests_per_source_per_60s = n;
@@ -300,8 +293,8 @@ impl RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            requests_per_source_per_60s: Self::RECOMMENDED_PER_SOURCE,
-            requests_per_aid_per_60s: Some(Self::RECOMMENDED_PER_AID),
+            requests_per_source_per_60s: crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S,
+            requests_per_aid_per_60s: Some(crate::handshake::RECOMMENDED_REQUESTS_PER_AID_PER_60S),
             trusted_proxies: Vec::new(),
         }
     }

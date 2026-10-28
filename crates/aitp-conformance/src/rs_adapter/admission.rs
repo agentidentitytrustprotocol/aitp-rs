@@ -127,7 +127,8 @@ fn seed_challenge(store: &InMemoryNonceStore, ch: &Value, now: Timestamp) -> Res
         .ok_or("missing pop_nonce")?;
     // A seeded nonce of the wrong length cannot be issued; it is the
     // presentation's problem (`id-014`), so seed nothing.
-    let Ok(nonce) = base64url::decode_strict_exact::<{ aitp::handshake::POP_NONCE_LEN }>(pop_nonce)
+    let Ok(nonce) =
+        base64url::decode_strict_exact::<{ aitp::core::nonce_store::NONCE_LEN }>(pop_nonce)
     else {
         return Ok(());
     };

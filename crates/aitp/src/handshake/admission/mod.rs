@@ -461,7 +461,7 @@ impl PinnedAdmission {
         // A duplicate means the CSPRNG repeated 128 bits; one retry is
         // already paranoid.
         for _ in 0..2 {
-            let mut nonce: Nonce = [0; crate::handshake::POP_NONCE_LEN];
+            let mut nonce: Nonce = [0; crate::core::nonce_store::NONCE_LEN];
             rand::rngs::SysRng
                 .try_fill_bytes(&mut nonce)
                 .map_err(|e| AdmissionError::Rng(e.into()))?;

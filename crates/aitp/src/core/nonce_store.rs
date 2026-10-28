@@ -12,8 +12,10 @@ use std::sync::atomic::{AtomicI64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::Duration;
 
-/// Length in bytes of a [`Nonce`]: 16, the `pop_nonce` length of
-/// RFC-AITP-0002 §3.1 (22 unpadded base64url characters).
+/// Length in bytes of a [`Nonce`] and of a decoded `pop_nonce`: 16
+/// (RFC-AITP-0002 §3.1, §3.4; 22 unpadded base64url characters). A
+/// `pop_nonce` of any other length is `IDENTITY_FAILED`, rejected before
+/// signature verification.
 pub const NONCE_LEN: usize = 16;
 
 /// Gauge name for the records an [`InMemoryNonceStore`] holds, emitted

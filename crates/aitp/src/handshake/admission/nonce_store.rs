@@ -8,8 +8,6 @@ pub use crate::core::nonce_store::{
     ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
 };
 
-const _: () = assert!(crate::core::nonce_store::NONCE_LEN == crate::handshake::POP_NONCE_LEN);
-
 /// Lock, recovering from poisoning: every critical section leaves the
 /// map consistent, so a panic elsewhere never corrupts it.
 pub(crate) fn lock<T>(m: &std::sync::Mutex<T>) -> std::sync::MutexGuard<'_, T> {

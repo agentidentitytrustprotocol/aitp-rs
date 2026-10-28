@@ -28,7 +28,7 @@ pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveErr
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyEntry,
     PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, StaticPinnedKeyStore,
-    SubjectBinding, VerifiedPinnedKey, VerifiedPinnedKeyParts, POP_NONCE_LEN,
+    SubjectBinding, VerifiedPinnedKey, VerifiedPinnedKeyParts,
 };
 pub use identity_verifier::{
     IdentityVerifier, IdentityVerifyContext, IdentityVerifyError, VerifiedIdentity,
@@ -41,6 +41,17 @@ pub use payloads::{
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
+/// RFC-AITP-0009 §3.1 recommended handshake requests per source (peer
+/// IP address or TLS client-certificate fingerprint) per 60 s. The
+/// default of `aitp::transport::RateLimitConfig` and of
+/// `aitp::handshake::admission::RecommendedLimiter`.
+pub const RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S: u32 = 30;
+/// RFC-AITP-0009 §3.1 recommended handshake requests per claimed
+/// initiator AID per 60 s. The default of
+/// `aitp::transport::RateLimitConfig` and of
+/// `aitp::handshake::admission::RecommendedLimiter`.
+pub const RECOMMENDED_REQUESTS_PER_AID_PER_60S: u32 = 10;
+
 pub use state_machine::{
     CompletedHandshake, CompletedHandshakeParts, GrantPolicyContext, GrantPolicyError,
     GrantPolicyFn, Initiator, LocalOidcMintJwtFn, OidcMintError, OidcMintJwtFn, PeerConfig,

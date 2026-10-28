@@ -460,7 +460,7 @@ fn refusal_without_store_hint_retries_after_max_ttl() {
 async fn rate_limit_is_on_by_default() {
     let a = admission();
     let ip = ChallengeSource::ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
-    for _ in 0..RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+    for _ in 0..aitp::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
         a.challenge_at(&ip, NOW).await.unwrap();
     }
     let e = a.challenge_at(&ip, NOW).await.unwrap_err();

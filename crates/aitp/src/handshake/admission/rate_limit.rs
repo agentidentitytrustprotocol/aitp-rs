@@ -263,11 +263,6 @@ pub struct RecommendedLimiter {
 }
 
 impl RecommendedLimiter {
-    /// RFC-AITP-0009 §3.1: requests per source IP per 60 s.
-    pub const PER_TRANSPORT_PER_MINUTE: u32 = 30;
-    /// RFC-AITP-0009 §3.1: requests per initiator AID per 60 s.
-    pub const PER_LABEL_PER_MINUTE: u32 = 10;
-
     /// `burst`/`per_second` per transport source, and optionally
     /// `(burst, per_second)` per label. `None` leaves labels unlimited
     /// (the transport limit still applies).
@@ -282,8 +277,14 @@ impl RecommendedLimiter {
 impl Default for RecommendedLimiter {
     fn default() -> Self {
         let per_min = |n: u32| (n, f64::from(n) / 60.0);
-        let (tb, tr) = per_min(Self::PER_TRANSPORT_PER_MINUTE);
-        Self::new(tb, tr, Some(per_min(Self::PER_LABEL_PER_MINUTE)))
+        let (tb, tr) = per_min(crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S);
+        Self::new(
+            tb,
+            tr,
+            Some(per_min(
+                crate::handshake::RECOMMENDED_REQUESTS_PER_AID_PER_60S,
+            )),
+        )
     }
 }
 
@@ -403,7 +404,7 @@ mod tests {
         let l = RecommendedLimiter::default();
         let src = ChallengeSource::ip(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)));
         let t0 = Instant::now();
-        for _ in 0..RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+        for _ in 0..crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
             l.check_at(&src, t0).unwrap();
         }
         assert!(l.check_at(&src, t0).is_err());
