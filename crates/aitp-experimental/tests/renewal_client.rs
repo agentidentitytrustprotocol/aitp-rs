@@ -10,8 +10,8 @@ use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{sign_revocation_list, RevocationList, RevocationListEnvelope, TctBuilder};
 use aitp::transport::RevocationListProducer;
 use aitp_experimental::renewal::{
-    renew_tct, renew_tct_with_insecure_localhost_dangerous, RenewClientError, RenewalServer,
-    RENEW_URI_EXT,
+    renew_tct, renew_tct_with_insecure_localhost_dangerous, RenewClientError, RenewalErrorCode,
+    RenewalServer, RENEW_URI_EXT,
 };
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -212,7 +212,10 @@ async fn refusal_is_surfaced_with_its_code() {
         .unwrap_err();
     match err {
         RenewClientError::Response(RenewalResponseError::Refused { code, .. }) => {
-            assert_eq!(code, ErrorCode::PolicyViolation)
+            assert_eq!(
+                code,
+                RenewalErrorCode::Registered(ErrorCode::PolicyViolation)
+            )
         }
         other => panic!("got {other:?}"),
     }

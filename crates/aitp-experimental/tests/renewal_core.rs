@@ -11,7 +11,8 @@ use aitp::tct::{
 use aitp_experimental::renewal::{
     build_renewal_request, parse_renewal_request, process_renewal_request, renewal_error_envelope,
     renewal_pop_input, renewal_response_envelope, verify_renewal_response, RenewalContext,
-    RenewalError, RenewalResponseContext, RenewalResponseError, TctRenewalPayload,
+    RenewalError, RenewalErrorCode, RenewalResponseContext, RenewalResponseError,
+    TctRenewalPayload,
 };
 use uuid::Uuid;
 
@@ -679,7 +680,10 @@ async fn pop_is_checked_before_revocation() {
         matches!(err, RenewalError::Tct(TctError::PopFailed)),
         "got {err:?}"
     );
-    assert_eq!(err.error_code(), ErrorCode::PopResponseInvalid);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::PopResponseInvalid)
+    );
 }
 
 /// §4 step 6: a grant the policy returns outside its input is dropped.
@@ -718,7 +722,7 @@ async fn grant_policy_cannot_widen() {
 fn audience_other_than_subject_is_tct_signature_invalid() {
     assert_eq!(
         RenewalError::Tct(TctError::AudienceMismatch).error_code(),
-        ErrorCode::TctSignatureInvalid
+        RenewalErrorCode::Registered(ErrorCode::TctSignatureInvalid)
     );
 }
 
@@ -731,7 +735,10 @@ fn malformed_request_body_is_pop_response_invalid() {
         br#"{"current_tct":"a","pop_nonce":"b","pop_signature":"c","pop_nonce":"d"}"#,
     ] {
         let err = parse_renewal_request(body).unwrap_err();
-        assert_eq!(err.error_code(), ErrorCode::PopResponseInvalid);
+        assert_eq!(
+            err.error_code(),
+            RenewalErrorCode::Registered(ErrorCode::PopResponseInvalid)
+        );
     }
 }
 
@@ -785,13 +792,19 @@ async fn holder_rejects_a_bad_response() {
     let env = renewal_response_envelope(&x.issuer, &x.renewed, &other_nonce, Uuid::new_v4(), x.now)
         .unwrap();
     let err = verify_renewal_response(&env, &ctx).unwrap_err();
-    assert_eq!(err.error_code(), ErrorCode::NonceMismatch);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::NonceMismatch)
+    );
 
     // Step 2: signed by someone other than the issuer.
     let env =
         renewal_response_envelope(&x.holder, &x.renewed, &x.nonce, Uuid::new_v4(), x.now).unwrap();
     let err = verify_renewal_response(&env, &ctx).unwrap_err();
-    assert_eq!(err.error_code(), ErrorCode::PeerMismatch);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::PeerMismatch)
+    );
 
     // Step 1: outside the timestamp window.
     let env = renewal_response_envelope(
@@ -803,7 +816,10 @@ async fn holder_rejects_a_bad_response() {
     )
     .unwrap();
     let err = verify_renewal_response(&env, &ctx).unwrap_err();
-    assert_eq!(err.error_code(), ErrorCode::TimestampExpired);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::TimestampExpired)
+    );
 
     // Step 6: a grant the current TCT does not carry.
     let wider = TctBuilder::new(&x.issuer)
@@ -818,7 +834,10 @@ async fn holder_rejects_a_bad_response() {
     let env =
         renewal_response_envelope(&x.issuer, &wider, &x.nonce, Uuid::new_v4(), x.now).unwrap();
     let err = verify_renewal_response(&env, &ctx).unwrap_err();
-    assert_eq!(err.error_code(), ErrorCode::GrantOverflow);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::GrantOverflow)
+    );
 }
 
 #[tokio::test]
@@ -827,7 +846,7 @@ async fn holder_surfaces_an_issuer_refusal() {
     let ctx = RenewalResponseContext::new(x.holder.aid(), &x.current, &x.nonce, x.now);
     let env = renewal_error_envelope(
         &x.issuer,
-        ErrorCode::TctRevoked,
+        RenewalErrorCode::Registered(ErrorCode::TctRevoked),
         "revoked",
         false,
         Uuid::new_v4(),
@@ -839,11 +858,14 @@ async fn holder_surfaces_an_issuer_refusal() {
         matches!(
             &err,
             RenewalResponseError::Refused {
-                code: ErrorCode::TctRevoked,
+                code: RenewalErrorCode::Registered(ErrorCode::TctRevoked),
                 ..
             }
         ),
         "got {err:?}"
     );
-    assert_eq!(err.error_code(), ErrorCode::TctRevoked);
+    assert_eq!(
+        err.error_code(),
+        RenewalErrorCode::Registered(ErrorCode::TctRevoked)
+    );
 }

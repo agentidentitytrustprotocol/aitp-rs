@@ -7,18 +7,19 @@
 use super::admission::ready;
 use super::{checked, envelope_parse_error_code, err, kat_seed_for_aid, AdapterState};
 use aitp::core::nonce_store::InMemoryNonceStore;
-use aitp::core::{Aid, ErrorCode, Timestamp};
+use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp_experimental::renewal::{
     parse_renewal_request, process_renewal_request, renewal_response_envelope,
-    verify_renewal_response, RenewalContext, RenewalError, RenewalResponseContext,
+    verify_renewal_response, RenewalContext, RenewalError, RenewalErrorCode,
+    RenewalResponseContext,
 };
 use serde_json::{json, Value};
 use std::collections::HashSet;
 use uuid::Uuid;
 
 /// The registered string of `code`.
-fn code_str(code: ErrorCode) -> String {
+fn code_str(code: RenewalErrorCode) -> String {
     code.as_str().to_owned()
 }
 

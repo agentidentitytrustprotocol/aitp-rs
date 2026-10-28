@@ -136,9 +136,11 @@ the new TTL and whether to mint a voucher. The steps run in this order
    (`RenewalContext::without_voucher` turns it off), with `src_jti` = the
    new `jti`.
 
-`RenewalError::error_code` gives each failure's registry code;
-`RenewalError::is_local_fault` is true for the issuer's own nonce store
-or signer failing.
+`RenewalError::error_code` gives each failure's registry code as a
+`RenewalErrorCode`: a core `ErrorCode`, or `RENEWAL_UNAVAILABLE` when the
+issuer's revocation state or its renewal nonce store is unavailable
+(RFC-AITP-0013 §4 step 4, §5). `RenewalError::is_local_fault` is true for
+the issuer's own nonce store or signer failing.
 
 ## Holder side (`verify_renewal_response`)
 
@@ -218,12 +220,13 @@ registry code:
 | expired TCT | `TCT_EXPIRED` |
 | TCT outlives the issuer's current Manifest | `TCT_EXPIRES_AFTER_MANIFEST` |
 | PoP signature does not verify under `sub` | `POP_RESPONSE_INVALID` |
-| revoked TCT | `TCT_REVOKED` |
+| revoked TCT (its `jti` on the deny list) | `TCT_REVOKED` |
+| revocation state unreadable | `RENEWAL_UNAVAILABLE`, retryable, HTTP 503 |
 | replayed `pop_nonce` | `REPLAY_DETECTED` |
 | no grant survives re-evaluation | `POLICY_VIOLATION` |
 | wrong content type | `POP_RESPONSE_INVALID` |
 | body over the limit, unreadable or too slow | `INVALID_ENVELOPE` |
-| replay guard failure or full (local) | retryable error envelope, HTTP 500 / 503 |
+| replay guard failure or full | `RENEWAL_UNAVAILABLE`, retryable, HTTP 503 |
 | no client address with the rate limit on (local) | retryable error envelope, HTTP 500 |
 
 ## Known limitations

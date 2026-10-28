@@ -1,7 +1,7 @@
 //! Renewal wire shapes and the `rfc-aitp-0005.renew_uri` Manifest
 //! extension (RFC-AITP-0013 §2, §3, §6).
 
-use aitp::core::ErrorCode;
+use crate::renewal::RenewalErrorCode;
 use aitp::manifest::Manifest;
 use serde::{Deserialize, Serialize};
 
@@ -93,7 +93,7 @@ pub const RENEWAL_RESPONSE_PAYLOAD_MEMBERS: &[&str] = &["tct", "grant_voucher", 
 #[non_exhaustive]
 pub struct RenewalErrorPayload {
     /// The registered error code.
-    pub code: ErrorCode,
+    pub code: RenewalErrorCode,
     /// Informational text; never used for decisions.
     #[serde(default)]
     pub reason: String,
