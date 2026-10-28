@@ -43,17 +43,19 @@ aitp manifest verify [--file <path|->] [--at <unix>]
     and print its AID, endpoint, and offered capabilities.
 
 aitp manifest fetch <url> [--timeout <secs>] [--insecure-localhost]
+                         [--dangerous-allow-private-network]
     Fetch <url>/.well-known/aitp-manifest, verify it, and print the
     envelope (pipes into `manifest verify`).
 
 aitp enroll <url> [--key <file>] [--timeout <secs>] [--insecure-localhost]
+                  [--dangerous-allow-private-network]
     Register a key with the interop peer at <url>. Without --key, uses
     (and on first use creates) the default key, ~/.config/aitp/agent.key.
 
 aitp handshake <url> [--key <file> | --ephemeral] [--grant <cap>]...
                [--offer <cap>]... [--peer-aid <aid>]
                [--revocation-fail-open] [--timeout <secs>]
-               [--insecure-localhost]
+               [--insecure-localhost] [--dangerous-allow-private-network]
     Run the four-message handshake as initiator and print the claims of
     the TCT the peer issues us. Without
     --key / --ephemeral, uses the default key. A failure prints the AITP
@@ -61,6 +63,7 @@ aitp handshake <url> [--key <file> | --ephemeral] [--grant <cap>]...
 
 aitp echo <url> [--key <file> | --ephemeral] [--peer-aid <aid>]
           [--timeout <secs>] [--insecure-localhost]
+          [--dangerous-allow-private-network]
     Hello world against an interop peer: handshake for
     aitp.interop.echo, then present the issued TCT to the peer's /echo
     with proof of possession (RFC-AITP-0005 §10.5) and print the claims
@@ -69,6 +72,26 @@ aitp echo <url> [--key <file> | --ephemeral] [--peer-aid <aid>]
 aitp serve --interop [--listen <addr>] [--public-url <url>] [--key <file>]
     Run the public interop peer (`serve` feature; docs/interop-peer.md).
 ```
+
+### Private networks
+
+The networked commands resolve the peer's host and refuse private
+addresses (RFC 1918, loopback, CGNAT `100.64.0.0/10`, IPv6 unique-local),
+as well as link-local, multicast, broadcast and unspecified ones. Two flags
+relax this:
+
+- `--insecure-localhost` accepts a plain `http://localhost` or
+  `http://127.0.0.1` peer and admits loopback addresses, for local
+  development.
+- `--dangerous-allow-private-network` admits private addresses (the
+  library's `GuardMode::WarnPrivate`) and logs a warning for each, for a
+  peer on an intranet. Link-local (including the cloud metadata range
+  `169.254.0.0/16`), multicast, broadcast and unspecified addresses are
+  still refused. HTTPS is still required.
+
+The flags apply to the Manifest fetch, the handshake endpoint and the
+revocation list fetch. `aitp enroll` and the `/echo` request of `aitp echo`
+use their own client, which checks the scheme but not the address.
 
 `-` reads from stdin, so tokens/manifests pipe through:
 

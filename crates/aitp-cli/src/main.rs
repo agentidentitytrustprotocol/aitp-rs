@@ -203,9 +203,17 @@ struct NetArgs {
     timeout: u64,
     /// Allow a plain `http://localhost` / `http://127.0.0.1` peer and
     /// loopback addresses (local development only; RFC-AITP-0003 §4.1
-    /// requires HTTPS, and other hosts on private addresses are refused).
+    /// requires HTTPS; other private addresses follow
+    /// `--dangerous-allow-private-network`).
     #[arg(long)]
     insecure_localhost: bool,
+    /// Allow a peer whose host resolves to a private address (RFC 1918,
+    /// loopback, CGNAT `100.64.0.0/10`, IPv6 unique-local), logging a
+    /// warning for each. Link-local, multicast, broadcast and unspecified
+    /// addresses are still refused. By default every private address is
+    /// refused.
+    #[arg(long)]
+    dangerous_allow_private_network: bool,
 }
 
 #[cfg(feature = "http-client")]
@@ -214,6 +222,7 @@ impl NetArgs {
         net::NetOpts {
             timeout: std::time::Duration::from_secs(self.timeout),
             insecure_localhost: self.insecure_localhost,
+            allow_private_network: self.dangerous_allow_private_network,
         }
     }
 }
