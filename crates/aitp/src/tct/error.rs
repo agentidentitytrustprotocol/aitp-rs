@@ -56,7 +56,7 @@ pub enum TctError {
     /// object — unknown claim outside `ext`, duplicate claim, missing
     /// required claim, or a type mismatch (RFC-AITP-0001 §5.4.5 strict
     /// parsing). Also raised by
-    /// [`crate::tct::revocation::parse_revocation_snapshot_wire`] for a
+    /// [`crate::tct::parse_revocation_snapshot_wire`] for a
     /// residual deserialize failure on the JCS-profile revocation
     /// snapshot body (missing/mistyped member other than an unknown
     /// one) — the name predates that artifact, but the shape is the
@@ -65,7 +65,7 @@ pub enum TctError {
     ClaimsMalformed(String),
     /// A JSON member outside the artifact's schema-declared member set was
     /// present (RFC-AITP-0001 §7). Carries the offending member's name.
-    /// Raised by [`crate::tct::revocation::parse_revocation_snapshot_wire`] for
+    /// Raised by [`crate::tct::parse_revocation_snapshot_wire`] for
     /// both the envelope and the inner `revocation_list` body.
     #[error("unknown field: {0}")]
     UnknownField(String),
@@ -92,7 +92,7 @@ pub enum TctError {
     /// #72 Item 6b). Wire code: `TCT_SIGNATURE_INVALID` for a TCT,
     /// `DELEGATION_INVALID_VOUCHER` for a voucher. Raised before
     /// signature verification. Also raised by
-    /// [`crate::tct::revocation::parse_revocation_snapshot_wire`] for a
+    /// [`crate::tct::parse_revocation_snapshot_wire`] for a
     /// non-v4 `entries[].jti`.
     #[error("jti is not a UUID v4: {0}")]
     JtiNotV4(crate::core::ids::V4Error),

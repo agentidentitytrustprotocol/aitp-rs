@@ -1,49 +1,4 @@
 //! Async, Manifest-discovered revocation lookups for the handshake
-//! (RFC-AITP-0008).
-//!
-//! The handshake state machine is sync, so the network fetch happens
-//! here, before the sync call: [`RevocationFetcher::prepare`] fetches
-//! (or reuses a cached) signed snapshot from the peer's advertised
-//! `ListRevoked` URL, or from a [`RevocationProvider`] set with
-//! [`RevocationFetcher::with_provider`], and returns a
-//! [`PreparedRevocation`], a plain value whose
-//! [`PreparedRevocation::decide`] is a [`crate::tct::RevocationCheckFn`]:
-//!
-//! ```no_run
-//! # async fn demo(
-//! #     fetcher: &aitp::transport::RevocationFetcher,
-//! #     initiator: &aitp::handshake::Initiator,
-//! # ) {
-//! use aitp::tct::{RevocationQuery, RevocationSource};
-//!
-//! let prepared = fetcher
-//!     .prepare(
-//!         initiator.peer_aid().expect("after on_hello_ack"),
-//!         initiator.peer_revocation_list_uri(),
-//!         aitp::core::Timestamp::now(),
-//!     )
-//!     .await;
-//! let check = move |q: &RevocationQuery<'_>| prepared.decide(q);
-//! let source = RevocationSource::Check(&check);
-//! # let _ = source;
-//! # }
-//! ```
-//!
-//! **Ordering (RFC-AITP-0008 §3.3).** The lookup key is the peer AID and
-//! URL from a Manifest the handshake has already bound to the peer's
-//! key at HELLO / HELLO_ACK, never a claim of the not-yet-verified TCT,
-//! so an off-path attacker cannot steer the fetch. `decide` itself does
-//! no I/O.
-//!
-//! **Fail mode.** When no snapshot can be obtained (no advertised URL,
-//! non-HTTPS URL, unreachable, discarded per §1.5, stale per §3.2) the
-//! [`RevocationPolicy::fail_mode`] decides: `FailClosed` (the default)
-//! answers [`RevocationUnavailable`], which a TCT verifier reports as
-//! [`TctError::RevocationUnavailable`],
-//! `TCT_REVOKED` on the wire but names the reason; `FailOpen` accepts
-//! and logs a warning; `SoftFail` narrows the grants;
-//! `FailOpenIfUnadvertised` accepts only when the Manifest advertises no
-//! URL, and otherwise fails closed.
 
 use crate::core::{Aid, CheckedJson, Timestamp};
 use crate::tct::{RevocationQuery, RevocationStatus, RevocationUnavailable, TctError};
@@ -85,12 +40,58 @@ type Slot = Arc<tokio::sync::Mutex<Option<Snapshot>>>;
 /// ([`crate::manifest::REVOCATION_LIST_URI_EXT`]), or from a
 /// [`RevocationProvider`] ([`Self::with_provider`]). Each snapshot is
 /// verified (signature, expiry, staleness) before it is cached for
-/// [`RevocationPolicy::cache_ttl`]. See the [module docs](self).
+/// [`RevocationPolicy::cache_ttl`].
 ///
 /// Hardened like [`crate::transport::ManifestFetcher`]: HTTPS only, no redirects,
 /// [`HostGuard`] address checks with the vetted addresses pinned into
 /// the connection, a body cap, and a short timeout
 /// ([`DEFAULT_REVOCATION_FETCH_TIMEOUT`]).
+///
+/// (RFC-AITP-0008).
+///
+/// The handshake state machine is sync, so the network fetch happens
+/// here, before the sync call: [`RevocationFetcher::prepare`] fetches
+/// (or reuses a cached) signed snapshot from the peer's advertised
+/// `ListRevoked` URL, or from a [`RevocationProvider`] set with
+/// [`RevocationFetcher::with_provider`], and returns a
+/// [`PreparedRevocation`], a plain value whose
+/// [`PreparedRevocation::decide`] is a [`crate::tct::RevocationCheckFn`]:
+///
+/// ```no_run
+/// # async fn demo(
+/// #     fetcher: &aitp::transport::RevocationFetcher,
+/// #     initiator: &aitp::handshake::Initiator,
+/// # ) {
+/// use aitp::tct::{RevocationQuery, RevocationSource};
+///
+/// let prepared = fetcher
+///     .prepare(
+///         initiator.peer_aid().expect("after on_hello_ack"),
+///         initiator.peer_revocation_list_uri(),
+///         aitp::core::Timestamp::now(),
+///     )
+///     .await;
+/// let check = move |q: &RevocationQuery<'_>| prepared.decide(q);
+/// let source = RevocationSource::Check(&check);
+/// # let _ = source;
+/// # }
+/// ```
+///
+/// **Ordering (RFC-AITP-0008 §3.3).** The lookup key is the peer AID and
+/// URL from a Manifest the handshake has already bound to the peer's
+/// key at HELLO / HELLO_ACK, never a claim of the not-yet-verified TCT,
+/// so an off-path attacker cannot steer the fetch. `decide` itself does
+/// no I/O.
+///
+/// **Fail mode.** When no snapshot can be obtained (no advertised URL,
+/// non-HTTPS URL, unreachable, discarded per §1.5, stale per §3.2) the
+/// [`RevocationPolicy::fail_mode`] decides: `FailClosed` (the default)
+/// answers [`RevocationUnavailable`], which a TCT verifier reports as
+/// [`TctError::RevocationUnavailable`],
+/// `TCT_REVOKED` on the wire but names the reason; `FailOpen` accepts
+/// and logs a warning; `SoftFail` narrows the grants;
+/// `FailOpenIfUnadvertised` accepts only when the Manifest advertises no
+/// URL, and otherwise fails closed.
 pub struct RevocationFetcher {
     policy: RevocationPolicy,
     timeout: Duration,
@@ -308,8 +309,8 @@ impl RevocationFetcher {
 }
 
 /// Revocation status for one issuer, obtained by
-/// [`RevocationFetcher::prepare`]; decides synchronously. See the
-/// [module docs](self).
+/// [`RevocationFetcher::prepare`]; decides synchronously. See
+/// [`RevocationFetcher`].
 #[derive(Clone, Debug)]
 pub struct PreparedRevocation {
     issuer: Aid,

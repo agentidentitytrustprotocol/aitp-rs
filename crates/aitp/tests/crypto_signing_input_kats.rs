@@ -330,7 +330,7 @@ fn envelope_kat(file: &str) -> Value {
 fn check_envelope_kat(v: &Value, key: &AitpSigningKey) -> (Digest32, AitpVerifyingKey) {
     assert_eq!(v["signing_input"], "sig_input_v2");
     let env: aitp::core::AitpEnvelope = serde_json::from_value(v["envelope"].clone()).unwrap();
-    let input = aitp::core::envelope::envelope_signing_input(&env).unwrap();
+    let input = aitp::core::envelope_signing_input(&env).unwrap();
     assert_eq!(hex::encode(&input), v["sig_input_v2_hex"].as_str().unwrap());
     assert_eq!(
         input.len() as u64,
@@ -338,7 +338,7 @@ fn check_envelope_kat(v: &Value, key: &AitpSigningKey) -> (Digest32, AitpVerifyi
     );
     assert_eq!(&input[..16], b"aitp-envelope-v2");
     assert_eq!(input[16], 0x00);
-    let digest = aitp::core::envelope::envelope_signing_digest(&env).unwrap();
+    let digest = aitp::core::envelope_signing_digest(&env).unwrap();
     assert_eq!(
         hex::encode(digest),
         v["sig_input_v2_sha256_hex"].as_str().unwrap()
@@ -393,8 +393,7 @@ fn kat_envelope_002_ed25519_with_extensions_verifies_and_v1_does_not() {
     let mut stripped: aitp::core::AitpEnvelope =
         serde_json::from_value(v["envelope"].clone()).unwrap();
     stripped.extensions = None;
-    let d2 =
-        Digest32::from_bytes(aitp::core::envelope::envelope_signing_digest(&stripped).unwrap());
+    let d2 = Digest32::from_bytes(aitp::core::envelope_signing_digest(&stripped).unwrap());
     assert_ne!(d, d2);
     assert!(vk
         .verify_jcs(&d2, &Signature::parse(&stripped.signature).unwrap())

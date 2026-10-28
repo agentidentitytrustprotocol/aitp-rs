@@ -1,12 +1,5 @@
-//! Single-use challenge nonces for pinned-key admission (proposal
-//! agentidentitytrustprotocol#72 Item 7d).
-//!
-//! The store is [`crate::core::nonce_store`]; this module re-exports it
-//! under the 0.14 paths.
-
-pub use crate::core::nonce_store::{
-    ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
-};
+//! Lock helper shared by the admission stores. The single-use challenge
+//! nonce store is [`crate::core::nonce_store`].
 
 /// Lock, recovering from poisoning: every critical section leaves the
 /// map consistent, so a panic elsewhere never corrupts it.

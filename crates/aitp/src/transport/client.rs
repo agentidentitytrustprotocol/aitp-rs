@@ -17,7 +17,7 @@ use url::Url;
 #[non_exhaustive]
 pub enum FetchError {
     /// URL was not HTTPS, or its host is (or resolves to) an address
-    /// the configured [`crate::transport::net_guard::HostGuard`] forbids. The
+    /// the configured [`crate::transport::HostGuard`] forbids. The
     /// precise guard rejection is logged at `warn` level. (There is no
     /// dedicated guard variant; `FetchError` is exhaustive, so adding
     /// one would be a breaking change.)
@@ -98,7 +98,7 @@ struct CacheEntry {
 /// Because `peer_origin` is peer-controlled, every fetch is SSRF-guarded:
 /// redirects are rejected outright, the host's resolved addresses are
 /// classified by a [`HostGuard`] (link-local/metadata ranges always
-/// rejected; private ranges rejected by default — see [`crate::transport::net_guard`]),
+/// rejected; private ranges rejected by default — see [`HostGuard`]),
 /// and for domain hosts the vetted addresses are pinned into the
 /// connection so DNS rebinding cannot swap in an unchecked address.
 pub struct ManifestFetcher {
@@ -193,7 +193,7 @@ impl ManifestFetcher {
     }
 
     /// Override the SSRF [`HostGuard`] (default:
-    /// [`crate::transport::net_guard::GuardMode::DenyPrivate`]). Pass
+    /// [`crate::transport::GuardMode::DenyPrivate`]). Pass
     /// `HostGuard::new(GuardMode::WarnPrivate)` for intranet peers and
     /// `HostGuard::new(GuardMode::AllowAll)` for air-gapped/test
     /// networks.
@@ -581,7 +581,7 @@ impl JwksFetcher {
     }
 
     /// Override the SSRF [`HostGuard`] (default:
-    /// [`crate::transport::net_guard::GuardMode::DenyPrivate`]). Pass
+    /// [`crate::transport::GuardMode::DenyPrivate`]). Pass
     /// `HostGuard::new(GuardMode::WarnPrivate)` when an IdP or peer key
     /// host is on a private network.
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {

@@ -46,21 +46,19 @@ mod nonce_store;
 mod rate_limit;
 
 pub use deny_list::{DenyListError, InMemoryMessageIdDenyList, MessageIdDenyList};
-pub use nonce_store::{
-    ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
-};
 pub use rate_limit::{
     ChallengeRateLimiter, ChallengeSource, RecommendedLimiter, TokenBucketLimiter, TransportId,
 };
 
 use crate::core::envelope::{envelope_signing_digest, parse_envelope_wire, EnvelopeParseError};
+use crate::core::nonce_store::{ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError};
 use crate::core::CheckedJson;
 use crate::core::{
     base64url, check_members, from_serde_error, Aid, AitpEnvelope, MessageType, Sender, Timestamp,
     DEFAULT_TIMESTAMP_TOLERANCE, PROTOCOL_VERSION,
 };
 use crate::crypto::{AitpSigner, Digest32, DynAsyncAitpSigner, Signature, SignerError};
-use crate::handshake::identity_pinned::{
+use crate::handshake::pinned_key::{
     check_pinned_key_proof, pinned_key_proof_input, resolve_pinned_key, PinnedKeyStore,
     PinnedKeyVerifyContext, SubjectBinding,
 };

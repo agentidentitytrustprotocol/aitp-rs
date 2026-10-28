@@ -16,12 +16,12 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod builder;
-pub mod error;
-pub mod pop;
-pub mod revocation;
-pub mod types;
-pub mod verifier;
+pub(crate) mod builder;
+pub(crate) mod error;
+pub(crate) mod pop;
+pub(crate) mod revocation;
+pub(crate) mod types;
+pub(crate) mod verifier;
 
 pub use builder::{TctBuilder, ATTESTATION_GRANT};
 pub use error::TctError;

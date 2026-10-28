@@ -39,7 +39,6 @@ reasons already in the table are kept.
 | `aitp::core::EnvelopeStructureError` | enum | non_exhaustive |  |
 | `aitp::core::ErrorCode` | enum | non_exhaustive |  |
 | `aitp::core::ExtensionsMap` | struct | private fields |  |
-| `aitp::core::InMemoryNonceStore` | struct | private fields |  |
 | `aitp::core::MessageType` | enum | non_exhaustive |  |
 | `aitp::core::MissingFieldError` | struct | private fields |  |
 | `aitp::core::RawUrl` | struct | private fields |  |
@@ -51,6 +50,7 @@ reasons already in the table are kept.
 | `aitp::core::ids::V4Error` | enum | non_exhaustive |  |
 | `aitp::core::jcs::JcsError` | enum | non_exhaustive |  |
 | `aitp::core::nonce_store::ConsumeOutcome` | enum | non_exhaustive |  |
+| `aitp::core::nonce_store::InMemoryNonceStore` | struct | private fields |  |
 | `aitp::core::nonce_store::IssuedNonce` | struct | non_exhaustive |  |
 | `aitp::core::nonce_store::NonceStoreError` | enum | non_exhaustive |  |
 | `aitp::crypto::AitpSigningKey` | struct | private fields |  |
@@ -162,6 +162,7 @@ reasons already in the table are kept.
 | `aitp::tct::VerifiedTct` | struct | private fields |  |
 | `aitp::tct::VerifiedTctParts` | struct | non_exhaustive |  |
 | `aitp::transport::ClientConfig` | struct | private fields |  |
+| `aitp::transport::EmptyRevocationProvider` | struct | private fields |  |
 | `aitp::transport::FetchError` | enum | non_exhaustive |  |
 | `aitp::transport::GuardMode` | enum | non_exhaustive |  |
 | `aitp::transport::HandshakeServer` | struct | private fields |  |
@@ -188,4 +189,3 @@ reasons already in the table are kept.
 | `aitp::transport::StaticPinnedIssuerKeyStore` | struct | private fields |  |
 | `aitp::transport::TrustedProxy` | struct | private fields |  |
 | `aitp::transport::TrustedProxyParseError` | struct | private fields |  |
-| `aitp::transport::revocation::EmptyRevocationProvider` | struct | private fields |  |

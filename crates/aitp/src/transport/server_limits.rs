@@ -68,7 +68,7 @@ pub const RECOMMENDED_MAX_HEADER_BYTES: usize = 16 * 1024;
 /// # Example
 ///
 /// ```no_run
-/// use aitp::transport::server_limits::{
+/// use aitp::transport::{
 ///     with_request_body_limit, DEFAULT_REQUEST_BODY_LIMIT,
 /// };
 /// use aitp::transport::ManifestServer;

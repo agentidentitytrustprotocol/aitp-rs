@@ -24,7 +24,7 @@ use aitp::core::{ErrorCode, Timestamp};
 use aitp::crypto::AitpSigner;
 use aitp::manifest::Manifest;
 use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable};
-use aitp::transport::server::DEFAULT_BODY_READ_TIMEOUT;
+use aitp::transport::DEFAULT_BODY_READ_TIMEOUT;
 use aitp::transport::{
     resolve_source_ip, RateLimitConfig, RevocationListProducer, REVOCATION_LIST_PATH,
 };

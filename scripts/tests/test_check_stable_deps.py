@@ -36,7 +36,7 @@ class Problems(unittest.TestCase):
         self.assertIn("not a dependency of aitp", found[0])
 
     def test_only_the_first_segment_is_a_crate(self):
-        lines = ["pub enum aitp::transport::client::FetchError",
+        lines = ["pub enum aitp::transport::FetchError",
                  "impl core::ops::deref::Deref for aitp::core::CheckedJson"]
         self.assertEqual(mod.problems(lines, VERSIONS), [])
 

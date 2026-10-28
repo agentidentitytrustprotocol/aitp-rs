@@ -10,12 +10,12 @@ use crate::crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use crate::handshake::error::HandshakeError;
 use crate::handshake::identity::{IdentityDescriptor, IdentityKind};
 use crate::handshake::identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext};
-use crate::handshake::identity_pinned::{
-    sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
-};
 use crate::handshake::identity_verifier::{IdentityVerifier, IdentityVerifyContext};
 use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
+};
+use crate::handshake::pinned_key::{
+    sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
 };
 use crate::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use crate::tct::verifier::{check_revocation, verify_tct_before_revocation};
@@ -26,7 +26,7 @@ use rand::TryRng;
 use tracing::debug;
 use uuid::Uuid;
 
-pub use crate::handshake::identity_pinned::{NoPinnedKeys, PinnedKeyStore, StaticPinnedKeyStore};
+use crate::handshake::pinned_key::PinnedKeyStore;
 
 /// Opaque session identifier — handle for an in-progress handshake.
 pub type SessionId = Uuid;
@@ -76,8 +76,8 @@ pub struct PeerConfig<'a> {
     /// by `(algorithm, key)`. REQUIRED: a pinned-key peer whose key is
     /// not in the store is rejected with `IDENTITY_FAILED` before its
     /// proof is checked. There is no possession-only mode. OIDC-only
-    /// deployments pass [`NoPinnedKeys`]; tests use a
-    /// [`StaticPinnedKeyStore`].
+    /// deployments pass [`NoPinnedKeys`](crate::handshake::NoPinnedKeys);
+    /// tests use a [`StaticPinnedKeyStore`](crate::handshake::StaticPinnedKeyStore).
     pub pinned_key_store: &'a dyn PinnedKeyStore,
     /// Optional grant-policy hook (RFC-AITP-0004 §4.1). Applied to the
     /// `peer_requested ∩ self.offered` intersection before issuing a
@@ -1345,6 +1345,7 @@ impl Responder {
 mod tests {
     use super::*;
     use crate::crypto::AitpSigningKey;
+    use crate::handshake::pinned_key::StaticPinnedKeyStore;
 
     /// Build a compact JWT (`header.payload.sig`) with the given claims
     /// JSON. Header and signature are placeholders — `oidc_checked`

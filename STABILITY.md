@@ -78,6 +78,30 @@ passing them, and their docs say what they relax. The CLI flags (such as
 `--insecure-localhost`) and the SDKs' Python and JavaScript names are not
 Rust identifiers and keep their own names.
 
+### Public paths
+
+Each item of the stable surface has one public path: no re-export,
+glob or second module reaches it another way. The path is the root of
+its feature module: `aitp::core`, `aitp::crypto`, `aitp::envelope`,
+`aitp::manifest`, `aitp::handshake`, `aitp::handshake::admission`
+(feature `pinned-admission`), `aitp::tct`, `aitp::delegation`,
+`aitp::transport` and `aitp::facade`, as in `aitp::tct::TctBuilder` or
+`aitp::transport::HostGuard`. The files these modules are written in are
+private, and each module root lists its items by name.
+
+A submodule is public only when it is a namespace: no other path
+reaches its items, and the path through it is the item's one path.
+These are `aitp::core::base64url`, `aitp::core::ids` (with
+`ids::serde_v4`), `aitp::core::jcs`, `aitp::core::nonce_store`,
+`aitp::crypto::jws`, `aitp::handshake::admission::metrics_names`,
+`aitp::handshake::identity_pinned` (which holds only
+`PINNED_KEY_PROOF_DOMAIN`; the other pinned-key items are at
+`aitp::handshake`) and, behind `test-util`, `aitp::crypto::testing`.
+The nonce store and `PINNED_KEY_PROOF_DOMAIN` keep the paths an
+existing embedded consumer uses (`crates/aitp/tests/seam_surface.rs`).
+There is no prelude. `aitp::__private` is `#[doc(hidden)]` plumbing for
+the workspace's own crates and is not part of the stable surface.
+
 ### Behaviour that follows the spec
 
 From 1.0, a change that brings observable behaviour into line with the
@@ -231,6 +255,12 @@ the crates and the SDKs. How to report a vulnerability is in
   `non_exhaustive`, `private fields` or `exhaustive`, and that each
   exhaustive one has a reason (`make api-classification-check`). Only an
   exhaustive type can gain a field or variant as a breaking change.
+- **One public path per item.**
+  [`scripts/check-single-path.py`](scripts/check-single-path.py)
+  (`make single-path-check`, in the same CI job) fails if an item in
+  `public-api.stable.txt`, or in the stable surface with an unstable
+  feature's additions, is printed under more than one path (see
+  [Public paths](#public-paths)).
 - **No pre-1.0 dependency in the stable surface.** A crate below 1.0 can
   break its API in any minor release, which would force a breaking
   `aitp` release. [`scripts/check-stable-deps.py`](scripts/check-stable-deps.py)

@@ -168,7 +168,7 @@ pub fn verify_chained_delegation(
 
 fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     // typ-first gate (RFC-AITP-0006 §4 step 1; D7 / issue #140 follow-up):
-    // mirrors `aitp::tct::verifier::peek_header_typ`'s pattern via the
+    // mirrors `aitp::tct::peek_header_typ`'s pattern via the
     // shared `aitp::__private::peek_typ` helper. Unlike TCT/voucher —
     // where a typ mismatch defers silently, letting the *next*
     // `jws::verify_compact` call make the authoritative call — this

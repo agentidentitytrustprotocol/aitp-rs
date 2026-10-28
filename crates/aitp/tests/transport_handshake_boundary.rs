@@ -376,7 +376,7 @@ async fn version_is_checked_before_member_set_and_signature() {
     // Correctly signed under the v2 input, but at the previous revision.
     let mut prev = fresh();
     prev.version = "aitp/0.2".into();
-    let d = aitp::core::envelope::envelope_signing_digest(&prev).unwrap();
+    let d = aitp::core::envelope_signing_digest(&prev).unwrap();
     prev.signature = key
         .sign_jcs(&aitp::crypto::Digest32::from_bytes(d))
         .into_string();

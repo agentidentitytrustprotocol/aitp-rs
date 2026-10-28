@@ -274,6 +274,8 @@ jobs:
       - name: Install cargo-public-api
         run: cargo +nightly-2026-05-05 install --locked cargo-public-api@0.52.0
       - run: make public-api-check
+      # One public path per item (STABILITY.md, "Public paths").
+      - run: make single-path-check
       # Every stable struct and enum is classified in
       # docs/api-classification.md (RS-RC3).
       - run: make api-classification-check

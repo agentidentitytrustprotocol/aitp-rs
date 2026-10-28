@@ -49,7 +49,7 @@ pub enum TrustMode<'a> {
         /// Trust anchors (issuer URLs) the verifying peer accepts.
         trust_anchors: &'a [crate::core::RawUrl],
         /// Resolver for issuer JWKS (typically a
-        /// [`crate::transport::key_resolution::KeyResolutionPolicy`]).
+        /// [`crate::transport::KeyResolutionPolicy`]).
         jwks_resolver: &'a dyn JwksResolver,
     },
 }

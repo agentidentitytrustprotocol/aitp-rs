@@ -84,7 +84,7 @@ In `aitp-rs` it is split across three layers:
 
 | Layer | Where | What it does |
 |---|---|---|
-| State machines | `aitp::handshake` (`crates/aitp/src/handshake/state_machine.rs`: `Initiator`, `Responder`) | Sync, no I/O. Build and verify each message; identity proofs in `identity_pinned.rs` / `identity_oidc.rs`; issue the peer TCT and grant voucher through `aitp::tct` |
+| State machines | `aitp::handshake` (`crates/aitp/src/handshake/state_machine.rs`: `Initiator`, `Responder`) | Sync, no I/O. Build and verify each message; identity proofs in `pinned_key.rs` / `identity_oidc.rs`; issue the peer TCT and grant voucher through `aitp::tct` |
 | HTTP binding | `aitp::transport` (`HandshakeServer`, `ManifestFetcher`) | Serve the responder side and fetch the peer Manifest over SSRF-guarded HTTPS |
 | One-call driver | `aitp::facade::run_initiator_handshake` (async) | Runs the initiator side end to end against a peer's handshake endpoint |
 
@@ -115,9 +115,8 @@ aitp                       the protocol library (crates/aitp)
 ├── transport              ManifestServer + HandshakeServer (axum,
 │                          http-server) + ManifestFetcher + JwksFetcher
 │                          (reqwest, http-client), RSA-2048 floor on JWKS keys
-├── facade                 async run_initiator_handshake +
-│                          TctStore (http-client)
-└── prelude                the most common types
+└── facade                 async run_initiator_handshake +
+                           TctStore (http-client)
 
 aitp-experimental          session_bundle: SessionBundleBuilder +
                            verify_session_bundle (RFC-0010), plus
@@ -211,7 +210,7 @@ features and the module boundaries below stay one-directional:
   module depends on it, so a consumer on a different transport (gRPC,
   MessagePack) builds `aitp` with `default-features = false`, implements
   just the wire layer and reuses every protocol module.
-- **`aitp::facade` and `aitp::prelude`** add the async
+- **`aitp::facade`** adds the async
   `run_initiator_handshake` helper on top (`http-client` feature, on by
   default).
   This is what most users call. A TCT-only consumer uses `aitp::tct` +

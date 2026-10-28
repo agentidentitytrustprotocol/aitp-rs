@@ -20,7 +20,7 @@ pub const CHALLENGE_TOTAL: &str = "aitp_admission_challenge_total";
 pub const ADMIT_TOTAL: &str = "aitp_admission_admit_total";
 
 /// Gauge. Records held by an
-/// [`InMemoryNonceStore`](super::InMemoryNonceStore), including expired
+/// [`InMemoryNonceStore`](crate::core::nonce_store::InMemoryNonceStore), including expired
 /// ones not yet reclaimed. Several stores in one process share it.
 pub const NONCES_OUTSTANDING: &str = crate::core::nonce_store::NONCES_OUTSTANDING_GAUGE;
 

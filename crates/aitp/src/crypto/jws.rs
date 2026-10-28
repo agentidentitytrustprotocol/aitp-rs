@@ -65,7 +65,7 @@ struct JwsHeader {
 /// `claims` — the spec's byte-stable minting convention, so fixed
 /// inputs reproduce the pinned known-answer vectors exactly. Backend
 /// output is normalised and verified before the token is returned
-/// ([`crate::crypto::signer`]).
+/// ([`crate::crypto::AitpSigner`]).
 pub fn sign_compact<T: serde::Serialize>(
     signer: &dyn AitpSigner,
     typ: &str,

@@ -1,11 +1,11 @@
 //! aitp-rs#205 A-4: admission counters and the outstanding-nonce gauge.
 #![cfg(all(feature = "pinned-admission", feature = "metrics"))]
 
+use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::admission::{
-    metrics_names, present_pinned, ChallengeSource, InMemoryNonceStore, PinnedAdmission,
-    TokenBucketLimiter,
+    metrics_names, present_pinned, ChallengeSource, PinnedAdmission, TokenBucketLimiter,
 };
 use aitp::handshake::StaticPinnedKeyStore;
 use metrics_util::debugging::{DebugValue, DebuggingRecorder};

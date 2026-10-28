@@ -2,13 +2,14 @@
 //! and 7d). Mirrors the planned id-013..016 fixtures.
 #![cfg(feature = "pinned-admission")]
 
+use aitp::core::nonce_store::{InMemoryNonceStore, NonceStore};
 use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::testing::MockKmsSigner;
 use aitp::crypto::{AitpSigningKey, DynAsyncAitpSigner};
 use aitp::handshake::admission::{
     present_pinned, present_pinned_async, AdmissionError, ChallengeSource,
-    InMemoryMessageIdDenyList, InMemoryNonceStore, NonceStore, PinnedAdmission, RecommendedLimiter,
-    RefusalCause, TokenBucketLimiter,
+    InMemoryMessageIdDenyList, PinnedAdmission, RecommendedLimiter, RefusalCause,
+    TokenBucketLimiter,
 };
 use aitp::handshake::StaticPinnedKeyStore;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -690,7 +691,7 @@ async fn envelope_signature_checked_before_proof() {
     // reports the proof.
     let mut env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
     env.payload["identity"]["proof"] = other.payload["identity"]["proof"].clone();
-    let digest = aitp::core::envelope::envelope_signing_digest(&env).unwrap();
+    let digest = aitp::core::envelope_signing_digest(&env).unwrap();
     env.signature = subject_ed()
         .sign_jcs(&aitp::crypto::Digest32::from_bytes(digest))
         .into_string();

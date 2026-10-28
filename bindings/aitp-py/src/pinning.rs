@@ -5,7 +5,7 @@
 //! wheel — callers wire the verifier into their own HTTP client (httpx,
 //! requests) via a `checkServerIdentity`-style hook.
 //!
-//! Compatible with `aitp::transport::tls_pinning::compute_spki_hash`:
+//! Compatible with `aitp::transport::compute_spki_hash`:
 //! both implementations hash the SPKI DER bytes of the same X.509 cert
 //! and produce the same 32-byte output. Test fixtures generated against
 //! one implementation will validate against the other.
