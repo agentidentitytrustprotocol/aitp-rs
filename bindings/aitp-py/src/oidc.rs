@@ -40,7 +40,7 @@ pub fn compute_aid_jkt(aid: &str) -> PyResult<String> {
         Aid::parse(aid).map_err(|e| PyValueError::new_err(format!("invalid AID '{aid}': {e}")))?;
     let vk = AitpVerifyingKey::from_aid(&parsed)
         .map_err(|e| PyValueError::new_err(format!("AID has invalid key bytes: {e}")))?;
-    vk.to_jwk_thumbprint()
+    vk.to_jwk_thumbprint_sha256()
         .map_err(|e| PyValueError::new_err(format!("jkt computation failed: {e}")))
 }
 

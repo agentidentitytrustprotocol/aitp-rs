@@ -12,7 +12,7 @@ use url::Url;
 
 #[tokio::test]
 async fn round_trip_manifest_server() {
-    let key = AitpSigningKey::from_seed(&[7u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
     let manifest = ManifestBuilder::new(&key)
         .display_name("server-side")
         .handshake_endpoint("https://localhost:9000/aitp/handshake".parse().unwrap())
@@ -26,9 +26,9 @@ async fn round_trip_manifest_server() {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
 

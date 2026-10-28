@@ -20,7 +20,7 @@ use aitp::core::{jcs, Aid, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use aitp::manifest::{
     parse_manifest_wire, verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder,
-    ManifestError, VerifyManifestContext,
+    ManifestError, ManifestVerifyContext,
 };
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -94,7 +94,7 @@ fn committed_manifest_example_verifies_via_verify_manifest() {
     // Fixture validity window is [1_711_900_000, 1_711_986_400) — same
     // pinned `now` `crates/aitp-cli/tests/cli.rs`'s
     // `manifest_verify_ok_within_validity_window` already uses.
-    let ctx = VerifyManifestContext::at(Timestamp(1_711_900_500));
+    let ctx = ManifestVerifyContext::at(Timestamp(1_711_900_500));
     verify_manifest(&manifest, &ctx)
         .expect("committed spec signed example must verify as committed");
 
@@ -177,7 +177,7 @@ fn committed_manifest_example_signs_the_inner_body_only() {
 #[test]
 fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
     const PUBLISHED_AT: i64 = 1_700_000_000;
-    let key = AitpSigningKey::from_seed(&[9u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
 
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint(
@@ -196,7 +196,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
         .accept_trust_anchor("https://idp.example.com".parse().expect("valid URL"))
         .offer("demo.echo")
         .published_at(Timestamp(PUBLISHED_AT))
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a well-formed manifest");
 
@@ -212,7 +212,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
     let wrong_signature = key.sign_jcs(&aitp::crypto::Digest32::sha256(&wrapped_canonical));
     manifest.signature = wrong_signature.into_string();
 
-    let ctx = VerifyManifestContext::at(Timestamp(PUBLISHED_AT + 100));
+    let ctx = ManifestVerifyContext::at(Timestamp(PUBLISHED_AT + 100));
     let result = verify_manifest(&manifest, &ctx);
     assert!(
         matches!(result, Err(ManifestError::SignatureInvalid)),
@@ -236,7 +236,7 @@ fn committed_p256_manifest_example_verifies_and_double_hash_does_not() {
     let must_not = obj.remove("_must_not_verify").expect("negative companions");
     assert_eq!(obj.remove("signing_input").unwrap(), "body");
 
-    let ctx = VerifyManifestContext::at(Timestamp(1_711_900_500));
+    let ctx = ManifestVerifyContext::at(Timestamp(1_711_900_500));
     let manifest = parse_manifest_wire(&checked(&value)).expect("parses");
     assert_eq!(manifest.aid, kat_keypair_aid("kat-keypair-005-p256"));
     verify_manifest(&manifest, &ctx).expect("committed P-256 manifest verifies as committed");

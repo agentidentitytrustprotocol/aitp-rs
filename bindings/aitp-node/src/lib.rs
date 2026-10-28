@@ -34,7 +34,7 @@ mod tct;
 mod wire;
 
 use aitp::core::Timestamp;
-use aitp::manifest::{verify_manifest, ManifestError, VerifyManifestContext};
+use aitp::manifest::{verify_manifest, ManifestError, ManifestVerifyContext};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
 
@@ -91,7 +91,7 @@ pub fn verify_manifest_json(
     let manifest = wire::manifest(&manifest_envelope_json)
         .map_err(|e| throw_with_code(env, e.code(), format!("invalid manifest JSON: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&manifest, &VerifyManifestContext::at(now)).map_err(|e| {
+    verify_manifest(&manifest, &ManifestVerifyContext::at(now)).map_err(|e| {
         throw_with_code(
             env,
             manifest_verification_cause(&e),

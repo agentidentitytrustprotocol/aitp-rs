@@ -38,12 +38,16 @@ fn bench_canonicalize(c: &mut Criterion) {
     });
 }
 
-fn bench_canonicalize_and_hash(c: &mut Criterion) {
+fn bench_canonicalize_and_hash_sha256(c: &mut Criterion) {
     let value = sample_object();
     c.bench_function("jcs_canonicalize_and_hash", |b| {
-        b.iter(|| jcs::canonicalize_and_hash(black_box(&value)).unwrap())
+        b.iter(|| jcs::canonicalize_and_hash_sha256(black_box(&value)).unwrap())
     });
 }
 
-criterion_group!(benches, bench_canonicalize, bench_canonicalize_and_hash);
+criterion_group!(
+    benches,
+    bench_canonicalize,
+    bench_canonicalize_and_hash_sha256
+);
 criterion_main!(benches);

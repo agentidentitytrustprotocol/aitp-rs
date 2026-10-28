@@ -10,11 +10,11 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpVerifyingKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
-    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    verify_chained_delegation, ChainVerifyContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use napi::bindgen_prelude::*;
 use napi::Env;
@@ -103,7 +103,7 @@ pub fn verify_delegation_js(
     // `verify_delegation` rejects any chain-bearing token before per-hop
     // work, which is why only the root check is wired here: there are no
     // hops.
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_issuer_manifests(&manifests);
 
     let verified = verify_delegation(&token, &ctx).map_err(|e| verify_failed(env, &e))?;
@@ -162,7 +162,7 @@ pub fn verify_delegation_multihop_js(
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_max_delegation_hops(hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
@@ -216,7 +216,7 @@ fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp::manif
 
 /// Project a verified delegation's salient fields into the Node-facing type.
 fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> JsDelegationVerified {
-    let claims = &verified.claims;
+    let claims = &verified.claims();
     JsDelegationVerified {
         // The ultimate grantor is the delegation's audience (the verifier),
         // which equals the embedded voucher's issuer.
@@ -239,7 +239,7 @@ fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> JsDelegationV
 /// * `delegatee_aid_str` — recipient's AID. Its embedded key drives
 ///   `cnf.jkt`; no separate public-key argument is needed in v0.2.
 /// * `scope` — subset of the voucher's grants to delegate.
-/// * `ttl_secs` — token lifetime; `None` uses `DEFAULT_DELEGATION_TTL_SECS`
+/// * `ttl_secs` — token lifetime; `None` uses `DEFAULT_DELEGATION_TTL`
 ///   (capped at the voucher's expiry).
 pub(crate) fn build_delegation_token_json(
     issuer_key: &aitp::crypto::AitpSigningKey,
@@ -255,8 +255,9 @@ pub(crate) fn build_delegation_token_json(
         .map_err(|e| Error::from_reason(format!("delegation build failed: {e}")))?
         .delegatee(delegatee_aid)
         .scope(scope);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (now, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.now(now).ttl(ttl);
     }
 
     builder
@@ -287,8 +288,9 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .audience(delegatee_aid)
         .grants(verified.grants.clone())
         .subject_pubkey(delegatee_pk);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (issued_at, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.issued_at(issued_at).ttl(ttl);
     }
 
     let issued = builder

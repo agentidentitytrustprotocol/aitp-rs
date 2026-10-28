@@ -56,7 +56,7 @@ fn manifest_with_revocation(
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
@@ -77,8 +77,8 @@ enum AliceRevocation {
 #[tokio::test]
 async fn full_pinned_key_handshake_over_http() {
     run_pinned_handshake(
-        AitpSigningKey::from_seed(&[0x71; 32]),
-        || AitpSigningKey::from_seed(&[0x72; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x71; 32]),
+        || AitpSigningKey::from_ed25519_seed(&[0x72; 32]),
         AliceRevocation::Published,
     )
     .await;
@@ -91,8 +91,8 @@ async fn full_pinned_key_handshake_over_http() {
 #[tokio::test]
 async fn unadvertised_revocation_list_fails_closed_at_commit() {
     run_pinned_handshake(
-        AitpSigningKey::from_seed(&[0x77; 32]),
-        || AitpSigningKey::from_seed(&[0x78; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x77; 32]),
+        || AitpSigningKey::from_ed25519_seed(&[0x78; 32]),
         AliceRevocation::UnadvertisedFailClosed,
     )
     .await;
@@ -102,8 +102,8 @@ async fn unadvertised_revocation_list_fails_closed_at_commit() {
 #[tokio::test]
 async fn unadvertised_revocation_list_admitted_under_fail_open() {
     run_pinned_handshake(
-        AitpSigningKey::from_seed(&[0x79; 32]),
-        || AitpSigningKey::from_seed(&[0x7a; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x79; 32]),
+        || AitpSigningKey::from_ed25519_seed(&[0x7a; 32]),
         AliceRevocation::UnadvertisedFailOpen,
     )
     .await;
@@ -126,7 +126,7 @@ async fn full_p256_pinned_key_handshake_over_http() {
 async fn mixed_p256_initiator_ed25519_responder_over_http() {
     run_pinned_handshake(
         AitpSigningKey::from_p256_seed(&[0x75; 32]).unwrap(),
-        || AitpSigningKey::from_seed(&[0x76; 32]),
+        || AitpSigningKey::from_ed25519_seed(&[0x76; 32]),
         AliceRevocation::Published,
     )
     .await;
@@ -342,9 +342,12 @@ async fn run_pinned_handshake(
     let alice_holds = initiator
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &cfg)
         .unwrap();
-    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
-    assert_eq!(&alice_holds.tct.claims.sub, alice.aid());
-    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct().claims().iss, bob.aid());
+    assert_eq!(&alice_holds.tct().claims().sub, alice.aid());
+    assert_eq!(
+        alice_holds.tct().claims().grants,
+        vec!["demo.echo".to_string()]
+    );
 
     server.abort();
     let _ = server.await;
@@ -358,8 +361,8 @@ async fn run_pinned_handshake(
 /// peer was accepted regardless of the server's trust configuration.
 #[tokio::test]
 async fn pinned_key_store_rejects_untrusted_initiator() {
-    let alice = AitpSigningKey::from_seed(&[0x81; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x82; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x81; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x82; 32]);
 
     let bob_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let bob_port = bob_listener.local_addr().unwrap().port();
@@ -368,10 +371,10 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
     // Bob's pinned-key store trusts a stranger — NOT Alice.
-    let stranger = AitpSigningKey::from_seed(&[0x99; 32]);
+    let stranger = AitpSigningKey::from_ed25519_seed(&[0x99; 32]);
     let store = StaticPinnedKeyStore::new([stranger.verifying_key()]);
     let bob_server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x82; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x82; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,

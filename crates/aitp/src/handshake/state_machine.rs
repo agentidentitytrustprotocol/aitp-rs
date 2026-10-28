@@ -17,7 +17,7 @@ use crate::handshake::identity_verifier::{IdentityVerifier, IdentityVerifyContex
 use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
-use crate::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use crate::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use crate::tct::verifier::{check_revocation, verify_tct_before_revocation};
 use crate::tct::{
     IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext, VerifiedTct,
@@ -486,7 +486,7 @@ pub(crate) fn bootstrap_verify_peer(
             "manifest.aid does not match sender.agent_id".into(),
         ));
     }
-    verify_manifest(payload_manifest, &VerifyManifestContext { now: cfg.now })?;
+    verify_manifest(payload_manifest, &ManifestVerifyContext { now: cfg.now })?;
     if payload_identity.subject != payload_manifest.identity_hint.subject {
         return Err(HandshakeError::Identity(
             "identity.subject != manifest.identity_hint.subject".into(),
@@ -531,8 +531,8 @@ pub(crate) fn bootstrap_verify_peer(
                 trust_anchors: cfg.trust_anchors,
                 jwks_resolver: cfg.jwks_resolver,
                 subject_aid: &payload_manifest.aid,
-                iat_tolerance_secs: 300,
-                now_unix_secs: cfg.now.0,
+                iat_tolerance: crate::core::DEFAULT_TIMESTAMP_TOLERANCE,
+                now: cfg.now,
             };
             verify_oidc(payload_identity, &ctx)?;
         }
@@ -557,7 +557,7 @@ pub(crate) fn bootstrap_verify_peer(
             // RFC-AITP-0002 §6.6: a type no verifier handles is rejected
             // even when our Manifest lists it.
             let verifier = cfg.identity_verifier.filter(|v| v.handles(kind)).ok_or(
-                crate::manifest::ManifestError::IncompatibleIdentityType(kind.as_str()),
+                crate::manifest::ManifestError::IncompatibleIdentityType(kind),
             )?;
             let verified = verifier.verify(
                 payload_identity,
@@ -595,10 +595,7 @@ pub(crate) fn apply_peer_policy(
     payload_identity: &IdentityDescriptor,
     cfg: &PeerConfig<'_>,
 ) -> Result<(), HandshakeError> {
-    crate::manifest::check_identity_type_compatibility(
-        cfg.manifest,
-        payload_identity.kind.as_str(),
-    )?;
+    crate::manifest::check_identity_type_compatibility(cfg.manifest, payload_identity.kind)?;
     Ok(())
 }
 
@@ -673,19 +670,19 @@ fn issue_tct_for_peer(
     // Bound expiry by the issuing-peer Manifest's expiry. If our own
     // Manifest is already past expiry, refuse to issue.
     let manifest_expires = cfg.manifest.expires_at.0;
-    let default_expires = cfg.now.0 + crate::tct::DEFAULT_TCT_TTL_SECS;
+    let default_expires = cfg.now.saturating_add(crate::tct::DEFAULT_TCT_TTL).0;
     let effective_expires = default_expires.min(manifest_expires);
     let ttl = effective_expires.saturating_sub(cfg.now.0);
-    if ttl == 0 {
+    let Ok(ttl @ 1..) = u64::try_from(ttl) else {
         return Err(HandshakeError::InvalidEnvelope(
             "issuing peer's manifest is expired; cannot issue TCT".into(),
         ));
-    }
+    };
     TctBuilder::new(cfg.signing_key)
         .subject(peer_aid.clone())
         .audience(peer_aid.clone())
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(peer_pubkey.clone())
         .issued_at(cfg.now)
         .build()
@@ -790,17 +787,54 @@ fn verify_received_tct(
 /// TCT (verbatim token + trusted claims) and, when the peer's policy
 /// allowed delegation, the companion grant voucher to delegate with
 /// later (RFC-AITP-0005 §8).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct CompletedHandshake {
+    pub(crate) tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl CompletedHandshake {
     /// The TCT the peer issued to us.
-    pub tct: VerifiedTct,
+    pub fn tct(&self) -> &VerifiedTct {
+        &self.tct
+    }
+
     /// The companion grant voucher, verbatim. `None` when the issuing
     /// peer's policy forbids us from delegating.
-    pub grant_voucher: Option<String>,
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
     /// The grants we may exercise under the peer-issued TCT: its
     /// `grants`, narrowed to the safe subset when the revocation source
     /// answered [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> CompletedHandshakeParts {
+        CompletedHandshakeParts {
+            tct: self.tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`CompletedHandshake`], from [`CompletedHandshake::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CompletedHandshakeParts {
+    /// See [`CompletedHandshake::tct`].
+    pub tct: VerifiedTct,
+    /// See [`CompletedHandshake::grant_voucher`].
+    pub grant_voucher: Option<String>,
+    /// See [`CompletedHandshake::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 
@@ -1379,7 +1413,7 @@ mod tests {
         // pinned-key algorithm: 44-char compressed `public_key`, tagged
         // proof, and it verifies against a store holding the key.
         let p256 = AitpSigningKey::generate_p256();
-        let other = AitpSigningKey::from_seed(&[1u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let mid = Uuid::new_v4();
         let ts = Timestamp(1_700_000_000);
         let nonce = base64url::encode(&[42u8; 16]);
@@ -1424,8 +1458,8 @@ mod tests {
                 Ok(vec![])
             }
         }
-        let me = AitpSigningKey::from_seed(&[0x70; 32]);
-        let peer = AitpSigningKey::from_seed(&[0x71; 32]);
+        let me = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
         let manifest = crate::manifest::ManifestBuilder::new(&me)
             .display_name("issuer")
             .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())

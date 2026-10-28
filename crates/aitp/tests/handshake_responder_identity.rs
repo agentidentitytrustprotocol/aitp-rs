@@ -48,7 +48,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .offer("write_data")
         .published_at(NOW)
@@ -78,8 +78,8 @@ fn envelope_with(
 /// not a placeholder.
 #[test]
 fn responder_grant_policy_sees_real_pinned_key_identity() {
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;

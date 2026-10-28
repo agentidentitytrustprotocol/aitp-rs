@@ -12,7 +12,7 @@ use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
 use aitp::manifest::{
     verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder, ManifestError, ManifestPop,
-    VerifyManifestContext,
+    ManifestVerifyContext,
 };
 use serde::Deserialize;
 
@@ -92,7 +92,7 @@ fn pop_signing_input_matches_spec_kat() {
 /// `challenge.as_bytes()`.
 #[test]
 fn builder_pop_uses_decoded_challenge() {
-    let key = AitpSigningKey::from_seed(&[1u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
     let manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
@@ -106,7 +106,7 @@ fn builder_pop_uses_decoded_challenge() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("builder produces a manifest");
 
@@ -126,7 +126,7 @@ fn builder_pop_uses_decoded_challenge() {
 /// (RFC-AITP-0003 §5), rejects it.
 #[test]
 fn legacy_ascii_bytes_pop_is_rejected() {
-    let key = AitpSigningKey::from_seed(&[2u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
@@ -140,7 +140,7 @@ fn legacy_ascii_bytes_pop_is_rejected() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
 
@@ -150,7 +150,7 @@ fn legacy_ascii_bytes_pop_is_rejected() {
     manifest.proof_of_possession =
         ManifestPop::new(manifest.proof_of_possession.challenge.clone(), legacy_sig);
 
-    let err = verify_manifest(&manifest, &VerifyManifestContext::at(Timestamp::now()))
+    let err = verify_manifest(&manifest, &ManifestVerifyContext::at(Timestamp::now()))
         .expect_err("legacy ASCII-bytes PoP must be rejected");
     assert!(
         matches!(err, ManifestError::PopFailed),

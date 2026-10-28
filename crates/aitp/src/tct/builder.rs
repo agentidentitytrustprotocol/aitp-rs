@@ -4,7 +4,6 @@ use crate::core::{ids, Aid, Timestamp, PROTOCOL_VERSION};
 use crate::crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
 use crate::tct::types::{Cnf, GrantVoucherClaims, IssuedTct, TctClaims};
 use crate::tct::TctError;
-use serde_json::{Map, Value};
 use uuid::Uuid;
 
 /// The reserved marker grant of a self-attestation TCT (RFC-AITP-0005
@@ -19,7 +18,7 @@ pub const ATTESTATION_GRANT: &str = "aitp.attestation";
 ///     .subject(subject_aid.clone())
 ///     .audience(subject_aid.clone())          // v0.2: audience == subject
 ///     .grants(["demo.echo"])
-///     .ttl_secs(3600)
+///     .ttl(Duration::from_secs(3600))
 ///     .subject_pubkey(subject_verifying_key)
 ///     .build()?;
 /// // issued.token   — the TCT compact JWS
@@ -36,7 +35,7 @@ pub const ATTESTATION_GRANT: &str = "aitp.attestation";
 ///     .self_attestation()
 ///     .ext(statement)                         // {"com.example": {...}}
 ///     .derived_jti("com.example.decision-commit", record_id.as_bytes())
-///     .ttl_secs(100 * 365 * 86_400)
+///     .ttl(Duration::from_secs(100 * 365 * 86_400))
 ///     .build()?;
 /// ```
 ///
@@ -49,13 +48,13 @@ pub struct TctBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     subject: Option<Aid>,
     audience: Option<Aid>,
     grants: Vec<String>,
-    ttl_secs: i64,
+    ttl: std::time::Duration,
     subject_pubkey: Option<AitpVerifyingKey>,
     mint_voucher: bool,
     /// Override `issued_at` for tests / fixed-clock scenarios.
     now_override: Option<Timestamp>,
     jti: JtiSource,
-    ext: Option<Map<String, Value>>,
+    ext: Option<crate::core::ExtensionsMap>,
     attestation: bool,
 }
 
@@ -65,7 +64,7 @@ impl<S: ?Sized> std::fmt::Debug for TctBuilder<'_, S> {
             .field("subject", &self.subject)
             .field("audience", &self.audience)
             .field("grants", &self.grants)
-            .field("ttl_secs", &self.ttl_secs)
+            .field("ttl", &self.ttl)
             .field("attestation", &self.attestation)
             .finish_non_exhaustive()
     }
@@ -169,7 +168,7 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             subject: None,
             audience: None,
             grants: Vec::new(),
-            ttl_secs: crate::tct::DEFAULT_TCT_TTL_SECS,
+            ttl: crate::tct::DEFAULT_TCT_TTL,
             subject_pubkey: None,
             mint_voucher: true,
             now_override: None,
@@ -201,9 +200,10 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
         self
     }
 
-    /// Override the default TTL.
-    pub fn ttl_secs(mut self, ttl: i64) -> Self {
-        self.ttl_secs = ttl;
+    /// Override the default TTL ([`crate::tct::DEFAULT_TCT_TTL`]). The
+    /// expiry counts whole seconds; a fraction of a second is dropped.
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -253,8 +253,8 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
 
     /// Set the signed `ext` claim (RFC-AITP-0012): a map of namespaced
     /// keys (`com.example.thing`). Not copied into the grant voucher.
-    pub fn ext(mut self, ext: Map<String, Value>) -> Self {
-        self.ext = Some(ext);
+    pub fn ext(mut self, ext: impl Into<crate::core::ExtensionsMap>) -> Self {
+        self.ext = Some(ext.into());
         self
     }
 
@@ -313,7 +313,9 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             return Err(TctError::CnfMalformed);
         }
 
-        let jkt = subject_pk.to_jwk_thumbprint().map_err(TctError::Crypto)?;
+        let jkt = subject_pk
+            .to_jwk_thumbprint_sha256()
+            .map_err(TctError::Crypto)?;
         let jti = match self.jti {
             JtiSource::Random => ids::random_v4(),
             JtiSource::Fixed(jti) => {
@@ -325,7 +327,7 @@ impl<'a, S: ?Sized + IssuerAid> TctBuilder<'a, S> {
             }
         };
         let issued_at = self.now_override.unwrap_or_else(Timestamp::now);
-        let expires_at = issued_at.plus_secs(self.ttl_secs);
+        let expires_at = issued_at.saturating_add(self.ttl);
 
         let claims = TctClaims {
             ver: PROTOCOL_VERSION.into(),

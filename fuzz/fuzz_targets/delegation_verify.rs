@@ -15,9 +15,9 @@ use libfuzzer_sys::fuzz_target;
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::delegation::{verify_delegation, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationVerifyContext};
 use aitp::tct::RevocationSource;
-use aitp_experimental::delegation::{verify_chained_delegation, VerifyChainContext};
+use aitp_experimental::delegation::{verify_chained_delegation, ChainVerifyContext};
 
 fuzz_target!(|data: &[u8]| {
     // First byte selects the multi-hop budget so both the structural
@@ -31,10 +31,10 @@ fuzz_target!(|data: &[u8]| {
     let token = String::from_utf8_lossy(token_bytes);
     let now = Timestamp::now();
 
-    let ctx = VerifyDelegationContext::new(&verifier, now, RevocationSource::FailOpen);
+    let ctx = DelegationVerifyContext::new(&verifier, now, RevocationSource::FailOpen);
     let _ = verify_delegation(&token, &ctx);
 
-    let ctx = VerifyChainContext::new(&verifier, now, RevocationSource::FailOpen)
+    let ctx = ChainVerifyContext::new(&verifier, now, RevocationSource::FailOpen)
         .with_max_delegation_hops(max_delegation_hops);
     let _ = verify_chained_delegation(&token, &ctx);
 });

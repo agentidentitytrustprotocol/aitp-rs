@@ -23,16 +23,16 @@
 
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
 fn main() {
     println!("aitp-rs delegation demo — single-hop (RFC-AITP-0006)\n");
 
-    let a = AitpSigningKey::from_seed(&[0xA1; 32]); // grantor
-    let b = AitpSigningKey::from_seed(&[0xB2; 32]); // delegator
-    let c = AitpSigningKey::from_seed(&[0xC3; 32]); // delegatee
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]); // grantor
+    let b = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]); // delegator
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC3; 32]); // delegatee
     println!("A (grantor):   {}", a.aid());
     println!("B (delegator): {}", b.aid());
     println!("C (delegatee): {}\n", c.aid());
@@ -48,7 +48,7 @@ fn main() {
         .grants(["demo.read", "demo.write"])
         .subject_pubkey(b.verifying_key())
         .issued_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("A issues TCT to B");
     println!(
@@ -69,7 +69,7 @@ fn main() {
         .delegatee(c.aid().clone())
         .scope(["demo.read"])
         .now(now)
-        .ttl_secs(1800)
+        .ttl(std::time::Duration::from_secs(1800))
         .build()
         .expect("B delegates demo.read to C");
     println!("B → C: delegation token minted (scope [\"demo.read\"])\n");
@@ -87,16 +87,16 @@ fn main() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .expect("B publishes its Manifest");
     let issuer_manifests = vec![b_manifest];
-    let ctx = VerifyDelegationContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
+    let ctx = DelegationVerifyContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
         .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
-            v.claims.scope
+            v.claims().scope
         ),
         Err(e) => panic!("expected valid delegation, got {e}"),
     }
@@ -119,7 +119,7 @@ fn main() {
     // The token binds `aud == voucher issuer == A`. Anyone else verifying
     // it — here C tries — is rejected.
     let wrong_ctx =
-        VerifyDelegationContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
+        DelegationVerifyContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
             .with_issuer_manifests(&issuer_manifests);
     match verify_delegation(&b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),

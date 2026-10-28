@@ -134,7 +134,7 @@ pub struct JsHandshakeTctClaims {
 
 impl JsHandshakeTctClaims {
     fn from_verified(v: &VerifiedTct) -> Self {
-        let c = &v.claims;
+        let c = &v.claims();
         Self {
             iss: c.iss.to_string(),
             sub: c.sub.to_string(),
@@ -336,9 +336,9 @@ impl JsInitiatorSession {
             .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         Ok(JsCompletedHandshake {
-            tct: completed.tct.token.clone(),
-            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
-            grant_voucher: completed.grant_voucher,
+            tct: completed.tct().token().to_owned(),
+            claims: JsHandshakeTctClaims::from_verified(completed.tct()),
+            grant_voucher: completed.grant_voucher().map(str::to_owned),
         })
     }
 }
@@ -482,9 +482,9 @@ impl JsResponderSession {
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
         let completed_js = JsCompletedHandshake {
-            tct: completed.tct.token.clone(),
-            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
-            grant_voucher: completed.grant_voucher,
+            tct: completed.tct().token().to_owned(),
+            claims: JsHandshakeTctClaims::from_verified(completed.tct()),
+            grant_voucher: completed.grant_voucher().map(str::to_owned),
         };
         Ok(JsCommitAckResult {
             ack_json,

@@ -64,7 +64,7 @@ fn manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifest {
                 .with_issuer(RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .build()
         .unwrap()
@@ -75,8 +75,8 @@ fn manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifest {
 /// its body and the prefetch count.
 async fn hello(serves: bool) -> (u16, serde_json::Value, usize) {
     let idp = MockOidcIssuer::new("https://idp.example.com", "kid-1", [0xC0; 32]);
-    let alice = AitpSigningKey::from_seed(&[0xA7; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB7; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA7; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB7; 32]);
     let alice_manifest = manifest(&alice, "alice", &idp.issuer);
     let bob_manifest = manifest(&bob, "bob", &idp.issuer);
 
@@ -89,7 +89,7 @@ async fn hello(serves: bool) -> (u16, serde_json::Value, usize) {
         prefetches: prefetches.clone(),
     };
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0xB7; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0xB7; 32]),
         bob_manifest,
         vec![RawUrl::from(idp.issuer.clone())],
         resolver,
@@ -133,7 +133,7 @@ async fn hello(serves: bool) -> (u16, serde_json::Value, usize) {
         vec!["demo.echo".into()],
     )
     .unwrap();
-    let jkt = alice.verifying_key().to_jwk_thumbprint().unwrap();
+    let jkt = alice.verifying_key().to_jwk_thumbprint_sha256().unwrap();
     payload.identity.proof =
         idp.mint_aitp_jwt("alice", bob.aid().as_str(), &payload.pop_nonce, &jkt, now.0);
     let envelope = sign_envelope_with(

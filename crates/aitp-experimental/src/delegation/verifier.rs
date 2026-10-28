@@ -16,7 +16,7 @@ use aitp::__private::{
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpVerifyingKey};
 use aitp::delegation::{DelegationError, DELEGATION_CLAIMS_MEMBERS};
-use aitp::manifest::{resolve_verified_manifest, ManifestResolver, VerifyManifestContext};
+use aitp::manifest::{resolve_verified_manifest, ManifestResolver, ManifestVerifyContext};
 use aitp::tct::{
     GrantVoucherClaims, RevocationCheckFn, RevocationQuery, RevocationSource, RevocationUnavailable,
 };
@@ -36,19 +36,19 @@ pub type HopRevocationCheck<'a> = &'a RevocationCheckFn<'a>;
 /// `verifier` is A — the original grantor, voucher issuer, and the only
 /// party a delegation is presentable to.
 ///
-/// `#[non_exhaustive]`: construct with [`VerifyChainContext::new`] and
+/// `#[non_exhaustive]`: construct with [`ChainVerifyContext::new`] and
 /// the builder methods rather than a struct literal, so a future
 /// verification knob is an additive change instead of a breaking one for
 /// every downstream crate.
 #[non_exhaustive]
-pub struct VerifyChainContext<'a> {
+pub struct ChainVerifyContext<'a> {
     /// The verifier's own AID (A). `aud` at every hop and `voucher.iss`
     /// MUST equal this.
     pub verifier: &'a Aid,
     /// Current time.
     pub now: Timestamp,
     /// Hop budget: `total_hops = chain.len() + 2` must not exceed it
-    /// (RFC-AITP-0011 §2). [`VerifyChainContext::new`] sets
+    /// (RFC-AITP-0011 §2). [`ChainVerifyContext::new`] sets
     /// [`DEFAULT_MAX_DELEGATION_HOPS`]. `0` means single-hop only: any
     /// token carrying a `chain` claim is rejected with
     /// [`DelegationError::MultihopNotSupported`] and any `jti` with
@@ -75,7 +75,7 @@ pub struct VerifyChainContext<'a> {
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
 }
 
-impl<'a> VerifyChainContext<'a> {
+impl<'a> ChainVerifyContext<'a> {
     /// Context with the given source-TCT revocation choice and a hop
     /// budget of [`DEFAULT_MAX_DELEGATION_HOPS`].
     pub fn new(verifier: &'a Aid, now: Timestamp, revocation: RevocationSource<'a>) -> Self {
@@ -89,7 +89,7 @@ impl<'a> VerifyChainContext<'a> {
         }
     }
 
-    /// Set the hop budget. See [`VerifyChainContext::max_delegation_hops`].
+    /// Set the hop budget. See [`ChainVerifyContext::max_delegation_hops`].
     pub fn with_max_delegation_hops(mut self, max_delegation_hops: usize) -> Self {
         self.max_delegation_hops = max_delegation_hops;
         self
@@ -135,7 +135,7 @@ impl<'a> VerifyChainContext<'a> {
 /// (`aitp::tct::sign_pop_response` / `verify_pop_response`).
 pub fn verify_chained_delegation(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     // Peek (unverified) to learn the claimed shape; everything is
     // re-established cryptographically below.
@@ -238,14 +238,14 @@ fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegation
 /// confusion (RFC-AITP-0001 §5.4.5).
 fn verify_hop_jws(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     let claimed = peek_claims(token)?;
     let signer = ctx
         .issuer_manifests
         .ok_or(aitp::manifest::ManifestError::NotFound)
         .and_then(|r| {
-            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext::at(ctx.now))
+            resolve_verified_manifest(r, &claimed.iss, &ManifestVerifyContext::at(ctx.now))
         })
         .map_err(|source| DelegationError::KeyResolutionFailed {
             issuer: claimed.iss.clone(),
@@ -274,7 +274,7 @@ fn verify_hop_jws(
 /// invariants hold for the single-hop token).
 fn check_hop_claims(
     claims: &ChainedDelegationClaims,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<(), ChainedDelegationError> {
     if &claims.aud != ctx.verifier {
         return Err(DelegationError::AudienceMismatch.into());
@@ -288,7 +288,7 @@ fn check_hop_claims(
     // cnf.jkt MUST match the key encoded in `sub` (RFC-AITP-0001 §5.4.4).
     let sub_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(DelegationError::Crypto)?;
     let expected_jkt = sub_key
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(DelegationError::Crypto)?;
     if claims.cnf.jkt != expected_jkt {
         return Err(DelegationError::CnfMalformed.into());
@@ -304,7 +304,7 @@ fn check_hop_claims(
 fn verify_root_voucher(
     voucher_token: &str,
     expected_delegator: &Aid,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<GrantVoucherClaims, ChainedDelegationError> {
     let voucher = aitp::tct::verify_voucher(voucher_token, ctx.verifier).map_err(|e| match e {
         aitp::tct::TctError::Crypto(c) => DelegationError::Crypto(c),
@@ -326,7 +326,7 @@ fn verify_root_voucher(
 
 fn verify_single_hop(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     // Step 1: outer JWS — strict parse, typ, alg pin, signature under
     // the key B's verified Manifest designates, ver.
@@ -371,7 +371,7 @@ fn verify_single_hop(
 fn verify_multi_hop(
     token: &str,
     peeked: &ChainedDelegationClaims,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     let chain: Vec<String> = peeked.chain.clone().unwrap_or_default();
 
@@ -510,7 +510,7 @@ fn verify_multi_hop(
 /// check: the verifier's own list, keyed by `src_jti`. Returns `scope`,
 /// narrowed under a soft-fail safe subset.
 fn check_source_revocation(
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
     src_jti: &Uuid,
     scope: &[String],
 ) -> Result<Vec<String>, ChainedDelegationError> {

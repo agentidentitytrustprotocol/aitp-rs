@@ -44,14 +44,14 @@ impl RevocationListProducer for StaticProducer {
 }
 
 fn issuer() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&ISSUER_SEED)
+    AitpSigningKey::from_ed25519_seed(&ISSUER_SEED)
 }
 
-fn manifest(advertise: bool, manifest_ttl: i64) -> Manifest {
+fn manifest(advertise: bool, manifest_ttl: u64) -> Manifest {
     manifest_at(advertise.then_some(RENEW_PATH), manifest_ttl)
 }
 
-fn manifest_at(renew_path: Option<&str>, manifest_ttl: i64) -> Manifest {
+fn manifest_at(renew_path: Option<&str>, manifest_ttl: u64) -> Manifest {
     let key = issuer();
     let mut b = ManifestBuilder::new(&key)
         .display_name("issuer")
@@ -61,10 +61,10 @@ fn manifest_at(renew_path: Option<&str>, manifest_ttl: i64) -> Manifest {
                 base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .offer("demo.write")
-        .ttl_secs(manifest_ttl);
+        .ttl(std::time::Duration::from_secs(manifest_ttl));
     if let Some(path) = renew_path {
         b = b.extension(RENEW_URI_EXT, format!("http://127.0.0.1{path}").into());
     }
@@ -142,13 +142,13 @@ fn tct(
     holder: &AitpSigningKey,
     grants: &[&str],
     issued_at: Timestamp,
-    ttl: i64,
+    ttl: u64,
 ) -> aitp::tct::IssuedTct {
     TctBuilder::new(signer)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(grants.iter().copied())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(holder.verifying_key())
         .issued_at(issued_at)
         .build()
@@ -209,7 +209,7 @@ fn router_errors_on_path_collision() {
 
 #[test]
 fn new_rejects_signer_manifest_aid_mismatch() {
-    let other = AitpSigningKey::from_seed(&[0x43; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x43; 32]);
     let err = RenewalServer::new(
         Arc::new(other),
         manifest(true, 86_400),
@@ -224,7 +224,7 @@ fn new_rejects_signer_manifest_aid_mismatch() {
 #[tokio::test]
 async fn renews_at_advertised_path_and_refuses_replay() {
     let base = serve(renewal(manifest(true, 86_400))).await;
-    let holder = AitpSigningKey::from_seed(&[0x01; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x01; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let req = request(&holder, current.token);
 
@@ -258,7 +258,7 @@ async fn renews_at_advertised_path_and_refuses_replay() {
 #[tokio::test]
 async fn revoked_tct_is_refused() {
     let key = issuer();
-    let holder = AitpSigningKey::from_seed(&[0x02; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x02; 32]);
     let now = Timestamp::now();
     let current = tct(&key, &holder, &["demo.echo"], now, 600);
     let base = serve(renewal_with(
@@ -274,7 +274,7 @@ async fn revoked_tct_is_refused() {
 #[tokio::test]
 async fn withdrawn_grants_are_dropped_or_refused() {
     let base = serve(renewal(manifest(true, 86_400))).await;
-    let holder = AitpSigningKey::from_seed(&[0x03; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x03; 32]);
 
     // "legacy.cap" is no longer offered: dropped, the rest survives.
     let current = tct(
@@ -302,7 +302,7 @@ async fn withdrawn_grants_are_dropped_or_refused() {
 async fn grant_policy_hook_is_applied() {
     let deny = Arc::new(|_: &Aid, _: &[String]| Vec::new());
     let base = serve(renewal(manifest(true, 86_400)).with_grant_policy(deny)).await;
-    let holder = AitpSigningKey::from_seed(&[0x04; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x04; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let (status, body) = post(&base, &request(&holder, current.token)).await;
     assert_eq!((status, code(&body)), (400, "POLICY_VIOLATION"), "{body}");
@@ -312,7 +312,7 @@ async fn grant_policy_hook_is_applied() {
 async fn each_failure_maps_to_its_own_code() {
     let base = serve(renewal(manifest(true, 3_000))).await;
     let key = issuer();
-    let holder = AitpSigningKey::from_seed(&[0x05; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x05; 32]);
     let now = Timestamp::now();
 
     // Expired TCT.
@@ -332,7 +332,7 @@ async fn each_failure_maps_to_its_own_code() {
     let good = tct(&key, &holder, &["demo.echo"], now, 600);
 
     // PoP signed by a key other than the TCT's subject.
-    let attacker = AitpSigningKey::from_seed(&[0x06; 32]);
+    let attacker = AitpSigningKey::from_ed25519_seed(&[0x06; 32]);
     let (status, body) = post(&base, &request(&attacker, good.token.clone())).await;
     assert_eq!(
         (status, code(&body)),
@@ -351,7 +351,7 @@ async fn each_failure_maps_to_its_own_code() {
     );
 
     // A TCT some other issuer signed.
-    let other = AitpSigningKey::from_seed(&[0x07; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x07; 32]);
     let foreign = tct(&other, &holder, &["demo.echo"], now, 600);
     let (status, body) = post(&base, &request(&holder, foreign.token)).await;
     assert_eq!(
@@ -385,7 +385,7 @@ async fn each_failure_maps_to_its_own_code() {
 async fn full_replay_guard_is_a_local_error() {
     let store = Arc::new(InMemoryNonceStore::new(1));
     let base = serve(renewal_with(manifest(true, 86_400), empty_list(), store)).await;
-    let holder = AitpSigningKey::from_seed(&[0x08; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x08; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let (status, _) = post(&base, &request(&holder, current.token.clone())).await;
     assert_eq!(status, 200);
@@ -402,7 +402,7 @@ async fn rate_limit_applies_per_source() {
             .with_rate_limit(RateLimitConfig::default().with_requests_per_source_per_60s(2)),
     )
     .await;
-    let holder = AitpSigningKey::from_seed(&[0x09; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x09; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     for _ in 0..2 {
         let (status, body) = post(&base, &request(&holder, current.token.clone())).await;
@@ -421,7 +421,7 @@ async fn rate_limit_applies_per_source() {
 #[tokio::test]
 async fn oversized_body_is_refused() {
     let base = serve(renewal(manifest(true, 86_400)).with_request_body_limit(64)).await;
-    let holder = AitpSigningKey::from_seed(&[0x0a; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x0a; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let (status, body) = post(&base, &request(&holder, current.token)).await;
     assert_eq!((status, code(&body)), (400, "INVALID_ENVELOPE"), "{body}");
@@ -455,7 +455,7 @@ fn bare_request(body: &impl serde::Serialize) -> axum::http::Request<axum::body:
 async fn missing_connect_info_is_internal_error() {
     use tower::ServiceExt;
     let app = renewal(manifest(true, 86_400)).router().unwrap();
-    let holder = AitpSigningKey::from_seed(&[0x0b; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x0b; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let resp = app
         .oneshot(bare_request(&request(&holder, current.token)))
@@ -477,7 +477,7 @@ async fn without_rate_limit_serves_without_connect_info() {
         .without_rate_limit()
         .router()
         .unwrap();
-    let holder = AitpSigningKey::from_seed(&[0x0c; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x0c; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let resp = app
         .oneshot(bare_request(&request(&holder, current.token)))

@@ -40,6 +40,6 @@ fn shared_configuration_is_send_and_sync() {
     assert_send_sync::<Box<aitp::handshake::OidcMintJwtFn>>();
     assert_send_sync::<&'static dyn JwksResolver>();
     assert_send_sync::<aitp::tct::TctVerifyContext<'static>>();
-    assert_send_sync::<aitp::delegation::VerifyDelegationContext<'static>>();
+    assert_send_sync::<aitp::delegation::DelegationVerifyContext<'static>>();
     assert_send_sync::<aitp::transport::HandshakeServer<NoOpResolver>>();
 }

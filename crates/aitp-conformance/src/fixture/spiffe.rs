@@ -164,7 +164,7 @@ impl EnvelopeCtx {
             self.timestamp,
             &self.pop_nonce,
         )?;
-        let key = AitpSigningKey::from_seed(&LEAF_SEED);
+        let key = AitpSigningKey::from_ed25519_seed(&LEAF_SEED);
         Some(key.sign_jcs(&Digest32::sha256(&input)).into_string())
     }
 
@@ -179,7 +179,7 @@ impl EnvelopeCtx {
         let sender = aitp::core::Aid::parse(&self.sender).ok()?;
         let jkt = AitpVerifyingKey::from_aid(&sender)
             .ok()?
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .ok()?;
         let (aud, iat, exp, nonce) = match placeholder {
             JWT_SVID_WRONG_NONCE => (self_aid, now, now + 300, WRONG_NONCE),
@@ -297,7 +297,7 @@ impl PublicKeyData for LeafKey {
 /// test CA, in standard base64.
 fn mint_leaf(subject: &str, extra_san: Option<&str>, now: i64) -> String {
     let leaf_key = LeafKey(
-        AitpSigningKey::from_seed(&LEAF_SEED)
+        AitpSigningKey::from_ed25519_seed(&LEAF_SEED)
             .verifying_key()
             .try_to_ed25519_bytes()
             .expect("kat-keypair-003 is Ed25519"),

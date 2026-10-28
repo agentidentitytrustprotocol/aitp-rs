@@ -13,7 +13,7 @@ use rand::TryRng;
 use serde::Serialize;
 
 /// Default Manifest TTL (24 hours).
-pub const DEFAULT_MANIFEST_TTL_SECS: i64 = 24 * 3600;
+pub const DEFAULT_MANIFEST_TTL: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
 
 /// Manifest `extensions` key (registered, RFC-AITP-0012 namespace) under
 /// which a TCT issuer advertises its `ListRevoked` URL
@@ -35,7 +35,7 @@ pub const REVOCATION_LIST_URI_EXT: &str = "rfc-aitp-0008.revocation_list_uri";
 ///     })
 ///     .accept_trust_anchor("https://idp.example.com".parse()?)
 ///     .offer("demo.echo")
-///     .ttl_secs(3600)
+///     .ttl(Duration::from_secs(3600))
 ///     .build()?;
 /// ```
 ///
@@ -59,7 +59,7 @@ pub struct ManifestBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     /// absent vs explicit-empty must round-trip distinctly.
     required_peer_capabilities: Option<Vec<String>>,
     identity_hint: Option<IdentityHint>,
-    ttl_secs: i64,
+    ttl: std::time::Duration,
     display_name: Option<String>,
     extensions: ExtensionsMap,
     /// Override `published_at` for tests / fixed-clock scenarios.
@@ -72,7 +72,7 @@ impl<S: ?Sized> std::fmt::Debug for ManifestBuilder<'_, S> {
             .field("display_name", &self.display_name)
             .field("handshake_endpoint", &self.handshake_endpoint)
             .field("offered_capabilities", &self.offered_capabilities)
-            .field("ttl_secs", &self.ttl_secs)
+            .field("ttl", &self.ttl)
             .finish_non_exhaustive()
     }
 }
@@ -177,7 +177,7 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
             offered_capabilities: Vec::new(),
             required_peer_capabilities: None,
             identity_hint: None,
-            ttl_secs: DEFAULT_MANIFEST_TTL_SECS,
+            ttl: DEFAULT_MANIFEST_TTL,
             display_name: None,
             extensions: ExtensionsMap::new(),
             now_override: None,
@@ -239,17 +239,18 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
         self
     }
 
-    /// Append an identity type (`"oidc"`, `"pinned_key"`).
+    /// Append an accepted identity type; the Manifest carries its wire
+    /// name ([`IdentityKind::as_str`](crate::handshake::IdentityKind::as_str)).
     ///
     /// Once at least one type is appended, the manifest's
     /// `accepted_identity_types` field is serialized in the
     /// canonical bytes — even if the list is later cleared. Callers
     /// who want the absent (default `["oidc"]`) semantic should not
     /// call this method at all.
-    pub fn accept_identity_type(mut self, ty: impl Into<String>) -> Self {
+    pub fn accept_identity_type(mut self, kind: crate::handshake::IdentityKind) -> Self {
         self.accepted_identity_types
             .get_or_insert_with(Vec::new)
-            .push(ty.into());
+            .push(kind.as_str().to_owned());
         self
     }
 
@@ -264,9 +265,10 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
         self
     }
 
-    /// Override the default Manifest TTL.
-    pub fn ttl_secs(mut self, secs: i64) -> Self {
-        self.ttl_secs = secs;
+    /// Override the default Manifest TTL ([`DEFAULT_MANIFEST_TTL`]). The
+    /// expiry counts whole seconds; a fraction of a second is dropped.
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -336,7 +338,7 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
 
         // 4. Compose published_at / expires_at.
         let published_at = self.now_override.unwrap_or_else(Timestamp::now);
-        let expires_at = published_at.plus_secs(self.ttl_secs);
+        let expires_at = published_at.saturating_add(self.ttl);
 
         // 5. Assemble every field except `signature` into a `Manifest`
         //    (placeholder `signature`, never read by the `From` impl below —

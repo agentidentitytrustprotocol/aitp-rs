@@ -85,21 +85,23 @@ impl RetryPolicy {
         }
     }
 
-    /// Custom policy.
-    pub fn custom(
-        max_attempts: u32,
-        base_delay: Duration,
-        max_delay: Duration,
-        multiplier: f64,
-    ) -> Self {
-        assert!(max_attempts >= 1, "max_attempts must be >= 1");
-        assert!(multiplier >= 1.0, "multiplier must be >= 1.0");
-        Self {
-            max_attempts,
-            base_delay,
-            max_delay,
-            multiplier,
-            jitter_ratio: 0.0,
+    /// Start a custom policy from the [`Self::conservative`] values.
+    ///
+    /// ```
+    /// use aitp::transport::RetryPolicy;
+    /// use std::time::Duration;
+    ///
+    /// let policy = RetryPolicy::builder()
+    ///     .max_attempts(4)
+    ///     .base_delay(Duration::from_millis(250))
+    ///     .max_delay(Duration::from_secs(2))
+    ///     .multiplier(3.0)
+    ///     .build();
+    /// assert_eq!(policy.max_attempts(), 4);
+    /// ```
+    pub const fn builder() -> RetryPolicyBuilder {
+        RetryPolicyBuilder {
+            policy: Self::conservative(),
         }
     }
 
@@ -185,6 +187,50 @@ impl Default for RetryPolicy {
     }
 }
 
+/// Builder for a custom [`RetryPolicy`]. See [`RetryPolicy::builder`].
+#[derive(Debug, Clone)]
+pub struct RetryPolicyBuilder {
+    policy: RetryPolicy,
+}
+
+impl RetryPolicyBuilder {
+    /// Total attempts, the first included. Values below 1 count as 1.
+    pub const fn max_attempts(mut self, max_attempts: u32) -> Self {
+        self.policy.max_attempts = if max_attempts == 0 { 1 } else { max_attempts };
+        self
+    }
+
+    /// Delay before the second attempt.
+    pub const fn base_delay(mut self, base_delay: Duration) -> Self {
+        self.policy.base_delay = base_delay;
+        self
+    }
+
+    /// Upper bound on any one delay.
+    pub const fn max_delay(mut self, max_delay: Duration) -> Self {
+        self.policy.max_delay = max_delay;
+        self
+    }
+
+    /// Growth factor between consecutive delays. Values below `1.0`,
+    /// and NaN, count as `1.0`.
+    pub fn multiplier(mut self, multiplier: f64) -> Self {
+        self.policy.multiplier = multiplier.max(1.0);
+        self
+    }
+
+    /// Symmetric jitter ratio; see [`RetryPolicy::with_jitter_ratio`].
+    pub fn jitter_ratio(mut self, ratio: f64) -> Self {
+        self.policy = self.policy.with_jitter_ratio(ratio);
+        self
+    }
+
+    /// The policy.
+    pub fn build(self) -> RetryPolicy {
+        self.policy
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -203,7 +249,12 @@ mod tests {
         assert_eq!(p.delay_before(2), Duration::from_millis(100));
         assert_eq!(p.delay_before(3), Duration::from_millis(200));
         // capped at max_delay = 1s
-        let p2 = RetryPolicy::custom(10, Duration::from_millis(500), Duration::from_secs(1), 2.0);
+        let p2 = RetryPolicy::builder()
+            .max_attempts(10)
+            .base_delay(Duration::from_millis(500))
+            .max_delay(Duration::from_secs(1))
+            .multiplier(2.0)
+            .build();
         assert_eq!(p2.delay_before(2), Duration::from_millis(500));
         assert_eq!(p2.delay_before(3), Duration::from_secs(1)); // capped
         assert_eq!(p2.delay_before(10), Duration::from_secs(1)); // still capped

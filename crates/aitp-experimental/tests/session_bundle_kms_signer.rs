@@ -8,7 +8,7 @@ use aitp::crypto::{AitpSigner, AitpSigningKey, CryptoError, SignerError};
 use aitp::tct::TctBuilder;
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, SessionBundleBuilder, SessionBundleError,
-    VerifySessionBundleContext,
+    SessionBundleVerifyContext,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -22,7 +22,7 @@ fn issue_tct(coord: &dyn AitpSigner, holder: &AitpSigningKey) -> String {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(NOW)
         .build()
@@ -33,13 +33,13 @@ fn issue_tct(coord: &dyn AitpSigner, holder: &AitpSigningKey) -> String {
 #[test]
 fn kms_coordinator_signs_a_verifying_bundle() {
     let coord = MockKmsSigner::new(p256(0xC0)).output(MockOutput::DerHighS);
-    let alice = AitpSigningKey::from_seed(&[0xA0; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA0; 32]);
     let bundle = SessionBundleBuilder::new(&coord)
         .issued_at(NOW)
         .participant(alice.aid().clone(), issue_tct(&coord, &alice))
         .build()
         .expect("KMS-backed bundle builds");
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -56,7 +56,7 @@ fn kms_coordinator_signs_a_verifying_bundle() {
 fn kms_coordinator_with_wrong_key_returns_signer_error() {
     let real = MockKmsSigner::new(p256(0xC1));
     let bad = MockKmsSigner::new(p256(0xC1)).sign_with(p256(0xC2));
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
     let err = SessionBundleBuilder::new(&bad)
         .issued_at(NOW)
         .participant(alice.aid().clone(), issue_tct(&real, &alice))
@@ -83,13 +83,16 @@ const SESSION: &str = "770e8400-e29b-41d4-a716-446655440a01";
 async fn async_bundle_is_byte_identical_to_sync() {
     let session = uuid::Uuid::parse_str(SESSION).unwrap();
     let cases: [(fn() -> AitpSigningKey, MockOutput); 3] = [
-        (|| AitpSigningKey::from_seed(&[0xC3; 32]), MockOutput::Raw),
+        (
+            || AitpSigningKey::from_ed25519_seed(&[0xC3; 32]),
+            MockOutput::Raw,
+        ),
         (|| p256(0xC4), MockOutput::Raw),
         (|| p256(0xC5), MockOutput::Der),
     ];
     for (make, output) in cases {
         let coord = make();
-        let alice = AitpSigningKey::from_seed(&[0xA2; 32]);
+        let alice = AitpSigningKey::from_ed25519_seed(&[0xA2; 32]);
         let tct = issue_tct(&coord, &alice);
         let sync = SessionBundleBuilder::new(&coord)
             .session_id(session)
@@ -131,7 +134,7 @@ async fn async_build_validates_like_sync() {
 async fn async_wrong_key_backend_returns_signer_error() {
     let real = MockKmsSigner::new(p256(0xC7));
     let bad = MockKmsSigner::new(p256(0xC7)).sign_with(p256(0xC8));
-    let alice = AitpSigningKey::from_seed(&[0xA3; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA3; 32]);
     let err = SessionBundleBuilder::new_async(&bad)
         .issued_at(NOW)
         .participant(alice.aid().clone(), issue_tct(&real, &alice))
@@ -150,7 +153,7 @@ async fn async_wrong_key_backend_returns_signer_error() {
 #[tokio::test(flavor = "multi_thread")]
 async fn async_bundle_future_is_send() {
     let kms = MockKmsSigner::new(p256(0xC9)).output(MockOutput::RandomizedDer);
-    let alice = AitpSigningKey::from_seed(&[0xA4; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA4; 32]);
     let tct = issue_tct(&kms, &alice);
     let alice_aid = alice.aid().clone();
     let coord: Arc<dyn aitp::crypto::DynAsyncAitpSigner> = Arc::new(kms);
@@ -165,7 +168,7 @@ async fn async_bundle_future_is_send() {
     .await
     .unwrap()
     .expect("async bundle builds on another task");
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,

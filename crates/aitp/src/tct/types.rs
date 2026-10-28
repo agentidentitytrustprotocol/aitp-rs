@@ -62,7 +62,7 @@ pub struct TctClaims {
     /// OPTIONAL extensions slot (RFC-AITP-0012). Unknown keys inside
     /// `ext` MUST be ignored; unknown claims outside it are rejected.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
+    pub ext: Option<crate::core::ExtensionsMap>,
 }
 
 /// Full set of top-level members `aitp-tct.schema.json` declares,
@@ -112,7 +112,7 @@ pub struct GrantVoucherClaims {
     pub src_jti: Uuid,
     /// OPTIONAL extensions slot, same semantics as the TCT `ext` claim.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub ext: Option<serde_json::Map<String, serde_json::Value>>,
+    pub ext: Option<crate::core::ExtensionsMap>,
 }
 
 /// Full set of top-level members `aitp-grant-voucher.schema.json` declares,
@@ -148,18 +148,55 @@ pub struct IssuedTct {
 }
 
 /// A TCT that passed [`crate::tct::verify_tct`]: the verbatim token plus its
-/// now-trusted decoded claims. Hold (and forward) `token`; read
-/// `claims`.
+/// now-trusted decoded claims. Hold (and forward) [`Self::token`]; read
+/// [`Self::claims`].
+///
+/// Only the verifiers construct it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct VerifiedTct {
+    pub(crate) token: String,
+    pub(crate) claims: TctClaims,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl VerifiedTct {
     /// The verified compact JWS string, byte-for-byte as received.
-    pub token: String,
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     /// Decoded claims, trusted after verification.
-    pub claims: TctClaims,
+    pub fn claims(&self) -> &TctClaims {
+        &self.claims
+    }
+
     /// The capabilities this TCT may exercise: `claims.grants`, narrowed
     /// to the safe subset when the revocation source answered
     /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedTctParts {
+        VerifiedTctParts {
+            token: self.token,
+            claims: self.claims,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedTct`], from [`VerifiedTct::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VerifiedTctParts {
+    /// See [`VerifiedTct::token`].
+    pub token: String,
+    /// See [`VerifiedTct::claims`].
+    pub claims: TctClaims,
+    /// See [`VerifiedTct::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 

@@ -8,7 +8,7 @@
 //!
 //! [`verify_chained_delegation`] verifies both single-hop tokens (with an
 //! optional `jti`) and chains, up to
-//! [`VerifyChainContext::max_delegation_hops`] total hops. The stable
+//! [`ChainVerifyContext::max_delegation_hops`] total hops. The stable
 //! single-hop verifier is [`aitp::delegation::verify_delegation`], which
 //! rejects every chain-bearing token with `DELEGATION_MULTIHOP_NOT_SUPPORTED`.
 
@@ -21,5 +21,5 @@ pub use builder::{compute_chain_hash, ChainedDelegationBuilder};
 pub use error::ChainedDelegationError;
 pub use types::{ChainedDelegationClaims, VerifiedChainedDelegation};
 pub use verifier::{
-    verify_chained_delegation, HopRevocationCheck, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    verify_chained_delegation, ChainVerifyContext, HopRevocationCheck, DEFAULT_MAX_DELEGATION_HOPS,
 };

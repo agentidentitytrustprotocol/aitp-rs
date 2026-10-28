@@ -50,7 +50,7 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let Some(seed) = kat_seed_for_aid(self_aid) else {
         return err(id, "OP_NOT_SUPPORTED", "self_aid is not a KAT keypair");
     };
-    let issuer = AitpSigningKey::from_seed(&seed);
+    let issuer = AitpSigningKey::from_ed25519_seed(&seed);
     let now = step_now(state, &params);
     let manifest = params
         .get("issuer_manifest")
@@ -89,8 +89,8 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
         &*store,
         now,
     );
-    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_i64) {
-        ctx = ctx.ttl_secs(ttl);
+    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_u64) {
+        ctx = ctx.ttl(std::time::Duration::from_secs(ttl));
     }
     if policy.get("mint_grant_voucher").and_then(Value::as_bool) == Some(false) {
         ctx = ctx.without_voucher();
@@ -155,7 +155,7 @@ pub(super) fn verify_renewal_response_op(
                 "ok": true,
                 "result": {
                     "verified": true,
-                    "renewed_jti": renewed.tct.claims.jti.to_string(),
+                    "renewed_jti": renewed.tct.claims().jti.to_string(),
                 },
             })
         }

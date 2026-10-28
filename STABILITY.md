@@ -48,6 +48,14 @@ Adding a variant to one of them is therefore always a breaking change: a
 or outcome enum follows the same rule, and is listed as `exhaustive` with
 that reason in [`docs/api-classification.md`](docs/api-classification.md).
 
+A variant of a decision enum that carries data is `#[non_exhaustive]`
+itself (`RevocationStatus::SoftFailSafeSubset`,
+`KeyResolutionOutcome::Resolved` and
+`KeyResolutionOutcome::SoftFailDegraded`), so a release may add a field
+to it: a `match` names its fields with `..`, and a caller who returns
+one builds it with its constructor, such as
+`RevocationStatus::soft_fail_safe_subset`.
+
 ### Options that relax a check end in `_dangerous`
 
 A builder or config method of the stable surface that switches a check

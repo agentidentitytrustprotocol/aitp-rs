@@ -28,8 +28,8 @@ pub enum ManifestError {
     /// `INCOMPATIBLE_IDENTITY_TYPE` to the caller. An absent field
     /// defaults to `["oidc"]`; an explicitly empty list rejects every
     /// peer (RFC clarification, post-rc.1).
-    #[error("manifest does not accept identity type `{0}`")]
-    IncompatibleIdentityType(&'static str),
+    #[error("manifest does not accept identity type `{}`", .0.as_str())]
+    IncompatibleIdentityType(crate::handshake::IdentityKind),
     /// Version is not supported by this implementation.
     #[error("manifest version is not supported")]
     VersionUnknown,

@@ -13,7 +13,7 @@ use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
-    RevocationListEnvelope, RevocationQuery, RevocationStatus, VerifyRevocationListContext,
+    RevocationListEnvelope, RevocationListVerifyContext, RevocationQuery, RevocationStatus,
 };
 use aitp::transport::{
     HandshakeServer, RevocationError, RevocationFetcher, RevocationListProducer, RevocationPolicy,
@@ -39,7 +39,7 @@ impl RevocationListProducer for StaticProducer {
 
 #[tokio::test]
 async fn well_known_revocation_list_serves_signed_snapshot() {
-    let issuer = AitpSigningKey::from_seed(&[0x42; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let now = Timestamp::now();
     let revoked_jti = Uuid::new_v4();
     let envelope = sign_revocation_list(
@@ -66,12 +66,12 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
 
-    let server_key = AitpSigningKey::from_seed(&[0x42; 32]);
+    let server_key = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let server = HandshakeServer::new(
         server_key,
         manifest,
@@ -90,7 +90,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
     let url = format!("http://127.0.0.1:{port}/.well-known/aitp-revocation-list");
     let body: RevocationListEnvelope = reqwest::get(&url).await.unwrap().json().await.unwrap();
 
-    verify_revocation_list(&body, &VerifyRevocationListContext::new(issuer.aid(), now))
+    verify_revocation_list(&body, &RevocationListVerifyContext::new(issuer.aid(), now))
         .expect("served snapshot must verify under the issuer's key");
     assert_eq!(body.revocation_list.entries.len(), 1);
     assert_eq!(body.revocation_list.entries[0].jti, revoked_jti);
@@ -111,7 +111,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
 /// verifier agreeing with each other and still fail here.
 #[tokio::test]
 async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
-    let issuer = AitpSigningKey::from_seed(&[0x77; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let now = Timestamp::now();
     let envelope = sign_revocation_list(
         RevocationList::new(
@@ -137,13 +137,13 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
 
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x77; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x77; 32]),
         manifest,
         vec![],
         NoOpResolver,
@@ -222,13 +222,13 @@ async fn serve(server: HandshakeServer<NoOpResolver>) -> u16 {
 /// same wire parser a consumer runs.
 #[tokio::test]
 async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
-    let issuer = AitpSigningKey::from_seed(&[0x51; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x51; 32]);
     let origin: url::Url = "https://issuer.example".parse().unwrap();
     let manifest = advertising_manifest(&issuer, &origin);
 
     // The Manifest advertises the absolute route URL inside its signed
     // body, and a consumer resolves exactly that URL from it.
-    aitp::manifest::verify_manifest(&manifest, &aitp::manifest::VerifyManifestContext::now())
+    aitp::manifest::verify_manifest(&manifest, &aitp::manifest::ManifestVerifyContext::now())
         .unwrap();
     let advertised: url::Url = manifest
         .extensions
@@ -244,7 +244,7 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     );
 
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x51; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x51; 32]),
         manifest,
         vec![],
         NoOpResolver,
@@ -260,7 +260,7 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     let env = aitp::tct::parse_revocation_snapshot_wire(&text.parse().unwrap())
         .expect("default snapshot passes the consumer's wire parser");
     let now = Timestamp::now();
-    verify_revocation_list(&env, &VerifyRevocationListContext::new(issuer.aid(), now))
+    verify_revocation_list(&env, &RevocationListVerifyContext::new(issuer.aid(), now))
         .expect("default snapshot verifies under the issuer key");
     let list = &env.revocation_list;
     assert_eq!(list.version, "aitp/0.3");

@@ -16,7 +16,7 @@ use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, Trust
 use aitp::handshake::StaticPinnedKeyStore;
 use aitp::manifest::Manifest;
 use aitp::tct::{
-    verify_revocation_list, RevocationListEnvelope, VerifiedTct, VerifyRevocationListContext,
+    verify_revocation_list, RevocationListEnvelope, RevocationListVerifyContext, VerifiedTct,
 };
 use aitp::transport::ManifestFetcher;
 use aitp_example_two_agents::build_demo_manifest;
@@ -42,7 +42,7 @@ pub async fn handshake(
     planner_port_for_manifest: u16,
     worker_origin: &Url,
 ) -> anyhow::Result<HandshakeOutcome> {
-    let key = AitpSigningKey::from_seed(seed);
+    let key = AitpSigningKey::from_ed25519_seed(seed);
     // The planner offers the same capability the worker requests, so the
     // mutual intersection is non-empty on both sides.
     let manifest = build_demo_manifest(
@@ -77,7 +77,7 @@ pub async fn handshake(
 
     Ok(HandshakeOutcome {
         planner_key: key,
-        tct: session.held_tct,
+        tct: session.into_parts().held_tct,
     })
 }
 
@@ -115,7 +115,7 @@ pub async fn fetch_revocation_snapshot(
         resp.json().await.context("decoding revocation snapshot")?;
     verify_revocation_list(
         &envelope,
-        &VerifyRevocationListContext::new(worker_aid, Timestamp::now()),
+        &RevocationListVerifyContext::new(worker_aid, Timestamp::now()),
     )
     .map_err(|e| anyhow!("served revocation snapshot failed verification: {e}"))?;
     Ok(envelope)

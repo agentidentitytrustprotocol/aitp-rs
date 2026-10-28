@@ -19,7 +19,7 @@ use sha2::{Digest, Sha256};
 ///
 /// Members are in lexicographic order, no whitespace. Returns the
 /// base64url-unpadded SHA-256 digest of these bytes.
-pub fn compute_jwk_thumbprint(pubkey_bytes: &[u8; 32]) -> String {
+pub fn compute_jwk_thumbprint_ed25519_sha256(pubkey_bytes: &[u8; 32]) -> String {
     let x = Base64UrlUnpadded::encode_string(pubkey_bytes);
     let canonical_jwk = format!(r#"{{"crv":"Ed25519","kty":"OKP","x":"{}"}}"#, x);
     let digest = Sha256::digest(canonical_jwk.as_bytes());
@@ -44,9 +44,9 @@ pub fn compute_jwk_thumbprint(pubkey_bytes: &[u8; 32]) -> String {
 ///
 /// Callers that hold a `p256::ecdsa::VerifyingKey` should obtain
 /// `(x, y)` from `to_encoded_point(false)` and strip the leading
-/// `0x04` SEC1 prefix; see [`crate::crypto::AitpVerifyingKey::to_jwk_thumbprint`]
+/// `0x04` SEC1 prefix; see [`crate::crypto::AitpVerifyingKey::to_jwk_thumbprint_sha256`]
 /// for the algorithm-agile entry point.
-pub fn compute_jwk_thumbprint_p256(x: &[u8; 32], y: &[u8; 32]) -> String {
+pub fn compute_jwk_thumbprint_p256_sha256(x: &[u8; 32], y: &[u8; 32]) -> String {
     let x_b64 = Base64UrlUnpadded::encode_string(x);
     let y_b64 = Base64UrlUnpadded::encode_string(y);
     let canonical_jwk = format!(
@@ -69,8 +69,8 @@ mod tests {
     #[test]
     fn thumbprint_is_reproducible() {
         let key = [0xABu8; 32];
-        let t1 = compute_jwk_thumbprint(&key);
-        let t2 = compute_jwk_thumbprint(&key);
+        let t1 = compute_jwk_thumbprint_ed25519_sha256(&key);
+        let t2 = compute_jwk_thumbprint_ed25519_sha256(&key);
         assert_eq!(t1, t2);
         // SHA-256 → 32 bytes → 43 base64url-unpadded chars.
         assert_eq!(t1.len(), 43);
@@ -80,8 +80,8 @@ mod tests {
     fn p256_thumbprint_is_reproducible_and_well_formed() {
         let x = [0x11u8; 32];
         let y = [0x22u8; 32];
-        let t1 = compute_jwk_thumbprint_p256(&x, &y);
-        let t2 = compute_jwk_thumbprint_p256(&x, &y);
+        let t1 = compute_jwk_thumbprint_p256_sha256(&x, &y);
+        let t2 = compute_jwk_thumbprint_p256_sha256(&x, &y);
         assert_eq!(t1, t2);
         assert_eq!(t1.len(), 43);
     }
@@ -93,8 +93,8 @@ mod tests {
         // never collides with an Ed25519 thumbprint of the same `x`.
         let x = [0x11u8; 32];
         let y = [0x00u8; 32];
-        let p256_t = compute_jwk_thumbprint_p256(&x, &y);
-        let ed_t = compute_jwk_thumbprint(&x);
+        let p256_t = compute_jwk_thumbprint_p256_sha256(&x, &y);
+        let ed_t = compute_jwk_thumbprint_ed25519_sha256(&x);
         assert_ne!(p256_t, ed_t);
     }
 
@@ -106,7 +106,7 @@ mod tests {
         // independently here as a spec-shape regression guard.
         let x = [0x33u8; 32];
         let y = [0x44u8; 32];
-        let ours = compute_jwk_thumbprint_p256(&x, &y);
+        let ours = compute_jwk_thumbprint_p256_sha256(&x, &y);
 
         let x_b64 = Base64UrlUnpadded::encode_string(&x);
         let y_b64 = Base64UrlUnpadded::encode_string(&y);

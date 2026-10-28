@@ -51,15 +51,16 @@ fn verify(identity: &IdentityDescriptor) {
     let receiver = Aid::parse(RECEIVER).expect("valid AID");
     let subject = Aid::parse(SUBJECT).expect("valid AID");
     let anchors = [RawUrl::new(ISSUER)];
-    let ctx = OidcVerifyContext::new(
-        &receiver,
-        "AQIDBAUGBwgJCgsMDQ4PEA",
-        &anchors,
-        &KatIssuer,
-        &subject,
-        300,
-        NOW,
-    );
+    let ctx = OidcVerifyContext::builder()
+        .expected_audience(&receiver)
+        .expected_nonce("AQIDBAUGBwgJCgsMDQ4PEA")
+        .trust_anchors(&anchors)
+        .jwks_resolver(&KatIssuer)
+        .subject_aid(&subject)
+        .iat_tolerance(std::time::Duration::from_secs(300))
+        .now(aitp::core::Timestamp(NOW))
+        .build()
+        .expect("every required input is set");
     let _ = verify_oidc(identity, &ctx);
 }
 

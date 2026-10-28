@@ -1,7 +1,7 @@
 //! HTTP client primitives: Manifest fetcher + JWKS resolver.
 
 use crate::core::{Aid, CheckedJson, Timestamp};
-use crate::manifest::{verify_manifest, VerifiedManifest, VerifyManifestContext};
+use crate::manifest::{verify_manifest, ManifestVerifyContext, VerifiedManifest};
 use crate::transport::client_config::ClientConfig;
 use crate::transport::net_guard::HostGuard;
 use crate::transport::retry::RetryPolicy;
@@ -392,7 +392,7 @@ impl ManifestFetcher {
             crate::manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
             other => FetchError::MalformedJson(other.to_string()),
         })?;
-        let verified = verify_manifest(&manifest, &VerifyManifestContext::now())?;
+        let verified = verify_manifest(&manifest, &ManifestVerifyContext::now())?;
         self.insert_cache(verified.clone());
         Ok(verified)
     }
@@ -970,7 +970,7 @@ mod cache_tests {
 
     /// A Manifest signed by `key`, published at `published_at` for
     /// `ttl_secs`, verified at its publish time.
-    fn verified(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> VerifiedManifest {
+    fn verified(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u64) -> VerifiedManifest {
         let pubkey_b64 = crate::core::base64url::encode(
             &key.verifying_key()
                 .try_to_ed25519_bytes()
@@ -985,20 +985,20 @@ mod cache_tests {
                 public_key: Some(pubkey_b64),
             })
             .offer("test.action")
-            .accept_identity_type("pinned_key")
+            .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
             .display_name("peer")
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .published_at(published_at)
             .build()
             .unwrap();
-        verify_manifest(&m, &VerifyManifestContext::at(published_at)).unwrap()
+        verify_manifest(&m, &ManifestVerifyContext::at(published_at)).unwrap()
     }
 
     #[test]
     fn fresh_cache_hit_returns_manifest() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = verified(&AitpSigningKey::generate(), now, 3600);
+        let m = verified(&AitpSigningKey::generate_ed25519(), now, 3600);
         let aid = m.manifest().aid.clone();
         fetcher.insert_cache(m.clone());
         assert_eq!(fetcher.cached(&aid), Some(m));
@@ -1008,7 +1008,11 @@ mod cache_tests {
     fn expired_entry_is_not_served() {
         let fetcher = ManifestFetcher::new();
         let now = Timestamp::now();
-        let m = verified(&AitpSigningKey::generate(), Timestamp(now.0 - 7200), 7199);
+        let m = verified(
+            &AitpSigningKey::generate_ed25519(),
+            Timestamp(now.0 - 7200),
+            7199,
+        );
         let aid = m.manifest().aid.clone();
         fetcher.insert_cache(m);
         assert!(
@@ -1020,7 +1024,7 @@ mod cache_tests {
     #[test]
     fn newer_inline_replaces_older_cached() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         let older = verified(&key, Timestamp(now.0 - 100), 3600);
         let aid = older.manifest().aid.clone();
@@ -1033,7 +1037,7 @@ mod cache_tests {
     #[test]
     fn older_inline_does_not_replace_newer_cached() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         let newer = verified(&key, now, 3600);
         fetcher.insert_cache(newer);
@@ -1047,7 +1051,7 @@ mod cache_tests {
     #[test]
     fn equal_published_at_does_not_replace() {
         let fetcher = ManifestFetcher::new();
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let now = Timestamp::now();
         fetcher.insert_cache(verified(&key, now, 3600));
         let same = verified(&key, now, 7200);

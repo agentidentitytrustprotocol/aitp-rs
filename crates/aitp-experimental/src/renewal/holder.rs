@@ -166,13 +166,13 @@ pub fn verify_renewal_response(
     let renewed = verify_tct(&payload.tct, &verify_ctx).map_err(RenewalResponseError::Tct)?;
 
     // Step 5.
-    if &renewed.claims.sub != ctx.self_aid || renewed.claims.cnf.jkt != current.cnf.jkt {
+    if &renewed.claims().sub != ctx.self_aid || renewed.claims().cnf.jkt != current.cnf.jkt {
         return Err(RenewalResponseError::AudienceMismatch);
     }
 
     // Step 6.
     if renewed
-        .claims
+        .claims()
         .grants
         .iter()
         .any(|g| !current.grants.contains(g))

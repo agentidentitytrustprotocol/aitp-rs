@@ -230,13 +230,13 @@ mod single_hop_revocation_check {
     const NOW: i64 = 1_700_000_000;
 
     fn a() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
     fn b() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xB1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
     }
     fn c() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
     }
 
     /// Returns (voucher's src_jti, the B->C delegation token).
@@ -245,7 +245,7 @@ mod single_hop_revocation_check {
             .subject(b().aid().clone())
             .audience(b().aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b().verifying_key())
             .issued_at(Timestamp(NOW))
             .build()
@@ -259,7 +259,7 @@ mod single_hop_revocation_check {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(NOW))
             .build()
             .unwrap();
@@ -277,7 +277,7 @@ mod single_hop_revocation_check {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(NOW))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
         serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
@@ -383,10 +383,10 @@ mod session_bundle_wire_shape {
     const NOW: i64 = 1_711_900_000;
 
     fn coordinator() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC0; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC0; 32])
     }
     fn participant() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
 
     /// Issue a bundle via the adapter and return its `session_bundle`
@@ -399,7 +399,7 @@ mod session_bundle_wire_shape {
             .subject(part.aid().clone())
             .audience(part.aid().clone())
             .grants(["session.participate"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(part.verifying_key())
             .issued_at(Timestamp(NOW))
             .build()
@@ -511,7 +511,7 @@ mod session_bundle_wire_shape {
         assert_err(&resp, "v", "UNKNOWN_FIELD");
     }
 
-    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: i64) -> Value {
+    fn manifest_envelope(key: &AitpSigningKey, ttl_secs: u64) -> Value {
         use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
         let manifest = ManifestBuilder::new(key)
             .display_name("coordinator")
@@ -522,7 +522,7 @@ mod session_bundle_wire_shape {
             )
             .offer("session.coordinate")
             .published_at(Timestamp(NOW))
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .build()
             .unwrap();
         serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap()
@@ -560,7 +560,7 @@ mod session_bundle_wire_shape {
 
         // bundle-007: a Manifest for another AID resolves no coordinator
         // key (RFC-AITP-0007 §1).
-        let other = AitpSigningKey::from_seed(&[0x77; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
         let resp = verify(&mut state, manifest_envelope(&other, 24 * 3600));
         assert_err(&resp, "v", "KEY_RESOLUTION_FAILED");
 
@@ -674,7 +674,7 @@ fn challenge_refusal_is_a_code_and_challenge_rate_limit_is_http_429() {
 
     let mut state = AdapterState::default();
     let open = json!({"self_aid": aid, "source": "198.51.100.8"});
-    for i in 0..aitp::handshake::admission::RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+    for i in 0..aitp::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
         let r = handle(
             &mut state,
             &format!("o{i}"),
@@ -701,13 +701,13 @@ mod verify_tct_as_issuer {
     const NOW: i64 = 1_711_900_000;
 
     fn issuer() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
     }
     fn holder() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xB1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
     }
     fn stranger() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xC1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
     }
 
     /// (token, jti): a TCT the issuer granted to the holder.
@@ -716,7 +716,7 @@ mod verify_tct_as_issuer {
             .subject(holder().aid().clone())
             .audience(holder().aid().clone())
             .grants(["macp.mode.task.v1"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(holder().verifying_key())
             .issued_at(Timestamp(NOW - 60))
             .build()

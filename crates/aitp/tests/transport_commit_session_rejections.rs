@@ -37,14 +37,14 @@ fn manifest_for(key: &AitpSigningKey, name: &str, endpoint: &str) -> aitp::manif
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
 }
 
 async fn spawn_server() -> u16 {
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let manifest = manifest_for(
@@ -53,7 +53,7 @@ async fn spawn_server() -> u16 {
         &format!("http://localhost:{port}/aitp/handshake/"),
     );
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x72; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x72; 32]),
         manifest,
         vec![],
         NoOpResolver,
@@ -70,7 +70,7 @@ async fn spawn_server() -> u16 {
 /// Its payload/signature are never validated here — both checks run
 /// after the session lookup we are exercising.
 fn commit_envelope() -> aitp::core::AitpEnvelope {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     sign_envelope_with(
         &alice,
         MessageType::MutualCommit,

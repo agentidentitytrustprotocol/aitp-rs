@@ -107,7 +107,7 @@ pub(crate) fn handshake(args: HandshakeArgs) -> CliResult {
         let session = run_handshake(&args).await?;
         println!(
             "{}",
-            serde_json::to_string_pretty(&session.held_tct.claims)?
+            serde_json::to_string_pretty(&session.held_tct().claims())?
         );
         Ok(())
     })
@@ -122,7 +122,7 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         let peer = &args.peer;
         let client = interop_client(peer, &args.net)?;
         let session = run_handshake(&args).await?;
-        let tct = session.held_tct.token.clone();
+        let tct = session.held_tct().token().to_owned();
         let challenge: AitpEnvelope = post(
             &client,
             peer,
@@ -132,8 +132,8 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         .await?;
         let response = echo::respond(
             &args.key,
-            &session.peer_aid,
-            session.held_tct.claims.jti,
+            session.peer_aid(),
+            session.held_tct().claims().jti,
             challenge,
         )?;
         let echoed: serde_json::Value = post(
@@ -148,7 +148,7 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         .await?;
         eprintln!(
             "aitp: {} verified our TCT and proof of possession",
-            session.peer_aid
+            session.peer_aid()
         );
         println!("{}", serde_json::to_string_pretty(&echoed)?);
         Ok(())
@@ -239,7 +239,7 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
         }
     };
 
-    eprintln!("aitp: handshake complete with {}", session.peer_aid);
+    eprintln!("aitp: handshake complete with {}", session.peer_aid());
     Ok(session)
 }
 
@@ -350,7 +350,7 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
             IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .build()
 }
 

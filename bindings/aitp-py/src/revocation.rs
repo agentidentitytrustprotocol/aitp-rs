@@ -18,7 +18,7 @@ use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::tct::{
     revocation_signing_bytes, sign_revocation_list, verify_revocation_list, RevocationEntry,
-    RevocationList, TctError, VerifyRevocationListContext,
+    RevocationList, RevocationListVerifyContext, TctError,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -187,7 +187,7 @@ pub fn verify_revocation_list_py(
         PyValueError::new_err(format!("invalid expected_issuer_aid: {e}"))
     })?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    let ctx = VerifyRevocationListContext::new(&expected, now);
+    let ctx = RevocationListVerifyContext::new(&expected, now);
     verify_revocation_list(&envelope, &ctx).map_err(|e| {
         verification_error(
             verification_cause(&e),

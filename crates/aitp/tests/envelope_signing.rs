@@ -20,7 +20,7 @@ use aitp::envelope::{
 use uuid::Uuid;
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
 fn sample_payload() -> serde_json::Value {

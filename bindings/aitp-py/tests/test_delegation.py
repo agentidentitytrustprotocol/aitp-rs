@@ -228,7 +228,7 @@ def test_multihop_issuer_manifests_are_parsed():
 # and tests them (`crates/aitp/tests/delegation_round_trip.rs`, `delegation_multihop.rs`,
 # plus the `del-mh-004-revoked-hop` conformance fixture). What was missing was
 # any way to *reach* them from Python: both entry points built their context
-# with `VerifyDelegationContext::new`, which hardcodes both hooks to `None`,
+# with `DelegationVerifyContext::new`, which hardcodes both hooks to `None`,
 # and neither exposed a parameter. So every delegation redeemed through this
 # SDK skipped step 7 — a MUST-reject — and a revoked source TCT still bought
 # a freshly minted TCT for the delegatee.

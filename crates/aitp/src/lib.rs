@@ -39,8 +39,8 @@
 //! use aitp::tct::{verify_tct, RevocationSource, TctBuilder, TctVerifyContext};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
-//! let alice = AitpSigningKey::from_seed(&[0x11; 32]);
-//! let bob = AitpSigningKey::from_seed(&[0x22; 32]);
+//! let alice = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+//! let bob = AitpSigningKey::from_ed25519_seed(&[0x22; 32]);
 //! let now = Timestamp(1_700_000_000);
 //!
 //! // `issued.token` is the opaque compact JWS that goes on the wire;
@@ -50,7 +50,7 @@
 //!     .subject(bob.aid().clone())
 //!     .audience(bob.aid().clone())  // v0.2: audience == subject
 //!     .grants(["demo.echo"])
-//!     .ttl_secs(3600)
+//!     .ttl(std::time::Duration::from_secs(3600))
 //!     .subject_pubkey(bob.verifying_key())
 //!     .issued_at(now)
 //!     .build()?;
@@ -66,7 +66,7 @@
 //!     .skip_manifest_expiry_cap_dangerous()
 //!     .build()?;
 //! let verified = verify_tct(&issued.token, &ctx)?;
-//! assert_eq!(verified.claims.grants, vec!["demo.echo".to_string()]);
+//! assert_eq!(verified.claims().grants, vec!["demo.echo".to_string()]);
 //! # Ok(())
 //! # }
 //! ```

@@ -65,7 +65,7 @@ pub use client::{FetchError, JwksFetcher, JwksFetcherError, ManifestFetcher};
 pub use net_guard::{GuardMode, HostGuard, HostGuardError};
 
 #[cfg(feature = "http-client")]
-pub use retry::RetryPolicy;
+pub use retry::{RetryPolicy, RetryPolicyBuilder};
 
 #[cfg(feature = "http-client")]
 pub use client_config::ClientConfig;

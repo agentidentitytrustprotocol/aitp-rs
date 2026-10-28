@@ -17,10 +17,10 @@ use aitp::tct::{
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn issuer_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA0; 32])
 }
 fn subject_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB0; 32])
 }
 
 fn issue() -> IssuedTct {
@@ -28,7 +28,7 @@ fn issue() -> IssuedTct {
         .subject(subject_key().aid().clone())
         .audience(subject_key().aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject_key().verifying_key())
         .issued_at(NOW)
         .build()
@@ -63,10 +63,11 @@ fn jkt_of_wrong_key_rejected() {
     // the sub AID encodes: §3 requires rejection.
     let issuer = issuer_key();
     let subject = subject_key();
-    let rogue = AitpSigningKey::from_seed(&[0xEE; 32]);
+    let rogue = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let issued = issue();
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
-    claims["cnf"]["jkt"] = serde_json::json!(rogue.verifying_key().to_jwk_thumbprint().unwrap());
+    claims["cnf"]["jkt"] =
+        serde_json::json!(rogue.verifying_key().to_jwk_thumbprint_sha256().unwrap());
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
@@ -84,7 +85,7 @@ fn pop_with_forged_signature_rejected() {
     // Valid jti + nonce echo, but the response is signed by a key that
     // is NOT the TCT subject. The cryptographic PoP check must reject.
     let subject = subject_key();
-    let rogue = AitpSigningKey::from_seed(&[0xEE; 32]);
+    let rogue = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let issued = issue();
     let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(NOW.0 + 300));
     // Sign with the rogue key; jti/nonce_echo still come from `challenge`.

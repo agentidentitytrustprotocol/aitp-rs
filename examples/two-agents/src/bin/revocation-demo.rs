@@ -51,7 +51,7 @@ impl RevocationListProducer for StaticProducer {
 
 #[tokio::main]
 async fn main() {
-    let issuer = AitpSigningKey::from_seed(&[0x42; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let now = Timestamp::now();
     let revoked_jti = Uuid::new_v4();
 
@@ -79,7 +79,7 @@ async fn main() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         // RFC-AITP-0005 §11: a TCT issuer MUST advertise its ListRevoked
         // URL inside the signed Manifest.
@@ -92,7 +92,7 @@ async fn main() {
         .unwrap();
 
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x42; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x42; 32]),
         manifest,
         vec![],
         NoOpResolver,

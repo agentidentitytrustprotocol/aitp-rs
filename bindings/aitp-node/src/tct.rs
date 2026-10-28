@@ -219,7 +219,7 @@ fn verify_tct_with(
             format!("TCT verification failed: {e}"),
         )
     })?;
-    let claims = &verified.claims;
+    let claims = &verified.claims();
 
     if !claims.grants.iter().any(|g| g == required_grant) {
         return Err(Error::from_reason(format!(

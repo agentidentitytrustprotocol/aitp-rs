@@ -65,8 +65,8 @@ fn verify(identity: &IdentityDescriptor) {
         message_id: &message_id,
         timestamp: Timestamp(NOW),
         pop_nonce: "bQ88kiChryTKduskLXSCNg",
-        iat_tolerance_secs: 300,
-        now_unix_secs: NOW,
+        iat_tolerance: std::time::Duration::from_secs(300),
+        now: Timestamp(NOW),
     };
     let _ = verify_spiffe(identity, &ctx);
 }

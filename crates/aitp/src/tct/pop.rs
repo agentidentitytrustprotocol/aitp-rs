@@ -113,7 +113,7 @@ pub fn verify_pop_response(
     // before trusting the key for PoP (RFC-AITP-0005 §6.2 step 4).
     let holder_pk = AitpVerifyingKey::from_aid(&claims.sub).map_err(|_| TctError::CnfMalformed)?;
     let expected_jkt = holder_pk
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(|_| TctError::CnfMalformed)?;
     if claims.cnf.jkt != expected_jkt {
         return Err(TctError::CnfMalformed);

@@ -56,7 +56,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -87,7 +87,7 @@ fn resign_commit_tct(
     payload: &mut aitp::handshake::MutualCommitPayload,
     mutate: impl FnOnce(&mut serde_json::Value),
 ) {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
     let bytes = aitp::crypto::jws::decode_payload_unverified(&payload.tct).unwrap();
     let mut claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     mutate(&mut claims);
@@ -106,8 +106,8 @@ struct StagedCommit {
 }
 
 fn stage_through_commit() -> StagedCommit {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xBB; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xBB; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -294,9 +294,9 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
-        Ok(RevocationStatus::SoftFailSafeSubset {
-            safe_grants: vec!["demo.echo".into()],
-        })
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "demo.echo".into()
+        ]))
     });
     let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
@@ -311,8 +311,8 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("soft-fail with overlapping safe_grants must accept");
-    assert_eq!(completed.effective_grants, ["demo.echo"]);
-    assert_eq!(completed.tct.effective_grants, ["demo.echo"]);
+    assert_eq!(completed.effective_grants(), ["demo.echo"]);
+    assert_eq!(completed.tct().effective_grants(), ["demo.echo"]);
 }
 
 /// RFC-AITP-0008 §3.3: a TCT whose signature does not validate MUST be
@@ -370,7 +370,7 @@ fn invalid_tct_signature_skips_revocation_lookup() {
 fn wrong_audience_skips_revocation_lookup() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let stranger = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let stranger = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let stranger_aid = stranger.aid().clone();
     resign_commit_tct(&mut staged.commit_payload, |claims| {
         claims["aud"] = serde_json::to_value(&stranger_aid).unwrap();
@@ -436,9 +436,9 @@ fn soft_fail_safe_subset_with_empty_intersection_rejects() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
     let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
-        Ok(RevocationStatus::SoftFailSafeSubset {
-            safe_grants: vec!["unrelated.cap".into()],
-        })
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "unrelated.cap".into(),
+        ]))
     });
     let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(

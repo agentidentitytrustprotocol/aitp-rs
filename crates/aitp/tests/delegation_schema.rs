@@ -43,14 +43,14 @@ fn decoded_claims(token: &str) -> serde_json::Value {
 
 #[test]
 fn minted_single_hop_claims_validate() {
-    let a = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let b = AitpSigningKey::from_seed(&[0xB1; 32]);
-    let c = AitpSigningKey::from_seed(&[0xC1; 32]);
+    let a = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let b = AitpSigningKey::from_ed25519_seed(&[0xB1; 32]);
+    let c = AitpSigningKey::from_ed25519_seed(&[0xC1; 32]);
     let voucher = TctBuilder::new(&a)
         .subject(b.aid().clone())
         .audience(b.aid().clone())
         .grants(["read_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b.verifying_key())
         .issued_at(NOW)
         .build()

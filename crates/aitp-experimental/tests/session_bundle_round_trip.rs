@@ -12,22 +12,22 @@ use aitp::crypto::AitpSigningKey;
 use aitp::tct::TctBuilder;
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, SessionBundleBuilder, SessionBundleError,
-    SessionTrustBundle, VerifySessionBundleContext,
+    SessionBundleVerifyContext, SessionTrustBundle,
 };
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
-fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: i64) -> String {
+fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: u64) -> String {
     TctBuilder::new(coord)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(ttl_secs)
+        .ttl(std::time::Duration::from_secs(ttl_secs))
         .subject_pubkey(holder.verifying_key())
         .issued_at(NOW)
         .build()
@@ -57,7 +57,7 @@ fn happy_path_three_participants() {
 
     // Each participant verifies and sees the full roster.
     for me in [alice.aid(), bob.aid(), carol.aid()] {
-        let ctx = VerifySessionBundleContext {
+        let ctx = SessionBundleVerifyContext {
             verifier_aid: me,
             now: NOW,
             revocation_check: None,
@@ -91,7 +91,7 @@ fn non_member_rejected() {
         .build()
         .unwrap();
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: evan.aid(),
         now: NOW,
         revocation_check: None,
@@ -113,7 +113,7 @@ fn expired_bundle_rejected() {
         .build()
         .unwrap();
     // Pretend a year has passed.
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: Timestamp(NOW.0 + 3600 * 24 * 365),
         revocation_check: None,
@@ -137,7 +137,7 @@ fn tampered_signature_rejected() {
     let mut sig = bundle.signature.into_bytes();
     sig[0] = if sig[0] == b'A' { b'B' } else { b'A' };
     bundle.signature = String::from_utf8(sig).unwrap();
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -177,7 +177,7 @@ fn wrapped_signed_bundle_is_rejected() {
         .sign_jcs(&aitp::crypto::Digest32::sha256(&canonical))
         .into_string();
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -212,7 +212,7 @@ fn revoked_participant_degrades_subset() {
         .build()
         .unwrap();
     let revoke = |jti: &Uuid| *jti == bob_jti;
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: Some(&revoke),
@@ -292,7 +292,7 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
     bytes[mid] = if bytes[mid] == b'A' { b'B' } else { b'A' };
     bundle.participants[0].tct = String::from_utf8(bytes).unwrap();
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -390,7 +390,7 @@ fn version_mismatch_rejected() {
         .unwrap();
     bundle.version = "aitp/0.1".into();
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -440,7 +440,7 @@ fn populated_extensions_round_trip_and_signature_verifies() {
         "populated extensions must canonicalize identically before and after a round-trip"
     );
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -544,7 +544,7 @@ fn unknown_keys_inside_extensions_are_preserved_through_round_trip() {
 
     // Verification still succeeds — unknown keys inside `extensions`
     // are opaque payload, not a parse/verify failure.
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -574,7 +574,7 @@ fn bundle_without_extensions_still_verifies_unchanged() {
         "no extensions key should be emitted when unset"
     );
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -616,7 +616,7 @@ fn present_but_empty_extensions_still_verifies() {
         "the signed bundle must carry an explicit empty extensions object"
     );
 
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: alice.aid(),
         now: NOW,
         revocation_check: None,
@@ -651,7 +651,7 @@ fn participant_tct_with_unknown_claim_rejected_as_unknown_field_not_internal_err
         "iat": NOW.0,
         "exp": NOW.0 + 3600,
         "grants": ["session.participate"],
-        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": alice.verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "rogue": "nope",
     });
     let bad_tct =

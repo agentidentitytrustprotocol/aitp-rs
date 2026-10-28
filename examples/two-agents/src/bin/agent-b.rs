@@ -66,7 +66,7 @@ struct EchoState {
 #[tokio::main]
 async fn main() {
     let cli = Cli::parse();
-    let key = AitpSigningKey::from_seed(&expand_seed(&cli.seed));
+    let key = AitpSigningKey::from_ed25519_seed(&expand_seed(&cli.seed));
     let manifest = build_demo_manifest(&key, "agent-b", cli.port, &["demo.echo"]);
     println!("agent-b: AID = {}", key.aid());
     println!("agent-b: listening on http://localhost:{}", cli.port);
@@ -82,7 +82,7 @@ async fn main() {
     // non-empty on our side too.
     let trusted: Vec<Aid> = if cli.trust.is_empty() {
         vec![
-            AitpSigningKey::from_seed(&expand_seed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
+            AitpSigningKey::from_ed25519_seed(&expand_seed("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"))
                 .aid()
                 .clone(),
         ]

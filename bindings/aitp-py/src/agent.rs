@@ -147,58 +147,68 @@ impl PyAitpAgent {
             .parse()
             .map_err(|e| PyValueError::new_err(format!("invalid handshake_endpoint URL: {e}")))?;
 
-        let (hint, accepted_type, default_anchors): (IdentityHint, &'static str, Vec<url::Url>) =
-            match identity_type {
-                "pinned_key" => {
-                    // The pinned-key `public_key` is the AID-identifier
-                    // form of the key (RFC-AITP-0002 §3.3): 32 raw bytes
-                    // for Ed25519, the 33-byte SEC1 compressed point for
-                    // P-256.
-                    let pk_bytes = self.key.verifying_key().to_compressed();
-                    (
-                        IdentityHint::new(IdentityHintKind::PinnedKey, display_name)
-                            .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
-                        "pinned_key",
-                        vec![],
-                    )
-                }
-                "oidc" => {
-                    let iss_str = oidc_issuer.ok_or_else(|| {
-                        PyValueError::new_err("oidc_issuer is required when identity_type='oidc'")
-                    })?;
-                    let sub = oidc_subject.ok_or_else(|| {
-                        PyValueError::new_err("oidc_subject is required when identity_type='oidc'")
-                    })?;
-                    let iss: url::Url = iss_str.parse().map_err(|e| {
-                        PyValueError::new_err(format!("invalid oidc_issuer URL: {e}"))
-                    })?;
-                    (
-                        IdentityHint::new(IdentityHintKind::Oidc, sub)
-                            .with_issuer(RawUrl::from(iss.clone())),
-                        "oidc",
-                        vec![iss],
-                    )
-                }
-                other => {
-                    return Err(PyValueError::new_err(format!(
-                        "unknown identity_type '{other}': expected 'pinned_key' or 'oidc'"
-                    )))
-                }
-            };
+        let (hint, accepted_type, default_anchors): (
+            IdentityHint,
+            aitp::handshake::IdentityKind,
+            Vec<url::Url>,
+        ) = match identity_type {
+            "pinned_key" => {
+                // The pinned-key `public_key` is the AID-identifier
+                // form of the key (RFC-AITP-0002 §3.3): 32 raw bytes
+                // for Ed25519, the 33-byte SEC1 compressed point for
+                // P-256.
+                let pk_bytes = self.key.verifying_key().to_compressed();
+                (
+                    IdentityHint::new(IdentityHintKind::PinnedKey, display_name)
+                        .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
+                    aitp::handshake::IdentityKind::PinnedKey,
+                    vec![],
+                )
+            }
+            "oidc" => {
+                let iss_str = oidc_issuer.ok_or_else(|| {
+                    PyValueError::new_err("oidc_issuer is required when identity_type='oidc'")
+                })?;
+                let sub = oidc_subject.ok_or_else(|| {
+                    PyValueError::new_err("oidc_subject is required when identity_type='oidc'")
+                })?;
+                let iss: url::Url = iss_str
+                    .parse()
+                    .map_err(|e| PyValueError::new_err(format!("invalid oidc_issuer URL: {e}")))?;
+                (
+                    IdentityHint::new(IdentityHintKind::Oidc, sub)
+                        .with_issuer(RawUrl::from(iss.clone())),
+                    aitp::handshake::IdentityKind::Oidc,
+                    vec![iss],
+                )
+            }
+            other => {
+                return Err(PyValueError::new_err(format!(
+                    "unknown identity_type '{other}': expected 'pinned_key' or 'oidc'"
+                )))
+            }
+        };
 
+        let (published_at, ttl) =
+            crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs.unwrap_or(3600));
         let mut builder = ManifestBuilder::new(&self.key)
             .display_name(display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .ttl_secs(ttl_secs.unwrap_or(3600));
+            .published_at(published_at)
+            .ttl(ttl);
         // The peer identity types this agent accepts (RFC-AITP-0004 §5.1
         // step 8). Defaults to its own type; `[]` accepts nothing.
         builder = match accepted_identity_types {
             None => builder.accept_identity_type(accepted_type),
             Some(types) if types.is_empty() => builder.accept_no_identity_types(),
-            Some(types) => types
-                .into_iter()
-                .fold(builder, |b, t| b.accept_identity_type(t)),
+            Some(types) => types.into_iter().try_fold(builder, |b, t| {
+                let kind: aitp::handshake::IdentityKind =
+                    serde_json::from_value(serde_json::Value::String(t)).map_err(|_| {
+                        PyValueError::new_err("unknown accepted_identity_types entry")
+                    })?;
+                Ok::<_, PyErr>(b.accept_identity_type(kind))
+            })?,
         };
 
         let anchors: Vec<url::Url> = match accepted_trust_anchors {

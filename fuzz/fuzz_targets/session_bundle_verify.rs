@@ -13,7 +13,7 @@
 use aitp::core::{Aid, CheckedJson, Timestamp};
 use aitp_experimental::session_bundle::{
     parse_session_bundle_envelope, parse_session_bundle_wire, verify_session_bundle,
-    CoordinatorKeySource, VerifySessionBundleContext,
+    CoordinatorKeySource, SessionBundleVerifyContext,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -27,7 +27,7 @@ fuzz_target!(|data: &[u8]| {
     };
     let verifier = Aid::parse(VERIFIER).expect("valid AID");
     let revoked = |_: &uuid::Uuid| false;
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: &verifier,
         now: Timestamp(NOW),
         revocation_check: Some(&revoked),

@@ -5,7 +5,7 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::Manifest;
 use aitp::tct::TctBuilder;
@@ -24,18 +24,18 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
 }
 
-fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> DelegationVerifyContext<'_> {
     common::verify_ctx(verifier, now, issuer_manifests())
 }
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 
 fn voucher_for_b() -> String {
@@ -43,7 +43,7 @@ fn voucher_for_b() -> String {
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data", "write_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -66,7 +66,7 @@ fn outer_claims_unknown_member_rejected_via_verify_delegation() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
         "rogue": "nope",
     });
@@ -97,7 +97,7 @@ fn outer_claims_duplicate_member_rejected_via_verify_delegation() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -149,7 +149,7 @@ fn embedded_voucher_unknown_member_rejected_not_invalid_voucher() {
         "aud": a_key.aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_token,
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &outer_claims).unwrap();

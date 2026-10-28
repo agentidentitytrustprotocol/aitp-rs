@@ -274,11 +274,11 @@ fn huge_declared_body_is_refused_without_reading_it() {
 fn sixth_enrolment_from_one_address_gets_429() {
     let peer = spawn_peer(0x53);
     for i in 0..5u8 {
-        let key = AitpSigningKey::from_seed(&[0x60 + i; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x60 + i; 32]);
         let (status, body) = post_json(&peer, "/enroll", &enrol_body(&peer, &key));
         assert_eq!(status, 200, "attempt {}: {body}", i + 1);
     }
-    let key = AitpSigningKey::from_seed(&[0x6f; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x6f; 32]);
     let (status, body) = post_json(&peer, "/enroll", &enrol_body(&peer, &key));
     assert_eq!(status, 429, "{body}");
     assert_eq!(body["error"], "rate_limited");
@@ -287,7 +287,7 @@ fn sixth_enrolment_from_one_address_gets_429() {
 #[test]
 fn replayed_nonce_is_rejected() {
     let peer = spawn_peer(0x54);
-    let key = AitpSigningKey::from_seed(&[0x70; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
     let body = enrol_body(&peer, &key);
     assert_eq!(post_json(&peer, "/enroll", &body).0, 200);
     let (status, err) = post_json(&peer, "/enroll", &body);
@@ -298,11 +298,11 @@ fn replayed_nonce_is_rejected() {
 #[test]
 fn bad_signature_is_rejected_without_burning_the_nonce() {
     let peer = spawn_peer(0x55);
-    let key = AitpSigningKey::from_seed(&[0x71; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     let mut body = enrol_body(&peer, &key);
     let good = body["signature"].as_str().unwrap().to_owned();
     // Another key's signature over the same input.
-    let other = enrol_body(&peer, &AitpSigningKey::from_seed(&[0x72; 32]));
+    let other = enrol_body(&peer, &AitpSigningKey::from_ed25519_seed(&[0x72; 32]));
     body["signature"] = other["signature"].clone();
     let (status, err) = post_json(&peer, "/enroll", &body);
     assert_eq!(status, 401, "{err}");

@@ -279,7 +279,7 @@ pub fn parse_revocation_snapshot_wire(
 ///    [`revocation_signing_bytes`].
 pub fn verify_revocation_list(
     envelope: &RevocationListEnvelope,
-    ctx: &VerifyRevocationListContext<'_>,
+    ctx: &RevocationListVerifyContext<'_>,
 ) -> Result<(), TctError> {
     if envelope.revocation_list.version != crate::core::PROTOCOL_VERSION {
         return Err(TctError::VersionUnknown);
@@ -304,20 +304,20 @@ pub fn verify_revocation_list(
 
 /// Context for [`verify_revocation_list`].
 ///
-/// `#[non_exhaustive]`: construct with [`VerifyRevocationListContext::new`]
+/// `#[non_exhaustive]`: construct with [`RevocationListVerifyContext::new`]
 /// rather than a struct literal. Without it, every future verification
 /// knob — a policy, a clock-skew allowance, a trust-anchor set — would be
 /// a breaking change for every downstream crate. Adding it costs one
 /// migration now instead of a dedicated breaking release later.
 #[non_exhaustive]
-pub struct VerifyRevocationListContext<'a> {
+pub struct RevocationListVerifyContext<'a> {
     /// The AID the verifier expects this snapshot to be from.
     pub expected_issuer: &'a Aid,
     /// Verifier's clock for `expires_at` check.
     pub now: Timestamp,
 }
 
-impl<'a> VerifyRevocationListContext<'a> {
+impl<'a> RevocationListVerifyContext<'a> {
     /// A context pinning the expected issuer and the verifier's clock.
     pub fn new(expected_issuer: &'a Aid, now: Timestamp) -> Self {
         Self {
@@ -354,7 +354,10 @@ impl<'a> RevocationQuery<'a> {
 ///
 /// Exhaustive on purpose: each variant is a distinct security decision,
 /// and a new one must be handled by every verifier rather than fall into
-/// a wildcard arm.
+/// a wildcard arm. [`Self::SoftFailSafeSubset`] is `#[non_exhaustive]`,
+/// so a release may add a field to it: match it with
+/// `SoftFailSafeSubset { safe_grants, .. }` and build it with
+/// [`Self::soft_fail_safe_subset`].
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum RevocationStatus {
     /// Not revoked: the artifact keeps its full grant set.
@@ -365,10 +368,18 @@ pub enum RevocationStatus {
     /// applies: the artifact is accepted with its grants narrowed to
     /// those also in `safe_grants`. An empty intersection fails
     /// verification.
+    #[non_exhaustive]
     SoftFailSafeSubset {
         /// The configured safe-grant subset.
         safe_grants: Vec<String>,
     },
+}
+
+impl RevocationStatus {
+    /// [`Self::SoftFailSafeSubset`] with `safe_grants`.
+    pub fn soft_fail_safe_subset(safe_grants: Vec<String>) -> Self {
+        Self::SoftFailSafeSubset { safe_grants }
+    }
 }
 
 /// The revocation status could not be determined and the policy fails
@@ -487,7 +498,7 @@ mod tests {
     }
 
     fn issuer_key() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xA0; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xA0; 32])
     }
 
     fn sample_body(issuer: Aid) -> RevocationList {
@@ -509,7 +520,7 @@ mod tests {
     fn sign_then_verify_round_trips() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&env, &ctx).expect("fresh snapshot verifies");
     }
 
@@ -517,7 +528,7 @@ mod tests {
     fn expired_is_rejected() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_999_999));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_999_999));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
             Err(TctError::Expired)
@@ -528,8 +539,8 @@ mod tests {
     fn wrong_issuer_is_rejected() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let other = AitpSigningKey::from_seed(&[0xB0; 32]);
-        let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
+        let other = AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
+        let ctx = RevocationListVerifyContext::new(other.aid(), Timestamp(1_700_001_000));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
             Err(TctError::IssuerMismatch)
@@ -546,11 +557,11 @@ mod tests {
     fn wrong_issuer_is_distinguishable_from_malformed() {
         let key = issuer_key();
         let env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
-        let other = AitpSigningKey::from_seed(&[0xB0; 32]);
-        let ctx = VerifyRevocationListContext::new(other.aid(), Timestamp(1_700_001_000));
+        let other = AitpSigningKey::from_ed25519_seed(&[0xB0; 32]);
+        let ctx = RevocationListVerifyContext::new(other.aid(), Timestamp(1_700_001_000));
 
         // Self-consistent: it verifies against its own issuer.
-        let own_ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let own_ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&env, &own_ctx).expect("snapshot is internally valid");
 
         match verify_revocation_list(&env, &ctx) {
@@ -565,7 +576,7 @@ mod tests {
         let mut body = sample_body(key.aid().clone());
         body.entries.clear();
         let env = sign_revocation_list(body, &key).unwrap();
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&env, &ctx).expect("empty list still verifies");
     }
 
@@ -702,7 +713,7 @@ mod tests {
         // snapshot whose `issuer` had been swapped (with a matching
         // signature) would still pass.
         let issuer = kat_keypair_aid("kat-keypair-001");
-        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp(1_711_900_100));
+        let ctx = RevocationListVerifyContext::new(&issuer, Timestamp(1_711_900_100));
         verify_revocation_list(&env, &ctx)
             .expect("committed spec signed example must verify as committed");
     }
@@ -724,7 +735,7 @@ mod tests {
             .expect("negative companion");
         let mut env: RevocationListEnvelope = serde_json::from_value(value).unwrap();
         let issuer = kat_keypair_aid("kat-keypair-005-p256");
-        let ctx = VerifyRevocationListContext::new(&issuer, Timestamp(1_711_900_100));
+        let ctx = RevocationListVerifyContext::new(&issuer, Timestamp(1_711_900_100));
         verify_revocation_list(&env, &ctx)
             .expect("committed P-256 snapshot must verify as committed");
         env.signature = must_not["double_hash_signature"].as_str().unwrap().into();
@@ -783,7 +794,7 @@ mod tests {
             revocation_list: body,
             signature: legacy_sig,
         };
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         assert!(
             matches!(
                 verify_revocation_list(&env, &ctx),
@@ -912,7 +923,7 @@ mod tests {
         let mut env = sign_revocation_list(sample_body(key.aid().clone()), &key).unwrap();
         env.revocation_list.entries[0].jti =
             Uuid::parse_str("0190f8a8-5b7e-7a3c-8d2e-1f4a5b6c7d8e").unwrap();
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         assert!(matches!(
             verify_revocation_list(&env, &ctx),
             Err(TctError::JtiNotV4(crate::core::ids::V4Error::Version))
@@ -1021,7 +1032,7 @@ mod tests {
 
         let parsed = parse_revocation_snapshot_wire(&checked(&value))
             .expect("a snapshot with a declared `extensions` member must parse");
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         verify_revocation_list(&parsed, &ctx)
             .expect("a snapshot with extensions must still verify");
     }
@@ -1043,7 +1054,7 @@ mod tests {
 
         let parsed = parse_revocation_snapshot_wire(&checked(&value))
             .expect("well-formed shape still parses");
-        let ctx = VerifyRevocationListContext::new(key.aid(), Timestamp(1_700_001_000));
+        let ctx = RevocationListVerifyContext::new(key.aid(), Timestamp(1_700_001_000));
         assert!(
             matches!(
                 verify_revocation_list(&parsed, &ctx),

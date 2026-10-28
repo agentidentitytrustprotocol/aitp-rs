@@ -85,7 +85,7 @@ type Slot = Arc<tokio::sync::Mutex<Option<Snapshot>>>;
 /// ([`crate::manifest::REVOCATION_LIST_URI_EXT`]), or from a
 /// [`RevocationProvider`] ([`Self::with_provider`]). Each snapshot is
 /// verified (signature, expiry, staleness) before it is cached for
-/// [`RevocationPolicy::cache_ttl_secs`]. See the [module docs](self).
+/// [`RevocationPolicy::cache_ttl`]. See the [module docs](self).
 ///
 /// Hardened like [`crate::transport::ManifestFetcher`]: HTTPS only, no redirects,
 /// [`HostGuard`] address checks with the vetted addresses pinned into
@@ -219,7 +219,9 @@ impl RevocationFetcher {
         let mut cached = slot.lock().await;
         if let Some(snap) = cached.as_ref() {
             let age = now.0.saturating_sub(snap.cached_at.0);
-            if age <= self.policy.cache_ttl_secs as i64 && !snap.expires_at.is_in_the_past(now) {
+            if age <= crate::core::time::duration_secs(self.policy.cache_ttl)
+                && !snap.expires_at.is_in_the_past(now)
+            {
                 crate::transport::obs::revocation_cache("hit");
                 return Ok(Arc::clone(&snap.revoked));
             }
@@ -230,7 +232,7 @@ impl RevocationFetcher {
             (None, Some(uri)) => self.fetch(uri).await?,
             (None, None) => return Err(RevocationError::NoSnapshotFailClosed),
         };
-        verify_snapshot(&env, issuer, now, self.policy.max_staleness_secs)?;
+        verify_snapshot(&env, issuer, now, self.policy.max_staleness)?;
         crate::transport::obs::revocation_cache("refresh");
         let revoked: Arc<HashSet<Uuid>> =
             Arc::new(env.revocation_list.entries.iter().map(|e| e.jti).collect());
@@ -381,7 +383,7 @@ mod tests {
     use crate::transport::revocation::EmptyRevocationProvider;
 
     fn aid(seed: u8) -> Aid {
-        AitpSigningKey::from_seed(&[seed; 32]).aid().clone()
+        AitpSigningKey::from_ed25519_seed(&[seed; 32]).aid().clone()
     }
 
     fn query<'a>(issuer: &'a Aid, jti: &'a Uuid) -> RevocationQuery<'a> {
@@ -579,7 +581,7 @@ mod tests {
 
     #[tokio::test]
     async fn provider_snapshot_decides_revoked_and_clear() {
-        let key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let now = Timestamp::now();
         let jti = Uuid::new_v4();
         let env = make_envelope(jti, &key, now, Timestamp(now.0 + 3600));
@@ -603,7 +605,7 @@ mod tests {
 
     #[tokio::test]
     async fn empty_provider_reads_everything_as_unrevoked() {
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let issuer = key.aid().clone();
         let p = prepare_with(
             EmptyRevocationProvider::new(key),
@@ -652,7 +654,7 @@ mod tests {
 
     #[tokio::test]
     async fn expired_snapshot_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(
             Uuid::new_v4(),
@@ -666,7 +668,7 @@ mod tests {
 
     #[tokio::test]
     async fn stale_snapshot_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let now = Timestamp::now();
         // Published two days ago, still inside expires_at, but past the
         // 24h staleness bound.
@@ -682,7 +684,7 @@ mod tests {
 
     #[tokio::test]
     async fn invalid_signature_is_discarded() {
-        let key = AitpSigningKey::from_seed(&[5u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[5u8; 32]);
         let now = Timestamp::now();
         let mut env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         env.signature = "A".repeat(86);
@@ -694,7 +696,7 @@ mod tests {
     /// malformed snapshot, never as a signature failure.
     #[tokio::test]
     async fn unknown_version_is_malformed_not_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[0x5A; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x5A; 32]);
         let now = Timestamp::now();
         let mut env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         env.revocation_list.version = "aitp/9.9".into();
@@ -709,7 +711,7 @@ mod tests {
     /// classification: unknown member, not signature failure.
     #[tokio::test]
     async fn unknown_member_snapshot_is_not_reported_as_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         let mut raw = serde_json::to_value(&env).unwrap();
@@ -735,7 +737,7 @@ mod tests {
     /// issue #144: a missing required member is a malformed snapshot.
     #[tokio::test]
     async fn claims_malformed_snapshot_is_not_reported_as_signature_invalid() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let now = Timestamp::now();
         let env = make_envelope(Uuid::new_v4(), &key, now, Timestamp(now.0 + 3600));
         let mut raw = serde_json::to_value(&env).unwrap();
@@ -814,7 +816,7 @@ mod tests {
                 self.1.fetch(issuer)
             }
         }
-        let key = AitpSigningKey::from_seed(&[12u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[12u8; 32]);
         let issuer = key.aid().clone();
         let provider = Arc::new(Counting(
             std::sync::atomic::AtomicUsize::new(0),

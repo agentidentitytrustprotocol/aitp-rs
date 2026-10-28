@@ -232,7 +232,7 @@ fn self_attestation_round_trip_and_rejections() {
 
     let v =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), STATEMENT_KEY)).unwrap();
-    assert_eq!(v.statement, json!({"statement": "seam attestation"}));
+    assert_eq!(v.statement(), &json!({"statement": "seam attestation"}));
 
     let err =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), "org.other")).unwrap_err();
@@ -273,7 +273,7 @@ fn self_attestation_golden_bytes() {
     let token = TctBuilder::new(&ed25519(8))
         .self_attestation()
         .ext(statement())
-        .ttl_secs(3_600)
+        .ttl(std::time::Duration::from_secs(3_600))
         .derived_jti("com.example.seam", b"golden")
         .issued_at(NOW)
         .build()
@@ -330,10 +330,17 @@ fn pinned_key_proof_round_trip() {
     );
     assert_eq!(descriptor.kind, IdentityKind::PinnedKey);
     let store: StaticPinnedKeyStore = [vk].into_iter().collect();
-    let ctx = PinnedKeyVerifyContext::new(sender.aid(), &receiver, &message_id, NOW, &pop_nonce)
-        .with_subject(SubjectBinding::SenderAid);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(&receiver)
+        .message_id(&message_id)
+        .timestamp(NOW)
+        .pop_nonce(&pop_nonce)
+        .subject(SubjectBinding::SenderAid)
+        .build()
+        .unwrap();
     let verified = verify_pinned_key(&descriptor, &ctx, &store).unwrap();
-    assert_eq!(verified.aid, *sender.aid());
+    assert_eq!(verified.aid(), sender.aid());
 
     let unpinned = StaticPinnedKeyStore::default();
     assert!(verify_pinned_key(&descriptor, &ctx, &unpinned).is_err());

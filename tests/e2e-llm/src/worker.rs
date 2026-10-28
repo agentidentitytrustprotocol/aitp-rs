@@ -167,7 +167,7 @@ pub async fn spawn(
     provider: Provider,
     trusted: &[Aid],
 ) -> anyhow::Result<Worker> {
-    let key = AitpSigningKey::from_seed(seed);
+    let key = AitpSigningKey::from_ed25519_seed(seed);
     // Bind first so we know the port the manifest needs to advertise.
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let addr = listener.local_addr()?;
@@ -178,7 +178,7 @@ pub async fn spawn(
     let origin: Url = format!("http://localhost:{port}").parse()?;
 
     let revocations = Arc::new(LiveRevocations {
-        issuer: AitpSigningKey::from_seed(seed),
+        issuer: AitpSigningKey::from_ed25519_seed(seed),
         revoked: Mutex::new(Vec::new()),
     });
 
@@ -349,5 +349,5 @@ fn verify_work_tct(
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let verified = verify_tct(token, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;
-    Ok(verified.claims)
+    Ok(verified.into_parts().claims)
 }

@@ -79,7 +79,9 @@ pub fn process_renewal_request_py(
         renewal_nonce_store(),
         Timestamp::now(),
     )
-    .ttl_secs(new_ttl_secs);
+    .ttl(std::time::Duration::from_secs(
+        u64::try_from(new_ttl_secs).unwrap_or(0),
+    ));
     let issued = poll_ready(process_renewal_request(&request, issuer_key, &ctx))
         .ok_or_else(|| PyRuntimeError::new_err("renewal replay guard did not complete"))?
         .map_err(|e| PyRuntimeError::new_err(format!("renewal request rejected: {e}")))?;

@@ -14,12 +14,12 @@ silently masked the exact divergence being fixed. Failure is fail-closed.
 operational note. Supersedes the source plan's Phase 6 dual-accept suggestion.
 
 ## D2 — `#[non_exhaustive]` on both verification context structs.
-`VerifyDelegationContext` and `VerifyRevocationListContext` both get `#[non_exhaustive]`
+`DelegationVerifyContext` and `RevocationListVerifyContext` both get `#[non_exhaustive]`
 in the 0.5.0 breaking window. **Why:** both are pub-field, builder-less structs today, so
 every future field addition is a breaking change; this is the cheapest it will ever be.
 **Consequence (real work, not free):** cross-crate struct-literal construction stops
-compiling. `VerifyDelegationContext` needs `crates/aitp-rs-adapter/src/lib.rs:1552` moved
-onto `new()` + builder; `VerifyRevocationListContext` has no constructor at all and needs
+compiling. `DelegationVerifyContext` needs `crates/aitp-rs-adapter/src/lib.rs:1552` moved
+onto `new()` + builder; `RevocationListVerifyContext` has no constructor at all and needs
 one, plus every caller migrated (`crates/aitp-transport-http/src/revocation.rs:330`,
 `crates/aitp-rs-adapter/src/lib.rs:1250,1507,2493`, `tools/mint-signed-examples/tests/verify.rs`,
 fuzz targets). In-crate literals are unaffected. Tracked as its own phase.

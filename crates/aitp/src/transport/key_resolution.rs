@@ -99,15 +99,21 @@ pub enum KeyResolutionFailMode {
 /// degradation (where signature verification is impossible but the
 /// session may continue with a restricted grant subset).
 ///
+/// Exhaustive on purpose, like [`crate::tct::RevocationStatus`]. Both
+/// variants are `#[non_exhaustive]`, so a release may add a field to
+/// either: match them as `Resolved(keys, ..)` and
+/// `SoftFailDegraded { safe_grants, .. }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyResolutionOutcome {
     /// Keys resolved cleanly; downstream signature verification
     /// proceeds normally with this set.
+    #[non_exhaustive]
     Resolved(Vec<JwkPublicKey>),
     /// Resolution exhausted all sources; the configured
     /// `safe_grants` are the only grants the session should honor.
     /// Signature verification of issuer-signed claims (OIDC JWTs)
     /// MUST be considered failed by the caller.
+    #[non_exhaustive]
     SoftFailDegraded {
         /// Subset of capabilities the operator pre-declared as safe.
         safe_grants: Vec<String>,
@@ -172,7 +178,7 @@ struct NegativeCacheEntry {
 /// resolutions for 30 seconds. Short enough to recover quickly when
 /// the upstream comes back, long enough to amortize per-request
 /// retries during a sustained outage. Tunable via
-/// [`KeyResolutionPolicyBuilder::with_negative_cache_ttl`]; set to
+/// [`KeyResolutionPolicyBuilder::negative_cache_ttl`]; set to
 /// [`Duration::ZERO`] to disable.
 pub const DEFAULT_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(30);
 
@@ -439,20 +445,20 @@ impl std::fmt::Debug for KeyResolutionPolicyBuilder {
 
 impl KeyResolutionPolicyBuilder {
     /// Configure the pinned issuer key store (RFC-AITP-0007 §2.2).
-    pub fn with_pinned_issuer_store(mut self, store: Arc<dyn PinnedIssuerKeyStore>) -> Self {
+    pub fn pinned_issuer_store(mut self, store: Arc<dyn PinnedIssuerKeyStore>) -> Self {
         self.pinned = Some(store);
         self
     }
 
     /// Configure the network fetcher, which enables step 3 of the
     /// resolution order in [`JwksResolver::prefetch`].
-    pub fn with_fetcher(mut self, fetcher: Arc<JwksFetcher>) -> Self {
+    pub fn fetcher(mut self, fetcher: Arc<JwksFetcher>) -> Self {
         self.fetcher = Some(fetcher);
         self
     }
 
     /// Override the in-memory cache TTL. Default 10 minutes.
-    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
         self.cache_ttl = Some(ttl);
         self
     }
@@ -467,13 +473,13 @@ impl KeyResolutionPolicyBuilder {
     /// upstream JWKS that is hard-down causes every TCT verification
     /// to re-attempt the network, which both slows the local request
     /// path and prolongs the upstream's recovery.
-    pub fn with_negative_cache_ttl(mut self, ttl: Duration) -> Self {
+    pub fn negative_cache_ttl(mut self, ttl: Duration) -> Self {
         self.negative_cache_ttl = Some(ttl);
         self
     }
 
     /// Override the fail mode. Default `FailClosed`.
-    pub fn with_fail_mode(mut self, mode: KeyResolutionFailMode) -> Self {
+    pub fn fail_mode(mut self, mode: KeyResolutionFailMode) -> Self {
         self.fail_mode = Some(mode);
         self
     }
@@ -518,7 +524,7 @@ mod tests {
     #[test]
     fn cache_hit_short_circuits() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_secs(60))
+            .cache_ttl(Duration::from_secs(60))
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         policy.store(&issuer, vec![fake_jwk()]);
@@ -532,7 +538,7 @@ mod tests {
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         map.insert(issuer.clone(), vec![fake_jwk()]);
         let policy = KeyResolutionPolicy::builder()
-            .with_pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
+            .pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
             .offline(true)
             .build();
         let got = policy.resolve(&issuer).unwrap();
@@ -558,7 +564,7 @@ mod tests {
         // letting us assert on the cached-failure message.
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_negative_cache_ttl(Duration::from_secs(30))
+            .negative_cache_ttl(Duration::from_secs(30))
             .build();
         let issuer: Url = "https://down.example.com".parse().unwrap();
         // Seed a failure directly so we don't need a live fetcher.
@@ -582,7 +588,7 @@ mod tests {
     fn negative_cache_can_be_disabled() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_negative_cache_ttl(Duration::ZERO)
+            .negative_cache_ttl(Duration::ZERO)
             .build();
         let issuer: Url = "https://down.example.com".parse().unwrap();
         policy.store_failure(&issuer, "should be ignored");
@@ -593,8 +599,8 @@ mod tests {
     #[test]
     fn negative_cache_cleared_by_successful_resolution() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_secs(60))
-            .with_negative_cache_ttl(Duration::from_secs(60))
+            .cache_ttl(Duration::from_secs(60))
+            .negative_cache_ttl(Duration::from_secs(60))
             .build();
         let issuer: Url = "https://flapping.example.com".parse().unwrap();
         policy.store_failure(&issuer, "transient 502");
@@ -610,7 +616,7 @@ mod tests {
     fn fail_open_returns_empty() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::FailOpen)
+            .fail_mode(KeyResolutionFailMode::FailOpen)
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         let got = policy.resolve(&issuer).unwrap();
@@ -621,7 +627,7 @@ mod tests {
     fn soft_fail_with_safe_grants_returns_degraded_outcome() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: vec!["status.read".into()],
             })
             .build();
@@ -644,7 +650,7 @@ mod tests {
         // safe-grants restriction.
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: vec!["status.read".into()],
             })
             .build();
@@ -660,7 +666,7 @@ mod tests {
     fn soft_fail_with_empty_safe_grants_is_fail_closed() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: Vec::new(),
             })
             .build();
@@ -678,7 +684,7 @@ mod tests {
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         map.insert(issuer.clone(), vec![fake_jwk()]);
         let policy = KeyResolutionPolicy::builder()
-            .with_pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
+            .pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
             .offline(true)
             .build();
         policy.prefetch(&issuer).await;
@@ -703,7 +709,7 @@ mod tests {
     #[test]
     fn resolve_without_prefetch_fails_closed_without_io() {
         let policy = KeyResolutionPolicy::builder()
-            .with_fetcher(Arc::new(JwksFetcher::new()))
+            .fetcher(Arc::new(JwksFetcher::new()))
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         match policy.resolve(&issuer).unwrap_err() {
@@ -717,7 +723,7 @@ mod tests {
     #[tokio::test]
     async fn failed_prefetch_is_reported_by_resolve() {
         let policy = KeyResolutionPolicy::builder()
-            .with_fetcher(Arc::new(JwksFetcher::new()))
+            .fetcher(Arc::new(JwksFetcher::new()))
             .build();
         // A plain-http issuer is refused by the fetcher before any I/O.
         let issuer: Url = "http://idp.example.com".parse().unwrap();
@@ -732,7 +738,7 @@ mod tests {
     #[test]
     fn cache_expiry_evicts() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_millis(0))
+            .cache_ttl(Duration::from_millis(0))
             .offline(true)
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();

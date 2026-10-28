@@ -14,7 +14,7 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::crypto::AitpVerifyingKey;
-use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
+use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
 
 use crate::helpers::{
     binding_revocation, delegation_revocation_code, runtime_error, BindingRevocation,
@@ -22,7 +22,7 @@ use crate::helpers::{
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
-    verify_chained_delegation, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
+    verify_chained_delegation, ChainVerifyContext, DEFAULT_MAX_DELEGATION_HOPS,
 };
 use pyo3::exceptions::{PyDeprecationWarning, PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -166,7 +166,7 @@ pub fn verify_delegation_py(
     // hops.
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), source)
+    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_issuer_manifests(&manifests);
 
     let verified = verify_delegation(delegation_token, &ctx).map_err(verify_failed)?;
@@ -220,7 +220,7 @@ pub fn verify_delegation_multihop_py(
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), source)
+    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_max_delegation_hops(max_delegation_hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
@@ -262,12 +262,12 @@ fn parse_verifier(verifier_aid: &str) -> PyResult<Aid> {
 /// type. The "delegator" (ultimate grantor A) is the root voucher's `iss`.
 fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> PyDelegationVerified {
     PyDelegationVerified {
-        delegator: verified.voucher.iss.to_string(),
-        delegatee: verified.claims.sub.to_string(),
-        issued_by: verified.claims.iss.to_string(),
-        grants: verified.claims.scope.clone(),
-        expires_at: verified.claims.exp.0,
-        cnf_jkt: verified.claims.cnf.jkt.clone(),
+        delegator: verified.voucher().iss.to_string(),
+        delegatee: verified.claims().sub.to_string(),
+        issued_by: verified.claims().iss.to_string(),
+        grants: verified.claims().scope.clone(),
+        expires_at: verified.claims().exp.0,
+        cnf_jkt: verified.claims().cnf.jkt.clone(),
     }
 }
 
@@ -301,8 +301,9 @@ pub(crate) fn build_delegation_token(
         .map_err(|e| PyRuntimeError::new_err(format!("delegation build failed: {e}")))?
         .delegatee(delegatee_aid)
         .scope(scope);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (now, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.now(now).ttl(ttl);
     }
 
     builder
@@ -332,8 +333,9 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .audience(delegatee_aid)
         .grants(verified.grants.clone())
         .subject_pubkey(delegatee_pk);
-    if let Some(ttl) = ttl_secs {
-        builder = builder.ttl_secs(ttl);
+    if let Some(ttl_secs) = ttl_secs {
+        let (issued_at, ttl) = crate::helpers::ttl_window(aitp::core::Timestamp::now(), ttl_secs);
+        builder = builder.issued_at(issued_at).ttl(ttl);
     }
 
     let issued = builder

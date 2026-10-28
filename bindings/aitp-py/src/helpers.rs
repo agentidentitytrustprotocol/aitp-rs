@@ -233,3 +233,18 @@ pub fn runtime_error(message: String, code: Option<&str>) -> pyo3::PyErr {
     }
     err
 }
+
+/// Split a signed TTL in seconds into the start time and non-negative
+/// lifetime the builders take, so that `start + lifetime == now + ttl_secs`.
+/// A negative TTL starts the window `|ttl_secs|` seconds before `now`
+/// with a zero lifetime, which yields an artifact that is already
+/// expired when it is minted.
+pub(crate) fn ttl_window(now: Timestamp, ttl_secs: i64) -> (Timestamp, std::time::Duration) {
+    match u64::try_from(ttl_secs) {
+        Ok(secs) => (now, std::time::Duration::from_secs(secs)),
+        Err(_) => (
+            Timestamp(now.0.saturating_add(ttl_secs)),
+            std::time::Duration::ZERO,
+        ),
+    }
+}

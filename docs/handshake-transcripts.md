@@ -26,7 +26,7 @@ Bob (responder)
   AID        = aid:pubkey:<derived>
 ```
 
-Concrete AIDs come from `AitpSigningKey::from_seed(...).aid()` and are
+Concrete AIDs come from `AitpSigningKey::from_ed25519_seed(...).aid()` and are
 deterministic per the seed.
 
 ## Round 1

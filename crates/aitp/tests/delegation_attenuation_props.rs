@@ -12,7 +12,7 @@ use std::collections::BTreeSet;
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::Manifest;
 use aitp::tct::TctBuilder;
@@ -31,18 +31,18 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
 }
 
-fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> DelegationVerifyContext<'_> {
     common::verify_ctx(verifier, now, issuer_manifests())
 }
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 
 /// A → B voucher carrying `grants`, 2h TTL.
@@ -51,7 +51,7 @@ fn voucher_for_b(grants: &BTreeSet<String>) -> String {
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(grants.iter().cloned())
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -97,7 +97,7 @@ proptest! {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(scope.iter().cloned())
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(NOW)
             .build()
             .expect("subset scope must build");
@@ -105,7 +105,7 @@ proptest! {
         let a_key = a();
         let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
         let verified = verify_delegation(&token, &ctx).expect("subset delegation verifies");
-        let got: BTreeSet<String> = verified.claims.scope.into_iter().collect();
+        let got: BTreeSet<String> = verified.claims().scope.iter().cloned().collect();
         prop_assert_eq!(got, scope);
     }
 
@@ -138,7 +138,7 @@ proptest! {
     #[test]
     fn delegation_expiry_never_exceeds_voucher(
         grants in grant_set(4),
-        ttl in 1i64..100_000,
+        ttl in 1u64..100_000,
     ) {
         let voucher = voucher_for_b(&grants);
         let scope: Vec<String> = grants.iter().take(1).cloned().collect();
@@ -146,7 +146,7 @@ proptest! {
             .unwrap()
             .delegatee(c().aid().clone())
             .scope(scope)
-            .ttl_secs(ttl)
+            .ttl(std::time::Duration::from_secs(ttl))
             .now(NOW)
             .build()
             .expect("single-grant delegation builds");
@@ -158,6 +158,6 @@ proptest! {
         let ctx = verify_ctx(a_key.aid(), NOW);
         let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
         // Voucher TTL is 7200s from NOW; delegation exp must not exceed it.
-        prop_assert!(verified.claims.exp.0 <= NOW.0 + 7200);
+        prop_assert!(verified.claims().exp.0 <= NOW.0 + 7200);
     }
 }

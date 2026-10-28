@@ -103,10 +103,10 @@ impl IdentityMode {
     /// Wire identity-type string (`"pinned_key"` / `"oidc"`) used for
     /// the `accepted_identity_types` compatibility check
     /// (RFC-AITP-0003 §3.2).
-    fn presented_type(&self) -> &'static str {
+    fn presented_type(&self) -> crate::handshake::IdentityKind {
         match self {
-            IdentityMode::PinnedKey { .. } => "pinned_key",
-            IdentityMode::Oidc { .. } => "oidc",
+            IdentityMode::PinnedKey { .. } => crate::handshake::IdentityKind::PinnedKey,
+            IdentityMode::Oidc { .. } => crate::handshake::IdentityKind::Oidc,
         }
     }
 
@@ -149,22 +149,73 @@ impl JwksResolver for NoOpJwksResolver {
 /// companion grant voucher (when the peer's policy allows delegation),
 /// and the peer's verifying key (so the caller can use the held TCT for
 /// downstream PoP without re-fetching the peer Manifest).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct SessionContext {
-    /// Peer's AID — `held_tct.claims.iss == peer_aid`.
-    pub peer_aid: crate::core::Aid,
+    pub(crate) peer_aid: crate::core::Aid,
+    pub(crate) peer_pubkey: AitpVerifyingKey,
+    pub(crate) held_tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl SessionContext {
+    /// Peer's AID: `held_tct().claims().iss == peer_aid()`.
+    pub fn peer_aid(&self) -> &crate::core::Aid {
+        &self.peer_aid
+    }
+
     /// Peer's verifying key (for downstream PoP verification).
-    pub peer_pubkey: AitpVerifyingKey,
-    /// TCT the peer issued to us: forward `held_tct.token`, read
-    /// `held_tct.claims`.
-    pub held_tct: VerifiedTct,
-    /// Companion grant voucher compact JWS — present when the peer's
+    pub fn peer_pubkey(&self) -> &AitpVerifyingKey {
+        &self.peer_pubkey
+    }
+
+    /// TCT the peer issued to us: forward its `token()`, read its
+    /// `claims()`.
+    pub fn held_tct(&self) -> &VerifiedTct {
+        &self.held_tct
+    }
+
+    /// Companion grant voucher compact JWS, present when the peer's
     /// policy allows us to delegate (RFC-AITP-0005 §8).
-    pub grant_voucher: Option<String>,
-    /// The grants we may exercise under `held_tct`: its `grants`,
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
+    /// The grants we may exercise under `held_tct()`: its `grants`,
     /// narrowed when the peer's revocation status was unavailable under
     /// a `soft_fail` policy (see [`crate::handshake::CompletedHandshake`]).
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> SessionContextParts {
+        SessionContextParts {
+            peer_aid: self.peer_aid,
+            peer_pubkey: self.peer_pubkey,
+            held_tct: self.held_tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`SessionContext`], from [`SessionContext::into_parts`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SessionContextParts {
+    /// See [`SessionContext::peer_aid`].
+    pub peer_aid: crate::core::Aid,
+    /// See [`SessionContext::peer_pubkey`].
+    pub peer_pubkey: AitpVerifyingKey,
+    /// See [`SessionContext::held_tct`].
+    pub held_tct: VerifiedTct,
+    /// See [`SessionContext::grant_voucher`].
+    pub grant_voucher: Option<String>,
+    /// See [`SessionContext::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 
@@ -954,14 +1005,14 @@ mod tct_store_tests {
     use crate::crypto::AitpSigningKey;
     use crate::tct::TctBuilder;
 
-    fn build_tct(issued_at: Timestamp, ttl_secs: i64) -> (VerifiedTct, Option<String>) {
-        let issuer = AitpSigningKey::from_seed(&[1u8; 32]);
-        let holder = AitpSigningKey::from_seed(&[2u8; 32]);
+    fn build_tct(issued_at: Timestamp, ttl_secs: u64) -> (VerifiedTct, Option<String>) {
+        let issuer = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
+        let holder = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
         let issued = TctBuilder::new(&issuer)
             .subject(holder.aid().clone())
             .audience(holder.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .subject_pubkey(holder.verifying_key())
             .issued_at(issued_at)
             .build()
@@ -1013,7 +1064,7 @@ mod tct_store_tests {
     #[test]
     fn unknown_peer_does_not_need_refresh() {
         let store = TctStore::default();
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         assert!(!store.needs_refresh(key.aid(), Timestamp(1_700_000_000)));
     }
 
@@ -1120,7 +1171,7 @@ mod facade_http_tests {
     /// before its unknown sibling member is looked at.
     #[test]
     fn previous_revision_response_envelope_is_unknown_version() {
-        let key = crate::crypto::AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = crate::crypto::AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let env = sign_envelope_with(
             &key,
             MessageType::MutualHelloAck,
@@ -1159,7 +1210,7 @@ mod initiator_config_knobs {
     use crate::crypto::AitpSigningKey;
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
-        let key = AitpSigningKey::from_seed(&[0x33; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
         let manifest = crate::manifest::ManifestBuilder::new(&key)
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
@@ -1234,7 +1285,10 @@ mod identity_mode_tests {
         let m = IdentityMode::PinnedKey {
             subject: "alice".into(),
         };
-        assert_eq!(m.presented_type(), "pinned_key");
+        assert_eq!(
+            m.presented_type(),
+            crate::handshake::IdentityKind::PinnedKey
+        );
         match m.into_presented_identity() {
             PresentedIdentity::PinnedKey { subject } => assert_eq!(subject, "alice"),
             _ => panic!("expected a PinnedKey PresentedIdentity"),
@@ -1258,7 +1312,7 @@ mod identity_mode_tests {
                 Ok(format!("header.{nonce}.sig"))
             }),
         };
-        assert_eq!(m.presented_type(), "oidc");
+        assert_eq!(m.presented_type(), crate::handshake::IdentityKind::Oidc);
         match m.into_presented_identity() {
             PresentedIdentity::OidcMinter {
                 issuer: got_issuer,

@@ -6,24 +6,24 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::{RevocationSource, TctBuilder};
 use aitp_experimental::delegation::{
-    verify_chained_delegation, ChainedDelegationError, VerifyChainContext,
+    verify_chained_delegation, ChainVerifyContext, ChainedDelegationError,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA2; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB2; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC2; 32])
 }
 
 fn manifests() -> Vec<Manifest> {
@@ -35,17 +35,17 @@ fn manifests() -> Vec<Manifest> {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(NOW)
-        .ttl_secs(86_400)
+        .ttl(std::time::Duration::from_secs(86_400))
         .build()
         .unwrap()]
 }
 
-fn token(scope: &[&str], ttl: i64) -> String {
+fn token(scope: &[&str], ttl: u64) -> String {
     let voucher = TctBuilder::new(&a())
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data", "write_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -56,7 +56,7 @@ fn token(scope: &[&str], ttl: i64) -> String {
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(scope.iter().copied())
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .now(NOW)
         .build()
         .unwrap()
@@ -68,28 +68,28 @@ fn both(token: &str, verifier: &Aid, now: Timestamp) -> Result<Vec<String>, Stri
     let manifests = manifests();
     let stable = verify_delegation(
         token,
-        &VerifyDelegationContext::new(verifier, now, RevocationSource::FailOpen)
+        &DelegationVerifyContext::new(verifier, now, RevocationSource::FailOpen)
             .with_issuer_manifests(&manifests),
     );
     let chained = verify_chained_delegation(
         token,
-        &VerifyChainContext::new(verifier, now, RevocationSource::FailOpen)
+        &ChainVerifyContext::new(verifier, now, RevocationSource::FailOpen)
             .with_issuer_manifests(&manifests),
     );
     match (stable, chained) {
         (Ok(s), Ok(c)) => {
-            assert_eq!(s.token, c.token);
+            assert_eq!(s.token(), c.token);
             assert_eq!(
-                (&s.claims.iss, &s.claims.sub, &s.claims.aud),
+                (&s.claims().iss, &s.claims().sub, &s.claims().aud),
                 (&c.claims.iss, &c.claims.sub, &c.claims.aud)
             );
             assert_eq!(
-                (&s.claims.scope, s.claims.exp),
+                (&s.claims().scope, s.claims().exp),
                 (&c.claims.scope, c.claims.exp)
             );
-            assert_eq!(s.claims.cnf.jkt, c.claims.cnf.jkt);
-            assert_eq!(s.voucher, c.voucher);
-            Ok(s.claims.scope)
+            assert_eq!(s.claims().cnf.jkt, c.claims.cnf.jkt);
+            assert_eq!(s.voucher(), &c.voucher);
+            Ok(s.into_parts().claims.scope)
         }
         (Err(s), Err(ChainedDelegationError::Delegation(c))) => {
             assert_eq!(

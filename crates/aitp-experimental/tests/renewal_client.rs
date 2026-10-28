@@ -28,7 +28,7 @@ impl RevocationListProducer for StaticProducer {
 
 /// Serve `seed`'s renewal endpoint for `m` on `listener`.
 fn spawn_renewal(seed: [u8; 32], m: &Manifest, listener: TcpListener) {
-    let key = AitpSigningKey::from_seed(&seed);
+    let key = AitpSigningKey::from_ed25519_seed(&seed);
     let now = Timestamp::now();
     let list = sign_revocation_list(
         RevocationList::new(key.aid().clone(), now, Timestamp(now.0 + 3600), vec![]),
@@ -63,9 +63,9 @@ fn manifest(issuer: &AitpSigningKey, renew_uri: Option<String>) -> Manifest {
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(86_400);
+        .ttl(std::time::Duration::from_secs(86_400));
     if let Some(uri) = renew_uri {
         b = b.extension(RENEW_URI_EXT, uri.into());
     }
@@ -77,7 +77,7 @@ fn held_tct(issuer: &AitpSigningKey, holder: &AitpSigningKey) -> String {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(600)
+        .ttl(std::time::Duration::from_secs(600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(Timestamp::now())
         .build()
@@ -87,8 +87,8 @@ fn held_tct(issuer: &AitpSigningKey, holder: &AitpSigningKey) -> String {
 
 #[tokio::test]
 async fn renews_at_the_advertised_uri() {
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     // A non-default path: only reading the Manifest finds it.
@@ -103,8 +103,8 @@ async fn renews_at_the_advertised_uri() {
         .expect("renewal at the advertised URI");
     // The response was a signed `tct` envelope from the issuer whose
     // renewed TCT is addressed to the holder (RFC-AITP-0013 §6.1).
-    assert_eq!(&renewed.tct.claims.sub, holder.aid());
-    assert_eq!(&renewed.tct.claims.iss, issuer.aid());
+    assert_eq!(&renewed.tct.claims().sub, holder.aid());
+    assert_eq!(&renewed.tct.claims().iss, issuer.aid());
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.
@@ -115,8 +115,8 @@ async fn renews_at_the_advertised_uri() {
 
 #[tokio::test]
 async fn no_renew_uri_means_no_request() {
-    let issuer = AitpSigningKey::from_seed(&[0x62; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x63; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x62; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x63; 32]);
 
     // Count every request that reaches the issuer's host.
     let hits = Arc::new(AtomicUsize::new(0));
@@ -143,7 +143,7 @@ async fn no_renew_uri_means_no_request() {
                 base64url::encode(&issuer.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
@@ -184,8 +184,8 @@ async fn refusal_is_surfaced_with_its_code() {
     use aitp::core::ErrorCode;
     use aitp_experimental::renewal::RenewalResponseError;
 
-    let issuer = AitpSigningKey::from_seed(&[0x64; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x65; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x64; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x65; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     let m = manifest(&issuer, Some(format!("http://127.0.0.1:{port}/renew")));
@@ -196,7 +196,7 @@ async fn refusal_is_surfaced_with_its_code() {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["legacy.cap"])
-        .ttl_secs(600)
+        .ttl(std::time::Duration::from_secs(600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(Timestamp::now())
         .build()

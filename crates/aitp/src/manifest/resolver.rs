@@ -10,7 +10,7 @@
 //! requested AID, so artifact verifiers never use an unverified one.
 
 use crate::core::Aid;
-use crate::manifest::verifier::{verify_manifest, VerifyManifestContext};
+use crate::manifest::verifier::{verify_manifest, ManifestVerifyContext};
 use crate::manifest::{Manifest, ManifestError};
 use std::collections::HashMap;
 
@@ -81,7 +81,7 @@ impl ManifestResolver for HashMap<Aid, Manifest> {
 pub fn resolve_verified_manifest(
     resolver: &dyn ManifestResolver,
     aid: &Aid,
-    ctx: &VerifyManifestContext,
+    ctx: &ManifestVerifyContext,
 ) -> Result<Manifest, ManifestError> {
     let manifest = resolver
         .resolve_manifest(aid)
@@ -102,7 +102,7 @@ mod tests {
 
     const NOW: Timestamp = Timestamp(1_700_000_000);
 
-    fn manifest(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: i64) -> Manifest {
+    fn manifest(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u64) -> Manifest {
         ManifestBuilder::new(key)
             .handshake_endpoint("https://agent.example.com/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
@@ -113,18 +113,18 @@ mod tests {
             })
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(published_at)
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .build()
             .unwrap()
     }
 
-    fn ctx() -> VerifyManifestContext {
-        VerifyManifestContext { now: NOW }
+    fn ctx() -> ManifestVerifyContext {
+        ManifestVerifyContext { now: NOW }
     }
 
     #[test]
     fn verified_manifest_resolves() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         let source = vec![manifest(&key, NOW, 3600)];
         let got = resolve_verified_manifest(&source, key.aid(), &ctx()).unwrap();
         assert_eq!(&got.aid, key.aid());
@@ -132,8 +132,8 @@ mod tests {
 
     #[test]
     fn missing_manifest_is_not_found() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
-        let other = AitpSigningKey::from_seed(&[2; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let source = vec![manifest(&other, NOW, 3600)];
         assert!(matches!(
             resolve_verified_manifest(&source, key.aid(), &ctx()),
@@ -145,8 +145,8 @@ mod tests {
     fn manifest_for_another_key_is_aid_mismatch() {
         // A map entry under `aid` whose Manifest was published by a
         // different key does not designate `aid`.
-        let key = AitpSigningKey::from_seed(&[1; 32]);
-        let rotated = AitpSigningKey::from_seed(&[2; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let rotated = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let source = HashMap::from([(key.aid().clone(), manifest(&rotated, NOW, 3600))]);
         assert!(matches!(
             resolve_verified_manifest(&source, key.aid(), &ctx()),
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn unverifiable_manifest_error_is_returned() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         let expired = vec![manifest(&key, Timestamp(NOW.0 - 120), 60)];
         assert!(matches!(
             resolve_verified_manifest(&expired, key.aid(), &ctx()),
@@ -166,7 +166,7 @@ mod tests {
 
     #[test]
     fn newest_published_manifest_wins() {
-        let key = AitpSigningKey::from_seed(&[1; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1; 32]);
         // The older copy has expired; the newer one is current.
         let source = vec![
             manifest(&key, Timestamp(NOW.0 - 120), 60),

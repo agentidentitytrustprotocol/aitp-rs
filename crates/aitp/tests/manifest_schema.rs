@@ -43,7 +43,7 @@ fn validate(value: &serde_json::Value) -> Result<(), String> {
 }
 
 fn populated_manifest() -> aitp::manifest::Manifest {
-    let key = AitpSigningKey::from_seed(&[0xAA; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
     ManifestBuilder::new(&key)
         .display_name("alice")
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
@@ -57,14 +57,14 @@ fn populated_manifest() -> aitp::manifest::Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .require("demo.respond")
         .extension(
             "vendor.example/feature",
             serde_json::json!({"enabled": true}),
         )
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap()
 }
@@ -82,7 +82,7 @@ fn populated_manifest_validates_against_spec_schema() {
 fn minimal_manifest_validates_against_spec_schema() {
     // The smallest manifest the builder will produce — only required
     // fields, no display_name, no extensions, no required_peer_capabilities.
-    let key = AitpSigningKey::from_seed(&[0xAB; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAB; 32]);
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
         .identity_hint(
@@ -127,7 +127,7 @@ fn manifest_with_present_but_empty_extensions_validates_against_spec_schema() {
     // distinct from absent) is still just an ordinary schema-permitted
     // object member — it must validate identically to the absent and
     // populated cases.
-    let key = AitpSigningKey::from_seed(&[0xAC; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAC; 32]);
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
         .identity_hint(

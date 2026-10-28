@@ -177,13 +177,13 @@ fn jcs_surrogate_pair_ordering() {
     assert_eq!(actual, r#"{"𝄞":1,"ﬃ":2}"#);
 }
 
-/// `canonicalize_and_hash` is the standard signing input — verify it returns
+/// `canonicalize_and_hash_sha256` is the standard signing input — verify it returns
 /// 32 bytes of SHA-256 over the canonical JSON.
 #[test]
 fn canonicalize_and_hash_is_32_bytes_of_sha256() {
     use sha2::{Digest, Sha256};
     let v = serde_json::json!({"b": 1, "a": 2});
-    let h = aitp::core::jcs::canonicalize_and_hash(&v).unwrap();
+    let h = aitp::core::jcs::canonicalize_and_hash_sha256(&v).unwrap();
     let canonical = aitp::core::jcs::canonicalize(&v).unwrap();
     let expected: [u8; 32] = Sha256::digest(&canonical).into();
     assert_eq!(h, expected);
