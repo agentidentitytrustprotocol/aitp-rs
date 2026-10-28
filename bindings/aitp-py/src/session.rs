@@ -20,12 +20,12 @@ use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
-    CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
-    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    CompletedHandshake, IdentityKind, Initiator, JwksResolver, MutualCommitAckPayload,
+    MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder,
+    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp::manifest::{IdentityHintKind, Manifest};
+use aitp::manifest::Manifest;
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
@@ -45,7 +45,7 @@ pub struct SessionContext {
     pub trust_anchors: Vec<RawUrl>,
     /// Our own manifest's identity_hint.kind — drives whether we present
     /// pinned-key or OIDC in outbound payloads.
-    pub identity_kind: IdentityHintKind,
+    pub identity_kind: IdentityKind,
     /// Our own manifest identity_hint.subject — used as the OIDC `sub`
     /// claim placeholder and pinned-key `subject` field.
     pub identity_subject: String,
@@ -66,10 +66,10 @@ impl SessionContext {
     /// requires an `oidc_mint_jwt` callable and returns `OidcMinter`.
     fn presented_identity(&self, oidc_mint_jwt: Option<Py<PyAny>>) -> PyResult<PresentedIdentity> {
         match self.identity_kind {
-            IdentityHintKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
+            IdentityKind::PinnedKey => Ok(PresentedIdentity::PinnedKey {
                 subject: self.identity_subject.clone(),
             }),
-            IdentityHintKind::Oidc => {
+            IdentityKind::Oidc => {
                 let cb = oidc_mint_jwt.ok_or_else(|| {
                     PyValueError::new_err(
                         "agent manifest is OIDC; `oidc_mint_jwt` callable is required",
@@ -89,7 +89,7 @@ impl SessionContext {
                     mint_jwt: make_oidc_minter(cb),
                 })
             }
-            // `IdentityHintKind` is `#[non_exhaustive]`; reject any
+            // `IdentityKind` is `#[non_exhaustive]`; reject any
             // future variant the Python SDK hasn't yet wired up.
             other => Err(PyRuntimeError::new_err(format!(
                 "unsupported identity_hint kind {other:?}; \

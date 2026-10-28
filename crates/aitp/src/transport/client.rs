@@ -966,7 +966,8 @@ mod cache_tests {
 
     use super::*;
     use crate::crypto::AitpSigningKey;
-    use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use crate::handshake::IdentityKind;
+    use crate::manifest::{IdentityHint, ManifestBuilder};
 
     /// A Manifest signed by `key`, published at `published_at` for
     /// `ttl_secs`, verified at its publish time.
@@ -979,7 +980,7 @@ mod cache_tests {
         let m = ManifestBuilder::new(key)
             .handshake_endpoint("https://peer.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
+                kind: IdentityKind::PinnedKey,
                 subject: "peer".into(),
                 issuer: None,
                 public_key: Some(pubkey_b64),

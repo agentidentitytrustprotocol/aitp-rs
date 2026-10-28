@@ -39,8 +39,8 @@ pub enum TctError {
     /// per RFC-AITP-0008 §1.5) and the policy is `fail_closed`. Same
     /// `TCT_REVOKED` wire code as [`Self::Revoked`] (RFC-AITP-0008
     /// §3.1), but the detail says the `jti` was not found on a list.
-    #[error("{0}")]
-    RevocationUnavailable(#[source] crate::tct::RevocationUnavailable),
+    #[error(transparent)]
+    RevocationUnavailable(crate::tct::RevocationUnavailable),
     /// `grants` is empty (forbidden by RFC-AITP-0004 §4.1).
     #[error("TCT grants must be non-empty")]
     EmptyGrants,
@@ -129,4 +129,25 @@ pub enum TctError {
     /// Wire code `POLICY_VIOLATION`.
     #[error("no granted capability is in the revocation soft-fail safe subset")]
     SafeSubsetEmpty,
+}
+
+#[cfg(test)]
+mod revocation_unavailable_tests {
+    use crate::delegation::DelegationError;
+    use crate::tct::{RevocationUnavailable, TctError};
+    use std::error::Error as _;
+
+    /// The variants are transparent: the message appears once, and the
+    /// source chain does not repeat it.
+    #[test]
+    fn revocation_unavailable_prints_its_message_once() {
+        let want = "revocation source unavailable: endpoint down";
+        let tct = TctError::RevocationUnavailable(RevocationUnavailable::new("endpoint down"));
+        assert_eq!(tct.to_string(), want);
+        assert!(tct.source().is_none());
+        let del =
+            DelegationError::RevocationUnavailable(RevocationUnavailable::new("endpoint down"));
+        assert_eq!(del.to_string(), want);
+        assert!(del.source().is_none());
+    }
 }

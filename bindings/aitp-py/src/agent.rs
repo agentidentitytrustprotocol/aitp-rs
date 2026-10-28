@@ -4,8 +4,8 @@ use std::sync::Arc;
 
 use aitp::core::{Aid, RawUrl};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
-use aitp::handshake::StaticPinnedKeyStore;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::handshake::{IdentityKind, StaticPinnedKeyStore};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::PyList;
@@ -159,7 +159,7 @@ impl PyAitpAgent {
                 // P-256.
                 let pk_bytes = self.key.verifying_key().to_compressed();
                 (
-                    IdentityHint::new(IdentityHintKind::PinnedKey, display_name)
+                    IdentityHint::new(IdentityKind::PinnedKey, display_name)
                         .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
                     aitp::handshake::IdentityKind::PinnedKey,
                     vec![],
@@ -176,7 +176,7 @@ impl PyAitpAgent {
                     .parse()
                     .map_err(|e| PyValueError::new_err(format!("invalid oidc_issuer URL: {e}")))?;
                 (
-                    IdentityHint::new(IdentityHintKind::Oidc, sub)
+                    IdentityHint::new(IdentityKind::Oidc, sub)
                         .with_issuer(RawUrl::from(iss.clone())),
                     aitp::handshake::IdentityKind::Oidc,
                     vec![iss],

@@ -343,7 +343,10 @@ fn verify_work_tct(
     };
 
     // Holder receipt: subject == audience == caller.
-    let ctx = TctVerifyContext::builder(&peeked.sub, worker_aid, Timestamp::now())
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&peeked.sub)
+        .issuer(worker_aid)
+        .now(Timestamp::now())
         .revocation(aitp::tct::RevocationSource::Check(&is_revoked))
         .skip_manifest_expiry_cap_dangerous()
         .build()

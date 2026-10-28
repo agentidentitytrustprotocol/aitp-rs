@@ -18,7 +18,10 @@ fuzz_target!(|data: &[u8]| {
     let issuer = AitpSigningKey::from_ed25519_seed(&[2u8; 32]).aid().clone();
 
     let token = String::from_utf8_lossy(data);
-    let ctx = TctVerifyContext::builder(&audience, &issuer, aitp::core::Timestamp::now())
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&audience)
+        .issuer(&issuer)
+        .now(aitp::core::Timestamp::now())
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -27,7 +30,10 @@ fuzz_target!(|data: &[u8]| {
 
     // Also exercise the self-issued shape (aud == iss == sub), which
     // takes a different path through the audience/self-binding checks.
-    let ctx_self = TctVerifyContext::builder(&issuer, &issuer, aitp::core::Timestamp::now())
+    let ctx_self = TctVerifyContext::builder()
+        .expected_audience(&issuer)
+        .issuer(&issuer)
+        .now(aitp::core::Timestamp::now())
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

@@ -24,7 +24,8 @@
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::delegation::{verify_delegation, DelegationBuilder, DelegationVerifyContext};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::TctBuilder;
 
 fn main() {
@@ -53,16 +54,13 @@ fn main() {
         .expect("A issues TCT to B");
     println!(
         "A → B: TCT granting {:?} (+ grant voucher)",
-        a_to_b.claims.grants
+        a_to_b.claims().grants
     );
-    let voucher = a_to_b
-        .voucher
-        .as_deref()
-        .expect("voucher minted by default");
+    let voucher = a_to_b.voucher().expect("voucher minted by default");
 
     // ── B → C: delegate a subset (demo.read only) ──────────────────────
     // B delegates against A's voucher; the voucher is embedded verbatim
-    // in the resulting token. The result is an opaque compact JWS string
+    // in the resulting token. `token()` is the opaque compact JWS string
     // that C presents to A.
     let b_to_c = DelegationBuilder::new(&b, voucher)
         .expect("voucher entitles B to delegate")
@@ -72,6 +70,7 @@ fn main() {
         .ttl(std::time::Duration::from_secs(1800))
         .build()
         .expect("B delegates demo.read to C");
+    let b_to_c = b_to_c.token();
     println!("B → C: delegation token minted (scope [\"demo.read\"])\n");
 
     // ── A verifies C's delegation token ────────────────────────────────
@@ -82,7 +81,7 @@ fn main() {
     let b_manifest = ManifestBuilder::new(&b)
         .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+            IdentityHint::new(IdentityKind::Oidc, "agent-b")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -93,7 +92,7 @@ fn main() {
     let issuer_manifests = vec![b_manifest];
     let ctx = DelegationVerifyContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
         .with_issuer_manifests(&issuer_manifests);
-    match verify_delegation(&b_to_c, &ctx) {
+    match verify_delegation(b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
             v.claims().scope
@@ -121,7 +120,7 @@ fn main() {
     let wrong_ctx =
         DelegationVerifyContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
             .with_issuer_manifests(&issuer_manifests);
-    match verify_delegation(&b_to_c, &wrong_ctx) {
+    match verify_delegation(b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),
         Ok(_) => panic!("only the grantor A should be able to verify this token"),
     }

@@ -9,7 +9,8 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::transport::REVOCATION_LIST_PATH;
 
 /// Build a pinned-key Manifest for an agent listening on `port`.
@@ -35,7 +36,7 @@ pub fn build_demo_manifest(
         .display_name(display_name)
         .handshake_endpoint(endpoint.parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, display_name).with_public_key(pubkey_b64),
+            IdentityHint::new(IdentityKind::PinnedKey, display_name).with_public_key(pubkey_b64),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         // Every TCT issuer MUST advertise its `ListRevoked` URL
@@ -76,7 +77,10 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
     }
     // Holder receipt: subject == audience == caller. Demo verifier —
     // no revocation source or issuer Manifest is resolved here.
-    let ctx = TctVerifyContext::builder(&peeked.sub, server_aid, Timestamp::now())
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&peeked.sub)
+        .issuer(server_aid)
+        .now(Timestamp::now())
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()

@@ -4,7 +4,7 @@
 //! `rfc-aitp-0005.renew_uri` (RFC-AITP-0013 §2), hosting the handshake
 //! routes, the Manifest and `aitp_experimental::renewal::RenewalServer`
 //! on one listener. Mints an initial TCT in-process and renews it with
-//! `aitp_experimental::renewal::renew_tct_with_insecure_localhost`, which
+//! `aitp_experimental::renewal::renew_tct_with_insecure_localhost_dangerous`, which
 //! reads that URL from the Manifest. Asserts the new TCT has a fresh JTI
 //! and a refreshed expiry.
 //!
@@ -17,14 +17,16 @@ use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::Timestamp;
 use aitp::crypto::AitpSigningKey;
 use aitp::facade::TctStore;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, verify_tct, RevocationList, RevocationListEnvelope, TctBuilder,
     TctVerifyContext,
 };
 use aitp::transport::{HandshakeServer, ManifestServer, RevocationListProducer};
-use aitp_experimental::renewal::{renew_tct_with_insecure_localhost, RenewalServer, RENEW_URI_EXT};
+use aitp_experimental::renewal::{
+    renew_tct_with_insecure_localhost_dangerous, RenewalServer, RENEW_URI_EXT,
+};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -69,8 +71,11 @@ async fn main() {
     // The holder verifies what it receives before storing it — the
     // store is keyed by the issuer's AID.
     let initial_verified = verify_tct(
-        &initial.token,
-        &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
+        initial.token(),
+        &TctVerifyContext::builder()
+            .expected_audience(holder.aid())
+            .issuer(issuer.aid())
+            .now(Timestamp::now())
             .revocation(aitp::tct::RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
@@ -79,7 +84,10 @@ async fn main() {
     .expect("initial TCT verifies");
 
     let store = TctStore::default();
-    store.insert(initial_verified.clone(), initial.voucher.clone());
+    store.insert(
+        initial_verified.clone(),
+        initial.voucher().map(str::to_owned),
+    );
 
     // Stand up the issuer's handshake server. Its Manifest advertises the
     // renewal endpoint; the server mounts the route at that path.
@@ -90,7 +98,7 @@ async fn main() {
         .display_name("issuer")
         .handshake_endpoint("https://issuer.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 aitp::core::base64url::encode(
                     &issuer
                         .verifying_key()
@@ -144,13 +152,14 @@ async fn main() {
     });
     tokio::time::sleep(std::time::Duration::from_millis(50)).await;
 
-    // Holder side: drive `renew_tct_with_insecure_localhost` (loopback demo) against the endpoint the issuer's
+    // Holder side: drive `renew_tct_with_insecure_localhost_dangerous` (loopback demo) against the endpoint the issuer's
     // (already verified) Manifest advertises, presenting the
     // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct_with_insecure_localhost(&holder, current.token().to_owned(), &manifest)
-        .await
-        .expect("renew_tct round-trip");
+    let renewed =
+        renew_tct_with_insecure_localhost_dangerous(&holder, current.token().to_owned(), &manifest)
+            .await
+            .expect("renew_tct round-trip");
 
     // `renew_tct` has already checked the issuer's signed response and
     // verified the renewed TCT (RFC-AITP-0013 §6.1); stash it (and its

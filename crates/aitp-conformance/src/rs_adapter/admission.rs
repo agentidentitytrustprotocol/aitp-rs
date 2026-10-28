@@ -272,7 +272,10 @@ pub(crate) fn verify_attestation_op(state: &AdapterState, id: &str, params: Valu
         .and_then(|m| m.get("expires_at"))
         .and_then(Value::as_i64)
         .map(Timestamp);
-    let builder = aitp::tct::AttestationVerifyContext::builder(&issuer, statement_key, now)
+    let builder = aitp::tct::AttestationVerifyContext::builder()
+        .issuer(&issuer)
+        .statement_key(statement_key)
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen);
     let builder = match (manifest_expires_at, waive) {
         (Some(exp), _) => builder.issuer_manifest_expires_at(exp),

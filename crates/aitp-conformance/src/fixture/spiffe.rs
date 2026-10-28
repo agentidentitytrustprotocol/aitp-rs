@@ -206,7 +206,10 @@ impl EnvelopeCtx {
             base64url::encode(claims.to_string().as_bytes())
         );
         let sig = jwt_authority_key().sign_raw(signing_input.as_bytes());
-        Some(format!("{signing_input}.{}", base64url::encode(&sig)))
+        Some(format!(
+            "{signing_input}.{}",
+            base64url::encode(sig.as_bytes())
+        ))
     }
 }
 

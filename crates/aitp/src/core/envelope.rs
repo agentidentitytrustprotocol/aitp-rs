@@ -345,10 +345,11 @@ impl MessageType {
 }
 
 /// The domain tag that prefixes the envelope signing input
-/// (RFC-AITP-0001 §5.4): the 16 ASCII bytes `aitp-envelope-v2`. One
+/// (RFC-AITP-0001 §5.4): the 16 ASCII bytes `aitp-envelope-v2`. A slice,
+/// so a later version's tag may have another length. One
 /// `0x00` separator byte follows it, so `sig_input_v2` can never equal
 /// the bare JCS bytes another JCS-profile artifact signs.
-pub const ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16] = b"aitp-envelope-v2";
+pub const ENVELOPE_SIGNING_DOMAIN_TAG: &[u8] = b"aitp-envelope-v2";
 
 /// Compute the envelope signing input `sig_input_v2` per RFC-AITP-0001
 /// §5.4:

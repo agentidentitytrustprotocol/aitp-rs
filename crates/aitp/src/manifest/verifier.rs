@@ -2,8 +2,9 @@
 
 use crate::core::{base64url, check_members, from_serde_error, CheckedJson, Timestamp};
 use crate::crypto::{AitpVerifyingKey, Signature};
+use crate::handshake::IdentityKind;
 use crate::manifest::builder::{manifest_signing_bytes, ManifestSigningView};
-use crate::manifest::types::{IdentityHintKind, Manifest, MANIFEST_MEMBERS};
+use crate::manifest::types::{Manifest, MANIFEST_MEMBERS};
 use crate::manifest::ManifestError;
 
 /// Inputs for verifying a Manifest.
@@ -117,7 +118,7 @@ pub fn verify_manifest(
 
     // 5. Identity-hint shape check.
     match manifest.identity_hint.kind {
-        IdentityHintKind::Oidc => {
+        IdentityKind::Oidc => {
             if manifest.identity_hint.issuer.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "oidc requires `issuer`",
@@ -129,14 +130,14 @@ pub fn verify_manifest(
                 ));
             }
         }
-        IdentityHintKind::PinnedKey => {
+        IdentityKind::PinnedKey => {
             if manifest.identity_hint.public_key.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "pinned_key requires `public_key`",
                 ));
             }
         }
-        IdentityHintKind::Spiffe => {
+        IdentityKind::Spiffe => {
             // RFC-AITP-0002 §6.6: `type` and `subject` only.
             if manifest.identity_hint.issuer.is_some() {
                 return Err(ManifestError::IdentityHintMalformed(

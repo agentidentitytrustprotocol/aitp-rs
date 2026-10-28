@@ -8,10 +8,10 @@ use aitp::core::{AitpEnvelope, MessageType, Sender, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{
-    Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
-    PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
+    IdentityKind, Initiator, JwkPublicKey, JwksResolver, MutualCommitAckPayload,
+    MutualHelloAckPayload, PeerConfig, PresentedIdentity, ResolveError, StaticPinnedKeyStore,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::transport::{
     HandshakeServer, RevocationFailMode, RevocationFetcher, RevocationPolicy, REVOCATION_LIST_PATH,
 };
@@ -51,7 +51,7 @@ fn manifest_with_revocation(
         // 32 bytes for Ed25519, 33-byte SEC1 compressed for P-256: the
         // AID identifier bytes (RFC-AITP-0002 §3.2 step 2).
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )

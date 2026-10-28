@@ -88,10 +88,10 @@ fn p256_raw_sign_is_es256_over_the_message() {
     let preimage = hex::decode(v["preimage_hex"].as_str().unwrap()).unwrap();
     let raw = p256_key().sign_raw(&preimage);
     let expected = Base64UrlUnpadded::decode_vec(&v["signature"].as_str().unwrap()[5..]).unwrap();
-    assert_eq!(raw.as_slice(), expected.as_slice());
+    assert_eq!(raw.as_bytes(), expected.as_slice());
     p256_key()
         .verifying_key()
-        .verify_raw(&preimage, &raw)
+        .verify_raw(&preimage, raw.as_bytes())
         .expect("ES256 verifies");
 }
 
@@ -292,7 +292,7 @@ fn p256_out_of_range_scalars_rejected() {
     let vk = key.verifying_key();
     let d = Digest32::sha256(b"range");
     let good = key.sign_raw(b"range");
-    let (r, s) = (&good[..32], &good[32..]);
+    let (r, s) = (&good.as_bytes()[..32], &good.as_bytes()[32..]);
     let mut cases: Vec<[u8; 64]> = Vec::new();
     for (nr, ns) in [
         ([0u8; 32].as_slice(), s),

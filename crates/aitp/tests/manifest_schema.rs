@@ -9,9 +9,8 @@
 
 use aitp::core::ExtensionsMap;
 use aitp::crypto::AitpSigningKey;
-use aitp::manifest::{
-    IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope, MANIFEST_MEMBERS,
-};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope, MANIFEST_MEMBERS};
 use boon::{Compiler, Schemas};
 use std::collections::BTreeSet;
 use std::path::PathBuf;
@@ -48,7 +47,7 @@ fn populated_manifest() -> aitp::manifest::Manifest {
         .display_name("alice")
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "alice").with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
@@ -86,7 +85,7 @@ fn minimal_manifest_validates_against_spec_schema() {
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-a")
+            IdentityHint::new(IdentityKind::Oidc, "agent-a")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -131,7 +130,7 @@ fn manifest_with_present_but_empty_extensions_validates_against_spec_schema() {
     let mut m = ManifestBuilder::new(&key)
         .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-a")
+            IdentityHint::new(IdentityKind::Oidc, "agent-a")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

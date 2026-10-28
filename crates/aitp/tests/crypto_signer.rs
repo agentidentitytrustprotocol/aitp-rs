@@ -18,7 +18,7 @@ fn ed() -> AitpSigningKey {
     AitpSigningKey::from_ed25519_seed(&[0x07; 32])
 }
 
-fn is_low_s(raw: &[u8; 64]) -> bool {
+fn is_low_s(raw: &[u8]) -> bool {
     // n/2, big-endian.
     const HALF_N: [u8; 32] = [
         0x7f, 0xff, 0xff, 0xff, 0x80, 0x00, 0x00, 0x00, 0x7f, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
@@ -59,8 +59,8 @@ fn p256_randomized_backend_is_accepted_and_low_s() {
     let mut seen = std::collections::HashSet::new();
     for _ in 0..16 {
         let raw = sign_raw(&kms, b"es256 input").unwrap();
-        assert!(is_low_s(&raw));
-        vk.verify_raw(b"es256 input", &raw).unwrap();
+        assert!(is_low_s(raw.as_bytes()));
+        vk.verify_raw(b"es256 input", raw.as_bytes()).unwrap();
         seen.insert(raw);
     }
     assert!(seen.len() > 1, "random nonces produce distinct signatures");
@@ -108,7 +108,7 @@ fn oversize_ed25519_message_is_refused_before_the_backend() {
     // At the limit it goes through.
     let at = vec![0u8; AWS_KMS_RAW_MAX];
     ed().verifying_key()
-        .verify_raw(&at, &sign_raw(&kms, &at).unwrap())
+        .verify_raw(&at, sign_raw(&kms, &at).unwrap().as_bytes())
         .unwrap();
     assert_eq!(kms.calls(), 1);
 }
@@ -118,7 +118,10 @@ fn oversize_p256_message_is_fine_because_only_the_digest_travels() {
     let kms = MockKmsSigner::new(p256());
     let msg = vec![0u8; AWS_KMS_RAW_MAX * 4];
     let raw = sign_raw(&kms, &msg).unwrap();
-    p256().verifying_key().verify_raw(&msg, &raw).unwrap();
+    p256()
+        .verifying_key()
+        .verify_raw(&msg, raw.as_bytes())
+        .unwrap();
 }
 
 #[test]
@@ -186,6 +189,50 @@ fn malformed_backend_output_is_refused() {
 }
 
 #[test]
+fn a_raw_signature_of_the_wrong_length_is_refused() {
+    // A backend that returns the algorithm's raw encoding cut or padded
+    // by one byte: the library checks the length each algorithm expects.
+    struct Resized(AitpSigningKey, isize);
+    impl AitpSigner for Resized {
+        fn aid(&self) -> &aitp::core::Aid {
+            self.0.aid()
+        }
+        fn public_key(&self) -> Result<aitp::crypto::AitpVerifyingKey, SignerError> {
+            Ok(self.0.verifying_key())
+        }
+        fn sign(&self, r: SignRequest<'_>) -> Result<aitp::crypto::BackendSignature, SignerError> {
+            let aitp::crypto::BackendSignature::Raw(mut raw) = AitpSigner::sign(&self.0, r)? else {
+                unreachable!("in-process keys return raw signatures")
+            };
+            raw.resize((raw.len() as isize + self.1) as usize, 0);
+            Ok(aitp::crypto::BackendSignature::Raw(raw))
+        }
+    }
+    for make in [ed as fn() -> AitpSigningKey, p256] {
+        let key = make();
+        for delta in [-1, 1] {
+            let backend = Resized(make(), delta);
+            assert!(
+                matches!(
+                    sign_raw(&backend, b"t"),
+                    Err(SignerError::MalformedSignature(_))
+                ),
+                "{:?} {delta}",
+                key.algorithm()
+            );
+        }
+        let good = key.sign_raw(b"t");
+        assert_eq!(good.len(), 64);
+        let vk = key.verifying_key();
+        vk.verify_raw(b"t", good.as_bytes()).unwrap();
+        let mut long = good.clone().into_vec();
+        long.push(0);
+        assert!(vk.verify_raw(b"t", &long).is_err());
+        assert!(vk.verify_raw(b"t", &good.as_bytes()[..63]).is_err());
+    }
+}
+
+#[test]
 fn ed25519_non_canonical_s_is_refused_before_emit() {
     let kms = MockKmsSigner::new(ed()).output(MockOutput::Ed25519NonCanonicalS);
     assert!(matches!(
@@ -246,7 +293,10 @@ async fn async_round_trip_through_a_type_erased_backend() {
     let sig = sign_jcs_async(kms.as_ref(), &d).await.unwrap();
     p256().verifying_key().verify_jcs(&d, &sig).unwrap();
     let raw = sign_raw_async(kms.as_ref(), b"m").await.unwrap();
-    p256().verifying_key().verify_raw(b"m", &raw).unwrap();
+    p256()
+        .verifying_key()
+        .verify_raw(b"m", raw.as_bytes())
+        .unwrap();
     let token = jws::sign_compact_async(kms.as_ref(), jws::TYP_TCT, &serde_json::json!({"a": 1}))
         .await
         .unwrap();

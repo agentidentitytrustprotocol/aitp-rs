@@ -154,7 +154,7 @@ pub const MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS: &[&str] = &[
 mod tests {
     use super::*;
     use crate::handshake::IdentityKind;
-    use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use crate::manifest::{IdentityHint, ManifestBuilder};
     use crate::tct::TctBuilder;
     use serde_json::json;
 
@@ -166,7 +166,7 @@ mod tests {
         ManifestBuilder::new(key)
             .handshake_endpoint("https://a.example.com/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
-                kind: IdentityHintKind::PinnedKey,
+                kind: IdentityKind::PinnedKey,
                 subject: "alice".into(),
                 issuer: None,
                 public_key: Some(crate::core::base64url::encode(

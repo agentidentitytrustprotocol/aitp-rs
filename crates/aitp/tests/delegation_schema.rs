@@ -55,6 +55,7 @@ fn minted_single_hop_claims_validate() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .voucher
         .unwrap();
     let token = DelegationBuilder::new(&b, &voucher)
@@ -63,7 +64,9 @@ fn minted_single_hop_claims_validate() {
         .scope(["read_data"])
         .now(NOW)
         .build()
-        .unwrap();
+        .unwrap()
+        .into_parts()
+        .token;
     if let Err(e) = validate(&decoded_claims(&token)) {
         panic!("single-hop delegation claims failed schema validation:\n{e}");
     }

@@ -69,7 +69,7 @@ async fn round_trip_renewal_succeeds() {
     let original = issue(&issuer, &holder, now, 60);
     let request = build_renewal_request(
         &holder,
-        original.token.clone(),
+        original.token().to_owned(),
         base64url::encode(&[0x33; 16]),
     )
     .unwrap();
@@ -77,11 +77,11 @@ async fn round_trip_renewal_succeeds() {
     let renewed = renew(&request, &issuer, manifest_exp, now, 3600)
         .await
         .unwrap();
-    assert_ne!(renewed.claims.jti, original.claims.jti);
-    assert_eq!(renewed.claims.sub, original.claims.sub);
-    assert_eq!(renewed.claims.grants, original.claims.grants);
-    assert_eq!(renewed.claims.exp.0, now.0 + 3600);
-    assert!(renewed.voucher.is_some(), "renewal mints a fresh voucher");
+    assert_ne!(renewed.claims().jti, original.claims().jti);
+    assert_eq!(renewed.claims().sub, original.claims().sub);
+    assert_eq!(renewed.claims().grants, original.claims().grants);
+    assert_eq!(renewed.claims().exp.0, now.0 + 3600);
+    assert!(renewed.voucher().is_some(), "renewal mints a fresh voucher");
 }
 
 #[tokio::test]
@@ -93,7 +93,7 @@ async fn renewal_with_wrong_holder_key_rejected() {
     let original = issue(&issuer, &holder, now, 60);
     let request = build_renewal_request(
         &attacker, // attacker signs with its own key
-        original.token,
+        original.token().to_string(),
         base64url::encode(&[0x44; 16]),
     )
     .unwrap();
@@ -113,14 +113,19 @@ async fn renewal_bounded_by_manifest_expiry() {
     let now = Timestamp(1_700_000_000);
     let manifest_exp = Timestamp(now.0 + 600); // 10 min left
     let original = issue(&issuer, &holder, now, 60);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0x55; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0x55; 16]),
+    )
+    .unwrap();
     // Caller asks for 1 hour TTL, manifest only allows 10 min.
     let renewed = renew(&request, &issuer, manifest_exp, now, 3600)
         .await
         .unwrap();
     assert_eq!(
-        renewed.claims.exp.0, manifest_exp.0,
+        renewed.claims().exp.0,
+        manifest_exp.0,
         "TTL must be capped by manifest expiry"
     );
 }
@@ -131,8 +136,12 @@ async fn renewal_after_manifest_expired_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x31; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0x66; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0x66; 16]),
+    )
+    .unwrap();
     // Manifest already expired: the presented TCT now outlives it.
     let err = renew(&request, &issuer, Timestamp(now.0 - 1), now, 3600)
         .await
@@ -155,8 +164,12 @@ async fn renewal_of_tct_outliving_rotated_manifest_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 3600);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0x67; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0x67; 16]),
+    )
+    .unwrap();
     let err = renew(&request, &issuer, Timestamp(now.0 + 600), now, 3600)
         .await
         .unwrap_err();
@@ -172,8 +185,12 @@ async fn renewal_of_expired_tct_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x35; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0x68; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0x68; 16]),
+    )
+    .unwrap();
     let later = Timestamp(now.0 + 3600);
     let err = renew(&request, &issuer, Timestamp(now.0 + 86_400), later, 3600)
         .await
@@ -191,8 +208,12 @@ async fn renewal_of_foreign_issuer_token_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x42; 32]);
     let now = Timestamp(1_700_000_000);
     let foreign = issue(&other_issuer, &holder, now, 60);
-    let request =
-        build_renewal_request(&holder, foreign.token, base64url::encode(&[0x77; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        foreign.token().to_string(),
+        base64url::encode(&[0x77; 16]),
+    )
+    .unwrap();
     // `issuer` cannot renew a TCT signed by `other_issuer`.
     assert!(
         renew(&request, &issuer, Timestamp(now.0 + 86_400), now, 3600)
@@ -214,7 +235,7 @@ async fn renewal_of_token_with_duplicate_claim_is_rejected() {
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 60);
 
-    let parts: Vec<&str> = original.token.split('.').collect();
+    let parts: Vec<&str> = original.token().split('.').collect();
     assert_eq!(parts.len(), 3);
     let payload_bytes = base64url::decode_strict(parts[1]).unwrap();
     let payload_str = std::str::from_utf8(&payload_bytes).unwrap();
@@ -249,8 +270,12 @@ async fn replayed_pop_nonce_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0x99; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0x99; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let ctx = RenewalContext::new(
@@ -280,7 +305,8 @@ async fn failed_pop_does_not_record_nonce() {
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let nonce = base64url::encode(&[0x9a; 16]);
-    let forged = build_renewal_request(&attacker, original.token.clone(), nonce.clone()).unwrap();
+    let forged =
+        build_renewal_request(&attacker, original.token().to_owned(), nonce.clone()).unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let ctx = RenewalContext::new(
@@ -298,7 +324,7 @@ async fn failed_pop_does_not_record_nonce() {
         "got {err:?}"
     );
     assert!(store.is_empty());
-    let genuine = build_renewal_request(&holder, original.token, nonce).unwrap();
+    let genuine = build_renewal_request(&holder, original.token().to_string(), nonce).unwrap();
     process_renewal_request(&genuine, &issuer, &ctx)
         .await
         .expect("holder's nonce is still usable");
@@ -313,7 +339,7 @@ async fn pop_nonce_of_wrong_length_rejected() {
     for len in [0usize, 8, 15, 17, 32] {
         let request = build_renewal_request(
             &holder,
-            original.token.clone(),
+            original.token().to_owned(),
             base64url::encode(&vec![1; len]),
         )
         .unwrap();
@@ -326,8 +352,12 @@ async fn pop_nonce_of_wrong_length_rejected() {
         );
     }
     // Not base64url at all.
-    let mut request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[1; 16])).unwrap();
+    let mut request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[1; 16]),
+    )
+    .unwrap();
     request.pop_nonce = "not base64url!".into();
     let err = renew(&request, &issuer, Timestamp(now.0 + 86_400), now, 3600)
         .await
@@ -346,7 +376,7 @@ async fn renewal_of_revoked_tct_rejected() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let revoked_jti = original.claims.jti;
+    let revoked_jti = original.claims().jti;
     let revoked = move |q: &RevocationQuery<'_>| {
         Ok(if *q.jti == revoked_jti {
             RevocationStatus::Revoked
@@ -354,8 +384,12 @@ async fn renewal_of_revoked_tct_rejected() {
             RevocationStatus::Clear
         })
     };
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xaa; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xaa; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let ctx = RenewalContext::new(
@@ -382,8 +416,12 @@ async fn withdrawn_grant_is_dropped() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x73; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xab; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xab; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = vec!["demo.echo".to_string()];
     let ctx = RenewalContext::new(
@@ -396,7 +434,7 @@ async fn withdrawn_grant_is_dropped() {
     let renewed = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap();
-    assert_eq!(renewed.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(renewed.claims().grants, vec!["demo.echo".to_string()]);
 }
 
 /// Every grant withdrawn (by the Manifest or by policy): refused.
@@ -411,7 +449,7 @@ async fn all_grants_withdrawn_refused() {
 
     let request = build_renewal_request(
         &holder,
-        original.token.clone(),
+        original.token().to_owned(),
         base64url::encode(&[0xac; 16]),
     )
     .unwrap();
@@ -428,8 +466,12 @@ async fn all_grants_withdrawn_refused() {
         .unwrap_err();
     assert!(matches!(err, RenewalError::GrantsWithdrawn), "got {err:?}");
 
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xad; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xad; 16]),
+    )
+    .unwrap();
     let offered = offered();
     let deny_all = |_: &Aid, _: &[String]| Vec::new();
     let ctx = RenewalContext::new(
@@ -452,8 +494,12 @@ async fn grant_policy_narrows_and_voucher_is_optional() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xae; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xae; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let policy = |_: &Aid, g: &[String]| {
@@ -474,8 +520,8 @@ async fn grant_policy_narrows_and_voucher_is_optional() {
     let renewed = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap();
-    assert_eq!(renewed.claims.grants, vec!["demo.write".to_string()]);
-    assert!(renewed.voucher.is_none());
+    assert_eq!(renewed.claims().grants, vec!["demo.write".to_string()]);
+    assert!(renewed.voucher().is_none());
 }
 
 #[tokio::test]
@@ -495,15 +541,19 @@ async fn nonce_store_at_capacity_is_a_local_error() {
     );
     let first = build_renewal_request(
         &holder,
-        original.token.clone(),
+        original.token().to_owned(),
         base64url::encode(&[0xb0; 16]),
     )
     .unwrap();
     process_renewal_request(&first, &issuer, &ctx)
         .await
         .unwrap();
-    let second =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xb1; 16])).unwrap();
+    let second = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xb1; 16]),
+    )
+    .unwrap();
     let err = process_renewal_request(&second, &issuer, &ctx)
         .await
         .unwrap_err();
@@ -607,8 +657,12 @@ async fn pop_is_checked_before_revocation() {
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let revoked = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Revoked);
-    let request =
-        build_renewal_request(&other, original.token, base64url::encode(&[0xab; 16])).unwrap();
+    let request = build_renewal_request(
+        &other,
+        original.token().to_string(),
+        base64url::encode(&[0xab; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let ctx = RenewalContext::new(
@@ -635,8 +689,12 @@ async fn grant_policy_cannot_widen() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x7f; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let request =
-        build_renewal_request(&holder, original.token, base64url::encode(&[0xac; 16])).unwrap();
+    let request = build_renewal_request(
+        &holder,
+        original.token().to_string(),
+        base64url::encode(&[0xac; 16]),
+    )
+    .unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
     let widen = |_: &Aid, _: &[String]| vec!["demo.echo".to_string(), "demo.admin".into()];
@@ -651,7 +709,7 @@ async fn grant_policy_cannot_widen() {
     let renewed = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap();
-    assert_eq!(renewed.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(renewed.claims().grants, vec!["demo.echo".to_string()]);
 }
 
 /// §4 step 2: a TCT whose `aud` is not its `sub` is not one this
@@ -690,16 +748,16 @@ async fn exchange() -> Exchange {
     let issuer = AitpSigningKey::from_ed25519_seed(&[0x83; 32]);
     let holder = AitpSigningKey::from_ed25519_seed(&[0x84; 32]);
     let now = Timestamp(1_700_000_000);
-    let current = issue(&issuer, &holder, now, 600).token;
+    let current = issue(&issuer, &holder, now, 600).into_parts().token;
     let nonce = base64url::encode(&[0xae; 16]);
-    let request = build_renewal_request(&holder, current.clone(), nonce.clone()).unwrap();
+    let request = build_renewal_request(&holder, current.to_string(), nonce.clone()).unwrap();
     let renewed = renew(&request, &issuer, Timestamp(now.0 + 86_400), now, 600)
         .await
         .unwrap();
     Exchange {
         issuer,
         holder,
-        current,
+        current: current.to_string(),
         nonce,
         renewed,
         now,
@@ -713,8 +771,8 @@ async fn holder_accepts_the_issuer_response() {
         renewal_response_envelope(&x.issuer, &x.renewed, &x.nonce, Uuid::new_v4(), x.now).unwrap();
     let ctx = RenewalResponseContext::new(x.holder.aid(), &x.current, &x.nonce, x.now);
     let out = verify_renewal_response(&env, &ctx).unwrap();
-    assert_eq!(out.tct.claims().jti, x.renewed.claims.jti);
-    assert_eq!(out.grant_voucher, x.renewed.voucher);
+    assert_eq!(out.tct.claims().jti, x.renewed.claims().jti);
+    assert_eq!(out.grant_voucher, x.renewed.voucher().map(str::to_owned));
 }
 
 #[tokio::test]

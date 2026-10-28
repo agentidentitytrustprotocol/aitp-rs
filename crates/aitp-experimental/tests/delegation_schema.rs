@@ -55,6 +55,7 @@ fn minted_multihop_claims_validate() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .voucher
         .unwrap();
     let h1 = ChainedDelegationBuilder::new(&b, &voucher)

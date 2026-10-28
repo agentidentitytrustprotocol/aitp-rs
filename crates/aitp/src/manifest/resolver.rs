@@ -98,7 +98,8 @@ mod tests {
     use super::*;
     use crate::core::Timestamp;
     use crate::crypto::AitpSigningKey;
-    use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+    use crate::handshake::IdentityKind;
+    use crate::manifest::{IdentityHint, ManifestBuilder};
 
     const NOW: Timestamp = Timestamp(1_700_000_000);
 
@@ -106,7 +107,7 @@ mod tests {
         ManifestBuilder::new(key)
             .handshake_endpoint("https://agent.example.com/handshake".parse().unwrap())
             .identity_hint(IdentityHint {
-                kind: IdentityHintKind::Oidc,
+                kind: IdentityKind::Oidc,
                 subject: "agent".into(),
                 issuer: Some("https://idp.example.com".parse().unwrap()),
                 public_key: None,

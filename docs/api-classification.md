@@ -59,6 +59,7 @@ reasons already in the table are kept.
 | `aitp::crypto::BlockingSigner` | struct | exhaustive | A newtype adapter: its one field is the wrapped signer. |
 | `aitp::crypto::CryptoError` | enum | non_exhaustive |  |
 | `aitp::crypto::Digest32` | struct | private fields |  |
+| `aitp::crypto::RawSignature` | struct | private fields |  |
 | `aitp::crypto::SignRequest` | enum | non_exhaustive |  |
 | `aitp::crypto::Signature` | struct | private fields |  |
 | `aitp::crypto::SignatureAlgorithm` | enum | non_exhaustive |  |
@@ -67,6 +68,8 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationClaims` | struct | non_exhaustive |  |
 | `aitp::delegation::DelegationError` | enum | non_exhaustive |  |
 | `aitp::delegation::DelegationVerifyContext` | struct | non_exhaustive |  |
+| `aitp::delegation::IssuedDelegation` | struct | private fields |  |
+| `aitp::delegation::IssuedDelegationParts` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifiedDelegation` | struct | private fields |  |
 | `aitp::delegation::VerifiedDelegationParts` | struct | non_exhaustive |  |
 | `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |
@@ -128,7 +131,6 @@ reasons already in the table are kept.
 | `aitp::handshake::admission::TokenBucketLimiter` | struct | private fields |  |
 | `aitp::handshake::admission::TransportId` | enum | non_exhaustive |  |
 | `aitp::manifest::IdentityHint` | struct | non_exhaustive |  |
-| `aitp::manifest::IdentityHintKind` | enum | non_exhaustive |  |
 | `aitp::manifest::Manifest` | struct | non_exhaustive |  |
 | `aitp::manifest::ManifestBuilder` | struct | private fields |  |
 | `aitp::manifest::ManifestEnvelope` | struct | non_exhaustive |  |
@@ -140,7 +142,8 @@ reasons already in the table are kept.
 | `aitp::tct::AttestationVerifyContextBuilder` | struct | private fields |  |
 | `aitp::tct::Cnf` | struct | non_exhaustive |  |
 | `aitp::tct::GrantVoucherClaims` | struct | non_exhaustive |  |
-| `aitp::tct::IssuedTct` | struct | non_exhaustive |  |
+| `aitp::tct::IssuedTct` | struct | private fields |  |
+| `aitp::tct::IssuedTctParts` | struct | non_exhaustive |  |
 | `aitp::tct::PopChallenge` | struct | non_exhaustive |  |
 | `aitp::tct::PopResponse` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationEntry` | struct | non_exhaustive |  |

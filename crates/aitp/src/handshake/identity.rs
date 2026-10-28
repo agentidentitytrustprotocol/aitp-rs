@@ -98,9 +98,14 @@ impl IdentityDescriptor {
     }
 }
 
-/// Identity mechanism discriminator.
+/// Identity mechanism discriminator (RFC-AITP-0002): the `type` of an
+/// [`IdentityDescriptor`], of a Manifest's
+/// [`identity_hint`](crate::manifest::IdentityHint), and the entries of
+/// its `accepted_identity_types`. Serializes to the wire names `oidc`,
+/// `pinned_key` and `spiffe`.
 ///
-/// Marked `#[non_exhaustive]` (matches [`crate::manifest::IdentityHintKind`]).
+/// Marked `#[non_exhaustive]` so identity types the spec adds later can
+/// ship without a major bump.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]

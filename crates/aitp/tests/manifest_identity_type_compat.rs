@@ -9,9 +9,9 @@
 
 use aitp::core::{base64url, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::handshake::IdentityKind;
 use aitp::manifest::{
-    check_identity_type_compatibility, IdentityHint, IdentityHintKind, Manifest, ManifestBuilder,
-    ManifestError,
+    check_identity_type_compatibility, IdentityHint, Manifest, ManifestBuilder, ManifestError,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -20,13 +20,11 @@ fn manifest_for(key: &AitpSigningKey, accept: &[aitp::handshake::IdentityKind]) 
     let mut b = ManifestBuilder::new(key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "subj").with_public_key(
-                base64url::encode(
-                    &key.verifying_key()
-                        .try_to_ed25519_bytes()
-                        .expect("key was constructed as Ed25519, never P-256"),
-                ),
-            ),
+            IdentityHint::new(IdentityKind::PinnedKey, "subj").with_public_key(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")

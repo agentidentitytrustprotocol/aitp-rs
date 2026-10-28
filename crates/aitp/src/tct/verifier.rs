@@ -70,10 +70,18 @@ pub enum TctVerifyContextError {
          .skip_manifest_expiry_cap_dangerous()"
     )]
     ManifestCapDecisionRequired,
+    /// A required input was not set: `expected_audience`, `issuer` or
+    /// `now` for [`TctVerifyContextBuilder`], and `issuer`,
+    /// `statement_key` or `now` for [`AttestationVerifyContextBuilder`].
+    #[error(transparent)]
+    MissingField(#[from] crate::core::MissingFieldError),
 }
 
 impl<'a> TctVerifyContext<'a> {
-    /// Start a strict-by-construction builder. The
+    /// Start a strict-by-construction builder. Set the required inputs
+    /// with [`TctVerifyContextBuilder::expected_audience`],
+    /// [`TctVerifyContextBuilder::issuer`] and
+    /// [`TctVerifyContextBuilder::now`]. The
     /// resulting [`TctVerifyContextBuilder::build`] refuses to produce a
     /// context until both the revocation source and the issuer-Manifest
     /// expiry cap have been either supplied or explicitly waived with a
@@ -89,27 +97,29 @@ impl<'a> TctVerifyContext<'a> {
     /// let issuer = AitpSigningKey::from_ed25519_seed(&[2; 32]).aid().clone();
     ///
     /// // build() fails until BOTH silent-accept surfaces are decided...
-    /// assert!(TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
+    /// assert!(TctVerifyContext::builder()
+    ///     .expected_audience(&audience)
+    ///     .issuer(&issuer)
+    ///     .now(Timestamp(1_700_000_000))
     ///     .build()
     ///     .is_err());
     ///
     /// // ...here we explicitly waive both (only sound for tests/offline).
-    /// let ctx = TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
+    /// let ctx = TctVerifyContext::builder()
+    ///     .expected_audience(&audience)
+    ///     .issuer(&issuer)
+    ///     .now(Timestamp(1_700_000_000))
     ///     .revocation(RevocationSource::FailOpen)
     ///     .skip_manifest_expiry_cap_dangerous()
     ///     .build()
     ///     .expect("both decisions made");
     /// let _ = ctx;
     /// ```
-    pub fn builder(
-        expected_audience: &'a Aid,
-        issuer: &'a Aid,
-        now: Timestamp,
-    ) -> TctVerifyContextBuilder<'a> {
+    pub fn builder() -> TctVerifyContextBuilder<'a> {
         TctVerifyContextBuilder {
-            expected_audience,
-            issuer,
-            now,
+            expected_audience: None,
+            issuer: None,
+            now: None,
             issuer_manifest_expires_at: None,
             revocation: None,
             clock_skew: std::time::Duration::ZERO,
@@ -120,9 +130,9 @@ impl<'a> TctVerifyContext<'a> {
 
 /// Strict builder for [`TctVerifyContext`]. See [`TctVerifyContext::builder`].
 pub struct TctVerifyContextBuilder<'a> {
-    expected_audience: &'a Aid,
-    issuer: &'a Aid,
-    now: Timestamp,
+    expected_audience: Option<&'a Aid>,
+    issuer: Option<&'a Aid>,
+    now: Option<Timestamp>,
     issuer_manifest_expires_at: Option<Timestamp>,
     revocation: Option<RevocationSource<'a>>,
     clock_skew: std::time::Duration,
@@ -146,6 +156,25 @@ impl std::fmt::Debug for TctVerifyContextBuilder<'_> {
 }
 
 impl<'a> TctVerifyContextBuilder<'a> {
+    /// The verifier's own AID, the expected `aud` claim. Required.
+    pub fn expected_audience(mut self, aid: &'a Aid) -> Self {
+        self.expected_audience = Some(aid);
+        self
+    }
+
+    /// The issuer's AID, which pins the verifying key, the JWS `alg` and
+    /// the `iss` claim. Required.
+    pub fn issuer(mut self, aid: &'a Aid) -> Self {
+        self.issuer = Some(aid);
+        self
+    }
+
+    /// The time `exp` and `iat` are evaluated at. Required.
+    pub fn now(mut self, now: Timestamp) -> Self {
+        self.now = Some(now);
+        self
+    }
+
     /// Supply the issuer Manifest's `expires_at`; the TCT's `exp` must
     /// not exceed it. Satisfies the manifest-cap decision.
     pub fn issuer_manifest_expires_at(mut self, expires_at: Timestamp) -> Self {
@@ -181,8 +210,16 @@ impl<'a> TctVerifyContextBuilder<'a> {
         self
     }
 
-    /// Finalize the context, or error if a required decision is missing.
+    /// Finalize the context, or report the first required input that was
+    /// not set ([`TctVerifyContextError::MissingField`]), then a missing
+    /// decision.
     pub fn build(self) -> Result<TctVerifyContext<'a>, TctVerifyContextError> {
+        use crate::core::MissingFieldError;
+        let expected_audience = self
+            .expected_audience
+            .ok_or(MissingFieldError::new("expected_audience"))?;
+        let issuer = self.issuer.ok_or(MissingFieldError::new("issuer"))?;
+        let now = self.now.ok_or(MissingFieldError::new("now"))?;
         let Some(revocation) = self.revocation else {
             return Err(TctVerifyContextError::RevocationDecisionRequired);
         };
@@ -190,9 +227,9 @@ impl<'a> TctVerifyContextBuilder<'a> {
             return Err(TctVerifyContextError::ManifestCapDecisionRequired);
         }
         Ok(TctVerifyContext {
-            expected_audience: self.expected_audience,
-            issuer: self.issuer,
-            now: self.now,
+            expected_audience,
+            issuer,
+            now,
             issuer_manifest_expires_at: self.issuer_manifest_expires_at,
             revocation,
             clock_skew: self.clock_skew,
@@ -458,17 +495,17 @@ pub struct AttestationVerifyContext<'a> {
 }
 
 impl<'a> AttestationVerifyContext<'a> {
-    /// Start a builder. As with [`TctVerifyContext::builder`], both the
-    /// Manifest cap and revocation are mandatory decisions.
-    pub fn builder(
-        issuer: &'a Aid,
-        statement_key: &'a str,
-        now: Timestamp,
-    ) -> AttestationVerifyContextBuilder<'a> {
+    /// Start a builder. Set the required inputs with
+    /// [`AttestationVerifyContextBuilder::issuer`],
+    /// [`AttestationVerifyContextBuilder::statement_key`] and
+    /// [`AttestationVerifyContextBuilder::now`]. As with
+    /// [`TctVerifyContext::builder`], both the Manifest cap and revocation
+    /// are mandatory decisions.
+    pub fn builder() -> AttestationVerifyContextBuilder<'a> {
         AttestationVerifyContextBuilder {
-            issuer,
-            statement_key,
-            now,
+            issuer: None,
+            statement_key: None,
+            now: None,
             issuer_manifest_expires_at: None,
             revocation: None,
             clock_skew: std::time::Duration::ZERO,
@@ -496,9 +533,9 @@ impl std::fmt::Debug for AttestationVerifyContext<'_> {
 /// Builder for [`AttestationVerifyContext`].
 #[derive(Debug)]
 pub struct AttestationVerifyContextBuilder<'a> {
-    issuer: &'a Aid,
-    statement_key: &'a str,
-    now: Timestamp,
+    issuer: Option<&'a Aid>,
+    statement_key: Option<&'a str>,
+    now: Option<Timestamp>,
     issuer_manifest_expires_at: Option<Timestamp>,
     revocation: Option<RevocationSource<'a>>,
     clock_skew: std::time::Duration,
@@ -506,6 +543,26 @@ pub struct AttestationVerifyContextBuilder<'a> {
 }
 
 impl<'a> AttestationVerifyContextBuilder<'a> {
+    /// The attesting issuer, which pins the verifying key and the JWS
+    /// `alg`. Required.
+    pub fn issuer(mut self, aid: &'a Aid) -> Self {
+        self.issuer = Some(aid);
+        self
+    }
+
+    /// The `ext` key holding the statement this relying party consumes.
+    /// Required.
+    pub fn statement_key(mut self, key: &'a str) -> Self {
+        self.statement_key = Some(key);
+        self
+    }
+
+    /// The time `exp` and `iat` are evaluated at. Required.
+    pub fn now(mut self, now: Timestamp) -> Self {
+        self.now = Some(now);
+        self
+    }
+
     /// The issuer publishes a Manifest: the attestation's `exp` must not
     /// exceed its `expires_at` (RFC-AITP-0005 §10.4).
     pub fn issuer_manifest_expires_at(mut self, expires_at: Timestamp) -> Self {
@@ -540,8 +597,15 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
         self
     }
 
-    /// Finish, or report the missing decision.
+    /// Finish, or report the first required input that was not set
+    /// ([`TctVerifyContextError::MissingField`]), then a missing decision.
     pub fn build(self) -> Result<AttestationVerifyContext<'a>, TctVerifyContextError> {
+        use crate::core::MissingFieldError;
+        let issuer = self.issuer.ok_or(MissingFieldError::new("issuer"))?;
+        let statement_key = self
+            .statement_key
+            .ok_or(MissingFieldError::new("statement_key"))?;
+        let now = self.now.ok_or(MissingFieldError::new("now"))?;
         let Some(revocation) = self.revocation else {
             return Err(TctVerifyContextError::RevocationDecisionRequired);
         };
@@ -549,9 +613,9 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
             return Err(TctVerifyContextError::ManifestCapDecisionRequired);
         }
         Ok(AttestationVerifyContext {
-            issuer: self.issuer,
-            statement_key: self.statement_key,
-            now: self.now,
+            issuer,
+            statement_key,
+            now,
             issuer_manifest_expires_at: self.issuer_manifest_expires_at,
             revocation,
             clock_skew: self.clock_skew,
@@ -719,7 +783,10 @@ mod builder_tests {
     #[test]
     fn build_requires_revocation_decision() {
         let (aud, iss) = aids();
-        let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+        let result = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(1))
             .skip_manifest_expiry_cap_dangerous()
             .build();
         assert!(matches!(
@@ -729,9 +796,42 @@ mod builder_tests {
     }
 
     #[test]
+    fn build_reports_the_first_missing_input() {
+        let (aud, iss) = aids();
+        let missing = |r: Result<TctVerifyContext<'_>, TctVerifyContextError>| match r {
+            Err(TctVerifyContextError::MissingField(e)) => e.field(),
+            other => panic!("{other:?}"),
+        };
+        let decided = || {
+            TctVerifyContext::builder()
+                .revocation(RevocationSource::FailOpen)
+                .skip_manifest_expiry_cap_dangerous()
+        };
+        assert_eq!(missing(decided().build()), "expected_audience");
+        assert_eq!(missing(decided().expected_audience(&aud).build()), "issuer");
+        assert_eq!(
+            missing(decided().expected_audience(&aud).issuer(&iss).build()),
+            "now"
+        );
+        let attestation = AttestationVerifyContext::builder()
+            .issuer(&iss)
+            .now(Timestamp(1))
+            .revocation(RevocationSource::FailOpen)
+            .waive_manifest_cap_issuer_has_no_manifest()
+            .build();
+        assert!(matches!(
+            attestation,
+            Err(TctVerifyContextError::MissingField(e)) if e.field() == "statement_key"
+        ));
+    }
+
+    #[test]
     fn build_requires_manifest_cap_decision() {
         let (aud, iss) = aids();
-        let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+        let result = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(1))
             .revocation(RevocationSource::FailOpen)
             .build();
         assert!(matches!(
@@ -743,7 +843,10 @@ mod builder_tests {
     #[test]
     fn build_succeeds_when_both_decided() {
         let (aud, iss) = aids();
-        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(42))
+        let ctx = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(42))
             .revocation(RevocationSource::FailOpen)
             .issuer_manifest_expires_at(Timestamp(100))
             .build()
@@ -757,7 +860,10 @@ mod builder_tests {
     fn revocation_check_is_threaded_through() {
         let (aud, iss) = aids();
         let deny = |_: &crate::tct::RevocationQuery<'_>| Ok(crate::tct::RevocationStatus::Revoked);
-        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+        let ctx = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(1))
             .revocation(RevocationSource::Check(&deny))
             .skip_manifest_expiry_cap_dangerous()
             .build()
@@ -768,14 +874,20 @@ mod builder_tests {
     #[test]
     fn clock_skew_defaults_to_zero() {
         let (aud, iss) = aids();
-        let strict = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+        let strict = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(1))
             .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .unwrap();
         assert_eq!(strict.clock_skew, std::time::Duration::ZERO);
 
-        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
+        let ctx = TctVerifyContext::builder()
+            .expected_audience(&aud)
+            .issuer(&iss)
+            .now(Timestamp(1))
             .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .clock_skew(std::time::Duration::from_secs(30))
@@ -835,7 +947,10 @@ mod claim_set_tests {
         issuer: &'a crate::core::Aid,
         subject: &'a crate::core::Aid,
     ) -> TctVerifyContext<'a> {
-        TctVerifyContext::builder(subject, issuer, Timestamp(1_700_000_100))
+        TctVerifyContext::builder()
+            .expected_audience(subject)
+            .issuer(issuer)
+            .now(Timestamp(1_700_000_100))
             .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()

@@ -135,15 +135,52 @@ pub const GRANT_VOUCHER_CLAIMS_MEMBERS: &[&str] = &[
 /// and the companion grant voucher (unless issuance policy declined to
 /// mint one — RFC-AITP-0005 §8.2, in which case the subject cannot
 /// delegate).
+///
+/// Only [`crate::tct::TctBuilder`] constructs it, and its fields are
+/// read-only: [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct IssuedTct {
+    pub(crate) token: String,
+    pub(crate) claims: TctClaims,
+    pub(crate) voucher: Option<String>,
+}
+
+impl IssuedTct {
     /// The TCT as the opaque compact JWS string that goes on the wire.
-    pub token: String,
-    /// Decoded claims of `token`, for issuer-side bookkeeping.
-    pub claims: TctClaims,
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Decoded claims of [`Self::token`], for issuer-side bookkeeping.
+    pub fn claims(&self) -> &TctClaims {
+        &self.claims
+    }
+
     /// Companion grant voucher compact JWS, delivered alongside the TCT
     /// in the handshake commit payload.
+    pub fn voucher(&self) -> Option<&str> {
+        self.voucher.as_deref()
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> IssuedTctParts {
+        IssuedTctParts {
+            token: self.token,
+            claims: self.claims,
+            voucher: self.voucher,
+        }
+    }
+}
+
+/// The owned pieces of an [`IssuedTct`], from [`IssuedTct::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IssuedTctParts {
+    /// See [`IssuedTct::token`].
+    pub token: String,
+    /// See [`IssuedTct::claims`].
+    pub claims: TctClaims,
+    /// See [`IssuedTct::voucher`].
     pub voucher: Option<String>,
 }
 

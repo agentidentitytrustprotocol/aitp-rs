@@ -12,7 +12,7 @@ use crate::core::{
     check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
 };
 use crate::crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
-use crate::delegation::types::DelegationClaims;
+use crate::delegation::types::{DelegationClaims, IssuedDelegation};
 use crate::delegation::DelegationError;
 use crate::tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
 
@@ -58,10 +58,13 @@ impl<'a> DelegationBuilder<'a, dyn AitpSigner + 'a> {
         Self::rooted_in_voucher(issuer_key, voucher)
     }
 
-    /// Construct, sign, and return the delegation compact JWS.
-    pub fn build(self) -> Result<String, DelegationError> {
+    /// Construct and sign the delegation token, and return it with its
+    /// claims.
+    pub fn build(self) -> Result<IssuedDelegation, DelegationError> {
         let (claims, signer) = self.draft()?;
-        jws::sign_compact(signer, jws::TYP_DELEGATION, &claims).map_err(DelegationError::Crypto)
+        let token = jws::sign_compact(signer, jws::TYP_DELEGATION, &claims)
+            .map_err(DelegationError::Crypto)?;
+        Ok(IssuedDelegation { token, claims })
     }
 }
 
@@ -80,11 +83,12 @@ impl<'a> DelegationBuilder<'a, dyn DynAsyncAitpSigner + 'a> {
     /// As [`DelegationBuilder::build`], awaiting the backend. Validation
     /// and output are identical; the future is `Send`. A backend failure
     /// surfaces as `DelegationError::Crypto(CryptoError::Signer(_))`.
-    pub async fn build_async(self) -> Result<String, DelegationError> {
+    pub async fn build_async(self) -> Result<IssuedDelegation, DelegationError> {
         let (claims, signer) = self.draft()?;
-        jws::sign_compact_async(signer, jws::TYP_DELEGATION, &claims)
+        let token = jws::sign_compact_async(signer, jws::TYP_DELEGATION, &claims)
             .await
-            .map_err(DelegationError::Crypto)
+            .map_err(DelegationError::Crypto)?;
+        Ok(IssuedDelegation { token, claims })
     }
 }
 

@@ -9,8 +9,8 @@
 
 use aitp::core::{BoxFuture, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
     RevocationListEnvelope, RevocationListVerifyContext, RevocationQuery, RevocationStatus,
@@ -57,7 +57,7 @@ async fn well_known_revocation_list_serves_signed_snapshot() {
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 aitp::core::base64url::encode(
                     &issuer
                         .verifying_key()
@@ -128,7 +128,7 @@ async fn served_snapshot_signature_is_over_the_inner_body_not_the_wrapper() {
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 aitp::core::base64url::encode(
                     &issuer
                         .verifying_key()
@@ -196,7 +196,7 @@ fn advertising_manifest(issuer: &AitpSigningKey, origin: &url::Url) -> aitp::man
         .display_name("issuer")
         .handshake_endpoint(origin.join("/aitp/handshake").unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "issuer")
+            IdentityHint::new(IdentityKind::Oidc, "issuer")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

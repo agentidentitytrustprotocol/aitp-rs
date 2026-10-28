@@ -1,7 +1,8 @@
 //! Pluggable signing backends: in-process keys, cloud KMS, HSMs.
 
 use crate::core::{Aid, AidAlgorithm, BoxError, BoxFuture};
-use crate::crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, Signature};
+use crate::crypto::keys::raw_signature_len;
+use crate::crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, RawSignature, Signature};
 use std::future::Future;
 use std::time::Duration;
 
@@ -60,8 +61,10 @@ impl SignRequest<'_> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum BackendSignature {
-    /// 64 bytes: Ed25519 `R || S`, or P-256 JOSE `R || S` (either S).
-    Raw([u8; 64]),
+    /// The algorithm's raw encoding: Ed25519 `R || S`, or P-256 JOSE
+    /// `R || S` (either S), 64 bytes each. A length other than the
+    /// algorithm's is [`SignerError::MalformedSignature`].
+    Raw(Vec<u8>),
     /// P-256 ASN.1 DER `ECDSA-Sig-Value`, as AWS KMS, GCP Cloud KMS and
     /// most HSMs return it. Not valid for Ed25519.
     Der(Vec<u8>),
@@ -383,11 +386,11 @@ impl AitpSigner for AitpSigningKey {
     fn sign(&self, request: SignRequest<'_>) -> Result<BackendSignature, SignerError> {
         match (self.algorithm(), request) {
             (AidAlgorithm::Ed25519, SignRequest::Ed25519Message(m)) => {
-                Ok(BackendSignature::Raw(self.sign_raw(m)))
+                Ok(BackendSignature::Raw(self.sign_raw(m).into_vec()))
             }
             (AidAlgorithm::P256, SignRequest::P256Digest(d)) => {
                 let wire = self.sign_jcs(d);
-                Ok(BackendSignature::Raw(decode_wire_raw(&wire)))
+                Ok(BackendSignature::Raw(decode_wire_raw(&wire).into_vec()))
             }
             (alg, req) => Err(SignerError::UnsupportedAlgorithm(format!(
                 "{alg:?} key cannot serve a {:?} request",
@@ -472,12 +475,11 @@ impl<S: AitpSigner + ?Sized> AitpSigner for Box<S> {
     }
 }
 
-/// Decode the 64 raw bytes of a wire signature this crate just produced.
-fn decode_wire_raw(sig: &Signature) -> [u8; 64] {
+/// Decode the raw bytes of a wire signature this crate just produced.
+fn decode_wire_raw(sig: &Signature) -> RawSignature {
     use base64ct::{Base64UrlUnpadded, Encoding};
-    let mut out = [0u8; 64];
-    Base64UrlUnpadded::decode(sig.payload(), &mut out).expect("own signature is 64 bytes");
-    out
+    let raw = Base64UrlUnpadded::decode_vec(sig.payload()).expect("own signature is base64url");
+    RawSignature::from_bytes(&raw)
 }
 
 /// What the library signs and how the result is checked.
@@ -539,11 +541,22 @@ fn finalize(
     alg: AidAlgorithm,
     target: &Target<'_>,
     sig: BackendSignature,
-) -> Result<[u8; 64], SignerError> {
+) -> Result<RawSignature, SignerError> {
     let raw = match alg {
-        AidAlgorithm::P256 => crate::crypto::keys::p256_backend_to_low_s(&sig)?,
+        AidAlgorithm::P256 => {
+            RawSignature::from_bytes(&crate::crypto::keys::p256_backend_to_low_s(&sig)?)
+        }
         _ => match sig {
-            BackendSignature::Raw(raw) => raw,
+            BackendSignature::Raw(raw) if raw.len() == raw_signature_len(alg) => {
+                RawSignature::from_bytes(&raw)
+            }
+            BackendSignature::Raw(raw) => {
+                return Err(SignerError::MalformedSignature(format!(
+                    "{alg:?} signature is {} bytes, expected {}",
+                    raw.len(),
+                    raw_signature_len(alg)
+                )))
+            }
             BackendSignature::Der(_) => {
                 return Err(SignerError::MalformedSignature(
                     "DER is not an Ed25519 signature encoding".into(),
@@ -554,14 +567,14 @@ fn finalize(
     let vk = AitpVerifyingKey::from_aid(aid)
         .map_err(|e| SignerError::permanent(format!("signer AID does not encode a key: {e}")))?;
     let verified = match target {
-        Target::Jcs(d) => vk.verify_jcs(d, &Signature::from_raw(alg, &raw)),
-        Target::Raw(m) => vk.verify_raw(m, &raw),
+        Target::Jcs(d) => vk.verify_jcs(d, &Signature::from_raw(alg, raw.as_bytes())),
+        Target::Raw(m) => vk.verify_raw(m, raw.as_bytes()),
     };
     verified.map_err(|_| SignerError::VerificationFailed)?;
     Ok(raw)
 }
 
-fn sign_target(signer: &dyn AitpSigner, target: Target<'_>) -> Result<[u8; 64], SignerError> {
+fn sign_target(signer: &dyn AitpSigner, target: Target<'_>) -> Result<RawSignature, SignerError> {
     let aid = signer.aid();
     let alg = signing_algorithm(aid)?;
     if let Some(key) = local_key(signer.as_signing_key(sealed::Local(())), aid) {
@@ -576,7 +589,7 @@ fn sign_target(signer: &dyn AitpSigner, target: Target<'_>) -> Result<[u8; 64], 
 async fn sign_target_async(
     signer: &dyn DynAsyncAitpSigner,
     target: Target<'_>,
-) -> Result<[u8; 64], SignerError> {
+) -> Result<RawSignature, SignerError> {
     let aid = signer.aid();
     let alg = signing_algorithm(aid)?;
     if let Some(key) = local_key(signer.as_signing_key(sealed::Local(())), aid) {
@@ -588,7 +601,7 @@ async fn sign_target_async(
     finalize(aid, alg, &target, sig)
 }
 
-fn sign_local(key: &AitpSigningKey, target: &Target<'_>) -> [u8; 64] {
+fn sign_local(key: &AitpSigningKey, target: &Target<'_>) -> RawSignature {
     match target {
         Target::Jcs(d) => decode_wire_raw(&key.sign_jcs(d)),
         Target::Raw(m) => key.sign_raw(m),
@@ -601,18 +614,19 @@ fn sign_local(key: &AitpSigningKey, target: &Target<'_>) -> [u8; 64] {
 /// for Ed25519 and for deterministic P-256 backends).
 pub fn sign_jcs(signer: &dyn AitpSigner, d: &Digest32) -> Result<Signature, SignerError> {
     let alg = signing_algorithm(signer.aid())?;
-    sign_target(signer, Target::Jcs(d)).map(|raw| Signature::from_raw(alg, &raw))
+    sign_target(signer, Target::Jcs(d)).map(|raw| Signature::from_raw(alg, raw.as_bytes()))
 }
 
 /// Sign raw `message` bytes with any backend: PureEdDSA for Ed25519,
-/// ES256 (one SHA-256, low-S, `R || S`) for P-256. The public raw-sign
+/// ES256 (one SHA-256, low-S, `R || S`) for P-256, returned as a
+/// [`RawSignature`] of the algorithm's length. The public raw-sign
 /// entry point for compact JWS and application framings; see
 /// [`AitpSigningKey::sign_raw`] for the domain-separation duty.
 ///
 /// For Ed25519 the whole message goes to the backend, so
 /// [`AitpSigner::max_message_len`] applies to it. For P-256 the library
 /// hashes and the backend only sees 32 bytes.
-pub fn sign_raw(signer: &dyn AitpSigner, message: &[u8]) -> Result<[u8; 64], SignerError> {
+pub fn sign_raw(signer: &dyn AitpSigner, message: &[u8]) -> Result<RawSignature, SignerError> {
     sign_target(signer, Target::Raw(message))
 }
 
@@ -624,14 +638,14 @@ pub async fn sign_jcs_async(
     let alg = signing_algorithm(signer.aid())?;
     sign_target_async(signer, Target::Jcs(d))
         .await
-        .map(|raw| Signature::from_raw(alg, &raw))
+        .map(|raw| Signature::from_raw(alg, raw.as_bytes()))
 }
 
 /// Async [`sign_raw`].
 pub async fn sign_raw_async(
     signer: &dyn DynAsyncAitpSigner,
     message: &[u8],
-) -> Result<[u8; 64], SignerError> {
+) -> Result<RawSignature, SignerError> {
     sign_target_async(signer, Target::Raw(message)).await
 }
 

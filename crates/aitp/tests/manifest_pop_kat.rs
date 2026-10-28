@@ -10,8 +10,9 @@
 
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp::handshake::IdentityKind;
 use aitp::manifest::{
-    verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder, ManifestError, ManifestPop,
+    verify_manifest, IdentityHint, ManifestBuilder, ManifestError, ManifestPop,
     ManifestVerifyContext,
 };
 use serde::Deserialize;
@@ -96,13 +97,11 @@ fn builder_pop_uses_decoded_challenge() {
     let manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
-                base64url::encode(
-                    &key.verifying_key()
-                        .try_to_ed25519_bytes()
-                        .expect("key was constructed as Ed25519, never P-256"),
-                ),
-            ),
+            IdentityHint::new(IdentityKind::PinnedKey, "alice").with_public_key(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
@@ -130,13 +129,11 @@ fn legacy_ascii_bytes_pop_is_rejected() {
     let mut manifest = ManifestBuilder::new(&key)
         .handshake_endpoint("https://alice.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "alice").with_public_key(
-                base64url::encode(
-                    &key.verifying_key()
-                        .try_to_ed25519_bytes()
-                        .expect("key was constructed as Ed25519, never P-256"),
-                ),
-            ),
+            IdentityHint::new(IdentityKind::PinnedKey, "alice").with_public_key(base64url::encode(
+                &key.verifying_key()
+                    .try_to_ed25519_bytes()
+                    .expect("key was constructed as Ed25519, never P-256"),
+            )),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")

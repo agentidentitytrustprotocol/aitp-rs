@@ -5,16 +5,16 @@
 use aitp::core::Timestamp;
 use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, CryptoError, SignerError};
+use aitp::handshake::IdentityKind;
 use aitp::manifest::{
-    verify_manifest, IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError,
-    ManifestVerifyContext,
+    verify_manifest, IdentityHint, Manifest, ManifestBuilder, ManifestError, ManifestVerifyContext,
 };
 
 fn build(signer: &dyn AitpSigner, now: Timestamp) -> Result<Manifest, ManifestError> {
     ManifestBuilder::new(signer)
         .handshake_endpoint("https://kms.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "kms-agent")
+            IdentityHint::new(IdentityKind::Oidc, "kms-agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -81,7 +81,7 @@ fn build_async<'a>(
     ManifestBuilder::new_async(signer)
         .handshake_endpoint("https://kms.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "kms-agent")
+            IdentityHint::new(IdentityKind::Oidc, "kms-agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())

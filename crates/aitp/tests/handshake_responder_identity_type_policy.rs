@@ -7,10 +7,10 @@
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{
-    HandshakeError, Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity,
-    ResolveError, Responder,
+    HandshakeError, IdentityKind, Initiator, JwkPublicKey, JwksResolver, PeerConfig,
+    PresentedIdentity, ResolveError, Responder,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestError};
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -31,7 +31,7 @@ fn manifest_for(
         .display_name(hint_subject)
         .handshake_endpoint("https://peer.example.com/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, hint_subject).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, hint_subject).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

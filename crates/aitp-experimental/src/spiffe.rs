@@ -735,7 +735,7 @@ mod tests {
         let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
         let jwk = json!({"kty": "OKP", "crv": "Ed25519",
             "x": Base64UrlUnpadded::encode_string(&x)});
-        let sign = |m: &[u8]| key.sign_raw(m).to_vec();
+        let sign = |m: &[u8]| key.sign_raw(m).into_vec();
         let err = verify_jwt_svid_under("EdDSA", jwk.clone(), &sign).unwrap_err();
         assert!(
             err.to_string().contains("alg \"EdDSA\" not allowed"),

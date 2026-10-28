@@ -18,7 +18,7 @@ use aitp::handshake::{IdentityDescriptor, IdentityKind};
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -39,7 +39,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

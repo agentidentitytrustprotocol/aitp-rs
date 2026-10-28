@@ -11,8 +11,8 @@
 use aitp::core::{MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::sign_envelope_with;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::transport::HandshakeServer;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -29,7 +29,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str, endpoint: &str) -> aitp::manif
         .display_name(name)
         .handshake_endpoint(endpoint.parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name).with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, name).with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

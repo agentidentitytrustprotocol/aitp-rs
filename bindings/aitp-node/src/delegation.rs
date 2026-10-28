@@ -263,6 +263,7 @@ pub(crate) fn build_delegation_token_json(
     builder
         .build()
         .map_err(|e| Error::from_reason(format!("delegation build failed: {e}")))
+        .map(|issued| issued.into_parts().token)
 }
 
 /// Mint a fresh TCT for the delegatee after `verifyDelegation` succeeded.

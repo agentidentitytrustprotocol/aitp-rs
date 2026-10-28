@@ -268,13 +268,14 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         .issued_at(NOW)
         .build()
         .unwrap()
+        .into_parts()
         .token;
 
     let session_id = Uuid::new_v4();
     let bundle = SessionBundleBuilder::new(&coordinator)
         .session_id(session_id)
         .issued_at(NOW)
-        .participant(alice.aid().clone(), tct)
+        .participant(alice.aid().clone(), tct.to_string())
         .build()
         .expect("bundle builds");
     let envelope = SessionBundleEnvelope {
@@ -399,7 +400,8 @@ async fn bare_body_is_rejected_and_not_stored() {
 /// Manifest without the key advertises nothing.
 #[tokio::test]
 async fn bundle_uri_is_advertised_in_the_signed_manifest() {
-    use aitp::manifest::{verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder};
+    use aitp::handshake::IdentityKind;
+    use aitp::manifest::{verify_manifest, IdentityHint, ManifestBuilder};
     use aitp::manifest::{ManifestError, ManifestVerifyContext};
     use aitp_experimental::session_bundle::{
         advertise_bundle_uri, bundle_uri_from_manifest, RFC_AITP_0010_BUNDLE_URI,
@@ -412,7 +414,7 @@ async fn bundle_uri_is_advertised_in_the_signed_manifest() {
             .display_name("coordinator")
             .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+                IdentityHint::new(IdentityKind::PinnedKey, "coordinator")
                     .with_public_key(coordinator.aid().identifier().to_string()),
             )
             .offer("session.coordinate")

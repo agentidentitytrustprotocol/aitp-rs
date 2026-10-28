@@ -6,7 +6,8 @@
 
 use aitp::core::{jcs, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::{TctBuilder, TctError};
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleBuilder,
@@ -29,7 +30,8 @@ fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: u64) -> Str
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 fn manifest_for(key: &AitpSigningKey, ttl_secs: u64) -> Manifest {
@@ -37,7 +39,7 @@ fn manifest_for(key: &AitpSigningKey, ttl_secs: u64) -> Manifest {
         .display_name("coordinator")
         .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "coordinator")
+            IdentityHint::new(IdentityKind::PinnedKey, "coordinator")
                 .with_public_key(key.aid().identifier().to_string()),
         )
         .offer("session.coordinate")

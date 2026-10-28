@@ -32,7 +32,8 @@ fn issue_tct(coord: &AitpSigningKey, holder: &AitpSigningKey, ttl_secs: u64) -> 
         .issued_at(NOW)
         .build()
         .unwrap()
-        .token
+        .token()
+        .to_string()
 }
 
 #[test]

@@ -7,8 +7,8 @@
 use aitp::core::nonce_store::{InMemoryNonceStore, NonceStore};
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope, TctBuilder,
 };
@@ -57,7 +57,7 @@ fn manifest_at(renew_path: Option<&str>, manifest_ttl: u64) -> Manifest {
         .display_name("issuer")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "issuer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "issuer").with_public_key(
                 base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
             ),
         )
@@ -226,7 +226,7 @@ async fn renews_at_advertised_path_and_refuses_replay() {
     let base = serve(renewal(manifest(true, 86_400))).await;
     let holder = AitpSigningKey::from_ed25519_seed(&[0x01; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
-    let req = request(&holder, current.token);
+    let req = request(&holder, current.token().to_string());
 
     let (status, body) = post(&base, &req).await;
     assert_eq!(status, 200, "{body}");
@@ -263,11 +263,11 @@ async fn revoked_tct_is_refused() {
     let current = tct(&key, &holder, &["demo.echo"], now, 600);
     let base = serve(renewal_with(
         manifest(true, 86_400),
-        revoking(&[current.claims.jti]),
+        revoking(&[current.claims().jti]),
         Arc::new(InMemoryNonceStore::default()),
     ))
     .await;
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!((status, code(&body)), (400, "TCT_REVOKED"), "{body}");
 }
 
@@ -284,7 +284,7 @@ async fn withdrawn_grants_are_dropped_or_refused() {
         Timestamp::now(),
         600,
     );
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!(status, 200, "{body}");
     let renewed =
         aitp::crypto::jws::decode_payload_unverified(body["payload"]["tct"].as_str().unwrap())
@@ -294,7 +294,7 @@ async fn withdrawn_grants_are_dropped_or_refused() {
 
     // Nothing left: refused.
     let current = tct(&issuer(), &holder, &["legacy.cap"], Timestamp::now(), 600);
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!((status, code(&body)), (400, "POLICY_VIOLATION"), "{body}");
 }
 
@@ -304,7 +304,7 @@ async fn grant_policy_hook_is_applied() {
     let base = serve(renewal(manifest(true, 86_400)).with_grant_policy(deny)).await;
     let holder = AitpSigningKey::from_ed25519_seed(&[0x04; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!((status, code(&body)), (400, "POLICY_VIOLATION"), "{body}");
 }
 
@@ -317,12 +317,12 @@ async fn each_failure_maps_to_its_own_code() {
 
     // Expired TCT.
     let expired = tct(&key, &holder, &["demo.echo"], Timestamp(now.0 - 7200), 60);
-    let (status, body) = post(&base, &request(&holder, expired.token)).await;
+    let (status, body) = post(&base, &request(&holder, expired.token().to_string())).await;
     assert_eq!((status, code(&body)), (400, "TCT_EXPIRED"), "{body}");
 
     // TCT outliving the issuer's current Manifest (3000 s).
     let long = tct(&key, &holder, &["demo.echo"], now, 7200);
-    let (status, body) = post(&base, &request(&holder, long.token)).await;
+    let (status, body) = post(&base, &request(&holder, long.token().to_string())).await;
     assert_eq!(
         (status, code(&body)),
         (400, "TCT_EXPIRES_AFTER_MANIFEST"),
@@ -333,7 +333,7 @@ async fn each_failure_maps_to_its_own_code() {
 
     // PoP signed by a key other than the TCT's subject.
     let attacker = AitpSigningKey::from_ed25519_seed(&[0x06; 32]);
-    let (status, body) = post(&base, &request(&attacker, good.token.clone())).await;
+    let (status, body) = post(&base, &request(&attacker, good.token().to_owned())).await;
     assert_eq!(
         (status, code(&body)),
         (400, "POP_RESPONSE_INVALID"),
@@ -341,8 +341,12 @@ async fn each_failure_maps_to_its_own_code() {
     );
 
     // pop_nonce of the wrong length.
-    let short =
-        build_renewal_request(&holder, good.token.clone(), base64url::encode(&[7u8; 8])).unwrap();
+    let short = build_renewal_request(
+        &holder,
+        good.token().to_owned(),
+        base64url::encode(&[7u8; 8]),
+    )
+    .unwrap();
     let (status, body) = post(&base, &short).await;
     assert_eq!(
         (status, code(&body)),
@@ -353,7 +357,7 @@ async fn each_failure_maps_to_its_own_code() {
     // A TCT some other issuer signed.
     let other = AitpSigningKey::from_ed25519_seed(&[0x07; 32]);
     let foreign = tct(&other, &holder, &["demo.echo"], now, 600);
-    let (status, body) = post(&base, &request(&holder, foreign.token)).await;
+    let (status, body) = post(&base, &request(&holder, foreign.token().to_string())).await;
     assert_eq!(
         (status, code(&body)),
         (400, "TCT_SIGNATURE_INVALID"),
@@ -361,7 +365,7 @@ async fn each_failure_maps_to_its_own_code() {
     );
 
     // Unknown request member.
-    let mut extra = serde_json::to_value(request(&holder, good.token.clone())).unwrap();
+    let mut extra = serde_json::to_value(request(&holder, good.token().to_owned())).unwrap();
     extra["surprise"] = serde_json::json!(1);
     let (status, body) = post(&base, &extra).await;
     assert_eq!(
@@ -371,13 +375,13 @@ async fn each_failure_maps_to_its_own_code() {
     );
 
     // Not a JWS.
-    let mut garbage = request(&holder, good.token.clone());
+    let mut garbage = request(&holder, good.token().to_owned());
     garbage.current_tct = "not-a-jws".into();
     let (status, body) = post(&base, &garbage).await;
     assert_eq!((status, code(&body)), (400, "INVALID_ENVELOPE"), "{body}");
 
     // And the good one still renews.
-    let (status, body) = post(&base, &request(&holder, good.token)).await;
+    let (status, body) = post(&base, &request(&holder, good.token().to_string())).await;
     assert_eq!(status, 200, "{body}");
 }
 
@@ -387,9 +391,9 @@ async fn full_replay_guard_is_a_local_error() {
     let base = serve(renewal_with(manifest(true, 86_400), empty_list(), store)).await;
     let holder = AitpSigningKey::from_ed25519_seed(&[0x08; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
-    let (status, _) = post(&base, &request(&holder, current.token.clone())).await;
+    let (status, _) = post(&base, &request(&holder, current.token().to_owned())).await;
     assert_eq!(status, 200);
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!(status, 503, "{body}");
     assert_eq!(body["message_type"], "error");
     assert_eq!(body["payload"]["retryable"], true);
@@ -405,12 +409,12 @@ async fn rate_limit_applies_per_source() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x09; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     for _ in 0..2 {
-        let (status, body) = post(&base, &request(&holder, current.token.clone())).await;
+        let (status, body) = post(&base, &request(&holder, current.token().to_owned())).await;
         assert_eq!(status, 200, "{body}");
     }
     let resp = reqwest::Client::new()
         .post(format!("{base}{RENEW_PATH}"))
-        .json(&request(&holder, current.token))
+        .json(&request(&holder, current.token().to_string()))
         .send()
         .await
         .unwrap();
@@ -423,7 +427,7 @@ async fn oversized_body_is_refused() {
     let base = serve(renewal(manifest(true, 86_400)).with_request_body_limit(64)).await;
     let holder = AitpSigningKey::from_ed25519_seed(&[0x0a; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
-    let (status, body) = post(&base, &request(&holder, current.token)).await;
+    let (status, body) = post(&base, &request(&holder, current.token().to_string())).await;
     assert_eq!((status, code(&body)), (400, "INVALID_ENVELOPE"), "{body}");
 }
 
@@ -458,7 +462,7 @@ async fn missing_connect_info_is_internal_error() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x0b; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let resp = app
-        .oneshot(bare_request(&request(&holder, current.token)))
+        .oneshot(bare_request(&request(&holder, current.token().to_string())))
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 500);
@@ -474,13 +478,13 @@ async fn missing_connect_info_is_internal_error() {
 async fn without_rate_limit_serves_without_connect_info() {
     use tower::ServiceExt;
     let app = renewal(manifest(true, 86_400))
-        .without_rate_limit()
+        .without_rate_limit_dangerous()
         .router()
         .unwrap();
     let holder = AitpSigningKey::from_ed25519_seed(&[0x0c; 32]);
     let current = tct(&issuer(), &holder, &["demo.echo"], Timestamp::now(), 600);
     let resp = app
-        .oneshot(bare_request(&request(&holder, current.token)))
+        .oneshot(bare_request(&request(&holder, current.token().to_string())))
         .await
         .unwrap();
     assert_eq!(resp.status().as_u16(), 200);

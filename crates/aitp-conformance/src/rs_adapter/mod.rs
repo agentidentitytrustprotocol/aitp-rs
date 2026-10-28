@@ -17,11 +17,11 @@ use aitp::core::{base64url, jcs, Aid, AitpEnvelope, CheckedJson, MessageType, Ti
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp::delegation::DelegationBuilder;
 use aitp::handshake::{
-    Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, MutualCommitAckPayload,
-    MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity, ResolveError,
-    StaticPinnedKeyStore,
+    IdentityKind, Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm,
+    MutualCommitAckPayload, MutualHelloAckPayload, PeerConfig, PinnedKeyEntry, PresentedIdentity,
+    ResolveError, StaticPinnedKeyStore,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{TctBuilder, TctClaims};
 use aitp_experimental::spiffe::{SpiffeBundleStore, SpiffeVerifier};
 use serde_json::{json, Value};
@@ -882,7 +882,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "verifier").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "verifier").with_public_key(
                 aitp::core::base64url::encode(
                     &self_key
                         .verifying_key()
@@ -1324,7 +1324,7 @@ fn verify_commit_ack_stateless(
     // TCT signature + expiry last. mh-007 deliberately uses an
     // unexpired TCT (relative to the runner's pinned clock) and
     // depends on this check happening AFTER grant-overflow.
-    let ctx = TctVerifyContext::builder(self_aid, sender_aid, now)
+    let ctx = TctVerifyContext::builder().expected_audience(self_aid).issuer(sender_aid).now(now)
         // Handshake-payload conformance op: no revocation source or
         // issuer Manifest is wired for this synthetic check.
         .revocation(aitp::tct::RevocationSource::FailOpen)
@@ -1658,7 +1658,10 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .and_then(|v| v.as_i64())
         .map(Timestamp);
     let ctx = {
-        let b = aitp::tct::TctVerifyContext::builder(&expected_audience, &issuer, now)
+        let b = aitp::tct::TctVerifyContext::builder()
+            .expected_audience(&expected_audience)
+            .issuer(&issuer)
+            .now(now)
             .revocation(aitp::tct::RevocationSource::Check(&check));
         let b = match issuer_manifest_expires_at {
             Some(exp) => b.issuer_manifest_expires_at(exp),
@@ -2400,7 +2403,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .ok_or_else(|| "oidc identity_hint.issuer missing".to_string())?
                 .parse()
                 .map_err(|e| format!("issuer parse: {e}"))?;
-            Ok(IdentityHint::new(IdentityHintKind::Oidc, subject).with_issuer(issuer))
+            Ok(IdentityHint::new(IdentityKind::Oidc, subject).with_issuer(issuer))
         }
         "pinned_key" => {
             let pk = v
@@ -2408,7 +2411,7 @@ fn parse_identity_hint(v: Option<&Value>) -> Result<IdentityHint, String> {
                 .and_then(|p| p.as_str())
                 .ok_or_else(|| "pinned_key identity_hint.public_key missing".to_string())?
                 .to_string();
-            Ok(IdentityHint::new(IdentityHintKind::PinnedKey, subject).with_public_key(pk))
+            Ok(IdentityHint::new(IdentityKind::PinnedKey, subject).with_public_key(pk))
         }
         other => Err(format!("unknown identity_hint.type: {other}")),
     }
@@ -2508,9 +2511,9 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         "id": id,
         "ok": true,
         "result": {
-            "tct_token": issued.token,
-            "tct_claims": issued.claims,
-            "grant_voucher": issued.voucher,
+            "tct_token": issued.token(),
+            "tct_claims": issued.claims(),
+            "grant_voucher": issued.voucher(),
         }
     })
 }
@@ -2589,6 +2592,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
                     .now(now)
                     .build()
             })
+            .map(|issued| issued.into_parts().token)
             .map_err(|e| (delegation_error_code(&e), e.to_string())),
         (Some(voucher), _) => chained(ChainedDelegationBuilder::new(delegator, voucher)),
         (None, Some(prior)) => chained(ChainedDelegationBuilder::extending(delegator, prior)),
@@ -3514,7 +3518,10 @@ fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Val
     let Some(sub) = peek_token_aid_claim(token, "sub") else {
         return err(id, "TCT_SIGNATURE_INVALID", "TCT has no decodable sub");
     };
-    let ctx = aitp::tct::TctVerifyContext::builder(&sub, &self_aid, now)
+    let ctx = aitp::tct::TctVerifyContext::builder()
+        .expected_audience(&sub)
+        .issuer(&self_aid)
+        .now(now)
         .skip_manifest_expiry_cap_dangerous()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -4444,7 +4451,7 @@ mod manifest_unknown_field_tests {
         let manifest = ManifestBuilder::new(&key)
             .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, "agent-b")
+                IdentityHint::new(IdentityKind::Oidc, "agent-b")
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -4800,7 +4807,7 @@ mod revocation_unknown_field_tests {
             "rev-swallow-1-baseline",
             "verify_tct",
             json!({
-                "tct_token": issued.token,
+                "tct_token": issued.token(),
                 "issuer": issuer_key.aid().as_str(),
                 "expected_audience": subject_key.aid().as_str(),
                 "now": 1_700_000_100,
@@ -4819,7 +4826,7 @@ mod revocation_unknown_field_tests {
             "rev-swallow-1",
             "verify_tct",
             json!({
-                "tct_token": issued.token,
+                "tct_token": issued.token(),
                 "issuer": issuer_key.aid().as_str(),
                 "expected_audience": subject_key.aid().as_str(),
                 "now": 1_700_000_100,
@@ -4855,6 +4862,7 @@ mod revocation_unknown_field_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let token = aitp::delegation::DelegationBuilder::new(&b, &voucher)
@@ -4864,7 +4872,9 @@ mod revocation_unknown_field_tests {
             .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .build()
-            .unwrap();
+            .unwrap()
+            .into_parts()
+            .token;
 
         let mut snapshot = signed_snapshot_value(&a);
         snapshot["revocation_list"]
@@ -4877,7 +4887,7 @@ mod revocation_unknown_field_tests {
         let b_manifest = ManifestBuilder::new(&b)
             .handshake_endpoint("https://b.example.com/aitp/handshake".parse().unwrap())
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, "b")
+                IdentityHint::new(IdentityKind::Oidc, "b")
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -4984,6 +4994,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .token;
         Tct {
             issuer,
@@ -5144,6 +5155,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .token;
         parts[2] = other.rsplit('.').next().unwrap().to_string();
         let forged = parts.join(".");
@@ -5164,7 +5176,7 @@ mod discarded_snapshot_policy_tests {
                     .unwrap(),
             )
             .identity_hint(
-                IdentityHint::new(IdentityHintKind::Oidc, name)
+                IdentityHint::new(IdentityKind::Oidc, name)
                     .with_issuer("https://idp.example.com".parse().unwrap()),
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -5196,6 +5208,7 @@ mod discarded_snapshot_policy_tests {
             .issued_at(Timestamp(1_700_000_000))
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let single_hop = aitp_experimental::delegation::ChainedDelegationBuilder::new(&b, &voucher)
@@ -5552,7 +5565,7 @@ mod oidc_test_issuer_tests {
         let header_b64 = base64url::encode(header.as_bytes());
         let payload_b64 = base64url::encode(claims.to_string().as_bytes());
         let signing_input = format!("{header_b64}.{payload_b64}");
-        let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+        let sig = base64url::encode(key.sign_raw(signing_input.as_bytes()).as_bytes());
         format!("{signing_input}.{sig}")
     }
 

@@ -11,10 +11,10 @@ use aitp::core::{BoxFuture, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{
-    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError,
-    StaticPinnedKeyStore,
+    IdentityKind, Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity,
+    ResolveError, StaticPinnedKeyStore,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::transport::HandshakeServer;
 use fixtures::mock_oidc::MockOidcIssuer;
 use parking_lot::Mutex;
@@ -60,8 +60,7 @@ fn manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifest {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, name)
-                .with_issuer(RawUrl::from(issuer.clone())),
+            IdentityHint::new(IdentityKind::Oidc, name).with_issuer(RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
         .accept_identity_type(aitp::handshake::IdentityKind::Oidc)

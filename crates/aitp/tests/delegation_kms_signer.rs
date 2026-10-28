@@ -27,8 +27,9 @@ fn voucher_for(a: &dyn AitpSigner, b: &dyn AitpSigner) -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 #[test]
@@ -43,7 +44,9 @@ fn kms_delegator_mints_a_verifying_delegation() {
         .ttl(std::time::Duration::from_secs(3600))
         .now(NOW)
         .build()
-        .expect("KMS-backed delegation builds");
+        .expect("KMS-backed delegation builds")
+        .into_parts()
+        .token;
     // B's Manifest, signed through the same KMS-shaped backend.
     let manifests = vec![common::manifest_for(&b, NOW)];
     let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
@@ -172,7 +175,9 @@ async fn async_delegation_future_is_send() {
     })
     .await
     .unwrap()
-    .expect("async delegation builds on another task");
+    .expect("async delegation builds on another task")
+    .into_parts()
+    .token;
     let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("verifies");
     assert_eq!(verified.claims().iss, b_aid);

@@ -38,7 +38,6 @@
 #[non_exhaustive] pub enum aitp::handshake::admission::DenyListError
 #[non_exhaustive] pub enum aitp::handshake::admission::RefusalCause
 #[non_exhaustive] pub enum aitp::handshake::admission::TransportId
-#[non_exhaustive] pub enum aitp::manifest::IdentityHintKind
 #[non_exhaustive] pub enum aitp::manifest::ManifestError
 #[non_exhaustive] pub enum aitp::tct::RevocationSource<'a>
 #[non_exhaustive] pub enum aitp::tct::TctError
@@ -56,6 +55,7 @@
 #[non_exhaustive] pub struct aitp::core::nonce_store::IssuedNonce
 #[non_exhaustive] pub struct aitp::delegation::DelegationClaims
 #[non_exhaustive] pub struct aitp::delegation::DelegationVerifyContext<'a>
+#[non_exhaustive] pub struct aitp::delegation::IssuedDelegationParts
 #[non_exhaustive] pub struct aitp::delegation::VerifiedDelegationParts
 #[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
 #[non_exhaustive] pub struct aitp::facade::SessionContextParts
@@ -84,7 +84,7 @@
 #[non_exhaustive] pub struct aitp::tct::AttestationVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::Cnf
 #[non_exhaustive] pub struct aitp::tct::GrantVoucherClaims
-#[non_exhaustive] pub struct aitp::tct::IssuedTct
+#[non_exhaustive] pub struct aitp::tct::IssuedTctParts
 #[non_exhaustive] pub struct aitp::tct::PopChallenge
 #[non_exhaustive] pub struct aitp::tct::PopResponse
 #[non_exhaustive] pub struct aitp::tct::RevocationEntry
@@ -186,9 +186,11 @@ impl aitp::crypto::AitpSigningKey
 impl aitp::crypto::AitpVerifyingKey
 impl aitp::crypto::AsyncAitpSigner for aitp::crypto::AitpSigningKey
 impl aitp::crypto::Digest32
+impl aitp::crypto::RawSignature
 impl aitp::crypto::SignRequest<'_>
 impl aitp::crypto::Signature
 impl aitp::crypto::SignerError
+impl aitp::delegation::IssuedDelegation
 impl aitp::delegation::VerifiedDelegation
 impl aitp::facade::SessionContext
 impl aitp::facade::TctStore
@@ -229,6 +231,7 @@ impl aitp::manifest::ManifestResolver for alloc::vec::Vec<aitp::manifest::Manife
 impl aitp::manifest::ManifestResolver for std::collections::hash::map::HashMap<aitp::core::Aid, aitp::manifest::Manifest>
 impl aitp::manifest::ManifestVerifyContext
 impl aitp::manifest::VerifiedManifest
+impl aitp::tct::IssuedTct
 impl aitp::tct::PopChallenge
 impl aitp::tct::RevocationEntry
 impl aitp::tct::RevocationList
@@ -280,9 +283,12 @@ impl core::clone::Clone for aitp::core::nonce_store::IssuedNonce
 impl core::clone::Clone for aitp::crypto::AitpVerifyingKey
 impl core::clone::Clone for aitp::crypto::BackendSignature
 impl core::clone::Clone for aitp::crypto::Digest32
+impl core::clone::Clone for aitp::crypto::RawSignature
 impl core::clone::Clone for aitp::crypto::Signature
 impl core::clone::Clone for aitp::crypto::SignatureAlgorithm
 impl core::clone::Clone for aitp::delegation::DelegationClaims
+impl core::clone::Clone for aitp::delegation::IssuedDelegation
+impl core::clone::Clone for aitp::delegation::IssuedDelegationParts
 impl core::clone::Clone for aitp::delegation::VerifiedDelegation
 impl core::clone::Clone for aitp::delegation::VerifiedDelegationParts
 impl core::clone::Clone for aitp::facade::SessionContext
@@ -314,7 +320,6 @@ impl core::clone::Clone for aitp::handshake::admission::IdentityPresentationPayl
 impl core::clone::Clone for aitp::handshake::admission::RefusalCause
 impl core::clone::Clone for aitp::handshake::admission::TransportId
 impl core::clone::Clone for aitp::manifest::IdentityHint
-impl core::clone::Clone for aitp::manifest::IdentityHintKind
 impl core::clone::Clone for aitp::manifest::Manifest
 impl core::clone::Clone for aitp::manifest::ManifestEnvelope
 impl core::clone::Clone for aitp::manifest::ManifestPop
@@ -322,6 +327,7 @@ impl core::clone::Clone for aitp::manifest::VerifiedManifest
 impl core::clone::Clone for aitp::tct::Cnf
 impl core::clone::Clone for aitp::tct::GrantVoucherClaims
 impl core::clone::Clone for aitp::tct::IssuedTct
+impl core::clone::Clone for aitp::tct::IssuedTctParts
 impl core::clone::Clone for aitp::tct::PopChallenge
 impl core::clone::Clone for aitp::tct::PopResponse
 impl core::clone::Clone for aitp::tct::RevocationEntry
@@ -371,9 +377,12 @@ impl core::cmp::Eq for aitp::core::nonce_store::IssuedNonce
 impl core::cmp::Eq for aitp::crypto::AitpVerifyingKey
 impl core::cmp::Eq for aitp::crypto::BackendSignature
 impl core::cmp::Eq for aitp::crypto::Digest32
+impl core::cmp::Eq for aitp::crypto::RawSignature
 impl core::cmp::Eq for aitp::crypto::Signature
 impl core::cmp::Eq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::Eq for aitp::delegation::DelegationClaims
+impl core::cmp::Eq for aitp::delegation::IssuedDelegation
+impl core::cmp::Eq for aitp::delegation::IssuedDelegationParts
 impl core::cmp::Eq for aitp::delegation::VerifiedDelegation
 impl core::cmp::Eq for aitp::delegation::VerifiedDelegationParts
 impl core::cmp::Eq for aitp::handshake::CompletedHandshake
@@ -400,7 +409,6 @@ impl core::cmp::Eq for aitp::handshake::admission::IdentityPresentationPayload
 impl core::cmp::Eq for aitp::handshake::admission::RefusalCause
 impl core::cmp::Eq for aitp::handshake::admission::TransportId
 impl core::cmp::Eq for aitp::manifest::IdentityHint
-impl core::cmp::Eq for aitp::manifest::IdentityHintKind
 impl core::cmp::Eq for aitp::manifest::Manifest
 impl core::cmp::Eq for aitp::manifest::ManifestEnvelope
 impl core::cmp::Eq for aitp::manifest::ManifestPop
@@ -408,6 +416,7 @@ impl core::cmp::Eq for aitp::manifest::VerifiedManifest
 impl core::cmp::Eq for aitp::tct::Cnf
 impl core::cmp::Eq for aitp::tct::GrantVoucherClaims
 impl core::cmp::Eq for aitp::tct::IssuedTct
+impl core::cmp::Eq for aitp::tct::IssuedTctParts
 impl core::cmp::Eq for aitp::tct::PopChallenge
 impl core::cmp::Eq for aitp::tct::PopResponse
 impl core::cmp::Eq for aitp::tct::RevocationEntry
@@ -452,9 +461,12 @@ impl core::cmp::PartialEq for aitp::core::nonce_store::IssuedNonce
 impl core::cmp::PartialEq for aitp::crypto::AitpVerifyingKey
 impl core::cmp::PartialEq for aitp::crypto::BackendSignature
 impl core::cmp::PartialEq for aitp::crypto::Digest32
+impl core::cmp::PartialEq for aitp::crypto::RawSignature
 impl core::cmp::PartialEq for aitp::crypto::Signature
 impl core::cmp::PartialEq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::PartialEq for aitp::delegation::DelegationClaims
+impl core::cmp::PartialEq for aitp::delegation::IssuedDelegation
+impl core::cmp::PartialEq for aitp::delegation::IssuedDelegationParts
 impl core::cmp::PartialEq for aitp::delegation::VerifiedDelegation
 impl core::cmp::PartialEq for aitp::delegation::VerifiedDelegationParts
 impl core::cmp::PartialEq for aitp::handshake::CompletedHandshake
@@ -481,7 +493,6 @@ impl core::cmp::PartialEq for aitp::handshake::admission::IdentityPresentationPa
 impl core::cmp::PartialEq for aitp::handshake::admission::RefusalCause
 impl core::cmp::PartialEq for aitp::handshake::admission::TransportId
 impl core::cmp::PartialEq for aitp::manifest::IdentityHint
-impl core::cmp::PartialEq for aitp::manifest::IdentityHintKind
 impl core::cmp::PartialEq for aitp::manifest::Manifest
 impl core::cmp::PartialEq for aitp::manifest::ManifestEnvelope
 impl core::cmp::PartialEq for aitp::manifest::ManifestPop
@@ -489,6 +500,7 @@ impl core::cmp::PartialEq for aitp::manifest::VerifiedManifest
 impl core::cmp::PartialEq for aitp::tct::Cnf
 impl core::cmp::PartialEq for aitp::tct::GrantVoucherClaims
 impl core::cmp::PartialEq for aitp::tct::IssuedTct
+impl core::cmp::PartialEq for aitp::tct::IssuedTctParts
 impl core::cmp::PartialEq for aitp::tct::PopChallenge
 impl core::cmp::PartialEq for aitp::tct::PopResponse
 impl core::cmp::PartialEq for aitp::tct::RevocationEntry
@@ -510,10 +522,12 @@ impl core::cmp::PartialEq for aitp::transport::TrustedProxy
 impl core::cmp::PartialEq for aitp::transport::TrustedProxyParseError
 impl core::cmp::PartialOrd for aitp::core::Timestamp
 impl core::convert::AsRef<[u8]> for aitp::crypto::Digest32
+impl core::convert::AsRef<[u8]> for aitp::crypto::RawSignature
 impl core::convert::AsRef<serde_json::value::Value> for aitp::core::CheckedJson
 impl core::convert::From<&str> for aitp::core::RawUrl
 impl core::convert::From<[u8; 32]> for aitp::crypto::Digest32
 impl core::convert::From<aitp::core::Aid> for alloc::string::String
+impl core::convert::From<aitp::core::MissingFieldError> for aitp::tct::TctVerifyContextError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::delegation::DelegationError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::handshake::HandshakeError
 impl core::convert::From<aitp::crypto::CryptoError> for aitp::handshake::JwsVerifyError
@@ -625,12 +639,15 @@ impl core::fmt::Debug for aitp::crypto::AitpVerifyingKey
 impl core::fmt::Debug for aitp::crypto::BackendSignature
 impl core::fmt::Debug for aitp::crypto::CryptoError
 impl core::fmt::Debug for aitp::crypto::Digest32
+impl core::fmt::Debug for aitp::crypto::RawSignature
 impl core::fmt::Debug for aitp::crypto::Signature
 impl core::fmt::Debug for aitp::crypto::SignatureAlgorithm
 impl core::fmt::Debug for aitp::crypto::SignerError
 impl core::fmt::Debug for aitp::delegation::DelegationClaims
 impl core::fmt::Debug for aitp::delegation::DelegationError
 impl core::fmt::Debug for aitp::delegation::DelegationVerifyContext<'_>
+impl core::fmt::Debug for aitp::delegation::IssuedDelegation
+impl core::fmt::Debug for aitp::delegation::IssuedDelegationParts
 impl core::fmt::Debug for aitp::delegation::VerifiedDelegation
 impl core::fmt::Debug for aitp::delegation::VerifiedDelegationParts
 impl core::fmt::Debug for aitp::envelope::EnvelopeError
@@ -684,7 +701,6 @@ impl core::fmt::Debug for aitp::handshake::admission::RefusalCause
 impl core::fmt::Debug for aitp::handshake::admission::TokenBucketLimiter
 impl core::fmt::Debug for aitp::handshake::admission::TransportId
 impl core::fmt::Debug for aitp::manifest::IdentityHint
-impl core::fmt::Debug for aitp::manifest::IdentityHintKind
 impl core::fmt::Debug for aitp::manifest::Manifest
 impl core::fmt::Debug for aitp::manifest::ManifestEnvelope
 impl core::fmt::Debug for aitp::manifest::ManifestError
@@ -694,6 +710,7 @@ impl core::fmt::Debug for aitp::tct::AttestationVerifyContext<'_>
 impl core::fmt::Debug for aitp::tct::Cnf
 impl core::fmt::Debug for aitp::tct::GrantVoucherClaims
 impl core::fmt::Debug for aitp::tct::IssuedTct
+impl core::fmt::Debug for aitp::tct::IssuedTctParts
 impl core::fmt::Debug for aitp::tct::PopChallenge
 impl core::fmt::Debug for aitp::tct::PopResponse
 impl core::fmt::Debug for aitp::tct::RevocationEntry
@@ -785,6 +802,7 @@ impl core::hash::Hash for aitp::core::RawUrl
 impl core::hash::Hash for aitp::core::Timestamp
 impl core::hash::Hash for aitp::crypto::AitpVerifyingKey
 impl core::hash::Hash for aitp::crypto::Digest32
+impl core::hash::Hash for aitp::crypto::RawSignature
 impl core::hash::Hash for aitp::handshake::admission::TransportId
 impl core::iter::traits::collect::FromIterator<aitp::crypto::AitpVerifyingKey> for aitp::handshake::StaticPinnedKeyStore
 impl core::marker::Copy for aitp::core::AidAlgorithm
@@ -803,7 +821,6 @@ impl core::marker::Copy for aitp::handshake::NoPinnedKeys
 impl core::marker::Copy for aitp::handshake::SubjectBinding
 impl core::marker::Copy for aitp::handshake::admission::RefusalCause
 impl core::marker::Copy for aitp::handshake::admission::TransportId
-impl core::marker::Copy for aitp::manifest::IdentityHintKind
 impl core::marker::Copy for aitp::tct::TctVerifyContextError
 impl core::marker::Copy for aitp::transport::GuardMode
 impl core::marker::Copy for aitp::transport::TrustedProxy
@@ -836,11 +853,14 @@ impl core::marker::Send for aitp::crypto::AitpVerifyingKey
 impl core::marker::Send for aitp::crypto::BackendSignature
 impl core::marker::Send for aitp::crypto::CryptoError
 impl core::marker::Send for aitp::crypto::Digest32
+impl core::marker::Send for aitp::crypto::RawSignature
 impl core::marker::Send for aitp::crypto::Signature
 impl core::marker::Send for aitp::crypto::SignatureAlgorithm
 impl core::marker::Send for aitp::crypto::SignerError
 impl core::marker::Send for aitp::delegation::DelegationClaims
 impl core::marker::Send for aitp::delegation::DelegationError
+impl core::marker::Send for aitp::delegation::IssuedDelegation
+impl core::marker::Send for aitp::delegation::IssuedDelegationParts
 impl core::marker::Send for aitp::delegation::VerifiedDelegation
 impl core::marker::Send for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Send for aitp::envelope::EnvelopeError
@@ -892,7 +912,6 @@ impl core::marker::Send for aitp::handshake::admission::RefusalCause
 impl core::marker::Send for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Send for aitp::handshake::admission::TransportId
 impl core::marker::Send for aitp::manifest::IdentityHint
-impl core::marker::Send for aitp::manifest::IdentityHintKind
 impl core::marker::Send for aitp::manifest::Manifest
 impl core::marker::Send for aitp::manifest::ManifestEnvelope
 impl core::marker::Send for aitp::manifest::ManifestError
@@ -902,6 +921,7 @@ impl core::marker::Send for aitp::manifest::VerifiedManifest
 impl core::marker::Send for aitp::tct::Cnf
 impl core::marker::Send for aitp::tct::GrantVoucherClaims
 impl core::marker::Send for aitp::tct::IssuedTct
+impl core::marker::Send for aitp::tct::IssuedTctParts
 impl core::marker::Send for aitp::tct::PopChallenge
 impl core::marker::Send for aitp::tct::PopResponse
 impl core::marker::Send for aitp::tct::RevocationEntry
@@ -972,11 +992,14 @@ impl core::marker::Sync for aitp::crypto::AitpVerifyingKey
 impl core::marker::Sync for aitp::crypto::BackendSignature
 impl core::marker::Sync for aitp::crypto::CryptoError
 impl core::marker::Sync for aitp::crypto::Digest32
+impl core::marker::Sync for aitp::crypto::RawSignature
 impl core::marker::Sync for aitp::crypto::Signature
 impl core::marker::Sync for aitp::crypto::SignatureAlgorithm
 impl core::marker::Sync for aitp::crypto::SignerError
 impl core::marker::Sync for aitp::delegation::DelegationClaims
 impl core::marker::Sync for aitp::delegation::DelegationError
+impl core::marker::Sync for aitp::delegation::IssuedDelegation
+impl core::marker::Sync for aitp::delegation::IssuedDelegationParts
 impl core::marker::Sync for aitp::delegation::VerifiedDelegation
 impl core::marker::Sync for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Sync for aitp::envelope::EnvelopeError
@@ -1028,7 +1051,6 @@ impl core::marker::Sync for aitp::handshake::admission::RefusalCause
 impl core::marker::Sync for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Sync for aitp::handshake::admission::TransportId
 impl core::marker::Sync for aitp::manifest::IdentityHint
-impl core::marker::Sync for aitp::manifest::IdentityHintKind
 impl core::marker::Sync for aitp::manifest::Manifest
 impl core::marker::Sync for aitp::manifest::ManifestEnvelope
 impl core::marker::Sync for aitp::manifest::ManifestError
@@ -1038,6 +1060,7 @@ impl core::marker::Sync for aitp::manifest::VerifiedManifest
 impl core::marker::Sync for aitp::tct::Cnf
 impl core::marker::Sync for aitp::tct::GrantVoucherClaims
 impl core::marker::Sync for aitp::tct::IssuedTct
+impl core::marker::Sync for aitp::tct::IssuedTctParts
 impl core::marker::Sync for aitp::tct::PopChallenge
 impl core::marker::Sync for aitp::tct::PopResponse
 impl core::marker::Sync for aitp::tct::RevocationEntry
@@ -1108,11 +1131,14 @@ impl core::marker::Unpin for aitp::crypto::AitpVerifyingKey
 impl core::marker::Unpin for aitp::crypto::BackendSignature
 impl core::marker::Unpin for aitp::crypto::CryptoError
 impl core::marker::Unpin for aitp::crypto::Digest32
+impl core::marker::Unpin for aitp::crypto::RawSignature
 impl core::marker::Unpin for aitp::crypto::Signature
 impl core::marker::Unpin for aitp::crypto::SignatureAlgorithm
 impl core::marker::Unpin for aitp::crypto::SignerError
 impl core::marker::Unpin for aitp::delegation::DelegationClaims
 impl core::marker::Unpin for aitp::delegation::DelegationError
+impl core::marker::Unpin for aitp::delegation::IssuedDelegation
+impl core::marker::Unpin for aitp::delegation::IssuedDelegationParts
 impl core::marker::Unpin for aitp::delegation::VerifiedDelegation
 impl core::marker::Unpin for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Unpin for aitp::envelope::EnvelopeError
@@ -1165,7 +1191,6 @@ impl core::marker::Unpin for aitp::handshake::admission::RefusalCause
 impl core::marker::Unpin for aitp::handshake::admission::TokenBucketLimiter
 impl core::marker::Unpin for aitp::handshake::admission::TransportId
 impl core::marker::Unpin for aitp::manifest::IdentityHint
-impl core::marker::Unpin for aitp::manifest::IdentityHintKind
 impl core::marker::Unpin for aitp::manifest::Manifest
 impl core::marker::Unpin for aitp::manifest::ManifestEnvelope
 impl core::marker::Unpin for aitp::manifest::ManifestError
@@ -1175,6 +1200,7 @@ impl core::marker::Unpin for aitp::manifest::VerifiedManifest
 impl core::marker::Unpin for aitp::tct::Cnf
 impl core::marker::Unpin for aitp::tct::GrantVoucherClaims
 impl core::marker::Unpin for aitp::tct::IssuedTct
+impl core::marker::Unpin for aitp::tct::IssuedTctParts
 impl core::marker::Unpin for aitp::tct::PopChallenge
 impl core::marker::Unpin for aitp::tct::PopResponse
 impl core::marker::Unpin for aitp::tct::RevocationEntry
@@ -1243,9 +1269,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::AitpSigningKey
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::AitpVerifyingKey
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::BackendSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::Digest32
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::DelegationClaims
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::IssuedDelegation
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::IssuedDelegationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::VerifiedDelegation
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::VerifiedDelegationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::facade::SessionContext
@@ -1283,7 +1312,6 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::Ref
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::TokenBucketLimiter
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::TransportId
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::IdentityHint
-impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::IdentityHintKind
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::Manifest
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::ManifestEnvelope
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::ManifestPop
@@ -1292,6 +1320,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::VerifiedManifes
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::Cnf
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::GrantVoucherClaims
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::IssuedTct
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::IssuedTctParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::PopChallenge
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::PopResponse
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::RevocationEntry
@@ -1347,9 +1376,12 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::AitpSigningKey
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::AitpVerifyingKey
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::BackendSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::Digest32
+impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::DelegationClaims
+impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::IssuedDelegation
+impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::IssuedDelegationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::VerifiedDelegation
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::VerifiedDelegationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::facade::SessionContext
@@ -1387,7 +1419,6 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::Refusa
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::TokenBucketLimiter
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::TransportId
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::IdentityHint
-impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::IdentityHintKind
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::Manifest
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::ManifestEnvelope
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::ManifestPop
@@ -1396,6 +1427,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::VerifiedManifest
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::Cnf
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::GrantVoucherClaims
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::IssuedTct
+impl core::panic::unwind_safe::UnwindSafe for aitp::tct::IssuedTctParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::PopChallenge
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::PopResponse
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::RevocationEntry
@@ -1450,7 +1482,6 @@ impl serde_core::ser::Serialize for aitp::handshake::PinnedKeyEntry
 impl serde_core::ser::Serialize for aitp::handshake::admission::AdmissionChallenge
 impl serde_core::ser::Serialize for aitp::handshake::admission::IdentityPresentationPayload
 impl serde_core::ser::Serialize for aitp::manifest::IdentityHint
-impl serde_core::ser::Serialize for aitp::manifest::IdentityHintKind
 impl serde_core::ser::Serialize for aitp::manifest::Manifest
 impl serde_core::ser::Serialize for aitp::manifest::ManifestEnvelope
 impl serde_core::ser::Serialize for aitp::manifest::ManifestPop
@@ -1625,7 +1656,6 @@ impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::PinnedKeyEntry
 impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::admission::AdmissionChallenge
 impl<'de> serde_core::de::Deserialize<'de> for aitp::handshake::admission::IdentityPresentationPayload
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::IdentityHint
-impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::IdentityHintKind
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::Manifest
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::ManifestEnvelope
 impl<'de> serde_core::de::Deserialize<'de> for aitp::manifest::ManifestPop
@@ -1767,7 +1797,7 @@ pub aitp::core::nonce_store::NonceStoreError::AtCapacity::retry_after: core::opt
 pub aitp::core::nonce_store::NonceStoreError::Backend(aitp::core::BoxError)
 pub aitp::core::nonce_store::NonceStoreError::Duplicate
 pub aitp::crypto::BackendSignature::Der(alloc::vec::Vec<u8>)
-pub aitp::crypto::BackendSignature::Raw([u8; 64])
+pub aitp::crypto::BackendSignature::Raw(alloc::vec::Vec<u8>)
 pub aitp::crypto::CryptoError::AidNotEd25519(alloc::string::String)
 pub aitp::crypto::CryptoError::AlgMismatch(alloc::string::String)
 pub aitp::crypto::CryptoError::JwsMalformed(alloc::string::String)
@@ -1832,6 +1862,8 @@ pub aitp::delegation::DelegationVerifyContext::issuer_manifests: core::option::O
 pub aitp::delegation::DelegationVerifyContext::now: aitp::core::Timestamp
 pub aitp::delegation::DelegationVerifyContext::revocation: aitp::tct::RevocationSource<'a>
 pub aitp::delegation::DelegationVerifyContext::verifier: &'a aitp::core::Aid
+pub aitp::delegation::IssuedDelegationParts::claims: aitp::delegation::DelegationClaims
+pub aitp::delegation::IssuedDelegationParts::token: alloc::string::String
 pub aitp::delegation::VerifiedDelegationParts::claims: aitp::delegation::DelegationClaims
 pub aitp::delegation::VerifiedDelegationParts::effective_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::VerifiedDelegationParts::token: alloc::string::String
@@ -2061,12 +2093,9 @@ pub aitp::handshake::admission::RefusalCause::AtCapacity
 pub aitp::handshake::admission::TransportId::Ip(core::net::ip_addr::IpAddr)
 pub aitp::handshake::admission::TransportId::TlsClientCertSha256([u8; 32])
 pub aitp::manifest::IdentityHint::issuer: core::option::Option<aitp::core::RawUrl>
-pub aitp::manifest::IdentityHint::kind: aitp::manifest::IdentityHintKind
+pub aitp::manifest::IdentityHint::kind: aitp::handshake::IdentityKind
 pub aitp::manifest::IdentityHint::public_key: core::option::Option<alloc::string::String>
 pub aitp::manifest::IdentityHint::subject: alloc::string::String
-pub aitp::manifest::IdentityHintKind::Oidc
-pub aitp::manifest::IdentityHintKind::PinnedKey
-pub aitp::manifest::IdentityHintKind::Spiffe
 pub aitp::manifest::Manifest::accepted_identity_types: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub aitp::manifest::Manifest::accepted_signature_algorithms: core::option::Option<alloc::vec::Vec<alloc::string::String>>
 pub aitp::manifest::Manifest::accepted_trust_anchors: alloc::vec::Vec<aitp::core::RawUrl>
@@ -2115,9 +2144,9 @@ pub aitp::tct::GrantVoucherClaims::iss: aitp::core::Aid
 pub aitp::tct::GrantVoucherClaims::src_jti: uuid::Uuid
 pub aitp::tct::GrantVoucherClaims::sub: aitp::core::Aid
 pub aitp::tct::GrantVoucherClaims::ver: alloc::string::String
-pub aitp::tct::IssuedTct::claims: aitp::tct::TctClaims
-pub aitp::tct::IssuedTct::token: alloc::string::String
-pub aitp::tct::IssuedTct::voucher: core::option::Option<alloc::string::String>
+pub aitp::tct::IssuedTctParts::claims: aitp::tct::TctClaims
+pub aitp::tct::IssuedTctParts::token: alloc::string::String
+pub aitp::tct::IssuedTctParts::voucher: core::option::Option<alloc::string::String>
 pub aitp::tct::PopChallenge::expires_at: aitp::core::Timestamp
 pub aitp::tct::PopChallenge::nonce: alloc::string::String
 pub aitp::tct::PopChallenge::tct_jti: uuid::Uuid
@@ -2189,6 +2218,7 @@ pub aitp::tct::TctVerifyContext::issuer_manifest_expires_at: core::option::Optio
 pub aitp::tct::TctVerifyContext::now: aitp::core::Timestamp
 pub aitp::tct::TctVerifyContext::revocation: aitp::tct::RevocationSource<'a>
 pub aitp::tct::TctVerifyContextError::ManifestCapDecisionRequired
+pub aitp::tct::TctVerifyContextError::MissingField(aitp::core::MissingFieldError)
 pub aitp::tct::TctVerifyContextError::RevocationDecisionRequired
 pub aitp::tct::VerifiedAttestationParts::claims: aitp::tct::TctClaims
 pub aitp::tct::VerifiedAttestationParts::statement: serde_json::value::Value
@@ -2256,8 +2286,8 @@ pub aitp::transport::ServeConfig::request_body_limit: usize
 pub async fn aitp::crypto::check_public_key_async(&dyn aitp::crypto::DynAsyncAitpSigner) -> core::result::Result<(), aitp::crypto::SignerError>
 pub async fn aitp::crypto::jws::sign_compact_async<T: serde_core::ser::Serialize>(&dyn aitp::crypto::DynAsyncAitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::CryptoError>
 pub async fn aitp::crypto::sign_jcs_async(&dyn aitp::crypto::DynAsyncAitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
-pub async fn aitp::crypto::sign_raw_async(&dyn aitp::crypto::DynAsyncAitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::SignerError>
-pub async fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
+pub async fn aitp::crypto::sign_raw_async(&dyn aitp::crypto::DynAsyncAitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
+pub async fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<aitp::delegation::IssuedDelegation, aitp::delegation::DelegationError>
 pub async fn aitp::envelope::sign_envelope_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::envelope::sign_envelope_with_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::Timestamp) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::envelope::sign_prepared_envelope_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::AitpEnvelope) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
@@ -2284,7 +2314,7 @@ pub const aitp::core::AID_PUBKEY_IDENTIFIER_LEN: usize
 pub const aitp::core::AITP_ENVELOPE_MEMBERS: &[&str]
 pub const aitp::core::DEFAULT_TIMESTAMP_TOLERANCE: core::time::Duration
 pub const aitp::core::ED25519_SIGNATURE_BASE64URL_LEN: usize
-pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16]
+pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8]
 pub const aitp::core::ErrorCode::ALL: &'static [aitp::core::ErrorCode]
 pub const aitp::core::PROTOCOL_VERSION: &str
 pub const aitp::core::nonce_store::InMemoryNonceStore::DEFAULT_CAPACITY: usize
@@ -2546,7 +2576,7 @@ pub fn aitp::crypto::AitpSigningKey::public_key(&self) -> impl core::future::fut
 pub fn aitp::crypto::AitpSigningKey::sign(&self, aitp::crypto::SignRequest<'_>) -> core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>
 pub fn aitp::crypto::AitpSigningKey::sign(&self, aitp::crypto::SignRequest<'_>) -> impl core::future::future::Future<Output = core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>> + core::marker::Send
 pub fn aitp::crypto::AitpSigningKey::sign_jcs(&self, &aitp::crypto::Digest32) -> aitp::crypto::Signature
-pub fn aitp::crypto::AitpSigningKey::sign_raw(&self, &[u8]) -> [u8; 64]
+pub fn aitp::crypto::AitpSigningKey::sign_raw(&self, &[u8]) -> aitp::crypto::RawSignature
 pub fn aitp::crypto::AitpSigningKey::verifying_key(&self) -> aitp::crypto::AitpVerifyingKey
 pub fn aitp::crypto::AitpVerifyingKey::algorithm(&self) -> aitp::core::AidAlgorithm
 pub fn aitp::crypto::AitpVerifyingKey::clone(&self) -> aitp::crypto::AitpVerifyingKey
@@ -2591,6 +2621,15 @@ pub fn aitp::crypto::DynAsyncAitpSigner::aid(&self) -> &aitp::core::Aid
 pub fn aitp::crypto::DynAsyncAitpSigner::max_message_len(&self) -> core::option::Option<usize>
 pub fn aitp::crypto::DynAsyncAitpSigner::public_key(&self) -> aitp::core::BoxFuture<'_, core::result::Result<aitp::crypto::AitpVerifyingKey, aitp::crypto::SignerError>>
 pub fn aitp::crypto::DynAsyncAitpSigner::sign<'a>(&'a self, aitp::crypto::SignRequest<'a>) -> aitp::core::BoxFuture<'a, core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>>
+pub fn aitp::crypto::RawSignature::as_bytes(&self) -> &[u8]
+pub fn aitp::crypto::RawSignature::as_ref(&self) -> &[u8]
+pub fn aitp::crypto::RawSignature::clone(&self) -> aitp::crypto::RawSignature
+pub fn aitp::crypto::RawSignature::eq(&self, &aitp::crypto::RawSignature) -> bool
+pub fn aitp::crypto::RawSignature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::crypto::RawSignature::hash<__H: core::hash::Hasher>(&self, &mut __H)
+pub fn aitp::crypto::RawSignature::into_vec(self) -> alloc::vec::Vec<u8>
+pub fn aitp::crypto::RawSignature::is_empty(&self) -> bool
+pub fn aitp::crypto::RawSignature::len(&self) -> usize
 pub fn aitp::crypto::SignRequest<'_>::algorithm(&self) -> aitp::core::AidAlgorithm
 pub fn aitp::crypto::SignRequest<'_>::bytes(&self) -> &[u8]
 pub fn aitp::crypto::SignRequest<'_>::is_empty(&self) -> bool
@@ -2624,9 +2663,9 @@ pub fn aitp::crypto::jws::decode_payload_unverified(&str) -> core::result::Resul
 pub fn aitp::crypto::jws::sign_compact<T: serde_core::ser::Serialize>(&dyn aitp::crypto::AitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::CryptoError>
 pub fn aitp::crypto::jws::verify_compact(&aitp::core::Aid, &str, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::crypto::CryptoError>
 pub fn aitp::crypto::sign_jcs(&dyn aitp::crypto::AitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
-pub fn aitp::crypto::sign_raw(&dyn aitp::crypto::AitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::SignerError>
+pub fn aitp::crypto::sign_raw(&dyn aitp::crypto::AitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
 pub fn aitp::delegation::DelegationBuilder<'_, S>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::build(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
+pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::build(self) -> core::result::Result<aitp::delegation::IssuedDelegation, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::new_async(&'a dyn aitp::crypto::DynAsyncAitpSigner, &str) -> core::result::Result<Self, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, S>::delegatee(self, aitp::core::Aid) -> Self
@@ -2644,6 +2683,15 @@ pub fn aitp::delegation::DelegationError::source(&self) -> core::option::Option<
 pub fn aitp::delegation::DelegationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::DelegationVerifyContext<'a>::new(&'a aitp::core::Aid, aitp::core::Timestamp, aitp::tct::RevocationSource<'a>) -> Self
 pub fn aitp::delegation::DelegationVerifyContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::ManifestResolver) -> Self
+pub fn aitp::delegation::IssuedDelegation::claims(&self) -> &aitp::delegation::DelegationClaims
+pub fn aitp::delegation::IssuedDelegation::clone(&self) -> aitp::delegation::IssuedDelegation
+pub fn aitp::delegation::IssuedDelegation::eq(&self, &aitp::delegation::IssuedDelegation) -> bool
+pub fn aitp::delegation::IssuedDelegation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::delegation::IssuedDelegation::into_parts(self) -> aitp::delegation::IssuedDelegationParts
+pub fn aitp::delegation::IssuedDelegation::token(&self) -> &str
+pub fn aitp::delegation::IssuedDelegationParts::clone(&self) -> aitp::delegation::IssuedDelegationParts
+pub fn aitp::delegation::IssuedDelegationParts::eq(&self, &aitp::delegation::IssuedDelegationParts) -> bool
+pub fn aitp::delegation::IssuedDelegationParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::VerifiedDelegation::claims(&self) -> &aitp::delegation::DelegationClaims
 pub fn aitp::delegation::VerifiedDelegation::clone(&self) -> aitp::delegation::VerifiedDelegation
 pub fn aitp::delegation::VerifiedDelegation::effective_grants(&self) -> &[alloc::string::String]
@@ -2957,15 +3005,10 @@ pub fn aitp::manifest::IdentityHint::clone(&self) -> aitp::manifest::IdentityHin
 pub fn aitp::manifest::IdentityHint::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::manifest::IdentityHint::eq(&self, &aitp::manifest::IdentityHint) -> bool
 pub fn aitp::manifest::IdentityHint::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::manifest::IdentityHint::new(aitp::manifest::IdentityHintKind, impl core::convert::Into<alloc::string::String>) -> Self
+pub fn aitp::manifest::IdentityHint::new(aitp::handshake::IdentityKind, impl core::convert::Into<alloc::string::String>) -> Self
 pub fn aitp::manifest::IdentityHint::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::manifest::IdentityHint::with_issuer(self, aitp::core::RawUrl) -> Self
 pub fn aitp::manifest::IdentityHint::with_public_key(self, impl core::convert::Into<alloc::string::String>) -> Self
-pub fn aitp::manifest::IdentityHintKind::clone(&self) -> aitp::manifest::IdentityHintKind
-pub fn aitp::manifest::IdentityHintKind::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
-pub fn aitp::manifest::IdentityHintKind::eq(&self, &aitp::manifest::IdentityHintKind) -> bool
-pub fn aitp::manifest::IdentityHintKind::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::manifest::IdentityHintKind::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
 pub fn aitp::manifest::Manifest::clone(&self) -> aitp::manifest::Manifest
 pub fn aitp::manifest::Manifest::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::manifest::Manifest::eq(&self, &aitp::manifest::Manifest) -> bool
@@ -3018,12 +3061,15 @@ pub fn aitp::manifest::parse_manifest_wire(&aitp::core::CheckedJson) -> core::re
 pub fn aitp::manifest::resolve_verified_manifest(&dyn aitp::manifest::ManifestResolver, &aitp::core::Aid, &aitp::manifest::ManifestVerifyContext) -> core::result::Result<aitp::manifest::Manifest, aitp::manifest::ManifestError>
 pub fn aitp::manifest::verify_manifest(&aitp::manifest::Manifest, &aitp::manifest::ManifestVerifyContext) -> core::result::Result<aitp::manifest::VerifiedManifest, aitp::manifest::ManifestError>
 pub fn aitp::tct::AttestationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::tct::AttestationVerifyContext<'a>::builder(&'a aitp::core::Aid, &'a str, aitp::core::Timestamp) -> aitp::tct::AttestationVerifyContextBuilder<'a>
+pub fn aitp::tct::AttestationVerifyContext<'a>::builder() -> aitp::tct::AttestationVerifyContextBuilder<'a>
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::AttestationVerifyContext<'a>, aitp::tct::TctVerifyContextError>
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::issuer(self, &'a aitp::core::Aid) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::Timestamp) -> Self
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::now(self, aitp::core::Timestamp) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::revocation(self, aitp::tct::RevocationSource<'a>) -> Self
+pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::statement_key(self, &'a str) -> Self
 pub fn aitp::tct::AttestationVerifyContextBuilder<'a>::waive_manifest_cap_issuer_has_no_manifest(self) -> Self
 pub fn aitp::tct::Cnf::clone(&self) -> aitp::tct::Cnf
 pub fn aitp::tct::Cnf::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
@@ -3035,9 +3081,16 @@ pub fn aitp::tct::GrantVoucherClaims::deserialize<__D>(__D) -> core::result::Res
 pub fn aitp::tct::GrantVoucherClaims::eq(&self, &aitp::tct::GrantVoucherClaims) -> bool
 pub fn aitp::tct::GrantVoucherClaims::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::GrantVoucherClaims::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn aitp::tct::IssuedTct::claims(&self) -> &aitp::tct::TctClaims
 pub fn aitp::tct::IssuedTct::clone(&self) -> aitp::tct::IssuedTct
 pub fn aitp::tct::IssuedTct::eq(&self, &aitp::tct::IssuedTct) -> bool
 pub fn aitp::tct::IssuedTct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::IssuedTct::into_parts(self) -> aitp::tct::IssuedTctParts
+pub fn aitp::tct::IssuedTct::token(&self) -> &str
+pub fn aitp::tct::IssuedTct::voucher(&self) -> core::option::Option<&str>
+pub fn aitp::tct::IssuedTctParts::clone(&self) -> aitp::tct::IssuedTctParts
+pub fn aitp::tct::IssuedTctParts::eq(&self, &aitp::tct::IssuedTctParts) -> bool
+pub fn aitp::tct::IssuedTctParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::PopChallenge::clone(&self) -> aitp::tct::PopChallenge
 pub fn aitp::tct::PopChallenge::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
 pub fn aitp::tct::PopChallenge::eq(&self, &aitp::tct::PopChallenge) -> bool
@@ -3102,17 +3155,22 @@ pub fn aitp::tct::TctClaims::serialize<__S>(&self, __S) -> core::result::Result<
 pub fn aitp::tct::TctError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctError::from(aitp::crypto::CryptoError) -> Self
 pub fn aitp::tct::TctError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
-pub fn aitp::tct::TctVerifyContext<'a>::builder(&'a aitp::core::Aid, &'a aitp::core::Aid, aitp::core::Timestamp) -> aitp::tct::TctVerifyContextBuilder<'a>
+pub fn aitp::tct::TctVerifyContext<'a>::builder() -> aitp::tct::TctVerifyContextBuilder<'a>
 pub fn aitp::tct::TctVerifyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctVerifyContextBuilder<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::TctVerifyContext<'a>, aitp::tct::TctVerifyContextError>
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::clock_skew(self, core::time::Duration) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::expected_audience(self, &'a aitp::core::Aid) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::issuer(self, &'a aitp::core::Aid) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::issuer_manifest_expires_at(self, aitp::core::Timestamp) -> Self
+pub fn aitp::tct::TctVerifyContextBuilder<'a>::now(self, aitp::core::Timestamp) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::revocation(self, aitp::tct::RevocationSource<'a>) -> Self
 pub fn aitp::tct::TctVerifyContextBuilder<'a>::skip_manifest_expiry_cap_dangerous(self) -> Self
 pub fn aitp::tct::TctVerifyContextError::clone(&self) -> aitp::tct::TctVerifyContextError
 pub fn aitp::tct::TctVerifyContextError::eq(&self, &aitp::tct::TctVerifyContextError) -> bool
 pub fn aitp::tct::TctVerifyContextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::TctVerifyContextError::from(aitp::core::MissingFieldError) -> Self
+pub fn aitp::tct::TctVerifyContextError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::tct::VerifiedAttestation::claims(&self) -> &aitp::tct::TctClaims
 pub fn aitp::tct::VerifiedAttestation::clone(&self) -> aitp::tct::VerifiedAttestation
 pub fn aitp::tct::VerifiedAttestation::eq(&self, &aitp::tct::VerifiedAttestation) -> bool
@@ -3354,8 +3412,10 @@ pub struct aitp::crypto::AitpSigningKey(_)
 pub struct aitp::crypto::AitpVerifyingKey(_)
 pub struct aitp::crypto::BlockingSigner<S>(pub S)
 pub struct aitp::crypto::Digest32(_)
+pub struct aitp::crypto::RawSignature(_)
 pub struct aitp::crypto::Signature(_)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::delegation::IssuedDelegation
 pub struct aitp::delegation::VerifiedDelegation
 pub struct aitp::facade::SessionContext
 pub struct aitp::facade::TctStore
@@ -3380,6 +3440,7 @@ pub struct aitp::handshake::admission::TokenBucketLimiter
 pub struct aitp::manifest::ManifestBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::manifest::VerifiedManifest
 pub struct aitp::tct::AttestationVerifyContextBuilder<'a>
+pub struct aitp::tct::IssuedTct
 pub struct aitp::tct::RevocationUnavailable(_)
 pub struct aitp::tct::TctBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::tct::TctVerifyContextBuilder<'a>

@@ -18,7 +18,8 @@
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{DelegationBuilder, DelegationClaims};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder, ManifestEnvelope};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope};
 use aitp::tct::{
     sign_revocation_list, GrantVoucherClaims, IssuedTct, RevocationEntry, RevocationList,
     TctBuilder,
@@ -95,7 +96,7 @@ fn mint_manifest() {
         .display_name("kat-keypair-001")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "kat-keypair-001")
+            IdentityHint::new(IdentityKind::PinnedKey, "kat-keypair-001")
                 .with_public_key(pubkey_b64),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -172,8 +173,8 @@ fn mint_tct() {
                 "ttl_secs": TCT_TTL,
                 "grants": ["macp.mode.task.v1"],
             },
-            "tct_token": issued.token,
-            "decoded_claims": issued.claims,
+            "tct_token": issued.token(),
+            "decoded_claims": issued.claims(),
         }),
     );
 }
@@ -197,7 +198,10 @@ fn mint_companion_tct() -> IssuedTct {
 }
 
 fn mint_grant_voucher() -> String {
-    let voucher = mint_companion_tct().voucher.expect("voucher minted");
+    let voucher = mint_companion_tct()
+        .into_parts()
+        .voucher
+        .expect("voucher minted");
     let payload = jws::decode_payload_unverified(&voucher).expect("voucher payload");
     let claims: GrantVoucherClaims = serde_json::from_slice(&payload).expect("voucher claims");
     write_pretty(
@@ -221,7 +225,7 @@ fn mint_grant_voucher() -> String {
             "decoded_claims": claims,
         }),
     );
-    voucher
+    voucher.to_string()
 }
 
 fn mint_delegation(voucher: &str) {
@@ -237,7 +241,9 @@ fn mint_delegation(voucher: &str) {
         .ttl(std::time::Duration::from_secs(DELEGATION_TTL))
         .now(Timestamp(FIXED_NOW))
         .build()
-        .expect("delegation");
+        .expect("delegation")
+        .into_parts()
+        .token;
     let payload = jws::decode_payload_unverified(&delegation).expect("delegation payload");
     let claims: DelegationClaims = serde_json::from_slice(&payload).expect("delegation claims");
     write_pretty(

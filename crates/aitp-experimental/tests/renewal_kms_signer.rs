@@ -56,15 +56,18 @@ async fn kms_backend_signs_renewal() {
     let issuer = MockKmsSigner::new(p256(0x51)).output(MockOutput::DerHighS);
     let holder = MockKmsSigner::new(p256(0x52));
     let issued = holder_tct(&issuer, &holder, now);
-    let renewed = renew(&issuer, &holder, issued.token, now)
+    let renewed = renew(&issuer, &holder, issued.token().to_string(), now)
         .await
         .expect("KMS renewal");
-    let ctx = TctVerifyContext::builder(holder.aid(), issuer.aid(), now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(holder.aid())
+        .issuer(issuer.aid())
+        .now(now)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
-    verify_tct(&renewed.token, &ctx).expect("renewed TCT verifies");
+    verify_tct(renewed.token(), &ctx).expect("renewed TCT verifies");
 }
 
 #[tokio::test]
@@ -74,6 +77,8 @@ async fn issuer_backend_with_wrong_key_is_a_local_fault() {
     let holder = AitpSigningKey::from_ed25519_seed(&[0x54; 32]);
     let issued = holder_tct(&good, &holder, now);
     let bad = MockKmsSigner::new(p256(0x53)).sign_with(p256(0x55));
-    let err = renew(&bad, &holder, issued.token, now).await.unwrap_err();
+    let err = renew(&bad, &holder, issued.token().to_string(), now)
+        .await
+        .unwrap_err();
     assert!(err.is_local_fault(), "{err:?}");
 }

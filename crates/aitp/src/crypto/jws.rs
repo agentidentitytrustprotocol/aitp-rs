@@ -73,7 +73,10 @@ pub fn sign_compact<T: serde::Serialize>(
 ) -> Result<String, CryptoError> {
     let signing_input = compact_signing_input(signer.aid(), typ, claims)?;
     let sig = crate::crypto::signer::sign_raw(signer, signing_input.as_bytes())?;
-    Ok(format!("{signing_input}.{}", base64url::encode(&sig)))
+    Ok(format!(
+        "{signing_input}.{}",
+        base64url::encode(sig.as_bytes())
+    ))
 }
 
 /// Async [`sign_compact`], for backends whose SDK is async.
@@ -84,7 +87,10 @@ pub async fn sign_compact_async<T: serde::Serialize>(
 ) -> Result<String, CryptoError> {
     let signing_input = compact_signing_input(signer.aid(), typ, claims)?;
     let sig = crate::crypto::signer::sign_raw_async(signer, signing_input.as_bytes()).await?;
-    Ok(format!("{signing_input}.{}", base64url::encode(&sig)))
+    Ok(format!(
+        "{signing_input}.{}",
+        base64url::encode(sig.as_bytes())
+    ))
 }
 
 /// `ASCII(b64(header) || '.' || b64(JCS(claims)))` for a signer AID.

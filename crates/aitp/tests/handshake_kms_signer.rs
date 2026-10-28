@@ -7,11 +7,11 @@ use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, AitpVerifyingKey, CryptoError, SignerError};
 use aitp::handshake::{
-    HandshakeError, Initiator, NoPinnedKeys, PeerConfig, PresentedIdentity, Responder,
-    StaticPinnedKeyStore,
+    HandshakeError, IdentityKind, Initiator, NoPinnedKeys, PeerConfig, PresentedIdentity,
+    Responder, StaticPinnedKeyStore,
 };
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use uuid::Uuid;
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
@@ -36,7 +36,7 @@ fn manifest_for(key: &dyn AitpSigner, name: &str) -> Manifest {
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, name)
+            IdentityHint::new(IdentityKind::PinnedKey, name)
                 .with_public_key(aitp::core::base64url::encode(&vk(key).to_compressed())),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)

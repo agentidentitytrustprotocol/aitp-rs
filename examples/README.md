@@ -31,5 +31,6 @@ binaries, what each demonstrates, and where to look in the code.
 - **Verify-only** (you already hold a TCT) — depend on `aitp` with
   `default-features = false` (no HTTP stack) and call
   `aitp::tct::verify_tct` with an `aitp::tct::TctVerifyContext` (built
-  with `TctVerifyContext::builder(&aud, &iss, now)…build()`), which takes
+  with `TctVerifyContext::builder()` and its `expected_audience`,
+  `issuer` and `now` setters), which takes
   `aitp::core::Aid` and `aitp::core::Timestamp` values.

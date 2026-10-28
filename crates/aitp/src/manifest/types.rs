@@ -1,6 +1,7 @@
 //! Wire types for the Manifest (RFC-AITP-0003 §2 / `schemas/json/aitp-manifest.schema.json`).
 
 use crate::core::{Aid, ExtensionsMap, RawUrl, Timestamp};
+use crate::handshake::IdentityKind;
 use serde::{Deserialize, Serialize};
 
 /// A signed self-description published by every A2A agent.
@@ -152,9 +153,10 @@ impl ManifestEnvelope {
 #[serde(deny_unknown_fields)]
 #[non_exhaustive]
 pub struct IdentityHint {
-    /// `oidc` or `pinned_key`.
+    /// The identity mechanism the agent presents in the handshake
+    /// (`oidc`, `pinned_key` or `spiffe`).
     #[serde(rename = "type")]
-    pub kind: IdentityHintKind,
+    pub kind: IdentityKind,
     /// Subject identifier at the identity provider.
     pub subject: String,
     /// OIDC issuer URI (required when type=oidc). `RawUrl` so the
@@ -169,7 +171,7 @@ pub struct IdentityHint {
 
 impl IdentityHint {
     /// A hint of `kind` for `subject`, with no `issuer` or `public_key`.
-    pub fn new(kind: IdentityHintKind, subject: impl Into<String>) -> Self {
+    pub fn new(kind: IdentityKind, subject: impl Into<String>) -> Self {
         Self {
             kind,
             subject: subject.into(),
@@ -189,23 +191,6 @@ impl IdentityHint {
         self.public_key = Some(public_key.into());
         self
     }
-}
-
-/// Identity provider type.
-///
-/// Marked `#[non_exhaustive]` so future identity-hint kinds (e.g.
-/// did, mtls) added to the spec can ship without a major bump.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum IdentityHintKind {
-    /// OIDC OpenID Connect issuer.
-    Oidc,
-    /// Pinned Ed25519 public key.
-    PinnedKey,
-    /// SPIFFE workload identity (RFC-AITP-0002 §6, registry status
-    /// Proposed). Carries only `subject`, the SPIFFE ID.
-    Spiffe,
 }
 
 /// Manifest PoP block (RFC-AITP-0003 §3.1).
@@ -244,7 +229,7 @@ mod tests {
             aid: sample_aid(),
             display_name: None,
             identity_hint: IdentityHint {
-                kind: IdentityHintKind::Oidc,
+                kind: IdentityKind::Oidc,
                 subject: "agent-a".into(),
                 issuer: Some(RawUrl::new("https://idp.example.com")),
                 public_key: None,
@@ -324,7 +309,7 @@ mod tests {
     fn round_trip_pinned_key_manifest() {
         let mut m = build_minimal_manifest();
         m.identity_hint = IdentityHint {
-            kind: IdentityHintKind::PinnedKey,
+            kind: IdentityKind::PinnedKey,
             subject: "internal-1".into(),
             issuer: None,
             public_key: Some("A".repeat(43)),

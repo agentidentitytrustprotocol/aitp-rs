@@ -29,7 +29,10 @@ fn p256(seed: u8) -> AitpSigningKey {
 }
 
 fn ctx<'a>(aud: &'a Aid, iss: &'a Aid) -> TctVerifyContext<'a> {
-    TctVerifyContext::builder(aud, iss, NOW)
+    TctVerifyContext::builder()
+        .expected_audience(aud)
+        .issuer(iss)
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -95,7 +98,7 @@ fn builder_jti_setter_validates_v4() {
         );
     }
     let ok = Uuid::new_v4();
-    assert_eq!(base(&iss, &sub).jti(ok).build().unwrap().claims.jti, ok);
+    assert_eq!(base(&iss, &sub).jti(ok).build().unwrap().claims().jti, ok);
 }
 
 #[test]
@@ -106,12 +109,12 @@ fn derived_jti_setter_matches_item_6b_and_rejects_bad_tags() {
         .build()
         .unwrap();
     assert_eq!(
-        issued.claims.jti,
+        issued.claims().jti,
         derived_v4("com.example.decision-commit", b"record-42").unwrap()
     );
     // The voucher's src_jti follows.
-    let v = verify_voucher(issued.voucher.as_deref().unwrap(), iss.aid()).unwrap();
-    assert_eq!(v.src_jti, issued.claims.jti);
+    let v = verify_voucher(issued.voucher().unwrap(), iss.aid()).unwrap();
+    assert_eq!(v.src_jti, issued.claims().jti);
 
     let err = base(&iss, &sub)
         .derived_jti("has space", b"x")
@@ -163,10 +166,10 @@ fn ext_setter_is_signed_and_round_trips() {
     let (iss, sub) = (p256(3), ed(2));
     let ext = statement("ext");
     let issued = base(&iss, &sub).ext(ext.clone()).build().unwrap();
-    let v = verify_tct(&issued.token, &ctx(sub.aid(), iss.aid())).unwrap();
+    let v = verify_tct(issued.token(), &ctx(sub.aid(), iss.aid())).unwrap();
     assert_eq!(v.claims().ext, Some(ext.into()));
     // The voucher mirrors the TCT and stays ext-free.
-    let voucher = verify_voucher(issued.voucher.as_deref().unwrap(), iss.aid()).unwrap();
+    let voucher = verify_voucher(issued.voucher().unwrap(), iss.aid()).unwrap();
     assert_eq!(voucher.ext, None);
 }
 
@@ -206,13 +209,16 @@ fn grant_context_rejects_a_valid_attestation() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    assert!(verify_tct(&issued.token, &ctx(iss.aid(), iss.aid())).is_err());
+    assert!(verify_tct(issued.token(), &ctx(iss.aid(), iss.aid())).is_err());
 }
 
 // --- Item 5: attestation profile -------------------------------------------
 
 fn attestation_ctx<'a>(iss: &'a Aid, key: &'a str) -> AttestationVerifyContext<'a> {
-    AttestationVerifyContext::builder(iss, key, NOW)
+    AttestationVerifyContext::builder()
+        .issuer(iss)
+        .statement_key(key)
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -229,18 +235,18 @@ fn self_attestation_round_trip() {
             .issued_at(NOW)
             .build()
             .unwrap();
-        assert!(issued.voucher.is_none(), "an attestation confers nothing");
-        assert_eq!(issued.claims.grants, [ATTESTATION_GRANT]);
-        assert_eq!(issued.claims.sub, *iss.aid());
+        assert!(issued.voucher().is_none(), "an attestation confers nothing");
+        assert_eq!(issued.claims().grants, [ATTESTATION_GRANT]);
+        assert_eq!(issued.claims().sub, *iss.aid());
 
         let v =
-            verify_attestation(&issued.token, &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap();
+            verify_attestation(issued.token(), &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap();
         assert_eq!(
             v.statement(),
             &json!({"statement": "rt archival attestation"})
         );
 
-        let err = verify_attestation(&issued.token, &attestation_ctx(iss.aid(), "org.other"))
+        let err = verify_attestation(issued.token(), &attestation_ctx(iss.aid(), "org.other"))
             .unwrap_err();
         assert!(
             matches!(&err, TctError::AttestationStatementMissing(k) if k == "org.other"),
@@ -265,19 +271,25 @@ fn attestation_verifier_rejects_grant_tcts() {
     let (iss, sub) = (ed(1), ed(2));
     let grant = base(&iss, &sub).ext(statement("g")).build().unwrap();
     let err =
-        verify_attestation(&grant.token, &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap_err();
+        verify_attestation(grant.token(), &attestation_ctx(iss.aid(), KAT_EXT_KEY)).unwrap_err();
     assert!(matches!(err, TctError::NotAttestation), "{err:?}");
 }
 
 #[test]
 fn attestation_manifest_cap_is_an_explicit_decision() {
     let iss = ed(1);
-    let err = AttestationVerifyContext::builder(iss.aid(), "k", NOW)
+    let err = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key("k")
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap_err();
     assert_eq!(err, TctVerifyContextError::ManifestCapDecisionRequired);
-    let err = AttestationVerifyContext::builder(iss.aid(), "k", NOW)
+    let err = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key("k")
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .build()
         .unwrap_err();
@@ -291,13 +303,16 @@ fn attestation_manifest_cap_is_an_explicit_decision() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    let capped = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
+    let capped = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key(KAT_EXT_KEY)
+        .now(NOW)
         .issuer_manifest_expires_at(NOW.saturating_add(std::time::Duration::from_secs(86_400)))
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap();
     assert!(matches!(
-        verify_attestation(&issued.token, &capped),
+        verify_attestation(issued.token(), &capped),
         Err(TctError::ExpiresAfterManifest)
     ));
 }
@@ -312,13 +327,16 @@ fn attestation_revocation_is_consulted() {
         .build()
         .unwrap();
     let revoked = |_: &aitp::tct::RevocationQuery<'_>| Ok(aitp::tct::RevocationStatus::Revoked);
-    let c = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
+    let c = AttestationVerifyContext::builder()
+        .issuer(iss.aid())
+        .statement_key(KAT_EXT_KEY)
+        .now(NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
         .revocation(aitp::tct::RevocationSource::Check(&revoked))
         .build()
         .unwrap();
     assert!(matches!(
-        verify_attestation(&issued.token, &c),
+        verify_attestation(issued.token(), &c),
         Err(TctError::Revoked)
     ));
 }
@@ -369,20 +387,20 @@ fn self_attestation_kats_reproduce() {
             .build()
             .unwrap();
         assert_eq!(
-            issued.claims.jti.to_string(),
+            issued.claims().jti.to_string(),
             d["jti"].as_str().unwrap(),
             "{id}"
         );
         assert_eq!(
-            serde_json::to_value(&issued.claims).unwrap(),
+            serde_json::to_value(issued.claims()).unwrap(),
             v["decoded_claims"],
             "{id}"
         );
-        assert_eq!(issued.token, v["tct_token"].as_str().unwrap(), "{id}");
+        assert_eq!(issued.token(), v["tct_token"].as_str().unwrap(), "{id}");
 
-        let ok = verify_attestation(&issued.token, &attestation_ctx(key.aid(), &ext_key(input)));
+        let ok = verify_attestation(issued.token(), &attestation_ctx(key.aid(), &ext_key(input)));
         assert!(ok.is_ok(), "{id}: {ok:?}");
-        let err = verify_tct(&issued.token, &ctx(key.aid(), key.aid())).unwrap_err();
+        let err = verify_tct(issued.token(), &ctx(key.aid(), key.aid())).unwrap_err();
         assert!(matches!(err, TctError::SelfIssued), "{id}: {err:?}");
     }
 }

@@ -9,8 +9,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::{
+    IdentityKind, JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore,
+};
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::transport::{
     HandshakeServer, RevocationFailMode, RevocationPolicy, REVOCATION_LIST_PATH,
 };
@@ -43,7 +45,7 @@ async fn spawn_peer(seed: u8, reject_cli: bool) -> (AitpSigningKey, String) {
         .handshake_endpoint(format!("{origin}/aitp/handshake/").parse().unwrap())
         .revocation_list_uri(format!("{origin}{REVOCATION_LIST_PATH}").parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "peer").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "peer").with_public_key(
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )

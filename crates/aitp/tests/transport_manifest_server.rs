@@ -4,7 +4,8 @@
 #![cfg(all(feature = "http-client", feature = "http-server"))]
 
 use aitp::crypto::AitpSigningKey;
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, ManifestBuilder};
 use aitp::transport::{ManifestFetcher, ManifestServer};
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -17,7 +18,7 @@ async fn round_trip_manifest_server() {
         .display_name("server-side")
         .handshake_endpoint("https://localhost:9000/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "server-side").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "server-side").with_public_key(
                 aitp::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

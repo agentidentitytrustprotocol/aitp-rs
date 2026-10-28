@@ -18,9 +18,10 @@
 
 use aitp::core::{jcs, Aid, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Signature};
+use aitp::handshake::IdentityKind;
 use aitp::manifest::{
-    parse_manifest_wire, verify_manifest, IdentityHint, IdentityHintKind, ManifestBuilder,
-    ManifestError, ManifestVerifyContext,
+    parse_manifest_wire, verify_manifest, IdentityHint, ManifestBuilder, ManifestError,
+    ManifestVerifyContext,
 };
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -186,7 +187,7 @@ fn wrapped_signed_manifest_is_rejected_by_verify_manifest() {
                 .expect("valid URL"),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent-a").with_issuer(
+            IdentityHint::new(IdentityKind::Oidc, "agent-a").with_issuer(
                 "https://idp.example.com"
                     .parse::<url::Url>()
                     .expect("valid URL")

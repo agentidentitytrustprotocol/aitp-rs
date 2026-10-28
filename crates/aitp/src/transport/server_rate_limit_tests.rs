@@ -6,8 +6,8 @@
 use crate::core::{AitpEnvelope, MessageType, Timestamp};
 use crate::crypto::AitpSigningKey;
 use crate::envelope::sign_envelope_with;
-use crate::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use crate::handshake::{IdentityKind, JwkPublicKey, JwksResolver, ResolveError};
+use crate::manifest::{IdentityHint, ManifestBuilder};
 use crate::transport::server::RateLimitOutcome;
 use crate::transport::{HandshakeServer, RateLimitConfig, TrustedProxy};
 use std::net::IpAddr;
@@ -28,7 +28,7 @@ fn server() -> HandshakeServer<NoOpResolver> {
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "responder").with_public_key(
                 crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
@@ -259,7 +259,7 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
+            IdentityHint::new(IdentityKind::PinnedKey, "responder").with_public_key(
                 crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()

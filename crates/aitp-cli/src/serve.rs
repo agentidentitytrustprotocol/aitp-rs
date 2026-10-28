@@ -32,8 +32,8 @@ use aitp::core::{base64url, parse_envelope_wire, Aid, CheckedJson, MessageType, 
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, Digest32};
 use aitp::envelope::{sign_envelope, verify_envelope_signature};
 use aitp::handshake::admission::{ChallengeSource, TokenBucketLimiter};
-use aitp::handshake::{JwkPublicKey, JwksResolver, PinnedKeyStore, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::handshake::{IdentityKind, JwkPublicKey, JwksResolver, PinnedKeyStore, ResolveError};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{
     verify_pop_response, verify_tct, PopChallenge, PopResponse, TctClaims, TctError,
     TctVerifyContext,
@@ -277,7 +277,7 @@ fn interop_manifest(
         .handshake_endpoint(public_url.join("/aitp/handshake/")?.as_str().parse()?)
         .revocation_list_uri(public_url.join(REVOCATION_LIST_PATH)?.as_str().parse()?)
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, PEER_NAME)
+            IdentityHint::new(IdentityKind::PinnedKey, PEER_NAME)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
@@ -748,7 +748,10 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
         .ok_or_else(|| invalid("TCT has no valid sub".into()))?;
     // The expected audience is `sub`, which PoP later proves is the
     // presenter; it is never taken from `aud` itself.
-    let ctx = TctVerifyContext::builder(&sub, self_aid, now)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(&sub)
+        .issuer(self_aid)
+        .now(now)
         .skip_manifest_expiry_cap_dangerous()
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
@@ -942,7 +945,8 @@ mod tests {
             .grants(grants.iter().copied())
             .issued_at(Timestamp::now())
             .build()
-            .unwrap();
+            .unwrap()
+            .into_parts();
         (issued.token, issued.claims)
     }
 

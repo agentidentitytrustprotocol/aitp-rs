@@ -33,7 +33,7 @@ pub use revocation::{
     RevocationStatus, RevocationUnavailable, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
 };
 pub use types::{
-    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, VerifiedTctParts,
+    Cnf, GrantVoucherClaims, IssuedTct, IssuedTctParts, TctClaims, VerifiedTct, VerifiedTctParts,
     GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
 pub use verifier::{

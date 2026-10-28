@@ -94,7 +94,7 @@ let manifest = ManifestBuilder::new(&key)
   reads the extension from the issuer's (verified) Manifest and POSTs
   there. It uses only an `https` `renew_uri`; for a plain-`http`
   loopback one in local development, call
-  `renew_tct_with_insecure_localhost` instead (never in production). With no usable `renew_uri` it fails with
+  `renew_tct_with_insecure_localhost_dangerous` instead (never in production). With no usable `renew_uri` it fails with
   `RenewClientError::NotAdvertised` before sending anything: per
   RFC-AITP-0013 §2 the holder MUST NOT probe a guessed path and falls
   back to a full handshake.
@@ -193,7 +193,7 @@ per transport source, then the content type and body are checked, then
 Rate limiting:
 
 - On by default with `RateLimitConfig::default()`; `with_rate_limit`
-  replaces it and `without_rate_limit` turns it off. Only
+  replaces it and `without_rate_limit_dangerous` turns it off. Only
   `requests_per_source_per_60s` and `trusted_proxies` apply.
 - Its counters are its own, separate from the handshake server's.
 - A rate-limited request gets HTTP 429 with an empty body.

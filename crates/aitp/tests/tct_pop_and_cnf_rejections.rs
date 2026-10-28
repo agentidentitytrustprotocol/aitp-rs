@@ -43,10 +43,13 @@ fn malformed_jkt_shape_rejected() {
     let issuer = issuer_key();
     let subject = subject_key();
     let issued = issue();
-    let mut claims = serde_json::to_value(&issued.claims).unwrap();
+    let mut claims = serde_json::to_value(issued.claims()).unwrap();
     claims["cnf"]["jkt"] = serde_json::json!("not base64url!!");
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -65,11 +68,14 @@ fn jkt_of_wrong_key_rejected() {
     let subject = subject_key();
     let rogue = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let issued = issue();
-    let mut claims = serde_json::to_value(&issued.claims).unwrap();
+    let mut claims = serde_json::to_value(issued.claims()).unwrap();
     claims["cnf"]["jkt"] =
         serde_json::json!(rogue.verifying_key().to_jwk_thumbprint_sha256().unwrap());
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
-    let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(subject.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
         .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
@@ -87,14 +93,14 @@ fn pop_with_forged_signature_rejected() {
     let subject = subject_key();
     let rogue = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let issued = issue();
-    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(NOW.0 + 300));
+    let challenge = PopChallenge::new(issued.claims().jti, "A".repeat(22), Timestamp(NOW.0 + 300));
     // Sign with the rogue key; jti/nonce_echo still come from `challenge`.
     let response = sign_pop_response(&challenge, &rogue).unwrap();
     assert_ne!(rogue.aid(), subject.aid());
     let err = verify_pop_response(
         &challenge,
         &response,
-        &issued.claims,
+        issued.claims(),
         Timestamp(NOW.0 + 100),
     )
     .unwrap_err();
@@ -108,13 +114,13 @@ fn pop_with_forged_signature_rejected() {
 fn pop_past_challenge_expiry_rejected() {
     let subject = subject_key();
     let issued = issue();
-    let challenge = PopChallenge::new(issued.claims.jti, "A".repeat(22), Timestamp(NOW.0 + 50));
+    let challenge = PopChallenge::new(issued.claims().jti, "A".repeat(22), Timestamp(NOW.0 + 50));
     let response = sign_pop_response(&challenge, &subject).unwrap();
     // Verify strictly after the challenge window closes.
     let err = verify_pop_response(
         &challenge,
         &response,
-        &issued.claims,
+        issued.claims(),
         Timestamp(NOW.0 + 100),
     )
     .unwrap_err();

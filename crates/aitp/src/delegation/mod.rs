@@ -18,6 +18,7 @@ pub(crate) mod verifier;
 pub use builder::{DelegationBuilder, DEFAULT_DELEGATION_TTL};
 pub use error::DelegationError;
 pub use types::{
-    DelegationClaims, VerifiedDelegation, VerifiedDelegationParts, DELEGATION_CLAIMS_MEMBERS,
+    DelegationClaims, IssuedDelegation, IssuedDelegationParts, VerifiedDelegation,
+    VerifiedDelegationParts, DELEGATION_CLAIMS_MEMBERS,
 };
 pub use verifier::{verify_delegation, DelegationVerifyContext};

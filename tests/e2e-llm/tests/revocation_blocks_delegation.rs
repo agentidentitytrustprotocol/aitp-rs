@@ -155,7 +155,7 @@ async fn work_endpoint_refuses_a_tct_from_an_unknown_issuer() {
         .expect("foreign TCT builds");
 
     let (status, body) =
-        planner::try_delegate_task(&worker.origin, &forged.token, "should never be answered")
+        planner::try_delegate_task(&worker.origin, forged.token(), "should never be answered")
             .await
             .expect("request reaches the worker");
     assert_eq!(

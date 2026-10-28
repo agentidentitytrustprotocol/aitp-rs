@@ -16,11 +16,11 @@ use aitp::crypto::AitpSigningKey;
 use aitp::facade::{
     run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, SessionContext, TrustMode,
 };
-use aitp::handshake::{HandshakeError, StaticPinnedKeyStore};
-use aitp::manifest::{
-    IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestEnvelope, ManifestError,
+use aitp::handshake::{HandshakeError, IdentityKind, StaticPinnedKeyStore};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestEnvelope, ManifestError};
+use aitp::transport::{
+    GuardMode, HostGuard, ManifestFetcher, RevocationFailMode, RevocationPolicy,
 };
-use aitp::transport::{ManifestFetcher, RevocationFailMode, RevocationPolicy};
 
 use crate::echo::{self, ChallengeRequest, EchoRequest};
 use crate::enrol::{self, Challenge, Enrolled, ErrorBody};
@@ -33,15 +33,33 @@ const UNUSED_HANDSHAKE_ENDPOINT: &str = "https://localhost/aitp/handshake/";
 /// Subject presented in the CLI's pinned-key identity hint.
 const CLI_SUBJECT: &str = "aitp-cli";
 
-/// Transport knobs shared by `handshake` and `manifest fetch`.
+/// Transport knobs shared by the networked commands.
 pub(crate) struct NetOpts {
     pub timeout: Duration,
     pub insecure_localhost: bool,
+    /// `--dangerous-allow-private-network`.
+    pub allow_private_network: bool,
 }
 
 impl NetOpts {
+    /// The host guard every peer-derived fetch goes through:
+    /// [`GuardMode::DenyPrivate`] (the default), or with
+    /// `--dangerous-allow-private-network` [`GuardMode::WarnPrivate`],
+    /// the narrowest mode that admits private ranges. It still refuses
+    /// link-local (cloud metadata), multicast, broadcast and unspecified
+    /// addresses, which `GuardMode::AllowAll` would not.
+    fn host_guard(&self) -> HostGuard {
+        if self.allow_private_network {
+            HostGuard::new(GuardMode::WarnPrivate)
+        } else {
+            HostGuard::new(GuardMode::DenyPrivate)
+        }
+    }
+
     fn fetcher(&self) -> ManifestFetcher {
-        let fetcher = ManifestFetcher::new().with_timeout(self.timeout);
+        let fetcher = ManifestFetcher::new()
+            .with_timeout(self.timeout)
+            .with_host_guard(self.host_guard());
         if self.insecure_localhost {
             fetcher.with_insecure_localhost_dangerous()
         } else {
@@ -203,7 +221,8 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
         },
         args.grants.clone(),
     )
-    .with_http_timeout(args.net.timeout);
+    .with_http_timeout(args.net.timeout)
+    .with_host_guard(args.net.host_guard());
     if args.net.insecure_localhost {
         config = config.with_insecure_localhost_dangerous();
     }
@@ -347,7 +366,7 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
         )
         // The key in AID-identifier form (RFC-AITP-0002 §3.3).
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
+            IdentityHint::new(IdentityKind::PinnedKey, CLI_SUBJECT)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
         .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
@@ -374,4 +393,49 @@ fn runtime() -> std::io::Result<tokio::runtime::Runtime> {
     tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn opts(allow_private_network: bool) -> NetOpts {
+        NetOpts {
+            timeout: Duration::from_secs(1),
+            insecure_localhost: false,
+            allow_private_network,
+        }
+    }
+
+    #[test]
+    fn private_network_is_refused_by_default() {
+        assert_eq!(opts(false).host_guard().mode(), GuardMode::DenyPrivate);
+    }
+
+    #[test]
+    fn dangerous_allow_private_network_admits_private_ranges_only() {
+        assert_eq!(opts(true).host_guard().mode(), GuardMode::WarnPrivate);
+    }
+
+    #[tokio::test]
+    async fn the_guard_admits_a_private_peer_only_with_the_flag() {
+        let private = url::Url::parse("https://10.0.0.7/").unwrap();
+        let metadata = url::Url::parse("https://169.254.169.254/").unwrap();
+        assert!(opts(false)
+            .host_guard()
+            .resolve_checked(&private)
+            .await
+            .is_err());
+        assert!(opts(true)
+            .host_guard()
+            .resolve_checked(&private)
+            .await
+            .is_ok());
+        // Link-local stays refused with the flag.
+        assert!(opts(true)
+            .host_guard()
+            .resolve_checked(&metadata)
+            .await
+            .is_err());
+    }
 }

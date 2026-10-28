@@ -309,6 +309,7 @@ pub(crate) fn build_delegation_token(
     builder
         .build()
         .map_err(|e| PyRuntimeError::new_err(format!("delegation build failed: {e}")))
+        .map(|issued| issued.into_parts().token)
 }
 
 /// Mint a fresh TCT for the delegatee after `verify_delegation` succeeded.
@@ -343,8 +344,8 @@ pub(crate) fn issue_tct_for_delegatee_json(
         .map_err(|e| PyRuntimeError::new_err(format!("TCT mint failed: {e}")))?;
 
     let out = serde_json::json!({
-        "tct": issued.token,
-        "grant_voucher": issued.voucher,
+        "tct": issued.token(),
+        "grant_voucher": issued.voucher(),
     });
     serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

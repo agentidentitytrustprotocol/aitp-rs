@@ -26,8 +26,8 @@ pub enum DelegationError {
     /// closed (RFC-AITP-0008 §3.1). Same wire code as
     /// [`Self::SourceTctRevoked`], but the reason says the source was
     /// unavailable, not that the token was revoked.
-    #[error("{0}")]
-    RevocationUnavailable(#[source] crate::tct::RevocationUnavailable),
+    #[error(transparent)]
+    RevocationUnavailable(crate::tct::RevocationUnavailable),
     /// Outer signature did not verify.
     #[error("delegation signature is invalid")]
     InvalidSignature,

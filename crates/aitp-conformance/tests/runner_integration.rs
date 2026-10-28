@@ -168,10 +168,10 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
         .unwrap();
     // Forge the iss claim to a different AID and re-sign nothing — the
     // signature won't verify under the forged issuer's pubkey.
-    let payload = aitp::crypto::jws::decode_payload_unverified(&tct.token).unwrap();
+    let payload = aitp::crypto::jws::decode_payload_unverified(tct.token()).unwrap();
     let mut claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
     claims["iss"] = serde_json::to_value(other.aid()).unwrap();
-    let (header, rest) = tct.token.split_once('.').unwrap();
+    let (header, rest) = tct.token().split_once('.').unwrap();
     let (_, sig) = rest.split_once('.').unwrap();
     let forged = format!(
         "{header}.{}.{sig}",

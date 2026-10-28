@@ -186,8 +186,9 @@ impl AitpSigningKey {
         }
     }
 
-    /// Sign arbitrary `message` bytes and return the raw 64-byte
-    /// signature, with no base64url encoding and no algorithm tag.
+    /// Sign arbitrary `message` bytes and return the raw signature, with
+    /// no base64url encoding and no algorithm tag. Its length is the
+    /// algorithm's: 64 bytes for Ed25519 and for P-256.
     ///
     /// This is the entry point for framings that are not the AITP
     /// `Digest32` construction: the compact-JWS profile (RFC-AITP-0001
@@ -198,11 +199,13 @@ impl AitpSigningKey {
     ///
     /// The caller owns domain separation: a message signed here must not
     /// also be parseable as another AITP signing input.
-    pub fn sign_raw(&self, message: &[u8]) -> [u8; 64] {
+    pub fn sign_raw(&self, message: &[u8]) -> RawSignature {
         match &self.0 {
-            SigningKeyInner::Ed25519 { inner, .. } => inner.sign(message).to_bytes(),
+            SigningKeyInner::Ed25519 { inner, .. } => {
+                RawSignature::from_bytes(&inner.sign(message).to_bytes())
+            }
             SigningKeyInner::P256 { inner, .. } => {
-                p256_sign_prehash(inner, &Digest32::sha256(message))
+                RawSignature::from_bytes(&p256_sign_prehash(inner, &Digest32::sha256(message)))
             }
         }
     }
@@ -354,8 +357,10 @@ impl AitpVerifyingKey {
         }
     }
 
-    /// Verify a raw 64-byte signature over `message`, with the
-    /// algorithm fixed by this key's variant. Used by the compact-JWS
+    /// Verify a raw signature over `message`, with the algorithm fixed
+    /// by this key's variant. `sig` must have the algorithm's length (64
+    /// bytes for Ed25519 and for P-256); any other length is
+    /// [`CryptoError::SignatureInvalid`]. Used by the compact-JWS
     /// profile (RFC-AITP-0001 §5.4.5), where the `alg` header has
     /// already been pinned against the signer AID before this call.
     /// Counterpart of [`AitpSigningKey::sign_raw`]: Ed25519 uses
@@ -378,7 +383,7 @@ impl AitpVerifyingKey {
         }
     }
 
-    /// Verify a raw 64-byte JOSE signature from a **third party**: an
+    /// Verify a raw JOSE signature from a **third party**: an
     /// IdP's OIDC ID token (RFC 7515/7518). It is
     /// [`Self::verify_raw`] without the high-S rejection. RFC-AITP-0001
     /// §5.4.7 low-S is scoped to AITP signing inputs, and a verifier
@@ -393,7 +398,7 @@ impl AitpVerifyingKey {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => verify_ed25519(vk, message, sig),
             VerifyingKeyInner::P256(vk) => {
-                if sig.len() != 64 {
+                if sig.len() != raw_signature_len(AidAlgorithm::P256) {
                     return Err(CryptoError::SignatureInvalid);
                 }
                 let p256_sig =
@@ -535,9 +540,18 @@ pub(crate) fn p256_backend_to_low_s(
 ) -> Result<[u8; 64], crate::crypto::SignerError> {
     use crate::crypto::signer::BackendSignature;
     let parsed = match sig {
-        BackendSignature::Raw(raw) => P256Signature::from_slice(raw).map_err(|_| {
-            crate::crypto::SignerError::MalformedSignature("P-256 R || S out of range".into())
-        })?,
+        BackendSignature::Raw(raw) => {
+            if raw.len() != raw_signature_len(AidAlgorithm::P256) {
+                return Err(crate::crypto::SignerError::MalformedSignature(format!(
+                    "P-256 R || S is {} bytes, expected {}",
+                    raw.len(),
+                    raw_signature_len(AidAlgorithm::P256)
+                )));
+            }
+            P256Signature::from_slice(raw).map_err(|_| {
+                crate::crypto::SignerError::MalformedSignature("P-256 R || S out of range".into())
+            })?
+        }
         BackendSignature::Der(der) => P256Signature::from_der(der).map_err(|_| {
             crate::crypto::SignerError::MalformedSignature(
                 "P-256 DER ECDSA-Sig-Value is invalid".into(),
@@ -567,6 +581,9 @@ pub(crate) fn p256_sign_prehash_randomized(key: &AitpSigningKey, d: &Digest32) -
 /// PureEdDSA strict verification (RFC-AITP-0001 §5.4.7): rejects
 /// non-canonical `S`, and small-order `R` or public key.
 fn verify_ed25519(vk: &DalekVerifyingKey, message: &[u8], sig: &[u8]) -> Result<(), CryptoError> {
+    if sig.len() != raw_signature_len(AidAlgorithm::Ed25519) {
+        return Err(CryptoError::SignatureInvalid);
+    }
     let buf: [u8; 64] = sig.try_into().map_err(|_| CryptoError::SignatureInvalid)?;
     vk.verify_strict(message, &DalekSignature::from_bytes(&buf))
         .map_err(|_| CryptoError::SignatureInvalid)
@@ -587,7 +604,7 @@ fn verify_ed25519(vk: &DalekVerifyingKey, message: &[u8], sig: &[u8]) -> Result<
 /// p256 0.14 / ecdsa 0.17 changed `normalize_s()` from `-> Option<Self>`
 /// to `-> Self`. A signature is high-S iff normalising it changes it.
 fn verify_p256_prehash(vk: &P256VerifyingKey, d: &Digest32, sig: &[u8]) -> Result<(), CryptoError> {
-    if sig.len() != 64 {
+    if sig.len() != raw_signature_len(AidAlgorithm::P256) {
         return Err(CryptoError::SignatureInvalid);
     }
     let p256_sig = P256Signature::from_slice(sig).map_err(|_| CryptoError::SignatureInvalid)?;
@@ -596,6 +613,62 @@ fn verify_p256_prehash(vk: &P256VerifyingKey, d: &Digest32, sig: &[u8]) -> Resul
     }
     vk.verify_prehash(d.as_bytes(), &p256_sig)
         .map_err(|_| CryptoError::SignatureInvalid)
+}
+
+/// The length in bytes of a raw signature for `algorithm`: what
+/// [`AitpSigningKey::sign_raw`] returns and [`AitpVerifyingKey::verify_raw`]
+/// accepts. Ed25519 is `R || S` (RFC 8032) and P-256 is JOSE `R || S`
+/// (RFC 7518 §3.4), 64 bytes each.
+pub(crate) const fn raw_signature_len(algorithm: AidAlgorithm) -> usize {
+    match algorithm {
+        AidAlgorithm::Ed25519 | AidAlgorithm::P256 => 64,
+    }
+}
+
+/// A signature as raw bytes, with no base64url encoding and no
+/// algorithm tag: what [`AitpSigningKey::sign_raw`] and
+/// [`crate::crypto::sign_raw`] return.
+///
+/// Its length is the signing algorithm's (64 bytes for Ed25519 and for
+/// P-256), so the type does not fix one: an algorithm added to
+/// [`AidAlgorithm`] later can have a different length. Only this crate
+/// constructs it, from a signature it produced or verified. The verifiers
+/// take `&[u8]` ([`Self::as_bytes`]) and check the length the key's
+/// algorithm expects.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct RawSignature(Box<[u8]>);
+
+impl RawSignature {
+    pub(crate) fn from_bytes(bytes: &[u8]) -> Self {
+        Self(bytes.into())
+    }
+
+    /// The signature bytes.
+    pub fn as_bytes(&self) -> &[u8] {
+        &self.0
+    }
+
+    /// Length in bytes.
+    pub fn len(&self) -> usize {
+        self.0.len()
+    }
+
+    /// Whether the signature has no bytes. Never true for a signature
+    /// this crate returns.
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty()
+    }
+
+    /// The owned bytes.
+    pub fn into_vec(self) -> Vec<u8> {
+        self.0.into_vec()
+    }
+}
+
+impl AsRef<[u8]> for RawSignature {
+    fn as_ref(&self) -> &[u8] {
+        &self.0
+    }
 }
 
 /// A signature in the AITP wire format.
@@ -629,10 +702,10 @@ pub enum SignatureAlgorithm {
 }
 
 impl Signature {
-    /// Wire form of a raw 64-byte signature: untagged for Ed25519 (v0.1
+    /// Wire form of a raw signature: untagged for Ed25519 (v0.1
     /// compatibility, as [`AitpSigningKey::sign_jcs`] emits) and
     /// `p256.`-tagged for P-256.
-    pub(crate) fn from_raw(algorithm: AidAlgorithm, raw: &[u8; 64]) -> Self {
+    pub(crate) fn from_raw(algorithm: AidAlgorithm, raw: &[u8]) -> Self {
         let b64 = Base64UrlUnpadded::encode_string(raw);
         match algorithm {
             AidAlgorithm::P256 => Signature(format!("p256.{b64}")),

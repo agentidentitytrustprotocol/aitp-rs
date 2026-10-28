@@ -13,10 +13,10 @@
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
-    Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, PeerConfig,
+    IdentityKind, Initiator, JwkKeyMaterial, JwkPublicKey, JwksResolver, JwsAlgorithm, PeerConfig,
     PresentedIdentity, ResolveError, Responder,
 };
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use base64ct::{Base64UrlUnpadded, Encoding};
 use ed25519_dalek::{Signer, SigningKey};
 use serde_json::json;
@@ -208,7 +208,7 @@ fn oidc_manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifes
                 .unwrap(),
         )
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, name)
+            IdentityHint::new(IdentityKind::Oidc, name)
                 .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())

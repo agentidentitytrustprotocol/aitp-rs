@@ -86,8 +86,8 @@ pub fn process_renewal_request_py(
         .ok_or_else(|| PyRuntimeError::new_err("renewal replay guard did not complete"))?
         .map_err(|e| PyRuntimeError::new_err(format!("renewal request rejected: {e}")))?;
     let out = serde_json::json!({
-        "tct": issued.token,
-        "grant_voucher": issued.voucher,
+        "tct": issued.token(),
+        "grant_voucher": issued.voucher(),
     });
     serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

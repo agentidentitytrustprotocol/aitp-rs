@@ -9,7 +9,8 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::DelegationError;
-use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::TctBuilder;
 use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus};
 use aitp_experimental::delegation::{
@@ -45,8 +46,9 @@ fn voucher_for_b() -> String {
         .issued_at(NOW)
         .build()
         .unwrap()
-        .voucher
+        .voucher()
         .unwrap()
+        .to_string()
 }
 
 /// B → C (chain[0]): jti-bearing, both grants, 100 min.
@@ -87,7 +89,7 @@ fn manifest_with_ttl(key: &AitpSigningKey, published_at: Timestamp, ttl_secs: u6
     ManifestBuilder::new(key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
-            IdentityHint::new(IdentityHintKind::Oidc, "agent")
+            IdentityHint::new(IdentityKind::Oidc, "agent")
                 .with_issuer("https://idp.example.com".parse().unwrap()),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
@@ -790,6 +792,7 @@ async fn async_extensions_are_byte_identical_to_sync() {
             .issued_at(NOW)
             .build()
             .unwrap()
+            .into_parts()
             .voucher
             .unwrap();
         let hop1 = ChainedDelegationBuilder::new(&b, &voucher)
