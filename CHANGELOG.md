@@ -162,6 +162,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Fixed
 
+- `aitp tct inspect` and `aitp tct verify` given a token whose JWS `typ` is not `aitp-tct+jwt`, such as a grant voucher or a delegation token, now fail with `token typ is "aitp-delegation+jwt", not a TCT ("aitp-tct+jwt")` ([#322](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/322)). They used to print a serde error about an unknown field. A token without a `typ` is decoded as before.
 - The initiator now checks that MUTUAL_HELLO_ACK comes from the peer it addressed, and a different sender fails with the new code `PEER_MISMATCH` (`ErrorCode::PeerMismatch`, `HandshakeError::PeerMismatch`; RFC-AITP-0004 §5.2 step 3). It used to report `INVALID_ENVELOPE`. A Manifest whose AID is not the sender's is still `INVALID_ENVELOPE` (step 4). The conformance adapter applies the check when a fixture supplies `peer_aid` (`mh-015`), and the vendored spec pin moves to `af9c409`, which adds that fixture.
 - A body limit set with `with_request_body_limit` now applies to the handshake routes. They read the raw body, which axum's `DefaultBodyLimit` does not reach, so they kept their fixed 256 KiB cap. An oversized handshake body is refused with `INVALID_ENVELOPE` (RFC-AITP-0009 §3.1).
 - `TokenBucketLimiter` no longer panics when built with a `per_second` of 0, a negative rate or NaN. Such a rate is clamped to the smallest positive one, and a refusal's retry-after overflowed `Duration::from_secs_f64`. It now saturates at `Duration::MAX`. An infinite rate never refuses.

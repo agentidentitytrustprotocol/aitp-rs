@@ -186,6 +186,45 @@ fn tct_verify_rejects_garbage_token() {
     assert!(!out.status.success(), "undecodable token must fail verify");
 }
 
+/// Read the `field` token out of a signed-examples KAT file.
+fn kat_token(rel: &str, field: &str) -> String {
+    let raw = std::fs::read_to_string(kat(rel)).unwrap();
+    let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
+    v[field].as_str().unwrap().to_string()
+}
+
+/// `tct inspect` and `tct verify` both refuse `token` and name its `typ`.
+fn assert_tct_commands_name_typ(token: &str, typ: &str) {
+    let want = format!("token typ is \"{typ}\", not a TCT (\"aitp-tct+jwt\")");
+    for args in [
+        vec!["tct", "inspect", "--token", token],
+        vec!["tct", "verify", "--token", token, "--at", "1711900500"],
+    ] {
+        let out = aitp().args(&args).output().unwrap();
+        assert!(!out.status.success(), "{}: must fail", args[1]);
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains(&want), "{}: stderr: {err}", args[1]);
+    }
+}
+
+#[test]
+fn tct_commands_name_delegation_typ() {
+    let token = kat_token(
+        "signed-examples/delegation/single-hop-001-002-003.json",
+        "delegation_token",
+    );
+    assert_tct_commands_name_typ(&token, "aitp-delegation+jwt");
+}
+
+#[test]
+fn tct_commands_name_voucher_typ() {
+    let token = kat_token(
+        "signed-examples/grant-voucher/kat-voucher-001.json",
+        "voucher_token",
+    );
+    assert_tct_commands_name_typ(&token, "aitp-grant+jwt");
+}
+
 #[test]
 fn keygen_rejects_unknown_suite() {
     // `--suite` is a clap ValueEnum (ed25519 | p256); anything else is
