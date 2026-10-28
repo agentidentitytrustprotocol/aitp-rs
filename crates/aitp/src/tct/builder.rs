@@ -59,6 +59,18 @@ pub struct TctBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     attestation: bool,
 }
 
+impl<S: ?Sized> std::fmt::Debug for TctBuilder<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TctBuilder")
+            .field("subject", &self.subject)
+            .field("audience", &self.audience)
+            .field("grants", &self.grants)
+            .field("ttl_secs", &self.ttl_secs)
+            .field("attestation", &self.attestation)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Where the `jti` comes from.
 enum JtiSource {
     Random,

@@ -18,7 +18,7 @@ use uuid::Uuid;
 ///   status under a fail-closed policy returns
 ///   [`TctError::RevocationUnavailable`], which shares the
 ///   `TCT_REVOKED` wire code with `Revoked` but says why.
-pub type RevocationCheckFn<'a> = dyn Fn(&Uuid) -> Result<bool, TctError> + 'a;
+pub type RevocationCheckFn<'a> = dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync + 'a;
 
 /// Inputs for verifying a TCT.
 ///
@@ -140,6 +140,21 @@ pub struct TctVerifyContextBuilder<'a> {
     clock_skew_secs: i64,
     manifest_cap_decided: bool,
     revocation_decided: bool,
+}
+
+impl std::fmt::Debug for TctVerifyContextBuilder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TctVerifyContextBuilder")
+            .field("expected_audience", &self.expected_audience)
+            .field("issuer", &self.issuer)
+            .field("now", &self.now)
+            .field(
+                "issuer_manifest_expires_at",
+                &self.issuer_manifest_expires_at,
+            )
+            .field("clock_skew_secs", &self.clock_skew_secs)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> TctVerifyContextBuilder<'a> {
@@ -484,6 +499,7 @@ impl std::fmt::Debug for AttestationVerifyContext<'_> {
 }
 
 /// Builder for [`AttestationVerifyContext`].
+#[derive(Debug)]
 pub struct AttestationVerifyContextBuilder<'a> {
     ctx: AttestationVerifyContext<'a>,
     manifest_cap_decided: bool,

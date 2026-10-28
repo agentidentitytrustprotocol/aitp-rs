@@ -96,6 +96,18 @@ pub struct RevocationFetcher {
     slots: Mutex<HashMap<Aid, Slot>>,
 }
 
+impl std::fmt::Debug for RevocationFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RevocationFetcher")
+            .field("policy", &self.policy)
+            .field("timeout", &self.timeout)
+            .field("max_bytes", &self.max_bytes)
+            .field("host_guard", &self.host_guard)
+            .field("allow_insecure_localhost", &self.allow_insecure_localhost)
+            .finish_non_exhaustive()
+    }
+}
+
 impl Default for RevocationFetcher {
     fn default() -> Self {
         Self::new(RevocationPolicy::default())

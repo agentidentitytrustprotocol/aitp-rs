@@ -140,6 +140,16 @@ pub struct TokenBucketLimiter {
     buckets: Mutex<Buckets>,
 }
 
+impl std::fmt::Debug for TokenBucketLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenBucketLimiter")
+            .field("burst", &self.burst)
+            .field("per_second", &self.per_second)
+            .field("max_sources", &self.max_sources)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Default)]
 struct Buckets {
     map: HashMap<String, Bucket>,
@@ -246,6 +256,7 @@ impl ChallengeRateLimiter for TokenBucketLimiter {
 /// [`Default`] uses RFC-AITP-0009 §3.1's RECOMMENDED rates: 30 per minute
 /// per source address, 10 per minute per claimed AID, each with a burst
 /// equal to the minute's budget.
+#[derive(Debug)]
 pub struct RecommendedLimiter {
     transport: TokenBucketLimiter,
     label: Option<TokenBucketLimiter>,

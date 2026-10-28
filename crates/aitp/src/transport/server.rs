@@ -101,6 +101,7 @@ pub trait RevocationListProducer: Send + Sync + 'static {
 
 /// Server that exposes `/.well-known/aitp-manifest` returning
 /// `{"manifest": <inner>}`.
+#[derive(Debug)]
 pub struct ManifestServer {
     manifest: Arc<Manifest>,
 }
@@ -226,6 +227,14 @@ where
 pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     state: Arc<HandshakeState<R>>,
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
+}
+
+impl<R: JwksResolver + Send + Sync + 'static> std::fmt::Debug for HandshakeServer<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandshakeServer")
+            .field("aid", &self.state.manifest.aid)
+            .finish_non_exhaustive()
+    }
 }
 
 /// Sliding-window rate-limit policy for the handshake endpoint

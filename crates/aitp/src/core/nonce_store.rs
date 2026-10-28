@@ -215,6 +215,15 @@ pub struct InMemoryNonceStore {
     hasher: std::collections::hash_map::RandomState,
 }
 
+impl std::fmt::Debug for InMemoryNonceStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InMemoryNonceStore")
+            .field("capacity", &self.capacity)
+            .field("outstanding", &self.outstanding)
+            .finish_non_exhaustive()
+    }
+}
+
 impl InMemoryNonceStore {
     /// Default bound on outstanding nonces.
     pub const DEFAULT_CAPACITY: usize = 100_000;

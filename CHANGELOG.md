@@ -52,6 +52,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - SPIFFE leaves the stable surface: `SvidType` and the `IdentityDescriptor` fields `svid_type` and `x5c` are no longer public, and `aitp_experimental::spiffe` reads them. A `spiffe` descriptor serializes to the same bytes as before. `scripts/check-stable-experimental.py` also fails on `svid` and `x5c`.
   - Seam migration:
     - `aitp::core::nonce_store::BoxFuture` and `aitp::crypto::signer::BoxFuture` → `aitp::core::BoxFuture`.
+- `aitp`'s handshake future and the configuration it holds are `Send`, so `run_initiator_handshake` can run in a spawned task:
+  - `JwksResolver` requires `Send + Sync`.
+  - `OidcMintJwtFn` is `dyn Fn(&str) -> Result<String, OidcMintError> + Send + Sync`. The new `OidcMintError` wraps the callback's error (`OidcMintError::new(e)` takes any error or message), where the callback used to return `String`. `PresentedIdentity::OidcMinter` takes the new `LocalOidcMintJwtFn`, the same callback without `Send + Sync`, which a `Box<OidcMintJwtFn>` coerces into.
+  - The TCT `RevocationCheckFn` and the delegation `SourceRevocationCheck` require `Send + Sync`.
+  - `tests/send_sync_probe.rs` fails to compile if one of these, `PeerConfig`, `InitiatorConfig` or the `HandshakeServer::serve` future stops being `Send`.
+- `PeerConfig` and `IdentityVerifyContext` are no longer `Copy`; clone them.
+- Every public type of `aitp` implements `Debug`. Signing keys, nonces, caches and callbacks are not printed.
 
 ### Added
 

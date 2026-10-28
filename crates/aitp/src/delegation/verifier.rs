@@ -18,7 +18,8 @@ use uuid::Uuid;
 /// revoked?` against the verifier's own deny list. Returns
 /// `Err(DelegationError::RevocationUnavailable(_))` when the status
 /// cannot be determined, so "unknown" is never read as "not revoked".
-pub type SourceRevocationCheck<'a> = dyn Fn(&Uuid) -> Result<bool, DelegationError> + 'a;
+pub type SourceRevocationCheck<'a> =
+    dyn Fn(&Uuid) -> Result<bool, DelegationError> + Send + Sync + 'a;
 
 /// Where delegation verification gets revocation status (RFC-AITP-0008).
 ///

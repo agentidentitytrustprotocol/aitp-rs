@@ -265,6 +265,17 @@ pub struct PinnedAdmissionBuilder {
     subject: SubjectBinding,
 }
 
+impl std::fmt::Debug for PinnedAdmissionBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedAdmissionBuilder")
+            .field("verifier_aid", &self.verifier_aid)
+            .field("ttl", &self.ttl)
+            .field("tolerance_secs", &self.tolerance_secs)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
+}
+
 impl PinnedAdmissionBuilder {
     /// Challenge lifetime, clamped to `1s..=`[`MAX_NONCE_TTL`]. Default
     /// [`MAX_NONCE_TTL`].
@@ -342,6 +353,17 @@ pub struct PinnedAdmission {
     ttl: Duration,
     tolerance_secs: i64,
     subject: SubjectBinding,
+}
+
+impl std::fmt::Debug for PinnedAdmission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedAdmission")
+            .field("verifier_aid", &self.verifier_aid)
+            .field("ttl", &self.ttl)
+            .field("tolerance_secs", &self.tolerance_secs)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PinnedAdmission {

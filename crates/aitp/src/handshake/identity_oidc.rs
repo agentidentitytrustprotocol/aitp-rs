@@ -14,7 +14,7 @@ use url::Url;
 ///
 /// Implementations MAY return Ed25519 (`OKP`) keys, RSA keys, or both.
 /// Each key is identified by a `kid` and an algorithm.
-pub trait JwksResolver {
+pub trait JwksResolver: Send + Sync {
     /// Return the set of acceptable signing keys for `issuer`.
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError>;
 }

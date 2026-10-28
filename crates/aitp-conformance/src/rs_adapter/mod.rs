@@ -1466,7 +1466,7 @@ fn manifest_error_code(e: &aitp::manifest::ManifestError) -> String {
 }
 
 fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, Ordering};
     // The v0.2 TCT is an opaque compact JWS string, supplied as
     // `tct_token` (preferred) or `tct`.
     let token = match params
@@ -1602,9 +1602,9 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
     // rev-004 instrumentation: record whether the revocation source
     // was consulted at all, to pin the RFC-AITP-0008 §3.3 ordering
     // (signature verification MUST precede any revocation lookup).
-    let lookup_called = Cell::new(false);
+    let lookup_called = AtomicBool::new(false);
     let check = |jti: &Uuid| {
-        lookup_called.set(true);
+        lookup_called.store(true, Ordering::Relaxed);
         if absent_is_revoked {
             return Err(aitp::tct::TctError::RevocationUnavailable(
                 absent_reason.clone(),
@@ -1656,7 +1656,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
             let mut result = json!({"verified": true, "grants": grants});
             if instrumented {
                 result["side_effects"] = json!({
-                    "revocation_lookup_called": lookup_called.get(),
+                    "revocation_lookup_called": lookup_called.load(Ordering::Relaxed),
                     "network_fetch_called": false,
                 });
             }
