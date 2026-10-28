@@ -10,7 +10,8 @@ use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder};
 use aitp::tct::{sign_revocation_list, RevocationList, RevocationListEnvelope, TctBuilder};
 use aitp::transport::RevocationListProducer;
 use aitp_experimental::renewal::{
-    renew_tct, renew_tct_with_insecure_localhost, RenewClientError, RenewalServer, RENEW_URI_EXT,
+    renew_tct, renew_tct_with_insecure_localhost_dangerous, RenewClientError, RenewalServer,
+    RENEW_URI_EXT,
 };
 use std::net::SocketAddr;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -100,9 +101,10 @@ async fn renews_at_the_advertised_uri() {
     );
     spawn_renewal([0x60; 32], &m, listener);
 
-    let renewed = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
-        .await
-        .expect("renewal at the advertised URI");
+    let renewed =
+        renew_tct_with_insecure_localhost_dangerous(&holder, held_tct(&issuer, &holder), &m)
+            .await
+            .expect("renewal at the advertised URI");
     // The response was a signed `tct` envelope from the issuer whose
     // renewed TCT is addressed to the holder (RFC-AITP-0013 §6.1).
     assert_eq!(&renewed.tct.claims().sub, holder.aid());
@@ -110,7 +112,7 @@ async fn renews_at_the_advertised_uri() {
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.
-    renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
+    renew_tct_with_insecure_localhost_dangerous(&holder, held_tct(&issuer, &holder), &m)
         .await
         .expect("fresh nonce renews again");
 }
@@ -149,7 +151,7 @@ async fn no_renew_uri_means_no_request() {
         .offer("demo.echo")
         .build()
         .unwrap();
-    let err = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
+    let err = renew_tct_with_insecure_localhost_dangerous(&holder, held_tct(&issuer, &holder), &m)
         .await
         .unwrap_err();
     assert!(
@@ -159,7 +161,7 @@ async fn no_renew_uri_means_no_request() {
 
     // Non-HTTPS (non-loopback) URIs are not usable either.
     let m = manifest(&issuer, Some("http://issuer.example/renew".into()));
-    let err = renew_tct_with_insecure_localhost(&holder, held_tct(&issuer, &holder), &m)
+    let err = renew_tct_with_insecure_localhost_dangerous(&holder, held_tct(&issuer, &holder), &m)
         .await
         .unwrap_err();
     assert!(
@@ -205,7 +207,7 @@ async fn refusal_is_surfaced_with_its_code() {
         .unwrap()
         .into_parts()
         .token;
-    let err = renew_tct_with_insecure_localhost(&holder, withdrawn.to_string(), &m)
+    let err = renew_tct_with_insecure_localhost_dangerous(&holder, withdrawn.to_string(), &m)
         .await
         .unwrap_err();
     match err {

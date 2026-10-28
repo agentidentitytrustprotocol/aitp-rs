@@ -55,6 +55,6 @@ pub use wire::{
 };
 
 #[cfg(feature = "http-client")]
-pub use client::{renew_tct, renew_tct_with_insecure_localhost, RenewClientError};
+pub use client::{renew_tct, renew_tct_with_insecure_localhost_dangerous, RenewClientError};
 #[cfg(feature = "http-server")]
 pub use server::{RenewalServer, RenewalServerError};

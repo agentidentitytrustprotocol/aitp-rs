@@ -41,7 +41,7 @@ pub enum RenewClientError {
 /// `rfc-aitp-0005.renew_uri` (RFC-AITP-0013 §2).
 ///
 /// `issuer_manifest` is the issuer's verified Manifest. Only an `https`
-/// `renew_uri` is used; see [`renew_tct_with_insecure_localhost`]. With
+/// `renew_uri` is used; see [`renew_tct_with_insecure_localhost_dangerous`]. With
 /// no usable `renew_uri` this returns [`RenewClientError::NotAdvertised`]
 /// without sending anything. The endpoint is resolved through a default
 /// [`HostGuard`], with redirects off and a 10 s timeout. The answer is
@@ -59,7 +59,7 @@ pub async fn renew_tct(
 /// `localhost` / `127.0.0.1` and admits loopback addresses through the
 /// host guard ([`HostGuard::allow_loopback_dangerous`]). Never use it in
 /// production.
-pub async fn renew_tct_with_insecure_localhost(
+pub async fn renew_tct_with_insecure_localhost_dangerous(
     holder_key: &dyn AitpSigner,
     current: String,
     issuer_manifest: &Manifest,

@@ -134,6 +134,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seam migration: none.
 - `TctError::RevocationUnavailable` and `DelegationError::RevocationUnavailable` are `#[error(transparent)]`, the convention for a variant that wraps one typed error unchanged. The message is the same, `revocation source unavailable: <reason>`, and appears once. `Error::source()` on these variants now forwards to the wrapped `RevocationUnavailable`'s source (none) and no longer returns the `RevocationUnavailable` itself, so a source-chain walk no longer prints the message twice. Match the variant to reach the `RevocationUnavailable`.
   - Seam migration: none.
+- `aitp-experimental` follows the `_dangerous` naming rule of STABILITY.md: `RenewalServer::without_rate_limit` is `without_rate_limit_dangerous`, like `HandshakeServer::without_rate_limit_dangerous`, and `renewal::renew_tct_with_insecure_localhost` is `renew_tct_with_insecure_localhost_dangerous`, like `InitiatorConfig::with_insecure_localhost_dangerous`. Behaviour is unchanged, and no Python or JavaScript name changes.
+  - Seam migration: none.
 
 ### Added
 

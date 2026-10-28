@@ -478,7 +478,7 @@ async fn missing_connect_info_is_internal_error() {
 async fn without_rate_limit_serves_without_connect_info() {
     use tower::ServiceExt;
     let app = renewal(manifest(true, 86_400))
-        .without_rate_limit()
+        .without_rate_limit_dangerous()
         .router()
         .unwrap();
     let holder = AitpSigningKey::from_ed25519_seed(&[0x0c; 32]);

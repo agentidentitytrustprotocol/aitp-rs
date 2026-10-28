@@ -132,8 +132,10 @@ impl RenewalServer {
         self
     }
 
-    /// Turn the rate limit off.
-    pub fn without_rate_limit(mut self) -> Self {
+    /// Turn the built-in rate limiter off. Use this only when a layer in
+    /// front of the server (an API gateway, a shared limiter in
+    /// middleware) limits requests per transport source.
+    pub fn without_rate_limit_dangerous(mut self) -> Self {
         self.rate_limit = None;
         self
     }
