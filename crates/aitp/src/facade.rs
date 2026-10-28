@@ -406,20 +406,22 @@ async fn read_aitp_envelope_response(
 /// so it is SSRF-guarded exactly like the Manifest/JWKS fetch paths:
 /// redirects rejected, resolved addresses classified by a default
 /// [`HostGuard`] (link-local/metadata always denied; private ranges
-/// warn), and for domain hosts the vetted addresses pinned into the
+/// denied), and for domain hosts the vetted addresses pinned into the
 /// client to close the DNS-rebinding window.
 ///
-/// The `guard` and `timeout` come from [`InitiatorConfig`] on the
-/// handshake path (default `WarnPrivate` + 10s, so the local two-agent
-/// demo over `http://localhost` works once it opts in with
-/// [`InitiatorConfig::with_insecure_localhost`]).
+/// The `guard`, `timeout` and loopback allowance come from
+/// [`InitiatorConfig`] on the handshake path (default `DenyPrivate` +
+/// 10s; the local two-agent demo over `http://localhost` opts in with
+/// [`InitiatorConfig::with_insecure_localhost_dangerous`], which admits
+/// loopback addresses here).
 async fn build_guarded_client(
     endpoint: &url::Url,
     timeout: Duration,
     guard: &HostGuard,
+    allow_loopback: bool,
 ) -> Result<reqwest::Client, FacadeError> {
     let addrs = guard
-        .resolve_checked(endpoint)
+        .resolve_checked_with(endpoint, allow_loopback)
         .await
         .map_err(|e| FacadeError::Http(format!("handshake endpoint rejected: {e}")))?;
     let mut builder = reqwest::Client::builder()
@@ -440,11 +442,16 @@ async fn build_guarded_client(
 pub async fn run_initiator_handshake(
     config: InitiatorConfig<'_>,
 ) -> Result<SessionContext, FacadeError> {
-    let manifest_fetcher = ManifestFetcher::new()
+    let mut manifest_fetcher = ManifestFetcher::new()
         .with_timeout(config.http_timeout)
-        .with_host_guard(config.host_guard.clone())
-        .with_insecure_localhost(config.allow_insecure_localhost);
-    let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
+        .with_host_guard(config.host_guard.clone());
+    if config.insecure_localhost {
+        manifest_fetcher = manifest_fetcher.with_insecure_localhost_dangerous();
+    }
+    let peer_manifest = manifest_fetcher
+        .fetch(&config.peer_origin)
+        .await?
+        .into_manifest();
     // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake if
     // the peer doesn't accept the identity type we'd present. Checking
     // here — right after the Manifest fetch, before the HELLO — yields
@@ -516,8 +523,13 @@ pub async fn run_initiator_handshake(
         .parse_url()
         .map_err(|e| FacadeError::Http(format!("handshake_endpoint not a URL: {e}")))?;
     // SSRF-guard the peer-chosen handshake endpoint before any POST.
-    let client =
-        build_guarded_client(&endpoint_url, config.http_timeout, &config.host_guard).await?;
+    let client = build_guarded_client(
+        &endpoint_url,
+        config.http_timeout,
+        &config.host_guard,
+        config.insecure_localhost,
+    )
+    .await?;
 
     let hello_url = endpoint_url
         .join("hello")
@@ -619,9 +631,11 @@ pub async fn run_initiator_handshake(
     // RFC-AITP-0008: fetch the peer's revocation snapshot from the URL
     // its handshake-bound Manifest advertises, then check the peer's TCT
     // against it under `config.revocation_policy` (fail_closed default).
-    let fetcher = RevocationFetcher::new(config.revocation_policy.clone())
-        .with_host_guard(config.host_guard.clone())
-        .with_insecure_localhost(config.allow_insecure_localhost);
+    let mut fetcher = RevocationFetcher::new(config.revocation_policy.clone())
+        .with_host_guard(config.host_guard.clone());
+    if config.insecure_localhost {
+        fetcher = fetcher.with_insecure_localhost_dangerous();
+    }
     let prepared = fetcher
         .prepare(
             &peer_manifest.aid,
@@ -679,7 +693,6 @@ pub async fn run_initiator_handshake(
 ///     requested_grants: vec![],
 ///     http_timeout: Duration::from_secs(10),
 ///     host_guard: HostGuard::default(),
-///     allow_insecure_localhost: false,
 ///     revocation_policy: Default::default(),
 /// }
 /// # }
@@ -713,17 +726,14 @@ pub struct InitiatorConfig<'a> {
     /// POSTs. Default 10s ([`InitiatorConfig::new`]); override with
     /// [`InitiatorConfig::with_http_timeout`].
     pub http_timeout: Duration,
-    /// SSRF guard applied to the peer-derived Manifest origin and
-    /// handshake endpoint. Default [`HostGuard::default`] (`WarnPrivate`)
-    /// so the local demo keeps working; internet-facing callers should
-    /// pass [`HostGuard::strict`] via
+    /// SSRF guard applied to the peer-derived Manifest origin,
+    /// handshake endpoint and revocation list URL. Default
+    /// [`HostGuard::default`] (`DenyPrivate`); intranet callers pass
+    /// `HostGuard::new(GuardMode::WarnPrivate)` via
     /// [`InitiatorConfig::with_host_guard`].
     pub host_guard: HostGuard,
-    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin for
-    /// the Manifest fetch (local dev only). Default `false`; enable with
-    /// [`InitiatorConfig::with_insecure_localhost`]. See
-    /// [`ManifestFetcher::with_insecure_localhost`].
-    pub allow_insecure_localhost: bool,
+    /// Set by [`InitiatorConfig::with_insecure_localhost_dangerous`].
+    insecure_localhost: bool,
     /// How the peer-issued TCT's revocation status is checked
     /// (RFC-AITP-0008). Default `fail_closed`: a peer whose Manifest
     /// advertises no reachable, valid `ListRevoked` snapshot is refused
@@ -741,7 +751,7 @@ impl<'a> InitiatorConfig<'a> {
     /// use std::time::Duration;
     /// use aitp::facade::{InitiatorConfig, TrustMode, IdentityMode};
     /// use aitp::handshake::StaticPinnedKeyStore;
-    /// use aitp::transport::HostGuard;
+    /// use aitp::transport::{GuardMode, HostGuard};
     /// # fn demo(
     /// #     key: &aitp::crypto::AitpSigningKey,
     /// #     manifest: &aitp::manifest::Manifest,
@@ -757,9 +767,9 @@ impl<'a> InitiatorConfig<'a> {
     ///     IdentityMode::PinnedKey { subject: "alice".into() },
     ///     vec!["demo.echo".into()],
     /// )
-    /// // Internet-facing: reject peers that resolve to private space,
+    /// // Intranet: allow peers on private addresses (with a warning),
     /// // and cap the handshake at 5s.
-    /// .with_host_guard(HostGuard::strict())
+    /// .with_host_guard(HostGuard::new(GuardMode::WarnPrivate))
     /// .with_http_timeout(Duration::from_secs(5));
     /// # let _ = config;
     /// # }
@@ -784,7 +794,7 @@ impl<'a> InitiatorConfig<'a> {
             requested_grants,
             http_timeout: Duration::from_secs(10),
             host_guard: HostGuard::default(),
-            allow_insecure_localhost: false,
+            insecure_localhost: false,
             revocation_policy: RevocationPolicy::default(),
         }
     }
@@ -795,18 +805,22 @@ impl<'a> InitiatorConfig<'a> {
         self
     }
 
-    /// Override the SSRF [`HostGuard`] applied to peer-derived hosts.
-    /// Use [`HostGuard::strict`] for internet-facing deployments.
+    /// Override the SSRF [`HostGuard`] applied to peer-derived hosts
+    /// (default `DenyPrivate`).
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
         self
     }
 
-    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin
-    /// (default `false`). For local demos and tests only; RFC-AITP-0003
-    /// §4.1 requires HTTPS for the Manifest endpoint.
-    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
-        self.allow_insecure_localhost = allow;
+    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin and
+    /// revocation list URL, and admit loopback addresses (`127.0.0.0/8`,
+    /// `::1`) through the host guard for the Manifest fetch, handshake
+    /// endpoint and revocation list ([`HostGuard::allow_loopback_dangerous`]).
+    /// For local demos and tests; RFC-AITP-0003 §4.1 requires HTTPS for
+    /// the Manifest endpoint. See
+    /// [`ManifestFetcher::with_insecure_localhost_dangerous`].
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 
@@ -1178,8 +1192,9 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(10));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::WarnPrivate
+            crate::transport::GuardMode::DenyPrivate
         );
+        assert!(!cfg.insecure_localhost);
     }
 
     #[test]
@@ -1196,12 +1211,14 @@ mod initiator_config_knobs {
             vec!["demo.echo".into()],
         )
         .with_http_timeout(Duration::from_secs(3))
-        .with_host_guard(HostGuard::strict());
+        .with_host_guard(HostGuard::new(crate::transport::GuardMode::WarnPrivate))
+        .with_insecure_localhost_dangerous();
         assert_eq!(cfg.http_timeout, Duration::from_secs(3));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::DenyPrivate
+            crate::transport::GuardMode::WarnPrivate
         );
+        assert!(cfg.insecure_localhost);
     }
 }
 

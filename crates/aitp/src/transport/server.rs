@@ -646,7 +646,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// this only when a layer in front of the server (an API gateway, a
     /// shared limiter in middleware) enforces it, keyed on the
     /// transport source.
-    pub fn without_rate_limit(self) -> Self {
+    pub fn without_rate_limit_dangerous(self) -> Self {
         *self.state.rate_limit_config.lock() = None;
         self
     }
@@ -728,7 +728,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` after `without_rate_limit`.
+    /// Returns `Allow` after `without_rate_limit_dangerous`.
     #[cfg(test)]
     pub(crate) fn enforce_rate_limit(
         &self,

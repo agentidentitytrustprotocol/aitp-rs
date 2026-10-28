@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // verified Manifest's pinned public key becomes our trust anchor.
     // The demo runs over plain HTTP on localhost, which is refused
     // unless opted in (here and on the InitiatorConfig below).
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let bob_manifest = wait_for_peer(&fetcher, &peer_origin).await?;
     println!("agent-a: fetched B's manifest, AID = {}", bob_manifest.aid);
 
@@ -68,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await?;
     println!(
@@ -101,7 +101,7 @@ async fn wait_for_peer(
 ) -> Result<aitp::manifest::Manifest, Box<dyn std::error::Error>> {
     for attempt in 0..40 {
         match fetcher.fetch(peer_origin).await {
-            Ok(manifest) => return Ok(manifest),
+            Ok(manifest) => return Ok(manifest.into_manifest()),
             Err(_) if attempt < 39 => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }

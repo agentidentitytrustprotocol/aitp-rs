@@ -70,7 +70,7 @@ pub async fn handshake(
             },
             vec![WORK_CAPABILITY.into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .context("initiator handshake")?;
@@ -83,10 +83,10 @@ pub async fn handshake(
 
 /// Poll the worker's Manifest endpoint until it comes up (or time out).
 async fn wait_for_worker(worker_origin: &Url) -> anyhow::Result<Manifest> {
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     for attempt in 0..40 {
         match fetcher.fetch(worker_origin).await {
-            Ok(manifest) => return Ok(manifest),
+            Ok(manifest) => return Ok(manifest.into_manifest()),
             Err(_) if attempt < 39 => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }

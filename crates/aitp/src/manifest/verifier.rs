@@ -26,7 +26,29 @@ impl VerifyManifestContext {
     }
 }
 
-/// Verify a Manifest per RFC-AITP-0003 §5.
+/// A Manifest that has passed [`verify_manifest`]. Only
+/// [`verify_manifest`] produces one, so a value of this type is a
+/// Manifest that was verified (at the context's `now`); its expiry
+/// still applies afterwards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedManifest {
+    manifest: Manifest,
+}
+
+impl VerifiedManifest {
+    /// The verified Manifest.
+    pub fn manifest(&self) -> &Manifest {
+        &self.manifest
+    }
+
+    /// Unwrap the verified Manifest.
+    pub fn into_manifest(self) -> Manifest {
+        self.manifest
+    }
+}
+
+/// Verify a Manifest per RFC-AITP-0003 §5 and return it as a
+/// [`VerifiedManifest`].
 ///
 /// Verification order:
 ///
@@ -52,7 +74,7 @@ impl VerifyManifestContext {
 pub fn verify_manifest(
     manifest: &Manifest,
     ctx: &VerifyManifestContext,
-) -> Result<(), ManifestError> {
+) -> Result<VerifiedManifest, ManifestError> {
     // 1. Version check.
     if manifest.version != crate::core::PROTOCOL_VERSION {
         return Err(ManifestError::VersionUnknown);
@@ -129,7 +151,9 @@ pub fn verify_manifest(
         }
     }
 
-    Ok(())
+    Ok(VerifiedManifest {
+        manifest: manifest.clone(),
+    })
 }
 
 /// Parse a raw wire-form JSON value into a [`Manifest`], enforcing

@@ -41,9 +41,12 @@ pub(crate) struct NetOpts {
 
 impl NetOpts {
     fn fetcher(&self) -> ManifestFetcher {
-        ManifestFetcher::new()
-            .with_timeout(self.timeout)
-            .with_insecure_localhost(self.insecure_localhost)
+        let fetcher = ManifestFetcher::new().with_timeout(self.timeout);
+        if self.insecure_localhost {
+            fetcher.with_insecure_localhost_dangerous()
+        } else {
+            fetcher
+        }
     }
 }
 
@@ -165,7 +168,8 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
                 .fetcher()
                 .fetch(&args.peer)
                 .await
-                .map_err(FacadeError::from)?;
+                .map_err(FacadeError::from)?
+                .into_manifest();
             eprintln!(
                 "aitp: trusting peer {} from its Manifest (trust on first use; \
                  pass --peer-aid to pin it)",
@@ -199,8 +203,10 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
         },
         args.grants.clone(),
     )
-    .with_http_timeout(args.net.timeout)
-    .with_insecure_localhost(args.net.insecure_localhost);
+    .with_http_timeout(args.net.timeout);
+    if args.net.insecure_localhost {
+        config = config.with_insecure_localhost_dangerous();
+    }
     if args.revocation_fail_open {
         config = config.with_revocation_policy(
             RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
@@ -317,7 +323,8 @@ async fn post<B: serde::Serialize, T: serde::de::DeserializeOwned>(
 pub(crate) fn manifest_fetch(peer: url::Url, net: NetOpts) -> CliResult {
     let manifest = runtime()?
         .block_on(net.fetcher().fetch(&peer))
-        .map_err(FacadeError::from)?;
+        .map_err(FacadeError::from)?
+        .into_manifest();
     // Same envelope shape `aitp manifest verify` reads, so the two pipe.
     let envelope = ManifestEnvelope::new(manifest);
     println!("{}", serde_json::to_string_pretty(&envelope)?);

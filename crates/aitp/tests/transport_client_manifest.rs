@@ -37,7 +37,7 @@ async fn malformed_json_response_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -77,7 +77,7 @@ async fn malformed_json_with_correct_content_type_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -104,7 +104,7 @@ async fn non_2xx_upstream_status_returned() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -148,7 +148,7 @@ async fn oversized_response_rejected() {
     tokio::time::sleep(Duration::from_millis(50)).await;
 
     let fetcher = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .with_max_bytes(64 * 1024);
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
@@ -209,7 +209,7 @@ async fn unknown_field_in_manifest_body_reported_distinctly_from_malformed_json(
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -268,7 +268,7 @@ async fn duplicate_top_level_key_in_manifest_body_is_rejected_not_silently_accep
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -296,7 +296,7 @@ async fn malformed_wrapper_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -362,7 +362,7 @@ async fn unwrapped_valid_manifest_body_rejected_as_malformed_wrapper() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -383,7 +383,7 @@ async fn timeout_when_server_hangs() {
     let port = listener.local_addr().unwrap().port();
     // Hold the listener; do not call accept.
     let fetcher = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .with_timeout(Duration::from_millis(150));
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
@@ -425,7 +425,7 @@ async fn redirects_are_rejected() {
     });
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let err = fetcher
         .fetch(&format!("http://localhost:{port}").parse().unwrap())
         .await
@@ -452,40 +452,62 @@ async fn forbidden_literal_host_rejected_by_guard() {
 }
 
 #[tokio::test]
-async fn private_literal_host_rejected_by_strict_guard() {
-    use aitp::transport::HostGuard;
-    let fetcher = ManifestFetcher::new().with_host_guard(HostGuard::strict());
+async fn private_literal_host_rejected_by_default_guard() {
+    let fetcher = ManifestFetcher::new();
     let url: Url = "https://10.255.255.1".parse().unwrap();
     let err = fetcher.fetch(&url).await.unwrap_err();
     assert!(
         matches!(err, FetchError::InsecureUrl),
-        "expected InsecureUrl (strict guard), got: {err:?}"
+        "expected InsecureUrl (DenyPrivate guard), got: {err:?}"
+    );
+}
+
+#[tokio::test]
+async fn private_literal_host_rejected_with_insecure_localhost() {
+    // The localhost opt-in admits loopback only, not other private ranges.
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
+    let url: Url = "https://10.255.255.1".parse().unwrap();
+    let err = fetcher.fetch(&url).await.unwrap_err();
+    assert!(
+        matches!(err, FetchError::InsecureUrl),
+        "expected InsecureUrl (DenyPrivate guard), got: {err:?}"
     );
 }
 
 #[tokio::test]
 async fn guard_mode_decides_loopback_domain_over_https() {
-    use aitp::transport::HostGuard;
+    use aitp::transport::{GuardMode, HostGuard};
     // Nothing listens on this port; what matters is *which* error we
-    // get. Default (WarnPrivate) guard: loopback is allowed, the fetch
-    // proceeds through the pinned-client path, and fails as a network
-    // error. Strict guard: rejected up front as InsecureUrl.
+    // get. Allowed: the fetch proceeds through the pinned-client path
+    // and fails as a network error. Refused: InsecureUrl up front.
     let url: Url = "https://localhost:47999".parse().unwrap();
+    let allowed = |err: &FetchError| matches!(err, FetchError::Network(_) | FetchError::Timeout);
 
-    let permissive_err = ManifestFetcher::new().fetch(&url).await.unwrap_err();
+    // Default (DenyPrivate): loopback refused.
+    let err = ManifestFetcher::new().fetch(&url).await.unwrap_err();
     assert!(
-        matches!(permissive_err, FetchError::Network(_) | FetchError::Timeout),
-        "default guard should allow loopback (then fail to connect), got: {permissive_err:?}"
+        matches!(err, FetchError::InsecureUrl),
+        "default guard should reject loopback, got: {err:?}"
     );
 
-    let strict_err = ManifestFetcher::new()
-        .with_host_guard(HostGuard::strict())
+    // WarnPrivate, or the localhost opt-in: loopback allowed.
+    let err = ManifestFetcher::new()
+        .with_host_guard(HostGuard::new(GuardMode::WarnPrivate))
         .fetch(&url)
         .await
         .unwrap_err();
     assert!(
-        matches!(strict_err, FetchError::InsecureUrl),
-        "strict guard should reject loopback, got: {strict_err:?}"
+        allowed(&err),
+        "WarnPrivate should allow loopback, got: {err:?}"
+    );
+    let err = ManifestFetcher::new()
+        .with_insecure_localhost_dangerous()
+        .fetch(&url)
+        .await
+        .unwrap_err();
+    assert!(
+        allowed(&err),
+        "the localhost opt-in should admit loopback, got: {err:?}"
     );
 }
 
@@ -508,22 +530,11 @@ async fn insecure_localhost_refused_by_default() {
 async fn insecure_localhost_opt_in_allows_dev_origin() {
     // Nothing listens on port 1: with the opt-in the scheme check
     // passes and the fetch fails at connect, not as InsecureUrl.
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let url: Url = "http://127.0.0.1:1".parse().unwrap();
     let err = fetcher.fetch(&url).await.unwrap_err();
     assert!(
         matches!(err, FetchError::Network(_) | FetchError::Timeout),
         "opt-in should get past the scheme check, got: {err:?}"
-    );
-}
-
-#[tokio::test]
-async fn insecure_localhost_flag_disables_dev_exception() {
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(false);
-    let url: Url = "http://127.0.0.1:1".parse().unwrap();
-    let err = fetcher.fetch(&url).await.unwrap_err();
-    assert!(
-        matches!(err, FetchError::InsecureUrl),
-        "expected InsecureUrl with the dev exception disabled, got: {err:?}"
     );
 }

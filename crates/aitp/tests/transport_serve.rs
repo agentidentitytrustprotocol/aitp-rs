@@ -77,11 +77,11 @@ async fn a_handshake_server_also_serves_its_manifest() {
     );
 
     let fetched = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .fetch(&origin.parse::<Url>().unwrap())
         .await
         .unwrap();
-    assert_eq!(fetched.signature, manifest.signature);
+    assert_eq!(fetched.manifest().signature, manifest.signature);
 
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), task)
@@ -148,11 +148,11 @@ async fn a_manifest_server_serves_until_shutdown() {
     ));
 
     let fetched = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .fetch(&origin.parse::<Url>().unwrap())
         .await
         .unwrap();
-    assert_eq!(fetched.aid, manifest.aid);
+    assert_eq!(fetched.manifest().aid, manifest.aid);
 
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), task)

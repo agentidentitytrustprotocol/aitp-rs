@@ -104,13 +104,13 @@ routing does not, for a conversation this short-lived.
 
 Independent of clustering, production servers/clients should set:
 
-- **SSRF guard** on peer-derived fetches — `ManifestFetcher` and
-  `JwksFetcher` default to `HostGuard::default()`, i.e.
-  `GuardMode::WarnPrivate` (link-local/metadata always denied, private
-  ranges logged but allowed). Call `.with_host_guard(HostGuard::strict())`
-  (`GuardMode::DenyPrivate`) on internet-facing deployments where no
-  legitimate peer/IdP host is on a private network. (See
-  [`transport-hardening.md`](transport-hardening.md).)
+- **SSRF guard** on peer-derived fetches — `ManifestFetcher`,
+  `JwksFetcher`, `RevocationFetcher` and `InitiatorConfig` default to
+  `HostGuard::default()`, i.e. `GuardMode::DenyPrivate` (link-local/metadata
+  and private ranges denied). An intranet deployment whose peers or IdP
+  live on private addresses calls
+  `.with_host_guard(HostGuard::new(GuardMode::WarnPrivate))` (allowed,
+  logged). (See [`transport-hardening.md`](transport-hardening.md).)
 - **Revocation list (`ListRevoked`)** — required of every TCT issuer
   (RFC-AITP-0005 §11, RFC-AITP-0008 §1.4). `HandshakeServer::router`
   always serves it at `REVOCATION_LIST_PATH`. Without a
@@ -152,14 +152,17 @@ Independent of clustering, production servers/clients should set:
   limit on top of the transport key, as §3.1 requires. The hello/commit
   handlers apply the §3.1 check order: replay deny list, then rate limit,
   then timestamp. Counters are per node; for hard global limits, enforce
-  at the edge and call `.without_rate_limit()` only if that edge keys on
+  at the edge and call `.without_rate_limit_dangerous()` only if that edge keys on
   the transport source. The spec's defaults and check order are in
   [RFC-AITP-0009 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0009-security.md#31-rate-limiting).
 - **HTTPS everywhere** — the fetchers reject non-HTTPS URLs
-  (RFC-AITP-0003 §4.1). `ManifestFetcher` accepts `http://localhost` /
-  `http://127.0.0.1` only after `.with_insecure_localhost(true)` (and the
-  facade only after `InitiatorConfig::with_insecure_localhost(true)`);
-  the default is `false`. Never enable it in production.
+  (RFC-AITP-0003 §4.1). `ManifestFetcher` and `RevocationFetcher` accept
+  `http://localhost` / `http://127.0.0.1` only after
+  `.with_insecure_localhost_dangerous()` (and the facade only after
+  `InitiatorConfig::with_insecure_localhost_dangerous()`). The same call
+  admits loopback addresses (`127.0.0.0/8`, `::1`), and only those,
+  through the host guard (`HostGuard::allow_loopback_dangerous`). Never
+  enable it in production.
 - **Observability** — the optional `metrics` feature on
   `aitp` emits low-cardinality counters via the
   [`metrics`](https://docs.rs/metrics) facade (`aitp_handshake_total`,
@@ -180,10 +183,6 @@ Independent of clustering, production servers/clients should set:
   `DEFAULT_MAX_BODY_BYTES` is 256 KiB (RFC: 64 KB for `MUTUAL_HELLO`).
   That is a RECOMMENDED value, so this is a weaker default, not a
   violation.
-- **The SSRF guard warns rather than denies by default.**
-  `HostGuard::default()` is `GuardMode::WarnPrivate`: private ranges are
-  logged but allowed. Internet-facing deployments should call
-  `.with_host_guard(HostGuard::strict())`.
 
 ## Summary
 

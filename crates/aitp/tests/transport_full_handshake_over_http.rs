@@ -207,7 +207,7 @@ async fn run_pinned_handshake(
     )
     .with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([alice.verifying_key()])))
     .with_revocation_fetcher(Arc::new(
-        RevocationFetcher::new(bob_policy).with_insecure_localhost(true),
+        RevocationFetcher::new(bob_policy).with_insecure_localhost_dangerous(),
     ));
 
     let server = tokio::spawn(async move {
@@ -322,7 +322,7 @@ async fn run_pinned_handshake(
 
     // Alice checks Bob's TCT against his served snapshot, fail_closed.
     let prepared = RevocationFetcher::default()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .prepare(
             initiator.peer_aid().unwrap(),
             initiator.peer_revocation_list_uri(),

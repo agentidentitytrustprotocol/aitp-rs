@@ -48,6 +48,28 @@ Adding a variant to one of them is therefore always a breaking change: a
 or outcome enum follows the same rule, and is listed as `exhaustive` with
 that reason in [`docs/api-classification.md`](docs/api-classification.md).
 
+### Options that relax a check end in `_dangerous`
+
+A builder or config method of the stable surface that switches a check
+off or relaxes it ends in `_dangerous` and takes no argument: calling it
+is the opt-in, and not calling it keeps the check. It keeps the prefix of
+the builder it belongs to (`with_` on a `with_*` builder, `without_` for
+turning a feature off, none on a builder whose methods are bare names).
+The ones in `aitp` are `TctVerifyContextBuilder::skip_manifest_expiry_cap_dangerous`,
+`ManifestFetcher::with_insecure_localhost_dangerous`,
+`RevocationFetcher::with_insecure_localhost_dangerous`,
+`InitiatorConfig::with_insecure_localhost_dangerous`,
+`HostGuard::allow_loopback_dangerous` and
+`HandshakeServer::without_rate_limit_dangerous`. A new one follows the
+same rule.
+
+Values of a policy enum keep their names even when they name a weaker
+policy, such as `RevocationFailMode::FailOpen`, `RevocationSource::FailOpen`,
+`GuardMode::WarnPrivate` and `GuardMode::AllowAll`: they are chosen by
+passing them, and their docs say what they relax. The CLI flags (such as
+`--insecure-localhost`) and the SDKs' Python and JavaScript names are not
+Rust identifiers and keep their own names.
+
 ### Behaviour that follows the spec
 
 From 1.0, a change that brings observable behaviour into line with the
