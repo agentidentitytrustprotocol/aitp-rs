@@ -146,9 +146,9 @@ fn pinned_handshake_with_kms_backed_initiator() {
         .unwrap();
 
     // Bob holds a TCT minted through Alice's KMS backend, and vice versa.
-    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
-    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
-    assert_eq!(&alice_holds.tct.claims.sub, alice.aid());
+    assert_eq!(&bob_holds.tct().claims().iss, alice.aid());
+    assert_eq!(&alice_holds.tct().claims().iss, bob.aid());
+    assert_eq!(&alice_holds.tct().claims().sub, alice.aid());
     assert!(
         alice.calls() >= 4,
         "identity proof, PoP, TCT, envelopes all hit the backend"

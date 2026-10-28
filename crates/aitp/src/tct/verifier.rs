@@ -557,14 +557,51 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
 }
 
 /// A verified self-attestation.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAttestation {
+    pub(crate) token: String,
+    pub(crate) claims: TctClaims,
+    pub(crate) statement: serde_json::Value,
+}
+
+impl VerifiedAttestation {
+    /// The compact JWS as received.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Its verified claims.
+    pub fn claims(&self) -> &TctClaims {
+        &self.claims
+    }
+
+    /// `ext[statement_key]`: the attested statement.
+    pub fn statement(&self) -> &serde_json::Value {
+        &self.statement
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedAttestationParts {
+        VerifiedAttestationParts {
+            token: self.token,
+            claims: self.claims,
+            statement: self.statement,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedAttestation`], from [`VerifiedAttestation::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct VerifiedAttestation {
-    /// The compact JWS as received.
+pub struct VerifiedAttestationParts {
+    /// See [`VerifiedAttestation::token`].
     pub token: String,
-    /// Its verified claims.
+    /// See [`VerifiedAttestation::claims`].
     pub claims: TctClaims,
-    /// `ext[statement_key]`: the attested statement.
+    /// See [`VerifiedAttestation::statement`].
     pub statement: serde_json::Value,
 }
 

@@ -34,13 +34,13 @@ pub use revocation::{
     REVOCATION_LIST_MEMBERS,
 };
 pub use types::{
-    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS,
-    TCT_CLAIMS_MEMBERS,
+    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, VerifiedTctParts,
+    GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
 pub use verifier::{
     verify_attestation, verify_tct, verify_voucher, AttestationVerifyContext,
     AttestationVerifyContextBuilder, TctVerifyContext, TctVerifyContextBuilder,
-    TctVerifyContextError, VerifiedAttestation,
+    TctVerifyContextError, VerifiedAttestation, VerifiedAttestationParts,
 };
 
 /// Recommended TCT TTL (1 hour).

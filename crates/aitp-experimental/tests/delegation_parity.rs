@@ -78,18 +78,18 @@ fn both(token: &str, verifier: &Aid, now: Timestamp) -> Result<Vec<String>, Stri
     );
     match (stable, chained) {
         (Ok(s), Ok(c)) => {
-            assert_eq!(s.token, c.token);
+            assert_eq!(s.token(), c.token);
             assert_eq!(
-                (&s.claims.iss, &s.claims.sub, &s.claims.aud),
+                (&s.claims().iss, &s.claims().sub, &s.claims().aud),
                 (&c.claims.iss, &c.claims.sub, &c.claims.aud)
             );
             assert_eq!(
-                (&s.claims.scope, s.claims.exp),
+                (&s.claims().scope, s.claims().exp),
                 (&c.claims.scope, c.claims.exp)
             );
-            assert_eq!(s.claims.cnf.jkt, c.claims.cnf.jkt);
-            assert_eq!(s.voucher, c.voucher);
-            Ok(s.claims.scope)
+            assert_eq!(s.claims().cnf.jkt, c.claims.cnf.jkt);
+            assert_eq!(s.voucher(), &c.voucher);
+            Ok(s.into_parts().claims.scope)
         }
         (Err(s), Err(ChainedDelegationError::Delegation(c))) => {
             assert_eq!(

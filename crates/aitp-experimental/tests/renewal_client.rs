@@ -103,8 +103,8 @@ async fn renews_at_the_advertised_uri() {
         .expect("renewal at the advertised URI");
     // The response was a signed `tct` envelope from the issuer whose
     // renewed TCT is addressed to the holder (RFC-AITP-0013 §6.1).
-    assert_eq!(&renewed.tct.claims.sub, holder.aid());
-    assert_eq!(&renewed.tct.claims.iss, issuer.aid());
+    assert_eq!(&renewed.tct.claims().sub, holder.aid());
+    assert_eq!(&renewed.tct.claims().iss, issuer.aid());
 
     // Each `renew_tct` call draws a fresh nonce, so the replay guard
     // does not trip on a legitimate second renewal.

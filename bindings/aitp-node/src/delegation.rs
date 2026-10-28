@@ -216,7 +216,7 @@ fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp::manif
 
 /// Project a verified delegation's salient fields into the Node-facing type.
 fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> JsDelegationVerified {
-    let claims = &verified.claims;
+    let claims = &verified.claims();
     JsDelegationVerified {
         // The ultimate grantor is the delegation's audience (the verifier),
         // which equals the embedded voucher's issuer.

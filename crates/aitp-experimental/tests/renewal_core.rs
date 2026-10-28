@@ -713,7 +713,7 @@ async fn holder_accepts_the_issuer_response() {
         renewal_response_envelope(&x.issuer, &x.renewed, &x.nonce, Uuid::new_v4(), x.now).unwrap();
     let ctx = RenewalResponseContext::new(x.holder.aid(), &x.current, &x.nonce, x.now);
     let out = verify_renewal_response(&env, &ctx).unwrap();
-    assert_eq!(out.tct.claims.jti, x.renewed.claims.jti);
+    assert_eq!(out.tct.claims().jti, x.renewed.claims.jti);
     assert_eq!(out.grant_voucher, x.renewed.voucher);
 }
 

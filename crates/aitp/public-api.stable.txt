@@ -94,14 +94,14 @@
 #[non_exhaustive] pub struct aitp::core::ids::InvalidTag
 #[non_exhaustive] pub struct aitp::core::nonce_store::IssuedNonce
 #[non_exhaustive] pub struct aitp::delegation::DelegationClaims
-#[non_exhaustive] pub struct aitp::delegation::VerifiedDelegation
+#[non_exhaustive] pub struct aitp::delegation::VerifiedDelegationParts
 #[non_exhaustive] pub struct aitp::delegation::VerifyDelegationContext<'a>
 #[non_exhaustive] pub struct aitp::delegation::types::DelegationClaims
-#[non_exhaustive] pub struct aitp::delegation::types::VerifiedDelegation
+#[non_exhaustive] pub struct aitp::delegation::types::VerifiedDelegationParts
 #[non_exhaustive] pub struct aitp::delegation::verifier::VerifyDelegationContext<'a>
 #[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
-#[non_exhaustive] pub struct aitp::facade::SessionContext
-#[non_exhaustive] pub struct aitp::handshake::CompletedHandshake
+#[non_exhaustive] pub struct aitp::facade::SessionContextParts
+#[non_exhaustive] pub struct aitp::handshake::CompletedHandshakeParts
 #[non_exhaustive] pub struct aitp::handshake::GrantPolicyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::IdentityDescriptor
 #[non_exhaustive] pub struct aitp::handshake::IdentityVerifyContext<'a>
@@ -114,23 +114,23 @@
 #[non_exhaustive] pub struct aitp::handshake::PeerConfig<'a>
 #[non_exhaustive] pub struct aitp::handshake::PinnedKeyEntry
 #[non_exhaustive] pub struct aitp::handshake::PinnedKeyVerifyContext<'a>
-#[non_exhaustive] pub struct aitp::handshake::VerifiedPinnedKey
+#[non_exhaustive] pub struct aitp::handshake::VerifiedPinnedKeyParts
 #[non_exhaustive] pub struct aitp::handshake::admission::AdmissionChallenge
-#[non_exhaustive] pub struct aitp::handshake::admission::Admitted
+#[non_exhaustive] pub struct aitp::handshake::admission::AdmittedParts
 #[non_exhaustive] pub struct aitp::handshake::admission::IdentityPresentationPayload
 #[non_exhaustive] pub struct aitp::handshake::admission::IssuedNonce
 #[non_exhaustive] pub struct aitp::handshake::identity::IdentityDescriptor
 #[non_exhaustive] pub struct aitp::handshake::identity_oidc::OidcVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyEntry
 #[non_exhaustive] pub struct aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'a>
-#[non_exhaustive] pub struct aitp::handshake::identity_pinned::VerifiedPinnedKey
+#[non_exhaustive] pub struct aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 #[non_exhaustive] pub struct aitp::handshake::identity_verifier::IdentityVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::jwk::JwkPublicKey
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitAckPayload
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualCommitPayload
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloAckPayload
 #[non_exhaustive] pub struct aitp::handshake::payloads::MutualHelloPayload
-#[non_exhaustive] pub struct aitp::handshake::state_machine::CompletedHandshake
+#[non_exhaustive] pub struct aitp::handshake::state_machine::CompletedHandshakeParts
 #[non_exhaustive] pub struct aitp::handshake::state_machine::GrantPolicyContext<'a>
 #[non_exhaustive] pub struct aitp::handshake::state_machine::PeerConfig<'a>
 #[non_exhaustive] pub struct aitp::manifest::IdentityHint
@@ -147,7 +147,6 @@
 #[non_exhaustive] pub struct aitp::prelude::IssuedTct
 #[non_exhaustive] pub struct aitp::prelude::Manifest
 #[non_exhaustive] pub struct aitp::prelude::TctClaims
-#[non_exhaustive] pub struct aitp::prelude::VerifiedTct
 #[non_exhaustive] pub struct aitp::tct::AttestationVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::Cnf
 #[non_exhaustive] pub struct aitp::tct::GrantVoucherClaims
@@ -160,8 +159,8 @@
 #[non_exhaustive] pub struct aitp::tct::RevocationQuery<'a>
 #[non_exhaustive] pub struct aitp::tct::TctClaims
 #[non_exhaustive] pub struct aitp::tct::TctVerifyContext<'a>
-#[non_exhaustive] pub struct aitp::tct::VerifiedAttestation
-#[non_exhaustive] pub struct aitp::tct::VerifiedTct
+#[non_exhaustive] pub struct aitp::tct::VerifiedAttestationParts
+#[non_exhaustive] pub struct aitp::tct::VerifiedTctParts
 #[non_exhaustive] pub struct aitp::tct::VerifyRevocationListContext<'a>
 #[non_exhaustive] pub struct aitp::tct::pop::PopChallenge
 #[non_exhaustive] pub struct aitp::tct::pop::PopResponse
@@ -174,10 +173,10 @@
 #[non_exhaustive] pub struct aitp::tct::types::GrantVoucherClaims
 #[non_exhaustive] pub struct aitp::tct::types::IssuedTct
 #[non_exhaustive] pub struct aitp::tct::types::TctClaims
-#[non_exhaustive] pub struct aitp::tct::types::VerifiedTct
+#[non_exhaustive] pub struct aitp::tct::types::VerifiedTctParts
 #[non_exhaustive] pub struct aitp::tct::verifier::AttestationVerifyContext<'a>
 #[non_exhaustive] pub struct aitp::tct::verifier::TctVerifyContext<'a>
-#[non_exhaustive] pub struct aitp::tct::verifier::VerifiedAttestation
+#[non_exhaustive] pub struct aitp::tct::verifier::VerifiedAttestationParts
 #[non_exhaustive] pub struct aitp::transport::RateLimitConfig
 #[non_exhaustive] pub struct aitp::transport::RevocationPolicy
 #[non_exhaustive] pub struct aitp::transport::ServeConfig
@@ -273,8 +272,11 @@ impl aitp::crypto::signer::AitpSigner for aitp::crypto::keys::AitpSigningKey
 impl aitp::crypto::signer::AsyncAitpSigner for aitp::crypto::keys::AitpSigningKey
 impl aitp::crypto::signer::SignRequest<'_>
 impl aitp::crypto::signer::SignerError
+impl aitp::delegation::types::VerifiedDelegation
+impl aitp::facade::SessionContext
 impl aitp::facade::TctStore
 impl aitp::handshake::admission::AdmissionError
+impl aitp::handshake::admission::Admitted
 impl aitp::handshake::admission::ChallengeRateLimiter for aitp::handshake::admission::RecommendedLimiter
 impl aitp::handshake::admission::ChallengeRateLimiter for aitp::handshake::admission::TokenBucketLimiter
 impl aitp::handshake::admission::ChallengeSource
@@ -292,9 +294,11 @@ impl aitp::handshake::identity_pinned::PinnedKeyEntry
 impl aitp::handshake::identity_pinned::PinnedKeyStore for aitp::handshake::identity_pinned::NoPinnedKeys
 impl aitp::handshake::identity_pinned::PinnedKeyStore for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl aitp::handshake::identity_pinned::StaticPinnedKeyStore
+impl aitp::handshake::identity_pinned::VerifiedPinnedKey
 impl aitp::handshake::identity_verifier::VerifiedIdentity
 impl aitp::handshake::jwk::JwkPublicKey
 impl aitp::handshake::jwk::JwsAlgorithm
+impl aitp::handshake::state_machine::CompletedHandshake
 impl aitp::handshake::state_machine::GrantPolicyError
 impl aitp::handshake::state_machine::Initiator
 impl aitp::handshake::state_machine::OidcMintError
@@ -312,6 +316,8 @@ impl aitp::tct::pop::PopChallenge
 impl aitp::tct::revocation::RevocationEntry
 impl aitp::tct::revocation::RevocationList
 impl aitp::tct::revocation::RevocationUnavailable
+impl aitp::tct::types::VerifiedTct
+impl aitp::tct::verifier::VerifiedAttestation
 impl aitp::transport::client::JwksFetcher
 impl aitp::transport::client::ManifestFetcher
 impl aitp::transport::client_config::ClientConfig
@@ -358,10 +364,13 @@ impl core::clone::Clone for aitp::crypto::keys::SignatureAlgorithm
 impl core::clone::Clone for aitp::crypto::signer::BackendSignature
 impl core::clone::Clone for aitp::delegation::types::DelegationClaims
 impl core::clone::Clone for aitp::delegation::types::VerifiedDelegation
+impl core::clone::Clone for aitp::delegation::types::VerifiedDelegationParts
 impl core::clone::Clone for aitp::facade::SessionContext
+impl core::clone::Clone for aitp::facade::SessionContextParts
 impl core::clone::Clone for aitp::facade::TctStore
 impl core::clone::Clone for aitp::handshake::admission::AdmissionChallenge
 impl core::clone::Clone for aitp::handshake::admission::Admitted
+impl core::clone::Clone for aitp::handshake::admission::AdmittedParts
 impl core::clone::Clone for aitp::handshake::admission::ChallengeSource
 impl core::clone::Clone for aitp::handshake::admission::IdentityPresentationPayload
 impl core::clone::Clone for aitp::handshake::admission::RefusalCause
@@ -373,6 +382,7 @@ impl core::clone::Clone for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::clone::Clone for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::clone::Clone for aitp::handshake::identity_pinned::SubjectBinding
 impl core::clone::Clone for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::clone::Clone for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::clone::Clone for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::clone::Clone for aitp::handshake::jwk::JwkKeyMaterial
 impl core::clone::Clone for aitp::handshake::jwk::JwkPublicKey
@@ -382,6 +392,7 @@ impl core::clone::Clone for aitp::handshake::payloads::MutualCommitPayload
 impl core::clone::Clone for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::clone::Clone for aitp::handshake::payloads::MutualHelloPayload
 impl core::clone::Clone for aitp::handshake::state_machine::CompletedHandshake
+impl core::clone::Clone for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::clone::Clone for aitp::manifest::types::IdentityHint
 impl core::clone::Clone for aitp::manifest::types::IdentityHintKind
 impl core::clone::Clone for aitp::manifest::types::Manifest
@@ -399,8 +410,10 @@ impl core::clone::Clone for aitp::tct::types::GrantVoucherClaims
 impl core::clone::Clone for aitp::tct::types::IssuedTct
 impl core::clone::Clone for aitp::tct::types::TctClaims
 impl core::clone::Clone for aitp::tct::types::VerifiedTct
+impl core::clone::Clone for aitp::tct::types::VerifiedTctParts
 impl core::clone::Clone for aitp::tct::verifier::TctVerifyContextError
 impl core::clone::Clone for aitp::tct::verifier::VerifiedAttestation
+impl core::clone::Clone for aitp::tct::verifier::VerifiedAttestationParts
 impl core::clone::Clone for aitp::transport::client_config::ClientConfig
 impl core::clone::Clone for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::clone::Clone for aitp::transport::key_resolution::KeyResolutionOutcome
@@ -440,8 +453,10 @@ impl core::cmp::Eq for aitp::crypto::keys::SignatureAlgorithm
 impl core::cmp::Eq for aitp::crypto::signer::BackendSignature
 impl core::cmp::Eq for aitp::delegation::types::DelegationClaims
 impl core::cmp::Eq for aitp::delegation::types::VerifiedDelegation
+impl core::cmp::Eq for aitp::delegation::types::VerifiedDelegationParts
 impl core::cmp::Eq for aitp::handshake::admission::AdmissionChallenge
 impl core::cmp::Eq for aitp::handshake::admission::Admitted
+impl core::cmp::Eq for aitp::handshake::admission::AdmittedParts
 impl core::cmp::Eq for aitp::handshake::admission::ChallengeSource
 impl core::cmp::Eq for aitp::handshake::admission::IdentityPresentationPayload
 impl core::cmp::Eq for aitp::handshake::admission::RefusalCause
@@ -451,6 +466,7 @@ impl core::cmp::Eq for aitp::handshake::identity::IdentityKind
 impl core::cmp::Eq for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::cmp::Eq for aitp::handshake::identity_pinned::SubjectBinding
 impl core::cmp::Eq for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::cmp::Eq for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::cmp::Eq for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::cmp::Eq for aitp::handshake::jwk::JwkKeyMaterial
 impl core::cmp::Eq for aitp::handshake::jwk::JwkPublicKey
@@ -460,6 +476,7 @@ impl core::cmp::Eq for aitp::handshake::payloads::MutualCommitPayload
 impl core::cmp::Eq for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::cmp::Eq for aitp::handshake::payloads::MutualHelloPayload
 impl core::cmp::Eq for aitp::handshake::state_machine::CompletedHandshake
+impl core::cmp::Eq for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::cmp::Eq for aitp::manifest::types::IdentityHint
 impl core::cmp::Eq for aitp::manifest::types::IdentityHintKind
 impl core::cmp::Eq for aitp::manifest::types::Manifest
@@ -477,8 +494,10 @@ impl core::cmp::Eq for aitp::tct::types::GrantVoucherClaims
 impl core::cmp::Eq for aitp::tct::types::IssuedTct
 impl core::cmp::Eq for aitp::tct::types::TctClaims
 impl core::cmp::Eq for aitp::tct::types::VerifiedTct
+impl core::cmp::Eq for aitp::tct::types::VerifiedTctParts
 impl core::cmp::Eq for aitp::tct::verifier::TctVerifyContextError
 impl core::cmp::Eq for aitp::tct::verifier::VerifiedAttestation
+impl core::cmp::Eq for aitp::tct::verifier::VerifiedAttestationParts
 impl core::cmp::Eq for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::cmp::Eq for aitp::transport::key_resolution::KeyResolutionOutcome
 impl core::cmp::Eq for aitp::transport::net_guard::GuardMode
@@ -514,8 +533,10 @@ impl core::cmp::PartialEq for aitp::crypto::keys::SignatureAlgorithm
 impl core::cmp::PartialEq for aitp::crypto::signer::BackendSignature
 impl core::cmp::PartialEq for aitp::delegation::types::DelegationClaims
 impl core::cmp::PartialEq for aitp::delegation::types::VerifiedDelegation
+impl core::cmp::PartialEq for aitp::delegation::types::VerifiedDelegationParts
 impl core::cmp::PartialEq for aitp::handshake::admission::AdmissionChallenge
 impl core::cmp::PartialEq for aitp::handshake::admission::Admitted
+impl core::cmp::PartialEq for aitp::handshake::admission::AdmittedParts
 impl core::cmp::PartialEq for aitp::handshake::admission::ChallengeSource
 impl core::cmp::PartialEq for aitp::handshake::admission::IdentityPresentationPayload
 impl core::cmp::PartialEq for aitp::handshake::admission::RefusalCause
@@ -525,6 +546,7 @@ impl core::cmp::PartialEq for aitp::handshake::identity::IdentityKind
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::PinnedKeyEntry
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::SubjectBinding
 impl core::cmp::PartialEq for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::cmp::PartialEq for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::cmp::PartialEq for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::cmp::PartialEq for aitp::handshake::jwk::JwkKeyMaterial
 impl core::cmp::PartialEq for aitp::handshake::jwk::JwkPublicKey
@@ -534,6 +556,7 @@ impl core::cmp::PartialEq for aitp::handshake::payloads::MutualCommitPayload
 impl core::cmp::PartialEq for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::cmp::PartialEq for aitp::handshake::payloads::MutualHelloPayload
 impl core::cmp::PartialEq for aitp::handshake::state_machine::CompletedHandshake
+impl core::cmp::PartialEq for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::cmp::PartialEq for aitp::manifest::types::IdentityHint
 impl core::cmp::PartialEq for aitp::manifest::types::IdentityHintKind
 impl core::cmp::PartialEq for aitp::manifest::types::Manifest
@@ -551,8 +574,10 @@ impl core::cmp::PartialEq for aitp::tct::types::GrantVoucherClaims
 impl core::cmp::PartialEq for aitp::tct::types::IssuedTct
 impl core::cmp::PartialEq for aitp::tct::types::TctClaims
 impl core::cmp::PartialEq for aitp::tct::types::VerifiedTct
+impl core::cmp::PartialEq for aitp::tct::types::VerifiedTctParts
 impl core::cmp::PartialEq for aitp::tct::verifier::TctVerifyContextError
 impl core::cmp::PartialEq for aitp::tct::verifier::VerifiedAttestation
+impl core::cmp::PartialEq for aitp::tct::verifier::VerifiedAttestationParts
 impl core::cmp::PartialEq for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::cmp::PartialEq for aitp::transport::key_resolution::KeyResolutionOutcome
 impl core::cmp::PartialEq for aitp::transport::net_guard::GuardMode
@@ -680,14 +705,17 @@ impl core::fmt::Debug for aitp::crypto::signer::SignerError
 impl core::fmt::Debug for aitp::delegation::error::DelegationError
 impl core::fmt::Debug for aitp::delegation::types::DelegationClaims
 impl core::fmt::Debug for aitp::delegation::types::VerifiedDelegation
+impl core::fmt::Debug for aitp::delegation::types::VerifiedDelegationParts
 impl core::fmt::Debug for aitp::delegation::verifier::VerifyDelegationContext<'_>
 impl core::fmt::Debug for aitp::envelope::EnvelopeError
 impl core::fmt::Debug for aitp::facade::FacadeError
 impl core::fmt::Debug for aitp::facade::SessionContext
+impl core::fmt::Debug for aitp::facade::SessionContextParts
 impl core::fmt::Debug for aitp::facade::TctStore
 impl core::fmt::Debug for aitp::handshake::admission::AdmissionChallenge
 impl core::fmt::Debug for aitp::handshake::admission::AdmissionError
 impl core::fmt::Debug for aitp::handshake::admission::Admitted
+impl core::fmt::Debug for aitp::handshake::admission::AdmittedParts
 impl core::fmt::Debug for aitp::handshake::admission::ChallengeSource
 impl core::fmt::Debug for aitp::handshake::admission::DenyListError
 impl core::fmt::Debug for aitp::handshake::admission::IdentityPresentationPayload
@@ -708,6 +736,7 @@ impl core::fmt::Debug for aitp::handshake::identity_pinned::PinnedKeyEntryError
 impl core::fmt::Debug for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::fmt::Debug for aitp::handshake::identity_pinned::SubjectBinding
 impl core::fmt::Debug for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::fmt::Debug for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::fmt::Debug for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::fmt::Debug for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::fmt::Debug for aitp::handshake::jwk::JwkKeyMaterial
@@ -720,6 +749,7 @@ impl core::fmt::Debug for aitp::handshake::payloads::MutualCommitPayload
 impl core::fmt::Debug for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::fmt::Debug for aitp::handshake::payloads::MutualHelloPayload
 impl core::fmt::Debug for aitp::handshake::state_machine::CompletedHandshake
+impl core::fmt::Debug for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::fmt::Debug for aitp::handshake::state_machine::GrantPolicyError
 impl core::fmt::Debug for aitp::handshake::state_machine::Initiator
 impl core::fmt::Debug for aitp::handshake::state_machine::OidcMintError
@@ -746,10 +776,12 @@ impl core::fmt::Debug for aitp::tct::types::GrantVoucherClaims
 impl core::fmt::Debug for aitp::tct::types::IssuedTct
 impl core::fmt::Debug for aitp::tct::types::TctClaims
 impl core::fmt::Debug for aitp::tct::types::VerifiedTct
+impl core::fmt::Debug for aitp::tct::types::VerifiedTctParts
 impl core::fmt::Debug for aitp::tct::verifier::AttestationVerifyContext<'_>
 impl core::fmt::Debug for aitp::tct::verifier::TctVerifyContextBuilder<'_>
 impl core::fmt::Debug for aitp::tct::verifier::TctVerifyContextError
 impl core::fmt::Debug for aitp::tct::verifier::VerifiedAttestation
+impl core::fmt::Debug for aitp::tct::verifier::VerifiedAttestationParts
 impl core::fmt::Debug for aitp::transport::client::FetchError
 impl core::fmt::Debug for aitp::transport::client::JwksFetcher
 impl core::fmt::Debug for aitp::transport::client::JwksFetcherError
@@ -878,14 +910,17 @@ impl core::marker::Send for aitp::crypto::signer::SignerError
 impl core::marker::Send for aitp::delegation::error::DelegationError
 impl core::marker::Send for aitp::delegation::types::DelegationClaims
 impl core::marker::Send for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Send for aitp::delegation::types::VerifiedDelegationParts
 impl core::marker::Send for aitp::envelope::EnvelopeError
 impl core::marker::Send for aitp::facade::FacadeError
 impl core::marker::Send for aitp::facade::IdentityMode
 impl core::marker::Send for aitp::facade::SessionContext
+impl core::marker::Send for aitp::facade::SessionContextParts
 impl core::marker::Send for aitp::facade::TctStore
 impl core::marker::Send for aitp::handshake::admission::AdmissionChallenge
 impl core::marker::Send for aitp::handshake::admission::AdmissionError
 impl core::marker::Send for aitp::handshake::admission::Admitted
+impl core::marker::Send for aitp::handshake::admission::AdmittedParts
 impl core::marker::Send for aitp::handshake::admission::ChallengeSource
 impl core::marker::Send for aitp::handshake::admission::DenyListError
 impl core::marker::Send for aitp::handshake::admission::IdentityPresentationPayload
@@ -906,6 +941,7 @@ impl core::marker::Send for aitp::handshake::identity_pinned::PinnedKeyEntryErro
 impl core::marker::Send for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Send for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Send for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Send for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::marker::Send for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::marker::Send for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Send for aitp::handshake::jwk::JwkKeyMaterial
@@ -918,6 +954,7 @@ impl core::marker::Send for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Send for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Send for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Send for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Send for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::marker::Send for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Send for aitp::handshake::state_machine::Initiator
 impl core::marker::Send for aitp::handshake::state_machine::OidcMintError
@@ -943,8 +980,10 @@ impl core::marker::Send for aitp::tct::types::GrantVoucherClaims
 impl core::marker::Send for aitp::tct::types::IssuedTct
 impl core::marker::Send for aitp::tct::types::TctClaims
 impl core::marker::Send for aitp::tct::types::VerifiedTct
+impl core::marker::Send for aitp::tct::types::VerifiedTctParts
 impl core::marker::Send for aitp::tct::verifier::TctVerifyContextError
 impl core::marker::Send for aitp::tct::verifier::VerifiedAttestation
+impl core::marker::Send for aitp::tct::verifier::VerifiedAttestationParts
 impl core::marker::Send for aitp::transport::client::FetchError
 impl core::marker::Send for aitp::transport::client::JwksFetcher
 impl core::marker::Send for aitp::transport::client::JwksFetcherError
@@ -1005,14 +1044,17 @@ impl core::marker::Sync for aitp::crypto::signer::SignerError
 impl core::marker::Sync for aitp::delegation::error::DelegationError
 impl core::marker::Sync for aitp::delegation::types::DelegationClaims
 impl core::marker::Sync for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Sync for aitp::delegation::types::VerifiedDelegationParts
 impl core::marker::Sync for aitp::envelope::EnvelopeError
 impl core::marker::Sync for aitp::facade::FacadeError
 impl core::marker::Sync for aitp::facade::IdentityMode
 impl core::marker::Sync for aitp::facade::SessionContext
+impl core::marker::Sync for aitp::facade::SessionContextParts
 impl core::marker::Sync for aitp::facade::TctStore
 impl core::marker::Sync for aitp::handshake::admission::AdmissionChallenge
 impl core::marker::Sync for aitp::handshake::admission::AdmissionError
 impl core::marker::Sync for aitp::handshake::admission::Admitted
+impl core::marker::Sync for aitp::handshake::admission::AdmittedParts
 impl core::marker::Sync for aitp::handshake::admission::ChallengeSource
 impl core::marker::Sync for aitp::handshake::admission::DenyListError
 impl core::marker::Sync for aitp::handshake::admission::IdentityPresentationPayload
@@ -1033,6 +1075,7 @@ impl core::marker::Sync for aitp::handshake::identity_pinned::PinnedKeyEntryErro
 impl core::marker::Sync for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Sync for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Sync for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Sync for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::marker::Sync for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::marker::Sync for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Sync for aitp::handshake::jwk::JwkKeyMaterial
@@ -1045,6 +1088,7 @@ impl core::marker::Sync for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Sync for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Sync for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Sync for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Sync for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::marker::Sync for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Sync for aitp::handshake::state_machine::Initiator
 impl core::marker::Sync for aitp::handshake::state_machine::OidcMintError
@@ -1070,8 +1114,10 @@ impl core::marker::Sync for aitp::tct::types::GrantVoucherClaims
 impl core::marker::Sync for aitp::tct::types::IssuedTct
 impl core::marker::Sync for aitp::tct::types::TctClaims
 impl core::marker::Sync for aitp::tct::types::VerifiedTct
+impl core::marker::Sync for aitp::tct::types::VerifiedTctParts
 impl core::marker::Sync for aitp::tct::verifier::TctVerifyContextError
 impl core::marker::Sync for aitp::tct::verifier::VerifiedAttestation
+impl core::marker::Sync for aitp::tct::verifier::VerifiedAttestationParts
 impl core::marker::Sync for aitp::transport::client::FetchError
 impl core::marker::Sync for aitp::transport::client::JwksFetcher
 impl core::marker::Sync for aitp::transport::client::JwksFetcherError
@@ -1132,14 +1178,17 @@ impl core::marker::Unpin for aitp::crypto::signer::SignerError
 impl core::marker::Unpin for aitp::delegation::error::DelegationError
 impl core::marker::Unpin for aitp::delegation::types::DelegationClaims
 impl core::marker::Unpin for aitp::delegation::types::VerifiedDelegation
+impl core::marker::Unpin for aitp::delegation::types::VerifiedDelegationParts
 impl core::marker::Unpin for aitp::envelope::EnvelopeError
 impl core::marker::Unpin for aitp::facade::FacadeError
 impl core::marker::Unpin for aitp::facade::IdentityMode
 impl core::marker::Unpin for aitp::facade::SessionContext
+impl core::marker::Unpin for aitp::facade::SessionContextParts
 impl core::marker::Unpin for aitp::facade::TctStore
 impl core::marker::Unpin for aitp::handshake::admission::AdmissionChallenge
 impl core::marker::Unpin for aitp::handshake::admission::AdmissionError
 impl core::marker::Unpin for aitp::handshake::admission::Admitted
+impl core::marker::Unpin for aitp::handshake::admission::AdmittedParts
 impl core::marker::Unpin for aitp::handshake::admission::ChallengeSource
 impl core::marker::Unpin for aitp::handshake::admission::DenyListError
 impl core::marker::Unpin for aitp::handshake::admission::IdentityPresentationPayload
@@ -1160,6 +1209,7 @@ impl core::marker::Unpin for aitp::handshake::identity_pinned::PinnedKeyEntryErr
 impl core::marker::Unpin for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::marker::Unpin for aitp::handshake::identity_pinned::SubjectBinding
 impl core::marker::Unpin for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::marker::Unpin for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::marker::Unpin for aitp::handshake::identity_verifier::IdentityVerifyError
 impl core::marker::Unpin for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::marker::Unpin for aitp::handshake::jwk::JwkKeyMaterial
@@ -1172,6 +1222,7 @@ impl core::marker::Unpin for aitp::handshake::payloads::MutualCommitPayload
 impl core::marker::Unpin for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::marker::Unpin for aitp::handshake::payloads::MutualHelloPayload
 impl core::marker::Unpin for aitp::handshake::state_machine::CompletedHandshake
+impl core::marker::Unpin for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::marker::Unpin for aitp::handshake::state_machine::GrantPolicyError
 impl core::marker::Unpin for aitp::handshake::state_machine::Initiator
 impl core::marker::Unpin for aitp::handshake::state_machine::OidcMintError
@@ -1198,8 +1249,10 @@ impl core::marker::Unpin for aitp::tct::types::GrantVoucherClaims
 impl core::marker::Unpin for aitp::tct::types::IssuedTct
 impl core::marker::Unpin for aitp::tct::types::TctClaims
 impl core::marker::Unpin for aitp::tct::types::VerifiedTct
+impl core::marker::Unpin for aitp::tct::types::VerifiedTctParts
 impl core::marker::Unpin for aitp::tct::verifier::TctVerifyContextError
 impl core::marker::Unpin for aitp::tct::verifier::VerifiedAttestation
+impl core::marker::Unpin for aitp::tct::verifier::VerifiedAttestationParts
 impl core::marker::Unpin for aitp::transport::client::FetchError
 impl core::marker::Unpin for aitp::transport::client::JwksFetcher
 impl core::marker::Unpin for aitp::transport::client::JwksFetcherError
@@ -1256,9 +1309,12 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::keys::SignatureAl
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::signer::BackendSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::types::DelegationClaims
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::types::VerifiedDelegation
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::types::VerifiedDelegationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::facade::SessionContext
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::facade::SessionContextParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::AdmissionChallenge
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::Admitted
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::AdmittedParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::ChallengeSource
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::IdentityPresentationPayload
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::admission::InMemoryMessageIdDenyList
@@ -1274,6 +1330,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinne
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::SubjectBinding
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwkKeyMaterial
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::jwk::JwkParseError
@@ -1284,6 +1341,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::payloads::Mutu
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::payloads::MutualHelloPayload
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::CompletedHandshake
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::Initiator
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::handshake::state_machine::Responder
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::manifest::types::IdentityHint
@@ -1304,8 +1362,10 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::GrantVoucherC
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::IssuedTct
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::TctClaims
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::VerifiedTct
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::types::VerifiedTctParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::verifier::TctVerifyContextError
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::verifier::VerifiedAttestation
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::tct::verifier::VerifiedAttestationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::client_config::ClientConfig
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::transport::key_resolution::KeyResolutionOutcome
@@ -1351,9 +1411,12 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::keys::SignatureAlgor
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::signer::BackendSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::types::DelegationClaims
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::types::VerifiedDelegation
+impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::types::VerifiedDelegationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::facade::SessionContext
+impl core::panic::unwind_safe::UnwindSafe for aitp::facade::SessionContextParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::AdmissionChallenge
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::Admitted
+impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::AdmittedParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::ChallengeSource
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::IdentityPresentationPayload
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::admission::InMemoryMessageIdDenyList
@@ -1369,6 +1432,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::StaticPinnedKeyStore
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::SubjectBinding
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKey
+impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::identity_verifier::VerifiedIdentity
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwkKeyMaterial
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::jwk::JwkParseError
@@ -1379,6 +1443,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::payloads::MutualC
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::payloads::MutualHelloAckPayload
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::payloads::MutualHelloPayload
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::CompletedHandshake
+impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::CompletedHandshakeParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::Initiator
 impl core::panic::unwind_safe::UnwindSafe for aitp::handshake::state_machine::Responder
 impl core::panic::unwind_safe::UnwindSafe for aitp::manifest::types::IdentityHint
@@ -1399,8 +1464,10 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::GrantVoucherClai
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::IssuedTct
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::TctClaims
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::VerifiedTct
+impl core::panic::unwind_safe::UnwindSafe for aitp::tct::types::VerifiedTctParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::verifier::TctVerifyContextError
 impl core::panic::unwind_safe::UnwindSafe for aitp::tct::verifier::VerifiedAttestation
+impl core::panic::unwind_safe::UnwindSafe for aitp::tct::verifier::VerifiedAttestationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::client_config::ClientConfig
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionFailMode
 impl core::panic::unwind_safe::UnwindSafe for aitp::transport::key_resolution::KeyResolutionOutcome
@@ -1912,10 +1979,10 @@ pub aitp::delegation::DelegationError::SelfDelegation
 pub aitp::delegation::DelegationError::SourceTctRevoked
 pub aitp::delegation::DelegationError::UnknownField(alloc::string::String)
 pub aitp::delegation::DelegationError::VersionUnknown
-pub aitp::delegation::VerifiedDelegation::claims: aitp::delegation::types::DelegationClaims
-pub aitp::delegation::VerifiedDelegation::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::delegation::VerifiedDelegation::token: alloc::string::String
-pub aitp::delegation::VerifiedDelegation::voucher: aitp::tct::types::GrantVoucherClaims
+pub aitp::delegation::VerifiedDelegationParts::claims: aitp::delegation::types::DelegationClaims
+pub aitp::delegation::VerifiedDelegationParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::delegation::VerifiedDelegationParts::token: alloc::string::String
+pub aitp::delegation::VerifiedDelegationParts::voucher: aitp::tct::types::GrantVoucherClaims
 pub aitp::delegation::VerifyDelegationContext::issuer_manifests: core::option::Option<&'a dyn aitp::manifest::resolver::ManifestResolver>
 pub aitp::delegation::VerifyDelegationContext::now: aitp::core::time::Timestamp
 pub aitp::delegation::VerifyDelegationContext::revocation: aitp::tct::revocation::RevocationSource<'a>
@@ -1950,10 +2017,10 @@ pub aitp::delegation::types::DelegationClaims::scope: alloc::vec::Vec<alloc::str
 pub aitp::delegation::types::DelegationClaims::sub: aitp::core::aid::Aid
 pub aitp::delegation::types::DelegationClaims::ver: alloc::string::String
 pub aitp::delegation::types::DelegationClaims::voucher: core::option::Option<alloc::string::String>
-pub aitp::delegation::types::VerifiedDelegation::claims: aitp::delegation::types::DelegationClaims
-pub aitp::delegation::types::VerifiedDelegation::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::delegation::types::VerifiedDelegation::token: alloc::string::String
-pub aitp::delegation::types::VerifiedDelegation::voucher: aitp::tct::types::GrantVoucherClaims
+pub aitp::delegation::types::VerifiedDelegationParts::claims: aitp::delegation::types::DelegationClaims
+pub aitp::delegation::types::VerifiedDelegationParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::delegation::types::VerifiedDelegationParts::token: alloc::string::String
+pub aitp::delegation::types::VerifiedDelegationParts::voucher: aitp::tct::types::GrantVoucherClaims
 pub aitp::delegation::verifier::VerifyDelegationContext::issuer_manifests: core::option::Option<&'a dyn aitp::manifest::resolver::ManifestResolver>
 pub aitp::delegation::verifier::VerifyDelegationContext::now: aitp::core::time::Timestamp
 pub aitp::delegation::verifier::VerifyDelegationContext::revocation: aitp::tct::revocation::RevocationSource<'a>
@@ -1990,18 +2057,18 @@ pub aitp::facade::InitiatorConfig::requested_grants: alloc::vec::Vec<alloc::stri
 pub aitp::facade::InitiatorConfig::revocation_policy: aitp::transport::revocation::RevocationPolicy
 pub aitp::facade::InitiatorConfig::signing_key: &'a dyn aitp::crypto::signer::AitpSigner
 pub aitp::facade::InitiatorConfig::trust_mode: aitp::facade::TrustMode<'a>
-pub aitp::facade::SessionContext::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::facade::SessionContext::grant_voucher: core::option::Option<alloc::string::String>
-pub aitp::facade::SessionContext::held_tct: aitp::tct::types::VerifiedTct
-pub aitp::facade::SessionContext::peer_aid: aitp::core::aid::Aid
-pub aitp::facade::SessionContext::peer_pubkey: aitp::crypto::keys::AitpVerifyingKey
+pub aitp::facade::SessionContextParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::facade::SessionContextParts::grant_voucher: core::option::Option<alloc::string::String>
+pub aitp::facade::SessionContextParts::held_tct: aitp::tct::types::VerifiedTct
+pub aitp::facade::SessionContextParts::peer_aid: aitp::core::aid::Aid
+pub aitp::facade::SessionContextParts::peer_pubkey: aitp::crypto::keys::AitpVerifyingKey
 pub aitp::facade::TrustMode::Oidc
 pub aitp::facade::TrustMode::Oidc::jwks_resolver: &'a dyn aitp::handshake::identity_oidc::JwksResolver
 pub aitp::facade::TrustMode::Oidc::trust_anchors: &'a [aitp::core::raw_url::RawUrl]
 pub aitp::facade::TrustMode::PinnedKeys(&'a dyn aitp::handshake::identity_pinned::PinnedKeyStore)
-pub aitp::handshake::CompletedHandshake::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::handshake::CompletedHandshake::grant_voucher: core::option::Option<alloc::string::String>
-pub aitp::handshake::CompletedHandshake::tct: aitp::tct::types::VerifiedTct
+pub aitp::handshake::CompletedHandshakeParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::handshake::CompletedHandshakeParts::grant_voucher: core::option::Option<alloc::string::String>
+pub aitp::handshake::CompletedHandshakeParts::tct: aitp::tct::types::VerifiedTct
 pub aitp::handshake::GrantPolicyContext::candidate_grants: &'a [alloc::string::String]
 pub aitp::handshake::GrantPolicyContext::now: aitp::core::time::Timestamp
 pub aitp::handshake::GrantPolicyContext::peer_aid: &'a aitp::core::aid::Aid
@@ -2149,9 +2216,9 @@ pub aitp::handshake::ResolveError::NotTrusted(url::Url)
 pub aitp::handshake::ResolveError::SoftFailRequiresOutcome
 pub aitp::handshake::SubjectBinding::SenderAid
 pub aitp::handshake::SubjectBinding::Unchecked
-pub aitp::handshake::VerifiedPinnedKey::aid: aitp::core::aid::Aid
-pub aitp::handshake::VerifiedPinnedKey::algorithm: aitp::core::aid::AidAlgorithm
-pub aitp::handshake::VerifiedPinnedKey::key: aitp::crypto::keys::AitpVerifyingKey
+pub aitp::handshake::VerifiedPinnedKeyParts::aid: aitp::core::aid::Aid
+pub aitp::handshake::VerifiedPinnedKeyParts::algorithm: aitp::core::aid::AidAlgorithm
+pub aitp::handshake::VerifiedPinnedKeyParts::key: aitp::crypto::keys::AitpVerifyingKey
 pub aitp::handshake::admission::AdmissionChallenge::expires_at: aitp::core::time::Timestamp
 pub aitp::handshake::admission::AdmissionChallenge::pop_nonce: alloc::string::String
 pub aitp::handshake::admission::AdmissionChallenge::verifier_aid: aitp::core::aid::Aid
@@ -2171,9 +2238,9 @@ pub aitp::handshake::admission::AdmissionError::Store(aitp::core::nonce_store::N
 pub aitp::handshake::admission::AdmissionError::TimestampExpired
 pub aitp::handshake::admission::AdmissionError::UnknownField(alloc::string::String)
 pub aitp::handshake::admission::AdmissionError::UnknownVersion(alloc::string::String)
-pub aitp::handshake::admission::Admitted::key: aitp::handshake::identity_pinned::VerifiedPinnedKey
-pub aitp::handshake::admission::Admitted::message_id: uuid::Uuid
-pub aitp::handshake::admission::Admitted::subject: alloc::string::String
+pub aitp::handshake::admission::AdmittedParts::key: aitp::handshake::identity_pinned::VerifiedPinnedKey
+pub aitp::handshake::admission::AdmittedParts::message_id: uuid::Uuid
+pub aitp::handshake::admission::AdmittedParts::subject: alloc::string::String
 pub aitp::handshake::admission::ConsumeOutcome::Consumed
 pub aitp::handshake::admission::ConsumeOutcome::Expired
 pub aitp::handshake::admission::ConsumeOutcome::Unknown
@@ -2256,9 +2323,9 @@ pub aitp::handshake::identity_pinned::PinnedKeyVerifyContext::subject: aitp::han
 pub aitp::handshake::identity_pinned::PinnedKeyVerifyContext::timestamp: aitp::core::time::Timestamp
 pub aitp::handshake::identity_pinned::SubjectBinding::SenderAid
 pub aitp::handshake::identity_pinned::SubjectBinding::Unchecked
-pub aitp::handshake::identity_pinned::VerifiedPinnedKey::aid: aitp::core::aid::Aid
-pub aitp::handshake::identity_pinned::VerifiedPinnedKey::algorithm: aitp::core::aid::AidAlgorithm
-pub aitp::handshake::identity_pinned::VerifiedPinnedKey::key: aitp::crypto::keys::AitpVerifyingKey
+pub aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::aid: aitp::core::aid::Aid
+pub aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::algorithm: aitp::core::aid::AidAlgorithm
+pub aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::key: aitp::crypto::keys::AitpVerifyingKey
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::message_id: &'a uuid::Uuid
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::handshake::identity_verifier::IdentityVerifyContext::peer_manifest: &'a aitp::manifest::types::Manifest
@@ -2322,9 +2389,9 @@ pub aitp::handshake::payloads::MutualHelloPayload::identity: aitp::handshake::id
 pub aitp::handshake::payloads::MutualHelloPayload::manifest: aitp::manifest::types::Manifest
 pub aitp::handshake::payloads::MutualHelloPayload::pop_nonce: alloc::string::String
 pub aitp::handshake::payloads::MutualHelloPayload::requested_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::handshake::state_machine::CompletedHandshake::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::handshake::state_machine::CompletedHandshake::grant_voucher: core::option::Option<alloc::string::String>
-pub aitp::handshake::state_machine::CompletedHandshake::tct: aitp::tct::types::VerifiedTct
+pub aitp::handshake::state_machine::CompletedHandshakeParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::handshake::state_machine::CompletedHandshakeParts::grant_voucher: core::option::Option<alloc::string::String>
+pub aitp::handshake::state_machine::CompletedHandshakeParts::tct: aitp::tct::types::VerifiedTct
 pub aitp::handshake::state_machine::GrantPolicyContext::candidate_grants: &'a [alloc::string::String]
 pub aitp::handshake::state_machine::GrantPolicyContext::now: aitp::core::time::Timestamp
 pub aitp::handshake::state_machine::GrantPolicyContext::peer_aid: &'a aitp::core::aid::Aid
@@ -2484,9 +2551,6 @@ pub aitp::prelude::TctClaims::iss: aitp::core::aid::Aid
 pub aitp::prelude::TctClaims::jti: uuid::Uuid
 pub aitp::prelude::TctClaims::sub: aitp::core::aid::Aid
 pub aitp::prelude::TctClaims::ver: alloc::string::String
-pub aitp::prelude::VerifiedTct::claims: aitp::tct::types::TctClaims
-pub aitp::prelude::VerifiedTct::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::prelude::VerifiedTct::token: alloc::string::String
 pub aitp::tct::AttestationVerifyContext::clock_skew_secs: i64
 pub aitp::tct::AttestationVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::AttestationVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
@@ -2576,12 +2640,12 @@ pub aitp::tct::TctVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::tct::TctVerifyContext::revocation: aitp::tct::revocation::RevocationSource<'a>
 pub aitp::tct::TctVerifyContextError::ManifestCapDecisionRequired
 pub aitp::tct::TctVerifyContextError::RevocationDecisionRequired
-pub aitp::tct::VerifiedAttestation::claims: aitp::tct::types::TctClaims
-pub aitp::tct::VerifiedAttestation::statement: serde_json::value::Value
-pub aitp::tct::VerifiedAttestation::token: alloc::string::String
-pub aitp::tct::VerifiedTct::claims: aitp::tct::types::TctClaims
-pub aitp::tct::VerifiedTct::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::tct::VerifiedTct::token: alloc::string::String
+pub aitp::tct::VerifiedAttestationParts::claims: aitp::tct::types::TctClaims
+pub aitp::tct::VerifiedAttestationParts::statement: serde_json::value::Value
+pub aitp::tct::VerifiedAttestationParts::token: alloc::string::String
+pub aitp::tct::VerifiedTctParts::claims: aitp::tct::types::TctClaims
+pub aitp::tct::VerifiedTctParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::tct::VerifiedTctParts::token: alloc::string::String
 pub aitp::tct::VerifyRevocationListContext::expected_issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::VerifyRevocationListContext::now: aitp::core::time::Timestamp
 pub aitp::tct::error::TctError::AttestationMarker
@@ -2661,9 +2725,9 @@ pub aitp::tct::types::TctClaims::iss: aitp::core::aid::Aid
 pub aitp::tct::types::TctClaims::jti: uuid::Uuid
 pub aitp::tct::types::TctClaims::sub: aitp::core::aid::Aid
 pub aitp::tct::types::TctClaims::ver: alloc::string::String
-pub aitp::tct::types::VerifiedTct::claims: aitp::tct::types::TctClaims
-pub aitp::tct::types::VerifiedTct::effective_grants: alloc::vec::Vec<alloc::string::String>
-pub aitp::tct::types::VerifiedTct::token: alloc::string::String
+pub aitp::tct::types::VerifiedTctParts::claims: aitp::tct::types::TctClaims
+pub aitp::tct::types::VerifiedTctParts::effective_grants: alloc::vec::Vec<alloc::string::String>
+pub aitp::tct::types::VerifiedTctParts::token: alloc::string::String
 pub aitp::tct::verifier::AttestationVerifyContext::clock_skew_secs: i64
 pub aitp::tct::verifier::AttestationVerifyContext::issuer: &'a aitp::core::aid::Aid
 pub aitp::tct::verifier::AttestationVerifyContext::issuer_manifest_expires_at: core::option::Option<aitp::core::time::Timestamp>
@@ -2678,9 +2742,9 @@ pub aitp::tct::verifier::TctVerifyContext::now: aitp::core::time::Timestamp
 pub aitp::tct::verifier::TctVerifyContext::revocation: aitp::tct::revocation::RevocationSource<'a>
 pub aitp::tct::verifier::TctVerifyContextError::ManifestCapDecisionRequired
 pub aitp::tct::verifier::TctVerifyContextError::RevocationDecisionRequired
-pub aitp::tct::verifier::VerifiedAttestation::claims: aitp::tct::types::TctClaims
-pub aitp::tct::verifier::VerifiedAttestation::statement: serde_json::value::Value
-pub aitp::tct::verifier::VerifiedAttestation::token: alloc::string::String
+pub aitp::tct::verifier::VerifiedAttestationParts::claims: aitp::tct::types::TctClaims
+pub aitp::tct::verifier::VerifiedAttestationParts::statement: serde_json::value::Value
+pub aitp::tct::verifier::VerifiedAttestationParts::token: alloc::string::String
 pub aitp::transport::FetchError::InsecureUrl
 pub aitp::transport::FetchError::MalformedJson(alloc::string::String)
 pub aitp::transport::FetchError::MalformedWrapper
@@ -3235,9 +3299,17 @@ pub fn aitp::delegation::types::DelegationClaims::deserialize<__D>(__D) -> core:
 pub fn aitp::delegation::types::DelegationClaims::eq(&self, &aitp::delegation::types::DelegationClaims) -> bool
 pub fn aitp::delegation::types::DelegationClaims::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::types::DelegationClaims::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn aitp::delegation::types::VerifiedDelegation::claims(&self) -> &aitp::delegation::types::DelegationClaims
 pub fn aitp::delegation::types::VerifiedDelegation::clone(&self) -> aitp::delegation::types::VerifiedDelegation
+pub fn aitp::delegation::types::VerifiedDelegation::effective_grants(&self) -> &[alloc::string::String]
 pub fn aitp::delegation::types::VerifiedDelegation::eq(&self, &aitp::delegation::types::VerifiedDelegation) -> bool
 pub fn aitp::delegation::types::VerifiedDelegation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::delegation::types::VerifiedDelegation::into_parts(self) -> aitp::delegation::types::VerifiedDelegationParts
+pub fn aitp::delegation::types::VerifiedDelegation::token(&self) -> &str
+pub fn aitp::delegation::types::VerifiedDelegation::voucher(&self) -> &aitp::tct::types::GrantVoucherClaims
+pub fn aitp::delegation::types::VerifiedDelegationParts::clone(&self) -> aitp::delegation::types::VerifiedDelegationParts
+pub fn aitp::delegation::types::VerifiedDelegationParts::eq(&self, &aitp::delegation::types::VerifiedDelegationParts) -> bool
+pub fn aitp::delegation::types::VerifiedDelegationParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::new(&'a aitp::core::aid::Aid, aitp::core::time::Timestamp, aitp::tct::revocation::RevocationSource<'a>) -> Self
 pub fn aitp::delegation::verifier::VerifyDelegationContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::resolver::ManifestResolver) -> Self
@@ -3262,7 +3334,15 @@ pub fn aitp::facade::InitiatorConfig<'a>::with_http_timeout(self, core::time::Du
 pub fn aitp::facade::InitiatorConfig<'a>::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::facade::InitiatorConfig<'a>::with_revocation_policy(self, aitp::transport::revocation::RevocationPolicy) -> Self
 pub fn aitp::facade::SessionContext::clone(&self) -> aitp::facade::SessionContext
+pub fn aitp::facade::SessionContext::effective_grants(&self) -> &[alloc::string::String]
 pub fn aitp::facade::SessionContext::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::facade::SessionContext::grant_voucher(&self) -> core::option::Option<&str>
+pub fn aitp::facade::SessionContext::held_tct(&self) -> &aitp::tct::types::VerifiedTct
+pub fn aitp::facade::SessionContext::into_parts(self) -> aitp::facade::SessionContextParts
+pub fn aitp::facade::SessionContext::peer_aid(&self) -> &aitp::core::aid::Aid
+pub fn aitp::facade::SessionContext::peer_pubkey(&self) -> &aitp::crypto::keys::AitpVerifyingKey
+pub fn aitp::facade::SessionContextParts::clone(&self) -> aitp::facade::SessionContextParts
+pub fn aitp::facade::SessionContextParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::facade::TctStore::clone(&self) -> aitp::facade::TctStore
 pub fn aitp::facade::TctStore::default() -> Self
 pub fn aitp::facade::TctStore::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3293,6 +3373,13 @@ pub fn aitp::handshake::admission::AdmissionError::source(&self) -> core::option
 pub fn aitp::handshake::admission::Admitted::clone(&self) -> aitp::handshake::admission::Admitted
 pub fn aitp::handshake::admission::Admitted::eq(&self, &aitp::handshake::admission::Admitted) -> bool
 pub fn aitp::handshake::admission::Admitted::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::admission::Admitted::into_parts(self) -> aitp::handshake::admission::AdmittedParts
+pub fn aitp::handshake::admission::Admitted::key(&self) -> &aitp::handshake::identity_pinned::VerifiedPinnedKey
+pub fn aitp::handshake::admission::Admitted::message_id(&self) -> uuid::Uuid
+pub fn aitp::handshake::admission::Admitted::subject(&self) -> &str
+pub fn aitp::handshake::admission::AdmittedParts::clone(&self) -> aitp::handshake::admission::AdmittedParts
+pub fn aitp::handshake::admission::AdmittedParts::eq(&self, &aitp::handshake::admission::AdmittedParts) -> bool
+pub fn aitp::handshake::admission::AdmittedParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::admission::ChallengeRateLimiter::check(&self, &aitp::handshake::admission::ChallengeSource) -> core::result::Result<(), core::time::Duration>
 pub fn aitp::handshake::admission::ChallengeSource::clone(&self) -> aitp::handshake::admission::ChallengeSource
 pub fn aitp::handshake::admission::ChallengeSource::eq(&self, &aitp::handshake::admission::ChallengeSource) -> bool
@@ -3412,9 +3499,16 @@ pub fn aitp::handshake::identity_pinned::SubjectBinding::clone(&self) -> aitp::h
 pub fn aitp::handshake::identity_pinned::SubjectBinding::default() -> aitp::handshake::identity_pinned::SubjectBinding
 pub fn aitp::handshake::identity_pinned::SubjectBinding::eq(&self, &aitp::handshake::identity_pinned::SubjectBinding) -> bool
 pub fn aitp::handshake::identity_pinned::SubjectBinding::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::aid(&self) -> &aitp::core::aid::Aid
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::algorithm(&self) -> aitp::core::aid::AidAlgorithm
 pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::clone(&self) -> aitp::handshake::identity_pinned::VerifiedPinnedKey
 pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::eq(&self, &aitp::handshake::identity_pinned::VerifiedPinnedKey) -> bool
 pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::into_parts(self) -> aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKey::key(&self) -> &aitp::crypto::keys::AitpVerifyingKey
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::clone(&self) -> aitp::handshake::identity_pinned::VerifiedPinnedKeyParts
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::eq(&self, &aitp::handshake::identity_pinned::VerifiedPinnedKeyParts) -> bool
+pub fn aitp::handshake::identity_pinned::VerifiedPinnedKeyParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::identity_pinned::pinned_key_proof_input(&aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSigner, &aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::string::String, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::identity_pinned::verify_pinned_key(&aitp::handshake::identity::IdentityDescriptor, &aitp::handshake::identity_pinned::PinnedKeyVerifyContext<'_>, &dyn aitp::handshake::identity_pinned::PinnedKeyStore) -> core::result::Result<aitp::handshake::identity_pinned::VerifiedPinnedKey, aitp::handshake::error::HandshakeError>
@@ -3474,8 +3568,15 @@ pub fn aitp::handshake::payloads::MutualHelloPayload::serialize<__S>(&self, __S)
 pub fn aitp::handshake::pinned_key_proof_input(&aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::sign_pinned_key_proof(&dyn aitp::crypto::signer::AitpSigner, &aitp::core::aid::Aid, &aitp::core::aid::Aid, &uuid::Uuid, aitp::core::time::Timestamp, &str) -> core::result::Result<alloc::string::String, aitp::handshake::error::HandshakeError>
 pub fn aitp::handshake::state_machine::CompletedHandshake::clone(&self) -> aitp::handshake::state_machine::CompletedHandshake
+pub fn aitp::handshake::state_machine::CompletedHandshake::effective_grants(&self) -> &[alloc::string::String]
 pub fn aitp::handshake::state_machine::CompletedHandshake::eq(&self, &aitp::handshake::state_machine::CompletedHandshake) -> bool
 pub fn aitp::handshake::state_machine::CompletedHandshake::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::handshake::state_machine::CompletedHandshake::grant_voucher(&self) -> core::option::Option<&str>
+pub fn aitp::handshake::state_machine::CompletedHandshake::into_parts(self) -> aitp::handshake::state_machine::CompletedHandshakeParts
+pub fn aitp::handshake::state_machine::CompletedHandshake::tct(&self) -> &aitp::tct::types::VerifiedTct
+pub fn aitp::handshake::state_machine::CompletedHandshakeParts::clone(&self) -> aitp::handshake::state_machine::CompletedHandshakeParts
+pub fn aitp::handshake::state_machine::CompletedHandshakeParts::eq(&self, &aitp::handshake::state_machine::CompletedHandshakeParts) -> bool
+pub fn aitp::handshake::state_machine::CompletedHandshakeParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::state_machine::GrantPolicyContext<'a>::clone(&self) -> aitp::handshake::state_machine::GrantPolicyContext<'a>
 pub fn aitp::handshake::state_machine::GrantPolicyContext<'a>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::handshake::state_machine::GrantPolicyError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3676,9 +3777,16 @@ pub fn aitp::tct::types::TctClaims::deserialize<__D>(__D) -> core::result::Resul
 pub fn aitp::tct::types::TctClaims::eq(&self, &aitp::tct::types::TctClaims) -> bool
 pub fn aitp::tct::types::TctClaims::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::types::TctClaims::serialize<__S>(&self, __S) -> core::result::Result<<__S as serde_core::ser::Serializer>::Ok, <__S as serde_core::ser::Serializer>::Error> where __S: serde_core::ser::Serializer
+pub fn aitp::tct::types::VerifiedTct::claims(&self) -> &aitp::tct::types::TctClaims
 pub fn aitp::tct::types::VerifiedTct::clone(&self) -> aitp::tct::types::VerifiedTct
+pub fn aitp::tct::types::VerifiedTct::effective_grants(&self) -> &[alloc::string::String]
 pub fn aitp::tct::types::VerifiedTct::eq(&self, &aitp::tct::types::VerifiedTct) -> bool
 pub fn aitp::tct::types::VerifiedTct::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::types::VerifiedTct::into_parts(self) -> aitp::tct::types::VerifiedTctParts
+pub fn aitp::tct::types::VerifiedTct::token(&self) -> &str
+pub fn aitp::tct::types::VerifiedTctParts::clone(&self) -> aitp::tct::types::VerifiedTctParts
+pub fn aitp::tct::types::VerifiedTctParts::eq(&self, &aitp::tct::types::VerifiedTctParts) -> bool
+pub fn aitp::tct::types::VerifiedTctParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::AttestationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::AttestationVerifyContext<'a>::builder(&'a aitp::core::aid::Aid, &'a str, aitp::core::time::Timestamp) -> aitp::tct::verifier::AttestationVerifyContextBuilder<'a>
 pub fn aitp::tct::verifier::AttestationVerifyContextBuilder<'a>::build(self) -> core::result::Result<aitp::tct::verifier::AttestationVerifyContext<'a>, aitp::tct::verifier::TctVerifyContextError>
@@ -3698,9 +3806,16 @@ pub fn aitp::tct::verifier::TctVerifyContextBuilder<'a>::skip_manifest_expiry_ca
 pub fn aitp::tct::verifier::TctVerifyContextError::clone(&self) -> aitp::tct::verifier::TctVerifyContextError
 pub fn aitp::tct::verifier::TctVerifyContextError::eq(&self, &aitp::tct::verifier::TctVerifyContextError) -> bool
 pub fn aitp::tct::verifier::TctVerifyContextError::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::verifier::VerifiedAttestation::claims(&self) -> &aitp::tct::types::TctClaims
 pub fn aitp::tct::verifier::VerifiedAttestation::clone(&self) -> aitp::tct::verifier::VerifiedAttestation
 pub fn aitp::tct::verifier::VerifiedAttestation::eq(&self, &aitp::tct::verifier::VerifiedAttestation) -> bool
 pub fn aitp::tct::verifier::VerifiedAttestation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::tct::verifier::VerifiedAttestation::into_parts(self) -> aitp::tct::verifier::VerifiedAttestationParts
+pub fn aitp::tct::verifier::VerifiedAttestation::statement(&self) -> &serde_json::value::Value
+pub fn aitp::tct::verifier::VerifiedAttestation::token(&self) -> &str
+pub fn aitp::tct::verifier::VerifiedAttestationParts::clone(&self) -> aitp::tct::verifier::VerifiedAttestationParts
+pub fn aitp::tct::verifier::VerifiedAttestationParts::eq(&self, &aitp::tct::verifier::VerifiedAttestationParts) -> bool
+pub fn aitp::tct::verifier::VerifiedAttestationParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::tct::verifier::verify_attestation(&str, &aitp::tct::verifier::AttestationVerifyContext<'_>) -> core::result::Result<aitp::tct::verifier::VerifiedAttestation, aitp::tct::error::TctError>
 pub fn aitp::tct::verifier::verify_tct(&str, &aitp::tct::verifier::TctVerifyContext<'_>) -> core::result::Result<aitp::tct::types::VerifiedTct, aitp::tct::error::TctError>
 pub fn aitp::tct::verifier::verify_voucher(&str, &aitp::core::aid::Aid) -> core::result::Result<aitp::tct::types::GrantVoucherClaims, aitp::tct::error::TctError>
@@ -3980,8 +4095,12 @@ pub struct aitp::crypto::keys::AitpVerifyingKey(_)
 pub struct aitp::crypto::keys::Signature(_)
 pub struct aitp::crypto::signer::BlockingSigner<S>(pub S)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::delegation::VerifiedDelegation
 pub struct aitp::delegation::builder::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::delegation::types::VerifiedDelegation
+pub struct aitp::facade::SessionContext
 pub struct aitp::facade::TctStore
+pub struct aitp::handshake::CompletedHandshake
 pub struct aitp::handshake::GrantPolicyError(_)
 pub struct aitp::handshake::Initiator
 pub struct aitp::handshake::NoPinnedKeys
@@ -3989,6 +4108,8 @@ pub struct aitp::handshake::OidcMintError(_)
 pub struct aitp::handshake::Responder
 pub struct aitp::handshake::StaticPinnedKeyStore
 pub struct aitp::handshake::VerifiedIdentity
+pub struct aitp::handshake::VerifiedPinnedKey
+pub struct aitp::handshake::admission::Admitted
 pub struct aitp::handshake::admission::ChallengeSource
 pub struct aitp::handshake::admission::InMemoryMessageIdDenyList
 pub struct aitp::handshake::admission::InMemoryNonceStore
@@ -3998,7 +4119,9 @@ pub struct aitp::handshake::admission::RecommendedLimiter
 pub struct aitp::handshake::admission::TokenBucketLimiter
 pub struct aitp::handshake::identity_pinned::NoPinnedKeys
 pub struct aitp::handshake::identity_pinned::StaticPinnedKeyStore
+pub struct aitp::handshake::identity_pinned::VerifiedPinnedKey
 pub struct aitp::handshake::identity_verifier::VerifiedIdentity
+pub struct aitp::handshake::state_machine::CompletedHandshake
 pub struct aitp::handshake::state_machine::GrantPolicyError(_)
 pub struct aitp::handshake::state_machine::Initiator
 pub struct aitp::handshake::state_machine::NoPinnedKeys
@@ -4015,14 +4138,19 @@ pub struct aitp::prelude::AitpVerifyingKey(_)
 pub struct aitp::prelude::BlockingSigner<S>(pub S)
 pub struct aitp::prelude::TctBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::prelude::Timestamp(pub i64)
+pub struct aitp::prelude::VerifiedTct
 pub struct aitp::tct::AttestationVerifyContextBuilder<'a>
 pub struct aitp::tct::RevocationUnavailable(_)
 pub struct aitp::tct::TctBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::tct::TctVerifyContextBuilder<'a>
+pub struct aitp::tct::VerifiedAttestation
+pub struct aitp::tct::VerifiedTct
 pub struct aitp::tct::builder::TctBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::tct::revocation::RevocationUnavailable(_)
+pub struct aitp::tct::types::VerifiedTct
 pub struct aitp::tct::verifier::AttestationVerifyContextBuilder<'a>
 pub struct aitp::tct::verifier::TctVerifyContextBuilder<'a>
+pub struct aitp::tct::verifier::VerifiedAttestation
 pub struct aitp::transport::ClientConfig
 pub struct aitp::transport::HandshakeServer<R: aitp::handshake::identity_oidc::JwksResolver + core::marker::Send + core::marker::Sync + 'static>
 pub struct aitp::transport::HostGuard

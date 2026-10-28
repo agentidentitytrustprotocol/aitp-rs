@@ -311,8 +311,8 @@ fn soft_fail_safe_subset_with_intersection_accepts() {
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("soft-fail with overlapping safe_grants must accept");
-    assert_eq!(completed.effective_grants, ["demo.echo"]);
-    assert_eq!(completed.tct.effective_grants, ["demo.echo"]);
+    assert_eq!(completed.effective_grants(), ["demo.echo"]);
+    assert_eq!(completed.tct().effective_grants(), ["demo.echo"]);
 }
 
 /// RFC-AITP-0008 §3.3: a TCT whose signature does not validate MUST be

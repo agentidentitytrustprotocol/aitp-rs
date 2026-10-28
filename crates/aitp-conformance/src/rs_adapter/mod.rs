@@ -1205,7 +1205,7 @@ fn verify_handshake_dual_peer(
             None,
             expected_pop_nonce,
         )?;
-        Ok(verified.claims.grants)
+        Ok(verified.into_parts().claims.grants)
     }
     let grants = match verify_one(peer_a, now) {
         Ok(g) => g,
@@ -1648,7 +1648,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or(false);
     match aitp::tct::verify_tct(&token, &ctx) {
         Ok(v) => {
-            let mut result = json!({"verified": true, "grants": v.effective_grants});
+            let mut result = json!({"verified": true, "grants": v.effective_grants()});
             if instrumented {
                 result["side_effects"] = json!({
                     "revocation_lookup_called": lookup_called.load(Ordering::Relaxed),
@@ -2130,7 +2130,7 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
         let ctx = aitp::delegation::VerifyDelegationContext::new(&verifier_aid, now, revocation)
             .with_issuer_manifests(&issuer_manifests);
         aitp::delegation::verify_delegation(&token, &ctx)
-            .map(|v| v.effective_grants)
+            .map(|v| v.into_parts().effective_grants)
             .map_err(|e| (delegation_error_code(&e), e.to_string()))
     };
     match scope {
@@ -3124,9 +3124,9 @@ fn responder_step(
 /// voucher (verbatim) when the peer's policy allowed delegation.
 fn completed_handshake_json(c: &aitp::handshake::CompletedHandshake) -> Value {
     json!({
-        "tct_token": c.tct.token,
-        "tct_claims": c.tct.claims,
-        "grant_voucher": c.grant_voucher,
+        "tct_token": c.tct().token(),
+        "tct_claims": c.tct().claims(),
+        "grant_voucher": c.grant_voucher(),
     })
 }
 
@@ -3487,7 +3487,7 @@ fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Val
         .build()
         .expect("both verify decisions are made above");
     let claims = match aitp::tct::verify_tct(token, &ctx) {
-        Ok(v) => v.claims,
+        Ok(v) => v.into_parts().claims,
         // An `aud` other than `sub` is the issuer-side audience failure.
         Err(aitp::tct::TctError::AudienceMismatch) => {
             return err(id, "TCT_SIGNATURE_INVALID", "aud differs from sub")

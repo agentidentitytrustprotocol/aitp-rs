@@ -232,7 +232,7 @@ fn self_attestation_round_trip_and_rejections() {
 
     let v =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), STATEMENT_KEY)).unwrap();
-    assert_eq!(v.statement, json!({"statement": "seam attestation"}));
+    assert_eq!(v.statement(), &json!({"statement": "seam attestation"}));
 
     let err =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), "org.other")).unwrap_err();
@@ -333,7 +333,7 @@ fn pinned_key_proof_round_trip() {
     let ctx = PinnedKeyVerifyContext::new(sender.aid(), &receiver, &message_id, NOW, &pop_nonce)
         .with_subject(SubjectBinding::SenderAid);
     let verified = verify_pinned_key(&descriptor, &ctx, &store).unwrap();
-    assert_eq!(verified.aid, *sender.aid());
+    assert_eq!(verified.aid(), sender.aid());
 
     let unpinned = StaticPinnedKeyStore::default();
     assert!(verify_pinned_key(&descriptor, &ctx, &unpinned).is_err());

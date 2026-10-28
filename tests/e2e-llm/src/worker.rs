@@ -349,5 +349,5 @@ fn verify_work_tct(
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let verified = verify_tct(token, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;
-    Ok(verified.claims)
+    Ok(verified.into_parts().claims)
 }

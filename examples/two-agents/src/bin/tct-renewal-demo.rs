@@ -148,7 +148,7 @@ async fn main() {
     // (already verified) Manifest advertises, presenting the
     // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct_with_insecure_localhost(&holder, current.token, &manifest)
+    let renewed = renew_tct_with_insecure_localhost(&holder, current.token().to_owned(), &manifest)
         .await
         .expect("renew_tct round-trip");
 
@@ -158,8 +158,8 @@ async fn main() {
     let renewed_verified = renewed.tct;
     store.insert(renewed_verified.clone(), renewed.grant_voucher.clone());
 
-    let old = &initial_verified.claims;
-    let new = &renewed_verified.claims;
+    let old = &initial_verified.claims();
+    let new = &renewed_verified.claims();
     assert_ne!(new.jti, old.jti, "JTI must rotate on renewal");
     assert_eq!(new.sub, old.sub, "subject must be preserved across renewal");
     assert_eq!(

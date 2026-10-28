@@ -73,7 +73,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     .await?;
     println!(
         "agent-a: handshake complete — holding TCT issued by {} with grants {:?}",
-        session.held_tct.claims.iss, session.held_tct.claims.grants
+        session.held_tct().claims().iss,
+        session.held_tct().claims().grants
     );
 
     // Invoke B's /echo using the received TCT — on the wire the TCT is
@@ -81,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let echo_resp = client
         .post(peer_origin.join("/echo")?)
-        .header("x-aitp-tct", session.held_tct.token)
+        .header("x-aitp-tct", session.held_tct().token())
         .body(cli.message)
         .send()
         .await?;

@@ -105,7 +105,7 @@ proptest! {
         let a_key = a();
         let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
         let verified = verify_delegation(&token, &ctx).expect("subset delegation verifies");
-        let got: BTreeSet<String> = verified.claims.scope.into_iter().collect();
+        let got: BTreeSet<String> = verified.claims().scope.iter().cloned().collect();
         prop_assert_eq!(got, scope);
     }
 
@@ -158,6 +158,6 @@ proptest! {
         let ctx = verify_ctx(a_key.aid(), NOW);
         let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
         // Voucher TTL is 7200s from NOW; delegation exp must not exceed it.
-        prop_assert!(verified.claims.exp.0 <= NOW.0 + 7200);
+        prop_assert!(verified.claims().exp.0 <= NOW.0 + 7200);
     }
 }

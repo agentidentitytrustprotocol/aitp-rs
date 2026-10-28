@@ -48,9 +48,9 @@ fn happy_path_round_trip() {
         .build()
         .unwrap();
     let verified = verify_tct(&issued.token, &ctx).expect("fresh TCT verifies");
-    assert_eq!(verified.token, issued.token);
-    assert_eq!(verified.claims, issued.claims);
-    assert_eq!(verified.claims.ver, PROTOCOL_VERSION);
+    assert_eq!(verified.token(), issued.token);
+    assert_eq!(verified.claims(), &issued.claims);
+    assert_eq!(verified.claims().ver, PROTOCOL_VERSION);
 }
 
 #[test]

@@ -66,7 +66,7 @@
 //!     .skip_manifest_expiry_cap_dangerous()
 //!     .build()?;
 //! let verified = verify_tct(&issued.token, &ctx)?;
-//! assert_eq!(verified.claims.grants, vec!["demo.echo".to_string()]);
+//! assert_eq!(verified.claims().grants, vec!["demo.echo".to_string()]);
 //! # Ok(())
 //! # }
 //! ```

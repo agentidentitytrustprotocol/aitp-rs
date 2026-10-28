@@ -187,15 +187,15 @@ fn main() {
     println!("handshake complete:");
     println!(
         "  alice holds TCT issued_by={} grants={:?} voucher={}",
-        alice_holds_tct.tct.claims.iss,
-        alice_holds_tct.tct.claims.grants,
-        alice_holds_tct.grant_voucher.is_some(),
+        alice_holds_tct.tct().claims().iss,
+        alice_holds_tct.tct().claims().grants,
+        alice_holds_tct.grant_voucher().is_some(),
     );
     println!(
         "  bob   holds TCT issued_by={} grants={:?} voucher={}",
-        bob_holds_tct.tct.claims.iss,
-        bob_holds_tct.tct.claims.grants,
-        bob_holds_tct.grant_voucher.is_some(),
+        bob_holds_tct.tct().claims().iss,
+        bob_holds_tct.tct().claims().grants,
+        bob_holds_tct.grant_voucher().is_some(),
     );
 }
 

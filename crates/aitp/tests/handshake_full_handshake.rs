@@ -168,20 +168,20 @@ fn full_pinned_key_handshake() {
         .unwrap();
 
     // Each peer holds a TCT issued by the other.
-    assert_eq!(&bob_holds_tct.tct.claims.iss, alice.aid());
-    assert_eq!(&bob_holds_tct.tct.claims.sub, bob.aid());
-    assert_eq!(&bob_holds_tct.tct.claims.aud, bob.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().iss, alice.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().sub, bob.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().aud, bob.aid());
 
-    assert_eq!(&alice_holds_tct.tct.claims.iss, bob.aid());
-    assert_eq!(&alice_holds_tct.tct.claims.sub, alice.aid());
-    assert_eq!(&alice_holds_tct.tct.claims.aud, alice.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().iss, bob.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().sub, alice.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().aud, alice.aid());
 
     assert_eq!(
-        alice_holds_tct.tct.claims.grants,
+        alice_holds_tct.tct().claims().grants,
         vec!["demo.echo".to_string()]
     );
     assert_eq!(
-        bob_holds_tct.tct.claims.grants,
+        bob_holds_tct.tct().claims().grants,
         vec!["demo.echo".to_string()]
     );
 }

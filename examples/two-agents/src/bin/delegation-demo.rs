@@ -96,7 +96,7 @@ fn main() {
     match verify_delegation(&b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
-            v.claims.scope
+            v.claims().scope
         ),
         Err(e) => panic!("expected valid delegation, got {e}"),
     }

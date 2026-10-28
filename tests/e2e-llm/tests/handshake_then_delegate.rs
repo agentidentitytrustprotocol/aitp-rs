@@ -43,24 +43,26 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
 
     eprintln!(
         "handshake: planner holds TCT issued by {} (grants={:?})",
-        outcome.tct.claims.iss, outcome.tct.claims.grants
+        outcome.tct.claims().iss,
+        outcome.tct.claims().grants
     );
 
     // 3. Protocol assertions — these are the bits AITP guarantees,
     //    independent of what the LLM ends up saying.
     assert_eq!(
-        &outcome.tct.claims.iss, &worker.aid,
+        &outcome.tct.claims().iss,
+        &worker.aid,
         "TCT must be issued by the worker"
     );
     assert_eq!(
-        &outcome.tct.claims.sub,
+        &outcome.tct.claims().sub,
         outcome.planner_key.aid(),
         "TCT subject must be the planner"
     );
     assert!(
         outcome
             .tct
-            .claims
+            .claims()
             .grants
             .iter()
             .any(|g| g == worker::WORK_CAPABILITY),
@@ -71,7 +73,7 @@ async fn planner_delegates_a_task_to_llm_worker_over_aitp() {
     // 4. Delegate a real task. The worker's LLM produces the answer
     //    after the worker's TCT verification passes.
     let task = "In one sentence, what is the purpose of a Trust Context Token in AITP?";
-    let response = planner::delegate_task(&worker.origin, &outcome.tct.token, task)
+    let response = planner::delegate_task(&worker.origin, &outcome.tct.token(), task)
         .await
         .expect("/work succeeds");
 

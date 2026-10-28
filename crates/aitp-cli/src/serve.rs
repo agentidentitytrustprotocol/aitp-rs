@@ -754,7 +754,7 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
         .build()
         .expect("both decisions are made");
     let claims = verify_tct(token, &ctx)
-        .map(|v| v.claims)
+        .map(|v| v.into_parts().claims)
         .map_err(|e| match e {
             TctError::Expired => Refusal(StatusCode::UNAUTHORIZED, "TCT_EXPIRED", e.to_string()),
             TctError::AudienceMismatch => invalid("aud differs from sub".into()),

@@ -157,7 +157,9 @@ pub async fn process_renewal_request(
             .issuer_manifest_expires_at(ctx.manifest_expires_at)
             .build()
             .expect("both decisions are made");
-        verify_tct(&request.current_tct, &verify_ctx)?.claims
+        verify_tct(&request.current_tct, &verify_ctx)?
+            .into_parts()
+            .claims
     };
     if claims.aud != claims.sub {
         return Err(TctError::AudienceMismatch.into());

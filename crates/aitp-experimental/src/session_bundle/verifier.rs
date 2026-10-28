@@ -202,7 +202,7 @@ pub fn verify_session_bundle(
         // fail the whole bundle.
         let is_revoked = ctx
             .revocation_check
-            .map(|check| check(&verified.claims.jti))
+            .map(|check| check(&verified.claims().jti))
             .unwrap_or(false);
         if is_revoked {
             dropped.push(entry.aid.clone());

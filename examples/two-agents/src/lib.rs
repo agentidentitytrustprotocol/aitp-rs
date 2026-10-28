@@ -82,10 +82,10 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
         .build()
         .expect("both decisions are made");
     let verified = verify_tct(token, &ctx).map_err(|e| e.to_string())?;
-    if !verified.claims.grants.iter().any(|g| g == "demo.echo") {
+    if !verified.claims().grants.iter().any(|g| g == "demo.echo") {
         return Err("demo.echo not granted".into());
     }
-    Ok(verified.claims.sub)
+    Ok(verified.into_parts().claims.sub)
 }
 
 /// Expand a short CLI seed string into a deterministic 32-byte key seed.

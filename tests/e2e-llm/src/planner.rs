@@ -77,7 +77,7 @@ pub async fn handshake(
 
     Ok(HandshakeOutcome {
         planner_key: key,
-        tct: session.held_tct,
+        tct: session.into_parts().held_tct,
     })
 }
 

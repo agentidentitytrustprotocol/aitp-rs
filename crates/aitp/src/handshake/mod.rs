@@ -28,7 +28,7 @@ pub use identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext, ResolveErr
 pub use identity_pinned::{
     pinned_key_proof_input, sign_pinned_key_proof, verify_pinned_key, NoPinnedKeys, PinnedKeyEntry,
     PinnedKeyEntryError, PinnedKeyStore, PinnedKeyVerifyContext, StaticPinnedKeyStore,
-    SubjectBinding, VerifiedPinnedKey, POP_NONCE_LEN,
+    SubjectBinding, VerifiedPinnedKey, VerifiedPinnedKeyParts, POP_NONCE_LEN,
 };
 pub use identity_verifier::{
     IdentityVerifier, IdentityVerifyContext, IdentityVerifyError, VerifiedIdentity,
@@ -42,7 +42,7 @@ pub use payloads::{
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 pub use state_machine::{
-    CompletedHandshake, GrantPolicyContext, GrantPolicyError, GrantPolicyFn, Initiator,
-    LocalOidcMintJwtFn, OidcMintError, OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder,
-    SessionId,
+    CompletedHandshake, CompletedHandshakeParts, GrantPolicyContext, GrantPolicyError,
+    GrantPolicyFn, Initiator, LocalOidcMintJwtFn, OidcMintError, OidcMintJwtFn, PeerConfig,
+    PresentedIdentity, Responder, SessionId,
 };

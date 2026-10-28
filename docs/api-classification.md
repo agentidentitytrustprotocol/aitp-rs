@@ -65,16 +65,19 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationBuilder` | struct | private fields |  |
 | `aitp::delegation::DelegationClaims` | struct | non_exhaustive |  |
 | `aitp::delegation::DelegationError` | enum | non_exhaustive |  |
-| `aitp::delegation::VerifiedDelegation` | struct | non_exhaustive |  |
+| `aitp::delegation::VerifiedDelegation` | struct | private fields |  |
+| `aitp::delegation::VerifiedDelegationParts` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifyDelegationContext` | struct | non_exhaustive |  |
 | `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |
 | `aitp::facade::FacadeError` | enum | non_exhaustive |  |
 | `aitp::facade::IdentityMode` | enum | non_exhaustive |  |
 | `aitp::facade::InitiatorConfig` | struct | non_exhaustive |  |
-| `aitp::facade::SessionContext` | struct | non_exhaustive |  |
+| `aitp::facade::SessionContext` | struct | private fields |  |
+| `aitp::facade::SessionContextParts` | struct | non_exhaustive |  |
 | `aitp::facade::TctStore` | struct | private fields |  |
 | `aitp::facade::TrustMode` | enum | non_exhaustive |  |
-| `aitp::handshake::CompletedHandshake` | struct | non_exhaustive |  |
+| `aitp::handshake::CompletedHandshake` | struct | private fields |  |
+| `aitp::handshake::CompletedHandshakeParts` | struct | non_exhaustive |  |
 | `aitp::handshake::GrantPolicyContext` | struct | non_exhaustive |  |
 | `aitp::handshake::GrantPolicyError` | struct | private fields |  |
 | `aitp::handshake::HandshakeError` | enum | non_exhaustive |  |
@@ -105,10 +108,12 @@ reasons already in the table are kept.
 | `aitp::handshake::StaticPinnedKeyStore` | struct | private fields |  |
 | `aitp::handshake::SubjectBinding` | enum | non_exhaustive |  |
 | `aitp::handshake::VerifiedIdentity` | struct | private fields |  |
-| `aitp::handshake::VerifiedPinnedKey` | struct | non_exhaustive |  |
+| `aitp::handshake::VerifiedPinnedKey` | struct | private fields |  |
+| `aitp::handshake::VerifiedPinnedKeyParts` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionChallenge` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionError` | enum | non_exhaustive |  |
-| `aitp::handshake::admission::Admitted` | struct | non_exhaustive |  |
+| `aitp::handshake::admission::Admitted` | struct | private fields |  |
+| `aitp::handshake::admission::AdmittedParts` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::ChallengeSource` | struct | private fields |  |
 | `aitp::handshake::admission::DenyListError` | enum | non_exhaustive |  |
 | `aitp::handshake::admission::IdentityPresentationPayload` | struct | non_exhaustive |  |
@@ -148,8 +153,10 @@ reasons already in the table are kept.
 | `aitp::tct::TctVerifyContext` | struct | non_exhaustive |  |
 | `aitp::tct::TctVerifyContextBuilder` | struct | private fields |  |
 | `aitp::tct::TctVerifyContextError` | enum | non_exhaustive |  |
-| `aitp::tct::VerifiedAttestation` | struct | non_exhaustive |  |
-| `aitp::tct::VerifiedTct` | struct | non_exhaustive |  |
+| `aitp::tct::VerifiedAttestation` | struct | private fields |  |
+| `aitp::tct::VerifiedAttestationParts` | struct | non_exhaustive |  |
+| `aitp::tct::VerifiedTct` | struct | private fields |  |
+| `aitp::tct::VerifiedTctParts` | struct | non_exhaustive |  |
 | `aitp::tct::VerifyRevocationListContext` | struct | non_exhaustive |  |
 | `aitp::transport::ClientConfig` | struct | private fields |  |
 | `aitp::transport::FetchError` | enum | non_exhaustive |  |

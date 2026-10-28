@@ -304,8 +304,8 @@ impl PyInitiatorSession {
 /// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
 fn completed_handshake_json(completed: &CompletedHandshake) -> PyResult<String> {
     let out = serde_json::json!({
-        "tct": completed.tct.token,
-        "grant_voucher": completed.grant_voucher,
+        "tct": completed.tct().token(),
+        "grant_voucher": completed.grant_voucher(),
     });
     serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }

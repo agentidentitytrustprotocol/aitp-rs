@@ -74,12 +74,12 @@ fn happy_path_round_trip() {
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
-    assert_eq!(verified.claims.iss, *b().aid());
-    assert_eq!(verified.claims.sub, *c().aid());
-    assert_eq!(verified.claims.scope, vec!["read_data".to_string()]);
-    assert_eq!(verified.claims.ver, PROTOCOL_VERSION);
-    assert_eq!(verified.voucher.sub, *b().aid());
-    assert_eq!(verified.voucher.grants.len(), 2);
+    assert_eq!(verified.claims().iss, *b().aid());
+    assert_eq!(verified.claims().sub, *c().aid());
+    assert_eq!(verified.claims().scope, vec!["read_data".to_string()]);
+    assert_eq!(verified.claims().ver, PROTOCOL_VERSION);
+    assert_eq!(verified.voucher().sub, *b().aid());
+    assert_eq!(verified.voucher().grants.len(), 2);
 }
 
 #[test]
@@ -131,7 +131,11 @@ fn builder_caps_expiry_at_voucher() {
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).unwrap();
-    assert_eq!(verified.claims.exp.0, NOW.0 + 7200, "capped at voucher exp");
+    assert_eq!(
+        verified.claims().exp.0,
+        NOW.0 + 7200,
+        "capped at voucher exp"
+    );
 }
 
 #[test]
@@ -500,7 +504,7 @@ fn verifies_under_issuer_manifest_key() {
     ];
     let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("verifies under B's Manifest key");
-    assert_eq!(verified.claims.iss, *b().aid());
+    assert_eq!(verified.claims().iss, *b().aid());
 }
 
 #[test]

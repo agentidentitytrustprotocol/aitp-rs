@@ -86,6 +86,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seam migration: none.
 - Options that switch off or relax a check end in `_dangerous` and take no argument (STABILITY.md states the rule): `ManifestFetcher::with_insecure_localhost(bool)`, `RevocationFetcher::with_insecure_localhost(bool)` and `InitiatorConfig::with_insecure_localhost(bool)` are `with_insecure_localhost_dangerous()`, and `HandshakeServer::without_rate_limit()` is `without_rate_limit_dangerous()`. The public field `InitiatorConfig::allow_insecure_localhost` is private; set it with `with_insecure_localhost_dangerous()`. `with_insecure_localhost(false)` was the default and has no replacement call. The CLI flag `--insecure-localhost` and the SDK names are unchanged.
   - Seam migration: none.
+- Verification results are read-only. `VerifiedTct`, `VerifiedDelegation`, `VerifiedAttestation`, `VerifiedPinnedKey`, `CompletedHandshake`, `SessionContext` and `Admitted` have private fields, a read accessor named after each former field (`token()`, `claims()`, `effective_grants()`, `voucher()`, `statement()`, `algorithm()`, `key()`, `aid()`, `tct()`, `grant_voucher()`, `peer_aid()`, `peer_pubkey()`, `held_tct()`, `subject()`, `message_id()`), and `into_parts()`, which returns the owned pieces as the new `#[non_exhaustive]` `VerifiedTctParts`, `VerifiedDelegationParts`, `VerifiedAttestationParts`, `VerifiedPinnedKeyParts`, `CompletedHandshakeParts`, `SessionContextParts` or `AdmittedParts`. Only `aitp` constructs them. `grant_voucher()` returns `Option<&str>`; `algorithm()` and `message_id()` return the value.
+  - Seam migration:
+    - `verify_attestation(..).statement` → `.statement()` (now `&Value`).
+    - `verify_pinned_key(..).aid` → `.aid()` (now `&Aid`).
 
 ### Added
 

@@ -48,7 +48,7 @@ fn kms_delegator_mints_a_verifying_delegation() {
     let manifests = vec![common::manifest_for(&b, NOW)];
     let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("KMS delegation verifies");
-    assert_eq!(&verified.claims.iss, b.aid());
+    assert_eq!(&verified.claims().iss, b.aid());
 }
 
 #[test]
@@ -172,5 +172,5 @@ async fn async_delegation_future_is_send() {
     .expect("async delegation builds on another task");
     let ctx = common::verify_ctx(a.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("verifies");
-    assert_eq!(verified.claims.iss, b_aid);
+    assert_eq!(verified.claims().iss, b_aid);
 }

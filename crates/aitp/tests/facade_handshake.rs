@@ -151,15 +151,15 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
     .expect("facade handshake succeeds");
 
     assert_eq!(
-        &session.peer_aid,
+        session.peer_aid(),
         bob.aid(),
         "peer AID is Bob's (the TCT issuer)"
     );
-    assert_eq!(&session.held_tct.claims.iss, bob.aid());
+    assert_eq!(&session.held_tct().claims().iss, bob.aid());
     assert!(
         session
-            .held_tct
-            .claims
+            .held_tct()
+            .claims()
             .grants
             .iter()
             .any(|g| g == "demo.echo"),

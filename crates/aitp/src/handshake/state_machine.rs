@@ -790,17 +790,54 @@ fn verify_received_tct(
 /// TCT (verbatim token + trusted claims) and, when the peer's policy
 /// allowed delegation, the companion grant voucher to delegate with
 /// later (RFC-AITP-0005 §8).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct CompletedHandshake {
+    pub(crate) tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl CompletedHandshake {
     /// The TCT the peer issued to us.
-    pub tct: VerifiedTct,
+    pub fn tct(&self) -> &VerifiedTct {
+        &self.tct
+    }
+
     /// The companion grant voucher, verbatim. `None` when the issuing
     /// peer's policy forbids us from delegating.
-    pub grant_voucher: Option<String>,
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
     /// The grants we may exercise under the peer-issued TCT: its
     /// `grants`, narrowed to the safe subset when the revocation source
     /// answered [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> CompletedHandshakeParts {
+        CompletedHandshakeParts {
+            tct: self.tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`CompletedHandshake`], from [`CompletedHandshake::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CompletedHandshakeParts {
+    /// See [`CompletedHandshake::tct`].
+    pub tct: VerifiedTct,
+    /// See [`CompletedHandshake::grant_voucher`].
+    pub grant_voucher: Option<String>,
+    /// See [`CompletedHandshake::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 

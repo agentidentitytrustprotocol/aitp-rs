@@ -428,14 +428,51 @@ pub enum SubjectBinding {
 /// established from the sender AID and the trust store, never from
 /// descriptor fields alone. Callers bind the peer to this value and do
 /// not re-derive it.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedPinnedKey {
+    pub(crate) algorithm: AidAlgorithm,
+    pub(crate) key: AitpVerifyingKey,
+    pub(crate) aid: Aid,
+}
+
+impl VerifiedPinnedKey {
+    /// The key's algorithm.
+    pub fn algorithm(&self) -> AidAlgorithm {
+        self.algorithm
+    }
+
+    /// The trusted key the proof verified under.
+    pub fn key(&self) -> &AitpVerifyingKey {
+        &self.key
+    }
+
+    /// The sender AID the key was bound to.
+    pub fn aid(&self) -> &Aid {
+        &self.aid
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedPinnedKeyParts {
+        VerifiedPinnedKeyParts {
+            algorithm: self.algorithm,
+            key: self.key,
+            aid: self.aid,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedPinnedKey`], from [`VerifiedPinnedKey::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct VerifiedPinnedKey {
-    /// The key's algorithm.
+pub struct VerifiedPinnedKeyParts {
+    /// See [`VerifiedPinnedKey::algorithm`].
     pub algorithm: AidAlgorithm,
-    /// The trusted key the proof verified under.
+    /// See [`VerifiedPinnedKey::key`].
     pub key: AitpVerifyingKey,
-    /// The sender AID the key was bound to.
+    /// See [`VerifiedPinnedKey::aid`].
     pub aid: Aid,
 }
 

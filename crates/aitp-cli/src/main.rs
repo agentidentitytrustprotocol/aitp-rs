@@ -418,7 +418,7 @@ fn tct_verify(
         // presenter's AID from an authenticated source (RFC-AITP-0005 §6).
         println!("audience taken from the token (not authenticated): {audience}");
     }
-    println!("{}", serde_json::to_string_pretty(&verified.claims)?);
+    println!("{}", serde_json::to_string_pretty(&verified.claims())?);
     Ok(())
 }
 

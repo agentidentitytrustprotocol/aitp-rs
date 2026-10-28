@@ -262,12 +262,12 @@ fn parse_verifier(verifier_aid: &str) -> PyResult<Aid> {
 /// type. The "delegator" (ultimate grantor A) is the root voucher's `iss`.
 fn to_verified(verified: &aitp::delegation::VerifiedDelegation) -> PyDelegationVerified {
     PyDelegationVerified {
-        delegator: verified.voucher.iss.to_string(),
-        delegatee: verified.claims.sub.to_string(),
-        issued_by: verified.claims.iss.to_string(),
-        grants: verified.claims.scope.clone(),
-        expires_at: verified.claims.exp.0,
-        cnf_jkt: verified.claims.cnf.jkt.clone(),
+        delegator: verified.voucher().iss.to_string(),
+        delegatee: verified.claims().sub.to_string(),
+        issued_by: verified.claims().iss.to_string(),
+        grants: verified.claims().scope.clone(),
+        expires_at: verified.claims().exp.0,
+        cnf_jkt: verified.claims().cnf.jkt.clone(),
     }
 }
 

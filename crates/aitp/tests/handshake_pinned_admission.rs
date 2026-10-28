@@ -59,9 +59,9 @@ async fn ed25519_and_p256_subjects_are_admitted() {
         let env = present_pinned(&key, "agent-x", &ch, NOW).unwrap();
         assert_eq!(env.message_type, MessageType::IdentityPresentation);
         let ok = a.admit_at(&env, &src("p"), NOW).await.unwrap();
-        assert_eq!(&ok.key.aid, key.aid());
-        assert_eq!(ok.key.key, key.verifying_key());
-        assert_eq!(ok.subject, "agent-x");
+        assert_eq!(ok.key().aid(), key.aid());
+        assert_eq!(ok.key().key(), &key.verifying_key());
+        assert_eq!(ok.subject(), "agent-x");
     }
 }
 
@@ -375,7 +375,7 @@ async fn subject_binding_sender_aid_is_enforced_by_admission() {
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
     let env = present_pinned(&key, key.aid().as_str(), &ch, NOW).unwrap();
     let ok = a.admit_at(&env, &src("p"), NOW).await.unwrap();
-    assert_eq!(ok.subject, key.aid().as_str());
+    assert_eq!(ok.subject(), key.aid().as_str());
 }
 
 /// id-016 / RFC-AITP-0002 §3.4 (spec cfd2f16): the nonce bound refuses

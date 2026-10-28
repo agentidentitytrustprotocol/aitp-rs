@@ -72,18 +72,62 @@ pub const DELEGATION_CLAIMS_MEMBERS: &[&str] = &[
 
 /// A delegation token that passed [`crate::delegation::verify_delegation`]: the
 /// verbatim token, its trusted claims, and the embedded voucher's claims.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct VerifiedDelegation {
+    pub(crate) token: String,
+    pub(crate) claims: DelegationClaims,
+    pub(crate) voucher: GrantVoucherClaims,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl VerifiedDelegation {
     /// The compact JWS, byte-for-byte as presented.
-    pub token: String,
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
     /// Decoded outer claims, trusted after verification.
-    pub claims: DelegationClaims,
+    pub fn claims(&self) -> &DelegationClaims {
+        &self.claims
+    }
+
     /// Claims of the embedded grant voucher.
-    pub voucher: GrantVoucherClaims,
+    pub fn voucher(&self) -> &GrantVoucherClaims {
+        &self.voucher
+    }
+
     /// The capabilities this delegation may exercise: `claims.scope`,
     /// narrowed to the safe subset when the revocation source answered
     /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedDelegationParts {
+        VerifiedDelegationParts {
+            token: self.token,
+            claims: self.claims,
+            voucher: self.voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedDelegation`], from [`VerifiedDelegation::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct VerifiedDelegationParts {
+    /// See [`VerifiedDelegation::token`].
+    pub token: String,
+    /// See [`VerifiedDelegation::claims`].
+    pub claims: DelegationClaims,
+    /// See [`VerifiedDelegation::voucher`].
+    pub voucher: GrantVoucherClaims,
+    /// See [`VerifiedDelegation::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 

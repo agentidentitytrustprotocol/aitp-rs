@@ -149,22 +149,73 @@ impl JwksResolver for NoOpJwksResolver {
 /// companion grant voucher (when the peer's policy allows delegation),
 /// and the peer's verifying key (so the caller can use the held TCT for
 /// downstream PoP without re-fetching the peer Manifest).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone)]
-#[non_exhaustive]
 pub struct SessionContext {
-    /// Peer's AID — `held_tct.claims.iss == peer_aid`.
-    pub peer_aid: crate::core::Aid,
+    pub(crate) peer_aid: crate::core::Aid,
+    pub(crate) peer_pubkey: AitpVerifyingKey,
+    pub(crate) held_tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl SessionContext {
+    /// Peer's AID: `held_tct().claims().iss == peer_aid()`.
+    pub fn peer_aid(&self) -> &crate::core::Aid {
+        &self.peer_aid
+    }
+
     /// Peer's verifying key (for downstream PoP verification).
-    pub peer_pubkey: AitpVerifyingKey,
-    /// TCT the peer issued to us: forward `held_tct.token`, read
-    /// `held_tct.claims`.
-    pub held_tct: VerifiedTct,
-    /// Companion grant voucher compact JWS — present when the peer's
+    pub fn peer_pubkey(&self) -> &AitpVerifyingKey {
+        &self.peer_pubkey
+    }
+
+    /// TCT the peer issued to us: forward its `token()`, read its
+    /// `claims()`.
+    pub fn held_tct(&self) -> &VerifiedTct {
+        &self.held_tct
+    }
+
+    /// Companion grant voucher compact JWS, present when the peer's
     /// policy allows us to delegate (RFC-AITP-0005 §8).
-    pub grant_voucher: Option<String>,
-    /// The grants we may exercise under `held_tct`: its `grants`,
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
+    /// The grants we may exercise under `held_tct()`: its `grants`,
     /// narrowed when the peer's revocation status was unavailable under
     /// a `soft_fail` policy (see [`crate::handshake::CompletedHandshake`]).
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> SessionContextParts {
+        SessionContextParts {
+            peer_aid: self.peer_aid,
+            peer_pubkey: self.peer_pubkey,
+            held_tct: self.held_tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`SessionContext`], from [`SessionContext::into_parts`].
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct SessionContextParts {
+    /// See [`SessionContext::peer_aid`].
+    pub peer_aid: crate::core::Aid,
+    /// See [`SessionContext::peer_pubkey`].
+    pub peer_pubkey: AitpVerifyingKey,
+    /// See [`SessionContext::held_tct`].
+    pub held_tct: VerifiedTct,
+    /// See [`SessionContext::grant_voucher`].
+    pub grant_voucher: Option<String>,
+    /// See [`SessionContext::effective_grants`].
     pub effective_grants: Vec<String>,
 }
 

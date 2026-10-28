@@ -105,14 +105,51 @@ pub struct IdentityPresentationPayload {
 }
 
 /// A successful admission.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub(crate) key: VerifiedPinnedKey,
+    pub(crate) subject: String,
+    pub(crate) message_id: Uuid,
+}
+
+impl Admitted {
+    /// The subject's key, from the trust store.
+    pub fn key(&self) -> &VerifiedPinnedKey {
+        &self.key
+    }
+
+    /// `identity.subject` as presented.
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// The envelope's `message_id`.
+    pub fn message_id(&self) -> Uuid {
+        self.message_id
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> AdmittedParts {
+        AdmittedParts {
+            key: self.key,
+            subject: self.subject,
+            message_id: self.message_id,
+        }
+    }
+}
+
+/// The owned pieces of an [`Admitted`], from [`Admitted::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct Admitted {
-    /// The subject's key, from the trust store.
+pub struct AdmittedParts {
+    /// See [`Admitted::key`].
     pub key: VerifiedPinnedKey,
-    /// `identity.subject` as presented.
+    /// See [`Admitted::subject`].
     pub subject: String,
-    /// The envelope's `message_id`.
+    /// See [`Admitted::message_id`].
     pub message_id: Uuid,
 }
 

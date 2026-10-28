@@ -193,7 +193,7 @@ fn verify_tct_parsed(
             tct_revocation_code(&e),
         )
     })?;
-    let claims = verified.claims;
+    let claims = verified.claims();
 
     if !claims.grants.iter().any(|g| g == required_grant) {
         return Err(PyRuntimeError::new_err(format!(

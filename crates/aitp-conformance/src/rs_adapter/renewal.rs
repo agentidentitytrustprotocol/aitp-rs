@@ -155,7 +155,7 @@ pub(super) fn verify_renewal_response_op(
                 "ok": true,
                 "result": {
                     "verified": true,
-                    "renewed_jti": renewed.tct.claims.jti.to_string(),
+                    "renewed_jti": renewed.tct.claims().jti.to_string(),
                 },
             })
         }
