@@ -89,9 +89,9 @@ relax this:
   `169.254.0.0/16`), multicast, broadcast and unspecified addresses are
   still refused. HTTPS is still required.
 
-The flags apply to the Manifest fetch, the handshake endpoint and the
-revocation list fetch. `aitp enroll` and the `/echo` request of `aitp echo`
-use their own client, which checks the scheme but not the address.
+The flags apply to every outbound request: the Manifest fetch, the
+handshake endpoint, the revocation list fetch, `aitp enroll` and the
+`/echo` request of `aitp echo`.
 
 `-` reads from stdin, so tokens/manifests pipe through:
 
