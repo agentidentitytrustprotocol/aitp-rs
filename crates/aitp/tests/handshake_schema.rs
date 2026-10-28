@@ -80,7 +80,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -89,8 +89,8 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
 
 #[test]
 fn all_four_handshake_payloads_validate_against_schema() {
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -101,7 +101,7 @@ fn all_four_handshake_payloads_validate_against_schema() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -110,7 +110,7 @@ fn all_four_handshake_payloads_validate_against_schema() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 

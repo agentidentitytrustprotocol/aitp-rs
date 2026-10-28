@@ -40,7 +40,7 @@ fn main() {
         // this request (and everything nested inside it — `envelope`,
         // `manifest`, `issuer_revocation_list.snapshot`, `session_bundle`,
         // handshake payloads, …) is ever built.
-        if let Err(e) = aitp::core::reject_duplicate_keys(line.as_bytes()) {
+        if let Err(e) = aitp::__private::reject_duplicate_keys(line.as_bytes()) {
             let resp = json!({
                 "id": "unknown",
                 "ok": false,

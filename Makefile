@@ -2,7 +2,7 @@
         deny audit msrv semver coverage schemas-check ci \
         check-versions sync-versions docs-check public-api public-api-check \
         api-classification api-classification-check stable-deps-check \
-        stable-experimental-check binding-api binding-api-check
+        stable-experimental-check single-path-check binding-api binding-api-check
 
 demo-build:
 	cargo build --release -p aitp-example-two-agents
@@ -102,6 +102,12 @@ stable-deps-check:
 # aitp-experimental. Reads the committed public-api.stable.txt.
 stable-experimental-check:
 	python3 scripts/check-stable-experimental.py
+
+# One public path per `aitp` item (STABILITY.md, "Public paths"): no
+# re-export, glob or public leaf module that reaches an item a second
+# way. Reads the committed public-api.{stable,experimental}.txt.
+single-path-check:
+	python3 scripts/check-single-path.py
 
 # The bindings' API snapshots (bindings/aitp-py/api.txt from aitp.pyi,
 # bindings/aitp-node/api.txt from index.d.ts), their semver gate. Run

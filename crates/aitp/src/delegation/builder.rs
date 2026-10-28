@@ -17,7 +17,7 @@ use crate::delegation::DelegationError;
 use crate::tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
 
 /// Default delegation token TTL (1 hour).
-pub const DEFAULT_DELEGATION_TTL_SECS: i64 = 3600;
+pub const DEFAULT_DELEGATION_TTL: std::time::Duration = std::time::Duration::from_secs(3600);
 
 /// Fluent builder for issuing a delegation token (compact JWS).
 ///
@@ -32,8 +32,18 @@ pub struct DelegationBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     voucher: GrantVoucherClaims,
     delegatee: Option<Aid>,
     scope: Vec<String>,
-    ttl_secs: i64,
+    ttl: std::time::Duration,
     now_override: Option<Timestamp>,
+}
+
+impl<S: ?Sized> std::fmt::Debug for DelegationBuilder<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DelegationBuilder")
+            .field("delegatee", &self.delegatee)
+            .field("scope", &self.scope)
+            .field("ttl", &self.ttl)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> DelegationBuilder<'a, dyn AitpSigner + 'a> {
@@ -131,7 +141,7 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
             voucher: claims,
             delegatee: None,
             scope: Vec::new(),
-            ttl_secs: DEFAULT_DELEGATION_TTL_SECS,
+            ttl: DEFAULT_DELEGATION_TTL,
             now_override: None,
         })
     }
@@ -154,9 +164,10 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
     }
 
     /// Override default TTL (1h). The effective expiry is capped at the
-    /// voucher's `exp`.
-    pub fn ttl_secs(mut self, ttl: i64) -> Self {
-        self.ttl_secs = ttl;
+    /// voucher's `exp`. The expiry counts whole seconds; a fraction of a
+    /// second is dropped.
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -189,7 +200,7 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
         }
 
         let now = self.now_override.unwrap_or_else(Timestamp::now);
-        let proposed = now.plus_secs(self.ttl_secs);
+        let proposed = now.saturating_add(self.ttl);
         let exp = if proposed.0 < max_expiry.0 {
             proposed
         } else {
@@ -198,7 +209,7 @@ impl<'a, S: ?Sized + IssuerAid> DelegationBuilder<'a, S> {
 
         let cnf_key = AitpVerifyingKey::from_aid(&delegatee).map_err(DelegationError::Crypto)?;
         let jkt = cnf_key
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .map_err(DelegationError::Crypto)?;
 
         let claims = DelegationClaims {

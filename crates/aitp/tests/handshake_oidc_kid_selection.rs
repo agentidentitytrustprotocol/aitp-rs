@@ -38,17 +38,17 @@ impl JwksResolver for MultiKeyResolver {
 }
 
 fn subject_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0x51; 32])
+    AitpSigningKey::from_ed25519_seed(&[0x51; 32])
 }
 
 fn audience() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0x52; 32])
+    AitpSigningKey::from_ed25519_seed(&[0x52; 32])
 }
 
 fn jkt_of(key: &AitpSigningKey) -> String {
     AitpVerifyingKey::from_aid(key.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap()
 }
 
@@ -63,15 +63,16 @@ fn ctx<'a>(
     nonce: &'a str,
     anchors: &'a [RawUrl],
 ) -> OidcVerifyContext<'a> {
-    OidcVerifyContext::new(
-        audience_aid,
-        nonce,
-        anchors,
-        resolver,
-        subject_aid,
-        300,
-        NOW,
-    )
+    OidcVerifyContext::builder()
+        .expected_audience(audience_aid)
+        .expected_nonce(nonce)
+        .trust_anchors(anchors)
+        .jwks_resolver(resolver)
+        .subject_aid(subject_aid)
+        .iat_tolerance(std::time::Duration::from_secs(300))
+        .now(aitp::core::Timestamp(NOW))
+        .build()
+        .expect("every required input is set")
 }
 
 /// No `kid` on the JWT + exactly one JWKS key ⇒ the fallback selects

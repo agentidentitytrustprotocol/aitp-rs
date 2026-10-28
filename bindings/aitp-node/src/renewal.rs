@@ -18,7 +18,6 @@ use rand::TryRng;
 use std::future::Future;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
-use uuid::Uuid;
 
 use crate::tct::JsIssuedTct;
 
@@ -70,15 +69,23 @@ pub(crate) fn process_renewal_request_js(
         .map_err(Error::from_reason)?;
     // The issuer's own list is authoritative, so an empty one is "nothing
     // revoked", never "unavailable".
-    let revocation_check = move |jti: &Uuid| Ok(revoked.contains(jti));
+    let revocation_check = move |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if revoked.contains(q.jti) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
     let ctx = RenewalContext::new(
         Timestamp(manifest_exp_unix_secs),
         offered_grants,
-        &revocation_check,
+        aitp::tct::RevocationSource::Check(&revocation_check),
         renewal_nonce_store(),
         Timestamp::now(),
     )
-    .ttl_secs(new_ttl_secs);
+    .ttl(std::time::Duration::from_secs(
+        u64::try_from(new_ttl_secs).unwrap_or(0),
+    ));
     let issued = poll_ready(process_renewal_request(&request, issuer_key, &ctx))
         .ok_or_else(|| Error::from_reason("renewal replay guard did not complete"))?
         .map_err(|e| Error::from_reason(format!("renewal request rejected: {e}")))?;

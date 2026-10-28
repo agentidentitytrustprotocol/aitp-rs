@@ -7,7 +7,7 @@ use aitp::crypto::testing::{MockKmsSigner, MockOutput};
 use aitp::crypto::{AitpSigner, AitpSigningKey, CryptoError, SignerError};
 use aitp::manifest::{
     verify_manifest, IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError,
-    VerifyManifestContext,
+    ManifestVerifyContext,
 };
 
 fn build(signer: &dyn AitpSigner, now: Timestamp) -> Result<Manifest, ManifestError> {
@@ -20,7 +20,7 @@ fn build(signer: &dyn AitpSigner, now: Timestamp) -> Result<Manifest, ManifestEr
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
 }
 
@@ -41,16 +41,16 @@ fn kms_backend_builds_a_verifying_manifest() {
             "PoP and outer signature both go to the backend"
         );
         assert_eq!(&m.aid, kms.aid());
-        verify_manifest(&m, &VerifyManifestContext::at(now)).expect("KMS manifest verifies");
+        verify_manifest(&m, &ManifestVerifyContext::at(now)).expect("KMS manifest verifies");
     }
 }
 
 #[test]
 fn kms_backend_ed25519_builds_a_verifying_manifest() {
     let now = Timestamp(1_700_000_000);
-    let kms = MockKmsSigner::new(AitpSigningKey::from_seed(&[6; 32]));
+    let kms = MockKmsSigner::new(AitpSigningKey::from_ed25519_seed(&[6; 32]));
     let m = build(&kms, now).expect("KMS-backed ManifestBuilder builds");
-    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("KMS manifest verifies");
+    verify_manifest(&m, &ManifestVerifyContext::at(now)).expect("KMS manifest verifies");
 }
 
 #[test]
@@ -87,7 +87,7 @@ fn build_async<'a>(
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
         .published_at(now)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build_async()
 }
 
@@ -100,7 +100,10 @@ fn build_async<'a>(
 async fn async_manifest_matches_sync_for_deterministic_keys() {
     let now = Timestamp(1_700_000_000);
     let cases: [(fn() -> AitpSigningKey, MockOutput); 3] = [
-        (|| AitpSigningKey::from_seed(&[0x21; 32]), MockOutput::Raw),
+        (
+            || AitpSigningKey::from_ed25519_seed(&[0x21; 32]),
+            MockOutput::Raw,
+        ),
         (
             || AitpSigningKey::from_p256_seed(&[0x22; 32]).unwrap(),
             MockOutput::Raw,
@@ -136,7 +139,7 @@ async fn async_manifest_matches_sync_for_deterministic_keys() {
         let sig = aitp::crypto::sign_jcs(&key, &digest).unwrap();
         assert_eq!(asyn.signature, sig.into_string());
 
-        verify_manifest(&asyn, &VerifyManifestContext::at(now)).expect("async manifest verifies");
+        verify_manifest(&asyn, &ManifestVerifyContext::at(now)).expect("async manifest verifies");
     }
 }
 
@@ -172,5 +175,5 @@ async fn async_manifest_future_is_send() {
         .unwrap()
         .expect("async manifest builds on another task");
     assert_eq!(&m.aid, signer.aid());
-    verify_manifest(&m, &VerifyManifestContext::at(now)).expect("verifies");
+    verify_manifest(&m, &ManifestVerifyContext::at(now)).expect("verifies");
 }

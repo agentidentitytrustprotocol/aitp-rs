@@ -11,10 +11,9 @@
 //! can get as far as the proof and the nonce consume. Every path must
 //! return, never panic.
 
+use aitp::core::nonce_store::{InMemoryNonceStore, IssuedNonce, NonceStore};
 use aitp::core::{Aid, CheckedJson, Timestamp};
-use aitp::handshake::admission::{
-    ChallengeSource, InMemoryNonceStore, IssuedNonce, NonceStore, PinnedAdmission,
-};
+use aitp::handshake::admission::{ChallengeSource, PinnedAdmission};
 use aitp::handshake::StaticPinnedKeyStore;
 use libfuzzer_sys::fuzz_target;
 use std::future::Future;

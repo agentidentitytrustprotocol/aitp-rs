@@ -34,8 +34,8 @@ fn main() {
     println!("issuer: {} kid={}", issuer_url, issuer.kid);
 
     // ── Two peers, OIDC-only Manifests ─────────────────────────────────
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = oidc_manifest(&alice, "alice", &issuer_url);
     let bob_manifest = oidc_manifest(&bob, "bob", &issuer_url);
     println!("alice AID: {}", alice.aid());
@@ -45,11 +45,11 @@ fn main() {
     // ── Pre-compute pubkey thumbprints for the JWT cnf.jkt claim ────────
     let alice_jkt = AitpVerifyingKey::from_aid(alice.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
     let bob_jkt = AitpVerifyingKey::from_aid(bob.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
     println!("alice cnf.jkt: {alice_jkt}");
     println!("bob   cnf.jkt: {bob_jkt}");
@@ -63,7 +63,7 @@ fn main() {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -72,7 +72,7 @@ fn main() {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -187,15 +187,15 @@ fn main() {
     println!("handshake complete:");
     println!(
         "  alice holds TCT issued_by={} grants={:?} voucher={}",
-        alice_holds_tct.tct.claims.iss,
-        alice_holds_tct.tct.claims.grants,
-        alice_holds_tct.grant_voucher.is_some(),
+        alice_holds_tct.tct().claims().iss,
+        alice_holds_tct.tct().claims().grants,
+        alice_holds_tct.grant_voucher().is_some(),
     );
     println!(
         "  bob   holds TCT issued_by={} grants={:?} voucher={}",
-        bob_holds_tct.tct.claims.iss,
-        bob_holds_tct.tct.claims.grants,
-        bob_holds_tct.grant_voucher.is_some(),
+        bob_holds_tct.tct().claims().iss,
+        bob_holds_tct.tct().claims().grants,
+        bob_holds_tct.grant_voucher().is_some(),
     );
 }
 
@@ -212,7 +212,7 @@ fn oidc_manifest(key: &AitpSigningKey, name: &str, issuer: &url::Url) -> Manifes
                 .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .published_at(NOW)
         .build()

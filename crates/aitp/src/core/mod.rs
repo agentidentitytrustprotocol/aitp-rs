@@ -12,9 +12,8 @@
 //! - Strict unpadded base64url codec ([`base64url`]).
 //! - The [`Timestamp`] newtype for Unix-second timestamps.
 //! - The [`ExtensionsMap`] type for forward-compatible extensions.
-//! - The [`AitpError`] and [`ErrorCode`] taxonomy from RFC-AITP-0001.
-//! - The [`UnknownField`] member-set checker for RFC-AITP-0001 §7, and
-//!   [`CheckedJson`], the duplicate-key-checked input every `parse_*_wire`
+//! - The [`ErrorCode`] registry from RFC-AITP-0001.
+//! - [`CheckedJson`], the duplicate-key-checked input every `parse_*_wire`
 //!   function takes (RFC-AITP-0001 §5.4.5).
 //! - The [`nonce_store::NonceStore`] single-use nonce store trait and its
 //!   in-memory implementation (pinned-key admission).
@@ -25,41 +24,65 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod aid;
+pub(crate) mod aid;
 pub mod base64url;
-pub mod envelope;
-pub mod error;
-pub mod extensions;
+pub(crate) mod envelope;
+pub(crate) mod error;
+pub(crate) mod extensions;
 pub mod ids;
 pub mod jcs;
 pub mod nonce_store;
-pub mod raw_url;
-pub mod time;
-pub mod unknown_field;
+pub(crate) mod raw_url;
+pub(crate) mod time;
+pub(crate) mod unknown_field;
 
 pub use aid::{Aid, AidAlgorithm, AidParseError};
 pub use envelope::{
     check_envelope_structure, check_unsigned_envelope_structure, envelope_signing_digest,
-    envelope_signing_input, parse_envelope_wire, AitpEnvelope, EnvelopeParseError, MessageType,
-    Sender, AITP_ENVELOPE_MEMBERS, ENVELOPE_SIGNING_DOMAIN_TAG,
+    envelope_signing_input, parse_envelope_wire, AitpEnvelope, EnvelopeParseError,
+    EnvelopeStructureError, MessageType, Sender, AITP_ENVELOPE_MEMBERS,
+    ENVELOPE_SIGNING_DOMAIN_TAG,
 };
-pub use error::{AitpError, ErrorCode};
+pub use error::{ErrorCode, UnknownErrorCode};
 pub use extensions::ExtensionsMap;
-pub use nonce_store::{InMemoryNonceStore, NonceStore};
 pub use raw_url::RawUrl;
 pub use time::Timestamp;
-pub use unknown_field::{
-    check_members, from_serde_error, reject_duplicate_keys, CheckedJson, CheckedJsonError,
-    UnknownField,
-};
+pub(crate) use unknown_field::{check_members, from_serde_error, reject_duplicate_keys};
+pub use unknown_field::{CheckedJson, CheckedJsonError};
 
 /// Protocol version this crate implements. Carried as the `version`
 /// field on JCS-profile artifacts and as the `ver` private claim on
 /// compact-JWS portable trust artifacts (RFC-AITP-0001 §5.4.5).
 pub const PROTOCOL_VERSION: &str = "aitp/0.3";
 
+/// The boxed error a pluggable backend (a signer, a nonce store, a
+/// deny list) attaches as the cause of its failure.
+pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
+
+/// A boxed, `Send` future, as returned by the object-safe async traits
+/// ([`crate::crypto::DynAsyncAitpSigner`], [`nonce_store::NonceStore`]).
+pub type BoxFuture<'a, T> = std::pin::Pin<Box<dyn std::future::Future<Output = T> + Send + 'a>>;
+
+/// Error from a builder's `build` when a required field was not set.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+#[error("missing required field `{field}`")]
+pub struct MissingFieldError {
+    field: &'static str,
+}
+
+impl MissingFieldError {
+    pub(crate) const fn new(field: &'static str) -> Self {
+        Self { field }
+    }
+
+    /// The name of the builder method that was not called.
+    pub const fn field(&self) -> &'static str {
+        self.field
+    }
+}
+
 /// Default timestamp tolerance for replay protection (300 seconds, ±).
-pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
+pub const DEFAULT_TIMESTAMP_TOLERANCE: std::time::Duration = std::time::Duration::from_secs(300);
 
 /// Length of an AID identifier component when method = `pubkey`
 /// (Ed25519 raw public key encoded as unpadded base64url).

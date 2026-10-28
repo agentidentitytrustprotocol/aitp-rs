@@ -13,7 +13,7 @@
 //! Every check of §6.5 steps 1–4 (descriptor shape, canonical SPIFFE ID,
 //! bundle lookup, keys of the right `use`) runs before any signature is
 //! verified. Every failure is `IDENTITY_FAILED`
-//! ([`HandshakeError::Identity`]).
+//! ([`IdentityVerifyError::Rejected`]).
 //!
 //! [`SpiffeVerifier`] plugs it into the handshake:
 //!
@@ -39,10 +39,12 @@ use uuid::Uuid;
 use x509_parser::extensions::GeneralName;
 use x509_parser::oid_registry::{OID_EC_P256, OID_KEY_TYPE_EC_PUBLIC_KEY, OID_SIG_ED25519};
 
+use aitp::__private::{svid_type, x5c, SvidType};
 use aitp::handshake::identity_pinned::PINNED_KEY_PROOF_DOMAIN;
 use aitp::handshake::{
-    pinned_key_proof_input, verify_jws_signature, HandshakeError, IdentityDescriptor, IdentityKind,
-    IdentityVerifier, IdentityVerifyContext, JwkParseError, JwkPublicKey, SvidType,
+    pinned_key_proof_input, verify_jws_signature, IdentityDescriptor, IdentityKind,
+    IdentityVerifier, IdentityVerifyContext, IdentityVerifyError, JwkParseError, JwkPublicKey,
+    VerifiedIdentity,
 };
 
 /// Domain prefix of the X509-SVID proof input (RFC-AITP-0002 §6.4.1).
@@ -226,17 +228,18 @@ pub struct SpiffeVerifyContext<'a> {
     pub timestamp: Timestamp,
     /// The handshake message's `pop_nonce`.
     pub pop_nonce: &'a str,
-    /// Allowed JWT-SVID `iat` skew in seconds (RFC-AITP-0002 §2.2: 300).
-    pub iat_tolerance_secs: i64,
-    /// Current time (Unix seconds).
-    pub now_unix_secs: i64,
+    /// Allowed JWT-SVID `iat` skew, counted in whole seconds
+    /// (RFC-AITP-0002 §2.2: 300 s).
+    pub iat_tolerance: std::time::Duration,
+    /// Current time.
+    pub now: Timestamp,
 }
 
 /// Verify a `spiffe` identity descriptor (RFC-AITP-0002 §6.5).
 pub fn verify_spiffe(
     identity: &IdentityDescriptor,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
+) -> Result<(), IdentityVerifyError> {
     // Step 1: descriptor shape (§6.1), including the canonical SPIFFE ID.
     if identity.kind != IdentityKind::Spiffe {
         return Err(fail("identity.type is not spiffe"));
@@ -247,12 +250,10 @@ pub fn verify_spiffe(
     if identity.public_key.is_some() {
         return Err(fail("descriptor must not carry public_key"));
     }
-    let svid_type = identity
-        .svid_type
-        .ok_or_else(|| fail("descriptor is missing svid_type"))?;
+    let svid_type = svid_type(identity).ok_or_else(|| fail("descriptor is missing svid_type"))?;
     // Step 2: the trust domain of `subject`.
     let trust_domain = spiffe_id_trust_domain(&identity.subject)?;
-    match (svid_type, identity.x5c.as_deref()) {
+    match (svid_type, x5c(identity)) {
         (SvidType::JwtSvid, None) => {}
         (SvidType::JwtSvid, Some(_)) => return Err(fail("x5c must be absent for a jwt-svid")),
         (SvidType::X509Svid, Some([_, ..])) => {}
@@ -290,10 +291,10 @@ pub fn spiffe_x509_proof_input(
     message_id: &Uuid,
     timestamp: Timestamp,
     pop_nonce: &str,
-) -> Result<Vec<u8>, HandshakeError> {
+) -> Result<Vec<u8>, IdentityVerifyError> {
     // The §3.1 input is its domain prefix followed by the shared fields.
-    let pinned =
-        pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)?;
+    let pinned = pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)
+        .map_err(|e| IdentityVerifyError::Rejected(e.to_string()))?;
     let fields = pinned
         .strip_prefix(PINNED_KEY_PROOF_DOMAIN)
         .expect("the pinned-key proof input starts with its domain");
@@ -324,7 +325,7 @@ impl IdentityVerifier for SpiffeVerifier<'_> {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         verify_spiffe(
             identity,
             &SpiffeVerifyContext {
@@ -334,10 +335,14 @@ impl IdentityVerifier for SpiffeVerifier<'_> {
                 message_id: ctx.message_id,
                 timestamp: ctx.timestamp,
                 pop_nonce: ctx.pop_nonce,
-                iat_tolerance_secs: 300,
-                now_unix_secs: ctx.now.0,
+                iat_tolerance: aitp::core::DEFAULT_TIMESTAMP_TOLERANCE,
+                now: ctx.now,
             },
-        )
+        )?;
+        Ok(VerifiedIdentity::new(
+            IdentityKind::Spiffe,
+            identity.subject.clone(),
+        ))
     }
 }
 
@@ -345,7 +350,7 @@ fn verify_jwt_svid(
     identity: &IdentityDescriptor,
     bundle: &SpiffeBundle,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
+) -> Result<(), IdentityVerifyError> {
     let segments: Vec<&str> = identity.proof.split('.').collect();
     let [header_b64, payload_b64, sig_b64] = segments[..] else {
         return Err(fail("JWT-SVID is not a three-segment compact JWS"));
@@ -409,17 +414,17 @@ fn verify_jwt_svid(
     if aud != ctx.receiver_aid.as_str() {
         return Err(fail("aud mismatch"));
     }
-    if claims.exp <= ctx.now_unix_secs {
+    if claims.exp <= ctx.now.0 {
         return Err(fail("exp in the past"));
     }
-    if (ctx.now_unix_secs - claims.iat).abs() > ctx.iat_tolerance_secs {
+    if !Timestamp(claims.iat).is_within_tolerance_of(ctx.now, ctx.iat_tolerance) {
         return Err(fail("iat outside tolerance"));
     }
     if claims.nonce != ctx.pop_nonce {
         return Err(fail("nonce mismatch"));
     }
     let expected_jkt = AitpVerifyingKey::from_aid(ctx.sender_aid)
-        .and_then(|k| k.to_jwk_thumbprint())
+        .and_then(|k| k.to_jwk_thumbprint_sha256())
         .map_err(|e| fail(&format!("sender AID thumbprint: {e}")))?;
     if claims.cnf.jkt != expected_jkt {
         return Err(fail("cnf.jkt mismatch"));
@@ -431,10 +436,8 @@ fn verify_x509_svid(
     identity: &IdentityDescriptor,
     bundle: &SpiffeBundle,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
-    let chain = identity
-        .x5c
-        .as_deref()
+) -> Result<(), IdentityVerifyError> {
+    let chain = x5c(identity)
         .unwrap_or_default()
         .iter()
         .map(|c| decode_x5c_entry(c).map_err(|e| fail(&e)))
@@ -466,7 +469,7 @@ fn verify_x509_svid(
     let leaf_cert_der = CertificateDer::from(leaf_der.as_slice());
     let ee = webpki::EndEntityCert::try_from(&leaf_cert_der)
         .map_err(|e| fail(&format!("leaf certificate: {e}")))?;
-    let now = u64::try_from(ctx.now_unix_secs).map_err(|_| fail("current time before epoch"))?;
+    let now = u64::try_from(ctx.now.0).map_err(|_| fail("current time before epoch"))?;
     let time = UnixTime::since_unix_epoch(Duration::from_secs(now));
     // X509-SVID §4.4 lets a leaf carry the serverAuth or clientAuth
     // EKU, or none. webpki checks one purpose at a time.
@@ -504,7 +507,7 @@ fn verify_x509_svid(
 fn check_leaf(
     leaf: &x509_parser::certificate::X509Certificate<'_>,
     subject: &str,
-) -> Result<AitpVerifyingKey, HandshakeError> {
+) -> Result<AitpVerifyingKey, IdentityVerifyError> {
     // Step 2: exactly one URI SAN, equal to `subject` byte for byte.
     let san = leaf
         .subject_alternative_name()
@@ -549,7 +552,7 @@ fn check_leaf(
         let x: &[u8; 32] = key_bytes
             .try_into()
             .map_err(|_| fail("leaf Ed25519 key is not 32 bytes"))?;
-        AitpVerifyingKey::from_bytes(x).map_err(|e| fail(&format!("leaf key: {e}")))
+        AitpVerifyingKey::from_ed25519_bytes(x).map_err(|e| fail(&format!("leaf key: {e}")))
     } else if spki.algorithm.algorithm == OID_KEY_TYPE_EC_PUBLIC_KEY {
         let curve = spki
             .algorithm
@@ -577,7 +580,7 @@ fn check_leaf(
 /// The trust domain of a canonical SPIFFE ID with a workload path
 /// (RFC-AITP-0002 §6.1). Rejects, without folding case, anything that is
 /// not in canonical form.
-fn spiffe_id_trust_domain(id: &str) -> Result<&str, HandshakeError> {
+fn spiffe_id_trust_domain(id: &str) -> Result<&str, IdentityVerifyError> {
     if id.len() > MAX_SPIFFE_ID_LEN {
         return Err(fail("SPIFFE ID longer than 2048 bytes"));
     }
@@ -630,8 +633,8 @@ fn parse_certificate(der: &[u8]) -> Result<x509_parser::certificate::X509Certifi
     }
 }
 
-fn fail(msg: &str) -> HandshakeError {
-    HandshakeError::Identity(format!("spiffe: {msg}"))
+fn fail(msg: &str) -> IdentityVerifyError {
+    IdentityVerifyError::Rejected(format!("spiffe: {msg}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -669,14 +672,14 @@ mod tests {
         alg: &str,
         mut jwk: Value,
         sign: &dyn Fn(&[u8]) -> Vec<u8>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<(), IdentityVerifyError> {
         let sender = Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap();
         let receiver =
             Aid::parse("aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg").unwrap();
         let subject = "spiffe://prod.example.com/ns/payments/sa/agent";
         let (now, nonce, message_id) = (1_800_000_000, "bQ88kiChryTKduskLXSCNg", Uuid::nil());
         let jkt = AitpVerifyingKey::from_aid(&sender)
-            .and_then(|k| k.to_jwk_thumbprint())
+            .and_then(|k| k.to_jwk_thumbprint_sha256())
             .unwrap();
         jwk["use"] = "jwt-svid".into();
         jwk["kid"] = "k1".into();
@@ -706,8 +709,8 @@ mod tests {
             message_id: &message_id,
             timestamp: Timestamp(now),
             pop_nonce: nonce,
-            iat_tolerance_secs: 300,
-            now_unix_secs: now,
+            iat_tolerance: std::time::Duration::from_secs(300),
+            now: Timestamp(now),
         };
         verify_spiffe(&identity, &ctx)
     }
@@ -728,7 +731,7 @@ mod tests {
     /// `verify_jws_signature` accepts that pair (OIDC allows it).
     #[test]
     fn jwt_svid_rejects_eddsa_under_an_ed25519_key() {
-        let key = aitp::crypto::AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
         let jwk = json!({"kty": "OKP", "crv": "Ed25519",
             "x": Base64UrlUnpadded::encode_string(&x)});

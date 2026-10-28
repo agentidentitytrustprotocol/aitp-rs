@@ -5,14 +5,16 @@
 
 use std::sync::atomic::{AtomicUsize, Ordering};
 
+use aitp::__private::bootstrap_verify_peer;
 use aitp::core::{AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
-    bootstrap_verify_peer, HandshakeError, IdentityDescriptor, IdentityKind, IdentityVerifier,
-    IdentityVerifyContext, JwkPublicKey, JwksResolver, PeerConfig, ResolveError, RevocationSource,
-    StaticPinnedKeyStore,
+    HandshakeError, IdentityDescriptor, IdentityKind, IdentityVerifier, IdentityVerifyContext,
+    IdentityVerifyError, JwkPublicKey, JwksResolver, PeerConfig, ResolveError,
+    StaticPinnedKeyStore, VerifiedIdentity,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::tct::RevocationSource;
 use serde_json::json;
 use uuid::Uuid;
 
@@ -27,16 +29,20 @@ impl JwksResolver for NoOpResolver {
     }
 }
 
+fn proved_spiffe_id() -> Result<VerifiedIdentity, IdentityVerifyError> {
+    Ok(VerifiedIdentity::new(IdentityKind::Spiffe, SPIFFE_ID))
+}
+
 /// A verifier that counts its calls and answers with `outcome`.
 struct Fake {
     handles: bool,
-    outcome: fn() -> Result<(), HandshakeError>,
+    outcome: fn() -> Result<VerifiedIdentity, IdentityVerifyError>,
     calls: AtomicUsize,
     seen: std::sync::Mutex<Option<String>>,
 }
 
 impl Fake {
-    fn new(handles: bool, outcome: fn() -> Result<(), HandshakeError>) -> Self {
+    fn new(handles: bool, outcome: fn() -> Result<VerifiedIdentity, IdentityVerifyError>) -> Self {
         Self {
             handles,
             outcome,
@@ -54,7 +60,7 @@ impl IdentityVerifier for Fake {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         self.calls.fetch_add(1, Ordering::SeqCst);
         assert_eq!(identity.subject, SPIFFE_ID);
         assert_eq!(ctx.sender_aid, &ctx.peer_manifest.aid);
@@ -65,7 +71,11 @@ impl IdentityVerifier for Fake {
     }
 }
 
-fn manifest(key: &AitpSigningKey, hint: IdentityHint, accepted: &str) -> Manifest {
+fn manifest(
+    key: &AitpSigningKey,
+    hint: IdentityHint,
+    accepted: aitp::handshake::IdentityKind,
+) -> Manifest {
     ManifestBuilder::new(key)
         .display_name("peer")
         .handshake_endpoint("https://peer.example.com/handshake".parse().unwrap())
@@ -81,7 +91,7 @@ fn spiffe_manifest(key: &AitpSigningKey) -> Manifest {
     manifest(
         key,
         IdentityHint::new(IdentityHintKind::Spiffe, SPIFFE_ID),
-        "spiffe",
+        aitp::handshake::IdentityKind::Spiffe,
     )
 }
 
@@ -107,8 +117,8 @@ fn envelope(sender: &AitpSigningKey) -> AitpEnvelope {
 fn verify_spiffe_peer(
     verifier: Option<&dyn IdentityVerifier>,
 ) -> Result<AitpVerifyingKey, HandshakeError> {
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     let my_manifest = spiffe_manifest(&me);
     let peer_manifest = spiffe_manifest(&peer);
     let store = StaticPinnedKeyStore::new([]);
@@ -140,7 +150,7 @@ fn without_a_verifier_spiffe_is_incompatible() {
 
 #[test]
 fn a_verifier_that_does_not_handle_the_kind_is_not_called() {
-    let fake = Fake::new(false, || Ok(()));
+    let fake = Fake::new(false, proved_spiffe_id);
     let err = verify_spiffe_peer(Some(&fake)).unwrap_err();
     assert_eq!(err.error_code(), ErrorCode::IncompatibleIdentityType);
     assert_eq!(fake.calls.load(Ordering::SeqCst), 0);
@@ -148,7 +158,9 @@ fn a_verifier_that_does_not_handle_the_kind_is_not_called() {
 
 #[test]
 fn a_verifier_identity_error_is_identity_failed() {
-    let fake = Fake::new(true, || Err(HandshakeError::Identity("bad svid".into())));
+    let fake = Fake::new(true, || {
+        Err(IdentityVerifyError::Rejected("bad svid".into()))
+    });
     let err = verify_spiffe_peer(Some(&fake)).unwrap_err();
     assert_eq!(err.error_code(), ErrorCode::IdentityFailed);
     assert_eq!(fake.calls.load(Ordering::SeqCst), 1);
@@ -157,22 +169,38 @@ fn a_verifier_identity_error_is_identity_failed() {
 #[test]
 fn a_verifier_key_resolution_error_passes_through() {
     let fake = Fake::new(true, || {
-        Err(HandshakeError::KeyResolutionFailed {
-            issuer: "prod.example.com".into(),
-            reason: "bundle endpoint unreachable".into(),
-        })
+        Err(IdentityVerifyError::KeyUnavailable(
+            "bundle endpoint unreachable".into(),
+        ))
     });
     let err = verify_spiffe_peer(Some(&fake)).unwrap_err();
     assert_eq!(err.error_code(), ErrorCode::KeyResolutionFailed);
 }
 
 #[test]
+fn a_verifier_proving_another_identity_is_identity_failed() {
+    let fake = Fake::new(true, || {
+        Ok(VerifiedIdentity::new(
+            IdentityKind::Spiffe,
+            "spiffe://prod.example.com/other",
+        ))
+    });
+    let err = verify_spiffe_peer(Some(&fake)).unwrap_err();
+    assert_eq!(err.error_code(), ErrorCode::IdentityFailed);
+    let fake = Fake::new(true, || {
+        Ok(VerifiedIdentity::new(IdentityKind::Oidc, SPIFFE_ID))
+    });
+    let err = verify_spiffe_peer(Some(&fake)).unwrap_err();
+    assert_eq!(err.error_code(), ErrorCode::IdentityFailed);
+}
+
+#[test]
 fn on_success_the_peer_key_is_the_sender_aid_key() {
-    let fake = Fake::new(true, || Ok(()));
+    let fake = Fake::new(true, proved_spiffe_id);
     let key = verify_spiffe_peer(Some(&fake)).unwrap();
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     assert_eq!(key, AitpVerifyingKey::from_aid(peer.aid()).unwrap());
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
     assert_eq!(
         fake.seen.lock().unwrap().as_deref(),
         Some(me.aid().as_str())
@@ -181,9 +209,9 @@ fn on_success_the_peer_key_is_the_sender_aid_key() {
 
 #[test]
 fn the_verifier_is_never_called_for_native_kinds() {
-    let fake = Fake::new(true, || Ok(()));
-    let me = AitpSigningKey::from_seed(&[0x11; 32]);
-    let peer = AitpSigningKey::from_seed(&[0x12; 32]);
+    let fake = Fake::new(true, proved_spiffe_id);
+    let me = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
+    let peer = AitpSigningKey::from_ed25519_seed(&[0x12; 32]);
     let my_manifest = spiffe_manifest(&me);
     let store = StaticPinnedKeyStore::new([]);
     let cfg = PeerConfig::new(
@@ -201,7 +229,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let pinned_manifest = manifest(
         &peer,
         IdentityHint::new(IdentityHintKind::PinnedKey, "peer").with_public_key(pk.clone()),
-        "pinned_key",
+        aitp::handshake::IdentityKind::PinnedKey,
     );
     let pinned: IdentityDescriptor = serde_json::from_value(json!({
         "type": "pinned_key", "subject": "peer", "public_key": pk, "proof": "x",
@@ -216,7 +244,7 @@ fn the_verifier_is_never_called_for_native_kinds() {
     let oidc_manifest = manifest(
         &peer,
         IdentityHint::new(IdentityHintKind::Oidc, "peer").with_issuer(issuer.into()),
-        "oidc",
+        aitp::handshake::IdentityKind::Oidc,
     );
     let oidc: IdentityDescriptor = serde_json::from_value(json!({
         "type": "oidc", "subject": "peer", "issuer": issuer, "proof": "a.b.c",

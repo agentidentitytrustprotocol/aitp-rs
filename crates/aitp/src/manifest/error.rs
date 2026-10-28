@@ -28,8 +28,8 @@ pub enum ManifestError {
     /// `INCOMPATIBLE_IDENTITY_TYPE` to the caller. An absent field
     /// defaults to `["oidc"]`; an explicitly empty list rejects every
     /// peer (RFC clarification, post-rc.1).
-    #[error("manifest does not accept identity type `{0}`")]
-    IncompatibleIdentityType(&'static str),
+    #[error("manifest does not accept identity type `{}`", .0.as_str())]
+    IncompatibleIdentityType(crate::handshake::IdentityKind),
     /// Version is not supported by this implementation.
     #[error("manifest version is not supported")]
     VersionUnknown,
@@ -42,22 +42,22 @@ pub enum ManifestError {
     MissingField(&'static str),
     /// Canonicalization failed.
     #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
+    Canonicalization(#[source] crate::core::jcs::JcsError),
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
     /// Source of randomness for the PoP challenge failed.
     #[error("rng failure: {0}")]
-    Rng(String),
+    Rng(#[source] crate::core::BoxError),
     /// A top-level or nested member outside the schema-declared member set
-    /// (RFC-AITP-0001 §7), found by [`crate::manifest::verifier::parse_manifest_wire`]
+    /// (RFC-AITP-0001 §7), found by [`crate::manifest::parse_manifest_wire`]
     /// before any expiry/PoP/signature check runs (RFC-AITP-0003 §5 step 2).
     /// Carries the offending field name.
     #[error("unknown field `{0}`")]
     UnknownField(String),
     /// Wire-form parse failure other than an unknown member (missing
     /// required field, wrong type, invalid JSON shape, etc.), surfaced by
-    /// [`crate::manifest::verifier::parse_manifest_wire`].
+    /// [`crate::manifest::parse_manifest_wire`].
     #[error("malformed manifest: {0}")]
     Malformed(String),
 }

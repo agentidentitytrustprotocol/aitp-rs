@@ -39,15 +39,18 @@ impl JwksResolver for NoOpResolver {
 /// The issuer's revocation list: signed once, empty.
 struct EmptyList(RevocationListEnvelope);
 impl RevocationListProducer for EmptyList {
-    fn current(&self) -> RevocationListEnvelope {
-        self.0.clone()
+    fn current(
+        &self,
+    ) -> aitp::core::BoxFuture<'_, Result<RevocationListEnvelope, aitp::transport::RevocationError>>
+    {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 
 #[tokio::main]
 async fn main() {
-    let issuer = AitpSigningKey::from_seed(&[0x60; 32]);
-    let holder = AitpSigningKey::from_seed(&[0x61; 32]);
+    let issuer = AitpSigningKey::from_ed25519_seed(&[0x60; 32]);
+    let holder = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
     let now = Timestamp::now();
 
     // Initial TCT minted in-process — pretend it came from a prior
@@ -57,7 +60,7 @@ async fn main() {
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(60)
+        .ttl(std::time::Duration::from_secs(60))
         .subject_pubkey(holder.verifying_key())
         .issued_at(now)
         .build()
@@ -68,7 +71,7 @@ async fn main() {
     let initial_verified = verify_tct(
         &initial.token,
         &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
-            .accept_unchecked_revocation_dangerous()
+            .revocation(aitp::tct::RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .expect("both decisions are made"),
@@ -96,9 +99,9 @@ async fn main() {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(86_400)
+        .ttl(std::time::Duration::from_secs(86_400))
         .extension(RENEW_URI_EXT, renew_uri.into())
         .build()
         .unwrap();
@@ -111,7 +114,7 @@ async fn main() {
     .expect("sign revocation list");
     let revocation: Arc<dyn RevocationListProducer> = Arc::new(EmptyList(list));
     let handshake = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x60; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x60; 32]),
         manifest.clone(),
         vec![],
         NoOpResolver,
@@ -119,7 +122,7 @@ async fn main() {
     )
     .with_revocation_producer(revocation.clone());
     let renewal = RenewalServer::new(
-        Arc::new(AitpSigningKey::from_seed(&[0x60; 32])),
+        Arc::new(AitpSigningKey::from_ed25519_seed(&[0x60; 32])),
         manifest.clone(),
         revocation,
         Arc::new(InMemoryNonceStore::default()),
@@ -145,7 +148,7 @@ async fn main() {
     // (already verified) Manifest advertises, presenting the
     // currently-held TCT compact JWS.
     let current = store.get(issuer.aid()).expect("stored TCT");
-    let renewed = renew_tct_with_insecure_localhost(&holder, current.token, &manifest)
+    let renewed = renew_tct_with_insecure_localhost(&holder, current.token().to_owned(), &manifest)
         .await
         .expect("renew_tct round-trip");
 
@@ -155,8 +158,8 @@ async fn main() {
     let renewed_verified = renewed.tct;
     store.insert(renewed_verified.clone(), renewed.grant_voucher.clone());
 
-    let old = &initial_verified.claims;
-    let new = &renewed_verified.claims;
+    let old = &initial_verified.claims();
+    let new = &renewed_verified.claims();
     assert_ne!(new.jti, old.jti, "JTI must rotate on renewal");
     assert_eq!(new.sub, old.sub, "subject must be preserved across renewal");
     assert_eq!(

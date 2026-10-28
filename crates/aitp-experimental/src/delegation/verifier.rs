@@ -10,53 +10,45 @@ use crate::delegation::compute_chain_hash;
 use crate::delegation::{
     ChainedDelegationClaims, ChainedDelegationError, VerifiedChainedDelegation,
 };
-use aitp::core::{
-    check_members, from_serde_error, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
+use aitp::__private::{
+    check_members, delegation_revocation, from_serde_error, reject_duplicate_keys,
 };
+use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpVerifyingKey};
-use aitp::delegation::{DelegationError, DelegationRevocation, DELEGATION_CLAIMS_MEMBERS};
-use aitp::manifest::{resolve_verified_manifest, ManifestResolver, VerifyManifestContext};
-use aitp::tct::GrantVoucherClaims;
+use aitp::delegation::{DelegationError, DELEGATION_CLAIMS_MEMBERS};
+use aitp::manifest::{resolve_verified_manifest, ManifestResolver, ManifestVerifyContext};
+use aitp::tct::{
+    GrantVoucherClaims, RevocationCheckFn, RevocationQuery, RevocationSource, RevocationUnavailable,
+};
 use uuid::Uuid;
 
 /// Default `max_delegation_hops` once multi-hop is enabled
 /// (RFC-AITP-0011 §2): covers orchestrator → planner → executor.
 pub const DEFAULT_MAX_DELEGATION_HOPS: usize = 3;
 
-/// Per-hop revocation lookup (RFC-AITP-0011 §6): `(hop issuer, hop
-/// jti) → revoked?`, resolved against the hop issuer's deny list. Same
-/// tri-state contract as [`SourceRevocationCheck`](aitp::delegation::SourceRevocationCheck).
-pub type HopRevocationCheck<'a> = &'a (dyn Fn(&Aid, &Uuid) -> Result<bool, DelegationError> + 'a);
-
-/// Logs the [`DelegationRevocation::FailOpen`] warning at most once.
-fn warn_fail_open_once() {
-    static WARNED: std::sync::Once = std::sync::Once::new();
-    WARNED.call_once(|| {
-        tracing::warn!(
-            "VerifyChainContext uses DelegationRevocation::FailOpen: delegations \
-             are accepted without a revocation check (RFC-AITP-0008 fail_open)"
-        );
-    });
-}
+/// Per-hop revocation lookup (RFC-AITP-0011 §6): queried with the hop
+/// issuer and the hop `jti`, resolved against that issuer's deny list.
+/// Same contract as a [`RevocationSource::Check`] function.
+pub type HopRevocationCheck<'a> = &'a RevocationCheckFn<'a>;
 
 /// Inputs for verifying a delegation token.
 ///
 /// `verifier` is A — the original grantor, voucher issuer, and the only
 /// party a delegation is presentable to.
 ///
-/// `#[non_exhaustive]`: construct with [`VerifyChainContext::new`] and
+/// `#[non_exhaustive]`: construct with [`ChainVerifyContext::new`] and
 /// the builder methods rather than a struct literal, so a future
 /// verification knob is an additive change instead of a breaking one for
 /// every downstream crate.
 #[non_exhaustive]
-pub struct VerifyChainContext<'a> {
+pub struct ChainVerifyContext<'a> {
     /// The verifier's own AID (A). `aud` at every hop and `voucher.iss`
     /// MUST equal this.
     pub verifier: &'a Aid,
     /// Current time.
     pub now: Timestamp,
     /// Hop budget: `total_hops = chain.len() + 2` must not exceed it
-    /// (RFC-AITP-0011 §2). [`VerifyChainContext::new`] sets
+    /// (RFC-AITP-0011 §2). [`ChainVerifyContext::new`] sets
     /// [`DEFAULT_MAX_DELEGATION_HOPS`]. `0` means single-hop only: any
     /// token carrying a `chain` claim is rejected with
     /// [`DelegationError::MultihopNotSupported`] and any `jti` with
@@ -66,12 +58,12 @@ pub struct VerifyChainContext<'a> {
     /// Revocation source for the source TCT (`voucher.src_jti`), A's
     /// **own** deny list. The only stateful single-hop check; runs after
     /// all signature checks (RFC-AITP-0008 §3.3).
-    pub revocation: DelegationRevocation<'a>,
-    /// Multi-hop per-hop revocation (RFC-AITP-0011 §6): whether a hop's
-    /// `jti` is revoked according to the deny list of the hop's issuer
-    /// (first argument). Consulted for every chain entry and the outer
-    /// token, after all signature checks. Required for multi-hop chains
-    /// under [`DelegationRevocation::Check`].
+    pub revocation: RevocationSource<'a>,
+    /// Multi-hop per-hop revocation (RFC-AITP-0011 §6): the status of a
+    /// hop's `jti` according to the deny list of the hop's issuer
+    /// ([`RevocationQuery::issuer`]). Consulted for every chain entry and
+    /// the outer token, after all signature checks. Required for
+    /// multi-hop chains under [`RevocationSource::Check`].
     pub hop_revocation_check: Option<HopRevocationCheck<'a>>,
     /// Source of each delegation issuer's Manifest (RFC-AITP-0006 §4
     /// step 1; RFC-AITP-0011 §3 step 1). Every delegation JWS — the
@@ -83,10 +75,10 @@ pub struct VerifyChainContext<'a> {
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
 }
 
-impl<'a> VerifyChainContext<'a> {
+impl<'a> ChainVerifyContext<'a> {
     /// Context with the given source-TCT revocation choice and a hop
     /// budget of [`DEFAULT_MAX_DELEGATION_HOPS`].
-    pub fn new(verifier: &'a Aid, now: Timestamp, revocation: DelegationRevocation<'a>) -> Self {
+    pub fn new(verifier: &'a Aid, now: Timestamp, revocation: RevocationSource<'a>) -> Self {
         Self {
             verifier,
             now,
@@ -97,14 +89,14 @@ impl<'a> VerifyChainContext<'a> {
         }
     }
 
-    /// Set the hop budget. See [`VerifyChainContext::max_delegation_hops`].
+    /// Set the hop budget. See [`ChainVerifyContext::max_delegation_hops`].
     pub fn with_max_delegation_hops(mut self, max_delegation_hops: usize) -> Self {
         self.max_delegation_hops = max_delegation_hops;
         self
     }
 
-    /// Per-hop revocation for multi-hop chains (RFC-AITP-0011 §6):
-    /// `(hop issuer, hop jti) -> revoked?`.
+    /// Per-hop revocation for multi-hop chains (RFC-AITP-0011 §6),
+    /// queried with each hop's issuer and `jti`.
     pub fn with_hop_revocation_check(mut self, check: HopRevocationCheck<'a>) -> Self {
         self.hop_revocation_check = Some(check);
         self
@@ -143,7 +135,7 @@ impl<'a> VerifyChainContext<'a> {
 /// (`aitp::tct::sign_pop_response` / `verify_pop_response`).
 pub fn verify_chained_delegation(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     // Peek (unverified) to learn the claimed shape; everything is
     // re-established cryptographically below.
@@ -176,8 +168,8 @@ pub fn verify_chained_delegation(
 
 fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     // typ-first gate (RFC-AITP-0006 §4 step 1; D7 / issue #140 follow-up):
-    // mirrors `aitp::tct::verifier::peek_header_typ`'s pattern via the
-    // shared `aitp::crypto::jws::peek_typ` helper. Unlike TCT/voucher —
+    // mirrors `aitp::tct::peek_header_typ`'s pattern via the
+    // shared `aitp::__private::peek_typ` helper. Unlike TCT/voucher —
     // where a typ mismatch defers silently, letting the *next*
     // `jws::verify_compact` call make the authoritative call — this
     // function's own next step (below) is a strict `deny_unknown_fields`
@@ -189,7 +181,7 @@ fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegation
     // ahead of unknown-fields) and closing a real cross-impl divergence.
     // An absent `typ` falls through unchanged, exactly as TCT/voucher
     // treat it.
-    if let Some(typ) = jws::peek_typ(token) {
+    if let Some(typ) = aitp::__private::peek_typ(token) {
         if typ != jws::TYP_DELEGATION {
             return Err(
                 DelegationError::Crypto(aitp::crypto::CryptoError::TypMismatch {
@@ -246,14 +238,14 @@ fn peek_claims(token: &str) -> Result<ChainedDelegationClaims, ChainedDelegation
 /// confusion (RFC-AITP-0001 §5.4.5).
 fn verify_hop_jws(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     let claimed = peek_claims(token)?;
     let signer = ctx
         .issuer_manifests
         .ok_or(aitp::manifest::ManifestError::NotFound)
         .and_then(|r| {
-            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext::at(ctx.now))
+            resolve_verified_manifest(r, &claimed.iss, &ManifestVerifyContext::at(ctx.now))
         })
         .map_err(|source| DelegationError::KeyResolutionFailed {
             issuer: claimed.iss.clone(),
@@ -282,7 +274,7 @@ fn verify_hop_jws(
 /// invariants hold for the single-hop token).
 fn check_hop_claims(
     claims: &ChainedDelegationClaims,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<(), ChainedDelegationError> {
     if &claims.aud != ctx.verifier {
         return Err(DelegationError::AudienceMismatch.into());
@@ -296,7 +288,7 @@ fn check_hop_claims(
     // cnf.jkt MUST match the key encoded in `sub` (RFC-AITP-0001 §5.4.4).
     let sub_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(DelegationError::Crypto)?;
     let expected_jkt = sub_key
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(DelegationError::Crypto)?;
     if claims.cnf.jkt != expected_jkt {
         return Err(DelegationError::CnfMalformed.into());
@@ -312,7 +304,7 @@ fn check_hop_claims(
 fn verify_root_voucher(
     voucher_token: &str,
     expected_delegator: &Aid,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<GrantVoucherClaims, ChainedDelegationError> {
     let voucher = aitp::tct::verify_voucher(voucher_token, ctx.verifier).map_err(|e| match e {
         aitp::tct::TctError::Crypto(c) => DelegationError::Crypto(c),
@@ -334,7 +326,7 @@ fn verify_root_voucher(
 
 fn verify_single_hop(
     token: &str,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     // Step 1: outer JWS — strict parse, typ, alg pin, signature under
     // the key B's verified Manifest designates, ver.
@@ -366,19 +358,20 @@ fn verify_single_hop(
     check_hop_claims(&claims, ctx)?;
     // Step 7: source-TCT revocation — the only stateful check, last
     // (RFC-AITP-0008 §3.3).
-    check_source_revocation(ctx, &voucher.src_jti)?;
+    let effective_grants = check_source_revocation(ctx, &voucher.src_jti, &claims.scope)?;
 
     Ok(VerifiedChainedDelegation {
         token: token.to_string(),
         claims,
         voucher,
+        effective_grants,
     })
 }
 
 fn verify_multi_hop(
     token: &str,
     peeked: &ChainedDelegationClaims,
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
 ) -> Result<VerifiedChainedDelegation, ChainedDelegationError> {
     let chain: Vec<String> = peeked.chain.clone().unwrap_or_default();
 
@@ -488,15 +481,20 @@ fn verify_multi_hop(
     let outer = prev.expect("loop ran for every hop");
 
     // §6: per-hop revocation, only after every signature check.
-    check_source_revocation(ctx, &voucher.src_jti)?;
-    if let DelegationRevocation::Check(_) = ctx.revocation {
+    let mut effective_grants = check_source_revocation(ctx, &voucher.src_jti, &outer.scope)?;
+    if let RevocationSource::Check(_) = ctx.revocation {
         let check = ctx.hop_revocation_check.ok_or_else(|| {
-            DelegationError::RevocationUnavailable("no per-hop revocation source configured".into())
+            DelegationError::RevocationUnavailable(RevocationUnavailable::new(
+                "no per-hop revocation source configured",
+            ))
         })?;
+        let hops = RevocationSource::Check(check);
         for (issuer, jti) in &hop_records {
-            if check(issuer, jti)? {
-                return Err(DelegationError::SourceTctRevoked.into());
-            }
+            effective_grants = delegation_revocation(
+                &hops,
+                &RevocationQuery::new(issuer, jti, ctx.now),
+                &effective_grants,
+            )?;
         }
     }
 
@@ -504,26 +502,21 @@ fn verify_multi_hop(
         token: token.to_string(),
         claims: outer,
         voucher,
+        effective_grants,
     })
 }
 
 /// Source-TCT revocation (RFC-AITP-0008 §3.3), after every signature
-/// check.
+/// check: the verifier's own list, keyed by `src_jti`. Returns `scope`,
+/// narrowed under a soft-fail safe subset.
 fn check_source_revocation(
-    ctx: &VerifyChainContext<'_>,
+    ctx: &ChainVerifyContext<'_>,
     src_jti: &Uuid,
-) -> Result<(), ChainedDelegationError> {
-    match ctx.revocation {
-        DelegationRevocation::Check(check) if check(src_jti)? => {
-            Err(DelegationError::SourceTctRevoked.into())
-        }
-        DelegationRevocation::Check(_) => Ok(()),
-        DelegationRevocation::FailOpen => {
-            warn_fail_open_once();
-            Ok(())
-        }
-        _ => Err(
-            DelegationError::RevocationUnavailable("unsupported revocation source".into()).into(),
-        ),
-    }
+    scope: &[String],
+) -> Result<Vec<String>, ChainedDelegationError> {
+    Ok(delegation_revocation(
+        &ctx.revocation,
+        &RevocationQuery::new(ctx.verifier, src_jti, ctx.now),
+        scope,
+    )?)
 }

@@ -26,7 +26,7 @@ Bob (responder)
   AID        = aid:pubkey:<derived>
 ```
 
-Concrete AIDs come from `AitpSigningKey::from_seed(...).aid()` and are
+Concrete AIDs come from `AitpSigningKey::from_ed25519_seed(...).aid()` and are
 deterministic per the seed.
 
 ## Round 1
@@ -64,7 +64,7 @@ builds the input.
 
 | Signature field | `aitp-rs` implementation | Normative source |
 |---|---|---|
-| `payload.identity.proof` (pinned-key) | `pinned_key_proof_input` (`crates/aitp/src/handshake/identity_pinned.rs`) | [RFC-AITP-0002 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md#31-proof-format) |
+| `payload.identity.proof` (pinned-key) | `pinned_key_proof_input` (`crates/aitp/src/handshake/pinned_key.rs`) | [RFC-AITP-0002 §3.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0002-identity.md#31-proof-format) |
 | `payload.manifest.proof_of_possession.signature` | the PoP step in `crates/aitp/src/manifest/builder.rs` | [RFC-AITP-0001 §5.4.2](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#542-pop-signing-input-convention) |
 | `payload.manifest.signature` | `manifest_signing_bytes` (`crates/aitp/src/manifest/builder.rs`) | [RFC-AITP-0003 §6.1](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0003-manifest.md#61-what-is-signed) |
 | `signature` (envelope) | `aitp::core::envelope_signing_input` / `envelope_signing_digest` (`crates/aitp/src/core/envelope.rs`) | [RFC-AITP-0001 §5.4](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0001-core.md#54-signature) |

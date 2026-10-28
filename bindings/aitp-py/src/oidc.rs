@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex};
 
 use aitp::core::Aid;
 use aitp::crypto::AitpVerifyingKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
+use aitp::handshake::{JwkPublicKey, JwksResolver, OidcMintError, OidcMintJwtFn, ResolveError};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::types::{PyDict, PyList};
@@ -40,7 +40,7 @@ pub fn compute_aid_jkt(aid: &str) -> PyResult<String> {
         Aid::parse(aid).map_err(|e| PyValueError::new_err(format!("invalid AID '{aid}': {e}")))?;
     let vk = AitpVerifyingKey::from_aid(&parsed)
         .map_err(|e| PyValueError::new_err(format!("AID has invalid key bytes: {e}")))?;
-    vk.to_jwk_thumbprint()
+    vk.to_jwk_thumbprint_sha256()
         .map_err(|e| PyValueError::new_err(format!("jkt computation failed: {e}")))
 }
 
@@ -172,15 +172,15 @@ fn pydict_to_json(d: &Bound<'_, PyDict>) -> PyResult<JsonValue> {
 /// return the compact JWT (str) whose `nonce` claim equals that nonce.
 /// Exceptions propagate as a `HandshakeError::Identity`.
 pub(crate) fn make_oidc_minter(callable: Py<PyAny>) -> Box<OidcMintJwtFn> {
-    Box::new(move |nonce: &str| -> Result<String, String> {
+    Box::new(move |nonce: &str| -> Result<String, OidcMintError> {
         Python::attach(|py| {
             let bound = callable.bind(py);
             let res = bound
                 .call1((nonce,))
-                .map_err(|e| format!("oidc_mint_jwt raised: {e}"))?;
+                .map_err(|e| OidcMintError::new(format!("oidc_mint_jwt raised: {e}")))?;
             let s: String = res
                 .extract()
-                .map_err(|e| format!("oidc_mint_jwt must return str: {e}"))?;
+                .map_err(|e| OidcMintError::new(format!("oidc_mint_jwt must return str: {e}")))?;
             Ok(s)
         })
     })

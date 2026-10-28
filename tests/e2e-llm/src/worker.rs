@@ -90,10 +90,13 @@ struct LiveRevocations {
 }
 
 impl RevocationListProducer for LiveRevocations {
-    fn current(&self) -> RevocationListEnvelope {
+    fn current(
+        &self,
+    ) -> aitp::core::BoxFuture<'_, Result<RevocationListEnvelope, aitp::transport::RevocationError>>
+    {
         let now = Timestamp::now();
         let entries = self.revoked.lock().clone();
-        sign_revocation_list(
+        let signed = sign_revocation_list(
             RevocationList::new(
                 self.issuer.aid().clone(),
                 now,
@@ -102,7 +105,8 @@ impl RevocationListProducer for LiveRevocations {
             ),
             &self.issuer,
         )
-        .expect("revocation snapshot signs")
+        .map_err(aitp::transport::RevocationError::SignatureInvalid);
+        Box::pin(std::future::ready(signed))
     }
 }
 
@@ -163,7 +167,7 @@ pub async fn spawn(
     provider: Provider,
     trusted: &[Aid],
 ) -> anyhow::Result<Worker> {
-    let key = AitpSigningKey::from_seed(seed);
+    let key = AitpSigningKey::from_ed25519_seed(seed);
     // Bind first so we know the port the manifest needs to advertise.
     let listener = TcpListener::bind(("127.0.0.1", 0)).await?;
     let addr = listener.local_addr()?;
@@ -174,7 +178,7 @@ pub async fn spawn(
     let origin: Url = format!("http://localhost:{port}").parse()?;
 
     let revocations = Arc::new(LiveRevocations {
-        issuer: AitpSigningKey::from_seed(seed),
+        issuer: AitpSigningKey::from_ed25519_seed(seed),
         revoked: Mutex::new(Vec::new()),
     });
 
@@ -330,14 +334,20 @@ fn verify_work_tct(
     // owned value rather than holding the mutex across verification.
     let revoked: HashSet<Uuid> = revocations.revoked.lock().iter().map(|e| e.jti).collect();
     // The worker's own list is authoritative for TCTs it issued.
-    let is_revoked = |jti: &Uuid| Ok(revoked.contains(jti));
+    let is_revoked = |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if revoked.contains(q.jti) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
 
     // Holder receipt: subject == audience == caller.
     let ctx = TctVerifyContext::builder(&peeked.sub, worker_aid, Timestamp::now())
-        .revocation_check(&is_revoked)
+        .revocation(aitp::tct::RevocationSource::Check(&is_revoked))
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
     let verified = verify_tct(token, &ctx).map_err(|e| (StatusCode::FORBIDDEN, e.to_string()))?;
-    Ok(verified.claims)
+    Ok(verified.into_parts().claims)
 }

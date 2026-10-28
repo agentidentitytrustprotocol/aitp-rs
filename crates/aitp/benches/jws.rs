@@ -20,7 +20,7 @@ fn claims() -> serde_json::Value {
 }
 
 fn bench_sign_ed25519(c: &mut Criterion) {
-    let key = AitpSigningKey::from_seed(&[0x11; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
     let claims = claims();
     c.bench_function("jws_sign_compact_ed25519", |b| {
         b.iter(|| jws::sign_compact(black_box(&key), jws::TYP_TCT, black_box(&claims)).unwrap())
@@ -28,7 +28,7 @@ fn bench_sign_ed25519(c: &mut Criterion) {
 }
 
 fn bench_verify_ed25519(c: &mut Criterion) {
-    let key = AitpSigningKey::from_seed(&[0x11; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
     let token = jws::sign_compact(&key, jws::TYP_TCT, &claims()).unwrap();
     c.bench_function("jws_verify_compact_ed25519", |b| {
         b.iter(|| {

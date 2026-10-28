@@ -13,7 +13,8 @@ ALLOW passes as a whole.
 WORDS, by RFC:
   - RFC-AITP-0013 (TCT renewal, Draft): renew, renewal
   - RFC-AITP-0010 (Session Trust Bundles, Draft): bundle
-  - RFC-AITP-0002 §6 (SPIFFE, registry status Proposed): spiffe
+  - RFC-AITP-0002 §6 (SPIFFE, registry status Proposed): spiffe, svid,
+    x5c
   - RFC-AITP-0011 (multi-hop delegation, Draft): chain hash, hop limit,
     max delegation hops, hop revocation check, extending
 PATHS, RFC-AITP-0011: DelegationClaims::chain, DelegationClaims::jti,
@@ -36,6 +37,8 @@ WORDS: list[tuple[str, ...]] = [
     ("renewal",),
     ("bundle",),
     ("spiffe",),
+    ("svid",),
+    ("x", "5", "c"),
     ("chain", "hash"),
     ("hop", "limit"),
     ("max", "delegation", "hops"),
@@ -48,9 +51,9 @@ PATHS = ["DelegationClaims::chain", "DelegationClaims::jti", "Authority::Prior"]
 ALLOW = {
     # RFC-AITP-0002 §6.1 wire vocabulary of the identity registry.
     "pub aitp::handshake::IdentityKind::Spiffe": "identity type wire name",
-    "pub aitp::handshake::identity::IdentityKind::Spiffe": "identity type wire name",
+    "pub aitp::handshake::IdentityKind::Spiffe": "identity type wire name",
     "pub aitp::manifest::IdentityHintKind::Spiffe": "identity hint wire name",
-    "pub aitp::manifest::types::IdentityHintKind::Spiffe": "identity hint wire name",
+    "pub aitp::manifest::IdentityHintKind::Spiffe": "identity hint wire name",
 }
 
 IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")

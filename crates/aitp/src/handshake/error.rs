@@ -44,7 +44,7 @@ pub enum HandshakeError {
         /// The underlying resolution failure (e.g. the [`ResolveError`]
         /// display string).
         ///
-        /// [`ResolveError`]: crate::handshake::identity_oidc::ResolveError
+        /// [`ResolveError`]: crate::handshake::ResolveError
         reason: String,
     },
     /// `pop_nonce_echo` did not match own previously sent nonce.
@@ -78,18 +78,25 @@ pub enum HandshakeError {
     State(&'static str),
     /// Source of randomness for nonces failed.
     #[error("rng failure: {0}")]
-    Rng(String),
+    Rng(#[source] crate::core::BoxError),
     /// Empty grant intersection — RFC-AITP-0004 §4.1 forbids issuing.
     #[error("policy denies handshake (empty grant intersection)")]
     PolicyViolation,
     /// JCS canonicalization failure.
     #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
+    Canonicalization(#[source] crate::core::jcs::JcsError),
     /// A JSON member outside a handshake payload's declared member set
     /// (RFC-AITP-0001 §7), or inside a nested closed object (e.g.
     /// `identity`) recovered via `crate::core::from_serde_error`.
     #[error("unknown field: {0}")]
     UnknownField(String),
+    /// The attached [`crate::handshake::IdentityVerifier`] refused the
+    /// peer's identity.
+    #[error("identity verification failed: {0}")]
+    IdentityVerifier(#[from] crate::handshake::IdentityVerifyError),
+    /// The [`crate::handshake::GrantPolicyFn`] failed.
+    #[error("grant policy failed: {0}")]
+    GrantPolicy(#[from] crate::handshake::GrantPolicyError),
 }
 
 impl HandshakeError {
@@ -100,6 +107,13 @@ impl HandshakeError {
         use crate::tct::TctError;
         match self {
             Self::Identity(_) => ErrorCode::IdentityFailed,
+            Self::GrantPolicy(_) => ErrorCode::PolicyViolation,
+            Self::IdentityVerifier(e) => match e {
+                crate::handshake::IdentityVerifyError::KeyUnavailable(_) => {
+                    ErrorCode::KeyResolutionFailed
+                }
+                _ => ErrorCode::IdentityFailed,
+            },
             // RFC-AITP-0001 §5.4.3 / RFC-AITP-0007 §3: an unresolvable
             // issuer key is retryable and gets its own code, distinct from
             // a bad proof.
@@ -112,6 +126,7 @@ impl HandshakeError {
                 TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
                 TctError::Expired => ErrorCode::TctExpired,
                 TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
+                TctError::SafeSubsetEmpty => ErrorCode::PolicyViolation,
                 _ => ErrorCode::TctSignatureInvalid,
             },
             // RFC-AITP-0003 §5 / issue #144: a wrapped ManifestError can fail

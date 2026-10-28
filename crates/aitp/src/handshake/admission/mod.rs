@@ -46,21 +46,19 @@ mod nonce_store;
 mod rate_limit;
 
 pub use deny_list::{DenyListError, InMemoryMessageIdDenyList, MessageIdDenyList};
-pub use nonce_store::{
-    ConsumeOutcome, InMemoryNonceStore, IssuedNonce, Nonce, NonceStore, NonceStoreError,
-};
 pub use rate_limit::{
     ChallengeRateLimiter, ChallengeSource, RecommendedLimiter, TokenBucketLimiter, TransportId,
 };
 
 use crate::core::envelope::{envelope_signing_digest, parse_envelope_wire, EnvelopeParseError};
+use crate::core::nonce_store::{ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError};
 use crate::core::CheckedJson;
 use crate::core::{
     base64url, check_members, from_serde_error, Aid, AitpEnvelope, MessageType, Sender, Timestamp,
-    DEFAULT_TIMESTAMP_TOLERANCE_SECS, PROTOCOL_VERSION,
+    DEFAULT_TIMESTAMP_TOLERANCE, PROTOCOL_VERSION,
 };
 use crate::crypto::{AitpSigner, Digest32, DynAsyncAitpSigner, Signature, SignerError};
-use crate::handshake::identity_pinned::{
+use crate::handshake::pinned_key::{
     check_pinned_key_proof, pinned_key_proof_input, resolve_pinned_key, PinnedKeyStore,
     PinnedKeyVerifyContext, SubjectBinding,
 };
@@ -105,14 +103,51 @@ pub struct IdentityPresentationPayload {
 }
 
 /// A successful admission.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Admitted {
+    pub(crate) key: VerifiedPinnedKey,
+    pub(crate) subject: String,
+    pub(crate) message_id: Uuid,
+}
+
+impl Admitted {
+    /// The subject's key, from the trust store.
+    pub fn key(&self) -> &VerifiedPinnedKey {
+        &self.key
+    }
+
+    /// `identity.subject` as presented.
+    pub fn subject(&self) -> &str {
+        &self.subject
+    }
+
+    /// The envelope's `message_id`.
+    pub fn message_id(&self) -> Uuid {
+        self.message_id
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> AdmittedParts {
+        AdmittedParts {
+            key: self.key,
+            subject: self.subject,
+            message_id: self.message_id,
+        }
+    }
+}
+
+/// The owned pieces of an [`Admitted`], from [`Admitted::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct Admitted {
-    /// The subject's key, from the trust store.
+pub struct AdmittedParts {
+    /// See [`Admitted::key`].
     pub key: VerifiedPinnedKey,
-    /// `identity.subject` as presented.
+    /// See [`Admitted::subject`].
     pub subject: String,
-    /// The envelope's `message_id`.
+    /// See [`Admitted::message_id`].
     pub message_id: Uuid,
 }
 
@@ -181,7 +216,7 @@ pub enum AdmissionError {
     Signer(#[from] SignerError),
     /// The OS CSPRNG failed.
     #[error("rng: {0}")]
-    Rng(String),
+    Rng(#[source] crate::core::BoxError),
 }
 
 impl AdmissionError {
@@ -261,8 +296,19 @@ pub struct PinnedAdmissionBuilder {
     presentation_limiter: Arc<dyn ChallengeRateLimiter>,
     deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
-    tolerance_secs: i64,
+    tolerance: Duration,
     subject: SubjectBinding,
+}
+
+impl std::fmt::Debug for PinnedAdmissionBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedAdmissionBuilder")
+            .field("verifier_aid", &self.verifier_aid)
+            .field("ttl", &self.ttl)
+            .field("tolerance", &self.tolerance)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PinnedAdmissionBuilder {
@@ -299,10 +345,11 @@ impl PinnedAdmissionBuilder {
         self
     }
 
-    /// Envelope timestamp tolerance in seconds, clamped to
-    /// `0..=`[`DEFAULT_TIMESTAMP_TOLERANCE_SECS`]. Default 300.
-    pub fn timestamp_tolerance_secs(mut self, secs: i64) -> Self {
-        self.tolerance_secs = secs.clamp(0, DEFAULT_TIMESTAMP_TOLERANCE_SECS);
+    /// Envelope timestamp tolerance, capped at
+    /// [`DEFAULT_TIMESTAMP_TOLERANCE`] (the default, 300 s) and counted in
+    /// whole seconds.
+    pub fn timestamp_tolerance(mut self, tolerance: Duration) -> Self {
+        self.tolerance = tolerance.min(DEFAULT_TIMESTAMP_TOLERANCE);
         self
     }
 
@@ -324,7 +371,7 @@ impl PinnedAdmissionBuilder {
             presentation_limiter: self.presentation_limiter,
             deny_list: self.deny_list,
             ttl: self.ttl,
-            tolerance_secs: self.tolerance_secs,
+            tolerance: self.tolerance,
             subject: self.subject,
         }
     }
@@ -340,8 +387,19 @@ pub struct PinnedAdmission {
     presentation_limiter: Arc<dyn ChallengeRateLimiter>,
     deny_list: Arc<dyn MessageIdDenyList>,
     ttl: Duration,
-    tolerance_secs: i64,
+    tolerance: Duration,
     subject: SubjectBinding,
+}
+
+impl std::fmt::Debug for PinnedAdmission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PinnedAdmission")
+            .field("verifier_aid", &self.verifier_aid)
+            .field("ttl", &self.ttl)
+            .field("tolerance", &self.tolerance)
+            .field("subject", &self.subject)
+            .finish_non_exhaustive()
+    }
 }
 
 impl PinnedAdmission {
@@ -360,7 +418,7 @@ impl PinnedAdmission {
             presentation_limiter: Arc::new(RecommendedLimiter::default()),
             deny_list: Arc::new(InMemoryMessageIdDenyList::default()),
             ttl: MAX_NONCE_TTL,
-            tolerance_secs: DEFAULT_TIMESTAMP_TOLERANCE_SECS,
+            tolerance: DEFAULT_TIMESTAMP_TOLERANCE,
             subject: SubjectBinding::Unchecked,
         }
     }
@@ -397,14 +455,14 @@ impl PinnedAdmission {
         self.limiter
             .check(source)
             .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
-        let expires_at = now.plus_secs(self.ttl.as_secs() as i64);
+        let expires_at = now.saturating_add(self.ttl);
         // A duplicate means the CSPRNG repeated 128 bits; one retry is
         // already paranoid.
         for _ in 0..2 {
-            let mut nonce: Nonce = [0; crate::handshake::POP_NONCE_LEN];
+            let mut nonce: Nonce = [0; crate::core::nonce_store::NONCE_LEN];
             rand::rngs::SysRng
                 .try_fill_bytes(&mut nonce)
-                .map_err(|e| AdmissionError::Rng(e.to_string()))?;
+                .map_err(|e| AdmissionError::Rng(e.into()))?;
             let rec = IssuedNonce::new(
                 nonce,
                 self.verifier_aid.clone(),
@@ -537,7 +595,7 @@ impl PinnedAdmission {
             .check(source)
             .map_err(|retry_after| AdmissionError::RateLimited { retry_after })?;
         if let Some(ts) = timestamp {
-            if !ts.is_within_tolerance_of(now, self.tolerance_secs) {
+            if !ts.is_within_tolerance_of(now, self.tolerance) {
                 return Err(AdmissionError::TimestampExpired);
             }
         }
@@ -626,7 +684,7 @@ impl PinnedAdmission {
         // Record until the timestamp leaves the window; past that, step 3
         // rejects a replay by itself. A concurrent twin that recorded
         // first makes this one the replay.
-        let until = env.timestamp.plus_secs(self.tolerance_secs);
+        let until = env.timestamp.saturating_add(self.tolerance);
         if !self
             .deny_list
             .insert(&env.message_id, until, now)

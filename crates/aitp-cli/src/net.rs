@@ -41,9 +41,12 @@ pub(crate) struct NetOpts {
 
 impl NetOpts {
     fn fetcher(&self) -> ManifestFetcher {
-        ManifestFetcher::new()
-            .with_timeout(self.timeout)
-            .with_insecure_localhost(self.insecure_localhost)
+        let fetcher = ManifestFetcher::new().with_timeout(self.timeout);
+        if self.insecure_localhost {
+            fetcher.with_insecure_localhost_dangerous()
+        } else {
+            fetcher
+        }
     }
 }
 
@@ -104,7 +107,7 @@ pub(crate) fn handshake(args: HandshakeArgs) -> CliResult {
         let session = run_handshake(&args).await?;
         println!(
             "{}",
-            serde_json::to_string_pretty(&session.held_tct.claims)?
+            serde_json::to_string_pretty(&session.held_tct().claims())?
         );
         Ok(())
     })
@@ -119,7 +122,7 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         let peer = &args.peer;
         let client = interop_client(peer, &args.net)?;
         let session = run_handshake(&args).await?;
-        let tct = session.held_tct.token.clone();
+        let tct = session.held_tct().token().to_owned();
         let challenge: AitpEnvelope = post(
             &client,
             peer,
@@ -129,8 +132,8 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         .await?;
         let response = echo::respond(
             &args.key,
-            &session.peer_aid,
-            session.held_tct.claims.jti,
+            session.peer_aid(),
+            session.held_tct().claims().jti,
             challenge,
         )?;
         let echoed: serde_json::Value = post(
@@ -145,7 +148,7 @@ pub(crate) fn echo(mut args: HandshakeArgs) -> CliResult {
         .await?;
         eprintln!(
             "aitp: {} verified our TCT and proof of possession",
-            session.peer_aid
+            session.peer_aid()
         );
         println!("{}", serde_json::to_string_pretty(&echoed)?);
         Ok(())
@@ -165,7 +168,8 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
                 .fetcher()
                 .fetch(&args.peer)
                 .await
-                .map_err(FacadeError::from)?;
+                .map_err(FacadeError::from)?
+                .into_manifest();
             eprintln!(
                 "aitp: trusting peer {} from its Manifest (trust on first use; \
                  pass --peer-aid to pin it)",
@@ -199,8 +203,10 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
         },
         args.grants.clone(),
     )
-    .with_http_timeout(args.net.timeout)
-    .with_insecure_localhost(args.net.insecure_localhost);
+    .with_http_timeout(args.net.timeout);
+    if args.net.insecure_localhost {
+        config = config.with_insecure_localhost_dangerous();
+    }
     if args.revocation_fail_open {
         config = config.with_revocation_policy(
             RevocationPolicy::default().with_fail_mode(RevocationFailMode::FailOpen),
@@ -233,7 +239,7 @@ async fn run_handshake(args: &HandshakeArgs) -> Result<SessionContext, Box<dyn s
         }
     };
 
-    eprintln!("aitp: handshake complete with {}", session.peer_aid);
+    eprintln!("aitp: handshake complete with {}", session.peer_aid());
     Ok(session)
 }
 
@@ -317,7 +323,8 @@ async fn post<B: serde::Serialize, T: serde::de::DeserializeOwned>(
 pub(crate) fn manifest_fetch(peer: url::Url, net: NetOpts) -> CliResult {
     let manifest = runtime()?
         .block_on(net.fetcher().fetch(&peer))
-        .map_err(FacadeError::from)?;
+        .map_err(FacadeError::from)?
+        .into_manifest();
     // Same envelope shape `aitp manifest verify` reads, so the two pipe.
     let envelope = ManifestEnvelope::new(manifest);
     println!("{}", serde_json::to_string_pretty(&envelope)?);
@@ -343,7 +350,7 @@ fn initiator_manifest(key: &AitpSigningKey, offers: &[String]) -> Result<Manifes
             IdentityHint::new(IdentityHintKind::PinnedKey, CLI_SUBJECT)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .build()
 }
 
@@ -360,9 +367,7 @@ fn error_code(error: &FacadeError) -> Option<String> {
         }
         _ => return None,
     };
-    serde_json::to_value(code)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
+    Some(code.as_str().to_owned())
 }
 
 fn runtime() -> std::io::Result<tokio::runtime::Runtime> {

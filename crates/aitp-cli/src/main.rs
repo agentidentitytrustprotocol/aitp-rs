@@ -25,7 +25,7 @@ use std::io::Read;
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
-use aitp::manifest::{verify_manifest, ManifestEnvelope, VerifyManifestContext};
+use aitp::manifest::{verify_manifest, ManifestEnvelope, ManifestVerifyContext};
 use aitp::tct::{verify_tct, TctClaims, TctVerifyContext};
 use clap::{Parser, Subcommand, ValueEnum};
 
@@ -201,8 +201,9 @@ struct NetArgs {
     /// Per-request HTTP timeout, in seconds.
     #[arg(long, default_value_t = 10, value_name = "SECS")]
     timeout: u64,
-    /// Allow a plain `http://localhost` / `http://127.0.0.1` peer (local
-    /// development only; RFC-AITP-0003 §4.1 requires HTTPS).
+    /// Allow a plain `http://localhost` / `http://127.0.0.1` peer and
+    /// loopback addresses (local development only; RFC-AITP-0003 §4.1
+    /// requires HTTPS, and other hosts on private addresses are refused).
     #[arg(long)]
     insecure_localhost: bool,
 }
@@ -406,7 +407,7 @@ fn tct_verify(
     // or issuer Manifest is available to a CLI, so those checks are
     // explicitly skipped (permissive) — the signature is the gate.
     let ctx = TctVerifyContext::builder(&audience, &issuer, now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .expect("both decisions are made");
@@ -417,14 +418,14 @@ fn tct_verify(
         // presenter's AID from an authenticated source (RFC-AITP-0005 §6).
         println!("audience taken from the token (not authenticated): {audience}");
     }
-    println!("{}", serde_json::to_string_pretty(&verified.claims)?);
+    println!("{}", serde_json::to_string_pretty(&verified.claims())?);
     Ok(())
 }
 
 fn manifest_verify(json: &str, at: Option<i64>) -> CliResult {
     let env: ManifestEnvelope = serde_json::from_str(json)?;
-    let ctx = at.map_or_else(VerifyManifestContext::now, |t| {
-        VerifyManifestContext::at(Timestamp(t))
+    let ctx = at.map_or_else(ManifestVerifyContext::now, |t| {
+        ManifestVerifyContext::at(Timestamp(t))
     });
     verify_manifest(&env.manifest, &ctx)?;
     let m = &env.manifest;

@@ -9,7 +9,6 @@ use super::{checked, envelope_parse_error_code, err, kat_seed_for_aid, AdapterSt
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{Aid, ErrorCode, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::tct::TctError;
 use aitp_experimental::renewal::{
     parse_renewal_request, process_renewal_request, renewal_response_envelope,
     verify_renewal_response, RenewalContext, RenewalError, RenewalResponseContext,
@@ -20,10 +19,7 @@ use uuid::Uuid;
 
 /// The registered string of `code`.
 fn code_str(code: ErrorCode) -> String {
-    serde_json::to_value(code)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_else(|| "INTERNAL_ERROR".into())
+    code.as_str().to_owned()
 }
 
 fn step_now(state: &AdapterState, params: &Value) -> Timestamp {
@@ -54,7 +50,7 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let Some(seed) = kat_seed_for_aid(self_aid) else {
         return err(id, "OP_NOT_SUPPORTED", "self_aid is not a KAT keypair");
     };
-    let issuer = AitpSigningKey::from_seed(&seed);
+    let issuer = AitpSigningKey::from_ed25519_seed(&seed);
     let now = step_now(state, &params);
     let manifest = params
         .get("issuer_manifest")
@@ -68,7 +64,13 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let deny: HashSet<String> = strings(params.get("issuer_deny_list"))
         .into_iter()
         .collect();
-    let revocation_check = move |jti: &Uuid| Ok::<_, TctError>(deny.contains(&jti.to_string()));
+    let revocation_check = move |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if deny.contains(&q.jti.to_string()) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
     let Some(body) = params.get("renewal_request") else {
         return err(id, "INVALID_REQUEST", "missing renewal_request");
     };
@@ -83,12 +85,12 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let mut ctx = RenewalContext::new(
         Timestamp(manifest_exp),
         &offered,
-        &revocation_check,
+        aitp::tct::RevocationSource::Check(&revocation_check),
         &*store,
         now,
     );
-    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_i64) {
-        ctx = ctx.ttl_secs(ttl);
+    if let Some(ttl) = policy.get("renewal_ttl_secs").and_then(Value::as_u64) {
+        ctx = ctx.ttl(std::time::Duration::from_secs(ttl));
     }
     if policy.get("mint_grant_voucher").and_then(Value::as_bool) == Some(false) {
         ctx = ctx.without_voucher();
@@ -153,7 +155,7 @@ pub(super) fn verify_renewal_response_op(
                 "ok": true,
                 "result": {
                     "verified": true,
-                    "renewed_jti": renewed.tct.claims.jti.to_string(),
+                    "renewed_jti": renewed.tct.claims().jti.to_string(),
                 },
             })
         }

@@ -1,70 +1,9 @@
 //! Pluggable signing backends: in-process keys, cloud KMS, HSMs.
-//!
-//! [`AitpSigningKey`] keeps the key in process memory. Production
-//! deployments often cannot: the key lives in AWS KMS, GCP Cloud KMS,
-//! Azure Key Vault, a PKCS#11 HSM or a remote signing service. This
-//! module defines the seam between the protocol and those backends, and
-//! keeps every protocol-critical step on the library side of it.
-//!
-//! # The split
-//!
-//! A backend implements [`AitpSigner`] (blocking) or [`AsyncAitpSigner`]
-//! (async). It only has to do one thing: sign the bytes in a
-//! [`SignRequest`] with the key behind [`AitpSigner::aid`], and return
-//! what the backend produced ([`BackendSignature`]). The library does the
-//! rest, so a backend cannot get it wrong:
-//!
-//! - **Framing.** [`sign_jcs`] and [`sign_raw`] decide what is signed.
-//!   Ed25519 receives the message ([`SignRequest::Ed25519Message`]);
-//!   P-256 receives the 32-byte digest it signs as the ECDSA hash `e`
-//!   ([`SignRequest::P256Digest`], RFC-AITP-0001 §5.4.6). The backend
-//!   never hashes, so the 0.13.x double hash cannot come back through a
-//!   KMS that defaults to "hash the message for me".
-//! - **Size limits.** A request longer than
-//!   [`AitpSigner::max_message_len`] is refused with
-//!   [`SignerError::MessageTooLarge`] *before* the backend is called
-//!   (AWS KMS `RAW` signing accepts at most 4096 bytes).
-//! - **Encoding.** DER (`ECDSA-Sig-Value`) is decoded to JOSE `R || S`.
-//! - **Low-S.** P-256 output is normalised to low-S (§5.4.7), whatever
-//!   the backend returned.
-//! - **Verify before emit.** The normalised signature is verified,
-//!   strictly, against the key encoded in the signer's AID. A backend
-//!   that signed with a different key, truncated, or corrupted the
-//!   signature produces [`SignerError::VerificationFailed`], never a
-//!   token that fails at the peer.
-//! - **Key binding at startup.** [`check_public_key`] compares the
-//!   backend's own public key ([`AitpSigner::public_key`]) with the AID,
-//!   so a misconfigured key ARN fails at boot, not at first use.
-//!
-//! Randomized ECDSA nonces (AWS KMS) are accepted: §5.4.7 constrains the
-//! encoding, not the nonce. Ed25519 is deterministic by definition
-//! (RFC 8032), and the strict verifier is the only check it needs.
-//!
-//! # Errors a caller can act on
-//!
-//! [`SignerError::is_transient`] separates "retry, maybe after
-//! [`SignerError::retry_after`]" (throttling, timeouts, a KMS 5xx) from
-//! permanent failures (access denied, key disabled, wrong key). The
-//! library never retries on its own; the caller owns the retry budget.
-//!
-//! # No SDK dependency
-//!
-//! This crate depends on no cloud SDK. A backend is a few lines in the
-//! application, on top of the SDK it already uses. See
-//! `docs/key-management.md` for AWS KMS, GCP and PKCS#11 sketches.
 
-use crate::core::{Aid, AidAlgorithm};
+use crate::core::{Aid, AidAlgorithm, BoxError, BoxFuture};
 use crate::crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, Signature};
 use std::future::Future;
-use std::pin::Pin;
 use std::time::Duration;
-
-/// The boxed error a backend may attach as the cause of a
-/// [`SignerError`].
-pub type BoxError = Box<dyn std::error::Error + Send + Sync + 'static>;
-
-/// A boxed, `Send` future, as returned by [`DynAsyncAitpSigner`].
-pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 
 /// What the library asks a backend to sign.
 ///
@@ -246,7 +185,61 @@ impl SignerError {
 /// Callers do not call [`Self::sign`] directly: they go through
 /// [`sign_jcs`], [`sign_raw`] or the artifact builders, which apply the
 /// framing, size check, normalisation and verify-before-emit described
-/// in the [module docs](self).
+/// below.
+///
+/// [`AitpSigningKey`] keeps the key in process memory. Production
+/// deployments often cannot: the key lives in AWS KMS, GCP Cloud KMS,
+/// Azure Key Vault, a PKCS#11 HSM or a remote signing service. This
+/// trait and [`AsyncAitpSigner`] are the seam between the protocol and
+/// those backends, and
+/// keeps every protocol-critical step on the library side of it.
+///
+/// # The split
+///
+/// A backend implements [`AitpSigner`] (blocking) or [`AsyncAitpSigner`]
+/// (async). It only has to do one thing: sign the bytes in a
+/// [`SignRequest`] with the key behind [`AitpSigner::aid`], and return
+/// what the backend produced ([`BackendSignature`]). The library does the
+/// rest, so a backend cannot get it wrong:
+///
+/// - **Framing.** [`sign_jcs`] and [`sign_raw`] decide what is signed.
+///   Ed25519 receives the message ([`SignRequest::Ed25519Message`]);
+///   P-256 receives the 32-byte digest it signs as the ECDSA hash `e`
+///   ([`SignRequest::P256Digest`], RFC-AITP-0001 §5.4.6). The backend
+///   never hashes, so the 0.13.x double hash cannot come back through a
+///   KMS that defaults to "hash the message for me".
+/// - **Size limits.** A request longer than
+///   [`AitpSigner::max_message_len`] is refused with
+///   [`SignerError::MessageTooLarge`] *before* the backend is called
+///   (AWS KMS `RAW` signing accepts at most 4096 bytes).
+/// - **Encoding.** DER (`ECDSA-Sig-Value`) is decoded to JOSE `R || S`.
+/// - **Low-S.** P-256 output is normalised to low-S (§5.4.7), whatever
+///   the backend returned.
+/// - **Verify before emit.** The normalised signature is verified,
+///   strictly, against the key encoded in the signer's AID. A backend
+///   that signed with a different key, truncated, or corrupted the
+///   signature produces [`SignerError::VerificationFailed`], never a
+///   token that fails at the peer.
+/// - **Key binding at startup.** [`check_public_key`] compares the
+///   backend's own public key ([`AitpSigner::public_key`]) with the AID,
+///   so a misconfigured key ARN fails at boot, not at first use.
+///
+/// Randomized ECDSA nonces (AWS KMS) are accepted: §5.4.7 constrains the
+/// encoding, not the nonce. Ed25519 is deterministic by definition
+/// (RFC 8032), and the strict verifier is the only check it needs.
+///
+/// # Errors a caller can act on
+///
+/// [`SignerError::is_transient`] separates "retry, maybe after
+/// [`SignerError::retry_after`]" (throttling, timeouts, a KMS 5xx) from
+/// permanent failures (access denied, key disabled, wrong key). The
+/// library never retries on its own; the caller owns the retry budget.
+///
+/// # No SDK dependency
+///
+/// This crate depends on no cloud SDK. A backend is a few lines in the
+/// application, on top of the SDK it already uses. See
+/// `docs/key-management.md` for AWS KMS, GCP and PKCS#11 sketches.
 pub trait AitpSigner: Send + Sync {
     /// The AID this signer signs for. Fixed for the signer's lifetime.
     fn aid(&self) -> &Aid;
@@ -265,14 +258,22 @@ pub trait AitpSigner: Send + Sync {
     /// Sign `request` with the backend key.
     fn sign(&self, request: SignRequest<'_>) -> Result<BackendSignature, SignerError>;
 
-    /// In-process fast path. Return `Some` only if this signer is, or
-    /// wraps, an [`AitpSigningKey`] whose AID equals [`Self::aid`]. The
-    /// library then signs with it directly and skips the backend round
-    /// trip and verify-before-emit, which cannot fail for an in-memory
-    /// key. Backends leave the default (`None`).
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
+    /// In-process fast path for [`AitpSigningKey`] and the wrappers this
+    /// crate implements: the library signs with the key directly and
+    /// skips the backend round trip and verify-before-emit. Its argument
+    /// cannot be named outside this crate, so a backend cannot override
+    /// it and always takes the backend path.
+    #[doc(hidden)]
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
         None
     }
+}
+
+mod sealed {
+    /// The argument of `as_signing_key`: only this crate can construct
+    /// it, so only this crate's impls supply the in-process key.
+    #[derive(Debug)]
+    pub struct Local(pub(super) ());
 }
 
 /// An async signing backend, for clients whose SDK is async (every
@@ -299,8 +300,8 @@ pub trait AsyncAitpSigner: Send + Sync {
         request: SignRequest<'_>,
     ) -> impl Future<Output = Result<BackendSignature, SignerError>> + Send;
 
-    /// See [`AitpSigner::as_signing_key`].
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
+    #[doc(hidden)]
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
         None
     }
 }
@@ -320,8 +321,8 @@ pub trait DynAsyncAitpSigner: Send + Sync {
         &'a self,
         request: SignRequest<'a>,
     ) -> BoxFuture<'a, Result<BackendSignature, SignerError>>;
-    /// See [`AitpSigner::as_signing_key`].
-    fn as_signing_key(&self) -> Option<&AitpSigningKey>;
+    #[doc(hidden)]
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey>;
 }
 
 impl<T: AsyncAitpSigner> DynAsyncAitpSigner for T {
@@ -340,8 +341,8 @@ impl<T: AsyncAitpSigner> DynAsyncAitpSigner for T {
     ) -> BoxFuture<'a, Result<BackendSignature, SignerError>> {
         Box::pin(AsyncAitpSigner::sign(self, request))
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
-        AsyncAitpSigner::as_signing_key(self)
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
+        AsyncAitpSigner::as_signing_key(self, sealed::Local(()))
     }
 }
 
@@ -367,8 +368,8 @@ impl<S: AitpSigner> AsyncAitpSigner for BlockingSigner<S> {
     ) -> impl Future<Output = Result<BackendSignature, SignerError>> + Send {
         std::future::ready(self.0.sign(request))
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
-        self.0.as_signing_key()
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
+        self.0.as_signing_key(sealed::Local(()))
     }
 }
 
@@ -394,7 +395,7 @@ impl AitpSigner for AitpSigningKey {
             ))),
         }
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
         Some(self)
     }
 }
@@ -412,7 +413,7 @@ impl AsyncAitpSigner for AitpSigningKey {
     ) -> impl Future<Output = Result<BackendSignature, SignerError>> + Send {
         std::future::ready(AitpSigner::sign(self, request))
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
         Some(self)
     }
 }
@@ -430,8 +431,8 @@ impl<S: AitpSigner + ?Sized> AitpSigner for &S {
     fn sign(&self, request: SignRequest<'_>) -> Result<BackendSignature, SignerError> {
         (**self).sign(request)
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
-        (**self).as_signing_key()
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
+        (**self).as_signing_key(sealed::Local(()))
     }
 }
 
@@ -448,8 +449,8 @@ impl<S: AitpSigner + ?Sized> AitpSigner for std::sync::Arc<S> {
     fn sign(&self, request: SignRequest<'_>) -> Result<BackendSignature, SignerError> {
         (**self).sign(request)
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
-        (**self).as_signing_key()
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
+        (**self).as_signing_key(sealed::Local(()))
     }
 }
 
@@ -466,8 +467,8 @@ impl<S: AitpSigner + ?Sized> AitpSigner for Box<S> {
     fn sign(&self, request: SignRequest<'_>) -> Result<BackendSignature, SignerError> {
         (**self).sign(request)
     }
-    fn as_signing_key(&self) -> Option<&AitpSigningKey> {
-        (**self).as_signing_key()
+    fn as_signing_key(&self, _: sealed::Local) -> Option<&AitpSigningKey> {
+        (**self).as_signing_key(sealed::Local(()))
     }
 }
 
@@ -563,7 +564,7 @@ fn finalize(
 fn sign_target(signer: &dyn AitpSigner, target: Target<'_>) -> Result<[u8; 64], SignerError> {
     let aid = signer.aid();
     let alg = signing_algorithm(aid)?;
-    if let Some(key) = local_key(signer.as_signing_key(), aid) {
+    if let Some(key) = local_key(signer.as_signing_key(sealed::Local(())), aid) {
         return Ok(sign_local(key, &target));
     }
     let digest = p256_digest(&target);
@@ -578,7 +579,7 @@ async fn sign_target_async(
 ) -> Result<[u8; 64], SignerError> {
     let aid = signer.aid();
     let alg = signing_algorithm(aid)?;
-    if let Some(key) = local_key(signer.as_signing_key(), aid) {
+    if let Some(key) = local_key(signer.as_signing_key(sealed::Local(())), aid) {
         return Ok(sign_local(key, &target));
     }
     let digest = p256_digest(&target);

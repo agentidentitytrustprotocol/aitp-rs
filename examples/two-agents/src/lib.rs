@@ -37,7 +37,7 @@ pub fn build_demo_manifest(
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, display_name).with_public_key(pubkey_b64),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         // Every TCT issuer MUST advertise its `ListRevoked` URL
         // (RFC-AITP-0008 §1.4); `HandshakeServer` serves it at this path.
         .revocation_list_uri(
@@ -45,7 +45,7 @@ pub fn build_demo_manifest(
                 .parse()
                 .unwrap(),
         )
-        .ttl_secs(3600);
+        .ttl(std::time::Duration::from_secs(3600));
     for cap in offered {
         builder = builder.offer(*cap);
     }
@@ -77,15 +77,15 @@ pub fn verify_echo_tct(token: &str, server_aid: &Aid) -> Result<Aid, String> {
     // Holder receipt: subject == audience == caller. Demo verifier —
     // no revocation source or issuer Manifest is resolved here.
     let ctx = TctVerifyContext::builder(&peeked.sub, server_aid, Timestamp::now())
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .expect("both decisions are made");
     let verified = verify_tct(token, &ctx).map_err(|e| e.to_string())?;
-    if !verified.claims.grants.iter().any(|g| g == "demo.echo") {
+    if !verified.claims().grants.iter().any(|g| g == "demo.echo") {
         return Err("demo.echo not granted".into());
     }
-    Ok(verified.claims.sub)
+    Ok(verified.into_parts().claims.sub)
 }
 
 /// Expand a short CLI seed string into a deterministic 32-byte key seed.

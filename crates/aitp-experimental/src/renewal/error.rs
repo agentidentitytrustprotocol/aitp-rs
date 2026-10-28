@@ -39,6 +39,9 @@ pub enum RenewalError {
     /// ([`TctError::Revoked`]), or signing failed.
     #[error(transparent)]
     Tct(#[from] TctError),
+    /// The issuer could not sign its response envelope.
+    #[error("renewal response envelope: {0}")]
+    Envelope(#[from] aitp::envelope::EnvelopeError),
 }
 
 impl RenewalError {
@@ -52,15 +55,18 @@ impl RenewalError {
             Self::GrantsWithdrawn => ErrorCode::PolicyViolation,
             Self::NonceStore(_) => ErrorCode::InvalidEnvelope,
             Self::Tct(e) => tct_error_code(e),
+            Self::Envelope(_) => ErrorCode::InvalidEnvelope,
         }
     }
 
-    /// Whether this is the issuer's own fault: its nonce store or its
-    /// signer failing.
+    /// Whether this is the issuer's own fault: its nonce store, its
+    /// signer or its response envelope failing.
     pub fn is_local_fault(&self) -> bool {
         matches!(
             self,
-            Self::NonceStore(_) | Self::Tct(TctError::Crypto(CryptoError::Signer(_)))
+            Self::NonceStore(_)
+                | Self::Envelope(_)
+                | Self::Tct(TctError::Crypto(CryptoError::Signer(_)))
         )
     }
 }
@@ -70,6 +76,7 @@ pub(crate) fn tct_error_code(err: &TctError) -> ErrorCode {
     match err {
         TctError::PopFailed => ErrorCode::PopResponseInvalid,
         TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
+        TctError::SafeSubsetEmpty => ErrorCode::PolicyViolation,
         TctError::Expired => ErrorCode::TctExpired,
         TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
         TctError::UnknownField(_) => ErrorCode::UnknownField,

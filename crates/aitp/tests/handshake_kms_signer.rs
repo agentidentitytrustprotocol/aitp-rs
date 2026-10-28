@@ -39,7 +39,7 @@ fn manifest_for(key: &dyn AitpSigner, name: &str) -> Manifest {
             IdentityHint::new(IdentityHintKind::PinnedKey, name)
                 .with_public_key(aitp::core::base64url::encode(&vk(key).to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -64,7 +64,7 @@ fn envelope_with(
 fn pinned_handshake_with_kms_backed_initiator() {
     let alice = MockKmsSigner::new(AitpSigningKey::from_p256_seed(&[0xA1; 32]).unwrap())
         .output(MockOutput::DerHighS);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -76,7 +76,7 @@ fn pinned_handshake_with_kms_backed_initiator() {
         &alice_manifest,
         &resolver,
         &alice_store,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg = PeerConfig::new(
@@ -84,7 +84,7 @@ fn pinned_handshake_with_kms_backed_initiator() {
         &bob_manifest,
         &resolver,
         &bob_store,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -146,9 +146,9 @@ fn pinned_handshake_with_kms_backed_initiator() {
         .unwrap();
 
     // Bob holds a TCT minted through Alice's KMS backend, and vice versa.
-    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
-    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
-    assert_eq!(&alice_holds.tct.claims.sub, alice.aid());
+    assert_eq!(&bob_holds.tct().claims().iss, alice.aid());
+    assert_eq!(&alice_holds.tct().claims().iss, bob.aid());
+    assert_eq!(&alice_holds.tct().claims().sub, alice.aid());
     assert!(
         alice.calls() >= 4,
         "identity proof, PoP, TCT, envelopes all hit the backend"
@@ -161,14 +161,14 @@ fn kms_backend_with_wrong_key_fails_locally_at_hello() {
     let alice_manifest = manifest_for(&good, "alice");
     let alice =
         MockKmsSigner::new(good).sign_with(AitpSigningKey::from_p256_seed(&[0xA4; 32]).unwrap());
-    let bob = AitpSigningKey::from_seed(&[0xB4; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB4; 32]);
     let resolver = NoOpResolver;
     let cfg = PeerConfig::new(
         &alice,
         &alice_manifest,
         &resolver,
         &NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let err = match Initiator::start(

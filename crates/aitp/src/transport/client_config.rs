@@ -109,7 +109,7 @@ impl ClientConfig {
     ///
     /// Requires the `client-spki-pinning` feature on
     /// `aitp::transport`. See
-    /// [`crate::transport::tls_pinning`] for the threat model and how to
+    /// [`crate::transport::SpkiPinVerifier`] for the threat model and how to
     /// compute pins from an `openssl x509` command line.
     #[cfg(feature = "client-spki-pinning")]
     pub fn with_spki_pin(mut self, pin: crate::transport::tls_pinning::SpkiHash) -> Self {

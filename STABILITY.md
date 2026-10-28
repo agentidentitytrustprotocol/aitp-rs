@@ -40,14 +40,67 @@ breaking release lists its breaks under `### BREAKING` in
 
 ### Decision and outcome enums are exhaustive on purpose
 
-`HandshakeRevocationDecision`, `RevocationOutcome`, `KeyResolutionOutcome`
-and `RateLimitOutcome` report a security or admission decision. They are
+`RevocationStatus` and `KeyResolutionOutcome` report a security or admission decision. They are
 not `#[non_exhaustive]`, so a caller's `match` must name every outcome and
 cannot let a new one fall into a wildcard arm that admits or ignores it.
 Adding a variant to one of them is therefore always a breaking change: a
 **major** release from 1.0 on (the next minor before it). A new decision
 or outcome enum follows the same rule, and is listed as `exhaustive` with
 that reason in [`docs/api-classification.md`](docs/api-classification.md).
+
+A variant of a decision enum that carries data is `#[non_exhaustive]`
+itself (`RevocationStatus::SoftFailSafeSubset`,
+`KeyResolutionOutcome::Resolved` and
+`KeyResolutionOutcome::SoftFailDegraded`), so a release may add a field
+to it: a `match` names its fields with `..`, and a caller who returns
+one builds it with its constructor, such as
+`RevocationStatus::soft_fail_safe_subset`.
+
+### Options that relax a check end in `_dangerous`
+
+A builder or config method of the stable surface that switches a check
+off or relaxes it ends in `_dangerous` and takes no argument: calling it
+is the opt-in, and not calling it keeps the check. It keeps the prefix of
+the builder it belongs to (`with_` on a `with_*` builder, `without_` for
+turning a feature off, none on a builder whose methods are bare names).
+The ones in `aitp` are `TctVerifyContextBuilder::skip_manifest_expiry_cap_dangerous`,
+`ManifestFetcher::with_insecure_localhost_dangerous`,
+`RevocationFetcher::with_insecure_localhost_dangerous`,
+`InitiatorConfig::with_insecure_localhost_dangerous`,
+`HostGuard::allow_loopback_dangerous` and
+`HandshakeServer::without_rate_limit_dangerous`. A new one follows the
+same rule.
+
+Values of a policy enum keep their names even when they name a weaker
+policy, such as `RevocationFailMode::FailOpen`, `RevocationSource::FailOpen`,
+`GuardMode::WarnPrivate` and `GuardMode::AllowAll`: they are chosen by
+passing them, and their docs say what they relax. The CLI flags (such as
+`--insecure-localhost`) and the SDKs' Python and JavaScript names are not
+Rust identifiers and keep their own names.
+
+### Public paths
+
+Each item of the stable surface has one public path: no re-export,
+glob or second module reaches it another way. The path is the root of
+its feature module: `aitp::core`, `aitp::crypto`, `aitp::envelope`,
+`aitp::manifest`, `aitp::handshake`, `aitp::handshake::admission`
+(feature `pinned-admission`), `aitp::tct`, `aitp::delegation`,
+`aitp::transport` and `aitp::facade`, as in `aitp::tct::TctBuilder` or
+`aitp::transport::HostGuard`. The files these modules are written in are
+private, and each module root lists its items by name.
+
+A submodule is public only when it is a namespace: no other path
+reaches its items, and the path through it is the item's one path.
+These are `aitp::core::base64url`, `aitp::core::ids` (with
+`ids::serde_v4`), `aitp::core::jcs`, `aitp::core::nonce_store`,
+`aitp::crypto::jws`, `aitp::handshake::admission::metrics_names`,
+`aitp::handshake::identity_pinned` (which holds only
+`PINNED_KEY_PROOF_DOMAIN`; the other pinned-key items are at
+`aitp::handshake`) and, behind `test-util`, `aitp::crypto::testing`.
+The nonce store and `PINNED_KEY_PROOF_DOMAIN` keep the paths an
+existing embedded consumer uses (`crates/aitp/tests/seam_surface.rs`).
+There is no prelude. `aitp::__private` is `#[doc(hidden)]` plumbing for
+the workspace's own crates and is not part of the stable surface.
 
 ### Behaviour that follows the spec
 
@@ -89,6 +142,23 @@ These can change or disappear in any release, including a patch:
   `aitp-session-bundle` and `aitp-transport-http` are now modules of `aitp`
   (and `aitp-experimental`). Their last release is 0.23; they get no new
   APIs and no fixes.
+
+## Async runtime
+
+The HTTP features (`http-client`, `http-server`) run on tokio 1.x, and
+that is permanent: `aitp` will not add a runtime abstraction, and the
+stable API names tokio types where a runtime type is the honest one
+(`HandshakeServer::serve` takes a `tokio::net::TcpListener`,
+`spawn_session_sweeper` returns a tokio `JoinHandle`). Moving to a tokio
+2.x would be a breaking `aitp` release.
+
+- Every future the stable API returns is `Send`, so it can run in
+  `tokio::spawn`. `crates/aitp/tests/send_sync_probe.rs` fails to
+  compile if one stops being `Send`.
+- `aitp` never blocks a runtime thread on a future (`block_on`): an
+  operation that does I/O is `async`.
+- Built without `http-client` (`default-features = false`), `aitp` does
+  not depend on tokio.
 
 ## MSRV
 
@@ -170,8 +240,12 @@ the crates and the SDKs. How to report a vulnerability is in
   [`scripts/public-api.py`](scripts/public-api.py):
   - [`public-api.stable.txt`](crates/aitp/public-api.stable.txt) covers the
     stable features: every item with its signature, fields, variants,
-    methods and impls, at each public path. Generating it fails if a
-    stable signature names a type no public path reaches.
+    methods and impls, at each public path. The impls include the derived
+    traits, the `From` conversions and the auto traits (`Send`, `Sync`,
+    `Unpin`, `UnwindSafe`, `RefUnwindSafe`), so losing one is a visible
+    break. Only blanket impls and compiler-internal markers are left out.
+    Generating it fails if a stable signature names a type no public path
+    reaches.
   - [`public-api.experimental.txt`](crates/aitp/public-api.experimental.txt)
     lists what each unstable feature adds to the stable surface. It
     carries no promise, and changes to it never count as breaks.
@@ -181,6 +255,12 @@ the crates and the SDKs. How to report a vulnerability is in
   `non_exhaustive`, `private fields` or `exhaustive`, and that each
   exhaustive one has a reason (`make api-classification-check`). Only an
   exhaustive type can gain a field or variant as a breaking change.
+- **One public path per item.**
+  [`scripts/check-single-path.py`](scripts/check-single-path.py)
+  (`make single-path-check`, in the same CI job) fails if an item in
+  `public-api.stable.txt`, or in the stable surface with an unstable
+  feature's additions, is printed under more than one path (see
+  [Public paths](#public-paths)).
 - **No pre-1.0 dependency in the stable surface.** A crate below 1.0 can
   break its API in any minor release, which would force a breaking
   `aitp` release. [`scripts/check-stable-deps.py`](scripts/check-stable-deps.py)

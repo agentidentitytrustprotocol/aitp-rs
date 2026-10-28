@@ -25,12 +25,13 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use aitp::core::nonce_store::{
+    ConsumeOutcome, InMemoryNonceStore, IssuedNonce, NonceStore, NonceStoreError,
+};
 use aitp::core::{base64url, parse_envelope_wire, Aid, CheckedJson, MessageType, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, Digest32};
-use aitp::handshake::admission::{
-    ChallengeSource, ConsumeOutcome, InMemoryNonceStore, IssuedNonce, NonceStore, NonceStoreError,
-    TokenBucketLimiter,
-};
+use aitp::envelope::{sign_envelope, verify_envelope_signature};
+use aitp::handshake::admission::{ChallengeSource, TokenBucketLimiter};
 use aitp::handshake::{JwkPublicKey, JwksResolver, PinnedKeyStore, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::{
@@ -38,8 +39,8 @@ use aitp::tct::{
     TctVerifyContext,
 };
 use aitp::transport::{
-    resolve_source_ip, sign_envelope, verify_envelope_signature, HandshakeServer, ManifestServer,
-    RateLimitConfig, RevocationFailMode, RevocationPolicy, TrustedProxy, REVOCATION_LIST_PATH,
+    resolve_source_ip, HandshakeServer, ManifestServer, RateLimitConfig, RevocationFailMode,
+    RevocationPolicy, TrustedProxy, REVOCATION_LIST_PATH,
 };
 use axum::body::{Body, Bytes, HttpBody};
 use axum::extract::{ConnectInfo, Request, State};
@@ -71,12 +72,12 @@ const DRAIN_LIMIT: usize = 1024 * 1024;
 /// Whole-request deadline.
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(15);
 /// How long an enrolment or echo challenge is accepted.
-const CHALLENGE_TTL_SECS: i64 = 60;
+const CHALLENGE_TTL: Duration = Duration::from_secs(60);
 /// Outstanding challenges held at once, per kind; beyond that,
 /// `enrol_busy` / `echo_busy`.
 const MAX_OUTSTANDING_CHALLENGES: usize = 10_000;
 /// Manifest lifetime. The peer re-signs it every half lifetime.
-const MANIFEST_TTL_SECS: i64 = 24 * 3600;
+const MANIFEST_TTL: Duration = Duration::from_secs(24 * 3600);
 
 /// `aitp serve` options. Each can also come from the environment, the
 /// way a container platform passes configuration.
@@ -116,7 +117,7 @@ pub(crate) struct ServeArgs {
     client_ip_header: Option<HeaderName>,
     /// How long an enrolment lasts, in seconds.
     #[arg(long, env = "AITP_ENROL_TTL", default_value_t = 24 * 3600)]
-    enrol_ttl: i64,
+    enrol_ttl: u64,
     /// Most enrolled keys held at once; at the cap the oldest goes first.
     #[arg(long, env = "AITP_ENROL_CAP", default_value_t = 10_000)]
     enrol_cap: usize,
@@ -214,7 +215,7 @@ struct Interop {
     key: Arc<AitpSigningKey>,
     aid: Aid,
     enrolled: Arc<EnrolledKeys>,
-    enrol_ttl: i64,
+    enrol_ttl: u64,
     nonces: InMemoryNonceStore,
     challenge_limiter: TokenBucketLimiter,
     enrol_limiter: TokenBucketLimiter,
@@ -279,14 +280,14 @@ fn interop_manifest(
             IdentityHint::new(IdentityHintKind::PinnedKey, PEER_NAME)
                 .with_public_key(base64url::encode(&key.verifying_key().to_compressed())),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer(ECHO_CAP)
-        .ttl_secs(MANIFEST_TTL_SECS)
+        .ttl(MANIFEST_TTL)
         .build()?)
 }
 
 async fn refresh_manifest(peer: Arc<Interop>, key: Arc<AitpSigningKey>, public_url: url::Url) {
-    let every = Duration::from_secs((MANIFEST_TTL_SECS / 2) as u64);
+    let every = MANIFEST_TTL / 2;
     let mut ticker = tokio::time::interval_at(tokio::time::Instant::now() + every, every);
     loop {
         ticker.tick().await;
@@ -440,7 +441,7 @@ async fn enroll_challenge(
         );
     }
     let now = Timestamp::now();
-    let expires_at = now.plus_secs(CHALLENGE_TTL_SECS);
+    let expires_at = now.saturating_add(CHALLENGE_TTL);
     let record = IssuedNonce::new(
         nonce,
         peer.aid.clone(),
@@ -520,7 +521,7 @@ async fn enroll(
             )
         }
     }
-    let expires_at = now.plus_secs(peer.enrol_ttl);
+    let expires_at = now.saturating_add(Duration::from_secs(peer.enrol_ttl));
     let canonical = request.key.to_aid();
     peer.enrolled.insert(request.key, expires_at);
     info!(aid = %canonical, source = source.transport_key(), "enrolled");
@@ -587,7 +588,7 @@ async fn echo_challenge(
         peer.aid.clone(),
         source.transport_key(),
         now,
-        now.plus_secs(CHALLENGE_TTL_SECS),
+        now.saturating_add(CHALLENGE_TTL),
     );
     match peer.echo_nonces.issue(&record).await {
         Ok(()) => {}
@@ -610,8 +611,10 @@ async fn echo_challenge(
     };
     match serde_json::to_value(payload)
         .map_err(|e| e.to_string())
-        .and_then(|p| sign_envelope(peer.key.as_ref(), MessageType::PopChallenge, p))
-    {
+        .and_then(|p| {
+            sign_envelope(peer.key.as_ref(), MessageType::PopChallenge, p)
+                .map_err(|e| e.to_string())
+        }) {
         Ok(envelope) => Json(envelope).into_response(),
         Err(e) => refuse(StatusCode::INTERNAL_SERVER_ERROR, "echo_busy", &e),
     }
@@ -747,14 +750,17 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
     // presenter; it is never taken from `aud` itself.
     let ctx = TctVerifyContext::builder(&sub, self_aid, now)
         .skip_manifest_expiry_cap_dangerous()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .expect("both decisions are made");
     let claims = verify_tct(token, &ctx)
-        .map(|v| v.claims)
+        .map(|v| v.into_parts().claims)
         .map_err(|e| match e {
             TctError::Expired => Refusal(StatusCode::UNAUTHORIZED, "TCT_EXPIRED", e.to_string()),
             TctError::AudienceMismatch => invalid("aud differs from sub".into()),
+            TctError::SafeSubsetEmpty => {
+                Refusal(StatusCode::FORBIDDEN, "POLICY_VIOLATION", e.to_string())
+            }
             e => invalid(e.to_string()),
         })?;
     if !claims.grants.iter().any(|g| g == ECHO_CAP) {
@@ -875,14 +881,20 @@ mod tests {
     use super::*;
 
     fn vk(seed: u8) -> AitpVerifyingKey {
-        AitpSigningKey::from_seed(&[seed; 32]).verifying_key()
+        AitpSigningKey::from_ed25519_seed(&[seed; 32]).verifying_key()
     }
 
     #[test]
     fn enrolled_keys_expire() {
         let store = EnrolledKeys::new(10);
-        store.insert(vk(1), Timestamp::now().plus_secs(60));
-        store.insert(vk(2), Timestamp::now().plus_secs(-1));
+        store.insert(
+            vk(1),
+            Timestamp::now().saturating_add(std::time::Duration::from_secs(60)),
+        );
+        store.insert(
+            vk(2),
+            Timestamp::now().saturating_sub(std::time::Duration::from_secs(1)),
+        );
         assert!(store.is_trusted(&vk(1)));
         assert!(!store.is_trusted(&vk(2)));
         assert!(!store.is_trusted(&vk(3)));
@@ -892,11 +904,14 @@ mod tests {
     #[test]
     fn cap_evicts_the_oldest_enrolment() {
         let store = EnrolledKeys::new(2);
-        let later = Timestamp::now().plus_secs(60);
+        let later = Timestamp::now().saturating_add(std::time::Duration::from_secs(60));
         store.insert(vk(1), later);
         store.insert(vk(2), later);
         // Re-enrolling 1 makes 2 the oldest.
-        store.insert(vk(1), later.plus_secs(1));
+        store.insert(
+            vk(1),
+            later.saturating_add(std::time::Duration::from_secs(1)),
+        );
         store.insert(vk(3), later);
         assert!(store.is_trusted(&vk(1)));
         assert!(!store.is_trusted(&vk(2)));
@@ -906,9 +921,9 @@ mod tests {
     #[test]
     fn order_stays_bounded_under_re_enrolment() {
         let store = EnrolledKeys::new(2);
-        let t = Timestamp::now().plus_secs(60);
+        let t = Timestamp::now().saturating_add(std::time::Duration::from_secs(60));
         for i in 0..100 {
-            store.insert(vk(1), t.plus_secs(i));
+            store.insert(vk(1), t.saturating_add(std::time::Duration::from_secs(i)));
         }
         assert!(store.inner.lock().unwrap().order.len() <= 4);
         assert!(store.is_trusted(&vk(1)));
@@ -960,7 +975,7 @@ mod tests {
             peer.aid.clone(),
             "test",
             now,
-            now.plus_secs(60),
+            now.saturating_add(std::time::Duration::from_secs(60)),
         );
         peer.echo_nonces.issue(&record).await.unwrap();
         let payload = serde_json::to_value(echo::ChallengePayload {
@@ -987,8 +1002,8 @@ mod tests {
 
     #[tokio::test]
     async fn echo_accepts_pop_once() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (tct, claims) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, claims.jti).await;
         let resp = echo::respond(&holder, &peer.aid, claims.jti, ch).unwrap();
@@ -1005,9 +1020,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_wrong_answer_burns_the_challenge() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
-        let thief = AitpSigningKey::from_seed(&[3; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
+        let thief = AitpSigningKey::from_ed25519_seed(&[3; 32]);
         let (tct, claims) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, claims.jti).await;
         let now = Timestamp::now();
@@ -1027,8 +1042,8 @@ mod tests {
 
     #[tokio::test]
     async fn a_challenge_is_bound_to_its_jti() {
-        let peer = interop(AitpSigningKey::from_seed(&[1; 32]));
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = interop(AitpSigningKey::from_ed25519_seed(&[1; 32]));
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (_, first) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let (tct2, second) = issue(&peer.key, &holder, &[ECHO_CAP]);
         let ch = challenge(&peer, first.jti).await;
@@ -1042,14 +1057,14 @@ mod tests {
 
     #[test]
     fn own_tct_checks_issuer_audience_and_grant() {
-        let peer = AitpSigningKey::from_seed(&[1; 32]);
-        let holder = AitpSigningKey::from_seed(&[2; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[1; 32]);
+        let holder = AitpSigningKey::from_ed25519_seed(&[2; 32]);
         let (tct, _) = issue(&peer, &holder, &[ECHO_CAP]);
         let (no_grant, _) = issue(&peer, &holder, &["something.else"]);
         // After both are minted: an `iat` past `now` is not yet valid.
         let now = Timestamp::now();
         assert!(verify_own_tct(&tct, peer.aid(), now).is_ok());
-        let other = AitpSigningKey::from_seed(&[3; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[3; 32]);
         assert_eq!(
             code(verify_own_tct(&tct, other.aid(), now)),
             "TCT_SIGNATURE_INVALID"

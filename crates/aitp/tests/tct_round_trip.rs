@@ -9,11 +9,11 @@ use aitp::tct::{
 use uuid::Uuid;
 
 fn issuer_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA0; 32])
 }
 
 fn subject_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB0; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB0; 32])
 }
 
 fn issue_at(now: Timestamp) -> IssuedTct {
@@ -23,7 +23,7 @@ fn issue_at(now: Timestamp) -> IssuedTct {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject.verifying_key())
         .issued_at(now)
         .build()
@@ -43,14 +43,14 @@ fn happy_path_round_trip() {
     let subject = subject_key();
     let issued = issue_at(now);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
     let verified = verify_tct(&issued.token, &ctx).expect("fresh TCT verifies");
-    assert_eq!(verified.token, issued.token);
-    assert_eq!(verified.claims, issued.claims);
-    assert_eq!(verified.claims.ver, PROTOCOL_VERSION);
+    assert_eq!(verified.token(), issued.token);
+    assert_eq!(verified.claims(), &issued.claims);
+    assert_eq!(verified.claims().ver, PROTOCOL_VERSION);
 }
 
 #[test]
@@ -102,7 +102,7 @@ fn voucher_presented_as_tct_dies_on_typ() {
     let subject = subject_key();
     let issued = issue_at(now);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -122,11 +122,11 @@ fn spoofed_issuer_claim_rejected() {
     let subject = subject_key();
     let issued = issue_at(now);
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
-    let victim = AitpSigningKey::from_seed(&[0xDD; 32]);
+    let victim = AitpSigningKey::from_ed25519_seed(&[0xDD; 32]);
     claims["iss"] = serde_json::to_value(victim.aid()).unwrap();
     let forged = forge(&issuer, &claims); // really signed by `issuer`
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -135,7 +135,7 @@ fn spoofed_issuer_claim_rejected() {
 
     // And verifying under the victim's AID dies on the signature.
     let ctx_victim = TctVerifyContext::builder(subject.aid(), victim.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -151,9 +151,9 @@ fn wrong_audience_rejected() {
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let issued = issue_at(now);
-    let other = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let ctx = TctVerifyContext::builder(other.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -168,14 +168,14 @@ fn audience_subject_mismatch_rejected() {
     let now = Timestamp(1_700_000_000);
     let issuer = issuer_key();
     let issued = issue_at(now);
-    let evil = AitpSigningKey::from_seed(&[0xEE; 32]);
+    let evil = AitpSigningKey::from_ed25519_seed(&[0xEE; 32]);
     let mut claims = serde_json::to_value(&issued.claims).unwrap();
     claims["aud"] = serde_json::to_value(evil.aid()).unwrap();
     let forged = forge(&issuer, &claims);
     // Use the forged audience as expected so the first audience check
     // passes and we hit the "aud == sub" invariant.
     let ctx = TctVerifyContext::builder(evil.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -205,7 +205,7 @@ fn tampered_signature_rejected() {
     sig_chars[0] = if sig_chars[0] == 'A' { 'B' } else { 'A' };
     let token = format!("{head}.{}", sig_chars.into_iter().collect::<String>());
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -234,7 +234,7 @@ fn tampered_grants_rejected() {
         base64url::encode(&aitp::core::jcs::canonicalize_serializable(&claims).unwrap());
     let tampered = format!("{header}.{evil_payload}.{sig}");
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -257,7 +257,7 @@ fn unknown_claim_rejected() {
     claims["rogue"] = serde_json::json!("x");
     let forged = forge(&issuer, &claims);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -278,7 +278,7 @@ fn unknown_version_rejected() {
     claims["ver"] = serde_json::json!("aitp/9.9");
     let forged = forge(&issuer, &claims);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -296,7 +296,7 @@ fn expired_rejected() {
     let issued = issue_at(issued_at);
     let later = Timestamp(1_700_000_000 + 7200);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), later)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -314,7 +314,7 @@ fn future_issued_rejected() {
     let issued = issue_at(now);
     let earlier = Timestamp(1_699_999_900);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), earlier)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -331,9 +331,15 @@ fn revoked_rejected() {
     let subject = subject_key();
     let issued = issue_at(now);
     let target = issued.claims.jti;
-    let revoked = move |jti: &Uuid| Ok(*jti == target);
+    let revoked = move |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if *q.jti == target {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .revocation_check(&revoked)
+        .revocation(aitp::tct::RevocationSource::Check(&revoked))
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -352,13 +358,13 @@ fn revocation_unavailable_is_distinct_from_revoked() {
     let issuer = issuer_key();
     let subject = subject_key();
     let issued = issue_at(now);
-    let unavailable = |_: &Uuid| {
-        Err(TctError::RevocationUnavailable(
-            "no snapshot for issuer".into(),
+    let unavailable = |_: &aitp::tct::RevocationQuery<'_>| {
+        Err(aitp::tct::RevocationUnavailable::new(
+            "no snapshot for issuer",
         ))
     };
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .revocation_check(&unavailable)
+        .revocation(aitp::tct::RevocationSource::Check(&unavailable))
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -435,7 +441,7 @@ fn builder_rejects_empty_grants() {
 fn builder_rejects_audience_neq_subject() {
     let issuer = issuer_key();
     let subject = subject_key();
-    let other = AitpSigningKey::from_seed(&[0x77; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x77; 32]);
     let err = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(other.aid().clone())
@@ -467,7 +473,7 @@ fn builder_rejects_subject_pubkey_aid_mismatch() {
     // key other than the one the subject AID encodes.
     let issuer = issuer_key();
     let subject = subject_key();
-    let other = AitpSigningKey::from_seed(&[0x78; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0x78; 32]);
     let err = TctBuilder::new(&issuer)
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
@@ -490,7 +496,7 @@ fn forged_cnf_jkt_rejected() {
     claims["cnf"]["jkt"] = serde_json::json!("A".repeat(43));
     let forged = forge(&issuer, &claims);
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -511,7 +517,7 @@ fn p256_issuer_and_subject_round_trip_and_pop() {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["demo.echo"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject.verifying_key())
         .issued_at(now)
         .build()
@@ -522,7 +528,7 @@ fn p256_issuer_and_subject_round_trip_and_pop() {
     assert!(String::from_utf8(header).unwrap().contains("\"ES256\""));
 
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();

@@ -34,6 +34,7 @@
 //! against a different sender, receiver, message, timestamp, or
 //! handshake nonce.
 
+use crate::core::nonce_store::NONCE_LEN;
 use crate::core::{base64url, Aid, AidAlgorithm, Timestamp};
 use crate::crypto::{AitpVerifyingKey, Signature};
 use crate::handshake::error::HandshakeError;
@@ -44,11 +45,6 @@ use uuid::Uuid;
 /// a signature minted under one AITP version from being replayed
 /// against a future version with a different proof-input layout.
 pub const PINNED_KEY_PROOF_DOMAIN: &[u8] = b"aitp-pinned-key-v1\0";
-
-/// Decoded length of a `pop_nonce` (RFC-AITP-0002 §3.4, proposal #72
-/// Item 5): exactly 16 bytes. Any other length is `IDENTITY_FAILED`,
-/// rejected before signature verification.
-pub const POP_NONCE_LEN: usize = 16;
 
 /// Build the canonical pinned-key proof input bytes.
 ///
@@ -84,9 +80,9 @@ pub(crate) fn handshake_proof_input(
 ) -> Result<Vec<u8>, HandshakeError> {
     let pop_nonce_bytes = base64url::decode_strict(pop_nonce)
         .map_err(|_| HandshakeError::Identity("pop_nonce is not valid base64url".into()))?;
-    if pop_nonce_bytes.len() != POP_NONCE_LEN {
+    if pop_nonce_bytes.len() != NONCE_LEN {
         return Err(HandshakeError::Identity(format!(
-            "pop_nonce must decode to exactly {POP_NONCE_LEN} bytes, got {}",
+            "pop_nonce must decode to exactly {NONCE_LEN} bytes, got {}",
             pop_nonce_bytes.len()
         )));
     }
@@ -358,6 +354,7 @@ impl StaticPinnedKeyStore {
 }
 
 /// Inputs for verifying a pinned-key identity proof.
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct PinnedKeyVerifyContext<'a> {
     /// The sender's AID (per `envelope.sender.agent_id`).
@@ -380,29 +377,88 @@ pub struct PinnedKeyVerifyContext<'a> {
 }
 
 impl<'a> PinnedKeyVerifyContext<'a> {
-    /// The inputs from the envelope and the handshake payload, with
-    /// `subject` left [`SubjectBinding::Unchecked`].
-    pub fn new(
-        sender_aid: &'a Aid,
-        receiver_aid: &'a Aid,
-        message_id: &'a Uuid,
-        timestamp: Timestamp,
-        pop_nonce: &'a str,
-    ) -> Self {
-        Self {
-            sender_aid,
-            receiver_aid,
-            message_id,
-            timestamp,
-            pop_nonce,
+    /// Start a builder. Every input except
+    /// [`PinnedKeyVerifyContextBuilder::subject`] (default
+    /// [`SubjectBinding::Unchecked`]) is required.
+    pub fn builder() -> PinnedKeyVerifyContextBuilder<'a> {
+        PinnedKeyVerifyContextBuilder {
+            sender_aid: None,
+            receiver_aid: None,
+            message_id: None,
+            timestamp: None,
+            pop_nonce: None,
             subject: SubjectBinding::Unchecked,
         }
     }
+}
 
-    /// Set what the descriptor's `subject` must be.
-    pub fn with_subject(mut self, subject: SubjectBinding) -> Self {
+/// Builder for [`PinnedKeyVerifyContext`]. See
+/// [`PinnedKeyVerifyContext::builder`].
+#[derive(Debug)]
+pub struct PinnedKeyVerifyContextBuilder<'a> {
+    sender_aid: Option<&'a Aid>,
+    receiver_aid: Option<&'a Aid>,
+    message_id: Option<&'a Uuid>,
+    timestamp: Option<Timestamp>,
+    pop_nonce: Option<&'a str>,
+    subject: SubjectBinding,
+}
+
+impl<'a> PinnedKeyVerifyContextBuilder<'a> {
+    /// The sender's AID (`envelope.sender.agent_id`). Required.
+    pub fn sender_aid(mut self, aid: &'a Aid) -> Self {
+        self.sender_aid = Some(aid);
+        self
+    }
+
+    /// The verifying peer's own AID. Required.
+    pub fn receiver_aid(mut self, aid: &'a Aid) -> Self {
+        self.receiver_aid = Some(aid);
+        self
+    }
+
+    /// The envelope's `message_id`. Required.
+    pub fn message_id(mut self, message_id: &'a Uuid) -> Self {
+        self.message_id = Some(message_id);
+        self
+    }
+
+    /// The envelope's `timestamp`. Required.
+    pub fn timestamp(mut self, timestamp: Timestamp) -> Self {
+        self.timestamp = Some(timestamp);
+        self
+    }
+
+    /// The handshake's `pop_nonce`, as the base64url string. Required.
+    pub fn pop_nonce(mut self, pop_nonce: &'a str) -> Self {
+        self.pop_nonce = Some(pop_nonce);
+        self
+    }
+
+    /// What the descriptor's `subject` must be. Default
+    /// [`SubjectBinding::Unchecked`].
+    pub fn subject(mut self, subject: SubjectBinding) -> Self {
         self.subject = subject;
         self
+    }
+
+    /// The context, or the first required input that was not set.
+    pub fn build(self) -> Result<PinnedKeyVerifyContext<'a>, crate::core::MissingFieldError> {
+        use crate::core::MissingFieldError;
+        Ok(PinnedKeyVerifyContext {
+            sender_aid: self
+                .sender_aid
+                .ok_or(MissingFieldError::new("sender_aid"))?,
+            receiver_aid: self
+                .receiver_aid
+                .ok_or(MissingFieldError::new("receiver_aid"))?,
+            message_id: self
+                .message_id
+                .ok_or(MissingFieldError::new("message_id"))?,
+            timestamp: self.timestamp.ok_or(MissingFieldError::new("timestamp"))?,
+            pop_nonce: self.pop_nonce.ok_or(MissingFieldError::new("pop_nonce"))?,
+            subject: self.subject,
+        })
     }
 }
 
@@ -428,14 +484,51 @@ pub enum SubjectBinding {
 /// established from the sender AID and the trust store, never from
 /// descriptor fields alone. Callers bind the peer to this value and do
 /// not re-derive it.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedPinnedKey {
+    pub(crate) algorithm: AidAlgorithm,
+    pub(crate) key: AitpVerifyingKey,
+    pub(crate) aid: Aid,
+}
+
+impl VerifiedPinnedKey {
+    /// The key's algorithm.
+    pub fn algorithm(&self) -> AidAlgorithm {
+        self.algorithm
+    }
+
+    /// The trusted key the proof verified under.
+    pub fn key(&self) -> &AitpVerifyingKey {
+        &self.key
+    }
+
+    /// The sender AID the key was bound to.
+    pub fn aid(&self) -> &Aid {
+        &self.aid
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedPinnedKeyParts {
+        VerifiedPinnedKeyParts {
+            algorithm: self.algorithm,
+            key: self.key,
+            aid: self.aid,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedPinnedKey`], from [`VerifiedPinnedKey::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct VerifiedPinnedKey {
-    /// The key's algorithm.
+pub struct VerifiedPinnedKeyParts {
+    /// See [`VerifiedPinnedKey::algorithm`].
     pub algorithm: AidAlgorithm,
-    /// The trusted key the proof verified under.
+    /// See [`VerifiedPinnedKey::key`].
     pub key: AitpVerifyingKey,
-    /// The sender AID the key was bound to.
+    /// See [`VerifiedPinnedKey::aid`].
     pub aid: Aid,
 }
 
@@ -693,8 +786,8 @@ mod tests {
 
     #[test]
     fn round_trip_full_context() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1_700_000_000);
         let nonce = fixed_nonce();
@@ -716,9 +809,9 @@ mod tests {
 
     #[test]
     fn changing_receiver_aid_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
-        let other_receiver = AitpSigningKey::from_seed(&[5u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
+        let other_receiver = AitpSigningKey::from_ed25519_seed(&[5u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         let desc = descriptor_for(&key, key.aid(), receiver.aid(), &mid, ts, fixed_nonce());
@@ -740,9 +833,9 @@ mod tests {
 
     #[test]
     fn changing_sender_aid_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let other = AitpSigningKey::from_seed(&[6u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[6u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         // Sign claiming to be `key`, but the verifier reconstructs with `other` as sender.
@@ -765,8 +858,8 @@ mod tests {
 
     #[test]
     fn changing_message_id_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid_a = Uuid::nil();
         let mid_b = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1);
@@ -789,8 +882,8 @@ mod tests {
 
     #[test]
     fn changing_timestamp_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts_a = Timestamp(1);
         let ts_b = Timestamp(2);
@@ -813,8 +906,8 @@ mod tests {
 
     #[test]
     fn changing_pop_nonce_rejects() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let ts = Timestamp(1);
         let nonce_a = "AAECAwQFBgcICQoLDA0ODw";
@@ -838,8 +931,8 @@ mod tests {
 
     #[test]
     fn malformed_pop_nonce_returns_error_not_panic() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let result = sign_pinned_key_proof(
             &key,
             key.aid(),
@@ -855,8 +948,8 @@ mod tests {
     fn legacy_two_field_proof_fails_under_new_verifier() {
         // Manually mint a signature using the old `message_id|timestamp`
         // layout — the v0.1 verifier MUST reject it.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let ts = Timestamp(1_700_000_000);
         let legacy_input = format!("{}|{}", mid, ts.0);
@@ -923,8 +1016,8 @@ mod tests {
 
     #[test]
     fn issuer_on_pinned_key_is_rejected_before_signature_work() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -951,8 +1044,8 @@ mod tests {
 
     #[test]
     fn subject_binding_sender_aid_requires_subject_to_equal_the_sender_aid() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440000").unwrap();
         let mut c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -980,7 +1073,7 @@ mod tests {
     #[test]
     fn p256_pinned_key_round_trip_returns_verified_key() {
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let desc = descriptor_for(
@@ -1006,7 +1099,7 @@ mod tests {
     fn p256_untagged_proof_rejected_as_algorithm_mismatch() {
         // id-011: an untagged proof reads as Ed25519; a P-256 key refuses it.
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1027,7 +1120,7 @@ mod tests {
         // id-012: the 65-byte SEC1 uncompressed form is not permitted.
         use p256::elliptic_curve::sec1::ToSec1Point as _;
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1048,7 +1141,7 @@ mod tests {
     #[test]
     fn p256_public_key_must_be_compressed_prefix() {
         let key = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1068,7 +1161,7 @@ mod tests {
 
     #[test]
     fn ed25519_key_and_p256_key_never_alias_in_the_store() {
-        let ed = AitpSigningKey::from_seed(&[3u8; 32]);
+        let ed = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let p = AitpSigningKey::from_p256_seed(&[0x05; 32]).unwrap();
         let store = store_of(&[&ed]);
         assert!(store.is_trusted(&ed.verifying_key()));
@@ -1080,8 +1173,8 @@ mod tests {
     fn store_is_consulted_before_the_proof() {
         // An untrusted key with a garbage proof must fail at the store,
         // so the error names the store, not the signature.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1106,8 +1199,8 @@ mod tests {
     fn non_pinned_type_rejected_without_consulting_store() {
         // id-011b: an `oidc`-typed descriptor carrying a valid pinned
         // proof and public_key is not run through the pinned path.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let c = ctx(key.aid(), receiver.aid(), &mid);
         let mut desc = descriptor_for(
@@ -1132,8 +1225,8 @@ mod tests {
     #[test]
     fn pop_nonce_must_be_exactly_16_bytes() {
         // id-014: 15 and 17 bytes are rejected on both sides.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
-        let receiver = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
+        let receiver = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let mid = Uuid::nil();
         let good = ctx(key.aid(), receiver.aid(), &mid);
         let desc = descriptor_for(

@@ -23,7 +23,7 @@ pub enum TransportId {
     /// proxy's.
     Ip(IpAddr),
     /// SHA-256 fingerprint of the mTLS client certificate.
-    TlsClientCert([u8; 32]),
+    TlsClientCertSha256([u8; 32]),
 }
 
 /// Who is asking for a challenge: a transport identity plus an optional
@@ -61,9 +61,9 @@ impl ChallengeSource {
 
     /// A source identified by its mTLS client certificate's SHA-256
     /// fingerprint.
-    pub fn tls_client_cert(sha256_fingerprint: [u8; 32]) -> Self {
+    pub fn tls_client_cert_sha256(sha256_fingerprint: [u8; 32]) -> Self {
         Self {
-            transport: TransportId::TlsClientCert(sha256_fingerprint),
+            transport: TransportId::TlsClientCertSha256(sha256_fingerprint),
             transport_key: format!("cert:{}", base64url::encode(&sha256_fingerprint)),
             label: None,
         }
@@ -140,6 +140,16 @@ pub struct TokenBucketLimiter {
     buckets: Mutex<Buckets>,
 }
 
+impl std::fmt::Debug for TokenBucketLimiter {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TokenBucketLimiter")
+            .field("burst", &self.burst)
+            .field("per_second", &self.per_second)
+            .field("max_sources", &self.max_sources)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Default)]
 struct Buckets {
     map: HashMap<String, Bucket>,
@@ -172,7 +182,7 @@ impl TokenBucketLimiter {
     }
 
     /// Change the bound on tracked sources.
-    pub fn max_sources(mut self, max: usize) -> Self {
+    pub fn with_max_sources(mut self, max: usize) -> Self {
         self.max_sources = max.max(1);
         self
     }
@@ -246,17 +256,13 @@ impl ChallengeRateLimiter for TokenBucketLimiter {
 /// [`Default`] uses RFC-AITP-0009 §3.1's RECOMMENDED rates: 30 per minute
 /// per source address, 10 per minute per claimed AID, each with a burst
 /// equal to the minute's budget.
+#[derive(Debug)]
 pub struct RecommendedLimiter {
     transport: TokenBucketLimiter,
     label: Option<TokenBucketLimiter>,
 }
 
 impl RecommendedLimiter {
-    /// RFC-AITP-0009 §3.1: requests per source IP per 60 s.
-    pub const PER_TRANSPORT_PER_MINUTE: u32 = 30;
-    /// RFC-AITP-0009 §3.1: requests per initiator AID per 60 s.
-    pub const PER_LABEL_PER_MINUTE: u32 = 10;
-
     /// `burst`/`per_second` per transport source, and optionally
     /// `(burst, per_second)` per label. `None` leaves labels unlimited
     /// (the transport limit still applies).
@@ -271,8 +277,14 @@ impl RecommendedLimiter {
 impl Default for RecommendedLimiter {
     fn default() -> Self {
         let per_min = |n: u32| (n, f64::from(n) / 60.0);
-        let (tb, tr) = per_min(Self::PER_TRANSPORT_PER_MINUTE);
-        Self::new(tb, tr, Some(per_min(Self::PER_LABEL_PER_MINUTE)))
+        let (tb, tr) = per_min(crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S);
+        Self::new(
+            tb,
+            tr,
+            Some(per_min(
+                crate::handshake::RECOMMENDED_REQUESTS_PER_AID_PER_60S,
+            )),
+        )
     }
 }
 
@@ -313,7 +325,7 @@ mod tests {
 
     #[test]
     fn source_bound_refuses_new_sources_instead_of_resetting() {
-        let l = TokenBucketLimiter::new(1, 0.001).max_sources(2);
+        let l = TokenBucketLimiter::new(1, 0.001).with_max_sources(2);
         let t0 = Instant::now();
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0).unwrap();
@@ -332,7 +344,7 @@ mod tests {
     /// not once per request.
     #[test]
     fn full_table_prune_is_throttled() {
-        let l = TokenBucketLimiter::new(1, 2.0).max_sources(2);
+        let l = TokenBucketLimiter::new(1, 2.0).with_max_sources(2);
         let t0 = Instant::now();
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0).unwrap();
@@ -360,7 +372,7 @@ mod tests {
                 "rate {rate}"
             );
             // The full-table path computes its wait from the rate too.
-            let l = TokenBucketLimiter::new(1, rate).max_sources(1);
+            let l = TokenBucketLimiter::new(1, rate).with_max_sources(1);
             l.check_key_at("a", t0).unwrap();
             assert_eq!(l.check_key_at("b", t0), Err(Duration::MAX), "rate {rate}");
         }
@@ -373,7 +385,7 @@ mod tests {
         for _ in 0..100 {
             l.check_key_at("a", t0).unwrap();
         }
-        let l = TokenBucketLimiter::new(1, f64::INFINITY).max_sources(1);
+        let l = TokenBucketLimiter::new(1, f64::INFINITY).with_max_sources(1);
         l.check_key_at("a", t0).unwrap();
         l.check_key_at("b", t0 + Duration::from_millis(1)).unwrap();
     }
@@ -392,7 +404,7 @@ mod tests {
         let l = RecommendedLimiter::default();
         let src = ChallengeSource::ip(IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1)));
         let t0 = Instant::now();
-        for _ in 0..RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+        for _ in 0..crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
             l.check_at(&src, t0).unwrap();
         }
         assert!(l.check_at(&src, t0).is_err());

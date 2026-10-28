@@ -318,7 +318,7 @@ impl RunnerContext {
             .and_then(|v| v.as_str())
             .and_then(kat_seed_for_aid)
             .unwrap_or(self.kp_001_seed);
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
 
         match kind {
             "__JWS_TCT__" | "__JWS_GRANT_VOUCHER__" | "__JWS_DELEGATION__" | "__ANY_JWS__" => {
@@ -432,7 +432,7 @@ impl RunnerContext {
             let subject_aid = aitp::core::Aid::parse(manifest_aid).ok()?;
             let cnf_jkt = aitp::crypto::AitpVerifyingKey::from_aid(&subject_aid)
                 .ok()?
-                .to_jwk_thumbprint()
+                .to_jwk_thumbprint_sha256()
                 .ok()?;
             let audience = self_aid.unwrap_or(OIDC_TEST_ADAPTER_FALLBACK_AUD);
             Some(mint_oidc_jwt(
@@ -549,7 +549,7 @@ impl RunnerContext {
                                     .and_then(|v| v.as_str())
                                     .and_then(kat_key_for_aid)
                                     .unwrap_or_else(|| {
-                                        AitpSigningKey::from_seed(&self.kp_002_seed)
+                                        AitpSigningKey::from_ed25519_seed(&self.kp_002_seed)
                                     });
                                 let sig = key.sign_jcs(&pop_input);
                                 map.insert("pop_signature".into(), Value::from(sig.into_string()));
@@ -604,7 +604,9 @@ impl RunnerContext {
                                         .and_then(|v| v.as_str())
                                 })
                                 .and_then(kat_key_for_aid)
-                                .unwrap_or_else(|| AitpSigningKey::from_seed(&self.kp_001_seed));
+                                .unwrap_or_else(|| {
+                                    AitpSigningKey::from_ed25519_seed(&self.kp_001_seed)
+                                });
                             sign_generic_body(&key, map)
                         };
                         if let Some(s) = signed {
@@ -1073,7 +1075,7 @@ fn sign_envelope_shape(map: &mut serde_json::Map<String, Value>) -> Option<Strin
     signing_input.extend_from_slice(&canonical);
     // Unknown sender AIDs get a syntactically valid filler signed by
     // kp-001; no fixture reaches the envelope signature with one.
-    let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_seed(&[0u8; 32]));
+    let key = sender_key.unwrap_or_else(|| AitpSigningKey::from_ed25519_seed(&[0u8; 32]));
     // The Ed25519/ES256 message is `d = sha256(sig_input_v2)`
     // (aitp::core::envelope_signing_digest), hashed once, never the raw
     // input bytes.
@@ -1113,7 +1115,7 @@ fn kat_seed_for_aid(aid: &str) -> Option<[u8; 32]> {
 fn kat_key_for_aid(aid: &str) -> Option<AitpSigningKey> {
     let v = kat_vector(aid)?;
     if let Some(seed) = v["seed_hex"].as_str().and_then(hex32) {
-        return Some(AitpSigningKey::from_seed(&seed));
+        return Some(AitpSigningKey::from_ed25519_seed(&seed));
     }
     let scalar = v["private_scalar_hex"].as_str().and_then(hex32)?;
     AitpSigningKey::from_p256_seed(&scalar).ok()
@@ -1162,7 +1164,7 @@ const OIDC_TEST_ADAPTER_FALLBACK_AUD: &str =
     "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
 
 /// Mint an OIDC-profile JWT (RFC-AITP-0002 §2) acceptable to
-/// `aitp::handshake::identity_oidc::verify_oidc`. Ported from
+/// `aitp::handshake::verify_oidc`. Ported from
 /// `crates/aitp/tests/handshake_fixtures/mock_oidc.rs`'s
 /// `MockOidcIssuer::mint_jwt`/`mint_aitp_jwt` (test-only there,
 /// unreachable from this crate as a module import) — same hand-built
@@ -1225,7 +1227,7 @@ fn mint_oidc_jwt(
         JwtVariant::UnknownIssuer => oidc_unknown_issuer_seed(),
         _ => oidc_test_issuer_seed(),
     };
-    let key = AitpSigningKey::from_seed(&seed);
+    let key = AitpSigningKey::from_ed25519_seed(&seed);
     let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
     let mut claims = serde_json::json!({
         "iss": issuer,
@@ -1297,7 +1299,7 @@ mod tests {
         let doc: Value = serde_json::from_str(OIDC_TEST_ISSUERS).unwrap();
         for v in doc["vectors"].as_array().unwrap() {
             let id = v["id"].as_str().unwrap();
-            let key = AitpSigningKey::from_seed(&oidc_issuer_seed(id));
+            let key = AitpSigningKey::from_ed25519_seed(&oidc_issuer_seed(id));
             let x = key.verifying_key().try_to_ed25519_bytes().unwrap();
             assert_eq!(
                 base64url::encode(&x),
@@ -1443,7 +1445,7 @@ mod tests {
     fn jwt_verifies_under(token: &str, seed: [u8; 32]) -> bool {
         let (input, sig) = token.rsplit_once('.').unwrap();
         let sig: [u8; 64] = base64url::decode_strict(sig).unwrap().try_into().unwrap();
-        AitpSigningKey::from_seed(&seed)
+        AitpSigningKey::from_ed25519_seed(&seed)
             .verifying_key()
             .verify_raw_jose(input.as_bytes(), &sig)
             .is_ok()
@@ -1705,7 +1707,7 @@ mod tests {
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp::core::jcs::canonicalize(&body).unwrap();
         let digest = aitp::crypto::Digest32::sha256(&canon);
-        let key = AitpSigningKey::from_seed(&[0u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         let sig = aitp::crypto::Signature::parse(&sig_b64).unwrap();
         pubkey
@@ -1742,7 +1744,7 @@ mod tests {
         body.as_object_mut().unwrap().remove("signature");
         let canon = aitp::core::jcs::canonicalize(&body).unwrap();
         let digest = aitp::crypto::Digest32::sha256(&canon);
-        let key = AitpSigningKey::from_seed(&[0u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0u8; 32]);
         let pubkey = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         assert!(
             pubkey.verify_jcs(&digest, &sig).is_err(),
@@ -1851,7 +1853,7 @@ mod tests {
         let expected_jkt =
             aitp::crypto::AitpVerifyingKey::from_aid(&aitp::core::Aid::parse(KP_001_AID).unwrap())
                 .unwrap()
-                .to_jwk_thumbprint()
+                .to_jwk_thumbprint_sha256()
                 .unwrap();
         assert_eq!(claims["cnf"]["jkt"], json!(expected_jkt));
 
@@ -1860,7 +1862,7 @@ mod tests {
         // `aitp-rs-adapter` resolves for `OIDC_TEST_ISSUER`).
         let signing_input = format!("{}.{}", segments[0], segments[1]);
         let sig = aitp::crypto::Signature::parse(segments[2]).unwrap();
-        let issuer_key = AitpSigningKey::from_seed(&oidc_test_issuer_seed());
+        let issuer_key = AitpSigningKey::from_ed25519_seed(&oidc_test_issuer_seed());
         issuer_key
             .verifying_key()
             .verify_raw(

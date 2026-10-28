@@ -2,13 +2,14 @@
 //! and 7d). Mirrors the planned id-013..016 fixtures.
 #![cfg(feature = "pinned-admission")]
 
+use aitp::core::nonce_store::{InMemoryNonceStore, NonceStore};
 use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::testing::MockKmsSigner;
 use aitp::crypto::{AitpSigningKey, DynAsyncAitpSigner};
 use aitp::handshake::admission::{
     present_pinned, present_pinned_async, AdmissionError, ChallengeSource,
-    InMemoryMessageIdDenyList, InMemoryNonceStore, NonceStore, PinnedAdmission, RecommendedLimiter,
-    RefusalCause, TokenBucketLimiter,
+    InMemoryMessageIdDenyList, PinnedAdmission, RecommendedLimiter, RefusalCause,
+    TokenBucketLimiter,
 };
 use aitp::handshake::StaticPinnedKeyStore;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -44,7 +45,7 @@ fn src(name: &str) -> ChallengeSource {
     for (i, b) in name.bytes().enumerate() {
         fp[i % 32] ^= b.wrapping_add(i as u8);
     }
-    ChallengeSource::tls_client_cert(fp)
+    ChallengeSource::tls_client_cert_sha256(fp)
 }
 
 fn code(e: &AdmissionError) -> &'static str {
@@ -59,9 +60,9 @@ async fn ed25519_and_p256_subjects_are_admitted() {
         let env = present_pinned(&key, "agent-x", &ch, NOW).unwrap();
         assert_eq!(env.message_type, MessageType::IdentityPresentation);
         let ok = a.admit_at(&env, &src("p"), NOW).await.unwrap();
-        assert_eq!(&ok.key.aid, key.aid());
-        assert_eq!(ok.key.key, key.verifying_key());
-        assert_eq!(ok.subject, "agent-x");
+        assert_eq!(ok.key().aid(), key.aid());
+        assert_eq!(ok.key().key(), &key.verifying_key());
+        assert_eq!(ok.subject(), "agent-x");
     }
 }
 
@@ -159,7 +160,7 @@ async fn id_016_bound_refuses_new_challenge_outstanding_stay_valid() {
 async fn expired_nonces_free_capacity_and_are_refused() {
     let a = admission_with(Arc::new(InMemoryNonceStore::new(1)));
     let c1 = a.challenge_at(&src("s"), NOW).await.unwrap();
-    let later = NOW.plus_secs(301);
+    let later = NOW.saturating_add(std::time::Duration::from_secs(301));
     // The expired record no longer counts against the bound.
     let _c2 = a.challenge_at(&src("s"), later).await.unwrap();
     let env = present_pinned(&subject_ed(), "s", &c1, later).unwrap();
@@ -177,8 +178,11 @@ async fn expired_challenge_rejected() {
     .nonce_ttl(Duration::from_secs(30))
     .build();
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
-    assert_eq!(ch.expires_at, NOW.plus_secs(30));
-    let t = NOW.plus_secs(31);
+    assert_eq!(
+        ch.expires_at,
+        NOW.saturating_add(std::time::Duration::from_secs(30))
+    );
+    let t = NOW.saturating_add(std::time::Duration::from_secs(31));
     let env = present_pinned(&subject_ed(), "s", &ch, t).unwrap();
     let e = a.admit_at(&env, &src("p"), t).await.unwrap_err();
     assert!(e.to_string().contains("expired"), "{e}");
@@ -194,7 +198,10 @@ fn ttl_is_clamped_to_300s() {
     .nonce_ttl(Duration::from_secs(3600))
     .build();
     let ch = futures_block(a.challenge_at(&src("s"), NOW)).unwrap();
-    assert_eq!(ch.expires_at, NOW.plus_secs(300));
+    assert_eq!(
+        ch.expires_at,
+        NOW.saturating_add(std::time::Duration::from_secs(300))
+    );
 }
 
 #[tokio::test]
@@ -263,7 +270,13 @@ async fn tampered_payload_fails_envelope_signature() {
 async fn stale_timestamp_and_unknown_member_rejected() {
     let a = admission();
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
-    let env = present_pinned(&subject_ed(), "s", &ch, NOW.plus_secs(-301)).unwrap();
+    let env = present_pinned(
+        &subject_ed(),
+        "s",
+        &ch,
+        NOW.saturating_sub(std::time::Duration::from_secs(301)),
+    )
+    .unwrap();
     assert_eq!(
         code(&a.admit_at(&env, &src("p"), NOW).await.unwrap_err()),
         "TIMESTAMP_EXPIRED"
@@ -375,7 +388,7 @@ async fn subject_binding_sender_aid_is_enforced_by_admission() {
     let ch = a.challenge_at(&src("s"), NOW).await.unwrap();
     let env = present_pinned(&key, key.aid().as_str(), &ch, NOW).unwrap();
     let ok = a.admit_at(&env, &src("p"), NOW).await.unwrap();
-    assert_eq!(ok.subject, key.aid().as_str());
+    assert_eq!(ok.subject(), key.aid().as_str());
 }
 
 /// id-016 / RFC-AITP-0002 §3.4 (spec cfd2f16): the nonce bound refuses
@@ -448,7 +461,7 @@ fn refusal_without_store_hint_retries_after_max_ttl() {
 async fn rate_limit_is_on_by_default() {
     let a = admission();
     let ip = ChallengeSource::ip(IpAddr::V4(Ipv4Addr::new(203, 0, 113, 7)));
-    for _ in 0..RecommendedLimiter::PER_TRANSPORT_PER_MINUTE {
+    for _ in 0..aitp::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S {
         a.challenge_at(&ip, NOW).await.unwrap();
     }
     let e = a.challenge_at(&ip, NOW).await.unwrap_err();
@@ -632,7 +645,13 @@ async fn rejected_presentation_is_not_recorded() {
 async fn timestamp_checked_before_structure() {
     let a = admission();
     let ch = a.challenge_at(&src("c"), NOW).await.unwrap();
-    let mut env = present_pinned(&subject_ed(), "s", &ch, NOW.plus_secs(-301)).unwrap();
+    let mut env = present_pinned(
+        &subject_ed(),
+        "s",
+        &ch,
+        NOW.saturating_sub(std::time::Duration::from_secs(301)),
+    )
+    .unwrap();
     env.message_type = MessageType::MutualHello;
     assert_eq!(
         code(&a.admit_at(&env, &src("p"), NOW).await.unwrap_err()),
@@ -672,7 +691,7 @@ async fn envelope_signature_checked_before_proof() {
     // reports the proof.
     let mut env = present_pinned(&subject_ed(), "s", &ch, NOW).unwrap();
     env.payload["identity"]["proof"] = other.payload["identity"]["proof"].clone();
-    let digest = aitp::core::envelope::envelope_signing_digest(&env).unwrap();
+    let digest = aitp::core::envelope_signing_digest(&env).unwrap();
     env.signature = subject_ed()
         .sign_jcs(&aitp::crypto::Digest32::from_bytes(digest))
         .into_string();

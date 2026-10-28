@@ -34,9 +34,9 @@ const KAT_002_SEED_HEX: &str = "000102030405060708090a0b0c0d0e0f1011121314151617
 const KAT_003_SEED_HEX: &str = "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
 
 const FIXED_NOW: i64 = 1_711_900_000;
-const MANIFEST_TTL: i64 = 86_400; // 1 day
-const TCT_TTL: i64 = 3_600; // 1 hour
-const DELEGATION_TTL: i64 = 1_800; // 30 minutes
+const MANIFEST_TTL: u64 = 86_400; // 1 day
+const TCT_TTL: u64 = 3_600; // 1 hour
+const DELEGATION_TTL: u64 = 1_800; // 30 minutes
 const REVOCATION_TTL: i64 = 3_600;
 
 /// JTI of the single-grant TCT KAT (`tct/kat-keypair-001-issues-002`).
@@ -65,7 +65,7 @@ fn key_from_hex(seed_hex: &str) -> AitpSigningKey {
     let bytes = hex::decode(seed_hex).expect("hex");
     let mut seed = [0u8; 32];
     seed.copy_from_slice(&bytes);
-    AitpSigningKey::from_seed(&seed)
+    AitpSigningKey::from_ed25519_seed(&seed)
 }
 
 fn output_root() -> PathBuf {
@@ -99,9 +99,9 @@ fn mint_manifest() {
                 .with_public_key(pubkey_b64),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("macp.mode.task.v1")
-        .ttl_secs(MANIFEST_TTL)
+        .ttl(std::time::Duration::from_secs(MANIFEST_TTL))
         .published_at(Timestamp(FIXED_NOW))
         .build()
         .expect("manifest");
@@ -149,7 +149,7 @@ fn mint_tct() {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(["macp.mode.task.v1"])
-        .ttl_secs(TCT_TTL)
+        .ttl(std::time::Duration::from_secs(TCT_TTL))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(FIXED_NOW))
         .jti(Uuid::parse_str(FIXED_TCT_JTI).unwrap())
@@ -188,7 +188,7 @@ fn mint_companion_tct() -> IssuedTct {
         .subject(subject.aid().clone())
         .audience(subject.aid().clone())
         .grants(VOUCHER_GRANTS)
-        .ttl_secs(TCT_TTL)
+        .ttl(std::time::Duration::from_secs(TCT_TTL))
         .subject_pubkey(subject.verifying_key())
         .issued_at(Timestamp(FIXED_NOW))
         .jti(Uuid::parse_str(FIXED_VOUCHER_SRC_JTI).unwrap())
@@ -234,7 +234,7 @@ fn mint_delegation(voucher: &str) {
         .expect("voucher entitles B to delegate")
         .delegatee(carol.aid().clone())
         .scope(["macp.mode.task.v1"])
-        .ttl_secs(DELEGATION_TTL)
+        .ttl(std::time::Duration::from_secs(DELEGATION_TTL))
         .now(Timestamp(FIXED_NOW))
         .build()
         .expect("delegation");

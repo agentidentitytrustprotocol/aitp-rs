@@ -64,7 +64,7 @@ Manifest, (6) bundle signature, (7) per-participant TCT verification,
    payloads → `ExpiryWindowInvariant` (`BUNDLE_EXPIRY_WINDOW_INVARIANT`).
    Vacuous for an empty roster, which step 4 reports.
 4. `participants` non-empty → `EmptyParticipants` (`BUNDLE_EMPTY_PARTICIPANTS`).
-5. Coordinator Manifest, chosen by `VerifySessionBundleContext::coordinator_key`:
+5. Coordinator Manifest, chosen by `SessionBundleVerifyContext::coordinator_key`:
    - `CoordinatorKeySource::Manifest(&m)` — the caller fetched the coordinator's
      Manifest (e.g. `aitp::transport::ManifestFetcher::fetch`); it is
      re-verified with `aitp::manifest::verify_manifest` → `CoordinatorManifest(_)`

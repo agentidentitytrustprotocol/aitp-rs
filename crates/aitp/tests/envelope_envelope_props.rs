@@ -55,7 +55,7 @@ proptest! {
         ts in 1i64..4_000_000_000i64,
         payload in arb_json(),
     ) {
-        let key = AitpSigningKey::from_seed(&[seed; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
         // `payload` must be an object (issue #261); nest the arbitrary
         // value inside one.
         let env = sign_envelope_with(

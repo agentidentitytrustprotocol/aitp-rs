@@ -3,7 +3,7 @@
 
 use super::nonce_store::lock;
 use crate::core::Timestamp;
-use crate::crypto::signer::{BoxError, BoxFuture};
+use crate::core::{BoxError, BoxFuture};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::hash::BuildHasher;
@@ -115,6 +115,15 @@ pub struct InMemoryMessageIdDenyList {
     capacity: usize,
     live: AtomicUsize,
     hasher: std::collections::hash_map::RandomState,
+}
+
+impl std::fmt::Debug for InMemoryMessageIdDenyList {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InMemoryMessageIdDenyList")
+            .field("capacity", &self.capacity)
+            .field("live", &self.live)
+            .finish_non_exhaustive()
+    }
 }
 
 impl InMemoryMessageIdDenyList {

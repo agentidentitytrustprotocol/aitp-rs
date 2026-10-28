@@ -9,7 +9,7 @@ use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, ParticipantEntry,
-    SessionBundleBuilder, SessionBundleEnvelope, VerifySessionBundleContext,
+    SessionBundleBuilder, SessionBundleEnvelope, SessionBundleVerifyContext,
 };
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
@@ -165,7 +165,7 @@ pub fn verify_session_bundle_py<'py>(
 
     let outcome = verify_session_bundle(
         &bundle,
-        &VerifySessionBundleContext {
+        &SessionBundleVerifyContext {
             verifier_aid: &verifier,
             now,
             revocation_check: cb_fn.as_deref().map(|b: &dyn Fn(&Uuid) -> bool| b),

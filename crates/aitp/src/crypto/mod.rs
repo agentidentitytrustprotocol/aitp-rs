@@ -9,14 +9,14 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod digest;
-pub mod error;
+pub(crate) mod digest;
+pub(crate) mod error;
 pub mod jws;
-pub mod keys;
-pub mod signer;
+pub(crate) mod keys;
+pub(crate) mod signer;
 #[cfg(any(test, feature = "test-util"))]
 pub mod testing;
-pub mod thumbprint;
+pub(crate) mod thumbprint;
 
 pub use digest::Digest32;
 pub use error::CryptoError;
@@ -26,4 +26,4 @@ pub use signer::{
     AitpSigner, AsyncAitpSigner, BackendSignature, BlockingSigner, DynAsyncAitpSigner, SignRequest,
     SignerError,
 };
-pub use thumbprint::{compute_jwk_thumbprint, compute_jwk_thumbprint_p256};
+pub use thumbprint::{compute_jwk_thumbprint_ed25519_sha256, compute_jwk_thumbprint_p256_sha256};

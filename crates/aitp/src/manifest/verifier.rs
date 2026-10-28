@@ -8,13 +8,13 @@ use crate::manifest::ManifestError;
 
 /// Inputs for verifying a Manifest.
 #[non_exhaustive]
-pub struct VerifyManifestContext {
+pub struct ManifestVerifyContext {
     /// Current time, used for expiry check. Pass `Timestamp::now()` in
     /// production; pass a pinned value in tests.
     pub now: Timestamp,
 }
 
-impl VerifyManifestContext {
+impl ManifestVerifyContext {
     /// Build a context using the system clock.
     pub fn now() -> Self {
         Self::at(Timestamp::now())
@@ -26,7 +26,29 @@ impl VerifyManifestContext {
     }
 }
 
-/// Verify a Manifest per RFC-AITP-0003 §5.
+/// A Manifest that has passed [`verify_manifest`]. Only
+/// [`verify_manifest`] produces one, so a value of this type is a
+/// Manifest that was verified (at the context's `now`); its expiry
+/// still applies afterwards.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedManifest {
+    manifest: Manifest,
+}
+
+impl VerifiedManifest {
+    /// The verified Manifest.
+    pub fn manifest(&self) -> &Manifest {
+        &self.manifest
+    }
+
+    /// Unwrap the verified Manifest.
+    pub fn into_manifest(self) -> Manifest {
+        self.manifest
+    }
+}
+
+/// Verify a Manifest per RFC-AITP-0003 §5 and return it as a
+/// [`VerifiedManifest`].
 ///
 /// Verification order:
 ///
@@ -51,8 +73,8 @@ impl VerifyManifestContext {
 /// the fresh `payload.identity` field.
 pub fn verify_manifest(
     manifest: &Manifest,
-    ctx: &VerifyManifestContext,
-) -> Result<(), ManifestError> {
+    ctx: &ManifestVerifyContext,
+) -> Result<VerifiedManifest, ManifestError> {
     // 1. Version check.
     if manifest.version != crate::core::PROTOCOL_VERSION {
         return Err(ManifestError::VersionUnknown);
@@ -129,7 +151,9 @@ pub fn verify_manifest(
         }
     }
 
-    Ok(())
+    Ok(VerifiedManifest {
+        manifest: manifest.clone(),
+    })
 }
 
 /// Parse a raw wire-form JSON value into a [`Manifest`], enforcing
@@ -205,30 +229,19 @@ pub fn parse_manifest_wire(value: &CheckedJson) -> Result<Manifest, ManifestErro
 /// - **Non-empty array** (`Some(non_empty)`): peer must present
 ///   a type from the list.
 ///
-/// `our_identity_type` is `"pinned_key"` or `"oidc"` (RFC-AITP-0002
-/// §2 vocabulary).
+/// `our_identity_type` is compared by its RFC-AITP-0002 §2 wire name.
 pub fn check_identity_type_compatibility(
     peer_manifest: &crate::manifest::Manifest,
-    our_identity_type: &'static str,
+    our_identity_type: crate::handshake::IdentityKind,
 ) -> Result<(), ManifestError> {
-    let allowed: &[String] = match peer_manifest.accepted_identity_types.as_deref() {
+    let ours = our_identity_type.as_str();
+    let accepted = match peer_manifest.accepted_identity_types.as_deref() {
         // Absent → spec default ["oidc"].
-        None => {
-            // Inline a static slice so we don't allocate per call.
-            const DEFAULT: [&str; 1] = ["oidc"];
-            return if our_identity_type == DEFAULT[0] {
-                Ok(())
-            } else {
-                Err(ManifestError::IncompatibleIdentityType(our_identity_type))
-            };
-        }
-        // Explicit empty → reject every peer.
-        Some([]) => {
-            return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
-        }
-        Some(v) => v,
+        None => our_identity_type == crate::handshake::IdentityKind::Oidc,
+        // Explicit empty → reject every peer; otherwise the list decides.
+        Some(list) => list.iter().any(|t| t == ours),
     };
-    if !allowed.iter().any(|t| t == our_identity_type) {
+    if !accepted {
         return Err(ManifestError::IncompatibleIdentityType(our_identity_type));
     }
     Ok(())

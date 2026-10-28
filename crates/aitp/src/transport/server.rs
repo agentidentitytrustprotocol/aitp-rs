@@ -1,10 +1,12 @@
 //! HTTP server primitives: Manifest server, handshake server.
 
+use crate::core::DEFAULT_TIMESTAMP_TOLERANCE;
 use crate::core::{
-    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
+    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, BoxFuture, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
+use crate::envelope::{sign_envelope, sign_envelope_with, verify_envelope_signature};
 use crate::handshake::{
     HandshakeError, JwksResolver, MutualCommitPayload, MutualHelloPayload, NoPinnedKeys,
     PeerConfig, PinnedKeyStore, PresentedIdentity, Responder, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
@@ -12,8 +14,7 @@ use crate::handshake::{
 };
 use crate::manifest::{Manifest, ManifestEnvelope};
 use crate::tct::RevocationListEnvelope;
-use crate::transport::common::{sign_envelope, sign_envelope_with, verify_envelope_signature};
-pub use crate::transport::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
+use crate::transport::source_ip::{resolve_source_ip, TrustedProxy};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -70,12 +71,12 @@ pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
 /// Validity window of the default signed empty snapshot a
 /// [`HandshakeServer`] serves when no [`RevocationListProducer`] is
 /// attached.
-const DEFAULT_EMPTY_SNAPSHOT_TTL_SECS: i64 = 3600;
+const DEFAULT_EMPTY_SNAPSHOT_TTL: Duration = Duration::from_secs(3600);
 
 /// How long a default signed empty snapshot is reused before it is
 /// re-signed. Bounds signing-backend load (a KMS call per poll on an
 /// unauthenticated GET) while keeping `published_at` fresh well inside
-/// any sane `max_staleness_secs`.
+/// any sane `max_staleness`.
 const DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS: i64 = 60;
 
 /// Producer of the local issuer's [`RevocationListEnvelope`] for the
@@ -91,15 +92,20 @@ const DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS: i64 = 60;
 ///   from your control plane, or
 /// - re-sign on every poll from a database table.
 ///
-/// The producer is sync; if the source is I/O-bound, fan out to a
-/// background task and just return the latest cached value here.
+/// An error means there is no snapshot to serve: the route answers
+/// `503 Service Unavailable` and consumers apply their fail mode
+/// (RFC-AITP-0008 §3). Never mint a fresh empty list on a backing-store
+/// failure.
 pub trait RevocationListProducer: Send + Sync + 'static {
     /// Return the current snapshot.
-    fn current(&self) -> RevocationListEnvelope;
+    fn current(
+        &self,
+    ) -> BoxFuture<'_, Result<RevocationListEnvelope, crate::transport::RevocationError>>;
 }
 
 /// Server that exposes `/.well-known/aitp-manifest` returning
 /// `{"manifest": <inner>}`.
+#[derive(Debug)]
 pub struct ManifestServer {
     manifest: Arc<Manifest>,
 }
@@ -227,12 +233,20 @@ pub struct HandshakeServer<R: JwksResolver + Send + Sync + 'static> {
     revocation_producer: Option<Arc<dyn RevocationListProducer>>,
 }
 
+impl<R: JwksResolver + Send + Sync + 'static> std::fmt::Debug for HandshakeServer<R> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HandshakeServer")
+            .field("aid", &self.state.manifest.aid)
+            .finish_non_exhaustive()
+    }
+}
+
 /// Sliding-window rate-limit policy for the handshake endpoint
 /// (RFC-AITP-0009 §3.1, which makes rate limiting a MUST).
 ///
 /// On by default with [`RateLimitConfig::default`], the §3.1
-/// recommended values. [`HandshakeServer::enforce_rate_limit`] counts
-/// events over the most recent 60-second window and rejects with HTTP
+/// recommended values. The handshake handlers count events over the
+/// most recent 60-second window and rejects with HTTP
 /// 429 once a key crosses its limit.
 ///
 /// The transport limit always applies. Its key is the peer IP (IPv6
@@ -257,13 +271,6 @@ pub struct RateLimitConfig {
 }
 
 impl RateLimitConfig {
-    /// RFC-AITP-0009 §3.1 recommended handshake requests per source IP
-    /// per 60 s.
-    pub const RECOMMENDED_PER_SOURCE: u32 = 30;
-    /// RFC-AITP-0009 §3.1 recommended handshake requests per initiator
-    /// AID per 60 s.
-    pub const RECOMMENDED_PER_AID: u32 = 10;
-
     /// Set `requests_per_source_per_60s`.
     pub fn with_requests_per_source_per_60s(mut self, n: u32) -> Self {
         self.requests_per_source_per_60s = n;
@@ -286,8 +293,8 @@ impl RateLimitConfig {
 impl Default for RateLimitConfig {
     fn default() -> Self {
         Self {
-            requests_per_source_per_60s: Self::RECOMMENDED_PER_SOURCE,
-            requests_per_aid_per_60s: Some(Self::RECOMMENDED_PER_AID),
+            requests_per_source_per_60s: crate::handshake::RECOMMENDED_REQUESTS_PER_SOURCE_PER_60S,
+            requests_per_aid_per_60s: Some(crate::handshake::RECOMMENDED_REQUESTS_PER_AID_PER_60S),
             trusted_proxies: Vec::new(),
         }
     }
@@ -309,9 +316,9 @@ fn transport_key(source: Option<std::net::IpAddr>) -> String {
     }
 }
 
-/// Outcome of a [`HandshakeServer::enforce_rate_limit`] check.
+/// Outcome of a rate-limit check.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RateLimitOutcome {
+pub(crate) enum RateLimitOutcome {
     /// Both keys (IP and AID, where supplied) are within their windows.
     Allow,
     /// At least one key exceeded its 60s window — HTTP 429.
@@ -334,7 +341,10 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// handshake aborts with `POLICY_VIOLATION`.
     requested_grants: Vec<String>,
     sessions: Mutex<HashMap<Uuid, SessionEntry>>,
-    session_ttl: Duration,
+    /// Lifetime of an in-progress session. Under a `Mutex` so
+    /// [`HandshakeServer::with_session_ttl`] can change it on an
+    /// already-`Arc`'d server.
+    session_ttl: Mutex<Duration>,
     /// Hard cap on the number of in-progress sessions retained
     /// server-side. When an insert would exceed this, the oldest
     /// entry is evicted regardless of its TTL. Atomic so
@@ -351,14 +361,16 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// Replay deny list (RFC-AITP-0001 §5.5). Every accepted envelope's
     /// `message_id` is recorded for `replay_window`; a duplicate within
     /// that window is rejected with `REPLAY_DETECTED`. Backed by a
-    /// pluggable [`ReplayGuard`](crate::transport::replay_store::ReplayGuard):
+    /// pluggable [`ReplayGuard`](crate::transport::ReplayGuard):
     /// the default is per-process in-memory, but a clustered deployment
     /// supplies a shared store via
     /// [`HandshakeServer::with_replay_guard`] (see [`crate::transport::replay_store`]).
     /// Held under a `Mutex` only so the builder can swap it on an
     /// already-`Arc`'d server; the guard itself is cheap to clone.
     replay_guard: Mutex<Arc<dyn crate::transport::replay_store::ReplayGuard>>,
-    replay_window: Duration,
+    /// Under a `Mutex` so [`HandshakeServer::with_replay_window`] can
+    /// change it on an already-`Arc`'d server.
+    replay_window: Mutex<Duration>,
     /// Optional rate-limit configuration. Off by default; operators
     /// replace via [`HandshakeServer::with_rate_limit`]. Enforcement
     /// is per-key sliding 60s windows backed by `rate_limit_events`.
@@ -378,6 +390,12 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// builder can configure a server whose `Arc<HandshakeState>` is
     /// already shared.
     pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
+    /// Verifies initiator identity kinds `aitp` does not verify itself
+    /// ([`HandshakeServer::with_identity_verifier`]).
+    identity_verifier: Mutex<Option<Arc<dyn crate::handshake::IdentityVerifier>>>,
+    /// Narrows the grants of the TCT issued to the initiator
+    /// ([`HandshakeServer::with_grant_policy`]).
+    grant_policy: Mutex<Option<Arc<crate::handshake::GrantPolicyFn>>>,
     /// Revocation lookups for the initiator-issued TCT at COMMIT
     /// (RFC-AITP-0008), against the `ListRevoked` URL the initiator's
     /// Manifest advertises. Defaults to `fail_closed`; see
@@ -387,14 +405,8 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
 
 /// Default replay-deny-list window. RFC-AITP-0001 §5.5 says the window
 /// MUST be at least the timestamp tolerance; 5 minutes is a generous
-/// floor that aligns with our default `iat_tolerance_secs`.
+/// floor that aligns with [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`].
 pub const DEFAULT_REPLAY_WINDOW: Duration = Duration::from_secs(300);
-
-/// Maximum acceptable absolute drift (seconds) between a sender's
-/// envelope timestamp and the server's clock. RFC-AITP-0001 §5.5 says
-/// "MUST be ≤ 300 s" — older messages MUST be rejected as
-/// `TIMESTAMP_EXPIRED`.
-pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
 
 /// Maximum acceptable POST body size for handshake endpoints when no
 /// limit is configured: a router from `into_router` served without
@@ -402,7 +414,7 @@ pub const DEFAULT_TIMESTAMP_TOLERANCE_SECS: i64 = 300;
 /// Manifest fits well under 32 KB. 256 KB is a generous ceiling that
 /// still rejects accidental gigabyte uploads. [`HandshakeServer::serve`]
 /// applies [`ServeConfig::request_body_limit`] instead.
-pub const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
+pub(crate) const DEFAULT_MAX_BODY_BYTES: usize = 256 * 1024;
 
 /// The body limit a handler reads, set by [`HandshakeServer::serve_with`]
 /// or `with_request_body_limit` as a request extension. The handshake
@@ -432,8 +444,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// state machine. `requested_grants` are the capabilities this
     /// responder asks of the initiator (RFC-AITP-0004 §4.1).
     ///
-    /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`].
-    /// Use [`Self::with_session_ttl`] to override.
+    /// In-progress handshake sessions expire after [`DEFAULT_SESSION_TTL`]
+    /// ([`Self::with_session_ttl`]), and `message_id`s are remembered for
+    /// [`DEFAULT_REPLAY_WINDOW`] ([`Self::with_replay_window`]).
     ///
     /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM).
     /// A backend failure while answering a request is a local fault: it
@@ -446,55 +459,6 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         jwks_resolver: R,
         requested_grants: Vec<String>,
     ) -> Self {
-        Self::with_session_ttl(
-            signing_key,
-            manifest,
-            trust_anchors,
-            jwks_resolver,
-            requested_grants,
-            DEFAULT_SESSION_TTL,
-        )
-    }
-
-    /// Same as [`Self::new`] with an explicit session TTL. Tests use
-    /// short TTLs to exercise the expiry path; production callers
-    /// should prefer [`Self::new`].
-    ///
-    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
-    /// see [`Self::new`].
-    pub fn with_session_ttl<S: AitpSigner + 'static>(
-        signing_key: S,
-        manifest: Manifest,
-        trust_anchors: Vec<crate::core::RawUrl>,
-        jwks_resolver: R,
-        requested_grants: Vec<String>,
-        session_ttl: Duration,
-    ) -> Self {
-        Self::with_session_ttl_and_replay_window(
-            signing_key,
-            manifest,
-            trust_anchors,
-            jwks_resolver,
-            requested_grants,
-            session_ttl,
-            DEFAULT_REPLAY_WINDOW,
-        )
-    }
-
-    /// Same as [`Self::with_session_ttl`] with an explicit replay-deny-list
-    /// window. Tests use short windows to exercise eviction.
-    ///
-    /// `signing_key` may be any [`AitpSigner`] (in-process key, KMS, HSM);
-    /// see [`Self::new`].
-    pub fn with_session_ttl_and_replay_window<S: AitpSigner + 'static>(
-        signing_key: S,
-        manifest: Manifest,
-        trust_anchors: Vec<crate::core::RawUrl>,
-        jwks_resolver: R,
-        requested_grants: Vec<String>,
-        session_ttl: Duration,
-        replay_window: Duration,
-    ) -> Self {
         Self {
             state: Arc::new(HandshakeState {
                 signing_key: Arc::new(signing_key),
@@ -503,23 +467,40 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 jwks_resolver,
                 requested_grants,
                 sessions: Mutex::new(HashMap::new()),
-                session_ttl,
+                session_ttl: Mutex::new(DEFAULT_SESSION_TTL),
                 max_sessions: std::sync::atomic::AtomicUsize::new(DEFAULT_MAX_SESSIONS),
                 session_sweep_interval: Mutex::new(Some(DEFAULT_SESSION_SWEEP_INTERVAL)),
                 sweeper_started: std::sync::atomic::AtomicBool::new(false),
                 replay_guard: Mutex::new(Arc::new(
                     crate::transport::replay_store::InMemoryReplayGuard::new(),
                 )),
-                replay_window,
+                replay_window: Mutex::new(DEFAULT_REPLAY_WINDOW),
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
+                identity_verifier: Mutex::new(None),
+                grant_policy: Mutex::new(None),
                 revocation_fetcher: Mutex::new(Arc::new(
                     crate::transport::revocation_fetch::RevocationFetcher::default(),
                 )),
             }),
             revocation_producer: None,
         }
+    }
+
+    /// Override the lifetime of an in-progress handshake session
+    /// (default [`DEFAULT_SESSION_TTL`]).
+    pub fn with_session_ttl(self, ttl: Duration) -> Self {
+        *self.state.session_ttl.lock() = ttl;
+        self
+    }
+
+    /// Override how long an accepted `message_id` is remembered by the
+    /// replay deny list (default [`DEFAULT_REPLAY_WINDOW`]). RFC-AITP-0001
+    /// §5.5 requires at least the timestamp tolerance.
+    pub fn with_replay_window(self, window: Duration) -> Self {
+        *self.state.replay_window.lock() = window;
+        self
     }
 
     /// Override the in-flight session cap (default
@@ -630,7 +611,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// this only when a layer in front of the server (an API gateway, a
     /// shared limiter in middleware) enforces it, keyed on the
     /// transport source.
-    pub fn without_rate_limit(self) -> Self {
+    pub fn without_rate_limit_dangerous(self) -> Self {
         *self.state.rate_limit_config.lock() = None;
         self
     }
@@ -647,10 +628,29 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         self
     }
 
+    /// Verify initiator identities of the kinds `aitp` does not verify
+    /// itself with `verifier` ([`crate::handshake::IdentityVerifier`]).
+    /// Without one, such an initiator is rejected with
+    /// `INCOMPATIBLE_IDENTITY_TYPE`.
+    pub fn with_identity_verifier(
+        self,
+        verifier: Arc<dyn crate::handshake::IdentityVerifier>,
+    ) -> Self {
+        *self.state.identity_verifier.lock() = Some(verifier);
+        self
+    }
+
+    /// Narrow the grants of the TCT issued to each initiator with
+    /// `policy` ([`crate::handshake::GrantPolicyFn`]).
+    pub fn with_grant_policy(self, policy: Arc<crate::handshake::GrantPolicyFn>) -> Self {
+        *self.state.grant_policy.lock() = Some(policy);
+        self
+    }
+
     /// Set how the initiator-issued TCT's revocation status is checked
     /// at COMMIT (RFC-AITP-0008). The default is `fail_closed`: an
     /// initiator whose Manifest advertises no reachable, valid
-    /// `ListRevoked` snapshot ([`crate::transport::REVOCATION_LIST_URI_EXT`]) is
+    /// `ListRevoked` snapshot ([`crate::manifest::REVOCATION_LIST_URI_EXT`]) is
     /// rejected with `TCT_REVOKED`. Pass
     /// [`RevocationFailMode::FailOpen`](crate::transport::RevocationFailMode::FailOpen)
     /// to opt out.
@@ -673,9 +673,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// Replace the envelope replay-detection store (RFC-AITP-0001 §5.5).
     /// The default is per-process in-memory; a **clustered** deployment
-    /// MUST supply a shared [`ReplayGuard`](crate::transport::replay_store::ReplayGuard)
+    /// MUST supply a shared [`ReplayGuard`](crate::transport::ReplayGuard)
     /// (e.g. Redis) or use sticky routing, otherwise a message replayed
-    /// to a second instance is accepted. See [`crate::transport::replay_store`] for the clustering contract.
+    /// to a second instance is accepted. See [`ReplayGuard`](crate::transport::ReplayGuard) for the clustering contract.
     pub fn with_replay_guard(
         self,
         guard: Arc<dyn crate::transport::replay_store::ReplayGuard>,
@@ -693,14 +693,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// its own deny — the limit hold window is exactly 60s of
     /// admitted traffic).
     ///
-    /// Returns `Allow` after [`Self::without_rate_limit`].
-    ///
-    /// The handshake handlers ([`Self::serve`]'s `hello` / `commit`
-    /// routes) call this internally per RFC-AITP-0009 §3.1 — after the
-    /// replay deny-list check and before timestamp validation. Calling
-    /// it again from operator middleware double-counts the request;
-    /// most operators only need [`Self::with_rate_limit`].
-    pub fn enforce_rate_limit(
+    /// Returns `Allow` after `without_rate_limit_dangerous`.
+    #[cfg(test)]
+    pub(crate) fn enforce_rate_limit(
         &self,
         client_ip: Option<std::net::IpAddr>,
         peer_aid: Option<&crate::core::Aid>,
@@ -758,16 +753,18 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
         let router = Router::new()
             .route("/aitp/handshake/hello", post(handle_hello::<R>))
             .route("/aitp/handshake/commit", post(handle_commit::<R>));
-        let advertised = self.state.manifest.extensions.as_ref().is_some_and(|e| {
-            e.get(crate::transport::revocation::REVOCATION_LIST_URI_EXT)
-                .is_some()
-        });
+        let advertised = self
+            .state
+            .manifest
+            .extensions
+            .as_ref()
+            .is_some_and(|e| e.get(crate::manifest::REVOCATION_LIST_URI_EXT).is_some());
         if !advertised {
             // RFC-AITP-0005 §11 / RFC-AITP-0008 §1.4: a TCT issuer MUST
             // advertise its ListRevoked URL. Peers still accept the
             // Manifest, but treat this issuer's revocation as unavailable.
             warn!(
-                key = crate::transport::revocation::REVOCATION_LIST_URI_EXT,
+                key = crate::manifest::REVOCATION_LIST_URI_EXT,
                 "handshake server Manifest does not advertise its ListRevoked URL; \
                  set it with ManifestBuilder::revocation_list_uri"
             );
@@ -798,7 +795,6 @@ enum ListSource {
 /// (RFC-AITP-0008 §1.5 "Empty lists are signed"). Reused for
 /// [`DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS`], then re-signed.
 struct SignedEmptySnapshot {
-    issuer: crate::core::Aid,
     provider: crate::transport::revocation::EmptyRevocationProvider,
     cached: Mutex<Option<RevocationListEnvelope>>,
 }
@@ -806,9 +802,8 @@ struct SignedEmptySnapshot {
 impl SignedEmptySnapshot {
     fn new(signing_key: Arc<dyn AitpSigner>) -> Self {
         Self {
-            issuer: signing_key.aid().clone(),
             provider: crate::transport::revocation::EmptyRevocationProvider::new(signing_key)
-                .with_ttl_secs(DEFAULT_EMPTY_SNAPSHOT_TTL_SECS),
+                .with_ttl(DEFAULT_EMPTY_SNAPSHOT_TTL),
             cached: Mutex::new(None),
         }
     }
@@ -816,7 +811,6 @@ impl SignedEmptySnapshot {
     fn current(
         &self,
     ) -> Result<RevocationListEnvelope, crate::transport::revocation::RevocationError> {
-        use crate::transport::revocation::RevocationProvider as _;
         let now = Timestamp::now();
         let mut cached = self.cached.lock();
         if let Some(env) = cached.as_ref() {
@@ -825,7 +819,7 @@ impl SignedEmptySnapshot {
                 return Ok(env.clone());
             }
         }
-        let env = self.provider.fetch(&self.issuer)?;
+        let env = self.provider.sign_empty()?;
         *cached = Some(env.clone());
         Ok(env)
     }
@@ -838,19 +832,20 @@ fn revocation_router(source: ListSource) -> Router {
         get(move || {
             let source = source.clone();
             async move {
-                match &*source {
-                    ListSource::Producer(p) => Json(p.current()).into_response(),
-                    ListSource::SignedEmpty(d) => match d.current() {
-                        Ok(env) => Json(env).into_response(),
-                        // Local signing-backend fault: there is no
-                        // snapshot to serve. Consumers see the issuer as
-                        // unreachable and apply their fail mode
-                        // (RFC-AITP-0008 §3).
-                        Err(e) => {
-                            warn!(error = %e, "could not sign default revocation snapshot");
-                            StatusCode::SERVICE_UNAVAILABLE.into_response()
-                        }
-                    },
+                let current = match &*source {
+                    ListSource::Producer(p) => p.current().await,
+                    ListSource::SignedEmpty(d) => d.current(),
+                };
+                match current {
+                    Ok(env) => Json(env).into_response(),
+                    // No snapshot to serve (backing store or signing
+                    // backend fault). Consumers see the issuer as
+                    // unreachable and apply their fail mode
+                    // (RFC-AITP-0008 §3).
+                    Err(e) => {
+                        warn!(error = %e, "no revocation snapshot to serve");
+                        StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    }
                 }
             }
         }),
@@ -920,28 +915,42 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
+    // The synchronous `Responder::on_hello` resolves the initiator's
+    // OIDC issuer keys from the resolver's cache; fetch them first.
+    crate::handshake::identity_oidc::prefetch_identity_keys(
+        &state.jwks_resolver,
+        &payload.identity,
+        &state.trust_anchors,
+    )
+    .await;
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // No TCT is exchanged at HELLO, so the revocation source is never
     // consulted here; the COMMIT handler supplies the real lookup.
-    let no_tct_at_hello = |_: &crate::core::Aid, _: &Uuid| {
-        Err(HandshakeError::Tct(
-            crate::tct::TctError::RevocationUnavailable(
-                "no revocation lookup at MUTUAL_HELLO".into(),
-            ),
+    let no_tct_at_hello = |_: &crate::tct::RevocationQuery<'_>| {
+        Err(crate::tct::RevocationUnavailable::new(
+            "no revocation lookup at MUTUAL_HELLO",
         ))
     };
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
-        crate::handshake::RevocationSource::Check(&no_tct_at_hello),
+        crate::tct::RevocationSource::Check(&no_tct_at_hello),
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     // Server uses pinned-key identity by default (the demo). Production
     // deployments wanting OIDC should construct PresentedIdentity::Oidc
     // outside and use a custom server. The public key is materialized
@@ -969,7 +978,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     let session_id = Uuid::new_v4();
     {
         let mut sessions = state.sessions.lock();
-        sweep_expired(&mut sessions, state.session_ttl);
+        sweep_expired(&mut sessions, *state.session_ttl.lock());
         let cap = state
             .max_sessions
             .load(std::sync::atomic::Ordering::Relaxed);
@@ -1040,10 +1049,11 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         })?;
     let mut entry = {
         let mut sessions = state.sessions.lock();
+        let session_ttl = *state.session_ttl.lock();
         let expired_present = sessions
             .get(&session_id)
-            .is_some_and(|e| Instant::now().duration_since(e.created_at) > state.session_ttl);
-        sweep_expired(&mut sessions, state.session_ttl);
+            .is_some_and(|e| Instant::now().duration_since(e.created_at) > session_ttl);
+        sweep_expired(&mut sessions, session_ttl);
         if expired_present {
             return Err(ResponseError::aitp(
                 ErrorCode::TimestampExpired,
@@ -1094,6 +1104,8 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // RFC-AITP-0008: fetch the initiator's revocation snapshot before the
     // sync `on_commit`. The issuer and URL come from the Manifest that
     // HELLO already bound to the initiator's key, never from the
@@ -1115,16 +1127,22 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
             crate::core::Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
-    let cfg = PeerConfig::new(
+    let revocation_check = move |q: &crate::tct::RevocationQuery<'_>| prepared.decide(q);
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
-        crate::handshake::RevocationSource::Check(&revocation_check),
+        crate::tct::RevocationSource::Check(&revocation_check),
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)
@@ -1398,11 +1416,12 @@ async fn receive_envelope<R: JwksResolver + Send + Sync + 'static>(
         .and_then(|v| v.as_i64())
         .map(Timestamp)
     {
-        if !ts.is_within_tolerance_of(Timestamp::now(), DEFAULT_TIMESTAMP_TOLERANCE_SECS) {
+        if !ts.is_within_tolerance_of(Timestamp::now(), DEFAULT_TIMESTAMP_TOLERANCE) {
             return Err(ResponseError::aitp(
                 ErrorCode::TimestampExpired,
                 format!(
-                    "envelope timestamp outside the {DEFAULT_TIMESTAMP_TOLERANCE_SECS}s window"
+                    "envelope timestamp outside the {}s window",
+                    DEFAULT_TIMESTAMP_TOLERANCE.as_secs()
                 ),
             ));
         }
@@ -1437,6 +1456,9 @@ async fn receive_envelope<R: JwksResolver + Send + Sync + 'static>(
         }
         EnvelopeParseError::Malformed(msg) => {
             ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {msg}"))
+        }
+        EnvelopeParseError::Structure(e) => {
+            ResponseError::aitp(ErrorCode::InvalidEnvelope, format!("malformed JSON: {e}"))
         }
     })?;
     if envelope.message_type != expected {
@@ -1479,8 +1501,7 @@ fn request_source<R: JwksResolver + Send + Sync>(
     extract_source_ip(request, proxies)
 }
 
-/// Sliding-window rate-limit evaluation shared by
-/// [`HandshakeServer::enforce_rate_limit`] and the handshake handlers.
+/// Sliding-window rate-limit evaluation for the handshake handlers.
 /// On `Allow` the event is recorded; on `DenyTooManyRequests` nothing
 /// is recorded, so a denied caller does not accelerate its own deny.
 /// Returns `Allow` when no policy is configured.
@@ -1572,7 +1593,8 @@ fn check_and_record_message_id<R: JwksResolver + Send + Sync + 'static>(
     // Clone the guard Arc out from under the short lock, then run the
     // (self-synchronizing) check without holding the server-state lock.
     let guard = state.replay_guard.lock().clone();
-    if guard.check_and_record(&mid.to_string(), state.replay_window) {
+    let window = *state.replay_window.lock();
+    if guard.check_and_record(&mid.to_string(), window) {
         Ok(())
     } else {
         crate::transport::obs::replay_rejected();
@@ -1592,7 +1614,7 @@ fn spawn_sweeper_task<R: JwksResolver + Send + Sync + 'static>(
     interval: Duration,
 ) -> tokio::task::JoinHandle<()> {
     let weak = Arc::downgrade(state);
-    let ttl = state.session_ttl;
+    let ttl = *state.session_ttl.lock();
     handle.spawn(async move {
         let mut ticker = tokio::time::interval(interval);
         // Don't fire a spurious immediate tick: the first call to
@@ -1657,6 +1679,10 @@ fn evict_oldest_to_capacity<V>(
 #[cfg(test)]
 #[path = "server_sweeper_tests.rs"]
 mod sweeper_tests;
+
+#[cfg(all(test, feature = "http-client"))]
+#[path = "server_rate_limit_tests.rs"]
+mod rate_limit_tests;
 
 #[cfg(test)]
 mod tests {
@@ -1763,7 +1789,7 @@ mod tests {
         );
         assert_eq!(
             handshake_error_code(&HandshakeError::Manifest(
-                ManifestError::IncompatibleIdentityType("oidc")
+                ManifestError::IncompatibleIdentityType(crate::handshake::IdentityKind::Oidc)
             )),
             ErrorCode::IncompatibleIdentityType,
         );

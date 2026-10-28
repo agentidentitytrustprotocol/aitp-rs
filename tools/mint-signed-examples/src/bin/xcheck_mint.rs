@@ -69,8 +69,8 @@ const OIDC_ISSUER_ED25519_SEED: [u8; 32] = [0x55u8; 32];
 const OIDC_ISSUER_P256_SEED: [u8; 32] = [0x66u8; 32];
 
 fn main() {
-    let issuer = AitpSigningKey::from_seed(&KP_001_SEED);
-    let participant = AitpSigningKey::from_seed(&KP_002_SEED);
+    let issuer = AitpSigningKey::from_ed25519_seed(&KP_001_SEED);
+    let participant = AitpSigningKey::from_ed25519_seed(&KP_002_SEED);
 
     // ── Revocation snapshot ──────────────────────────────────────────
     // Field-for-field the spec's committed
@@ -142,9 +142,9 @@ fn main() {
         .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
         .identity_hint(manifest_identity_hint())
         .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(Timestamp(NOW))
         .build()
         .expect("mint manifest without extensions");
@@ -152,9 +152,9 @@ fn main() {
         .handshake_endpoint("https://xcheck.aitp.example/handshake".parse().unwrap())
         .identity_hint(manifest_identity_hint())
         .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(Timestamp(NOW))
         .extension("café", serde_json::json!("stress ünïcödé"))
         .extension(
@@ -170,7 +170,7 @@ fn main() {
         .subject(participant.aid().clone())
         .audience(participant.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(participant.verifying_key())
         .issued_at(Timestamp(NOW))
         .build()
@@ -199,9 +199,9 @@ fn main() {
     let body = serde_json::to_value(&bundle).expect("bundle serializes");
 
     // ── OIDC identity binding ────────────────────────────────────────
-    let oidc_sender = AitpSigningKey::from_seed(&OIDC_SENDER_SEED);
-    let oidc_verifier = AitpSigningKey::from_seed(&OIDC_VERIFIER_SEED);
-    let oidc_issuer_eddsa = AitpSigningKey::from_seed(&OIDC_ISSUER_ED25519_SEED);
+    let oidc_sender = AitpSigningKey::from_ed25519_seed(&OIDC_SENDER_SEED);
+    let oidc_verifier = AitpSigningKey::from_ed25519_seed(&OIDC_VERIFIER_SEED);
+    let oidc_issuer_eddsa = AitpSigningKey::from_ed25519_seed(&OIDC_ISSUER_ED25519_SEED);
     let oidc_issuer_es256 =
         AitpSigningKey::from_p256_seed(&OIDC_ISSUER_P256_SEED).expect("valid p256 seed");
 
@@ -261,8 +261,8 @@ fn mint_p256_vectors() -> serde_json::Value {
     use aitp::core::MessageType;
 
     let signer = AitpSigningKey::from_p256_seed(&KP_005_P256_SCALAR).expect("valid p256 scalar");
-    let verifier = AitpSigningKey::from_seed(&P256_VERIFIER_SEED);
-    let participant = AitpSigningKey::from_seed(&KP_002_SEED);
+    let verifier = AitpSigningKey::from_ed25519_seed(&P256_VERIFIER_SEED);
+    let participant = AitpSigningKey::from_ed25519_seed(&KP_002_SEED);
 
     // Revocation snapshot: also the TCT legs' revocation source.
     let snapshot = sign_revocation_list(
@@ -288,9 +288,9 @@ fn mint_p256_vectors() -> serde_json::Value {
                 .with_public_key(signer.aid().identifier().to_string()),
         )
         .accept_trust_anchor("https://idp.aitp-xcheck.example".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(Timestamp(NOW))
         .build()
         .expect("mint p256 manifest");
@@ -305,8 +305,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     )
     .expect("sign p256 envelope");
     let envelope_double_hash = {
-        let digest =
-            aitp::core::envelope::envelope_signing_digest(&envelope).expect("envelope digest");
+        let digest = aitp::core::envelope_signing_digest(&envelope).expect("envelope digest");
         let mut e = envelope.clone();
         e.signature = double_hash_signature(&digest);
         e
@@ -346,7 +345,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         .subject(participant.aid().clone())
         .audience(participant.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(participant.verifying_key())
         .issued_at(Timestamp(NOW))
         .jti(Uuid::from_u128(0x5d3c_2b1a_0f9e_4d8c_8b7a_6f5e_4d3c_2b1a))
@@ -361,7 +360,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     let attestation = TctBuilder::new(&signer)
         .self_attestation()
         .ext(statement)
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .issued_at(Timestamp(NOW))
         .jti(Uuid::from_u128(0x6e4d_3c2b_1a0f_4e9d_9c8b_7a6f_5e4d_3c2b))
         .build()
@@ -373,7 +372,7 @@ fn mint_p256_vectors() -> serde_json::Value {
         .subject(participant.aid().clone())
         .audience(participant.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(participant.verifying_key())
         .issued_at(Timestamp(NOW))
         .jti(Uuid::from_u128(0x7f5e_4d3c_2b1a_4f0e_8d9c_8b7a_6f5e_4d3c))
@@ -443,7 +442,7 @@ fn mint_oidc_vector(
         "cnf": {
             "jkt": sender
                 .verifying_key()
-                .to_jwk_thumbprint()
+                .to_jwk_thumbprint_sha256()
                 .expect("sender jwk thumbprint"),
         },
     });

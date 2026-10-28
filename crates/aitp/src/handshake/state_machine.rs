@@ -10,20 +10,23 @@ use crate::crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use crate::handshake::error::HandshakeError;
 use crate::handshake::identity::{IdentityDescriptor, IdentityKind};
 use crate::handshake::identity_oidc::{verify_oidc, JwksResolver, OidcVerifyContext};
-use crate::handshake::identity_pinned::{
-    sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
-};
 use crate::handshake::identity_verifier::{IdentityVerifier, IdentityVerifyContext};
 use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
-use crate::manifest::{verify_manifest, Manifest, VerifyManifestContext};
-use crate::tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
+use crate::handshake::pinned_key::{
+    sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
+};
+use crate::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
+use crate::tct::verifier::{check_revocation, verify_tct_before_revocation};
+use crate::tct::{
+    IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext, VerifiedTct,
+};
 use rand::TryRng;
 use tracing::debug;
 use uuid::Uuid;
 
-pub use crate::handshake::identity_pinned::{NoPinnedKeys, PinnedKeyStore, StaticPinnedKeyStore};
+use crate::handshake::pinned_key::PinnedKeyStore;
 
 /// Opaque session identifier — handle for an in-progress handshake.
 pub type SessionId = Uuid;
@@ -48,12 +51,12 @@ pub type SessionId = Uuid;
 ///     jwks_resolver: resolver,
 ///     pinned_key_store: &NoPinnedKeys,
 ///     grant_policy: None,
-///     revocation: aitp::handshake::RevocationSource::FailOpen,
+///     revocation: aitp::tct::RevocationSource::FailOpen,
 ///     now: aitp::core::Timestamp(0),
 /// }
 /// # }
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct PeerConfig<'a> {
     /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
@@ -73,8 +76,8 @@ pub struct PeerConfig<'a> {
     /// by `(algorithm, key)`. REQUIRED: a pinned-key peer whose key is
     /// not in the store is rejected with `IDENTITY_FAILED` before its
     /// proof is checked. There is no possession-only mode. OIDC-only
-    /// deployments pass [`NoPinnedKeys`]; tests use a
-    /// [`StaticPinnedKeyStore`].
+    /// deployments pass [`NoPinnedKeys`](crate::handshake::NoPinnedKeys);
+    /// tests use a [`StaticPinnedKeyStore`](crate::handshake::StaticPinnedKeyStore).
     pub pinned_key_store: &'a dyn PinnedKeyStore,
     /// Optional grant-policy hook (RFC-AITP-0004 §4.1). Applied to the
     /// `peer_requested ∩ self.offered` intersection before issuing a
@@ -114,7 +117,7 @@ impl<'a> PeerConfig<'a> {
     ///     manifest,
     ///     resolver,
     ///     &trusted,
-    ///     aitp::handshake::RevocationSource::FailOpen,
+    ///     aitp::tct::RevocationSource::FailOpen,
     ///     now,
     /// )
     /// .with_trust_anchors(&[]);
@@ -163,99 +166,40 @@ impl<'a> PeerConfig<'a> {
     }
 }
 
-/// Where a [`PeerConfig`] gets revocation status for the peer-issued
-/// TCT (RFC-AITP-0008).
-///
-/// There is deliberately no `Default`: a verifier with no revocation
-/// source silently accepts revoked-but-unexpired TCTs, so the caller
-/// names one of the two choices.
-#[derive(Clone, Copy)]
-#[non_exhaustive]
-pub enum RevocationSource<'a> {
-    /// Consult this hook after the TCT verifies. A hook that cannot
-    /// determine the status under `fail_closed` (the RFC-AITP-0008 §3.1
-    /// default) returns
-    /// `Err(HandshakeError::Tct(TctError::RevocationUnavailable(_)))`.
-    /// `crate::transport::revocation` builds such hooks from the
-    /// peer's advertised `ListRevoked` endpoint.
-    Check(&'a RevocationCheckFn),
-    /// No revocation source: accept the TCT without any lookup, the
-    /// `fail_open` mode with the source always unavailable. A revoked
-    /// but unexpired TCT is accepted. A warning is logged once per
-    /// process. Tests and in-process demos only.
-    FailOpen,
-}
-
-impl std::fmt::Debug for RevocationSource<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Check(_) => f.write_str("RevocationSource::Check(..)"),
-            Self::FailOpen => f.write_str("RevocationSource::FailOpen"),
-        }
-    }
-}
-
-/// Logs the [`RevocationSource::FailOpen`] warning at most once.
-fn warn_fail_open_once() {
-    static WARNED: std::sync::Once = std::sync::Once::new();
-    WARNED.call_once(|| {
-        tracing::warn!(
-            "PeerConfig uses RevocationSource::FailOpen: peer-issued TCTs are \
-             accepted without a revocation check (RFC-AITP-0008 fail_open)"
-        );
-    });
-}
-
-/// Outcome of a handshake-time revocation check (RFC-AITP-0008).
-///
-/// Returned by [`RevocationCheckFn`]. Replaces the prior boolean-shaped
-/// return (`Result<bool, _>`) so soft-fail degradation carries the
-/// configured safe-grants subset all the way up to the state machine.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HandshakeRevocationDecision {
-    /// TCT is not revoked; accept with the full grant set.
-    Clear,
-    /// TCT is revoked; the handshake fails with
-    /// [`crate::tct::TctError::Revoked`].
-    Revoked,
-    /// The revocation source was unavailable and the operator's
-    /// `SoftFail` policy applies. The verifying side MUST restrict the
-    /// effective grants from the received TCT to
-    /// `tct.grants ∩ safe_grants`. Empty intersection ⇒
-    /// [`HandshakeError::PolicyViolation`].
-    ///
-    /// Invariant: `safe_grants` is non-empty. A configured empty
-    /// safe-grants subset degenerates to `FailClosed` upstream and
-    /// surfaces here as an `Err`, not this variant.
-    SoftFailSafeSubset {
-        /// The operator-configured safe-grant subset.
-        safe_grants: Vec<String>,
-    },
-}
-
-/// Hook signature for handshake-time revocation lookups.
-///
-/// Implementors typically wrap a `RevocationCache` from
-/// `crate::transport` or any other [RFC-AITP-0008] revocation
-/// provider. The `Aid` argument is the TCT issuer (so per-issuer
-/// caches can route correctly); the `Uuid` is the TCT's JTI. Returns a
-/// [`HandshakeRevocationDecision`] so soft-fail safe-grant subsets flow
-/// through.
-pub type RevocationCheckFn =
-    dyn Fn(&Aid, &Uuid) -> Result<HandshakeRevocationDecision, HandshakeError> + Send + Sync;
-
 /// Identity-aware grant-policy hook (RFC-AITP-0004 §4.1).
 ///
-/// Receives the peer's identity descriptor and the
-/// `peer_requested ∩ self.offered` intersection; returns the subset
-/// the policy permits. Returning empty triggers `PolicyViolation`.
-///
-/// The return value MUST be a subset of the supplied intersection — i.e.
-/// the policy may only *narrow* the grant set, never add a capability the
-/// issuer does not offer. A capability outside the issuer's
-/// `offered_capabilities` will be rejected by the verifying peer with
-/// [`HandshakeError::GrantOverflow`] (RFC-AITP-0004 §5.3/§5.4).
-pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> + Send + Sync;
+/// Returns the subset of [`GrantPolicyContext::candidate_grants`] the
+/// policy permits. It can only narrow: a returned capability outside the
+/// candidates is dropped. An empty result, or an error, fails the
+/// handshake with `POLICY_VIOLATION`.
+pub type GrantPolicyFn =
+    dyn Fn(&GrantPolicyContext<'_>) -> Result<Vec<String>, GrantPolicyError> + Send + Sync;
+
+/// What a [`GrantPolicyFn`] decides on.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct GrantPolicyContext<'a> {
+    /// The peer's verified identity descriptor.
+    pub peer_identity: &'a IdentityDescriptor,
+    /// The peer's AID, the subject of the TCT being issued.
+    pub peer_aid: &'a Aid,
+    /// `peer_requested ∩ self.offered`, in the peer's request order.
+    pub candidate_grants: &'a [String],
+    /// The handshake's clock.
+    pub now: Timestamp,
+}
+
+/// A [`GrantPolicyFn`] failed to decide.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct GrantPolicyError(crate::core::BoxError);
+
+impl GrantPolicyError {
+    /// Wrap any error or message.
+    pub fn new(error: impl Into<crate::core::BoxError>) -> Self {
+        Self(error.into())
+    }
+}
 
 /// Inputs the issuing side needs to mint a fresh identity proof bound
 /// to an outbound envelope. RFC-AITP-0002 §3.1 requires every pinned-key
@@ -263,7 +207,7 @@ pub type GrantPolicyFn = dyn Fn(&IdentityDescriptor, &[String]) -> Vec<String> +
 /// pop_nonce) tuple; collecting them in one struct prevents call sites
 /// from forgetting fields.
 #[non_exhaustive]
-pub struct IdentityPresentationContext<'a> {
+pub(crate) struct IdentityPresentationContext<'a> {
     /// Sender's AID (= signer's AID — must match
     /// `signing_key.aid()`).
     pub sender_aid: &'a Aid,
@@ -282,15 +226,31 @@ pub struct IdentityPresentationContext<'a> {
     pub pop_nonce: &'a str,
 }
 
-/// Callback signature for [`PresentedIdentity::OidcMinter`]: receives the
-/// handshake-generated `pop_nonce` and returns a freshly-minted compact
-/// JWT whose `nonce` claim equals that nonce. Held as `Box<dyn Fn>` —
-/// the state machine consumes the `PresentedIdentity` inline during
-/// `Initiator::start` / `Responder::on_hello`, so the closure is never
-/// stored across calls or moved across threads. Dropping `Send + Sync`
-/// here lets language bindings (PyO3, NAPI-rs) wrap host-runtime
-/// callables that aren't trivially thread-safe.
-pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, String> + 'static;
+/// An OIDC mint callback: receives the handshake-generated `pop_nonce`
+/// and returns a freshly-minted compact JWT whose `nonce` claim equals
+/// that nonce. `Send + Sync`, so a configuration holding one can be
+/// moved into a spawned task (`facade::IdentityMode::Oidc`). A
+/// `Box<OidcMintJwtFn>` coerces into a `Box<LocalOidcMintJwtFn>`.
+pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, OidcMintError> + Send + Sync;
+
+/// The mint callback of [`PresentedIdentity::OidcMinter`]. It need not be
+/// `Send`: the state machine calls it inside the `Initiator::start` or
+/// `Responder::on_hello` call that receives it, so a binding can wrap a
+/// host-runtime callable.
+pub type LocalOidcMintJwtFn = dyn Fn(&str) -> Result<String, OidcMintError>;
+
+/// The error an OIDC mint callback returns. The handshake reports it as
+/// `IDENTITY_FAILED` before anything is sent.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct OidcMintError(crate::core::BoxError);
+
+impl OidcMintError {
+    /// Wrap the callback's own error, or a message.
+    pub fn new(error: impl Into<crate::core::BoxError>) -> Self {
+        Self(error.into())
+    }
+}
 
 /// What identity this peer will present.
 #[non_exhaustive]
@@ -334,7 +294,7 @@ pub enum PresentedIdentity {
         /// Callback that receives the just-generated `pop_nonce` and
         /// returns a freshly-minted compact JWT. Errors bubble out as
         /// `HandshakeError::Identity`.
-        mint_jwt: Box<OidcMintJwtFn>,
+        mint_jwt: Box<LocalOidcMintJwtFn>,
     },
 }
 
@@ -506,7 +466,7 @@ fn fresh_nonce() -> Result<String, HandshakeError> {
     let mut buf = [0u8; 16];
     rand::rngs::SysRng
         .try_fill_bytes(&mut buf)
-        .map_err(|e| HandshakeError::Rng(e.to_string()))?;
+        .map_err(|e| HandshakeError::Rng(e.into()))?;
     Ok(base64url::encode(&buf))
 }
 
@@ -514,7 +474,7 @@ fn fresh_nonce() -> Result<String, HandshakeError> {
 /// (RFC-AITP-0004 §5.1 steps 3–6).
 ///
 /// Returns the peer's verifying key on success.
-pub fn bootstrap_verify_peer(
+pub(crate) fn bootstrap_verify_peer(
     envelope: &AitpEnvelope,
     payload_manifest: &Manifest,
     payload_identity: &IdentityDescriptor,
@@ -526,7 +486,7 @@ pub fn bootstrap_verify_peer(
             "manifest.aid does not match sender.agent_id".into(),
         ));
     }
-    verify_manifest(payload_manifest, &VerifyManifestContext { now: cfg.now })?;
+    verify_manifest(payload_manifest, &ManifestVerifyContext { now: cfg.now })?;
     if payload_identity.subject != payload_manifest.identity_hint.subject {
         return Err(HandshakeError::Identity(
             "identity.subject != manifest.identity_hint.subject".into(),
@@ -571,8 +531,8 @@ pub fn bootstrap_verify_peer(
                 trust_anchors: cfg.trust_anchors,
                 jwks_resolver: cfg.jwks_resolver,
                 subject_aid: &payload_manifest.aid,
-                iat_tolerance_secs: 300,
-                now_unix_secs: cfg.now.0,
+                iat_tolerance: crate::core::DEFAULT_TIMESTAMP_TOLERANCE,
+                now: cfg.now,
             };
             verify_oidc(payload_identity, &ctx)?;
         }
@@ -597,9 +557,9 @@ pub fn bootstrap_verify_peer(
             // RFC-AITP-0002 §6.6: a type no verifier handles is rejected
             // even when our Manifest lists it.
             let verifier = cfg.identity_verifier.filter(|v| v.handles(kind)).ok_or(
-                crate::manifest::ManifestError::IncompatibleIdentityType(kind.as_str()),
+                crate::manifest::ManifestError::IncompatibleIdentityType(kind),
             )?;
-            verifier.verify(
+            let verified = verifier.verify(
                 payload_identity,
                 &IdentityVerifyContext {
                     peer_manifest: payload_manifest,
@@ -611,6 +571,12 @@ pub fn bootstrap_verify_peer(
                     now: cfg.now,
                 },
             )?;
+            if verified.kind() != kind || verified.subject() != payload_identity.subject {
+                return Err(HandshakeError::Identity(
+                    "the identity verifier proved a different identity than the one presented"
+                        .into(),
+                ));
+            }
         }
     }
     AitpVerifyingKey::from_aid(&payload_manifest.aid).map_err(Into::into)
@@ -625,14 +591,11 @@ pub fn bootstrap_verify_peer(
 /// signature (step 7) pass: the order is frozen, so a payload failing both
 /// the proof and this check reports `IDENTITY_FAILED`. The OIDC
 /// trust-anchor check stays inside the proof, before any JWKS fetch.
-pub fn apply_peer_policy(
+pub(crate) fn apply_peer_policy(
     payload_identity: &IdentityDescriptor,
     cfg: &PeerConfig<'_>,
 ) -> Result<(), HandshakeError> {
-    crate::manifest::check_identity_type_compatibility(
-        cfg.manifest,
-        payload_identity.kind.as_str(),
-    )?;
+    crate::manifest::check_identity_type_compatibility(cfg.manifest, payload_identity.kind)?;
     Ok(())
 }
 
@@ -692,7 +655,13 @@ fn issue_tct_for_peer(
         .cloned()
         .collect();
     if let Some(policy) = cfg.grant_policy {
-        grants = policy(peer_identity, &grants);
+        let permitted = policy(&GrantPolicyContext {
+            peer_identity,
+            peer_aid,
+            candidate_grants: &grants,
+            now: cfg.now,
+        })?;
+        grants.retain(|g| permitted.contains(g));
     }
     if grants.is_empty() {
         return Err(HandshakeError::PolicyViolation);
@@ -701,19 +670,19 @@ fn issue_tct_for_peer(
     // Bound expiry by the issuing-peer Manifest's expiry. If our own
     // Manifest is already past expiry, refuse to issue.
     let manifest_expires = cfg.manifest.expires_at.0;
-    let default_expires = cfg.now.0 + crate::tct::DEFAULT_TCT_TTL_SECS;
+    let default_expires = cfg.now.saturating_add(crate::tct::DEFAULT_TCT_TTL).0;
     let effective_expires = default_expires.min(manifest_expires);
     let ttl = effective_expires.saturating_sub(cfg.now.0);
-    if ttl == 0 {
+    let Ok(ttl @ 1..) = u64::try_from(ttl) else {
         return Err(HandshakeError::InvalidEnvelope(
             "issuing peer's manifest is expired; cannot issue TCT".into(),
         ));
-    }
+    };
     TctBuilder::new(cfg.signing_key)
         .subject(peer_aid.clone())
         .audience(peer_aid.clone())
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(peer_pubkey.clone())
         .issued_at(cfg.now)
         .build()
@@ -723,9 +692,8 @@ fn issue_tct_for_peer(
 /// Verify a peer-issued TCT compact JWS (and its optional companion
 /// voucher) and that it satisfies our `required_peer_capabilities`.
 ///
-/// Returns the verified TCT plus the effective grant set the verifying
-/// side should honor — `None` means "the TCT's full grants", `Some(g)`
-/// means the grants were narrowed by a revocation soft-fail safe-grants
+/// Returns the verified TCT; its `effective_grants` are the grants the
+/// verifying side honors, narrowed under a revocation soft-fail safe
 /// subset (RFC-AITP-0008).
 fn verify_received_tct(
     token: &str,
@@ -734,7 +702,7 @@ fn verify_received_tct(
     issuer: &Aid,
     issuer_manifest_expires_at: Option<Timestamp>,
     issuer_offered_capabilities: &[String],
-) -> Result<(VerifiedTct, Option<Vec<String>>), HandshakeError> {
+) -> Result<VerifiedTct, HandshakeError> {
     // RFC-AITP-0008 §3.3: the TCT signature MUST be verified before any
     // remote revocation lookup. The claims are attacker-controlled
     // bytes until `verify_tct` succeeds; routing a revocation lookup
@@ -744,12 +712,7 @@ fn verify_received_tct(
     // not from the token.
     let ctx = {
         let builder = TctVerifyContext::builder(&cfg.manifest.aid, issuer, cfg.now)
-            // Revocation is deliberately NOT run inside this verify_tct
-            // call: RFC-AITP-0008 §3.3 mandates signature-before-lookup,
-            // so `cfg.revocation_check` is consulted separately *after*
-            // verification succeeds (below). The waiver records that
-            // this call's config skips revocation on purpose.
-            .accept_unchecked_revocation_dangerous();
+            .revocation(cfg.revocation.clone());
         // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: the issuer Manifest's
         // expiry caps the TCT's expiry. We have it in scope from
         // bootstrap_verify_peer (initiator) or hello.manifest (responder)
@@ -762,8 +725,9 @@ fn verify_received_tct(
             .build()
             .expect("both verify decisions are made above")
     };
-    let verified = verify_tct(token, &ctx)?;
-    let claims = &verified.claims;
+    // The revocation lookup runs below, after the voucher and
+    // grant-overflow checks.
+    let claims = verify_tct_before_revocation(token, &ctx)?;
 
     // Companion voucher (when delivered): MUST verify under the same
     // issuer and mirror the TCT exactly (RFC-AITP-0005 §8.2). A
@@ -792,68 +756,86 @@ fn verify_received_tct(
         }
     }
 
-    // Revocation — `iss` and `jti` are authenticated now that
-    // `verify_tct` has succeeded under the handshake-pinned issuer AID,
-    // so a hook keyed off the issuer cannot be steered by an attacker.
-    let mut safe_subset: Option<Vec<String>> = None;
-    let check = match cfg.revocation {
-        RevocationSource::Check(check) => Some(check),
-        RevocationSource::FailOpen => {
-            warn_fail_open_once();
-            None
-        }
+    // Revocation — `iss` and `jti` are authenticated now that the TCT
+    // has verified under the handshake-pinned issuer AID, so a hook
+    // keyed off the issuer cannot be steered by an attacker. An empty
+    // soft-fail intersection is a policy failure.
+    let effective_grants = match check_revocation(&ctx.revocation, &claims, cfg.now) {
+        Ok(grants) => grants,
+        Err(TctError::SafeSubsetEmpty) => return Err(HandshakeError::PolicyViolation),
+        Err(e) => return Err(HandshakeError::Tct(e)),
     };
-    if let Some(check) = check {
-        match check(&claims.iss, &claims.jti)? {
-            HandshakeRevocationDecision::Clear => {}
-            HandshakeRevocationDecision::Revoked => {
-                return Err(HandshakeError::Tct(crate::tct::TctError::Revoked));
-            }
-            HandshakeRevocationDecision::SoftFailSafeSubset { safe_grants } => {
-                // Soft-fail under RFC-AITP-0008: keep the TCT but
-                // honor only `tct.grants ∩ safe_grants` locally.
-                // Empty intersection is a policy failure — the safe
-                // subset doesn't authorize any of the granted caps.
-                let intersection: Vec<String> = claims
-                    .grants
-                    .iter()
-                    .filter(|g| safe_grants.iter().any(|s| s == *g))
-                    .cloned()
-                    .collect();
-                if intersection.is_empty() {
-                    return Err(HandshakeError::PolicyViolation);
-                }
-                safe_subset = Some(intersection);
-            }
-        }
-    }
 
     // `required_peer_capabilities` is checked against the effective
     // grant set — under soft-fail, the safe subset must cover every
     // required cap.
     if let Some(required_caps) = cfg.manifest.required_peer_capabilities.as_deref() {
-        let effective: &[String] = safe_subset.as_deref().unwrap_or(claims.grants.as_slice());
         for required in required_caps {
-            if !effective.contains(required) {
+            if !effective_grants.contains(required) {
                 return Err(HandshakeError::InsufficientGrants);
             }
         }
     }
-    Ok((verified, safe_subset))
+    Ok(VerifiedTct {
+        token: token.to_string(),
+        claims,
+        effective_grants,
+    })
 }
 
 /// What a completed handshake leaves each side holding: the peer-issued
 /// TCT (verbatim token + trusted claims) and, when the peer's policy
 /// allowed delegation, the companion grant voucher to delegate with
 /// later (RFC-AITP-0005 §8).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
 #[derive(Debug, Clone, PartialEq, Eq)]
-#[non_exhaustive]
 pub struct CompletedHandshake {
+    pub(crate) tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl CompletedHandshake {
     /// The TCT the peer issued to us.
-    pub tct: VerifiedTct,
+    pub fn tct(&self) -> &VerifiedTct {
+        &self.tct
+    }
+
     /// The companion grant voucher, verbatim. `None` when the issuing
     /// peer's policy forbids us from delegating.
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
+    /// The grants we may exercise under the peer-issued TCT: its
+    /// `grants`, narrowed to the safe subset when the revocation source
+    /// answered [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> CompletedHandshakeParts {
+        CompletedHandshakeParts {
+            tct: self.tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`CompletedHandshake`], from [`CompletedHandshake::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct CompletedHandshakeParts {
+    /// See [`CompletedHandshake::tct`].
+    pub tct: VerifiedTct,
+    /// See [`CompletedHandshake::grant_voucher`].
     pub grant_voucher: Option<String>,
+    /// See [`CompletedHandshake::effective_grants`].
+    pub effective_grants: Vec<String>,
 }
 
 // ── Initiator ────────────────────────────────────────────────────────────
@@ -861,6 +843,12 @@ pub struct CompletedHandshake {
 /// Initiator-side handshake driver.
 pub struct Initiator {
     state: InitiatorState,
+}
+
+impl std::fmt::Debug for Initiator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Initiator").finish_non_exhaustive()
+    }
 }
 
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and Awaiting* is acceptable.
@@ -1108,10 +1096,7 @@ impl Initiator {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &ack.pop_signature)?;
-        // Soft-fail safe subset (when returned) is enforced inside
-        // `verify_received_tct` (required-caps check); the caller can
-        // re-derive it by re-running the hook if needed.
-        let (verified, _effective_grants) = verify_received_tct(
+        let verified = verify_received_tct(
             &ack.tct,
             ack.grant_voucher.as_deref(),
             cfg,
@@ -1121,6 +1106,7 @@ impl Initiator {
         )?;
         self.state = InitiatorState::Done;
         Ok(CompletedHandshake {
+            effective_grants: verified.effective_grants.clone(),
             tct: verified,
             grant_voucher: ack.grant_voucher.clone(),
         })
@@ -1132,6 +1118,12 @@ impl Initiator {
 /// Responder-side handshake driver.
 pub struct Responder {
     state: ResponderState,
+}
+
+impl std::fmt::Debug for Responder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Responder").finish_non_exhaustive()
+    }
 }
 
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and AwaitingCommit is acceptable.
@@ -1308,7 +1300,7 @@ impl Responder {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &commit.pop_signature)?;
-        let (verified, _effective_grants) = verify_received_tct(
+        let verified = verify_received_tct(
             &commit.tct,
             commit.grant_voucher.as_deref(),
             cfg,
@@ -1341,6 +1333,7 @@ impl Responder {
         Ok((
             ack,
             CompletedHandshake {
+                effective_grants: verified.effective_grants.clone(),
                 tct: verified,
                 grant_voucher: commit.grant_voucher.clone(),
             },
@@ -1352,6 +1345,7 @@ impl Responder {
 mod tests {
     use super::*;
     use crate::crypto::AitpSigningKey;
+    use crate::handshake::pinned_key::StaticPinnedKeyStore;
 
     /// Build a compact JWT (`header.payload.sig`) with the given claims
     /// JSON. Header and signature are placeholders — `oidc_checked`
@@ -1420,7 +1414,7 @@ mod tests {
         // pinned-key algorithm: 44-char compressed `public_key`, tagged
         // proof, and it verifies against a store holding the key.
         let p256 = AitpSigningKey::generate_p256();
-        let other = AitpSigningKey::from_seed(&[1u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let mid = Uuid::new_v4();
         let ts = Timestamp(1_700_000_000);
         let nonce = base64url::encode(&[42u8; 16]);
@@ -1452,5 +1446,82 @@ mod tests {
         )
         .expect("P-256 pinned key verifies");
         assert_eq!(verified.key, p256.verifying_key());
+    }
+
+    fn grant_policy_issue(policy: &GrantPolicyFn) -> Result<Vec<String>, HandshakeError> {
+        struct NoKeys;
+        impl JwksResolver for NoKeys {
+            fn resolve(
+                &self,
+                _issuer: &url::Url,
+            ) -> Result<Vec<crate::handshake::JwkPublicKey>, crate::handshake::ResolveError>
+            {
+                Ok(vec![])
+            }
+        }
+        let me = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+        let peer = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
+        let manifest = crate::manifest::ManifestBuilder::new(&me)
+            .display_name("issuer")
+            .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
+            .identity_hint(
+                crate::manifest::IdentityHint::new(
+                    crate::manifest::IdentityHintKind::PinnedKey,
+                    "issuer",
+                )
+                .with_public_key(me.aid().identifier()),
+            )
+            .offer("chat.send")
+            .offer("files.read")
+            .build()
+            .unwrap();
+        let store = StaticPinnedKeyStore::new([]);
+        let cfg = PeerConfig::new(
+            &me,
+            &manifest,
+            &NoKeys,
+            &store,
+            RevocationSource::FailOpen,
+            Timestamp::now(),
+        )
+        .with_grant_policy(policy);
+        let identity: IdentityDescriptor = serde_json::from_value(serde_json::json!({
+            "type": "pinned_key",
+            "subject": "peer",
+            "public_key": peer.aid().identifier(),
+            "proof": "x",
+        }))
+        .unwrap();
+        issue_tct_for_peer(
+            &cfg,
+            &identity,
+            peer.aid(),
+            &peer.verifying_key(),
+            &["chat.send".into(), "files.read".into(), "admin".into()],
+        )
+        .map(|issued| issued.claims.grants)
+    }
+
+    #[test]
+    fn grant_policy_sees_the_candidates_and_can_only_narrow() {
+        let policy: &GrantPolicyFn = &|ctx| {
+            assert_eq!(ctx.candidate_grants, ["chat.send", "files.read"]);
+            assert_eq!(ctx.peer_identity.subject, "peer");
+            Ok(vec!["files.read".into(), "admin".into()])
+        };
+        assert_eq!(grant_policy_issue(policy).unwrap(), ["files.read"]);
+    }
+
+    #[test]
+    fn a_failing_or_empty_grant_policy_is_policy_violation() {
+        let failing: &GrantPolicyFn = &|_| Err(GrantPolicyError::new("policy store down"));
+        let err = grant_policy_issue(failing).unwrap_err();
+        assert!(matches!(err, HandshakeError::GrantPolicy(_)), "{err}");
+        assert_eq!(err.error_code(), crate::core::ErrorCode::PolicyViolation);
+        let empty: &GrantPolicyFn = &|_| Ok(vec![]);
+        assert!(matches!(
+            grant_policy_issue(empty).unwrap_err(),
+            HandshakeError::PolicyViolation
+        ));
     }
 }

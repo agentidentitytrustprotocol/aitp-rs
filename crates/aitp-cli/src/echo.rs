@@ -18,8 +18,8 @@
 
 use aitp::core::{Aid, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
+use aitp::envelope::{sign_envelope, verify_envelope_signature};
 use aitp::tct::{sign_pop_response, PopChallenge};
-use aitp::transport::{sign_envelope, verify_envelope_signature};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -96,4 +96,5 @@ pub(crate) fn respond(
         MessageType::PopResponse,
         serde_json::to_value(response).map_err(|e| e.to_string())?,
     )
+    .map_err(|e| e.to_string())
 }

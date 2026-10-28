@@ -17,10 +17,10 @@ use std::sync::Mutex;
 use std::task::{Context, Poll, Waker};
 
 use aitp::core::nonce_store::{
-    BoxFuture, ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError, NONCE_LEN,
+    ConsumeOutcome, IssuedNonce, Nonce, NonceStore, NonceStoreError, NONCE_LEN,
 };
 use aitp::core::{
-    base64url, ids, Aid, AidAlgorithm, CheckedJson, ExtensionsMap, RawUrl, Timestamp,
+    base64url, ids, Aid, AidAlgorithm, BoxFuture, CheckedJson, ExtensionsMap, RawUrl, Timestamp,
 };
 use aitp::crypto::testing::{p256_high_s_twin, MockKmsSigner, MockOutput};
 use aitp::crypto::{
@@ -72,7 +72,7 @@ fn statement() -> Map<String, Value> {
 fn attestation_ctx<'a>(issuer: &'a Aid, key: &'a str) -> AttestationVerifyContext<'a> {
     AttestationVerifyContext::builder(issuer, key, NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap()
 }
@@ -187,8 +187,7 @@ fn crypto_items() {
         check_public_key(&key).unwrap();
         let async_pk: AitpVerifyingKey = ready(AsyncAitpSigner::public_key(&key)).unwrap();
         assert_eq!(async_pk, AitpSigner::public_key(&key).unwrap());
-        let boxed: aitp::crypto::signer::BoxFuture<'_, _> =
-            Box::pin(AsyncAitpSigner::public_key(&key));
+        let boxed: BoxFuture<'_, _> = Box::pin(AsyncAitpSigner::public_key(&key));
         assert_eq!(ready(boxed).unwrap(), async_pk);
     }
 
@@ -233,7 +232,7 @@ fn self_attestation_round_trip_and_rejections() {
 
     let v =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), STATEMENT_KEY)).unwrap();
-    assert_eq!(v.statement, json!({"statement": "seam attestation"}));
+    assert_eq!(v.statement(), &json!({"statement": "seam attestation"}));
 
     let err =
         verify_attestation(&issued.token, &attestation_ctx(issuer.aid(), "org.other")).unwrap_err();
@@ -260,7 +259,7 @@ fn self_attestation_round_trip_and_rejections() {
 
     // An attestation confers nothing in the grant context.
     let ctx = TctVerifyContext::builder(issuer.aid(), issuer.aid(), NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -274,7 +273,7 @@ fn self_attestation_golden_bytes() {
     let token = TctBuilder::new(&ed25519(8))
         .self_attestation()
         .ext(statement())
-        .ttl_secs(3_600)
+        .ttl(std::time::Duration::from_secs(3_600))
         .derived_jti("com.example.seam", b"golden")
         .issued_at(NOW)
         .build()
@@ -331,10 +330,17 @@ fn pinned_key_proof_round_trip() {
     );
     assert_eq!(descriptor.kind, IdentityKind::PinnedKey);
     let store: StaticPinnedKeyStore = [vk].into_iter().collect();
-    let ctx = PinnedKeyVerifyContext::new(sender.aid(), &receiver, &message_id, NOW, &pop_nonce)
-        .with_subject(SubjectBinding::SenderAid);
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(sender.aid())
+        .receiver_aid(&receiver)
+        .message_id(&message_id)
+        .timestamp(NOW)
+        .pop_nonce(&pop_nonce)
+        .subject(SubjectBinding::SenderAid)
+        .build()
+        .unwrap();
     let verified = verify_pinned_key(&descriptor, &ctx, &store).unwrap();
-    assert_eq!(verified.aid, *sender.aid());
+    assert_eq!(verified.aid(), sender.aid());
 
     let unpinned = StaticPinnedKeyStore::default();
     assert!(verify_pinned_key(&descriptor, &ctx, &unpinned).is_err());

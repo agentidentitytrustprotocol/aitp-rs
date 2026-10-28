@@ -6,7 +6,7 @@
 //! handshake verifiers to consult revocation state for every TCT they
 //! receive.
 //!
-//! These tests exercise the `PeerConfig::revocation_check` hook
+//! These tests exercise the `PeerConfig::revocation` hook
 //! end-to-end: a TCT whose JTI is reported revoked must fail
 //! `MUTUAL_COMMIT` with `TctError::Revoked`, and a fail-closed lookup
 //! error from the hook must propagate as a `HandshakeError`.
@@ -16,16 +16,16 @@
 //! so a tampered, wrong-audience, or expired TCT never triggers a
 //! revocation lookup. Those tests install a hook that panics if called.
 
-use aitp::core::{Aid, AitpEnvelope, MessageType, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::error::HandshakeError;
-use aitp::handshake::state_machine::RevocationCheckFn;
+use aitp::handshake::HandshakeError;
 use aitp::handshake::{
-    HandshakeRevocationDecision, Initiator, JwkPublicKey, JwksResolver, PeerConfig,
-    PresentedIdentity, ResolveError, Responder,
+    Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::tct::TctError;
+use aitp::tct::{
+    RevocationCheckFn, RevocationQuery, RevocationStatus, RevocationUnavailable, TctError,
+};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use uuid::Uuid;
 
@@ -56,7 +56,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -87,7 +87,7 @@ fn resign_commit_tct(
     payload: &mut aitp::handshake::MutualCommitPayload,
     mutate: impl FnOnce(&mut serde_json::Value),
 ) {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
     let bytes = aitp::crypto::jws::decode_payload_unverified(&payload.tct).unwrap();
     let mut claims: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
     mutate(&mut claims);
@@ -106,8 +106,8 @@ struct StagedCommit {
 }
 
 fn stage_through_commit() -> StagedCommit {
-    let alice = AitpSigningKey::from_seed(&[0xAA; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xBB; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xAA; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xBB; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -118,7 +118,7 @@ fn stage_through_commit() -> StagedCommit {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -127,7 +127,7 @@ fn stage_through_commit() -> StagedCommit {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -191,30 +191,28 @@ fn stage_through_commit() -> StagedCommit {
     }
 }
 
-/// A revocation hook reporting `Ok(true)` for the JTI carried in the
+/// A revocation hook reporting `Revoked` for the JTI carried in the
 /// MUTUAL_COMMIT TCT must abort the handshake with
 /// `HandshakeError::Tct(TctError::Revoked)`.
 #[test]
 fn revoked_tct_in_mutual_commit_aborts_handshake() {
-    // The trait object behind `revocation_check: Option<&dyn Fn(...)>`
-    // is `Send + Sync + 'static`, so it can't borrow stack state.
-    // Use a static counter instead.
+    // A static counter keeps the boxed hook `'static`.
     static CALLS: AtomicUsize = AtomicUsize::new(0);
     CALLS.store(0, Ordering::Relaxed);
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
         CALLS.fetch_add(1, Ordering::Relaxed);
-        Ok(HandshakeRevocationDecision::Revoked)
+        Ok(RevocationStatus::Revoked)
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
 
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged
@@ -233,26 +231,25 @@ fn revoked_tct_in_mutual_commit_aborts_handshake() {
 }
 
 /// A revocation hook returning `Err` (e.g. fail-closed when the
-/// snapshot source is unreachable) must propagate the error
-/// untranslated, so callers can map provider-level diagnostics to
-/// their own error surface.
+/// snapshot source is unreachable) surfaces as
+/// `Tct(RevocationUnavailable)` carrying the hook's reason.
 #[test]
 fn revocation_provider_failure_propagates() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
-        Err(HandshakeError::InvalidEnvelope(
-            "revocation provider unreachable".into(),
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
+        Err(RevocationUnavailable::new(
+            "revocation provider unreachable",
         ))
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
 
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged
@@ -260,8 +257,12 @@ fn revocation_provider_failure_propagates() {
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect_err("hook error must propagate");
     assert!(
-        matches!(err, HandshakeError::InvalidEnvelope(ref s) if s.contains("unreachable")),
-        "expected InvalidEnvelope from hook, got {err:?}"
+        matches!(
+            err,
+            HandshakeError::Tct(TctError::RevocationUnavailable(ref e))
+                if e.to_string().contains("unreachable")
+        ),
+        "expected Tct(RevocationUnavailable) from hook, got {err:?}"
     );
 }
 
@@ -276,7 +277,7 @@ fn fail_open_opt_out_skips_the_hook() {
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let _ = staged
@@ -292,24 +293,26 @@ fn fail_open_opt_out_skips_the_hook() {
 fn soft_fail_safe_subset_with_intersection_accepts() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
-        Ok(HandshakeRevocationDecision::SoftFailSafeSubset {
-            safe_grants: vec!["demo.echo".into()],
-        })
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "demo.echo".into()
+        ]))
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
-    let _ = staged
+    let (_ack, completed) = staged
         .bob_resp
         .on_commit(&staged.commit_envelope, &staged.commit_payload, &bob_cfg)
         .expect("soft-fail with overlapping safe_grants must accept");
+    assert_eq!(completed.effective_grants(), ["demo.echo"]);
+    assert_eq!(completed.tct().effective_grants(), ["demo.echo"]);
 }
 
 /// RFC-AITP-0008 §3.3: a TCT whose signature does not validate MUST be
@@ -332,16 +335,16 @@ fn invalid_tct_signature_skips_revocation_lookup() {
             aitp::core::base64url::encode(&[0u8; 64])
         );
     }
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
         panic!("revocation hook called before TCT signature verification");
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged
@@ -367,21 +370,21 @@ fn invalid_tct_signature_skips_revocation_lookup() {
 fn wrong_audience_skips_revocation_lookup() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let stranger = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let stranger = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let stranger_aid = stranger.aid().clone();
     resign_commit_tct(&mut staged.commit_payload, |claims| {
         claims["aud"] = serde_json::to_value(&stranger_aid).unwrap();
     });
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
         panic!("revocation hook called for a TCT with the wrong audience");
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged
@@ -403,16 +406,16 @@ fn expired_tct_skips_revocation_lookup() {
     resign_commit_tct(&mut staged.commit_payload, |claims| {
         claims["exp"] = serde_json::json!(NOW.0 - 100);
     });
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
         panic!("revocation hook called for an expired TCT");
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged
@@ -432,18 +435,18 @@ fn expired_tct_skips_revocation_lookup() {
 fn soft_fail_safe_subset_with_empty_intersection_rejects() {
     let mut staged = stage_through_commit();
     let resolver = NoOpResolver;
-    let hook: Box<RevocationCheckFn> = Box::new(|_issuer: &Aid, _jti: &Uuid| {
-        Ok(HandshakeRevocationDecision::SoftFailSafeSubset {
-            safe_grants: vec!["unrelated.cap".into()],
-        })
+    let hook: Box<RevocationCheckFn<'static>> = Box::new(|_q: &RevocationQuery<'_>| {
+        Ok(RevocationStatus::soft_fail_safe_subset(vec![
+            "unrelated.cap".into(),
+        ]))
     });
-    let hook_ref: &RevocationCheckFn = &*hook;
+    let hook_ref: &RevocationCheckFn<'_> = &*hook;
     let bob_cfg = PeerConfig::new(
         &staged.bob,
         &staged.bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::Check(hook_ref),
+        aitp::tct::RevocationSource::Check(hook_ref),
         NOW,
     );
     let err = staged

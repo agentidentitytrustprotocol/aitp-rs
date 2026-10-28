@@ -10,10 +10,10 @@ use std::hint::black_box;
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn issuer() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn subject() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 
 fn mint_token() -> String {
@@ -21,7 +21,7 @@ fn mint_token() -> String {
         .subject(subject().aid().clone())
         .audience(subject().aid().clone())
         .grants(["demo.echo", "demo.read", "demo.write"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(subject().verifying_key())
         .issued_at(NOW)
         .build()
@@ -38,7 +38,7 @@ fn bench_issue(c: &mut Criterion) {
                 .subject(subject.aid().clone())
                 .audience(subject.aid().clone())
                 .grants(["demo.echo", "demo.read", "demo.write"])
-                .ttl_secs(3600)
+                .ttl(std::time::Duration::from_secs(3600))
                 .subject_pubkey(subject.verifying_key())
                 .issued_at(NOW)
                 .build()
@@ -55,7 +55,7 @@ fn bench_verify(c: &mut Criterion) {
     c.bench_function("tct_verify", |b| {
         b.iter(|| {
             let ctx = TctVerifyContext::builder(&subject_aid, &issuer_aid, verify_at)
-                .accept_unchecked_revocation_dangerous()
+                .revocation(aitp::tct::RevocationSource::FailOpen)
                 .skip_manifest_expiry_cap_dangerous()
                 .build()
                 .unwrap();

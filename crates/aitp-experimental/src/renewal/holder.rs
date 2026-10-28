@@ -5,7 +5,8 @@ use crate::renewal::{
     renewal_pop_input, RenewalError, RenewalErrorPayload, RenewalResponseError,
     RenewalResponsePayload, TctRenewalPayload, RENEWAL_RESPONSE_PAYLOAD_MEMBERS,
 };
-use aitp::core::{base64url, check_members, Aid, AitpEnvelope, MessageType, Timestamp};
+use aitp::__private::check_members;
+use aitp::core::{base64url, Aid, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::{sign_jcs, AitpSigner, AitpVerifyingKey, CryptoError, Digest32};
 use aitp::envelope::verify_envelope_signature;
 use aitp::tct::{verify_tct, TctError, TctVerifyContext, VerifiedTct};
@@ -156,7 +157,7 @@ pub fn verify_renewal_response(
     // Step 4. The holder has just been issued this TCT, so it does not
     // consult the issuer's revocation list for it.
     let builder = TctVerifyContext::builder(ctx.self_aid, &current.iss, ctx.now)
-        .accept_unchecked_revocation_dangerous();
+        .revocation(aitp::tct::RevocationSource::FailOpen);
     let builder = match ctx.issuer_manifest_expires_at {
         Some(exp) => builder.issuer_manifest_expires_at(exp),
         None => builder.skip_manifest_expiry_cap_dangerous(),
@@ -165,13 +166,13 @@ pub fn verify_renewal_response(
     let renewed = verify_tct(&payload.tct, &verify_ctx).map_err(RenewalResponseError::Tct)?;
 
     // Step 5.
-    if &renewed.claims.sub != ctx.self_aid || renewed.claims.cnf.jkt != current.cnf.jkt {
+    if &renewed.claims().sub != ctx.self_aid || renewed.claims().cnf.jkt != current.cnf.jkt {
         return Err(RenewalResponseError::AudienceMismatch);
     }
 
     // Step 6.
     if renewed
-        .claims
+        .claims()
         .grants
         .iter()
         .any(|g| !current.grants.contains(g))

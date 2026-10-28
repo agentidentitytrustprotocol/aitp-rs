@@ -13,7 +13,7 @@
 
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::state_machine::GrantPolicyFn;
+use aitp::handshake::GrantPolicyFn;
 use aitp::handshake::{IdentityDescriptor, IdentityKind};
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,
@@ -48,7 +48,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .offer("write_data")
         .published_at(NOW)
@@ -78,8 +78,8 @@ fn envelope_with(
 /// not a placeholder.
 #[test]
 fn responder_grant_policy_sees_real_pinned_key_identity() {
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let resolver = NoOpResolver;
@@ -88,11 +88,11 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
     // is `Send + Sync` and outlives `cfg`, so closures can't borrow
     // local stack state directly. Capture into a thread-local so the
     // test can read what the policy actually saw.
-    let policy_box: Box<GrantPolicyFn> = Box::new(|id, grants| {
+    let policy_box: Box<GrantPolicyFn> = Box::new(|ctx| {
         TEST_CAPTURE.with(|c| {
-            *c.borrow_mut() = Some(id.clone());
+            *c.borrow_mut() = Some(ctx.peer_identity.clone());
         });
-        grants.to_vec()
+        Ok(ctx.candidate_grants.to_vec())
     });
     let policy_ref: &GrantPolicyFn = &*policy_box;
 
@@ -102,7 +102,7 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -111,7 +111,7 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_grant_policy(policy_ref);

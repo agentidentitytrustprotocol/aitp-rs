@@ -8,9 +8,10 @@
 
 use aitp::core::{MessageType, Sender, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::transport::{sign_envelope_with, HandshakeServer};
+use aitp::transport::HandshakeServer;
 use serde_json::Value;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -35,14 +36,14 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> aitp::manifest::Manifest {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
 }
 
 async fn spawn_server() -> u16 {
-    let server_key = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let server_key = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let manifest = manifest_for(&server_key, "responder");
     let server = HandshakeServer::new(
         server_key,
@@ -100,7 +101,7 @@ async fn malformed_json_returns_invalid_envelope() {
 #[tokio::test]
 async fn stale_timestamp_returns_timestamp_expired() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xAB; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAB; 32]);
     let mut envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -122,7 +123,7 @@ async fn stale_timestamp_returns_timestamp_expired() {
 #[tokio::test]
 async fn replayed_message_id_returns_replay_detected() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xAD; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAD; 32]);
     let mid = Uuid::new_v4();
     let envelope = sign_envelope_with(
         &key,
@@ -150,7 +151,7 @@ async fn unknown_envelope_version_returns_unknown_version() {
     // version client by hand-rolling the envelope JSON; the server
     // should reject before any payload parsing.
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xCF; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xCF; 32]);
     let mut envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -180,7 +181,7 @@ async fn unknown_envelope_version_returns_unknown_version() {
 #[tokio::test]
 async fn unknown_top_level_envelope_member_returns_unknown_field() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD0; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD0; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -212,7 +213,7 @@ async fn unknown_top_level_envelope_member_returns_unknown_field() {
 #[tokio::test]
 async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD2; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -244,7 +245,7 @@ async fn duplicate_top_level_envelope_member_is_rejected_not_silently_accepted()
 #[tokio::test]
 async fn duplicate_key_nested_inside_hello_payload_is_rejected_not_silently_accepted() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD3; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -277,7 +278,7 @@ async fn duplicate_key_nested_inside_hello_payload_is_rejected_not_silently_acce
 #[tokio::test]
 async fn unknown_hello_payload_sibling_member_returns_unknown_field() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD1; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD1; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -303,7 +304,7 @@ async fn unknown_hello_payload_sibling_member_returns_unknown_field() {
 #[tokio::test]
 async fn forward_version_structurally_clean_envelope_returns_unknown_version_not_unknown_field() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD2; 32]);
     let mut envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -346,7 +347,7 @@ async fn forward_version_structurally_clean_envelope_returns_unknown_version_not
 #[tokio::test]
 async fn version_is_checked_before_member_set_and_signature() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xD3; 32]);
     let post = |wire: serde_json::Value| async move {
         reqwest::Client::new()
             .post(format!("http://127.0.0.1:{port}/aitp/handshake/hello"))
@@ -375,7 +376,7 @@ async fn version_is_checked_before_member_set_and_signature() {
     // Correctly signed under the v2 input, but at the previous revision.
     let mut prev = fresh();
     prev.version = "aitp/0.2".into();
-    let d = aitp::core::envelope::envelope_signing_digest(&prev).unwrap();
+    let d = aitp::core::envelope_signing_digest(&prev).unwrap();
     prev.signature = key
         .sign_jcs(&aitp::crypto::Digest32::from_bytes(d))
         .into_string();
@@ -403,7 +404,7 @@ async fn post_hello(port: u16, content_type: &str, wire: &Value) -> reqwest::Res
 
 /// A signed MUTUAL_HELLO as wire JSON, `age_secs` in the past.
 fn hello_wire(seed: u8, mid: Uuid, age_secs: i64) -> Value {
-    let key = AitpSigningKey::from_seed(&[seed; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -559,7 +560,7 @@ async fn unreadable_timestamp_or_message_id_falls_through_to_structure() {
 #[tokio::test]
 async fn unknown_message_type_returns_invalid_envelope() {
     let port = spawn_server().await;
-    let key = AitpSigningKey::from_seed(&[0xAE; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAE; 32]);
     // Construct a TCT-typed envelope sent to the hello endpoint.
     let envelope = sign_envelope_with(
         &key,
@@ -602,7 +603,7 @@ impl ReplayGuard for RecordingGuard {
 }
 
 async fn spawn_server_with_guard(guard: Arc<dyn ReplayGuard>) -> u16 {
-    let server_key = AitpSigningKey::from_seed(&[0xCC; 32]);
+    let server_key = AitpSigningKey::from_ed25519_seed(&[0xCC; 32]);
     let manifest = manifest_for(&server_key, "responder");
     let server = HandshakeServer::new(
         server_key,
@@ -629,7 +630,7 @@ async fn injected_replay_guard_sees_the_message_id() {
     });
     let port = spawn_server_with_guard(guard.clone()).await;
 
-    let key = AitpSigningKey::from_seed(&[0xB1; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xB1; 32]);
     let mid = Uuid::new_v4();
     let envelope = sign_envelope_with(
         &key,
@@ -664,7 +665,7 @@ async fn injected_replay_guard_verdict_is_honored() {
     });
     let port = spawn_server_with_guard(guard).await;
 
-    let key = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let envelope = sign_envelope_with(
         &key,
         MessageType::MutualHello,

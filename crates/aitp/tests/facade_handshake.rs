@@ -16,7 +16,9 @@ use aitp::crypto::AitpSigningKey;
 use aitp::facade::{
     run_initiator_handshake, FacadeError, IdentityMode, InitiatorConfig, TrustMode,
 };
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore};
+use aitp::handshake::{
+    GrantPolicyFn, JwkPublicKey, JwksResolver, ResolveError, StaticPinnedKeyStore,
+};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::transport::{HandshakeServer, RevocationFailMode, RevocationPolicy};
 use std::sync::Arc;
@@ -56,7 +58,7 @@ fn manifest_with_revocation(
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
@@ -68,15 +70,16 @@ fn manifest_with_revocation(
 /// Bob advertises the revocation list his `HandshakeServer` serves; he
 /// runs `fail_open` because Alice, who runs no server, publishes none.
 async fn spawn_bob(seed: u8, reject_initiator: bool) -> (AitpSigningKey, url::Url) {
-    spawn_bob_with(seed, reject_initiator, true).await
+    spawn_bob_with(seed, reject_initiator, true, None).await
 }
 
 async fn spawn_bob_with(
     seed: u8,
     reject_initiator: bool,
     advertise_revocation: bool,
+    grant_policy: Option<Arc<GrantPolicyFn>>,
 ) -> (AitpSigningKey, url::Url) {
-    let bob = AitpSigningKey::from_seed(&[seed; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
     // Trailing slash: the facade resolves routes via endpoint.join("hello").
@@ -89,7 +92,7 @@ async fn spawn_bob_with(
     });
     let manifest = manifest_with_revocation(&bob, "bob", &endpoint, list_uri);
 
-    let bob_server_key = AitpSigningKey::from_seed(&[seed; 32]); // same identity
+    let bob_server_key = AitpSigningKey::from_ed25519_seed(&[seed; 32]); // same identity
     let mut handshake = HandshakeServer::new(
         bob_server_key,
         manifest.clone(),
@@ -106,8 +109,11 @@ async fn spawn_bob_with(
     } else {
         // Bob trusts Alice's pinned key (seed 0x70).
         handshake = handshake.with_pinned_key_store(Arc::new(StaticPinnedKeyStore::new([
-            AitpSigningKey::from_seed(&[0x70; 32]).verifying_key(),
+            AitpSigningKey::from_ed25519_seed(&[0x70; 32]).verifying_key(),
         ])));
+    }
+    if let Some(policy) = grant_policy {
+        handshake = handshake.with_grant_policy(policy);
     }
     // `serve` also serves the Manifest.
     tokio::spawn(async move {
@@ -124,7 +130,7 @@ async fn spawn_bob_with(
 async fn facade_drives_full_handshake_and_returns_peer_tct() {
     let (bob, bob_origin) = spawn_bob(0x71, false).await;
 
-    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
     let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
@@ -139,21 +145,21 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .expect("facade handshake succeeds");
 
     assert_eq!(
-        &session.peer_aid,
+        session.peer_aid(),
         bob.aid(),
         "peer AID is Bob's (the TCT issuer)"
     );
-    assert_eq!(&session.held_tct.claims.iss, bob.aid());
+    assert_eq!(&session.held_tct().claims().iss, bob.aid());
     assert!(
         session
-            .held_tct
-            .claims
+            .held_tct()
+            .claims()
             .grants
             .iter()
             .any(|g| g == "demo.echo"),
@@ -167,9 +173,9 @@ async fn facade_drives_full_handshake_and_returns_peer_tct() {
 /// distinct from a revoked TCT. `fail_open` admits the same peer.
 #[tokio::test]
 async fn facade_fails_closed_without_peer_revocation_list() {
-    let (bob, bob_origin) = spawn_bob_with(0x77, false, false).await;
+    let (bob, bob_origin) = spawn_bob_with(0x77, false, false, None).await;
 
-    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
     let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
     let config = || {
@@ -183,7 +189,7 @@ async fn facade_fails_closed_without_peer_revocation_list() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
     };
 
     let err = run_initiator_handshake(config())
@@ -207,6 +213,38 @@ async fn facade_fails_closed_without_peer_revocation_list() {
 }
 
 #[tokio::test]
+async fn the_server_grant_policy_narrows_the_issued_tct() {
+    let deny_all: Arc<GrantPolicyFn> = Arc::new(|ctx| {
+        assert_eq!(ctx.candidate_grants, ["demo.echo"]);
+        Ok(vec![])
+    });
+    let (bob, bob_origin) = spawn_bob_with(0x74, false, true, Some(deny_all)).await;
+
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
+    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
+    let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);
+    let err = run_initiator_handshake(
+        InitiatorConfig::new(
+            &alice,
+            &alice_manifest,
+            bob_origin,
+            TrustMode::PinnedKeys(&trusted),
+            IdentityMode::PinnedKey {
+                subject: "alice".into(),
+            },
+            vec!["demo.echo".into()],
+        )
+        .with_insecure_localhost_dangerous(),
+    )
+    .await
+    .expect_err("a server policy granting nothing refuses the handshake");
+    match err {
+        FacadeError::Protocol { code, .. } => assert_eq!(code, "POLICY_VIOLATION"),
+        other => panic!("expected FacadeError::Protocol, got {other:?}"),
+    }
+}
+
+#[tokio::test]
 async fn facade_surfaces_peer_protocol_rejection() {
     // Bob installs an empty pinned-key store, so he rejects Alice's
     // pinned-key identity during the HELLO. The facade must classify
@@ -214,7 +252,7 @@ async fn facade_surfaces_peer_protocol_rejection() {
     // transport fault.
     let (_bob, bob_origin) = spawn_bob(0x73, true).await;
 
-    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
     let trusted = aitp::handshake::NoPinnedKeys;
@@ -229,7 +267,7 @@ async fn facade_surfaces_peer_protocol_rejection() {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .expect_err("untrusted initiator must be rejected");
@@ -247,12 +285,12 @@ async fn facade_surfaces_peer_protocol_rejection() {
 
 #[tokio::test]
 async fn facade_refuses_http_localhost_peer_by_default() {
-    // #198: without `with_insecure_localhost(true)` the plain-HTTP
+    // #198: without `with_insecure_localhost_dangerous()` the plain-HTTP
     // loopback origin is refused at the Manifest fetch (RFC-AITP-0003
     // §4.1), before any handshake traffic.
     let (bob, bob_origin) = spawn_bob(0x75, false).await;
 
-    let alice = AitpSigningKey::from_seed(&[0x70; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x70; 32]);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:1/aitp/handshake/");
 
     let trusted = StaticPinnedKeyStore::new([bob.verifying_key()]);

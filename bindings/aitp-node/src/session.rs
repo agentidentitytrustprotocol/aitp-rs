@@ -12,7 +12,7 @@ use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder, RevocationSource, StaticPinnedKeyStore,
+    MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
@@ -22,8 +22,6 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
-
-use aitp::core::Aid;
 
 use crate::helpers::{
     coded_error, handshake_code, js_revocation, make_peer_config, NoOpJwksResolver, NO_TCT_STEP,
@@ -136,7 +134,7 @@ pub struct JsHandshakeTctClaims {
 
 impl JsHandshakeTctClaims {
     fn from_verified(v: &VerifiedTct) -> Self {
-        let c = &v.claims;
+        let c = &v.claims();
         Self {
             iss: c.iss.to_string(),
             sub: c.sub.to_string(),
@@ -246,7 +244,7 @@ impl JsInitiatorSession {
         let payload =
             serde_json::to_value(&hello).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope_with(&self.key, MessageType::MutualHello, payload, msg_id, ts)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))
     }
 
@@ -287,7 +285,7 @@ impl JsInitiatorSession {
         let payload =
             serde_json::to_value(&commit).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommit, payload)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))
     }
 
@@ -318,13 +316,8 @@ impl JsInitiatorSession {
         .map_err(|e| Error::from_reason(format!("invalid commit_ack payload: {e}")))?;
 
         let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-        let fail_open = deny.is_fail_open();
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -343,9 +336,9 @@ impl JsInitiatorSession {
             .map_err(|e| coded_error(env, handshake_code(&e).as_deref(), e.to_string()))?;
 
         Ok(JsCompletedHandshake {
-            tct: completed.tct.token.clone(),
-            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
-            grant_voucher: completed.grant_voucher,
+            tct: completed.tct().token().to_owned(),
+            claims: JsHandshakeTctClaims::from_verified(completed.tct()),
+            grant_voucher: completed.grant_voucher().map(str::to_owned),
         })
     }
 }
@@ -434,7 +427,7 @@ impl JsResponderSession {
             ack_msg_id,
             ack_ts,
         )
-        .map_err(Error::from_reason)?;
+        .map_err(|e| Error::from_reason(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(JsHelloAckResult {
@@ -464,13 +457,8 @@ impl JsResponderSession {
         .map_err(|e| Error::from_reason(format!("invalid commit payload: {e}")))?;
 
         let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-        let fail_open = deny.is_fail_open();
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -490,13 +478,13 @@ impl JsResponderSession {
 
         let payload = serde_json::to_value(&ack).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
         let completed_js = JsCompletedHandshake {
-            tct: completed.tct.token.clone(),
-            claims: JsHandshakeTctClaims::from_verified(&completed.tct),
-            grant_voucher: completed.grant_voucher,
+            tct: completed.tct().token().to_owned(),
+            claims: JsHandshakeTctClaims::from_verified(completed.tct()),
+            grant_voucher: completed.grant_voucher().map(str::to_owned),
         };
         Ok(JsCommitAckResult {
             ack_json,

@@ -38,6 +38,9 @@ class Problems(unittest.TestCase):
             "pub aitp::tct::TctError::RenewalReplayed",
             "pub struct aitp::handshake::SpiffeBundleStore",
             "pub fn aitp::handshake::verify_spiffe()",
+            "pub aitp::handshake::IdentityDescriptor::svid_type: u8",
+            "pub aitp::handshake::IdentityDescriptor::x5c: u8",
+            "pub enum aitp::handshake::SvidType",
             "pub aitp::delegation::DelegationClaims::chain: core::option::Option<u8>",
             "pub aitp::delegation::DelegationClaims::jti: core::option::Option<u8>",
             "pub fn aitp::delegation::compute_chain_hash()",
@@ -55,7 +58,6 @@ class Problems(unittest.TestCase):
     def test_core_multihop_code_passes(self):
         lines = ["pub aitp::core::ErrorCode::DelegationMultihopNotSupported",
                  "pub aitp::delegation::DelegationError::MultihopNotSupported",
-                 "pub aitp::handshake::IdentityDescriptor::svid_type: u8",
                  "pub aitp::delegation::DelegationClaims::chainless: u8"]
         self.assertEqual(mod.problems(lines), [])
 

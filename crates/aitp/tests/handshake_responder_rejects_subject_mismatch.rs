@@ -38,7 +38,7 @@ fn manifest_for(key: &AitpSigningKey, hint_subject: &str) -> Manifest {
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -62,8 +62,8 @@ fn envelope_with(sender: &AitpSigningKey, payload: serde_json::Value, mid: Uuid)
 
 #[test]
 fn responder_rejects_subject_disagreeing_with_manifest_hint() {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
 
     // Alice's Manifest declares the subject "alice", but she presents
     // the subject "mallory" in the handshake.
@@ -77,7 +77,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -86,7 +86,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 

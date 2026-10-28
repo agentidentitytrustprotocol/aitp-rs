@@ -16,13 +16,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use aitp::core::{Aid, AitpEnvelope, MessageType, RawUrl, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, RevocationSource,
-    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp::manifest::{IdentityHintKind, Manifest};
@@ -204,7 +204,7 @@ impl PyInitiatorSession {
         let payload =
             serde_json::to_value(&hello).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope_with(&self.key, MessageType::MutualHello, payload, msg_id, ts)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -246,7 +246,7 @@ impl PyInitiatorSession {
         let payload =
             serde_json::to_value(&commit).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope(&self.key, MessageType::MutualCommit, payload)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -278,14 +278,8 @@ impl PyInitiatorSession {
         .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
 
         let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
-        let fail_open = deny.is_fail_open();
-        // `RevocationCheckFn` is `'static`, so the closure owns the list.
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -310,8 +304,8 @@ impl PyInitiatorSession {
 /// `{"tct": "<compact JWS>", "grant_voucher": "<compact JWS>" | null}`.
 fn completed_handshake_json(completed: &CompletedHandshake) -> PyResult<String> {
     let out = serde_json::json!({
-        "tct": completed.tct.token,
-        "grant_voucher": completed.grant_voucher,
+        "tct": completed.tct().token(),
+        "grant_voucher": completed.grant_voucher(),
     });
     serde_json::to_string(&out).map_err(|e| PyRuntimeError::new_err(e.to_string()))
 }
@@ -405,7 +399,7 @@ impl PyResponderSession {
             ack_msg_id,
             ack_ts,
         )
-        .map_err(PyRuntimeError::new_err)?;
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok((ack_json, session_id))
@@ -433,14 +427,8 @@ impl PyResponderSession {
         .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
 
         let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
-        let fail_open = deny.is_fail_open();
-        // `RevocationCheckFn` is `'static`, so the closure owns the list.
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -460,7 +448,7 @@ impl PyResponderSession {
         let payload =
             serde_json::to_value(&ack).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let completed_json = completed_handshake_json(&completed)?;

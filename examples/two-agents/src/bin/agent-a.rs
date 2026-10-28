@@ -35,7 +35,7 @@ struct Cli {
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
-    let key = AitpSigningKey::from_seed(&expand_seed(&cli.seed));
+    let key = AitpSigningKey::from_ed25519_seed(&expand_seed(&cli.seed));
     // We offer demo.echo so B's symmetric grant request is satisfiable;
     // pinned-key identity "agent-a" matches our Manifest identity hint.
     let manifest = build_demo_manifest(&key, "agent-a", cli.port, &["demo.echo"]);
@@ -47,7 +47,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // verified Manifest's pinned public key becomes our trust anchor.
     // The demo runs over plain HTTP on localhost, which is refused
     // unless opted in (here and on the InitiatorConfig below).
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let bob_manifest = wait_for_peer(&fetcher, &peer_origin).await?;
     println!("agent-a: fetched B's manifest, AID = {}", bob_manifest.aid);
 
@@ -68,12 +68,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             },
             vec!["demo.echo".into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await?;
     println!(
         "agent-a: handshake complete — holding TCT issued by {} with grants {:?}",
-        session.held_tct.claims.iss, session.held_tct.claims.grants
+        session.held_tct().claims().iss,
+        session.held_tct().claims().grants
     );
 
     // Invoke B's /echo using the received TCT — on the wire the TCT is
@@ -81,7 +82,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let client = reqwest::Client::new();
     let echo_resp = client
         .post(peer_origin.join("/echo")?)
-        .header("x-aitp-tct", session.held_tct.token)
+        .header("x-aitp-tct", session.held_tct().token())
         .body(cli.message)
         .send()
         .await?;
@@ -101,7 +102,7 @@ async fn wait_for_peer(
 ) -> Result<aitp::manifest::Manifest, Box<dyn std::error::Error>> {
     for attempt in 0..40 {
         match fetcher.fetch(peer_origin).await {
-            Ok(manifest) => return Ok(manifest),
+            Ok(manifest) => return Ok(manifest.into_manifest()),
             Err(_) if attempt < 39 => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }

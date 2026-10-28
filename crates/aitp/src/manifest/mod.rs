@@ -16,18 +16,19 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod builder;
-pub mod error;
-pub mod resolver;
-pub mod types;
-pub mod verifier;
+pub(crate) mod builder;
+pub(crate) mod error;
+pub(crate) mod resolver;
+pub(crate) mod types;
+pub(crate) mod verifier;
 
-pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL_SECS, REVOCATION_LIST_URI_EXT};
+pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL, REVOCATION_LIST_URI_EXT};
 pub use error::ManifestError;
 pub use resolver::{resolve_verified_manifest, ManifestResolver};
 pub use types::{
     IdentityHint, IdentityHintKind, Manifest, ManifestEnvelope, ManifestPop, MANIFEST_MEMBERS,
 };
 pub use verifier::{
-    check_identity_type_compatibility, parse_manifest_wire, verify_manifest, VerifyManifestContext,
+    check_identity_type_compatibility, parse_manifest_wire, verify_manifest, ManifestVerifyContext,
+    VerifiedManifest,
 };

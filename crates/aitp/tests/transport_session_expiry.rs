@@ -6,11 +6,12 @@
 
 use aitp::core::{MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
+use aitp::envelope::sign_envelope_with;
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::transport::{sign_envelope_with, HandshakeServer};
+use aitp::transport::HandshakeServer;
 use std::time::Duration;
 use tokio::net::TcpListener;
 use uuid::Uuid;
@@ -40,7 +41,7 @@ fn manifest_for(
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap()
@@ -48,8 +49,8 @@ fn manifest_for(
 
 #[tokio::test]
 async fn commit_after_session_ttl_is_rejected() {
-    let alice = AitpSigningKey::from_seed(&[0x71; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x72; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x71; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x72; 32]);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -59,14 +60,14 @@ async fn commit_after_session_ttl_is_rejected() {
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
     // 50ms TTL; the test sleeps 200ms between HELLO and COMMIT.
-    let server = HandshakeServer::with_session_ttl(
-        AitpSigningKey::from_seed(&[0x72; 32]),
+    let server = HandshakeServer::new(
+        AitpSigningKey::from_ed25519_seed(&[0x72; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-        Duration::from_millis(50),
     )
+    .with_session_ttl(Duration::from_millis(50))
     .with_pinned_key_store(std::sync::Arc::new(
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))
@@ -88,7 +89,7 @@ async fn commit_after_session_ttl_is_rejected() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();
@@ -176,8 +177,8 @@ async fn fresh_session_within_ttl_is_accepted() {
     // Sanity: confirm the same setup completes successfully when the
     // COMMIT comes well within the TTL window. Without this, the
     // expiry test could "pass" because of an unrelated regression.
-    let alice = AitpSigningKey::from_seed(&[0x73; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x74; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x73; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x74; 32]);
 
     let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
     let port = listener.local_addr().unwrap().port();
@@ -186,14 +187,14 @@ async fn fresh_session_within_ttl_is_accepted() {
     let bob_manifest = manifest_for(&bob, "bob", &endpoint);
     let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
 
-    let server = HandshakeServer::with_session_ttl(
-        AitpSigningKey::from_seed(&[0x74; 32]),
+    let server = HandshakeServer::new(
+        AitpSigningKey::from_ed25519_seed(&[0x74; 32]),
         bob_manifest.clone(),
         vec![],
         NoOpResolver,
         vec!["demo.echo".into()],
-        Duration::from_secs(60),
     )
+    .with_session_ttl(Duration::from_secs(60))
     .with_pinned_key_store(std::sync::Arc::new(
         aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]),
     ))
@@ -214,7 +215,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();

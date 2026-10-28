@@ -14,10 +14,8 @@
 //! [`WireError::code`] is the cause code used where a binding exposes one.
 //! This file is kept identical in `aitp-node` and `aitp-py`.
 
-use aitp::core::{
-    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
-    EnvelopeParseError,
-};
+use aitp::__private::{check_members, from_serde_error};
+use aitp::core::{parse_envelope_wire, AitpEnvelope, CheckedJson, EnvelopeParseError};
 use aitp::manifest::{parse_manifest_wire, Manifest, ManifestError};
 use aitp::tct::{parse_revocation_snapshot_wire, RevocationListEnvelope, TctError};
 

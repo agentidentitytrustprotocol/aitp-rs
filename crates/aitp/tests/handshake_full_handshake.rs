@@ -19,10 +19,10 @@ impl JwksResolver for NoOpResolver {
 }
 
 fn alice_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn bob_key() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB2; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB2; 32])
 }
 
 fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
@@ -43,7 +43,7 @@ fn manifest_for(key: &AitpSigningKey, name: &str) -> Manifest {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -80,7 +80,7 @@ fn full_pinned_key_handshake() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -89,7 +89,7 @@ fn full_pinned_key_handshake() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -168,20 +168,20 @@ fn full_pinned_key_handshake() {
         .unwrap();
 
     // Each peer holds a TCT issued by the other.
-    assert_eq!(&bob_holds_tct.tct.claims.iss, alice.aid());
-    assert_eq!(&bob_holds_tct.tct.claims.sub, bob.aid());
-    assert_eq!(&bob_holds_tct.tct.claims.aud, bob.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().iss, alice.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().sub, bob.aid());
+    assert_eq!(&bob_holds_tct.tct().claims().aud, bob.aid());
 
-    assert_eq!(&alice_holds_tct.tct.claims.iss, bob.aid());
-    assert_eq!(&alice_holds_tct.tct.claims.sub, alice.aid());
-    assert_eq!(&alice_holds_tct.tct.claims.aud, alice.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().iss, bob.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().sub, alice.aid());
+    assert_eq!(&alice_holds_tct.tct().claims().aud, alice.aid());
 
     assert_eq!(
-        alice_holds_tct.tct.claims.grants,
+        alice_holds_tct.tct().claims().grants,
         vec!["demo.echo".to_string()]
     );
     assert_eq!(
-        bob_holds_tct.tct.claims.grants,
+        bob_holds_tct.tct().claims().grants,
         vec!["demo.echo".to_string()]
     );
 }
@@ -195,7 +195,7 @@ fn peer_substitution_aborts() {
     // unintended peer.
     let alice = alice_key();
     let bob = bob_key();
-    let mallory = AitpSigningKey::from_seed(&[0x3C; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0x3C; 32]);
     let alice_manifest = manifest_for(&alice, "alice");
     let bob_manifest = manifest_for(&bob, "bob");
     let mallory_manifest = manifest_for(&mallory, "mallory");
@@ -207,7 +207,7 @@ fn peer_substitution_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -216,7 +216,7 @@ fn peer_substitution_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -327,7 +327,7 @@ fn grant_overflow_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -336,7 +336,7 @@ fn grant_overflow_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -400,7 +400,7 @@ fn grant_overflow_aborts() {
         .subject(alice.aid().clone())
         .audience(alice.aid().clone())
         .grants(["super.power"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(alice.verifying_key())
         .issued_at(NOW)
         .build()
@@ -438,7 +438,7 @@ fn nonce_mismatch_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -447,7 +447,7 @@ fn nonce_mismatch_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let hello_mid = Uuid::new_v4();
@@ -515,7 +515,7 @@ fn insufficient_grants_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -524,7 +524,7 @@ fn insufficient_grants_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     // Note: alice_manifest now no longer matches the inline manifest's
@@ -543,7 +543,7 @@ fn insufficient_grants_aborts() {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .require("super.power")
         .published_at(NOW)

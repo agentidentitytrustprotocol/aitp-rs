@@ -30,9 +30,9 @@ fn manifest(key: &AitpSigningKey) -> Manifest {
                 aitp::core::base64url::encode(&key.verifying_key().to_compressed()),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap()
 }
@@ -59,10 +59,10 @@ fn the_default_body_limit_is_the_recommended_one() {
 
 #[tokio::test]
 async fn a_handshake_server_also_serves_its_manifest() {
-    let key = AitpSigningKey::from_seed(&[0x31; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x31; 32]);
     let manifest = manifest(&key);
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x31; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x31; 32]),
         manifest.clone(),
         vec![],
         NoOpResolver,
@@ -77,11 +77,11 @@ async fn a_handshake_server_also_serves_its_manifest() {
     );
 
     let fetched = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .fetch(&origin.parse::<Url>().unwrap())
         .await
         .unwrap();
-    assert_eq!(fetched.signature, manifest.signature);
+    assert_eq!(fetched.manifest().signature, manifest.signature);
 
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), task)
@@ -94,9 +94,9 @@ async fn a_handshake_server_also_serves_its_manifest() {
 /// POST `body` to HELLO on a server limited to `limit` bytes; the HTTP
 /// status and the response body.
 async fn hello_with_limit(limit: usize, body: &'static str) -> (u16, String) {
-    let key = AitpSigningKey::from_seed(&[0x32; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x32; 32]);
     let server = HandshakeServer::new(
-        AitpSigningKey::from_seed(&[0x32; 32]),
+        AitpSigningKey::from_ed25519_seed(&[0x32; 32]),
         manifest(&key),
         vec![],
         NoOpResolver,
@@ -135,7 +135,7 @@ async fn the_handshake_routes_honour_the_body_limit() {
 
 #[tokio::test]
 async fn a_manifest_server_serves_until_shutdown() {
-    let key = AitpSigningKey::from_seed(&[0x33; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
     let manifest = manifest(&key);
     let (listener, origin) = listener().await;
     let (stop, stopped) = oneshot::channel::<()>();
@@ -148,11 +148,11 @@ async fn a_manifest_server_serves_until_shutdown() {
     ));
 
     let fetched = ManifestFetcher::new()
-        .with_insecure_localhost(true)
+        .with_insecure_localhost_dangerous()
         .fetch(&origin.parse::<Url>().unwrap())
         .await
         .unwrap();
-    assert_eq!(fetched.aid, manifest.aid);
+    assert_eq!(fetched.manifest().aid, manifest.aid);
 
     stop.send(()).unwrap();
     tokio::time::timeout(Duration::from_secs(5), task)

@@ -95,12 +95,6 @@ enum SigningKeyInner {
 }
 
 impl AitpSigningKey {
-    /// Generate a fresh Ed25519 keypair using OS randomness. Equivalent to
-    /// [`Self::generate_ed25519`] — the default suite for v0.1 deployments.
-    pub fn generate() -> Self {
-        Self::generate_ed25519()
-    }
-
     /// Generate a fresh Ed25519 keypair using OS randomness.
     pub fn generate_ed25519() -> Self {
         let inner = DalekSigningKey::generate(&mut os_csprng());
@@ -114,16 +108,6 @@ impl AitpSigningKey {
             <P256SigningKey as p256::elliptic_curve::Generate>::generate_from_rng(&mut os_csprng());
         let aid = Self::p256_aid_for(&inner);
         Self(SigningKeyInner::P256 { inner, aid })
-    }
-
-    /// Construct an Ed25519 signing key from a raw 32-byte seed. Always
-    /// succeeds (every 32-byte value is a valid Ed25519 seed). Equivalent
-    /// to [`Self::from_ed25519_seed`].
-    ///
-    /// Useful for tests with pinned key material and for restoring a key
-    /// from secure storage. Production callers SHOULD use [`Self::generate`].
-    pub fn from_seed(seed: &[u8; 32]) -> Self {
-        Self::from_ed25519_seed(seed)
     }
 
     /// Construct an Ed25519 signing key from a raw 32-byte seed. Always
@@ -297,7 +281,7 @@ impl AitpVerifyingKey {
     /// Construct an Ed25519 verifier from raw 32-byte public-key bytes.
     /// (Convenience for callers carrying explicit Ed25519 bytes — e.g.
     /// the TCT `cnf` field on an Ed25519 subject.)
-    pub fn from_bytes(bytes: &[u8; 32]) -> Result<Self, CryptoError> {
+    pub fn from_ed25519_bytes(bytes: &[u8; 32]) -> Result<Self, CryptoError> {
         DalekVerifyingKey::from_bytes(bytes)
             .map(|k| Self(VerifyingKeyInner::Ed25519(k)))
             .map_err(|e| CryptoError::KeyParseFailed(e.to_string()))
@@ -318,7 +302,7 @@ impl AitpVerifyingKey {
             32 => {
                 let mut arr = [0u8; 32];
                 arr.copy_from_slice(bytes);
-                Self::from_bytes(&arr)
+                Self::from_ed25519_bytes(&arr)
             }
             33 => P256VerifyingKey::from_sec1_bytes(bytes)
                 .map(|k| Self(VerifyingKeyInner::P256(k)))
@@ -427,10 +411,10 @@ impl AitpVerifyingKey {
     /// with the affine coordinates as 32-byte big-endian unsigned
     /// integers (RFC 7518 §6.2.1.2 / §6.2.1.3, RFC 7638 §3.2). Both
     /// canonical forms are lex-ordered with no whitespace.
-    pub fn to_jwk_thumbprint(&self) -> Result<String, CryptoError> {
+    pub fn to_jwk_thumbprint_sha256(&self) -> Result<String, CryptoError> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => Ok(
-                crate::crypto::thumbprint::compute_jwk_thumbprint(&vk.to_bytes()),
+                crate::crypto::thumbprint::compute_jwk_thumbprint_ed25519_sha256(&vk.to_bytes()),
             ),
             VerifyingKeyInner::P256(vk) => {
                 // SEC1 uncompressed: 0x04 || x(32) || y(32). For any valid
@@ -449,42 +433,14 @@ impl AitpVerifyingKey {
                 let mut y = [0u8; 32];
                 x.copy_from_slice(&bytes[1..33]);
                 y.copy_from_slice(&bytes[33..65]);
-                Ok(crate::crypto::thumbprint::compute_jwk_thumbprint_p256(
-                    &x, &y,
-                ))
-            }
-        }
-    }
-
-    /// The 32-byte raw Ed25519 public key. **Panics** if this is a
-    /// P-256 key — callers that may hold either should branch on
-    /// [`Self::algorithm`] or use [`Self::try_to_ed25519_bytes`] /
-    /// [`Self::to_compressed`].
-    ///
-    /// Prefer [`Self::try_to_ed25519_bytes`] for new code: it returns
-    /// `None` for P-256 instead of panicking, so an algorithm-agile
-    /// caller cannot inadvertently crash the process.
-    #[deprecated(
-        since = "0.8.1",
-        note = "Use try_to_ed25519_bytes or to_compressed: to_bytes panics on P-256 keys."
-    )]
-    pub fn to_bytes(&self) -> [u8; 32] {
-        match &self.0 {
-            VerifyingKeyInner::Ed25519(vk) => vk.to_bytes(),
-            VerifyingKeyInner::P256(_) => {
-                panic!("AitpVerifyingKey::to_bytes called on P-256 key; use to_compressed() or try_to_ed25519_bytes()")
+                Ok(crate::crypto::thumbprint::compute_jwk_thumbprint_p256_sha256(&x, &y))
             }
         }
     }
 
     /// The 32-byte raw Ed25519 public key, or `None` if this is a
-    /// P-256 key.
-    ///
-    /// Non-panicking counterpart to [`Self::to_bytes`]. Callers that
-    /// require Ed25519-shaped bytes (e.g. the v0.1 pinned-key identity
-    /// wire format, which encodes the raw 32-byte public key) should
-    /// use this and return a structured error on `None` rather than
-    /// risking a process-wide panic from an algorithm-agile path.
+    /// P-256 key, for the wire formats that carry a raw 32-byte Ed25519
+    /// key (the pinned-key identity descriptor).
     pub fn try_to_ed25519_bytes(&self) -> Option<[u8; 32]> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => Some(vk.to_bytes()),
@@ -493,8 +449,7 @@ impl AitpVerifyingKey {
     }
 
     /// The encoded public key bytes — 32 bytes for Ed25519, 33 bytes
-    /// SEC1-compressed for P-256. Use this instead of
-    /// [`Self::to_bytes`] when handling algorithm-agile flows.
+    /// SEC1-compressed for P-256.
     pub fn to_compressed(&self) -> Vec<u8> {
         match &self.0 {
             VerifyingKeyInner::Ed25519(vk) => vk.to_bytes().to_vec(),
@@ -772,14 +727,14 @@ mod tests {
 
     #[test]
     fn from_seed_yields_deterministic_aid() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
-        let again = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
+        let again = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         assert_eq!(key.aid(), again.aid());
     }
 
     #[test]
     fn signs_and_verifies_round_trip() {
-        let key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let msg = b"hello aitp";
         let sig = key.sign_jcs(&Digest32::sha256(msg));
         assert_eq!(sig.as_str().len(), ED25519_SIGNATURE_BASE64URL_LEN);
@@ -791,7 +746,7 @@ mod tests {
 
     #[test]
     fn verifying_key_from_aid_round_trips() {
-        let key = AitpSigningKey::from_seed(&[42u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[42u8; 32]);
         let vk = AitpVerifyingKey::from_aid(key.aid()).unwrap();
         assert_eq!(
             vk.try_to_ed25519_bytes().expect("key from_aid is Ed25519"),
@@ -875,7 +830,7 @@ mod tests {
         // An Ed25519 verifier MUST reject a `p256.`-tagged
         // signature: the algorithm is part of the binding and we
         // don't auto-fall-back to verifying as Ed25519.
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let s = format!("p256.{}", "A".repeat(86));
         let sig = Signature::parse(&s).unwrap();
         assert!(key
@@ -1024,7 +979,7 @@ mod tests {
 
     #[test]
     fn try_to_ed25519_bytes_returns_some_for_ed25519_and_none_for_p256() {
-        let ed = AitpSigningKey::from_seed(&[9u8; 32]);
+        let ed = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let p256 = AitpSigningKey::generate_p256();
         let ed_bytes = ed.verifying_key().try_to_ed25519_bytes();
         let p256_bytes = p256.verifying_key().try_to_ed25519_bytes();
@@ -1040,7 +995,7 @@ mod tests {
     fn ed25519_signing_key_produces_untagged_signature() {
         // Wire compatibility: Ed25519 signing must still emit the legacy
         // untagged 86-char form so v0.1 verifiers accept it.
-        let key = AitpSigningKey::generate();
+        let key = AitpSigningKey::generate_ed25519();
         let sig = key.sign_jcs(&Digest32::sha256(b"compat"));
         assert!(!sig.as_str().starts_with("ed25519."));
         assert!(!sig.as_str().starts_with("p256."));
@@ -1053,10 +1008,13 @@ mod tests {
         // RFC 7638 §3.2 EC form; check it round-trips and is the
         // same value the AID-derived verifier sees.
         let key = AitpSigningKey::generate_p256();
-        let from_signer = key.verifying_key().to_jwk_thumbprint().expect("p256 jkt");
+        let from_signer = key
+            .verifying_key()
+            .to_jwk_thumbprint_sha256()
+            .expect("p256 jkt");
         let from_aid = AitpVerifyingKey::from_aid(key.aid())
             .unwrap()
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .expect("p256 jkt via aid");
         assert_eq!(from_signer, from_aid);
         assert_eq!(from_signer.len(), 43);
@@ -1064,7 +1022,7 @@ mod tests {
 
     #[test]
     fn p256_jwk_thumbprint_matches_thumbprint_module() {
-        // The AitpVerifyingKey::to_jwk_thumbprint dispatch must agree
+        // The AitpVerifyingKey::to_jwk_thumbprint_sha256 dispatch must agree
         // with calling the thumbprint module directly with the same
         // affine coordinates.
         use p256::ecdsa::SigningKey as P256SigningKey;
@@ -1079,9 +1037,9 @@ mod tests {
         x.copy_from_slice(&bytes[1..33]);
         y.copy_from_slice(&bytes[33..65]);
 
-        let expected = crate::crypto::thumbprint::compute_jwk_thumbprint_p256(&x, &y);
+        let expected = crate::crypto::thumbprint::compute_jwk_thumbprint_p256_sha256(&x, &y);
         let actual = AitpVerifyingKey(VerifyingKeyInner::P256(*pk))
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .unwrap();
         assert_eq!(actual, expected);
     }
@@ -1094,8 +1052,8 @@ mod tests {
         let seed = [0x9Cu8; 32];
         let ed = AitpSigningKey::from_ed25519_seed(&seed);
         let p = AitpSigningKey::from_p256_seed(&seed).unwrap();
-        let ed_t = ed.verifying_key().to_jwk_thumbprint().unwrap();
-        let p_t = p.verifying_key().to_jwk_thumbprint().unwrap();
+        let ed_t = ed.verifying_key().to_jwk_thumbprint_sha256().unwrap();
+        let p_t = p.verifying_key().to_jwk_thumbprint_sha256().unwrap();
         assert_ne!(ed_t, p_t);
     }
 
@@ -1110,7 +1068,7 @@ mod tests {
         let aid = crate::core::Aid::from_p256(&pk_arr);
         let verifier = AitpVerifyingKey::from_aid(&aid).unwrap();
         // Try to verify an Ed25519 signature against the P-256 key.
-        let ed_key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let ed_key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let ed_sig = ed_key.sign_jcs(&Digest32::sha256(b"msg"));
         assert!(verifier
             .verify_jcs(&Digest32::sha256(b"msg"), &ed_sig)

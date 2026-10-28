@@ -12,7 +12,7 @@ use url::Url;
 
 #[tokio::test]
 async fn round_trip_manifest_server() {
-    let key = AitpSigningKey::from_seed(&[7u8; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
     let manifest = ManifestBuilder::new(&key)
         .display_name("server-side")
         .handshake_endpoint("https://localhost:9000/aitp/handshake".parse().unwrap())
@@ -26,9 +26,9 @@ async fn round_trip_manifest_server() {
             ),
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
 
@@ -43,11 +43,11 @@ async fn round_trip_manifest_server() {
     // Give the server a moment to start.
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     let url: Url = format!("http://localhost:{}", port).parse().unwrap();
     let fetched = fetcher.fetch(&url).await.unwrap();
-    assert_eq!(fetched.aid, manifest.aid);
-    assert_eq!(fetched.signature, manifest.signature);
+    assert_eq!(fetched.manifest().aid, manifest.aid);
+    assert_eq!(fetched.manifest().signature, manifest.signature);
 
     server_handle.abort();
     let _ = server_handle.await;

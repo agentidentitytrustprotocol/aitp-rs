@@ -96,10 +96,11 @@ The initiator then surfaces a `FacadeError::Protocol` carrying the peer's
 The Mutual Handshake spec mandates HTTPS in production. The demo runs on
 `localhost` and uses HTTP so you don't need to mint a self-signed cert
 just to read the output. `ManifestFetcher` refuses plain HTTP by
-default; `agent-a` opts in with `.with_insecure_localhost(true)` (and
-`InitiatorConfig::with_insecure_localhost(true)`), which allows HTTP only
-for `localhost` / `127.0.0.1`. Non-local origins are still rejected with
-`FetchError::InsecureUrl`.
+default; `agent-a` opts in with `.with_insecure_localhost_dangerous()` (and
+`InitiatorConfig::with_insecure_localhost_dangerous()`), which allows HTTP
+only for `localhost` / `127.0.0.1` and admits loopback addresses through
+the default `DenyPrivate` host guard. Non-local origins are still rejected
+with `FetchError::InsecureUrl`.
 
 ## The other demos
 
@@ -110,7 +111,7 @@ external network.
 |---|---|---|
 | `delegation-demo` | `cargo run -p aitp-example-two-agents --bin delegation-demo` | Single-hop delegation (RFC-AITP-0006): A issues B a TCT plus a **grant voucher**, B delegates a *subset* to C against that voucher, A verifies C's token (an opaque compact JWS embedding the voucher); plus the two failure modes (over-broad scope, non-grantor verifier). |
 | `oidc-demo` | `cargo run -p aitp-example-two-agents --bin oidc-demo` | A full Mutual Handshake where both peers present **OIDC** identities, against an in-process mock IdP. Drives the `Initiator`/`Responder` state machine by hand. |
-| `revocation-demo` | `cargo run -p aitp-example-two-agents --bin revocation-demo` | Publishing a signed revocation list and querying `RevocationCache::is_revoked` (RFC-AITP-0008 §1.5). |
+| `revocation-demo` | `cargo run -p aitp-example-two-agents --bin revocation-demo` | Publishing a signed revocation list and reading two `jti`s' status through `RevocationFetcher` (RFC-AITP-0008 §1.5). |
 | `tct-renewal-demo` | `cargo run -p aitp-example-two-agents --bin tct-renewal-demo --features experimental-renewal` | Renewing a TCT via `aitp_experimental::renewal::renew_tct` at the endpoint the issuer advertises as `rfc-aitp-0005.renew_uri` in its Manifest, served by `RenewalServer` merged with the handshake router. Gated behind the `experimental-renewal` feature, which turns on `aitp-experimental`. |
 
 ## Tests

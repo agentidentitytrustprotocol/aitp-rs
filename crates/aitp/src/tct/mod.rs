@@ -16,30 +16,31 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod builder;
-pub mod error;
-pub mod pop;
-pub mod revocation;
-pub mod types;
-pub mod verifier;
+pub(crate) mod builder;
+pub(crate) mod error;
+pub(crate) mod pop;
+pub(crate) mod revocation;
+pub(crate) mod types;
+pub(crate) mod verifier;
 
 pub use builder::{TctBuilder, ATTESTATION_GRANT};
 pub use error::TctError;
 pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse};
 pub use revocation::{
     parse_revocation_snapshot_wire, revocation_signing_bytes, sign_revocation_list,
-    verify_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope,
-    VerifyRevocationListContext, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
+    verify_revocation_list, RevocationCheckFn, RevocationEntry, RevocationList,
+    RevocationListEnvelope, RevocationListVerifyContext, RevocationQuery, RevocationSource,
+    RevocationStatus, RevocationUnavailable, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
 };
 pub use types::{
-    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS,
-    TCT_CLAIMS_MEMBERS,
+    Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, VerifiedTctParts,
+    GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
 pub use verifier::{
     verify_attestation, verify_tct, verify_voucher, AttestationVerifyContext,
-    AttestationVerifyContextBuilder, RevocationCheckFn, TctVerifyContext, TctVerifyContextBuilder,
-    TctVerifyContextError, VerifiedAttestation,
+    AttestationVerifyContextBuilder, TctVerifyContext, TctVerifyContextBuilder,
+    TctVerifyContextError, VerifiedAttestation, VerifiedAttestationParts,
 };
 
 /// Recommended TCT TTL (1 hour).
-pub const DEFAULT_TCT_TTL_SECS: i64 = 3600;
+pub const DEFAULT_TCT_TTL: std::time::Duration = std::time::Duration::from_secs(3600);

@@ -45,7 +45,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     // scenario produced it).
     let worker_seed = expand_seed("worker-seed-tier3-revocation-scenario");
     let planner_seed = expand_seed("planner-seed-tier3-revocation-scenario");
-    let planner_aid = aitp::crypto::AitpSigningKey::from_seed(&planner_seed)
+    let planner_aid = aitp::crypto::AitpSigningKey::from_ed25519_seed(&planner_seed)
         .aid()
         .clone();
     let worker = worker::spawn("aitp-worker-rev", &worker_seed, provider, &[planner_aid])
@@ -55,7 +55,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     let outcome = planner::handshake("aitp-planner-rev", &planner_seed, 0, &worker.origin)
         .await
         .expect("handshake completes");
-    let jti = outcome.tct.claims.jti;
+    let jti = outcome.tct.claims().jti;
     eprintln!("planner holds TCT jti={jti}");
 
     // ── 2. The snapshot verifies before anything is revoked ──────────
@@ -76,7 +76,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
 
     // ── 3. Delegation works while the TCT is live ────────────────────
     let task = "Reply with exactly one short sentence about delegated authority.";
-    let response = planner::delegate_task(&worker.origin, &outcome.tct.token, task)
+    let response = planner::delegate_task(&worker.origin, outcome.tct.token(), task)
         .await
         .expect("/work succeeds while the TCT is live");
     assert!(
@@ -104,7 +104,7 @@ async fn published_revocation_snapshot_stops_a_working_delegation() {
     // ── 6. And the worker now refuses the same TCT ───────────────────
     // Note this rejection happens during TCT verification, *before* the
     // LLM call — so the negative leg costs no API credits.
-    let (status, body) = planner::try_delegate_task(&worker.origin, &outcome.tct.token, task)
+    let (status, body) = planner::try_delegate_task(&worker.origin, outcome.tct.token(), task)
         .await
         .expect("request reaches the worker");
     assert_eq!(
@@ -142,13 +142,13 @@ async fn work_endpoint_refuses_a_tct_from_an_unknown_issuer() {
     use aitp::core::Timestamp;
     use aitp::crypto::AitpSigningKey;
     use aitp::tct::TctBuilder;
-    let stranger = AitpSigningKey::from_seed(&expand_seed("a-key-the-worker-never-saw"));
-    let holder = AitpSigningKey::from_seed(&expand_seed("some-holder-key-for-foreign-tct"));
+    let stranger = AitpSigningKey::from_ed25519_seed(&expand_seed("a-key-the-worker-never-saw"));
+    let holder = AitpSigningKey::from_ed25519_seed(&expand_seed("some-holder-key-for-foreign-tct"));
     let forged = TctBuilder::new(&stranger)
         .subject(holder.aid().clone())
         .audience(holder.aid().clone())
         .grants([worker::WORK_CAPABILITY])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .subject_pubkey(holder.verifying_key())
         .issued_at(Timestamp::now())
         .build()

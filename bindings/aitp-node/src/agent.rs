@@ -202,7 +202,7 @@ impl AitpAgent {
                 (
                     IdentityHint::new(IdentityHintKind::PinnedKey, opts.display_name.clone())
                         .with_public_key(aitp::core::base64url::encode(&pk_bytes)),
-                    "pinned_key",
+                    aitp::handshake::IdentityKind::PinnedKey,
                     Vec::<url::Url>::new(),
                 )
             }
@@ -219,7 +219,7 @@ impl AitpAgent {
                 (
                     IdentityHint::new(IdentityHintKind::Oidc, sub)
                         .with_issuer(RawUrl::from(iss.clone())),
-                    "oidc",
+                    aitp::handshake::IdentityKind::Oidc,
                     vec![iss],
                 )
             }
@@ -230,17 +230,25 @@ impl AitpAgent {
             }
         };
 
+        let (published_at, ttl) = crate::helpers::ttl_window(
+            aitp::core::Timestamp::now(),
+            i64::from(opts.ttl_secs.unwrap_or(3600)),
+        );
         let mut builder = ManifestBuilder::new(&self.key)
             .display_name(&opts.display_name)
             .handshake_endpoint(endpoint)
             .identity_hint(hint)
-            .ttl_secs(opts.ttl_secs.unwrap_or(3600) as i64);
+            .published_at(published_at)
+            .ttl(ttl);
         builder = match opts.accepted_identity_types {
             None => builder.accept_identity_type(accepted_type),
             Some(types) if types.is_empty() => builder.accept_no_identity_types(),
-            Some(types) => types
-                .into_iter()
-                .fold(builder, |b, t| b.accept_identity_type(t)),
+            Some(types) => types.into_iter().try_fold(builder, |b, t| {
+                let kind: aitp::handshake::IdentityKind =
+                    serde_json::from_value(serde_json::Value::String(t))
+                        .map_err(|_| Error::from_reason("unknown acceptedIdentityTypes entry"))?;
+                Ok::<_, Error>(b.accept_identity_type(kind))
+            })?,
         };
 
         let anchors: Vec<url::Url> = match opts.accepted_trust_anchors {

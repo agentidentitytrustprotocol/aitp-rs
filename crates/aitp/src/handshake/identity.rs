@@ -39,17 +39,15 @@ pub struct IdentityDescriptor {
     pub issuer: Option<RawUrl>,
     /// Agent subject identifier (a SPIFFE ID when type=spiffe).
     pub subject: String,
-    /// SVID form (required when type=spiffe, RFC-AITP-0002 §6.1).
+    // SVID form (type=spiffe only). Read by `aitp-experimental`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub svid_type: Option<SvidType>,
-    /// JWT (oidc, jwt-svid) or base64url signature (pinned_key,
-    /// x509-svid).
+    pub(crate) svid_type: Option<SvidType>,
+    /// The identity proof: a JWT (oidc) or a base64url signature
+    /// (pinned_key).
     pub proof: String,
-    /// X509-SVID certificate chain, leaf first, each entry a DER
-    /// certificate in standard padded base64 (required when
-    /// `svid_type` is `x509-svid`, RFC-AITP-0002 §6.1).
+    // Certificate chain (type=spiffe only). Read by `aitp-experimental`.
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub x5c: Option<Vec<String>>,
+    pub(crate) x5c: Option<Vec<String>>,
     /// Pinned 32-byte raw public key, base64url-unpadded (required when
     /// type=pinned_key).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -129,17 +127,23 @@ impl IdentityKind {
     }
 }
 
-/// SPIFFE SVID form of a `spiffe` descriptor (RFC-AITP-0002 §6.1).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[non_exhaustive]
-pub enum SvidType {
-    /// `proof` is a JWT-SVID (RFC-AITP-0002 §6.3).
-    #[serde(rename = "jwt-svid")]
-    JwtSvid,
-    /// `proof` is a signature by the X509-SVID key and `x5c` carries
-    /// the chain (RFC-AITP-0002 §6.4).
-    #[serde(rename = "x509-svid")]
-    X509Svid,
+pub(crate) use svid::SvidType;
+
+pub(crate) mod svid {
+    use serde::{Deserialize, Serialize};
+
+    /// SPIFFE SVID form of a `spiffe` descriptor (RFC-AITP-0002 §6.1).
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+    #[non_exhaustive]
+    pub enum SvidType {
+        /// `proof` is a JWT-SVID (RFC-AITP-0002 §6.3).
+        #[serde(rename = "jwt-svid")]
+        JwtSvid,
+        /// `proof` is a signature by the X509-SVID key and `x5c` carries
+        /// the chain (RFC-AITP-0002 §6.4).
+        #[serde(rename = "x509-svid")]
+        X509Svid,
+    }
 }
 
 #[cfg(test)]

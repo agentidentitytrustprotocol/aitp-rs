@@ -16,7 +16,7 @@ use aitp::facade::{run_initiator_handshake, IdentityMode, InitiatorConfig, Trust
 use aitp::handshake::StaticPinnedKeyStore;
 use aitp::manifest::Manifest;
 use aitp::tct::{
-    verify_revocation_list, RevocationListEnvelope, VerifiedTct, VerifyRevocationListContext,
+    verify_revocation_list, RevocationListEnvelope, RevocationListVerifyContext, VerifiedTct,
 };
 use aitp::transport::ManifestFetcher;
 use aitp_example_two_agents::build_demo_manifest;
@@ -42,7 +42,7 @@ pub async fn handshake(
     planner_port_for_manifest: u16,
     worker_origin: &Url,
 ) -> anyhow::Result<HandshakeOutcome> {
-    let key = AitpSigningKey::from_seed(seed);
+    let key = AitpSigningKey::from_ed25519_seed(seed);
     // The planner offers the same capability the worker requests, so the
     // mutual intersection is non-empty on both sides.
     let manifest = build_demo_manifest(
@@ -70,23 +70,23 @@ pub async fn handshake(
             },
             vec![WORK_CAPABILITY.into()],
         )
-        .with_insecure_localhost(true),
+        .with_insecure_localhost_dangerous(),
     )
     .await
     .context("initiator handshake")?;
 
     Ok(HandshakeOutcome {
         planner_key: key,
-        tct: session.held_tct,
+        tct: session.into_parts().held_tct,
     })
 }
 
 /// Poll the worker's Manifest endpoint until it comes up (or time out).
 async fn wait_for_worker(worker_origin: &Url) -> anyhow::Result<Manifest> {
-    let fetcher = ManifestFetcher::new().with_insecure_localhost(true);
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
     for attempt in 0..40 {
         match fetcher.fetch(worker_origin).await {
-            Ok(manifest) => return Ok(manifest),
+            Ok(manifest) => return Ok(manifest.into_manifest()),
             Err(_) if attempt < 39 => {
                 tokio::time::sleep(Duration::from_millis(100)).await;
             }
@@ -115,7 +115,7 @@ pub async fn fetch_revocation_snapshot(
         resp.json().await.context("decoding revocation snapshot")?;
     verify_revocation_list(
         &envelope,
-        &VerifyRevocationListContext::new(worker_aid, Timestamp::now()),
+        &RevocationListVerifyContext::new(worker_aid, Timestamp::now()),
     )
     .map_err(|e| anyhow!("served revocation snapshot failed verification: {e}"))?;
     Ok(envelope)

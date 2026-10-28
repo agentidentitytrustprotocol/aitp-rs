@@ -16,6 +16,15 @@
 //!    validly exposed. Once discovery yields a usable `jwks_uri`, a JWKS
 //!    fetch failure is surfaced and `aitp-keys` is never tried.
 //!
+//! Step 3 runs only in [`JwksResolver::prefetch`], which is async and
+//! stores its result (keys in the cache, a failure in the negative
+//! cache). The synchronous [`JwksResolver::resolve`] that the handshake
+//! state machine calls runs steps 1 and 2 only; an issuer that was not
+//! prefetched gets the fail mode, which under `FailClosed` is a
+//! `KEY_RESOLUTION_FAILED` (retryable) handshake error. The HTTP
+//! transport prefetches the peer's OIDC issuer before each synchronous
+//! step, so `resolve` never blocks a runtime thread on I/O.
+//!
 //! The fail mode is configurable per issuer:
 //!
 //! - [`KeyResolutionFailMode::FailClosed`] — any miss is fatal. This is
@@ -37,9 +46,10 @@
 //! of policy — a verifying peer with no key cannot compute the
 //! safe subset.
 
+use crate::core::BoxFuture;
 use crate::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use crate::transport::client::JwksFetcher;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -89,15 +99,21 @@ pub enum KeyResolutionFailMode {
 /// degradation (where signature verification is impossible but the
 /// session may continue with a restricted grant subset).
 ///
+/// Exhaustive on purpose, like [`crate::tct::RevocationStatus`]. Both
+/// variants are `#[non_exhaustive]`, so a release may add a field to
+/// either: match them as `Resolved(keys, ..)` and
+/// `SoftFailDegraded { safe_grants, .. }`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum KeyResolutionOutcome {
     /// Keys resolved cleanly; downstream signature verification
     /// proceeds normally with this set.
+    #[non_exhaustive]
     Resolved(Vec<JwkPublicKey>),
     /// Resolution exhausted all sources; the configured
     /// `safe_grants` are the only grants the session should honor.
     /// Signature verification of issuer-signed claims (OIDC JWTs)
     /// MUST be considered failed by the caller.
+    #[non_exhaustive]
     SoftFailDegraded {
         /// Subset of capabilities the operator pre-declared as safe.
         safe_grants: Vec<String>,
@@ -122,6 +138,7 @@ pub trait PinnedIssuerKeyStore: Send + Sync {
 }
 
 /// In-memory `PinnedIssuerKeyStore` backed by a `HashMap`.
+#[derive(Debug)]
 pub struct StaticPinnedIssuerKeyStore {
     inner: HashMap<Url, Vec<JwkPublicKey>>,
 }
@@ -161,7 +178,7 @@ struct NegativeCacheEntry {
 /// resolutions for 30 seconds. Short enough to recover quickly when
 /// the upstream comes back, long enough to amortize per-request
 /// retries during a sustained outage. Tunable via
-/// [`KeyResolutionPolicyBuilder::with_negative_cache_ttl`]; set to
+/// [`KeyResolutionPolicyBuilder::negative_cache_ttl`]; set to
 /// [`Duration::ZERO`] to disable.
 pub const DEFAULT_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(30);
 
@@ -171,7 +188,6 @@ pub const DEFAULT_NEGATIVE_CACHE_TTL: Duration = Duration::from_secs(30);
 pub struct KeyResolutionPolicy {
     pinned: Option<Arc<dyn PinnedIssuerKeyStore>>,
     fetcher: Option<Arc<JwksFetcher>>,
-    runtime: Option<tokio::runtime::Handle>,
     cache: RwLock<HashMap<Url, CacheEntry>>,
     cache_ttl: Duration,
     /// Negative cache: short-lived record of recent resolution
@@ -185,10 +201,17 @@ pub struct KeyResolutionPolicy {
     /// Suppresses [`fetcher`] use; only the pinned store + cache are
     /// consulted. Useful for tests and air-gapped deployments.
     offline: bool,
-    /// Inflight resolutions are coalesced through this mutex to avoid
-    /// thundering herd on the upstream. Coarse-grained — fine for the
-    /// expected access patterns (handful of issuers, not per-request).
-    inflight_lock: Mutex<()>,
+}
+
+impl std::fmt::Debug for KeyResolutionPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyResolutionPolicy")
+            .field("cache_ttl", &self.cache_ttl)
+            .field("negative_cache_ttl", &self.negative_cache_ttl)
+            .field("fail_mode", &self.fail_mode)
+            .field("offline", &self.offline)
+            .finish_non_exhaustive()
+    }
 }
 
 impl KeyResolutionPolicy {
@@ -334,191 +357,67 @@ impl KeyResolutionPolicy {
     }
 }
 
-impl JwksResolver for KeyResolutionPolicy {
-    fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
-        // 1. Cache.
+impl KeyResolutionPolicy {
+    /// Steps 1 and 2: the cache, the negative cache and the pinned store.
+    /// `None` means neither holds an answer for `issuer`.
+    fn resolve_local(&self, issuer: &Url) -> Option<Result<Vec<JwkPublicKey>, ResolveError>> {
         if let Some(keys) = self.cached(issuer) {
             crate::transport::obs::jwks_cache("hit");
             debug!(%issuer, source = "cache", "JWKS resolved");
-            return Ok(keys);
+            return Some(Ok(keys));
         }
-
-        // 1b. Negative cache: short-circuit a recent failure rather
-        // than re-hammering the upstream. Checked before the inflight
-        // mutex so each request returns immediately during a sustained
-        // outage instead of serializing on the coalesce lock.
         if let Some(msg) = self.cached_failure(issuer) {
             crate::transport::obs::jwks_cache("negative_hit");
             debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed");
-            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
+            return Some(self.apply_fail_mode(issuer, format!("negative-cached: {msg}")));
         }
-
-        // Coalesce concurrent resolutions for the same call.
-        // parking_lot::Mutex is non-poisoning, so no recovery dance is
-        // needed if a prior holder panicked.
-        let _guard = self.inflight_lock.lock();
-
-        // Re-check cache after acquiring the lock — another caller may
-        // have populated it.
-        if let Some(keys) = self.cached(issuer) {
-            crate::transport::obs::jwks_cache("hit");
-            debug!(%issuer, source = "cache", "JWKS resolved (after lock)");
-            return Ok(keys);
-        }
-        if let Some(msg) = self.cached_failure(issuer) {
-            crate::transport::obs::jwks_cache("negative_hit");
-            debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed (after lock)");
-            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
-        }
-        // Neither cache satisfied this request → real resolution work.
         crate::transport::obs::jwks_cache("miss");
-
-        // 2. Pinned issuer key store.
-        if let Some(pinned) = self.pinned.as_ref() {
-            if let Some(keys) = pinned.get(issuer) {
-                debug!(%issuer, source = "pinned_store", "JWKS resolved");
-                self.store(issuer, keys.clone());
-                return Ok(keys);
-            }
-        }
-
-        if self.offline {
-            return self.apply_fail_mode(issuer, "offline mode and no pinned keys".into());
-        }
-
-        // 3. Network: `JwksFetcher::resolve` tries OIDC discovery first
-        // and falls back to aitp-keys only when discovery is not validly
-        // exposed (RFC-AITP-0007 §2.3 branch, not a priority list).
-        let Some(fetcher) = self.fetcher.as_ref() else {
-            return self.apply_fail_mode(
-                issuer,
-                "no JwksFetcher configured for network resolution".into(),
-            );
-        };
-        let Some(rt) = self.runtime.as_ref() else {
-            return self.apply_fail_mode(
-                issuer,
-                "no tokio runtime handle configured for network resolution".into(),
-            );
-        };
-
-        let issuer_for_task = issuer.clone();
-        let fetcher_for_task = fetcher.clone();
-        let result = match rt.runtime_flavor() {
-            tokio::runtime::RuntimeFlavor::MultiThread => {
-                // Safe on a multi-thread runtime: `block_in_place`
-                // moves the current worker out of the async pool while
-                // it blocks, so other tasks keep making progress.
-                tokio::task::block_in_place(|| {
-                    rt.block_on(async move { fetcher_for_task.resolve(&issuer_for_task).await })
-                })
-            }
-            _ => {
-                // Current-thread runtime: `block_in_place` would panic,
-                // and a sync→async bridge would deadlock the single
-                // worker regardless. Direct the caller to the async
-                // path instead of panicking (RFC-AITP-0007 — this is a
-                // deployment/runtime misconfiguration, surfaced as a
-                // hard error rather than a degraded resolution).
-                return Err(ResolveError::NetworkError(
-                    "sync JwksResolver::resolve cannot bridge JWKS network I/O into a \
-                     current-thread tokio runtime; call AsyncJwksResolver::resolve_async \
-                     from async context (e.g. to pre-warm the cache) instead"
-                        .into(),
-                ));
-            }
-        };
-
-        match result {
-            Ok(keys) => {
-                debug!(%issuer, source = "network", "JWKS resolved");
-                self.store(issuer, keys.clone());
-                Ok(keys)
-            }
-            Err(e) => {
-                let msg = e.to_string();
-                self.store_failure(issuer, &msg);
-                self.apply_fail_mode(issuer, msg)
-            }
-        }
+        let keys = self.pinned.as_ref()?.get(issuer)?;
+        debug!(%issuer, source = "pinned_store", "JWKS resolved");
+        self.store(issuer, keys.clone());
+        Some(Ok(keys))
     }
 }
 
-/// Async JWKS resolution — the non-blocking counterpart to
-/// [`JwksResolver`].
-///
-/// The sync `JwksResolver::resolve` bridges into async network I/O via
-/// `tokio::task::block_in_place`, which **panics on a current-thread
-/// tokio runtime** (and would deadlock there anyway). Async callers —
-/// e.g. an axum handler resolving an issuer's keys — should use this
-/// trait instead: `resolve_async` awaits the fetch directly on the
-/// caller's runtime, with no `block_in_place`.
-///
-/// A common pattern is to call `resolve_async` once from async context
-/// to pre-warm the resolver's cache, after which the sync
-/// `JwksResolver::resolve` path (used by the synchronous handshake
-/// verification crates) is a pure cache hit and never reaches
-/// `block_in_place`.
-pub trait AsyncJwksResolver: Send + Sync {
-    /// Resolve `issuer`'s JWKS, awaiting any network I/O directly on
-    /// the caller's runtime. Resolution order matches
-    /// [`JwksResolver::resolve`]: cache → pinned store → network.
-    fn resolve_async(
-        &self,
-        issuer: &Url,
-    ) -> impl std::future::Future<Output = Result<Vec<JwkPublicKey>, ResolveError>> + Send;
-}
-
-impl AsyncJwksResolver for KeyResolutionPolicy {
-    async fn resolve_async(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
-        // 1. Cache.
-        if let Some(keys) = self.cached(issuer) {
-            debug!(%issuer, source = "cache", "JWKS resolved (async)");
-            return Ok(keys);
+impl JwksResolver for KeyResolutionPolicy {
+    /// Steps 1 and 2 only; no I/O. An issuer neither cached nor pinned
+    /// gets the configured fail mode.
+    fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError> {
+        if let Some(result) = self.resolve_local(issuer) {
+            return result;
         }
-
-        // 1b. Negative cache.
-        if let Some(msg) = self.cached_failure(issuer) {
-            debug!(%issuer, source = "negative_cache", "JWKS resolution suppressed (async)");
-            return self.apply_fail_mode(issuer, format!("negative-cached: {msg}"));
-        }
-
-        // 2. Pinned issuer key store. (The async path intentionally
-        // skips the `inflight_lock` coalescing used by the sync path —
-        // holding any non-Send mutex across an `.await` is unsound,
-        // and parking_lot::Mutex is not Send. The cache below
-        // de-duplicates any concurrent resolutions.)
-        if let Some(pinned) = self.pinned.as_ref() {
-            if let Some(keys) = pinned.get(issuer) {
-                debug!(%issuer, source = "pinned_store", "JWKS resolved (async)");
-                self.store(issuer, keys.clone());
-                return Ok(keys);
-            }
-        }
-
-        if self.offline {
-            return self.apply_fail_mode(issuer, "offline mode and no pinned keys".into());
-        }
-
-        // 3 + 4. Network — awaited directly, no `block_in_place`.
-        let Some(fetcher) = self.fetcher.as_ref() else {
-            return self.apply_fail_mode(
-                issuer,
-                "no JwksFetcher configured for network resolution".into(),
-            );
+        let reason = if self.offline {
+            "offline mode and no pinned keys"
+        } else if self.fetcher.is_none() {
+            "no JwksFetcher configured for network resolution"
+        } else {
+            "issuer keys are not cached; JwksResolver::prefetch fetches them"
         };
-        match fetcher.resolve(issuer).await {
-            Ok(keys) => {
-                debug!(%issuer, source = "network", "JWKS resolved (async)");
-                self.store(issuer, keys.clone());
-                Ok(keys)
+        self.apply_fail_mode(issuer, reason.into())
+    }
+
+    /// Step 3: fetch `issuer`'s keys over the network unless the cache,
+    /// negative cache or pinned store already answers, and store the
+    /// result for [`Self::resolve`].
+    fn prefetch<'a>(&'a self, issuer: &'a Url) -> BoxFuture<'a, ()> {
+        Box::pin(async move {
+            if self.resolve_local(issuer).is_some() || self.offline {
+                return;
             }
-            Err(e) => {
-                let msg = e.to_string();
-                self.store_failure(issuer, &msg);
-                self.apply_fail_mode(issuer, msg)
+            let Some(fetcher) = self.fetcher.as_ref() else {
+                return;
+            };
+            match fetcher.resolve(issuer).await {
+                Ok(keys) => {
+                    debug!(%issuer, source = "network", "JWKS resolved");
+                    self.store(issuer, keys);
+                }
+                Err(e) => {
+                    debug!(%issuer, error = %e, "JWKS fetch failed");
+                    self.store_failure(issuer, &e.to_string());
+                }
             }
-        }
+        })
     }
 }
 
@@ -527,34 +426,39 @@ impl AsyncJwksResolver for KeyResolutionPolicy {
 pub struct KeyResolutionPolicyBuilder {
     pinned: Option<Arc<dyn PinnedIssuerKeyStore>>,
     fetcher: Option<Arc<JwksFetcher>>,
-    runtime: Option<tokio::runtime::Handle>,
     cache_ttl: Option<Duration>,
     negative_cache_ttl: Option<Duration>,
     fail_mode: Option<KeyResolutionFailMode>,
     offline: bool,
 }
 
+impl std::fmt::Debug for KeyResolutionPolicyBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyResolutionPolicyBuilder")
+            .field("cache_ttl", &self.cache_ttl)
+            .field("negative_cache_ttl", &self.negative_cache_ttl)
+            .field("fail_mode", &self.fail_mode)
+            .field("offline", &self.offline)
+            .finish_non_exhaustive()
+    }
+}
+
 impl KeyResolutionPolicyBuilder {
     /// Configure the pinned issuer key store (RFC-AITP-0007 §2.2).
-    pub fn with_pinned_issuer_store(mut self, store: Arc<dyn PinnedIssuerKeyStore>) -> Self {
+    pub fn pinned_issuer_store(mut self, store: Arc<dyn PinnedIssuerKeyStore>) -> Self {
         self.pinned = Some(store);
         self
     }
 
-    /// Configure the network fetcher and the tokio runtime to call into.
-    /// Both are required to enable steps 3 and 4 of the resolution order.
-    pub fn with_fetcher(
-        mut self,
-        fetcher: Arc<JwksFetcher>,
-        runtime: tokio::runtime::Handle,
-    ) -> Self {
+    /// Configure the network fetcher, which enables step 3 of the
+    /// resolution order in [`JwksResolver::prefetch`].
+    pub fn fetcher(mut self, fetcher: Arc<JwksFetcher>) -> Self {
         self.fetcher = Some(fetcher);
-        self.runtime = Some(runtime);
         self
     }
 
     /// Override the in-memory cache TTL. Default 10 minutes.
-    pub fn with_cache_ttl(mut self, ttl: Duration) -> Self {
+    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
         self.cache_ttl = Some(ttl);
         self
     }
@@ -569,13 +473,13 @@ impl KeyResolutionPolicyBuilder {
     /// upstream JWKS that is hard-down causes every TCT verification
     /// to re-attempt the network, which both slows the local request
     /// path and prolongs the upstream's recovery.
-    pub fn with_negative_cache_ttl(mut self, ttl: Duration) -> Self {
+    pub fn negative_cache_ttl(mut self, ttl: Duration) -> Self {
         self.negative_cache_ttl = Some(ttl);
         self
     }
 
     /// Override the fail mode. Default `FailClosed`.
-    pub fn with_fail_mode(mut self, mode: KeyResolutionFailMode) -> Self {
+    pub fn fail_mode(mut self, mode: KeyResolutionFailMode) -> Self {
         self.fail_mode = Some(mode);
         self
     }
@@ -592,7 +496,6 @@ impl KeyResolutionPolicyBuilder {
         KeyResolutionPolicy {
             pinned: self.pinned,
             fetcher: self.fetcher,
-            runtime: self.runtime,
             cache: RwLock::new(HashMap::new()),
             cache_ttl: self.cache_ttl.unwrap_or(Duration::from_secs(600)),
             negative_cache: RwLock::new(HashMap::new()),
@@ -601,7 +504,6 @@ impl KeyResolutionPolicyBuilder {
                 .unwrap_or(DEFAULT_NEGATIVE_CACHE_TTL),
             fail_mode: self.fail_mode.unwrap_or_default(),
             offline: self.offline,
-            inflight_lock: Mutex::new(()),
         }
     }
 }
@@ -622,7 +524,7 @@ mod tests {
     #[test]
     fn cache_hit_short_circuits() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_secs(60))
+            .cache_ttl(Duration::from_secs(60))
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         policy.store(&issuer, vec![fake_jwk()]);
@@ -636,7 +538,7 @@ mod tests {
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         map.insert(issuer.clone(), vec![fake_jwk()]);
         let policy = KeyResolutionPolicy::builder()
-            .with_pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
+            .pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
             .offline(true)
             .build();
         let got = policy.resolve(&issuer).unwrap();
@@ -662,7 +564,7 @@ mod tests {
         // letting us assert on the cached-failure message.
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_negative_cache_ttl(Duration::from_secs(30))
+            .negative_cache_ttl(Duration::from_secs(30))
             .build();
         let issuer: Url = "https://down.example.com".parse().unwrap();
         // Seed a failure directly so we don't need a live fetcher.
@@ -686,7 +588,7 @@ mod tests {
     fn negative_cache_can_be_disabled() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_negative_cache_ttl(Duration::ZERO)
+            .negative_cache_ttl(Duration::ZERO)
             .build();
         let issuer: Url = "https://down.example.com".parse().unwrap();
         policy.store_failure(&issuer, "should be ignored");
@@ -697,8 +599,8 @@ mod tests {
     #[test]
     fn negative_cache_cleared_by_successful_resolution() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_secs(60))
-            .with_negative_cache_ttl(Duration::from_secs(60))
+            .cache_ttl(Duration::from_secs(60))
+            .negative_cache_ttl(Duration::from_secs(60))
             .build();
         let issuer: Url = "https://flapping.example.com".parse().unwrap();
         policy.store_failure(&issuer, "transient 502");
@@ -714,7 +616,7 @@ mod tests {
     fn fail_open_returns_empty() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::FailOpen)
+            .fail_mode(KeyResolutionFailMode::FailOpen)
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         let got = policy.resolve(&issuer).unwrap();
@@ -725,7 +627,7 @@ mod tests {
     fn soft_fail_with_safe_grants_returns_degraded_outcome() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: vec!["status.read".into()],
             })
             .build();
@@ -748,7 +650,7 @@ mod tests {
         // safe-grants restriction.
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: vec!["status.read".into()],
             })
             .build();
@@ -764,7 +666,7 @@ mod tests {
     fn soft_fail_with_empty_safe_grants_is_fail_closed() {
         let policy = KeyResolutionPolicy::builder()
             .offline(true)
-            .with_fail_mode(KeyResolutionFailMode::SoftFail {
+            .fail_mode(KeyResolutionFailMode::SoftFail {
                 safe_grants: Vec::new(),
             })
             .build();
@@ -776,40 +678,67 @@ mod tests {
         );
     }
 
-    #[test]
-    fn resolve_async_uses_pinned_store() {
+    #[tokio::test]
+    async fn prefetch_then_resolve_uses_pinned_store() {
         let mut map = HashMap::new();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
         map.insert(issuer.clone(), vec![fake_jwk()]);
         let policy = KeyResolutionPolicy::builder()
-            .with_pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
+            .pinned_issuer_store(Arc::new(StaticPinnedIssuerKeyStore::new(map)))
             .offline(true)
             .build();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let got = rt
-            .block_on(async { policy.resolve_async(&issuer).await })
-            .unwrap();
-        assert_eq!(got.len(), 1);
+        policy.prefetch(&issuer).await;
+        assert_eq!(policy.cached(&issuer).map(|k| k.len()), Some(1));
+        assert_eq!(policy.resolve(&issuer).unwrap().len(), 1);
     }
 
-    #[test]
-    fn resolve_async_fail_closed_when_no_sources() {
+    #[tokio::test]
+    async fn prefetch_fail_closed_when_no_sources() {
         let policy = KeyResolutionPolicy::builder().offline(true).build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();
-        let rt = tokio::runtime::Runtime::new().unwrap();
-        let err = rt
-            .block_on(async { policy.resolve_async(&issuer).await })
-            .unwrap_err();
+        policy.prefetch(&issuer).await;
+        let err = policy.resolve(&issuer).unwrap_err();
         assert!(
             matches!(err, ResolveError::NetworkError(_)),
             "expected NetworkError, got {err:?}"
         );
     }
 
+    /// With a fetcher configured, the synchronous `resolve` does no I/O:
+    /// an issuer that was not prefetched gets the fail mode.
+    #[test]
+    fn resolve_without_prefetch_fails_closed_without_io() {
+        let policy = KeyResolutionPolicy::builder()
+            .fetcher(Arc::new(JwksFetcher::new()))
+            .build();
+        let issuer: Url = "https://idp.example.com".parse().unwrap();
+        match policy.resolve(&issuer).unwrap_err() {
+            ResolveError::NetworkError(msg) => assert!(msg.contains("prefetch"), "{msg}"),
+            other => panic!("expected NetworkError, got {other:?}"),
+        }
+    }
+
+    /// A failed network prefetch is negative-cached and reported by the
+    /// synchronous `resolve`.
+    #[tokio::test]
+    async fn failed_prefetch_is_reported_by_resolve() {
+        let policy = KeyResolutionPolicy::builder()
+            .fetcher(Arc::new(JwksFetcher::new()))
+            .build();
+        // A plain-http issuer is refused by the fetcher before any I/O.
+        let issuer: Url = "http://idp.example.com".parse().unwrap();
+        policy.prefetch(&issuer).await;
+        assert!(policy.cached_failure(&issuer).is_some());
+        match policy.resolve(&issuer).unwrap_err() {
+            ResolveError::NetworkError(msg) => assert!(msg.contains("negative-cached"), "{msg}"),
+            other => panic!("expected NetworkError, got {other:?}"),
+        }
+    }
+
     #[test]
     fn cache_expiry_evicts() {
         let policy = KeyResolutionPolicy::builder()
-            .with_cache_ttl(Duration::from_millis(0))
+            .cache_ttl(Duration::from_millis(0))
             .offline(true)
             .build();
         let issuer: Url = "https://idp.example.com".parse().unwrap();

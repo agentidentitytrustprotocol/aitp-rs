@@ -18,12 +18,13 @@ use crate::renewal::{
     renewal_error_envelope, renewal_response_envelope, RenewalContext, RenewalError,
     RenewalGrantPolicyFn, RENEW_URI_EXT,
 };
+use aitp::__private::DEFAULT_MAX_BODY_BYTES;
 use aitp::core::nonce_store::{NonceStore, NonceStoreError};
 use aitp::core::{ErrorCode, Timestamp};
 use aitp::crypto::AitpSigner;
 use aitp::manifest::Manifest;
-use aitp::tct::TctError;
-use aitp::transport::server::{DEFAULT_BODY_READ_TIMEOUT, DEFAULT_MAX_BODY_BYTES};
+use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable};
+use aitp::transport::DEFAULT_BODY_READ_TIMEOUT;
 use aitp::transport::{
     resolve_source_ip, RateLimitConfig, RevocationListProducer, REVOCATION_LIST_PATH,
 };
@@ -253,20 +254,26 @@ async fn handle_renew(State(state): State<Arc<RouteState>>, request: Request) ->
         Err(e) => return failure(signer, &e),
     };
     // The issuer's own revocation list, read fresh for each request.
-    let revoked: HashSet<Uuid> = server
+    // An unreadable list leaves the status unknown: the renewal fails
+    // closed with `RevocationUnavailable` after the PoP check.
+    let revoked: Result<HashSet<Uuid>, String> = server
         .revocation
         .current()
-        .revocation_list
-        .entries
-        .iter()
-        .map(|e| e.jti)
-        .collect();
-    let revocation_check = move |jti: &Uuid| Ok::<_, TctError>(revoked.contains(jti));
+        .await
+        .map(|env| env.revocation_list.entries.iter().map(|e| e.jti).collect())
+        .map_err(|e| e.to_string());
+    let revocation_check = move |q: &RevocationQuery<'_>| match &revoked {
+        Ok(revoked) if revoked.contains(q.jti) => Ok(RevocationStatus::Revoked),
+        Ok(_) => Ok(RevocationStatus::Clear),
+        Err(e) => Err(RevocationUnavailable::new(format!(
+            "issuer revocation list: {e}"
+        ))),
+    };
     let now = Timestamp::now();
     let mut ctx = RenewalContext::new(
         server.manifest.expires_at,
         &server.manifest.offered_capabilities,
-        &revocation_check,
+        RevocationSource::Check(&revocation_check),
         &*server.nonce_store,
         now,
     );

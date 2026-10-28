@@ -234,7 +234,7 @@ impl JwkPublicKey {
     ///
     /// Does **not** apply any key-strength policy (e.g. an RSA modulus
     /// floor) — that is a transport-specific hardening decision left to
-    /// the caller (see `aitp::transport::common::rsa_modulus_bits_ok`).
+    /// the caller (see the JWKS fetcher's RSA modulus floor).
     pub fn from_jwk_json(value: &serde_json::Value) -> Result<Self, JwkParseError> {
         let kid = value.get("kid").and_then(|v| v.as_str()).map(String::from);
         let kty = value
@@ -378,7 +378,7 @@ pub fn verify_jws_signature(
     };
     match &key.key {
         JwkKeyMaterial::Ed25519 { x } => {
-            let vk = AitpVerifyingKey::from_bytes(x)?;
+            let vk = AitpVerifyingKey::from_ed25519_bytes(x)?;
             vk.verify_raw_jose(signing_input, sig)
                 .map_err(|_| JwsVerifyError::SignatureInvalid)
         }
@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn verify_jws_signature_eddsa_round_trip() {
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let x = key
             .verifying_key()
             .try_to_ed25519_bytes()
@@ -665,7 +665,7 @@ mod tests {
 
     #[test]
     fn verify_jws_signature_rejects_alg_mismatch() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let x = key
             .verifying_key()
             .try_to_ed25519_bytes()

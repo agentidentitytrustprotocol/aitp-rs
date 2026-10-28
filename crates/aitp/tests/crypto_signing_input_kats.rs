@@ -229,7 +229,7 @@ fn sig_001_ed25519_small_order_key_rejected() {
     let msg = hex::decode(v["message_hex"].as_str().unwrap()).unwrap();
     let raw = Base64UrlUnpadded::decode_vec(v["signature_b64url"].as_str().unwrap()).unwrap();
     // A small-order key may parse, but must never verify anything.
-    if let Ok(vk) = AitpVerifyingKey::from_bytes(&pk) {
+    if let Ok(vk) = AitpVerifyingKey::from_ed25519_bytes(&pk) {
         assert!(vk.verify_raw(&msg, &raw).is_err());
         let d = Digest32::from_bytes(msg.clone().try_into().unwrap());
         let s = Signature::parse(v["signature_b64url"].as_str().unwrap()).unwrap();
@@ -330,7 +330,7 @@ fn envelope_kat(file: &str) -> Value {
 fn check_envelope_kat(v: &Value, key: &AitpSigningKey) -> (Digest32, AitpVerifyingKey) {
     assert_eq!(v["signing_input"], "sig_input_v2");
     let env: aitp::core::AitpEnvelope = serde_json::from_value(v["envelope"].clone()).unwrap();
-    let input = aitp::core::envelope::envelope_signing_input(&env).unwrap();
+    let input = aitp::core::envelope_signing_input(&env).unwrap();
     assert_eq!(hex::encode(&input), v["sig_input_v2_hex"].as_str().unwrap());
     assert_eq!(
         input.len() as u64,
@@ -338,7 +338,7 @@ fn check_envelope_kat(v: &Value, key: &AitpSigningKey) -> (Digest32, AitpVerifyi
     );
     assert_eq!(&input[..16], b"aitp-envelope-v2");
     assert_eq!(input[16], 0x00);
-    let digest = aitp::core::envelope::envelope_signing_digest(&env).unwrap();
+    let digest = aitp::core::envelope_signing_digest(&env).unwrap();
     assert_eq!(
         hex::encode(digest),
         v["sig_input_v2_sha256_hex"].as_str().unwrap()
@@ -387,14 +387,13 @@ fn kat_envelope_002_ed25519_with_extensions_verifies_and_v1_does_not() {
     assert!(v["envelope"]["extensions"]
         .as_object()
         .is_some_and(|m| !m.is_empty()));
-    let (d, vk) = check_envelope_kat(&v, &AitpSigningKey::from_seed(&[0u8; 32]));
+    let (d, vk) = check_envelope_kat(&v, &AitpSigningKey::from_ed25519_seed(&[0u8; 32]));
 
     // Dropping `extensions` changes the input, so the signature fails.
     let mut stripped: aitp::core::AitpEnvelope =
         serde_json::from_value(v["envelope"].clone()).unwrap();
     stripped.extensions = None;
-    let d2 =
-        Digest32::from_bytes(aitp::core::envelope::envelope_signing_digest(&stripped).unwrap());
+    let d2 = Digest32::from_bytes(aitp::core::envelope_signing_digest(&stripped).unwrap());
     assert_ne!(d, d2);
     assert!(vk
         .verify_jcs(&d2, &Signature::parse(&stripped.signature).unwrap())

@@ -36,7 +36,7 @@ fn seed(n: u8) -> AitpSigningKey {
         3 => [0xffu8; 32],
         _ => unreachable!(),
     };
-    AitpSigningKey::from_seed(&bytes)
+    AitpSigningKey::from_ed25519_seed(&bytes)
 }
 
 #[test]

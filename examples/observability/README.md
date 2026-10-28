@@ -62,7 +62,7 @@ Useful derived signals: handshake reject rate
 pressure (`rate(aitp_replay_rejected_total)`), cache effectiveness
 (`hit / (hit+miss)` for either cache), and revocation staleness
 (`rate(aitp_revocation_cache_total{outcome="stale"})` — a nonzero rate
-means consumers are seeing snapshots past `max_staleness_secs`).
+means consumers are seeing snapshots past `max_staleness`).
 
 ## Spans (one per request)
 

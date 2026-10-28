@@ -4,12 +4,14 @@ use crate::renewal::peek::{decode_renewal_nonce, peek_claims};
 use crate::renewal::{
     renewal_pop_input, RenewalError, RenewalErrorPayload, RenewalResponsePayload, TctRenewalPayload,
 };
+use aitp::__private::reject_duplicate_keys;
 use aitp::core::nonce_store::{IssuedNonce, NonceStore, NonceStoreError};
-use aitp::core::{reject_duplicate_keys, Aid, AitpEnvelope, ErrorCode, MessageType, Timestamp};
+use aitp::core::{Aid, AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigner, AitpVerifyingKey, Digest32, Signature};
 use aitp::envelope::sign_envelope_with;
 use aitp::tct::{
-    verify_tct, IssuedTct, TctBuilder, TctError, TctVerifyContext, DEFAULT_TCT_TTL_SECS,
+    verify_tct, IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext,
+    DEFAULT_TCT_TTL,
 };
 use uuid::Uuid;
 
@@ -42,10 +44,11 @@ pub struct RenewalContext<'a> {
     /// The issuer Manifest's current `offered_capabilities`. The renewed
     /// grants are the presented TCT's grants intersected with these.
     pub offered_grants: &'a [String],
-    /// Revocation lookup over the issuer's own deny list (`Ok(true)`
-    /// means revoked). A revoked TCT is refused with
-    /// [`TctError::Revoked`].
-    pub revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
+    /// Revocation source over the issuer's own deny list, queried with
+    /// the presented TCT's `iss` and `jti`. A revoked TCT is refused with
+    /// [`TctError::Revoked`]; under a soft-fail safe subset the renewed
+    /// grants are limited to that subset.
+    pub revocation: RevocationSource<'a>,
     /// Replay guard: every accepted `pop_nonce` is recorded here until
     /// the presented TCT's `exp`, and a nonce already present is refused
     /// with [`RenewalError::Replayed`]. Share one store across
@@ -55,8 +58,8 @@ pub struct RenewalContext<'a> {
     /// intersection. `None` keeps the intersection.
     pub grant_policy: Option<&'a RenewalGrantPolicyFn>,
     /// Requested lifetime of the renewed TCT, capped by
-    /// [`Self::manifest_expires_at`]. Default [`DEFAULT_TCT_TTL_SECS`].
-    pub ttl_secs: i64,
+    /// [`Self::manifest_expires_at`]. Default [`DEFAULT_TCT_TTL`]. Counted in whole seconds.
+    pub ttl: std::time::Duration,
     /// Whether to mint a companion grant voucher (§4 step 8). Default
     /// `true`.
     pub mint_voucher: bool,
@@ -70,25 +73,25 @@ impl<'a> RenewalContext<'a> {
     pub fn new(
         manifest_expires_at: Timestamp,
         offered_grants: &'a [String],
-        revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
+        revocation: RevocationSource<'a>,
         nonce_store: &'a dyn NonceStore,
         now: Timestamp,
     ) -> Self {
         Self {
             manifest_expires_at,
             offered_grants,
-            revocation_check,
+            revocation,
             nonce_store,
             grant_policy: None,
-            ttl_secs: DEFAULT_TCT_TTL_SECS,
+            ttl: DEFAULT_TCT_TTL,
             mint_voucher: true,
             now,
         }
     }
 
     /// Set the requested TTL (still capped by the Manifest window).
-    pub fn ttl_secs(mut self, ttl_secs: i64) -> Self {
-        self.ttl_secs = ttl_secs;
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -150,11 +153,13 @@ pub async fn process_renewal_request(
     let claims = {
         let peek = peek_claims(&request.current_tct)?;
         let verify_ctx = TctVerifyContext::builder(&peek.aud, issuer_aid, now)
-            .accept_unchecked_revocation_dangerous()
+            .revocation(aitp::tct::RevocationSource::FailOpen)
             .issuer_manifest_expires_at(ctx.manifest_expires_at)
             .build()
             .expect("both decisions are made");
-        verify_tct(&request.current_tct, &verify_ctx)?.claims
+        verify_tct(&request.current_tct, &verify_ctx)?
+            .into_parts()
+            .claims
     };
     if claims.aud != claims.sub {
         return Err(TctError::AudienceMismatch.into());
@@ -171,9 +176,7 @@ pub async fn process_renewal_request(
         .map_err(|_| TctError::PopFailed)?;
 
     // Step 4.
-    if (ctx.revocation_check)(&claims.jti)? {
-        return Err(TctError::Revoked.into());
-    }
+    let effective_grants = aitp::__private::tct_revocation(&ctx.revocation, &claims, now)?;
 
     // Step 5. The record lives until the presented TCT expires: after
     // that the TCT cannot be renewed anyway, so the nonce can go.
@@ -191,8 +194,7 @@ pub async fn process_renewal_request(
     }
 
     // Step 6.
-    let mut grants: Vec<String> = claims
-        .grants
+    let mut grants: Vec<String> = effective_grants
         .iter()
         .filter(|g| ctx.offered_grants.contains(g))
         .cloned()
@@ -207,12 +209,13 @@ pub async fn process_renewal_request(
 
     // Steps 7 and 8. Step 2 bounds `claims.exp` by the Manifest and puts
     // it after `now`, so the capped lifetime is positive.
-    let ttl = ctx.ttl_secs.min(ctx.manifest_expires_at.0 - now.0);
+    let window = u64::try_from(ctx.manifest_expires_at.0.saturating_sub(now.0)).unwrap_or(0);
+    let ttl = ctx.ttl.min(std::time::Duration::from_secs(window));
     let mut builder = TctBuilder::new(issuer_key)
         .subject(claims.sub.clone())
         .audience(claims.aud.clone())
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(ttl)
         .subject_pubkey(holder_pk)
         .issued_at(now)
         .jti(Uuid::new_v4());
@@ -266,7 +269,12 @@ fn sign_payload(
     now: Timestamp,
 ) -> Result<AitpEnvelope, RenewalError> {
     let payload =
-        serde_json::to_value(payload).map_err(|e| TctError::Canonicalization(e.to_string()))?;
-    sign_envelope_with(issuer_key, message_type, payload, message_id, now)
-        .map_err(|e| TctError::Canonicalization(e).into())
+        serde_json::to_value(payload).map_err(|e| TctError::Canonicalization(e.into()))?;
+    Ok(sign_envelope_with(
+        issuer_key,
+        message_type,
+        payload,
+        message_id,
+        now,
+    )?)
 }

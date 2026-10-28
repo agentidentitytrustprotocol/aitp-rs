@@ -5,11 +5,12 @@
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey, CryptoError};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, DelegationRevocation,
-    VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
 use aitp::manifest::{Manifest, ManifestError};
-use aitp::tct::TctBuilder;
+use aitp::tct::{
+    RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable, TctBuilder,
+};
 use std::collections::HashMap;
 use std::sync::OnceLock;
 use uuid::Uuid;
@@ -26,18 +27,18 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
     MANIFESTS.get_or_init(|| vec![common::manifest_for(&b(), NOW)])
 }
 
-fn verify_ctx(verifier: &Aid, now: Timestamp) -> VerifyDelegationContext<'_> {
+fn verify_ctx(verifier: &Aid, now: Timestamp) -> DelegationVerifyContext<'_> {
     common::verify_ctx(verifier, now, issuer_manifests())
 }
 
 fn a() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xA1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xA1; 32])
 }
 fn b() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xB1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xB1; 32])
 }
 fn c() -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[0xC1; 32])
+    AitpSigningKey::from_ed25519_seed(&[0xC1; 32])
 }
 
 /// A → B: TCT + voucher with two grants, 2h TTL.
@@ -46,7 +47,7 @@ fn voucher_for_b() -> String {
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data", "write_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -61,7 +62,7 @@ fn delegate_to_c(voucher: &str) -> String {
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data"])
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .now(NOW)
         .build()
         .unwrap()
@@ -73,12 +74,12 @@ fn happy_path_round_trip() {
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).expect("delegation verifies");
-    assert_eq!(verified.claims.iss, *b().aid());
-    assert_eq!(verified.claims.sub, *c().aid());
-    assert_eq!(verified.claims.scope, vec!["read_data".to_string()]);
-    assert_eq!(verified.claims.ver, PROTOCOL_VERSION);
-    assert_eq!(verified.voucher.sub, *b().aid());
-    assert_eq!(verified.voucher.grants.len(), 2);
+    assert_eq!(verified.claims().iss, *b().aid());
+    assert_eq!(verified.claims().sub, *c().aid());
+    assert_eq!(verified.claims().scope, vec!["read_data".to_string()]);
+    assert_eq!(verified.claims().ver, PROTOCOL_VERSION);
+    assert_eq!(verified.voucher().sub, *b().aid());
+    assert_eq!(verified.voucher().grants.len(), 2);
 }
 
 #[test]
@@ -123,14 +124,18 @@ fn builder_caps_expiry_at_voucher() {
         .unwrap()
         .delegatee(c().aid().clone())
         .scope(["read_data"])
-        .ttl_secs(999_999) // way past the voucher's 2h
+        .ttl(std::time::Duration::from_secs(999_999)) // way past the voucher's 2h
         .now(NOW)
         .build()
         .unwrap();
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).unwrap();
-    assert_eq!(verified.claims.exp.0, NOW.0 + 7200, "capped at voucher exp");
+    assert_eq!(
+        verified.claims().exp.0,
+        NOW.0 + 7200,
+        "capped at voucher exp"
+    );
 }
 
 #[test]
@@ -143,7 +148,7 @@ fn missing_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 3600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
@@ -158,12 +163,12 @@ fn missing_voucher_rejected() {
 fn voucher_issued_by_third_party_rejected() {
     // B embeds a voucher minted by some other agent (not the verifier):
     // verification under A's own key fails.
-    let mallory = AitpSigningKey::from_seed(&[0xD1; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xD1; 32]);
     let foreign_voucher = TctBuilder::new(&mallory)
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -179,7 +184,7 @@ fn voucher_issued_by_third_party_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": foreign_voucher,
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -201,7 +206,7 @@ fn voucher_issued_by_third_party_rejected() {
 fn voucher_subject_mismatch_rejected() {
     // B's voucher embedded in a token issued by Mallory:
     // voucher.sub != outer iss (RFC-AITP-0006 §4 step 4).
-    let mallory = AitpSigningKey::from_seed(&[0xD2; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xD2; 32]);
     let claims = serde_json::json!({
         "ver": PROTOCOL_VERSION,
         "iss": mallory.aid(),
@@ -209,7 +214,7 @@ fn voucher_subject_mismatch_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
@@ -226,7 +231,7 @@ fn voucher_subject_mismatch_rejected() {
 #[test]
 fn audience_mismatch_rejected() {
     let token = delegate_to_c(&voucher_for_b());
-    let other = AitpSigningKey::from_seed(&[0xD3; 32]);
+    let other = AitpSigningKey::from_ed25519_seed(&[0xD3; 32]);
     let ctx = verify_ctx(other.aid(), Timestamp(NOW.0 + 60));
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
@@ -255,7 +260,7 @@ fn exp_beyond_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data"],
         "exp": NOW.0 + 7200 + 1,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -276,7 +281,7 @@ fn scope_exceeding_voucher_rejected() {
         "aud": a().aid(),
         "scope": ["read_data", "admin"],
         "exp": NOW.0 + 600,
-        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": c().verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -290,7 +295,7 @@ fn scope_exceeding_voucher_rejected() {
 
 #[test]
 fn forged_cnf_jkt_rejected() {
-    let rogue = AitpSigningKey::from_seed(&[0xD4; 32]);
+    let rogue = AitpSigningKey::from_ed25519_seed(&[0xD4; 32]);
     let claims = serde_json::json!({
         "ver": PROTOCOL_VERSION,
         "iss": b().aid(),
@@ -299,7 +304,7 @@ fn forged_cnf_jkt_rejected() {
         "scope": ["read_data"],
         "exp": NOW.0 + 600,
         // jkt of a different key than sub encodes
-        "cnf": { "jkt": rogue.verifying_key().to_jwk_thumbprint().unwrap() },
+        "cnf": { "jkt": rogue.verifying_key().to_jwk_thumbprint_sha256().unwrap() },
         "voucher": voucher_for_b(),
     });
     let token = jws::sign_compact(&b(), jws::TYP_DELEGATION, &claims).unwrap();
@@ -318,10 +323,16 @@ fn revoked_source_tct_rejected() {
     let voucher_claims: aitp::tct::GrantVoucherClaims = serde_json::from_slice(&payload).unwrap();
     let src = voucher_claims.src_jti;
     let token = delegate_to_c(&voucher);
-    let revoked = move |jti: &Uuid| Ok(*jti == src);
+    let revoked = move |q: &RevocationQuery<'_>| {
+        Ok(if *q.jti == src {
+            RevocationStatus::Revoked
+        } else {
+            RevocationStatus::Clear
+        })
+    };
     let a_key = a();
     let mut ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
-    ctx.revocation = DelegationRevocation::Check(&revoked);
+    ctx.revocation = RevocationSource::Check(&revoked);
     assert!(matches!(
         verify_delegation(&token, &ctx).unwrap_err(),
         DelegationError::SourceTctRevoked
@@ -333,13 +344,13 @@ fn revoked_source_tct_rejected() {
 #[test]
 fn unavailable_revocation_source_fails_closed() {
     let token = delegate_to_c(&voucher_for_b());
-    let unavailable = |_: &Uuid| Err(DelegationError::RevocationUnavailable("no snapshot".into()));
+    let unavailable = |_: &RevocationQuery<'_>| Err(RevocationUnavailable::new("no snapshot"));
     let a_key = a();
     let mut ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
-    ctx.revocation = DelegationRevocation::Check(&unavailable);
+    ctx.revocation = RevocationSource::Check(&unavailable);
     let err = verify_delegation(&token, &ctx).unwrap_err();
     assert!(
-        matches!(&err, DelegationError::RevocationUnavailable(r) if r == "no snapshot"),
+        matches!(&err, DelegationError::RevocationUnavailable(r) if r.to_string() == "revocation source unavailable: no snapshot"),
         "got {err:?}"
     );
     assert_eq!(
@@ -374,7 +385,7 @@ fn tct_presented_as_delegation_rejected() {
         .subject(b().aid().clone())
         .audience(b().aid().clone())
         .grants(["read_data"])
-        .ttl_secs(7200)
+        .ttl(std::time::Duration::from_secs(7200))
         .subject_pubkey(b().verifying_key())
         .issued_at(NOW)
         .build()
@@ -493,7 +504,7 @@ fn verifies_under_issuer_manifest_key() {
     ];
     let ctx = common::verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60), &manifests);
     let verified = verify_delegation(&token, &ctx).expect("verifies under B's Manifest key");
-    assert_eq!(verified.claims.iss, *b().aid());
+    assert_eq!(verified.claims().iss, *b().aid());
 }
 
 #[test]
@@ -502,10 +513,10 @@ fn no_manifest_source_rejected() {
     // MUST NOT verify the token.
     let token = delegate_to_c(&voucher_for_b());
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(
+    let ctx = DelegationVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     );
     let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
     assert!(matches!(cause, ManifestError::NotFound), "got {cause:?}");
@@ -528,14 +539,14 @@ fn key_not_designated_by_issuer_manifest_rejected() {
     // served for B designates a different (rotated, RFC-AITP-0003 §8.1)
     // key.
     let token = delegate_to_c(&voucher_for_b());
-    let rotated_b = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let rotated_b = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let resolver: HashMap<Aid, Manifest> =
         HashMap::from([(b().aid().clone(), common::manifest_for(&rotated_b, NOW))]);
     let a_key = a();
-    let ctx = VerifyDelegationContext::new(
+    let ctx = DelegationVerifyContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_issuer_manifests(&resolver);
     let cause = key_resolution_cause(verify_delegation(&token, &ctx).unwrap_err());
@@ -569,7 +580,7 @@ fn signed_by_key_other_than_issuer_manifest_key_is_invalid_signature() {
     // by someone else: DELEGATION_INVALID_SIGNATURE.
     let payload = jws::decode_payload_unverified(&delegate_to_c(&voucher_for_b())).unwrap();
     let claims: serde_json::Value = serde_json::from_slice(&payload).unwrap();
-    let mallory = AitpSigningKey::from_seed(&[0xE1; 32]);
+    let mallory = AitpSigningKey::from_ed25519_seed(&[0xE1; 32]);
     let forged = jws::sign_compact(&mallory, jws::TYP_DELEGATION, &claims).unwrap();
     let a_key = a();
     let err =

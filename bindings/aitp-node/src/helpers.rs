@@ -33,7 +33,7 @@ pub fn make_peer_config<'a>(
     jwks: &'a (dyn JwksResolver + 'a),
     trust_anchors: &'a [RawUrl],
     pinned_keys: &'a dyn PinnedKeyStore,
-    revocation: aitp::handshake::RevocationSource<'a>,
+    revocation: aitp::tct::RevocationSource<'a>,
 ) -> PeerConfig<'a> {
     PeerConfig::new(
         key,
@@ -124,42 +124,41 @@ where
 }
 
 impl BindingRevocation {
-    /// TCT-verifier lookup ([`aitp::tct::RevocationCheckFn`] contract).
-    pub fn tct_status(&self, jti: &uuid::Uuid) -> Result<bool, aitp::tct::TctError> {
+    /// The lookup ([`aitp::tct::RevocationCheckFn`] contract). The deny
+    /// list is the one the caller supplied, so only the query's `jti` is
+    /// consulted.
+    pub fn status(
+        &self,
+        query: &aitp::tct::RevocationQuery<'_>,
+    ) -> Result<aitp::tct::RevocationStatus, aitp::tct::RevocationUnavailable> {
+        self.jti_status(query.jti)
+    }
+
+    /// [`Self::status`] for a bare `jti`.
+    pub fn jti_status(
+        &self,
+        jti: &uuid::Uuid,
+    ) -> Result<aitp::tct::RevocationStatus, aitp::tct::RevocationUnavailable> {
+        use aitp::tct::RevocationStatus::{Clear, Revoked};
         match self {
-            Self::DenyList(set) => Ok(set.contains(jti)),
-            Self::Unavailable => Err(aitp::tct::TctError::RevocationUnavailable(
-                NO_DENY_LIST.into(),
-            )),
-            Self::FailOpen => Ok(false),
+            Self::DenyList(set) if set.contains(jti) => Ok(Revoked),
+            Self::DenyList(_) | Self::FailOpen => Ok(Clear),
+            Self::Unavailable => Err(aitp::tct::RevocationUnavailable::new(NO_DENY_LIST)),
         }
     }
 
-    /// Delegation-verifier lookup ([`aitp::delegation::SourceRevocationCheck`]
-    /// contract).
-    pub fn delegation_status(
+    /// The verifier's revocation source: [`aitp::tct::RevocationSource::FailOpen`]
+    /// for the explicit opt-out, otherwise `check` (a closure over
+    /// [`Self::status`]).
+    pub fn source<'a>(
         &self,
-        jti: &uuid::Uuid,
-    ) -> Result<bool, aitp::delegation::DelegationError> {
-        match self {
-            Self::DenyList(set) => Ok(set.contains(jti)),
-            Self::Unavailable => Err(aitp::delegation::DelegationError::RevocationUnavailable(
-                NO_DENY_LIST.into(),
-            )),
-            Self::FailOpen => Ok(false),
+        check: &'a aitp::tct::RevocationCheckFn<'a>,
+    ) -> aitp::tct::RevocationSource<'a> {
+        if self.is_fail_open() {
+            aitp::tct::RevocationSource::FailOpen
+        } else {
+            aitp::tct::RevocationSource::Check(check)
         }
-    }
-
-    /// Handshake lookup ([`aitp::handshake::RevocationCheckFn`] contract).
-    /// The deny list is the peer issuer's, so the issuer is not consulted.
-    pub fn handshake_decision(
-        &self,
-        jti: &uuid::Uuid,
-    ) -> Result<aitp::handshake::HandshakeRevocationDecision, aitp::handshake::HandshakeError> {
-        use aitp::handshake::HandshakeRevocationDecision::{Clear, Revoked};
-        self.tct_status(jti)
-            .map(|revoked| if revoked { Revoked } else { Clear })
-            .map_err(aitp::handshake::HandshakeError::Tct)
     }
 
     /// Whether this is the explicit `fail_open` opt-out.
@@ -172,41 +171,47 @@ impl BindingRevocation {
 /// other failure. Matches the Rust adapter's mapping: revoked and
 /// unavailable share the code, and the message tells them apart.
 pub fn tct_revocation_code(e: &aitp::tct::TctError) -> Option<&'static str> {
-    use aitp::tct::TctError::{RevocationUnavailable, Revoked};
-    matches!(e, Revoked | RevocationUnavailable(_)).then_some("TCT_REVOKED")
+    use aitp::tct::TctError::{RevocationUnavailable, Revoked, SafeSubsetEmpty};
+    match e {
+        Revoked | RevocationUnavailable(_) => Some("TCT_REVOKED"),
+        SafeSubsetEmpty => Some("POLICY_VIOLATION"),
+        _ => None,
+    }
 }
 
 /// The wire error code for a handshake failure (`IDENTITY_FAILED`,
 /// `INCOMPATIBLE_IDENTITY_TYPE`, `TCT_REVOKED`, ...), as the HTTP
 /// transport reports it.
 pub fn handshake_code(e: &aitp::handshake::HandshakeError) -> Option<String> {
-    serde_json::to_value(e.error_code())
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_owned))
+    Some(e.error_code().as_str().to_owned())
 }
 
 /// [`tct_revocation_code`] for a delegation failure (RFC-AITP-0006 §4
 /// step 7).
 pub fn delegation_revocation_code(e: &aitp::delegation::DelegationError) -> Option<&'static str> {
-    use aitp::delegation::DelegationError::{RevocationUnavailable, SourceTctRevoked};
-    matches!(e, SourceTctRevoked | RevocationUnavailable(_))
-        .then_some("DELEGATION_SOURCE_TCT_REVOKED")
+    use aitp::delegation::DelegationError::{
+        RevocationUnavailable, SafeSubsetEmpty, SourceTctRevoked,
+    };
+    match e {
+        SourceTctRevoked | RevocationUnavailable(_) => Some("DELEGATION_SOURCE_TCT_REVOKED"),
+        SafeSubsetEmpty => Some("POLICY_VIOLATION"),
+        _ => None,
+    }
 }
 
 /// Revocation lookup for a handshake step that verifies no TCT (HELLO,
 /// HELLO_ACK). Never called; if it were, it would fail closed.
 fn no_tct_step(
-    _: &aitp::core::Aid,
-    _: &uuid::Uuid,
-) -> Result<aitp::handshake::HandshakeRevocationDecision, aitp::handshake::HandshakeError> {
-    Err(aitp::handshake::HandshakeError::Tct(
-        aitp::tct::TctError::RevocationUnavailable("no TCT is verified at this step".into()),
+    _: &aitp::tct::RevocationQuery<'_>,
+) -> Result<aitp::tct::RevocationStatus, aitp::tct::RevocationUnavailable> {
+    Err(aitp::tct::RevocationUnavailable::new(
+        "no TCT is verified at this step",
     ))
 }
 
-/// [`aitp::handshake::RevocationSource`] for the steps that verify no TCT.
-pub const NO_TCT_STEP: aitp::handshake::RevocationSource<'static> =
-    aitp::handshake::RevocationSource::Check(&no_tct_step);
+/// [`aitp::tct::RevocationSource`] for the steps that verify no TCT.
+pub const NO_TCT_STEP: aitp::tct::RevocationSource<'static> =
+    aitp::tct::RevocationSource::Check(&no_tct_step);
 
 /// A JS `Error` carrying `code` when the failure has a revocation code,
 /// otherwise a plain one (napi's generic `code`).
@@ -227,4 +232,19 @@ pub fn js_revocation(
         revocation,
     )
     .map_err(napi::Error::from_reason)
+}
+
+/// Split a signed TTL in seconds into the start time and non-negative
+/// lifetime the builders take, so that `start + lifetime == now + ttl_secs`.
+/// A negative TTL starts the window `|ttl_secs|` seconds before `now`
+/// with a zero lifetime, which yields an artifact that is already
+/// expired when it is minted.
+pub(crate) fn ttl_window(now: Timestamp, ttl_secs: i64) -> (Timestamp, std::time::Duration) {
+    match u64::try_from(ttl_secs) {
+        Ok(secs) => (now, std::time::Duration::from_secs(secs)),
+        Err(_) => (
+            Timestamp(now.0.saturating_add(ttl_secs)),
+            std::time::Duration::ZERO,
+        ),
+    }
 }

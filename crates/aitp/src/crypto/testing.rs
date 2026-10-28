@@ -1,4 +1,4 @@
-//! Test doubles for [`crate::crypto::signer`]. Enabled by the `test-util`
+//! Test doubles for the signing backends ([`crate::crypto::AitpSigner`]). Enabled by the `test-util`
 //! feature; never compiled into a release build of a dependent unless it
 //! asks for it.
 

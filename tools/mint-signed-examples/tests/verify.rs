@@ -3,10 +3,10 @@
 //! this confirms the signatures are real.
 
 use aitp::core::{Aid, Timestamp};
-use aitp::manifest::{verify_manifest, Manifest, VerifyManifestContext};
+use aitp::manifest::{verify_manifest, Manifest, ManifestVerifyContext};
 use aitp::tct::{
-    verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope, TctVerifyContext,
-    VerifyRevocationListContext,
+    verify_revocation_list, verify_tct, verify_voucher, RevocationListEnvelope,
+    RevocationListVerifyContext, TctVerifyContext,
 };
 use std::path::PathBuf;
 
@@ -59,7 +59,7 @@ fn minted_manifest_verifies() {
         return;
     };
     let m: Manifest = serde_json::from_value(v["manifest"].clone()).unwrap();
-    verify_manifest(&m, &VerifyManifestContext::at(fixed_now())).expect("minted manifest verifies");
+    verify_manifest(&m, &ManifestVerifyContext::at(fixed_now())).expect("minted manifest verifies");
 }
 
 #[test]
@@ -72,13 +72,13 @@ fn minted_tct_verifies() {
     let expected_audience = kat_002_aid();
     let issuer = kat_001_aid();
     let ctx = TctVerifyContext::builder(&expected_audience, &issuer, fixed_now())
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
     let verified = verify_tct(token, &ctx).expect("minted TCT verifies");
     assert_eq!(
-        serde_json::to_value(&verified.claims).unwrap(),
+        serde_json::to_value(verified.claims()).unwrap(),
         v["decoded_claims"],
         "decoded_claims companion diverges from the token payload"
     );
@@ -114,7 +114,7 @@ fn minted_delegation_verifies() {
     for (i, b) in seed.iter_mut().enumerate() {
         *b = i as u8;
     }
-    let b_key = aitp::crypto::AitpSigningKey::from_seed(&seed);
+    let b_key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&seed);
     assert_eq!(b_key.aid(), &kat_002_aid());
     let b_manifest = aitp::manifest::ManifestBuilder::new(&b_key)
         .handshake_endpoint("https://agent.example.com/aitp/handshake".parse().unwrap())
@@ -127,20 +127,20 @@ fn minted_delegation_verifies() {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .published_at(Timestamp(fixed_now().0 - 100))
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .build()
         .unwrap();
     let issuer_manifests = vec![b_manifest];
-    let ctx = aitp::delegation::VerifyDelegationContext::new(
+    let ctx = aitp::delegation::DelegationVerifyContext::new(
         &verifier_aid,
         fixed_now(),
-        aitp::delegation::DelegationRevocation::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
     )
     .with_issuer_manifests(&issuer_manifests);
     let verified =
         aitp::delegation::verify_delegation(token, &ctx).expect("minted delegation verifies");
     assert_eq!(
-        serde_json::to_value(&verified.claims).unwrap(),
+        serde_json::to_value(verified.claims()).unwrap(),
         v["decoded_claims"],
         "decoded_claims companion diverges from the token payload"
     );
@@ -157,6 +157,6 @@ fn minted_revocation_snapshot_verifies() {
     obj.remove("signing_input");
     let env: RevocationListEnvelope = serde_json::from_value(v).unwrap();
     let issuer = env.revocation_list.issuer.clone();
-    let ctx = VerifyRevocationListContext::new(&issuer, fixed_now());
+    let ctx = RevocationListVerifyContext::new(&issuer, fixed_now());
     verify_revocation_list(&env, &ctx).expect("minted revocation snapshot verifies");
 }

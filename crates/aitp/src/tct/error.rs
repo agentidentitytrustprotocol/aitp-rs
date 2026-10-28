@@ -39,8 +39,8 @@ pub enum TctError {
     /// per RFC-AITP-0008 §1.5) and the policy is `fail_closed`. Same
     /// `TCT_REVOKED` wire code as [`Self::Revoked`] (RFC-AITP-0008
     /// §3.1), but the detail says the `jti` was not found on a list.
-    #[error("revocation source unavailable: {0}")]
-    RevocationUnavailable(String),
+    #[error("{0}")]
+    RevocationUnavailable(#[source] crate::tct::RevocationUnavailable),
     /// `grants` is empty (forbidden by RFC-AITP-0004 §4.1).
     #[error("TCT grants must be non-empty")]
     EmptyGrants,
@@ -56,7 +56,7 @@ pub enum TctError {
     /// object — unknown claim outside `ext`, duplicate claim, missing
     /// required claim, or a type mismatch (RFC-AITP-0001 §5.4.5 strict
     /// parsing). Also raised by
-    /// [`crate::tct::revocation::parse_revocation_snapshot_wire`] for a
+    /// [`crate::tct::parse_revocation_snapshot_wire`] for a
     /// residual deserialize failure on the JCS-profile revocation
     /// snapshot body (missing/mistyped member other than an unknown
     /// one) — the name predates that artifact, but the shape is the
@@ -65,7 +65,7 @@ pub enum TctError {
     ClaimsMalformed(String),
     /// A JSON member outside the artifact's schema-declared member set was
     /// present (RFC-AITP-0001 §7). Carries the offending member's name.
-    /// Raised by [`crate::tct::revocation::parse_revocation_snapshot_wire`] for
+    /// Raised by [`crate::tct::parse_revocation_snapshot_wire`] for
     /// both the envelope and the inner `revocation_list` body.
     #[error("unknown field: {0}")]
     UnknownField(String),
@@ -74,7 +74,7 @@ pub enum TctError {
     MissingField(&'static str),
     /// Canonicalization failed.
     #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
+    Canonicalization(#[source] crate::core::jcs::JcsError),
     /// PoP nonce echo mismatch (RFC-AITP-0005 §6.2 step 2).
     #[error("PoP nonce echo mismatch")]
     PopNonceMismatch,
@@ -92,7 +92,7 @@ pub enum TctError {
     /// #72 Item 6b). Wire code: `TCT_SIGNATURE_INVALID` for a TCT,
     /// `DELEGATION_INVALID_VOUCHER` for a voucher. Raised before
     /// signature verification. Also raised by
-    /// [`crate::tct::revocation::parse_revocation_snapshot_wire`] for a
+    /// [`crate::tct::parse_revocation_snapshot_wire`] for a
     /// non-v4 `entries[].jti`.
     #[error("jti is not a UUID v4: {0}")]
     JtiNotV4(crate::core::ids::V4Error),
@@ -123,4 +123,10 @@ pub enum TctError {
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
+    /// The revocation source answered
+    /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`] and none of
+    /// the token's grants is in the safe subset (RFC-AITP-0008 §3.1).
+    /// Wire code `POLICY_VIOLATION`.
+    #[error("no granted capability is in the revocation soft-fail safe subset")]
+    SafeSubsetEmpty,
 }

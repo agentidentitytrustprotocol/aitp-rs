@@ -108,7 +108,7 @@ impl AdapterState {
     fn key_for(&self, handle: &str) -> Option<AitpSigningKey> {
         self.keypair_seeds
             .get(handle)
-            .map(AitpSigningKey::from_seed)
+            .map(AitpSigningKey::from_ed25519_seed)
     }
 }
 
@@ -220,8 +220,8 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
 /// supplies revocation status only to `verify_tct` (tct-024/025); its
 /// handshake fixtures and cross-impl peers carry no `ListRevoked` input,
 /// so the handshake ops run `fail_open` explicitly.
-const HARNESS_REVOCATION: aitp::handshake::RevocationSource<'static> =
-    aitp::handshake::RevocationSource::FailOpen;
+const HARNESS_REVOCATION: aitp::tct::RevocationSource<'static> =
+    aitp::tct::RevocationSource::FailOpen;
 
 fn init(id: &str) -> Value {
     let supported_ops = vec![
@@ -509,7 +509,7 @@ fn compute_jwk_thumbprint(id: &str, params: Value) -> Value {
     }
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&bytes);
-    let thumbprint = aitp::crypto::compute_jwk_thumbprint(&buf);
+    let thumbprint = aitp::crypto::compute_jwk_thumbprint_ed25519_sha256(&buf);
     json!({"id": id, "ok": true, "result": {"thumbprint": thumbprint}})
 }
 
@@ -563,7 +563,11 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
     // that is both stale and malformed, or stale with an unknown
     // `version`, is TIMESTAMP_EXPIRED. A `timestamp` that is missing or
     // not an integer skips the window and fails the structural step.
-    if let Some(tolerance) = params.get("tolerance_seconds").and_then(|v| v.as_i64()) {
+    if let Some(tolerance) = params
+        .get("tolerance_seconds")
+        .and_then(|v| v.as_i64())
+        .map(|t| std::time::Duration::from_secs(t.max(0).unsigned_abs()))
+    {
         let now = params
             .get("now")
             .and_then(|v| v.as_i64())
@@ -578,7 +582,10 @@ fn verify_envelope_op(state: &mut AdapterState, id: &str, params: Value) -> Valu
                 return err(
                     id,
                     "TIMESTAMP_EXPIRED",
-                    &format!("envelope timestamp outside the {tolerance}s window"),
+                    &format!(
+                        "envelope timestamp outside the {}s window",
+                        tolerance.as_secs()
+                    ),
                 );
             }
         }
@@ -742,6 +749,11 @@ fn key_source_matches(entry: &Value, needed: &str) -> bool {
 /// any other `self_aid` lands as `OP_NOT_SUPPORTED` (the bootstrap
 /// verifier needs a verifier-side signing key, and we can't derive
 /// one from an arbitrary AID since AIDs are public keys).
+/// The identity type a fixture names by its RFC-AITP-0002 wire string.
+fn identity_kind(v: &Value) -> Option<aitp::handshake::IdentityKind> {
+    serde_json::from_value(v.clone()).ok()
+}
+
 fn kat_seed_for_aid(aid_str: &str) -> Option<[u8; 32]> {
     match aid_str {
         "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik" => Some([0u8; 32]),
@@ -824,7 +836,7 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
             )
         }
     };
-    let self_key = AitpSigningKey::from_seed(&self_seed);
+    let self_key = AitpSigningKey::from_ed25519_seed(&self_seed);
 
     // RFC-AITP-0002 §6.2: a `spiffe` fixture's
     // `trust_anchors_config.spiffe_bundles` is the verifier's whole
@@ -892,23 +904,35 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         .and_then(|v| v.as_array())
     {
         Some(types) if types.is_empty() => self_manifest.accept_no_identity_types(),
-        Some(types) => types
-            .iter()
-            .filter_map(|t| t.as_str())
-            .fold(self_manifest, |b, t| b.accept_identity_type(t)),
+        Some(types) => {
+            let mut b = self_manifest;
+            for t in types {
+                match identity_kind(t) {
+                    Some(kind) => b = b.accept_identity_type(kind),
+                    None => {
+                        return err(
+                            id,
+                            "INVALID_REQUEST",
+                            "unknown self_accepted_identity_types entry",
+                        )
+                    }
+                }
+            }
+            b
+        }
         None => {
             let b = self_manifest
-                .accept_identity_type("pinned_key")
-                .accept_identity_type("oidc");
+                .accept_identity_type(aitp::handshake::IdentityKind::PinnedKey)
+                .accept_identity_type(aitp::handshake::IdentityKind::Oidc);
             if spiffe_enabled {
-                b.accept_identity_type("spiffe")
+                b.accept_identity_type(aitp::handshake::IdentityKind::Spiffe)
             } else {
                 b
             }
         }
     };
     let self_manifest = match self_manifest
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(state.now())
         .build()
     {
@@ -960,14 +984,14 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
         cfg = cfg.with_identity_verifier(verifier);
     }
 
-    use aitp::core::{check_members, from_serde_error};
-    use aitp::handshake::payloads::{
+    use aitp::__private::{apply_peer_policy, bootstrap_verify_peer};
+    use aitp::__private::{check_members, from_serde_error};
+    use aitp::handshake::HandshakeError;
+    use aitp::handshake::{
         MutualCommitAckPayload, MutualHelloAckPayload, MutualHelloPayload,
         MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
         MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
-    use aitp::handshake::state_machine::{apply_peer_policy, bootstrap_verify_peer};
-    use aitp::handshake::HandshakeError;
 
     let hello_family = matches!(
         envelope.message_type,
@@ -1184,7 +1208,7 @@ fn verify_handshake_dual_peer(
             .cloned()
             .ok_or_else(|| HandshakeError::InvalidEnvelope("missing received_payload".into()))?;
         strip_claims_companions(&mut payload_value);
-        let payload: aitp::handshake::payloads::MutualCommitAckPayload =
+        let payload: aitp::handshake::MutualCommitAckPayload =
             serde_json::from_value(payload_value).map_err(|e| {
                 HandshakeError::InvalidEnvelope(format!("received_payload parse: {e}"))
             })?;
@@ -1205,7 +1229,7 @@ fn verify_handshake_dual_peer(
             None,
             expected_pop_nonce,
         )?;
-        Ok(verified.claims.grants)
+        Ok(verified.into_parts().claims.grants)
     }
     let grants = match verify_one(peer_a, now) {
         Ok(g) => g,
@@ -1230,7 +1254,7 @@ fn verify_handshake_dual_peer(
 /// pop-signature checks the spec mandates without the session
 /// state.
 fn verify_commit_ack_stateless(
-    payload: &aitp::handshake::payloads::MutualCommitAckPayload,
+    payload: &aitp::handshake::MutualCommitAckPayload,
     sender_aid: &Aid,
     self_aid: &Aid,
     now: aitp::core::Timestamp,
@@ -1303,7 +1327,7 @@ fn verify_commit_ack_stateless(
     let ctx = TctVerifyContext::builder(self_aid, sender_aid, now)
         // Handshake-payload conformance op: no revocation source or
         // issuer Manifest is wired for this synthetic check.
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .expect("both verify decisions are made above");
@@ -1360,7 +1384,7 @@ impl JwksResolver for OidcTestIssuerResolver {
         if issuer != &test_issuer {
             return Ok(vec![]);
         }
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
         let Some(x) = key.verifying_key().try_to_ed25519_bytes() else {
             return Ok(vec![]);
         };
@@ -1396,6 +1420,7 @@ fn handshake_error_code(e: &aitp::handshake::HandshakeError) -> String {
         // `error_code_mapping_tests::handshake_codes` assertion is the
         // only thing that would catch a missing/misplaced arm.
         UnknownField(_) => "UNKNOWN_FIELD".to_string(),
+        IdentityVerifier(_) | GrantPolicy(_) => e.error_code().as_str().to_string(),
         // HandshakeError is #[non_exhaustive]; future variants default
         // to INTERNAL_ERROR so the adapter never panics on a new variant.
         _ => "INTERNAL_ERROR".to_string(),
@@ -1427,9 +1452,9 @@ fn verify_manifest_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or_else(|| state.now());
     match aitp::manifest::verify_manifest(
         &manifest,
-        &aitp::manifest::VerifyManifestContext::at(now),
+        &aitp::manifest::ManifestVerifyContext::at(now),
     ) {
-        Ok(()) => json!({"id": id, "ok": true, "result": {"verified": true}}),
+        Ok(_) => json!({"id": id, "ok": true, "result": {"verified": true}}),
         Err(e) => err(id, &manifest_error_code(&e), &e.to_string()),
     }
 }
@@ -1466,7 +1491,7 @@ fn manifest_error_code(e: &aitp::manifest::ManifestError) -> String {
 }
 
 fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
-    use std::cell::Cell;
+    use std::sync::atomic::{AtomicBool, Ordering};
     // The v0.2 TCT is an opaque compact JWS string, supplied as
     // `tct_token` (preferred) or `tct`.
     let token = match params
@@ -1602,15 +1627,25 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
     // rev-004 instrumentation: record whether the revocation source
     // was consulted at all, to pin the RFC-AITP-0008 §3.3 ordering
     // (signature verification MUST precede any revocation lookup).
-    let lookup_called = Cell::new(false);
-    let check = |jti: &Uuid| {
-        lookup_called.set(true);
+    let lookup_called = AtomicBool::new(false);
+    let check = |q: &aitp::tct::RevocationQuery<'_>| {
+        use aitp::tct::RevocationStatus;
+        lookup_called.store(true, Ordering::Relaxed);
         if absent_is_revoked {
-            return Err(aitp::tct::TctError::RevocationUnavailable(
-                absent_reason.clone(),
-            ));
+            return Err(aitp::tct::RevocationUnavailable::new(absent_reason.clone()));
         }
-        Ok(revoked_jtis.contains(&jti.to_string()))
+        if revoked_jtis.contains(&q.jti.to_string()) {
+            return Ok(RevocationStatus::Revoked);
+        }
+        // soft_fail with a safe subset: the snapshot was discarded, so
+        // the verifier narrows the grants to that subset (RFC-AITP-0008
+        // §3.1); an empty intersection is SafeSubsetEmpty.
+        Ok(match &snapshot_mode {
+            Some(SnapshotPolicyMode::SoftFail(safe)) => {
+                RevocationStatus::soft_fail_safe_subset(safe.clone())
+            }
+            _ => RevocationStatus::Clear,
+        })
     };
     // Honor the spec's `issuer_manifest.expires_at` field
     // (RFC-AITP-0005 §10.4). tct-005 supplies this via
@@ -1624,7 +1659,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .map(Timestamp);
     let ctx = {
         let b = aitp::tct::TctVerifyContext::builder(&expected_audience, &issuer, now)
-            .revocation_check(&check);
+            .revocation(aitp::tct::RevocationSource::Check(&check));
         let b = match issuer_manifest_expires_at {
             Some(exp) => b.issuer_manifest_expires_at(exp),
             None => b.skip_manifest_expiry_cap_dangerous(),
@@ -1637,26 +1672,10 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or(false);
     match aitp::tct::verify_tct(&token, &ctx) {
         Ok(v) => {
-            let mut grants = v.claims.grants;
-            // soft_fail with a safe subset: the snapshot was discarded,
-            // so accept with the grants narrowed to that subset
-            // (RFC-AITP-0008 §3.1). An empty intersection is a policy
-            // violation, not a full-grant accept.
-            if let Some(SnapshotPolicyMode::SoftFail(safe)) = &snapshot_mode {
-                grants.retain(|g| safe.contains(g));
-                if grants.is_empty() {
-                    return err(
-                        id,
-                        "POLICY_VIOLATION",
-                        "revocation snapshot discarded under soft_fail and no granted \
-                         capability is in the safe subset",
-                    );
-                }
-            }
-            let mut result = json!({"verified": true, "grants": grants});
+            let mut result = json!({"verified": true, "grants": v.effective_grants()});
             if instrumented {
                 result["side_effects"] = json!({
-                    "revocation_lookup_called": lookup_called.get(),
+                    "revocation_lookup_called": lookup_called.load(Ordering::Relaxed),
                     "network_fetch_called": false,
                 });
             }
@@ -1686,6 +1705,7 @@ fn tct_error_code(e: &aitp::tct::TctError) -> String {
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
         Revoked | RevocationUnavailable(_) => "TCT_REVOKED",
+        SafeSubsetEmpty => "POLICY_VIOLATION",
         EmptyGrants => "INVALID_ENVELOPE",
         GrantWhitespace(_) => "INVALID_ENVELOPE",
         CnfMalformed => "INVALID_ENVELOPE",
@@ -1842,7 +1862,7 @@ fn accepted_snapshot(
 ) -> Result<aitp::tct::RevocationListEnvelope, (String, String)> {
     let env = aitp::tct::parse_revocation_snapshot_wire(&checked(snapshot))
         .map_err(|e| (revocation_error_code(&e), e.to_string()))?;
-    let ctx = aitp::tct::VerifyRevocationListContext::new(expected_issuer, now);
+    let ctx = aitp::tct::RevocationListVerifyContext::new(expected_issuer, now);
     aitp::tct::verify_revocation_list(&env, &ctx).map_err(|e| {
         let code = match e {
             // No dedicated registry code: an expired snapshot is not one
@@ -2098,33 +2118,43 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     // An empty deny list is an explicit "nothing revoked" here: the
     // harness supplied every snapshot it has, and absent hop issuers are
     // already folded into `absent_issuers` by policy.
-    let revocation_check_closure = |jti: &Uuid| Ok(own_denied.contains(jti));
-    let hop_revocation_closure = |issuer: &Aid, jti: &Uuid| {
-        Ok(absent_issuers.contains(issuer)
-            || deny_lists.get(issuer).is_some_and(|s| s.contains(jti)))
+    let status = |revoked: bool| {
+        Ok(if revoked {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
+    let revocation_check_closure =
+        |q: &aitp::tct::RevocationQuery<'_>| status(own_denied.contains(q.jti));
+    let hop_revocation_closure = |q: &aitp::tct::RevocationQuery<'_>| {
+        status(
+            absent_issuers.contains(q.issuer)
+                || deny_lists.get(q.issuer).is_some_and(|s| s.contains(q.jti)),
+        )
     };
 
     let issuer_manifests = match delegation_issuer_manifests(&params) {
         Ok(m) => m,
         Err((code, msg)) => return err(id, &code, &msg),
     };
-    let revocation = aitp::delegation::DelegationRevocation::Check(&revocation_check_closure);
+    let revocation = aitp::tct::RevocationSource::Check(&revocation_check_closure);
     // Multi-hop opt-in. Per RFC-AITP-0006 §4 the default MUST reject any
     // chain-bearing token; the runner enables RFC-AITP-0011 semantics by
     // sending `set_features` with `experimental-multihop-delegation`.
     let scope = if state.has_feature("experimental-multihop-delegation") {
         let ctx =
-            aitp_experimental::delegation::VerifyChainContext::new(&verifier_aid, now, revocation)
+            aitp_experimental::delegation::ChainVerifyContext::new(&verifier_aid, now, revocation)
                 .with_issuer_manifests(&issuer_manifests)
                 .with_hop_revocation_check(&hop_revocation_closure);
         aitp_experimental::delegation::verify_chained_delegation(&token, &ctx)
-            .map(|v| v.claims.scope)
+            .map(|v| v.effective_grants)
             .map_err(|e| (chained_delegation_error_code(&e), e.to_string()))
     } else {
-        let ctx = aitp::delegation::VerifyDelegationContext::new(&verifier_aid, now, revocation)
+        let ctx = aitp::delegation::DelegationVerifyContext::new(&verifier_aid, now, revocation)
             .with_issuer_manifests(&issuer_manifests);
         aitp::delegation::verify_delegation(&token, &ctx)
-            .map(|v| v.claims.scope)
+            .map(|v| v.into_parts().effective_grants)
             .map_err(|e| (delegation_error_code(&e), e.to_string()))
     };
     match scope {
@@ -2172,6 +2202,7 @@ fn delegation_error_code(e: &aitp::delegation::DelegationError) -> String {
         ScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
         InvalidVoucher => "DELEGATION_INVALID_VOUCHER",
         SourceTctRevoked | RevocationUnavailable(_) => "DELEGATION_SOURCE_TCT_REVOKED",
+        SafeSubsetEmpty => "POLICY_VIOLATION",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
@@ -2237,7 +2268,7 @@ fn generate_keypair(state: &mut AdapterState, id: &str, params: Value) -> Value 
         }
         s
     };
-    let key = AitpSigningKey::from_seed(&seed);
+    let key = AitpSigningKey::from_ed25519_seed(&seed);
     let aid = key.aid().as_str().to_string();
     let pubkey = base64url::encode(
         &key.verifying_key()
@@ -2300,13 +2331,13 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(3600);
 
     let mut b = ManifestBuilder::new(key)
         .handshake_endpoint(endpoint)
         .identity_hint(identity_hint)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .published_at(state.now());
     for anchor in trust_anchors {
         b = b.accept_trust_anchor_raw(anchor);
@@ -2323,8 +2354,17 @@ fn issue_manifest_op(state: &mut AdapterState, id: &str, params: Value) -> Value
         .get("accepted_identity_types")
         .and_then(|v| v.as_array())
     {
-        for ty in types.iter().filter_map(|t| t.as_str()) {
-            b = b.accept_identity_type(ty);
+        for t in types {
+            match identity_kind(t) {
+                Some(kind) => b = b.accept_identity_type(kind),
+                None => {
+                    return err(
+                        id,
+                        "INVALID_REQUEST",
+                        "unknown accepted_identity_types entry",
+                    )
+                }
+            }
         }
     }
     let manifest = match b.build() {
@@ -2416,7 +2456,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     };
     let mut buf = [0u8; 32];
     buf.copy_from_slice(&pk_bytes);
-    let subject_pubkey = match AitpVerifyingKey::from_bytes(&buf) {
+    let subject_pubkey = match AitpVerifyingKey::from_ed25519_bytes(&buf) {
         Ok(p) => p,
         Err(e) => return err(id, "INVALID_REQUEST", &format!("subject_public_key: {e}")),
     };
@@ -2431,7 +2471,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(3600);
     let issued_at = params
         .get("issued_at")
@@ -2443,7 +2483,7 @@ fn issue_tct_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
         .subject(subject)
         .audience(audience)
         .grants(grants)
-        .ttl_secs(ttl)
+        .ttl(std::time::Duration::from_secs(ttl))
         .subject_pubkey(subject_pubkey)
         .issued_at(issued_at);
     if let Some(jti) = params
@@ -2504,7 +2544,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
         .unwrap_or_default();
     let ttl = params
         .get("ttl_secs")
-        .and_then(|v| v.as_i64())
+        .and_then(|v| v.as_u64())
         .unwrap_or(1800);
 
     // Single-hop: the delegator presents the grant voucher its TCT
@@ -2530,7 +2570,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
                 let b = b
                     .delegatee(delegatee.clone())
                     .scope(scope.clone())
-                    .ttl_secs(ttl)
+                    .ttl(std::time::Duration::from_secs(ttl))
                     .now(now);
                 match jti {
                     Some(jti) => b.jti(jti),
@@ -2545,7 +2585,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
             .and_then(|b| {
                 b.delegatee(delegatee)
                     .scope(scope)
-                    .ttl_secs(ttl)
+                    .ttl(std::time::Duration::from_secs(ttl))
                     .now(now)
                     .build()
             })
@@ -3117,9 +3157,9 @@ fn responder_step(
 /// voucher (verbatim) when the peer's policy allowed delegation.
 fn completed_handshake_json(c: &aitp::handshake::CompletedHandshake) -> Value {
     json!({
-        "tct_token": c.tct.token,
-        "tct_claims": c.tct.claims,
-        "grant_voucher": c.grant_voucher,
+        "tct_token": c.tct().token(),
+        "tct_claims": c.tct().claims(),
+        "grant_voucher": c.grant_voucher(),
     })
 }
 
@@ -3169,7 +3209,7 @@ fn verify_revocation_snapshot_op(state: &AdapterState, id: &str, params: Value) 
         .and_then(|v| v.as_i64())
         .map(Timestamp)
         .unwrap_or_else(|| state.now());
-    let ctx = aitp::tct::VerifyRevocationListContext::new(&expected_issuer, now);
+    let ctx = aitp::tct::RevocationListVerifyContext::new(&expected_issuer, now);
     if let Err(e) = aitp::tct::verify_revocation_list(&env, &ctx) {
         return err(id, &revocation_error_code(&e), &e.to_string());
     }
@@ -3476,11 +3516,11 @@ fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Val
     };
     let ctx = aitp::tct::TctVerifyContext::builder(&sub, &self_aid, now)
         .skip_manifest_expiry_cap_dangerous()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .expect("both verify decisions are made above");
     let claims = match aitp::tct::verify_tct(token, &ctx) {
-        Ok(v) => v.claims,
+        Ok(v) => v.into_parts().claims,
         // An `aud` other than `sub` is the issuer-side audience failure.
         Err(aitp::tct::TctError::AudienceMismatch) => {
             return err(id, "TCT_SIGNATURE_INVALID", "aud differs from sub")
@@ -3729,7 +3769,7 @@ fn issue_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) ->
 
 fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -> Value {
     use aitp_experimental::session_bundle::{
-        verify_session_bundle, BundleOutcome, CoordinatorKeySource, VerifySessionBundleContext,
+        verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleVerifyContext,
     };
 
     // RFC-AITP-0010 §3 wire form: `{"session_bundle": {<body>}}`, where
@@ -3823,7 +3863,7 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
     } else {
         Some(&check)
     };
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: &verifier_aid,
         now,
         revocation_check,
@@ -4400,7 +4440,7 @@ mod manifest_unknown_field_tests {
     use super::*;
 
     fn signed_manifest_value() -> (Value, aitp::crypto::AitpSigningKey) {
-        let key = aitp::crypto::AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = aitp::crypto::AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let manifest = ManifestBuilder::new(&key)
             .handshake_endpoint("https://b.example.com/handshake".parse().unwrap())
             .identity_hint(
@@ -4410,7 +4450,7 @@ mod manifest_unknown_field_tests {
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .offer("demo.echo")
             .published_at(Timestamp(1_711_900_000))
-            .ttl_secs(86_400)
+            .ttl(std::time::Duration::from_secs(86_400))
             .build()
             .unwrap();
         (serde_json::to_value(&manifest).unwrap(), key)
@@ -4528,7 +4568,7 @@ mod revocation_unknown_field_tests {
     use super::*;
 
     fn issuer() -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[0xE1; 32])
+        AitpSigningKey::from_ed25519_seed(&[0xE1; 32])
     }
 
     fn signed_snapshot_value(issuer_key: &AitpSigningKey) -> Value {
@@ -4735,12 +4775,12 @@ mod revocation_unknown_field_tests {
     #[test]
     fn verify_tct_surfaces_unparseable_issuer_revocation_snapshot_instead_of_ignoring_it() {
         let issuer_key = issuer();
-        let subject_key = AitpSigningKey::from_seed(&[0xE2; 32]);
+        let subject_key = AitpSigningKey::from_ed25519_seed(&[0xE2; 32]);
         let issued = TctBuilder::new(&issuer_key)
             .subject(subject_key.aid().clone())
             .audience(subject_key.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(subject_key.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -4802,15 +4842,15 @@ mod revocation_unknown_field_tests {
     /// deny list rather than surfacing the defect.
     #[test]
     fn verify_delegation_surfaces_unparseable_revocation_snapshot_instead_of_skipping_it() {
-        let a = AitpSigningKey::from_seed(&[0xE3; 32]);
-        let b = AitpSigningKey::from_seed(&[0xE4; 32]);
-        let c = AitpSigningKey::from_seed(&[0xE5; 32]);
+        let a = AitpSigningKey::from_ed25519_seed(&[0xE3; 32]);
+        let b = AitpSigningKey::from_ed25519_seed(&[0xE4; 32]);
+        let c = AitpSigningKey::from_ed25519_seed(&[0xE5; 32]);
 
         let voucher = TctBuilder::new(&a)
             .subject(b.aid().clone())
             .audience(b.aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -4821,7 +4861,7 @@ mod revocation_unknown_field_tests {
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .build()
             .unwrap();
@@ -4842,7 +4882,7 @@ mod revocation_unknown_field_tests {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
 
@@ -4898,7 +4938,7 @@ mod discarded_snapshot_policy_tests {
     const NOW: i64 = 1_700_000_100;
 
     fn key(seed: u8) -> AitpSigningKey {
-        AitpSigningKey::from_seed(&[seed; 32])
+        AitpSigningKey::from_ed25519_seed(&[seed; 32])
     }
 
     fn snapshot(issuer_key: &AitpSigningKey, revoked: &[Uuid]) -> Value {
@@ -4939,7 +4979,7 @@ mod discarded_snapshot_policy_tests {
             .subject(subject.aid().clone())
             .audience(subject.aid().clone())
             .grants(["demo.echo", "demo.read"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(subject.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5099,7 +5139,7 @@ mod discarded_snapshot_policy_tests {
             .subject(t.subject.aid().clone())
             .audience(t.subject.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .subject_pubkey(t.subject.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5129,7 +5169,7 @@ mod discarded_snapshot_policy_tests {
             )
             .accept_trust_anchor("https://idp.example.com".parse().unwrap())
             .published_at(Timestamp(1_700_000_000))
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .build()
             .unwrap();
         serde_json::to_value(m).unwrap()
@@ -5151,7 +5191,7 @@ mod discarded_snapshot_policy_tests {
             .subject(b.aid().clone())
             .audience(b.aid().clone())
             .grants(["read_data"])
-            .ttl_secs(7200)
+            .ttl(std::time::Duration::from_secs(7200))
             .subject_pubkey(b.verifying_key())
             .issued_at(Timestamp(1_700_000_000))
             .build()
@@ -5162,7 +5202,7 @@ mod discarded_snapshot_policy_tests {
             .unwrap()
             .delegatee(c.aid().clone())
             .scope(["read_data"])
-            .ttl_secs(3600)
+            .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .jti(Uuid::new_v4())
             .build()
@@ -5172,7 +5212,7 @@ mod discarded_snapshot_policy_tests {
                 .unwrap()
                 .delegatee(d.aid().clone())
                 .scope(["read_data"])
-                .ttl_secs(1800)
+                .ttl(std::time::Duration::from_secs(1800))
                 .now(Timestamp(1_700_000_000))
                 .build()
                 .unwrap();
@@ -5329,7 +5369,7 @@ mod handshake_unknown_field_tests {
     /// successful result), so a dummy signature would surface
     /// INVALID_SIGNATURE before ever reaching UNKNOWN_FIELD.
     fn signed_envelope(message_type: MessageType, payload: Value) -> Value {
-        let key = AitpSigningKey::from_seed(&[0x11; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x11; 32]);
         let message_id = Uuid::new_v4();
         let timestamp = Timestamp(1_700_000_000);
         let envelope = AitpEnvelope::unsigned(
@@ -5498,7 +5538,7 @@ mod oidc_test_issuer_tests {
     /// exactly one candidate key).
     fn mint_test_issuer_jwt(sub: &str, aud: &Aid, nonce: &str, cnf_jkt: &str, now: i64) -> String {
         let (issuer, seed) = oidc_test_issuer();
-        let key = AitpSigningKey::from_seed(&seed);
+        let key = AitpSigningKey::from_ed25519_seed(&seed);
         let header = r#"{"alg":"EdDSA","typ":"JWT"}"#;
         let claims = json!({
             "iss": issuer,
@@ -5555,13 +5595,14 @@ mod oidc_test_issuer_tests {
 
     #[test]
     fn oidc_test_issuer_resolver_makes_verify_oidc_accept() {
-        let subject_key = AitpSigningKey::from_seed(&[0x61; 32]);
-        let audience_key = AitpSigningKey::from_seed(&[0x62; 32]);
+        let subject_key = AitpSigningKey::from_ed25519_seed(&[0x61; 32]);
+        let audience_key = AitpSigningKey::from_ed25519_seed(&[0x62; 32]);
         let cnf_jkt = AitpVerifyingKey::from_aid(subject_key.aid())
             .unwrap()
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .unwrap();
         let now = 1_711_900_000_i64;
+        let now_ts = aitp::core::Timestamp(now);
         let nonce = "test-nonce-oidc-resolver";
 
         let jwt =
@@ -5574,15 +5615,16 @@ mod oidc_test_issuer_tests {
         );
         let anchors: Vec<aitp::core::RawUrl> = vec![oidc_test_issuer().0.parse().unwrap()];
         let resolver = OidcTestIssuerResolver;
-        let ctx = OidcVerifyContext::new(
-            audience_key.aid(),
-            nonce,
-            &anchors,
-            &resolver,
-            subject_key.aid(),
-            300,
-            now,
-        );
+        let ctx = OidcVerifyContext::builder()
+            .expected_audience(audience_key.aid())
+            .expected_nonce(nonce)
+            .trust_anchors(&anchors)
+            .jwks_resolver(&resolver)
+            .subject_aid(subject_key.aid())
+            .iat_tolerance(std::time::Duration::from_secs(300))
+            .now(now_ts)
+            .build()
+            .expect("every required input is set");
         let result = verify_oidc(&descriptor, &ctx);
         assert!(
             result.is_ok(),

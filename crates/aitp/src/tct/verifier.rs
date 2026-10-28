@@ -4,21 +4,11 @@ use crate::core::{
     check_members, from_serde_error, ids, reject_duplicate_keys, Aid, Timestamp, PROTOCOL_VERSION,
 };
 use crate::crypto::{jws, AitpVerifyingKey};
+use crate::tct::revocation::{apply_revocation, RevocationQuery, RevocationRejection};
 use crate::tct::types::{
     GrantVoucherClaims, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS, TCT_CLAIMS_MEMBERS,
 };
-use crate::tct::{TctError, ATTESTATION_GRANT};
-use uuid::Uuid;
-
-/// Revocation lookup for a verified token's `jti` (RFC-AITP-0008).
-///
-/// - `Ok(false)`: not revoked.
-/// - `Ok(true)`: revoked; verification fails with [`TctError::Revoked`].
-/// - `Err(e)`: returned as-is. A lookup that cannot determine the
-///   status under a fail-closed policy returns
-///   [`TctError::RevocationUnavailable`], which shares the
-///   `TCT_REVOKED` wire code with `Revoked` but says why.
-pub type RevocationCheckFn<'a> = dyn Fn(&Uuid) -> Result<bool, TctError> + 'a;
+use crate::tct::{RevocationSource, TctError, ATTESTATION_GRANT};
 
 /// Inputs for verifying a TCT.
 ///
@@ -26,9 +16,10 @@ pub type RevocationCheckFn<'a> = dyn Fn(&Uuid) -> Result<bool, TctError> + 'a;
 /// issuer's verified Manifest); the verifying key and the sole
 /// acceptable JWS `alg` are both derived from it, so an unsigned or
 /// confused token can neither steer key resolution nor pick its own
-/// algorithm. Revocation is pluggable via a [`RevocationCheckFn`]
-/// callback; skipping it takes an explicit
-/// [`TctVerifyContextBuilder::accept_unchecked_revocation_dangerous`].
+/// algorithm. Revocation is a required [`RevocationSource`]: a
+/// [`crate::tct::RevocationCheckFn`] lookup, or an explicit
+/// [`RevocationSource::FailOpen`].
+#[derive(Debug)]
 #[non_exhaustive]
 pub struct TctVerifyContext<'a> {
     /// The verifier's own AID. The `aud` claim MUST equal this.
@@ -44,17 +35,16 @@ pub struct TctVerifyContext<'a> {
     /// skips this check (RFC-AITP-0005 §10.4: MAY skip when the issuer
     /// Manifest is unavailable).
     pub issuer_manifest_expires_at: Option<Timestamp>,
-    /// Revocation lookup, see [`RevocationCheckFn`]. `None` only after
-    /// an explicit `accept_unchecked_revocation_dangerous()`.
-    pub revocation_check: Option<&'a RevocationCheckFn<'a>>,
-    /// Symmetric clock-skew tolerance, in seconds, applied to the `exp`
-    /// and `iat` freshness checks. `0` (the default) is strict: a TCT
+    /// Where the token's revocation status comes from (RFC-AITP-0008).
+    pub revocation: RevocationSource<'a>,
+    /// Symmetric clock-skew tolerance, counted in whole seconds, applied
+    /// to the `exp` and `iat` freshness checks. Zero (the default) is strict: a TCT
     /// one second past `exp`, or with `iat` one second in the future, is
     /// rejected. A small positive value (e.g. 5–30s) absorbs benign
     /// clock drift between issuer and verifier without materially
     /// widening the acceptance window. Set via
-    /// [`TctVerifyContextBuilder::clock_skew_secs`].
-    pub clock_skew_secs: i64,
+    /// [`TctVerifyContextBuilder::clock_skew`].
+    pub clock_skew: std::time::Duration,
 }
 
 /// Error returned by [`TctVerifyContextBuilder::build`] when a security-
@@ -62,14 +52,13 @@ pub struct TctVerifyContext<'a> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 #[non_exhaustive]
 pub enum TctVerifyContextError {
-    /// Neither a revocation source nor an explicit
-    /// [`TctVerifyContextBuilder::accept_unchecked_revocation_dangerous`]
-    /// waiver was provided. A verifier with no revocation source
-    /// silently accepts revoked-but-unexpired TCTs, so the decision is
-    /// mandatory.
+    /// No [`RevocationSource`] was given to
+    /// [`TctVerifyContextBuilder::revocation`]. A verifier with no
+    /// revocation source accepts revoked-but-unexpired TCTs, so the
+    /// decision is mandatory.
     #[error(
-        "revocation decision required: call .revocation_check(..) or \
-         .accept_unchecked_revocation_dangerous()"
+        "revocation decision required: call .revocation(RevocationSource::Check(..)) or \
+         .revocation(RevocationSource::FailOpen)"
     )]
     RevocationDecisionRequired,
     /// Neither an issuer-Manifest expiry cap nor an explicit
@@ -92,12 +81,12 @@ impl<'a> TctVerifyContext<'a> {
     /// misconfigured verifier would otherwise expose.
     ///
     /// ```
-    /// use aitp::tct::TctVerifyContext;
+    /// use aitp::tct::{RevocationSource, TctVerifyContext};
     /// use aitp::core::Timestamp;
     /// use aitp::crypto::AitpSigningKey;
     ///
-    /// let audience = AitpSigningKey::from_seed(&[1; 32]).aid().clone();
-    /// let issuer = AitpSigningKey::from_seed(&[2; 32]).aid().clone();
+    /// let audience = AitpSigningKey::from_ed25519_seed(&[1; 32]).aid().clone();
+    /// let issuer = AitpSigningKey::from_ed25519_seed(&[2; 32]).aid().clone();
     ///
     /// // build() fails until BOTH silent-accept surfaces are decided...
     /// assert!(TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
@@ -106,7 +95,7 @@ impl<'a> TctVerifyContext<'a> {
     ///
     /// // ...here we explicitly waive both (only sound for tests/offline).
     /// let ctx = TctVerifyContext::builder(&audience, &issuer, Timestamp(1_700_000_000))
-    ///     .accept_unchecked_revocation_dangerous()
+    ///     .revocation(RevocationSource::FailOpen)
     ///     .skip_manifest_expiry_cap_dangerous()
     ///     .build()
     ///     .expect("both decisions made");
@@ -122,10 +111,9 @@ impl<'a> TctVerifyContext<'a> {
             issuer,
             now,
             issuer_manifest_expires_at: None,
-            revocation_check: None,
-            clock_skew_secs: 0,
+            revocation: None,
+            clock_skew: std::time::Duration::ZERO,
             manifest_cap_decided: false,
-            revocation_decided: false,
         }
     }
 }
@@ -136,10 +124,25 @@ pub struct TctVerifyContextBuilder<'a> {
     issuer: &'a Aid,
     now: Timestamp,
     issuer_manifest_expires_at: Option<Timestamp>,
-    revocation_check: Option<&'a RevocationCheckFn<'a>>,
-    clock_skew_secs: i64,
+    revocation: Option<RevocationSource<'a>>,
+    clock_skew: std::time::Duration,
     manifest_cap_decided: bool,
-    revocation_decided: bool,
+}
+
+impl std::fmt::Debug for TctVerifyContextBuilder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TctVerifyContextBuilder")
+            .field("expected_audience", &self.expected_audience)
+            .field("issuer", &self.issuer)
+            .field("now", &self.now)
+            .field(
+                "issuer_manifest_expires_at",
+                &self.issuer_manifest_expires_at,
+            )
+            .field("revocation", &self.revocation)
+            .field("clock_skew", &self.clock_skew)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<'a> TctVerifyContextBuilder<'a> {
@@ -162,36 +165,27 @@ impl<'a> TctVerifyContextBuilder<'a> {
         self
     }
 
-    /// Supply a revocation lookup (see [`RevocationCheckFn`]).
-    /// Satisfies the revocation decision.
-    pub fn revocation_check(mut self, check: &'a RevocationCheckFn<'a>) -> Self {
-        self.revocation_check = Some(check);
-        self.revocation_decided = true;
+    /// Where the TCT's revocation status comes from. Satisfies the
+    /// revocation decision. [`RevocationSource::FailOpen`] accepts a
+    /// revoked-yet-unexpired TCT and is for dev/offline use only.
+    pub fn revocation(mut self, source: RevocationSource<'a>) -> Self {
+        self.revocation = Some(source);
         self
     }
 
-    /// Explicitly accept TCTs without consulting any revocation source.
-    /// Satisfies the revocation decision **but a revoked-yet-unexpired
-    /// TCT will be accepted.** Only appropriate for dev/offline use.
-    pub fn accept_unchecked_revocation_dangerous(mut self) -> Self {
-        self.revocation_check = None;
-        self.revocation_decided = true;
-        self
-    }
-
-    /// Set the symmetric clock-skew tolerance (seconds) for the `exp` /
-    /// `iat` freshness checks. Defaults to `0` (strict). Negative values
-    /// are clamped to `0`.
-    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
-        self.clock_skew_secs = secs.max(0);
+    /// Set the symmetric clock-skew tolerance for the `exp` / `iat`
+    /// freshness checks, counted in whole seconds. Defaults to zero
+    /// (strict).
+    pub fn clock_skew(mut self, skew: std::time::Duration) -> Self {
+        self.clock_skew = skew;
         self
     }
 
     /// Finalize the context, or error if a required decision is missing.
     pub fn build(self) -> Result<TctVerifyContext<'a>, TctVerifyContextError> {
-        if !self.revocation_decided {
+        let Some(revocation) = self.revocation else {
             return Err(TctVerifyContextError::RevocationDecisionRequired);
-        }
+        };
         if !self.manifest_cap_decided {
             return Err(TctVerifyContextError::ManifestCapDecisionRequired);
         }
@@ -200,8 +194,8 @@ impl<'a> TctVerifyContextBuilder<'a> {
             issuer: self.issuer,
             now: self.now,
             issuer_manifest_expires_at: self.issuer_manifest_expires_at,
-            revocation_check: self.revocation_check,
-            clock_skew_secs: self.clock_skew_secs,
+            revocation,
+            clock_skew: self.clock_skew,
         })
     }
 }
@@ -281,21 +275,38 @@ pub(crate) fn peek_header_typ(token: &str) -> Option<String> {
 /// 9. `grants` non-empty — else [`TctError::EmptyGrants`].
 /// 10. `cnf.jkt` equals the RFC 7638 thumbprint of the key the `sub` AID
 ///     encodes — else [`TctError::CnfMalformed`].
-/// 11. If `ctx.revocation_check` is `Some`, call it with `jti` — only
-///     after every signature check (RFC-AITP-0008 §3.3). `Ok(true)` is
-///     [`TctError::Revoked`]; an `Err` (typically
-///     [`TctError::RevocationUnavailable`]) is returned as-is.
+/// 11. `ctx.revocation` is consulted for `(iss, jti)` — only after every
+///     signature check (RFC-AITP-0008 §3.3).
+///     [`crate::tct::RevocationStatus::Revoked`] is [`TctError::Revoked`];
+///     an unavailable source is [`TctError::RevocationUnavailable`];
+///     [`crate::tct::RevocationStatus::SoftFailSafeSubset`] narrows the
+///     grants, and an empty intersection is [`TctError::SafeSubsetEmpty`].
 ///
-/// On success returns the [`VerifiedTct`] (verbatim token + trusted
-/// claims).
+/// On success returns the [`VerifiedTct`] (verbatim token, trusted
+/// claims and the effective grants).
 pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct, TctError> {
+    let claims = verify_tct_before_revocation(token, ctx)?;
+    let effective_grants = check_revocation(&ctx.revocation, &claims, ctx.now)?;
+    Ok(VerifiedTct {
+        token: token.to_string(),
+        claims,
+        effective_grants,
+    })
+}
+
+/// Steps 1-10 of [`verify_tct`]: everything except the revocation lookup.
+/// The handshake runs its own grant checks between these and the lookup.
+pub(crate) fn verify_tct_before_revocation(
+    token: &str,
+    ctx: &TctVerifyContext<'_>,
+) -> Result<TctClaims, TctError> {
     let core = CoreChecks {
         issuer: ctx.issuer,
         now: ctx.now,
-        clock_skew_secs: ctx.clock_skew_secs,
+        clock_skew: ctx.clock_skew,
         issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
     };
-    let claims = core.verify(token, |claims| {
+    core.verify(token, |claims| {
         if &claims.aud != ctx.expected_audience {
             return Err(TctError::AudienceMismatch);
         }
@@ -312,11 +323,6 @@ pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct
             return Err(TctError::AttestationMarker);
         }
         Ok(())
-    })?;
-    check_revocation(ctx.revocation_check, &claims)?;
-    Ok(VerifiedTct {
-        token: token.to_string(),
-        claims,
     })
 }
 
@@ -325,7 +331,7 @@ pub fn verify_tct(token: &str, ctx: &TctVerifyContext<'_>) -> Result<VerifiedTct
 struct CoreChecks<'a> {
     issuer: &'a Aid,
     now: Timestamp,
-    clock_skew_secs: i64,
+    clock_skew: std::time::Duration,
     issuer_manifest_expires_at: Option<Timestamp>,
 }
 
@@ -378,7 +384,7 @@ impl CoreChecks<'_> {
         // Freshness checks with symmetric skew tolerance (default 0). A TCT
         // is "expired" only once `now` is past `exp + skew`, and "not yet
         // valid" only once `iat` is beyond `now + skew`.
-        let skew = self.clock_skew_secs;
+        let skew = crate::core::time::duration_secs(self.clock_skew);
         if claims.exp.0 < self.now.0.saturating_sub(skew) {
             return Err(TctError::Expired);
         }
@@ -398,7 +404,9 @@ impl CoreChecks<'_> {
         // its (deliberately redundant) thumbprint. A mismatch means the
         // issuer bound a different key — reject.
         let subject_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(TctError::Crypto)?;
-        let expected_jkt = subject_key.to_jwk_thumbprint().map_err(TctError::Crypto)?;
+        let expected_jkt = subject_key
+            .to_jwk_thumbprint_sha256()
+            .map_err(TctError::Crypto)?;
         if claims.cnf.jkt != expected_jkt {
             return Err(TctError::CnfMalformed);
         }
@@ -406,14 +414,19 @@ impl CoreChecks<'_> {
     }
 }
 
-fn check_revocation(
-    check: Option<&RevocationCheckFn<'_>>,
+/// The revocation step (RFC-AITP-0008 §3.3): the grants the token may
+/// exercise, or why it is refused.
+pub(crate) fn check_revocation(
+    source: &RevocationSource<'_>,
     claims: &TctClaims,
-) -> Result<(), TctError> {
-    match check {
-        Some(check) if check(&claims.jti)? => Err(TctError::Revoked),
-        _ => Ok(()),
-    }
+    now: Timestamp,
+) -> Result<Vec<String>, TctError> {
+    let query = RevocationQuery::new(&claims.iss, &claims.jti, now);
+    apply_revocation(source, &query, &claims.grants).map_err(|r| match r {
+        RevocationRejection::Revoked => TctError::Revoked,
+        RevocationRejection::Unavailable(e) => TctError::RevocationUnavailable(e),
+        RevocationRejection::SafeSubsetEmpty => TctError::SafeSubsetEmpty,
+    })
 }
 
 /// Item 6b on a peeked payload: a string member must be strict v4. A
@@ -438,10 +451,10 @@ pub struct AttestationVerifyContext<'a> {
     pub now: Timestamp,
     /// The issuer Manifest's `expires_at`, when the issuer publishes one.
     pub issuer_manifest_expires_at: Option<Timestamp>,
-    /// Revocation lookup, see [`RevocationCheckFn`].
-    pub revocation_check: Option<&'a RevocationCheckFn<'a>>,
-    /// Symmetric clock-skew tolerance, seconds.
-    pub clock_skew_secs: i64,
+    /// Where the attestation's revocation status comes from.
+    pub revocation: RevocationSource<'a>,
+    /// Symmetric clock-skew tolerance, counted in whole seconds.
+    pub clock_skew: std::time::Duration,
 }
 
 impl<'a> AttestationVerifyContext<'a> {
@@ -453,16 +466,13 @@ impl<'a> AttestationVerifyContext<'a> {
         now: Timestamp,
     ) -> AttestationVerifyContextBuilder<'a> {
         AttestationVerifyContextBuilder {
-            ctx: AttestationVerifyContext {
-                issuer,
-                statement_key,
-                now,
-                issuer_manifest_expires_at: None,
-                revocation_check: None,
-                clock_skew_secs: 0,
-            },
+            issuer,
+            statement_key,
+            now,
+            issuer_manifest_expires_at: None,
+            revocation: None,
+            clock_skew: std::time::Duration::ZERO,
             manifest_cap_decided: false,
-            revocation_decided: false,
         }
     }
 }
@@ -477,24 +487,29 @@ impl std::fmt::Debug for AttestationVerifyContext<'_> {
                 "issuer_manifest_expires_at",
                 &self.issuer_manifest_expires_at,
             )
-            .field("revocation_check", &self.revocation_check.is_some())
-            .field("clock_skew_secs", &self.clock_skew_secs)
+            .field("revocation", &self.revocation)
+            .field("clock_skew", &self.clock_skew)
             .finish()
     }
 }
 
 /// Builder for [`AttestationVerifyContext`].
+#[derive(Debug)]
 pub struct AttestationVerifyContextBuilder<'a> {
-    ctx: AttestationVerifyContext<'a>,
+    issuer: &'a Aid,
+    statement_key: &'a str,
+    now: Timestamp,
+    issuer_manifest_expires_at: Option<Timestamp>,
+    revocation: Option<RevocationSource<'a>>,
+    clock_skew: std::time::Duration,
     manifest_cap_decided: bool,
-    revocation_decided: bool,
 }
 
 impl<'a> AttestationVerifyContextBuilder<'a> {
     /// The issuer publishes a Manifest: the attestation's `exp` must not
     /// exceed its `expires_at` (RFC-AITP-0005 §10.4).
     pub fn issuer_manifest_expires_at(mut self, expires_at: Timestamp) -> Self {
-        self.ctx.issuer_manifest_expires_at = Some(expires_at);
+        self.issuer_manifest_expires_at = Some(expires_at);
         self.manifest_cap_decided = true;
         self
     }
@@ -505,52 +520,91 @@ impl<'a> AttestationVerifyContextBuilder<'a> {
     /// record) that the issuer key was trusted at the attestation's
     /// `iat`. A far-future `exp` is never evidence of validity.
     pub fn waive_manifest_cap_issuer_has_no_manifest(mut self) -> Self {
-        self.ctx.issuer_manifest_expires_at = None;
+        self.issuer_manifest_expires_at = None;
         self.manifest_cap_decided = true;
         self
     }
 
-    /// Supply a revocation lookup (see [`RevocationCheckFn`]).
-    pub fn revocation_check(mut self, check: &'a RevocationCheckFn<'a>) -> Self {
-        self.ctx.revocation_check = Some(check);
-        self.revocation_decided = true;
+    /// Where the attestation's revocation status comes from. Satisfies
+    /// the revocation decision. [`RevocationSource::FailOpen`] is for
+    /// dev/offline use only.
+    pub fn revocation(mut self, source: RevocationSource<'a>) -> Self {
+        self.revocation = Some(source);
         self
     }
 
-    /// Accept without a revocation source. Dev/offline only.
-    pub fn accept_unchecked_revocation_dangerous(mut self) -> Self {
-        self.ctx.revocation_check = None;
-        self.revocation_decided = true;
-        self
-    }
-
-    /// Symmetric clock-skew tolerance in seconds (negative clamps to 0).
-    pub fn clock_skew_secs(mut self, secs: i64) -> Self {
-        self.ctx.clock_skew_secs = secs.max(0);
+    /// Symmetric clock-skew tolerance, counted in whole seconds.
+    /// Defaults to zero (strict).
+    pub fn clock_skew(mut self, skew: std::time::Duration) -> Self {
+        self.clock_skew = skew;
         self
     }
 
     /// Finish, or report the missing decision.
     pub fn build(self) -> Result<AttestationVerifyContext<'a>, TctVerifyContextError> {
-        if !self.revocation_decided {
+        let Some(revocation) = self.revocation else {
             return Err(TctVerifyContextError::RevocationDecisionRequired);
-        }
+        };
         if !self.manifest_cap_decided {
             return Err(TctVerifyContextError::ManifestCapDecisionRequired);
         }
-        Ok(self.ctx)
+        Ok(AttestationVerifyContext {
+            issuer: self.issuer,
+            statement_key: self.statement_key,
+            now: self.now,
+            issuer_manifest_expires_at: self.issuer_manifest_expires_at,
+            revocation,
+            clock_skew: self.clock_skew,
+        })
     }
 }
 
 /// A verified self-attestation.
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VerifiedAttestation {
+    pub(crate) token: String,
+    pub(crate) claims: TctClaims,
+    pub(crate) statement: serde_json::Value,
+}
+
+impl VerifiedAttestation {
+    /// The compact JWS as received.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// Its verified claims.
+    pub fn claims(&self) -> &TctClaims {
+        &self.claims
+    }
+
+    /// `ext[statement_key]`: the attested statement.
+    pub fn statement(&self) -> &serde_json::Value {
+        &self.statement
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> VerifiedAttestationParts {
+        VerifiedAttestationParts {
+            token: self.token,
+            claims: self.claims,
+            statement: self.statement,
+        }
+    }
+}
+
+/// The owned pieces of a [`VerifiedAttestation`], from [`VerifiedAttestation::into_parts`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub struct VerifiedAttestation {
-    /// The compact JWS as received.
+pub struct VerifiedAttestationParts {
+    /// See [`VerifiedAttestation::token`].
     pub token: String,
-    /// Its verified claims.
+    /// See [`VerifiedAttestation::claims`].
     pub claims: TctClaims,
-    /// `ext[statement_key]`: the attested statement.
+    /// See [`VerifiedAttestation::statement`].
     pub statement: serde_json::Value,
 }
 
@@ -569,7 +623,7 @@ pub fn verify_attestation(
     let core = CoreChecks {
         issuer: ctx.issuer,
         now: ctx.now,
-        clock_skew_secs: ctx.clock_skew_secs,
+        clock_skew: ctx.clock_skew,
         issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
     };
     let claims = core.verify(token, |c| {
@@ -586,7 +640,7 @@ pub fn verify_attestation(
         .and_then(|ext| ext.get(ctx.statement_key))
         .cloned()
         .ok_or_else(|| TctError::AttestationStatementMissing(ctx.statement_key.to_owned()))?;
-    check_revocation(ctx.revocation_check, &claims)?;
+    check_revocation(&ctx.revocation, &claims, ctx.now)?;
     Ok(VerifiedAttestation {
         token: token.to_string(),
         claims,
@@ -657,16 +711,14 @@ mod builder_tests {
     use crate::crypto::AitpSigningKey;
 
     fn aids() -> (crate::core::Aid, crate::core::Aid) {
-        let a = AitpSigningKey::from_seed(&[0x10; 32]).aid().clone();
-        let b = AitpSigningKey::from_seed(&[0x20; 32]).aid().clone();
+        let a = AitpSigningKey::from_ed25519_seed(&[0x10; 32]).aid().clone();
+        let b = AitpSigningKey::from_ed25519_seed(&[0x20; 32]).aid().clone();
         (a, b)
     }
 
     #[test]
     fn build_requires_revocation_decision() {
         let (aud, iss) = aids();
-        // `TctVerifyContext` has no `Debug` (fn-pointer field), so match
-        // rather than `unwrap_err()`.
         let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
             .skip_manifest_expiry_cap_dangerous()
             .build();
@@ -680,7 +732,7 @@ mod builder_tests {
     fn build_requires_manifest_cap_decision() {
         let (aud, iss) = aids();
         let result = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .accept_unchecked_revocation_dangerous()
+            .revocation(RevocationSource::FailOpen)
             .build();
         assert!(matches!(
             result,
@@ -692,52 +744,44 @@ mod builder_tests {
     fn build_succeeds_when_both_decided() {
         let (aud, iss) = aids();
         let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(42))
-            .accept_unchecked_revocation_dangerous()
+            .revocation(RevocationSource::FailOpen)
             .issuer_manifest_expires_at(Timestamp(100))
             .build()
             .expect("both decisions made");
         assert_eq!(ctx.now, Timestamp(42));
         assert_eq!(ctx.issuer_manifest_expires_at, Some(Timestamp(100)));
-        assert!(ctx.revocation_check.is_none());
+        assert!(matches!(ctx.revocation, RevocationSource::FailOpen));
     }
 
     #[test]
     fn revocation_check_is_threaded_through() {
         let (aud, iss) = aids();
-        let deny = |_: &uuid::Uuid| Ok(true);
+        let deny = |_: &crate::tct::RevocationQuery<'_>| Ok(crate::tct::RevocationStatus::Revoked);
         let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .revocation_check(&deny)
+            .revocation(RevocationSource::Check(&deny))
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .unwrap();
-        assert!(ctx.revocation_check.is_some());
+        assert!(matches!(ctx.revocation, RevocationSource::Check(_)));
     }
 
     #[test]
-    fn clock_skew_defaults_to_zero_and_clamps_negatives() {
+    fn clock_skew_defaults_to_zero() {
         let (aud, iss) = aids();
         let strict = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .accept_unchecked_revocation_dangerous()
+            .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .unwrap();
-        assert_eq!(strict.clock_skew_secs, 0);
+        assert_eq!(strict.clock_skew, std::time::Duration::ZERO);
 
         let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .accept_unchecked_revocation_dangerous()
+            .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
-            .clock_skew_secs(-5)
+            .clock_skew(std::time::Duration::from_secs(30))
             .build()
             .unwrap();
-        assert_eq!(ctx.clock_skew_secs, 0, "negative skew clamps to 0");
-
-        let ctx = TctVerifyContext::builder(&aud, &iss, Timestamp(1))
-            .accept_unchecked_revocation_dangerous()
-            .skip_manifest_expiry_cap_dangerous()
-            .clock_skew_secs(30)
-            .build()
-            .unwrap();
-        assert_eq!(ctx.clock_skew_secs, 30);
+        assert_eq!(ctx.clock_skew, std::time::Duration::from_secs(30));
     }
 }
 
@@ -755,13 +799,13 @@ mod claim_set_tests {
 
     fn issuer_subject() -> (AitpSigningKey, AitpSigningKey) {
         (
-            AitpSigningKey::from_seed(&[0x50; 32]),
-            AitpSigningKey::from_seed(&[0x51; 32]),
+            AitpSigningKey::from_ed25519_seed(&[0x50; 32]),
+            AitpSigningKey::from_ed25519_seed(&[0x51; 32]),
         )
     }
 
     fn base_tct_claims(issuer: &AitpSigningKey, subject: &AitpSigningKey) -> serde_json::Value {
-        let jkt = subject.verifying_key().to_jwk_thumbprint().unwrap();
+        let jkt = subject.verifying_key().to_jwk_thumbprint_sha256().unwrap();
         json!({
             "ver": "aitp/0.3",
             "jti": "550e8400-e29b-41d4-a716-446655440000",
@@ -792,7 +836,7 @@ mod claim_set_tests {
         subject: &'a crate::core::Aid,
     ) -> TctVerifyContext<'a> {
         TctVerifyContext::builder(subject, issuer, Timestamp(1_700_000_100))
-            .accept_unchecked_revocation_dangerous()
+            .revocation(RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .unwrap()

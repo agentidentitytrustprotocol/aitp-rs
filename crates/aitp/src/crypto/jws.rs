@@ -40,7 +40,7 @@ pub const TYP_DELEGATION: &str = "aitp-delegation+jwt";
 
 /// The sole acceptable JOSE `alg` value for an AID algorithm
 /// (RFC-AITP-0001 §5.4.5): `EdDSA` for Ed25519, `ES256` for P-256.
-pub fn jose_alg(algorithm: AidAlgorithm) -> Result<&'static str, CryptoError> {
+pub(crate) fn jose_alg(algorithm: AidAlgorithm) -> Result<&'static str, CryptoError> {
     match algorithm {
         AidAlgorithm::Ed25519 => Ok("EdDSA"),
         AidAlgorithm::P256 => Ok("ES256"),
@@ -65,7 +65,7 @@ struct JwsHeader {
 /// `claims` — the spec's byte-stable minting convention, so fixed
 /// inputs reproduce the pinned known-answer vectors exactly. Backend
 /// output is normalised and verified before the token is returned
-/// ([`crate::crypto::signer`]).
+/// ([`crate::crypto::AitpSigner`]).
 pub fn sign_compact<T: serde::Serialize>(
     signer: &dyn AitpSigner,
     typ: &str,
@@ -195,7 +195,7 @@ pub fn decode_payload_unverified(token: &str) -> Result<Vec<u8>, CryptoError> {
 /// opinion" and let the full, verified path make the final call either
 /// way; this function's opinion is never trusted for anything but that
 /// gate.
-pub fn peek_typ(token: &str) -> Option<String> {
+pub(crate) fn peek_typ(token: &str) -> Option<String> {
     let header_b64 = token.split('.').next()?;
     let header_bytes = base64url::decode_strict(header_b64).ok()?;
     let header_value: serde_json::Value = serde_json::from_slice(&header_bytes).ok()?;
@@ -235,7 +235,7 @@ mod tests {
 
     #[test]
     fn sign_verify_round_trip_ed25519() {
-        let key = AitpSigningKey::from_seed(&[1u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
         let payload = verify_compact(key.aid(), TYP_TCT, &token).unwrap();
         let back: serde_json::Value = serde_json::from_slice(&payload).unwrap();
@@ -254,7 +254,7 @@ mod tests {
 
     #[test]
     fn header_bytes_are_exact_two_member_form() {
-        let key = AitpSigningKey::from_seed(&[2u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
         let token = sign_compact(&key, TYP_GRANT_VOUCHER, &claims()).unwrap();
         let header_b64 = token.split('.').next().unwrap();
         let header = base64url::decode_strict(header_b64).unwrap();
@@ -263,7 +263,7 @@ mod tests {
 
     #[test]
     fn rejects_typ_mismatch() {
-        let key = AitpSigningKey::from_seed(&[3u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[3u8; 32]);
         let token = sign_compact(&key, TYP_GRANT_VOUCHER, &claims()).unwrap();
         assert!(matches!(
             verify_compact(key.aid(), TYP_TCT, &token),
@@ -273,7 +273,7 @@ mod tests {
 
     #[test]
     fn rejects_alg_none_and_wrong_alg() {
-        let key = AitpSigningKey::from_seed(&[4u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[4u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
         let (_, rest) = token.split_once('.').unwrap();
         for evil_alg in ["none", "None", "NONE", "ES256", "HS256", "RS256"] {
@@ -293,7 +293,7 @@ mod tests {
 
     #[test]
     fn rejects_extra_header_params() {
-        let key = AitpSigningKey::from_seed(&[6u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[6u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
         let (_, rest) = token.split_once('.').unwrap();
         for evil in [
@@ -317,7 +317,7 @@ mod tests {
 
     #[test]
     fn rejects_wrong_segment_shapes() {
-        let key = AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
         let (h, rest) = token.split_once('.').unwrap();
         let (p, s) = rest.split_once('.').unwrap();
@@ -338,8 +338,8 @@ mod tests {
 
     #[test]
     fn rejects_tampered_payload_and_cross_key() {
-        let key = AitpSigningKey::from_seed(&[8u8; 32]);
-        let other = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[8u8; 32]);
+        let other = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
 
         // Cross-key: same token, different AID.
@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn rejects_non_object_payload() {
-        let key = AitpSigningKey::from_seed(&[10u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[10u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &json!(["not", "an", "object"])).unwrap();
         assert!(matches!(
             verify_compact(key.aid(), TYP_TCT, &token),
@@ -376,7 +376,7 @@ mod tests {
         // A P-256 AID pins ES256; a (validly signed, by an Ed25519 key)
         // EdDSA token presented against it dies on the alg pin.
         let p256 = AitpSigningKey::from_p256_seed(&[11u8; 32]).unwrap();
-        let ed = AitpSigningKey::from_seed(&[12u8; 32]);
+        let ed = AitpSigningKey::from_ed25519_seed(&[12u8; 32]);
         let token = sign_compact(&ed, TYP_TCT, &claims()).unwrap();
         assert!(matches!(
             verify_compact(p256.aid(), TYP_TCT, &token),
@@ -386,7 +386,7 @@ mod tests {
 
     #[test]
     fn decode_payload_unverified_returns_claims() {
-        let key = AitpSigningKey::from_seed(&[13u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[13u8; 32]);
         let token = sign_compact(&key, TYP_TCT, &claims()).unwrap();
         let payload = decode_payload_unverified(&token).unwrap();
         let v: serde_json::Value = serde_json::from_slice(&payload).unwrap();

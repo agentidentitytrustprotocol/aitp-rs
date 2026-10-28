@@ -9,17 +9,18 @@
 //! tamper test proving verification rejects when it changes.
 
 use aitp::core::{
-    envelope_signing_digest, AitpEnvelope, ExtensionsMap, MessageType, Sender, Timestamp,
+    envelope_signing_digest, AitpEnvelope, EnvelopeStructureError, ExtensionsMap, MessageType,
+    Sender, Timestamp,
 };
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, CryptoError, Signature};
 use aitp::envelope::{
     sign_envelope, sign_envelope_with, sign_prepared_envelope, sign_prepared_envelope_async,
-    verify_envelope_signature,
+    verify_envelope_signature, EnvelopeError,
 };
 use uuid::Uuid;
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
 fn sample_payload() -> serde_json::Value {
@@ -283,19 +284,22 @@ fn sign_prepared_envelope_refuses_bad_inputs() {
     .unwrap();
     let mut old_version = good.clone();
     old_version.version = "aitp/0.2".into();
-    assert!(sign_prepared_envelope(&k, old_version)
-        .unwrap_err()
-        .contains("version"));
+    assert!(matches!(
+        sign_prepared_envelope(&k, old_version).unwrap_err(),
+        EnvelopeError::UnsupportedVersion(_)
+    ));
     let mut other_sender = good.clone();
     other_sender.sender.agent_id = key(0x44).aid().clone();
-    assert!(sign_prepared_envelope(&k, other_sender)
-        .unwrap_err()
-        .contains("sender.agent_id"));
+    assert!(matches!(
+        sign_prepared_envelope(&k, other_sender).unwrap_err(),
+        EnvelopeError::SenderMismatch { .. }
+    ));
     let mut non_v4 = good.clone();
     non_v4.message_id = Uuid::from_u128(0x0189_0a5d_ac96_774b_bcce_b302_099a_8057);
-    assert!(sign_prepared_envelope(&k, non_v4)
-        .unwrap_err()
-        .contains("message_id"));
+    assert!(matches!(
+        sign_prepared_envelope(&k, non_v4).unwrap_err(),
+        EnvelopeError::MessageId(_)
+    ));
     // Issue #261: what a verifier rejects as INVALID_ENVELOPE is not
     // signed either.
     for payload in [
@@ -306,24 +310,28 @@ fn sign_prepared_envelope_refuses_bad_inputs() {
     ] {
         let mut non_object = good.clone();
         non_object.payload = payload;
-        assert!(sign_prepared_envelope(&k, non_object)
-            .unwrap_err()
-            .contains("payload"));
+        assert!(matches!(
+            sign_prepared_envelope(&k, non_object).unwrap_err(),
+            EnvelopeError::Structure(EnvelopeStructureError::PayloadNotObject)
+        ));
     }
     let mut negative_ts = good;
     negative_ts.timestamp = Timestamp(-1);
-    assert!(sign_prepared_envelope(&k, negative_ts)
-        .unwrap_err()
-        .contains("timestamp"));
-    assert!(sign_envelope_with(
-        &k,
-        MessageType::Tct,
-        serde_json::json!([]),
-        Uuid::new_v4(),
-        Timestamp(1),
-    )
-    .unwrap_err()
-    .contains("payload"));
+    assert!(matches!(
+        sign_prepared_envelope(&k, negative_ts).unwrap_err(),
+        EnvelopeError::Structure(EnvelopeStructureError::NegativeTimestamp(_))
+    ));
+    assert!(matches!(
+        sign_envelope_with(
+            &k,
+            MessageType::Tct,
+            serde_json::json!([]),
+            Uuid::new_v4(),
+            Timestamp(1),
+        )
+        .unwrap_err(),
+        EnvelopeError::Structure(EnvelopeStructureError::PayloadNotObject)
+    ));
 }
 
 /// Issue #261: whatever the signer emits passes the structure step a
@@ -421,7 +429,9 @@ fn well_signed_schema_violations_fail_the_structure_step() {
         verify_envelope_signature(&env, &k.verifying_key()).expect("the signature itself is good");
         let wire: aitp::core::CheckedJson = serde_json::to_string(&env).unwrap().parse().unwrap();
         match aitp::core::parse_envelope_wire(&wire) {
-            Err(aitp::core::EnvelopeParseError::Malformed(m)) => assert!(m.contains(field), "{m}"),
+            Err(aitp::core::EnvelopeParseError::Structure(e)) => {
+                assert!(e.to_string().starts_with(field), "{e}")
+            }
             other => panic!("{field}: {other:?}"),
         }
     }

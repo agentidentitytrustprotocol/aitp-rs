@@ -10,6 +10,7 @@ use crate::core::{
     EnvelopeParseError, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
+use crate::envelope::{sign_envelope_with, verify_envelope_signature};
 use crate::handshake::{
     HandshakeError, Initiator, JwksResolver, MutualCommitAckPayload, MutualHelloAckPayload,
     NoPinnedKeys, OidcMintJwtFn, PeerConfig, PinnedKeyStore, PresentedIdentity,
@@ -18,8 +19,7 @@ use crate::handshake::{
 use crate::manifest::Manifest;
 use crate::tct::VerifiedTct;
 use crate::transport::{
-    sign_envelope_with, verify_envelope_signature, FetchError, HostGuard, ManifestFetcher,
-    RevocationFetcher, RevocationPolicy,
+    FetchError, HostGuard, ManifestFetcher, RevocationFetcher, RevocationPolicy,
 };
 use std::time::Duration;
 use uuid::Uuid;
@@ -49,7 +49,7 @@ pub enum TrustMode<'a> {
         /// Trust anchors (issuer URLs) the verifying peer accepts.
         trust_anchors: &'a [crate::core::RawUrl],
         /// Resolver for issuer JWKS (typically a
-        /// [`crate::transport::key_resolution::KeyResolutionPolicy`]).
+        /// [`crate::transport::KeyResolutionPolicy`]).
         jwks_resolver: &'a dyn JwksResolver,
     },
 }
@@ -67,7 +67,7 @@ pub enum TrustMode<'a> {
 /// now presents the configured type and pre-checks it against the peer
 /// Manifest's `accepted_identity_types` before the handshake starts.
 #[non_exhaustive]
-pub enum IdentityMode<'a> {
+pub enum IdentityMode {
     /// Present a pinned-key identity: the facade self-signs a
     /// proof-of-possession over the outbound HELLO envelope.
     PinnedKey {
@@ -76,40 +76,17 @@ pub enum IdentityMode<'a> {
         /// rejects a mismatch).
         subject: String,
     },
-    /// Present an OIDC identity: the caller supplies a compact JWT
-    /// already minted by the issuer.
-    ///
-    /// **Nonce constraint.** The JWT's `nonce` claim MUST equal the
-    /// handshake `pop_nonce` the facade generates for the HELLO, or the
-    /// peer rejects the proof (RFC-AITP-0002 §3.1). Because the facade
-    /// generates that nonce internally, a JWT minted entirely ahead of
-    /// time cannot satisfy this. For the production OIDC path, prefer
-    /// [`IdentityMode::OidcWithMintCallback`], which mints the JWT
-    /// *after* the nonce is known. This pre-minted variant remains for
-    /// callers that drive the lower-level [`Initiator`] state machine
-    /// themselves.
-    Oidc {
-        /// OIDC issuer URI — MUST match the initiator Manifest's
-        /// `identity_hint.issuer`.
-        issuer: url::Url,
-        /// Subject identifier at the issuer.
-        subject: String,
-        /// Compact-serialized JWT minted by the issuer.
-        proof_jwt: &'a str,
-    },
     /// Present an OIDC identity, minting the JWT **after** the handshake
     /// `pop_nonce` is generated. The facade generates the nonce, invokes
     /// `mint(pop_nonce)`, and binds the returned JWT into the HELLO
-    /// proof. This removes the chicken-and-egg of the plain
-    /// [`IdentityMode::Oidc`] variant (whose JWT would have to already
-    /// carry the not-yet-known nonce).
+    /// proof.
     ///
-    /// This is the production-grade OIDC presentation path. The callback
+    /// The callback
     /// MUST return a compact JWT whose `nonce` claim equals the supplied
     /// `pop_nonce`; the receiving peer's `verify_oidc` enforces this. A
     /// callback error is surfaced as a handshake failure before any HTTP
     /// is sent.
-    OidcWithMintCallback {
+    Oidc {
         /// OIDC issuer URI — MUST match the initiator Manifest's
         /// `identity_hint.issuer`.
         issuer: url::Url,
@@ -122,33 +99,24 @@ pub enum IdentityMode<'a> {
     },
 }
 
-impl IdentityMode<'_> {
+impl IdentityMode {
     /// Wire identity-type string (`"pinned_key"` / `"oidc"`) used for
     /// the `accepted_identity_types` compatibility check
     /// (RFC-AITP-0003 §3.2).
-    fn presented_type(&self) -> &'static str {
+    fn presented_type(&self) -> crate::handshake::IdentityKind {
         match self {
-            IdentityMode::PinnedKey { .. } => "pinned_key",
-            IdentityMode::Oidc { .. } | IdentityMode::OidcWithMintCallback { .. } => "oidc",
+            IdentityMode::PinnedKey { .. } => crate::handshake::IdentityKind::PinnedKey,
+            IdentityMode::Oidc { .. } => crate::handshake::IdentityKind::Oidc,
         }
     }
 
     /// Lower into the handshake-layer [`PresentedIdentity`], consuming
-    /// `self` so the [`IdentityMode::OidcWithMintCallback`] closure can be
+    /// `self` so the [`IdentityMode::Oidc`] closure can be
     /// moved into [`PresentedIdentity::OidcMinter`] rather than cloned.
     fn into_presented_identity(self) -> PresentedIdentity {
         match self {
             IdentityMode::PinnedKey { subject } => PresentedIdentity::PinnedKey { subject },
             IdentityMode::Oidc {
-                issuer,
-                subject,
-                proof_jwt,
-            } => PresentedIdentity::Oidc {
-                issuer,
-                subject,
-                proof_jwt: proof_jwt.to_string(),
-            },
-            IdentityMode::OidcWithMintCallback {
                 issuer,
                 subject,
                 mint,
@@ -181,19 +149,74 @@ impl JwksResolver for NoOpJwksResolver {
 /// companion grant voucher (when the peer's policy allows delegation),
 /// and the peer's verifying key (so the caller can use the held TCT for
 /// downstream PoP without re-fetching the peer Manifest).
+///
+/// Only this crate constructs it, and its fields are read-only:
+/// [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone)]
+pub struct SessionContext {
+    pub(crate) peer_aid: crate::core::Aid,
+    pub(crate) peer_pubkey: AitpVerifyingKey,
+    pub(crate) held_tct: VerifiedTct,
+    pub(crate) grant_voucher: Option<String>,
+    pub(crate) effective_grants: Vec<String>,
+}
+
+impl SessionContext {
+    /// Peer's AID: `held_tct().claims().iss == peer_aid()`.
+    pub fn peer_aid(&self) -> &crate::core::Aid {
+        &self.peer_aid
+    }
+
+    /// Peer's verifying key (for downstream PoP verification).
+    pub fn peer_pubkey(&self) -> &AitpVerifyingKey {
+        &self.peer_pubkey
+    }
+
+    /// TCT the peer issued to us: forward its `token()`, read its
+    /// `claims()`.
+    pub fn held_tct(&self) -> &VerifiedTct {
+        &self.held_tct
+    }
+
+    /// Companion grant voucher compact JWS, present when the peer's
+    /// policy allows us to delegate (RFC-AITP-0005 §8).
+    pub fn grant_voucher(&self) -> Option<&str> {
+        self.grant_voucher.as_deref()
+    }
+
+    /// The grants we may exercise under `held_tct()`: its `grants`,
+    /// narrowed when the peer's revocation status was unavailable under
+    /// a `soft_fail` policy (see [`crate::handshake::CompletedHandshake`]).
+    pub fn effective_grants(&self) -> &[String] {
+        &self.effective_grants
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> SessionContextParts {
+        SessionContextParts {
+            peer_aid: self.peer_aid,
+            peer_pubkey: self.peer_pubkey,
+            held_tct: self.held_tct,
+            grant_voucher: self.grant_voucher,
+            effective_grants: self.effective_grants,
+        }
+    }
+}
+
+/// The owned pieces of a [`SessionContext`], from [`SessionContext::into_parts`].
 #[derive(Debug, Clone)]
 #[non_exhaustive]
-pub struct SessionContext {
-    /// Peer's AID — `held_tct.claims.iss == peer_aid`.
+pub struct SessionContextParts {
+    /// See [`SessionContext::peer_aid`].
     pub peer_aid: crate::core::Aid,
-    /// Peer's verifying key (for downstream PoP verification).
+    /// See [`SessionContext::peer_pubkey`].
     pub peer_pubkey: AitpVerifyingKey,
-    /// TCT the peer issued to us: forward `held_tct.token`, read
-    /// `held_tct.claims`.
+    /// See [`SessionContext::held_tct`].
     pub held_tct: VerifiedTct,
-    /// Companion grant voucher compact JWS — present when the peer's
-    /// policy allows us to delegate (RFC-AITP-0005 §8).
+    /// See [`SessionContext::grant_voucher`].
     pub grant_voucher: Option<String>,
+    /// See [`SessionContext::effective_grants`].
+    pub effective_grants: Vec<String>,
 }
 
 /// Errors from the high-level helpers.
@@ -231,6 +254,9 @@ pub enum FacadeError {
     /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
     #[error("manifest verification: {0}")]
     ManifestVerify(#[from] crate::manifest::ManifestError),
+    /// An outbound envelope could not be signed.
+    #[error("sign envelope: {0}")]
+    Envelope(#[from] crate::envelope::EnvelopeError),
 }
 
 /// Maximum size of a handshake response body the facade
@@ -351,6 +377,9 @@ fn interpret_aitp_envelope_response(
         EnvelopeParseError::Malformed(msg) => {
             FacadeError::Http(format!("malformed JSON in response body: {msg}"))
         }
+        EnvelopeParseError::Structure(e) => {
+            FacadeError::Http(format!("malformed JSON in response body: {e}"))
+        }
     })
 }
 
@@ -428,20 +457,22 @@ async fn read_aitp_envelope_response(
 /// so it is SSRF-guarded exactly like the Manifest/JWKS fetch paths:
 /// redirects rejected, resolved addresses classified by a default
 /// [`HostGuard`] (link-local/metadata always denied; private ranges
-/// warn), and for domain hosts the vetted addresses pinned into the
+/// denied), and for domain hosts the vetted addresses pinned into the
 /// client to close the DNS-rebinding window.
 ///
-/// The `guard` and `timeout` come from [`InitiatorConfig`] on the
-/// handshake path (default `WarnPrivate` + 10s, so the local two-agent
-/// demo over `http://localhost` works once it opts in with
-/// [`InitiatorConfig::with_insecure_localhost`]).
+/// The `guard`, `timeout` and loopback allowance come from
+/// [`InitiatorConfig`] on the handshake path (default `DenyPrivate` +
+/// 10s; the local two-agent demo over `http://localhost` opts in with
+/// [`InitiatorConfig::with_insecure_localhost_dangerous`], which admits
+/// loopback addresses here).
 async fn build_guarded_client(
     endpoint: &url::Url,
     timeout: Duration,
     guard: &HostGuard,
+    allow_loopback: bool,
 ) -> Result<reqwest::Client, FacadeError> {
     let addrs = guard
-        .resolve_checked(endpoint)
+        .resolve_checked_with(endpoint, allow_loopback)
         .await
         .map_err(|e| FacadeError::Http(format!("handshake endpoint rejected: {e}")))?;
     let mut builder = reqwest::Client::builder()
@@ -462,11 +493,16 @@ async fn build_guarded_client(
 pub async fn run_initiator_handshake(
     config: InitiatorConfig<'_>,
 ) -> Result<SessionContext, FacadeError> {
-    let manifest_fetcher = ManifestFetcher::new()
+    let mut manifest_fetcher = ManifestFetcher::new()
         .with_timeout(config.http_timeout)
-        .with_host_guard(config.host_guard.clone())
-        .with_insecure_localhost(config.allow_insecure_localhost);
-    let peer_manifest = manifest_fetcher.fetch(&config.peer_origin).await?;
+        .with_host_guard(config.host_guard.clone());
+    if config.insecure_localhost {
+        manifest_fetcher = manifest_fetcher.with_insecure_localhost_dangerous();
+    }
+    let peer_manifest = manifest_fetcher
+        .fetch(&config.peer_origin)
+        .await?
+        .into_manifest();
     // RFC-AITP-0003 §3.2 / §5 step 5: refuse to drive the handshake if
     // the peer doesn't accept the identity type we'd present. Checking
     // here — right after the Manifest fetch, before the HELLO — yields
@@ -495,11 +531,9 @@ pub async fn run_initiator_handshake(
     //
     // No TCT arrives before MUTUAL_COMMIT_ACK, so the steps before it
     // never consult the revocation source; COMMIT_ACK gets the real one.
-    let no_tct_yet = |_: &crate::core::Aid, _: &Uuid| {
-        Err(HandshakeError::Tct(
-            crate::tct::TctError::RevocationUnavailable(
-                "no revocation lookup before MUTUAL_COMMIT_ACK".into(),
-            ),
+    let no_tct_yet = |_: &crate::tct::RevocationQuery<'_>| {
+        Err(crate::tct::RevocationUnavailable::new(
+            "no revocation lookup before MUTUAL_COMMIT_ACK",
         ))
     };
     let make_cfg = || {
@@ -508,7 +542,7 @@ pub async fn run_initiator_handshake(
             config.own_manifest,
             jwks_resolver,
             pinned_key_store,
-            crate::handshake::RevocationSource::Check(&no_tct_yet),
+            crate::tct::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
         .with_trust_anchors(trust_anchors)
@@ -533,16 +567,20 @@ pub async fn run_initiator_handshake(
         hello_payload,
         mid,
         ts,
-    )
-    .map_err(FacadeError::Http)?;
+    )?;
 
     let endpoint_url = peer_manifest
         .handshake_endpoint
         .parse_url()
         .map_err(|e| FacadeError::Http(format!("handshake_endpoint not a URL: {e}")))?;
     // SSRF-guard the peer-chosen handshake endpoint before any POST.
-    let client =
-        build_guarded_client(&endpoint_url, config.http_timeout, &config.host_guard).await?;
+    let client = build_guarded_client(
+        &endpoint_url,
+        config.http_timeout,
+        &config.host_guard,
+        config.insecure_localhost,
+    )
+    .await?;
 
     let hello_url = endpoint_url
         .join("hello")
@@ -588,6 +626,14 @@ pub async fn run_initiator_handshake(
                 FacadeError::Serde(e)
             }
         })?;
+    // The synchronous step resolves the responder's OIDC issuer keys
+    // from the resolver's cache; fetch them first.
+    crate::handshake::identity_oidc::prefetch_identity_keys(
+        jwks_resolver,
+        &hello_ack.identity,
+        trust_anchors,
+    )
+    .await;
     let cfg = make_cfg();
     let commit = initiator.on_hello_ack(&hello_ack_envelope, &hello_ack, &cfg)?;
 
@@ -599,8 +645,7 @@ pub async fn run_initiator_handshake(
         commit_payload,
         Uuid::new_v4(),
         Timestamp::now(),
-    )
-    .map_err(FacadeError::Http)?;
+    )?;
 
     let commit_url = endpoint_url
         .join("commit")
@@ -637,9 +682,11 @@ pub async fn run_initiator_handshake(
     // RFC-AITP-0008: fetch the peer's revocation snapshot from the URL
     // its handshake-bound Manifest advertises, then check the peer's TCT
     // against it under `config.revocation_policy` (fail_closed default).
-    let fetcher = RevocationFetcher::new(config.revocation_policy.clone())
-        .with_host_guard(config.host_guard.clone())
-        .with_insecure_localhost(config.allow_insecure_localhost);
+    let mut fetcher = RevocationFetcher::new(config.revocation_policy.clone())
+        .with_host_guard(config.host_guard.clone());
+    if config.insecure_localhost {
+        fetcher = fetcher.with_insecure_localhost_dangerous();
+    }
     let prepared = fetcher
         .prepare(
             &peer_manifest.aid,
@@ -647,13 +694,13 @@ pub async fn run_initiator_handshake(
             Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let revocation_check = move |q: &crate::tct::RevocationQuery<'_>| prepared.decide(q);
     let cfg = PeerConfig::new(
         config.signing_key,
         config.own_manifest,
         jwks_resolver,
         pinned_key_store,
-        crate::handshake::RevocationSource::Check(&revocation_check),
+        crate::tct::RevocationSource::Check(&revocation_check),
         Timestamp::now(),
     )
     .with_trust_anchors(trust_anchors);
@@ -664,6 +711,7 @@ pub async fn run_initiator_handshake(
         peer_pubkey: peer_pk,
         held_tct: completed.tct,
         grant_voucher: completed.grant_voucher,
+        effective_grants: completed.effective_grants,
     })
 }
 
@@ -696,7 +744,6 @@ pub async fn run_initiator_handshake(
 ///     requested_grants: vec![],
 ///     http_timeout: Duration::from_secs(10),
 ///     host_guard: HostGuard::default(),
-///     allow_insecure_localhost: false,
 ///     revocation_policy: Default::default(),
 /// }
 /// # }
@@ -720,27 +767,24 @@ pub struct InitiatorConfig<'a> {
     pub trust_mode: TrustMode<'a>,
     /// Identity this initiator presents to the peer
     /// ([`IdentityMode::PinnedKey`], [`IdentityMode::Oidc`], or the
-    /// production OIDC path [`IdentityMode::OidcWithMintCallback`]).
+    /// production OIDC path [`IdentityMode::Oidc`]).
     /// Independent of `trust_mode`: presentation and verification are
     /// configured separately.
-    pub identity_mode: IdentityMode<'a>,
+    pub identity_mode: IdentityMode,
     /// Capabilities to request from the peer.
     pub requested_grants: Vec<String>,
     /// Per-request HTTP timeout for the Manifest fetch and the handshake
     /// POSTs. Default 10s ([`InitiatorConfig::new`]); override with
     /// [`InitiatorConfig::with_http_timeout`].
     pub http_timeout: Duration,
-    /// SSRF guard applied to the peer-derived Manifest origin and
-    /// handshake endpoint. Default [`HostGuard::default`] (`WarnPrivate`)
-    /// so the local demo keeps working; internet-facing callers should
-    /// pass [`HostGuard::strict`] via
+    /// SSRF guard applied to the peer-derived Manifest origin,
+    /// handshake endpoint and revocation list URL. Default
+    /// [`HostGuard::default`] (`DenyPrivate`); intranet callers pass
+    /// `HostGuard::new(GuardMode::WarnPrivate)` via
     /// [`InitiatorConfig::with_host_guard`].
     pub host_guard: HostGuard,
-    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin for
-    /// the Manifest fetch (local dev only). Default `false`; enable with
-    /// [`InitiatorConfig::with_insecure_localhost`]. See
-    /// [`ManifestFetcher::with_insecure_localhost`].
-    pub allow_insecure_localhost: bool,
+    /// Set by [`InitiatorConfig::with_insecure_localhost_dangerous`].
+    insecure_localhost: bool,
     /// How the peer-issued TCT's revocation status is checked
     /// (RFC-AITP-0008). Default `fail_closed`: a peer whose Manifest
     /// advertises no reachable, valid `ListRevoked` snapshot is refused
@@ -758,7 +802,7 @@ impl<'a> InitiatorConfig<'a> {
     /// use std::time::Duration;
     /// use aitp::facade::{InitiatorConfig, TrustMode, IdentityMode};
     /// use aitp::handshake::StaticPinnedKeyStore;
-    /// use aitp::transport::HostGuard;
+    /// use aitp::transport::{GuardMode, HostGuard};
     /// # fn demo(
     /// #     key: &aitp::crypto::AitpSigningKey,
     /// #     manifest: &aitp::manifest::Manifest,
@@ -774,9 +818,9 @@ impl<'a> InitiatorConfig<'a> {
     ///     IdentityMode::PinnedKey { subject: "alice".into() },
     ///     vec!["demo.echo".into()],
     /// )
-    /// // Internet-facing: reject peers that resolve to private space,
+    /// // Intranet: allow peers on private addresses (with a warning),
     /// // and cap the handshake at 5s.
-    /// .with_host_guard(HostGuard::strict())
+    /// .with_host_guard(HostGuard::new(GuardMode::WarnPrivate))
     /// .with_http_timeout(Duration::from_secs(5));
     /// # let _ = config;
     /// # }
@@ -789,7 +833,7 @@ impl<'a> InitiatorConfig<'a> {
         own_manifest: &'a Manifest,
         peer_origin: url::Url,
         trust_mode: TrustMode<'a>,
-        identity_mode: IdentityMode<'a>,
+        identity_mode: IdentityMode,
         requested_grants: Vec<String>,
     ) -> Self {
         Self {
@@ -801,7 +845,7 @@ impl<'a> InitiatorConfig<'a> {
             requested_grants,
             http_timeout: Duration::from_secs(10),
             host_guard: HostGuard::default(),
-            allow_insecure_localhost: false,
+            insecure_localhost: false,
             revocation_policy: RevocationPolicy::default(),
         }
     }
@@ -812,18 +856,22 @@ impl<'a> InitiatorConfig<'a> {
         self
     }
 
-    /// Override the SSRF [`HostGuard`] applied to peer-derived hosts.
-    /// Use [`HostGuard::strict`] for internet-facing deployments.
+    /// Override the SSRF [`HostGuard`] applied to peer-derived hosts
+    /// (default `DenyPrivate`).
     pub fn with_host_guard(mut self, guard: HostGuard) -> Self {
         self.host_guard = guard;
         self
     }
 
-    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin
-    /// (default `false`). For local demos and tests only; RFC-AITP-0003
-    /// §4.1 requires HTTPS for the Manifest endpoint.
-    pub fn with_insecure_localhost(mut self, allow: bool) -> Self {
-        self.allow_insecure_localhost = allow;
+    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin and
+    /// revocation list URL, and admit loopback addresses (`127.0.0.0/8`,
+    /// `::1`) through the host guard for the Manifest fetch, handshake
+    /// endpoint and revocation list ([`HostGuard::allow_loopback_dangerous`]).
+    /// For local demos and tests; RFC-AITP-0003 §4.1 requires HTTPS for
+    /// the Manifest endpoint. See
+    /// [`ManifestFetcher::with_insecure_localhost_dangerous`].
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 
@@ -852,6 +900,14 @@ impl<'a> InitiatorConfig<'a> {
 pub struct TctStore {
     inner: std::sync::Arc<parking_lot::RwLock<std::collections::HashMap<crate::core::Aid, Stored>>>,
     refresh_threshold: f64,
+}
+
+impl std::fmt::Debug for TctStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TctStore")
+            .field("refresh_threshold", &self.refresh_threshold)
+            .finish_non_exhaustive()
+    }
 }
 
 #[derive(Clone)]
@@ -949,14 +1005,14 @@ mod tct_store_tests {
     use crate::crypto::AitpSigningKey;
     use crate::tct::TctBuilder;
 
-    fn build_tct(issued_at: Timestamp, ttl_secs: i64) -> (VerifiedTct, Option<String>) {
-        let issuer = AitpSigningKey::from_seed(&[1u8; 32]);
-        let holder = AitpSigningKey::from_seed(&[2u8; 32]);
+    fn build_tct(issued_at: Timestamp, ttl_secs: u64) -> (VerifiedTct, Option<String>) {
+        let issuer = AitpSigningKey::from_ed25519_seed(&[1u8; 32]);
+        let holder = AitpSigningKey::from_ed25519_seed(&[2u8; 32]);
         let issued = TctBuilder::new(&issuer)
             .subject(holder.aid().clone())
             .audience(holder.aid().clone())
             .grants(["demo.echo"])
-            .ttl_secs(ttl_secs)
+            .ttl(std::time::Duration::from_secs(ttl_secs))
             .subject_pubkey(holder.verifying_key())
             .issued_at(issued_at)
             .build()
@@ -964,6 +1020,7 @@ mod tct_store_tests {
         (
             VerifiedTct {
                 token: issued.token,
+                effective_grants: issued.claims.grants.clone(),
                 claims: issued.claims,
             },
             issued.voucher,
@@ -1007,7 +1064,7 @@ mod tct_store_tests {
     #[test]
     fn unknown_peer_does_not_need_refresh() {
         let store = TctStore::default();
-        let key = AitpSigningKey::from_seed(&[9u8; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[9u8; 32]);
         assert!(!store.needs_refresh(key.aid(), Timestamp(1_700_000_000)));
     }
 
@@ -1114,7 +1171,7 @@ mod facade_http_tests {
     /// before its unknown sibling member is looked at.
     #[test]
     fn previous_revision_response_envelope_is_unknown_version() {
-        let key = crate::crypto::AitpSigningKey::from_seed(&[7u8; 32]);
+        let key = crate::crypto::AitpSigningKey::from_ed25519_seed(&[7u8; 32]);
         let env = sign_envelope_with(
             &key,
             MessageType::MutualHelloAck,
@@ -1153,7 +1210,7 @@ mod initiator_config_knobs {
     use crate::crypto::AitpSigningKey;
 
     fn key_and_manifest() -> (AitpSigningKey, Manifest) {
-        let key = AitpSigningKey::from_seed(&[0x33; 32]);
+        let key = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
         let manifest = crate::manifest::ManifestBuilder::new(&key)
             .display_name("t")
             .handshake_endpoint("https://t.example.com/handshake".parse().unwrap())
@@ -1186,8 +1243,9 @@ mod initiator_config_knobs {
         assert_eq!(cfg.http_timeout, Duration::from_secs(10));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::WarnPrivate
+            crate::transport::GuardMode::DenyPrivate
         );
+        assert!(!cfg.insecure_localhost);
     }
 
     #[test]
@@ -1204,12 +1262,14 @@ mod initiator_config_knobs {
             vec!["demo.echo".into()],
         )
         .with_http_timeout(Duration::from_secs(3))
-        .with_host_guard(HostGuard::strict());
+        .with_host_guard(HostGuard::new(crate::transport::GuardMode::WarnPrivate))
+        .with_insecure_localhost_dangerous();
         assert_eq!(cfg.http_timeout, Duration::from_secs(3));
         assert_eq!(
             cfg.host_guard.mode(),
-            crate::transport::GuardMode::DenyPrivate
+            crate::transport::GuardMode::WarnPrivate
         );
+        assert!(cfg.insecure_localhost);
     }
 }
 
@@ -1225,33 +1285,13 @@ mod identity_mode_tests {
         let m = IdentityMode::PinnedKey {
             subject: "alice".into(),
         };
-        assert_eq!(m.presented_type(), "pinned_key");
+        assert_eq!(
+            m.presented_type(),
+            crate::handshake::IdentityKind::PinnedKey
+        );
         match m.into_presented_identity() {
             PresentedIdentity::PinnedKey { subject } => assert_eq!(subject, "alice"),
             _ => panic!("expected a PinnedKey PresentedIdentity"),
-        }
-    }
-
-    #[test]
-    fn oidc_mode_presents_oidc_type() {
-        let issuer: url::Url = "https://idp.example.com/".parse().unwrap();
-        let m = IdentityMode::Oidc {
-            issuer: issuer.clone(),
-            subject: "alice@example.com".into(),
-            proof_jwt: "eyJ.fake.jwt",
-        };
-        assert_eq!(m.presented_type(), "oidc");
-        match m.into_presented_identity() {
-            PresentedIdentity::Oidc {
-                issuer: got_issuer,
-                subject,
-                proof_jwt,
-            } => {
-                assert_eq!(got_issuer, issuer);
-                assert_eq!(subject, "alice@example.com");
-                assert_eq!(proof_jwt, "eyJ.fake.jwt");
-            }
-            _ => panic!("expected an Oidc PresentedIdentity"),
         }
     }
 
@@ -1264,7 +1304,7 @@ mod identity_mode_tests {
         // facade forwards the handshake nonce verbatim.
         let seen = Arc::new(Mutex::new(None::<String>));
         let seen_in_cb = Arc::clone(&seen);
-        let m = IdentityMode::OidcWithMintCallback {
+        let m = IdentityMode::Oidc {
             issuer: issuer.clone(),
             subject: "alice@example.com".into(),
             mint: Box::new(move |nonce: &str| {
@@ -1272,7 +1312,7 @@ mod identity_mode_tests {
                 Ok(format!("header.{nonce}.sig"))
             }),
         };
-        assert_eq!(m.presented_type(), "oidc");
+        assert_eq!(m.presented_type(), crate::handshake::IdentityKind::Oidc);
         match m.into_presented_identity() {
             PresentedIdentity::OidcMinter {
                 issuer: got_issuer,

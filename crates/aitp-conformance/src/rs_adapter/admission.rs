@@ -11,10 +11,10 @@
 //! its nonce store.
 
 use super::{checked, err, peek_token_aid_claim, trust_store_param, AdapterState};
+use aitp::core::nonce_store::{InMemoryNonceStore, IssuedNonce, NonceStore};
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::handshake::admission::{
-    AdmissionError, ChallengeRateLimiter, ChallengeSource, InMemoryNonceStore, IssuedNonce,
-    NonceStore, PinnedAdmission, TokenBucketLimiter,
+    AdmissionError, ChallengeRateLimiter, ChallengeSource, PinnedAdmission, TokenBucketLimiter,
 };
 use serde_json::{json, Value};
 use std::future::Future;
@@ -127,7 +127,8 @@ fn seed_challenge(store: &InMemoryNonceStore, ch: &Value, now: Timestamp) -> Res
         .ok_or("missing pop_nonce")?;
     // A seeded nonce of the wrong length cannot be issued; it is the
     // presentation's problem (`id-014`), so seed nothing.
-    let Ok(nonce) = base64url::decode_strict_exact::<{ aitp::handshake::POP_NONCE_LEN }>(pop_nonce)
+    let Ok(nonce) =
+        base64url::decode_strict_exact::<{ aitp::core::nonce_store::NONCE_LEN }>(pop_nonce)
     else {
         return Ok(());
     };
@@ -194,9 +195,9 @@ pub(crate) fn verify_identity_presentation_op(
     match ready(h.admission.admit_wire_at(&checked(envelope), &source, now)) {
         Ok(a) => json!({"id": id, "ok": true, "result": {
             "admitted": true,
-            "subject": a.subject,
-            "agent_id": a.key.aid.to_string(),
-            "message_id": a.message_id.to_string(),
+            "subject": a.subject(),
+            "agent_id": a.key().aid().to_string(),
+            "message_id": a.message_id().to_string(),
         }}),
         Err(e) => admission_err(id, &e),
     }
@@ -272,7 +273,7 @@ pub(crate) fn verify_attestation_op(state: &AdapterState, id: &str, params: Valu
         .and_then(Value::as_i64)
         .map(Timestamp);
     let builder = aitp::tct::AttestationVerifyContext::builder(&issuer, statement_key, now)
-        .accept_unchecked_revocation_dangerous();
+        .revocation(aitp::tct::RevocationSource::FailOpen);
     let builder = match (manifest_expires_at, waive) {
         (Some(exp), _) => builder.issuer_manifest_expires_at(exp),
         (None, true) => builder.waive_manifest_cap_issuer_has_no_manifest(),
@@ -291,7 +292,7 @@ pub(crate) fn verify_attestation_op(state: &AdapterState, id: &str, params: Valu
     match aitp::tct::verify_attestation(token, &ctx) {
         Ok(v) => json!({"id": id, "ok": true, "result": {
             "verified": true,
-            "statement": v.statement,
+            "statement": v.statement(),
         }}),
         Err(e) => err(id, &super::tct_error_code(&e), &e.to_string()),
     }

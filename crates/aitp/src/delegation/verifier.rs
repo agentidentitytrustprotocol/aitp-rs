@@ -10,72 +10,32 @@ use crate::core::{
 use crate::crypto::{jws, AitpVerifyingKey};
 use crate::delegation::types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
 use crate::delegation::DelegationError;
-use crate::manifest::{resolve_verified_manifest, ManifestResolver, VerifyManifestContext};
-use crate::tct::GrantVoucherClaims;
+use crate::manifest::{resolve_verified_manifest, ManifestResolver, ManifestVerifyContext};
+use crate::tct::revocation::{apply_revocation, RevocationQuery, RevocationRejection};
+use crate::tct::{GrantVoucherClaims, RevocationSource};
 use uuid::Uuid;
-
-/// Source-TCT revocation lookup (RFC-AITP-0008): `voucher.src_jti →
-/// revoked?` against the verifier's own deny list. Returns
-/// `Err(DelegationError::RevocationUnavailable(_))` when the status
-/// cannot be determined, so "unknown" is never read as "not revoked".
-pub type SourceRevocationCheck<'a> = dyn Fn(&Uuid) -> Result<bool, DelegationError> + 'a;
-
-/// Where delegation verification gets revocation status (RFC-AITP-0008).
-///
-/// There is deliberately no `Default`: with no source a revoked source
-/// TCT is accepted, so the caller names one of the two choices.
-#[derive(Clone, Copy)]
-#[non_exhaustive]
-pub enum DelegationRevocation<'a> {
-    /// Check `voucher.src_jti` with this hook after every signature
-    /// check.
-    Check(&'a SourceRevocationCheck<'a>),
-    /// No revocation lookups at all (`fail_open`): a revoked but
-    /// unexpired source TCT is accepted. A warning is logged once
-    /// per process. Tests and demos only.
-    FailOpen,
-}
-
-impl std::fmt::Debug for DelegationRevocation<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Check(_) => f.write_str("DelegationRevocation::Check(..)"),
-            Self::FailOpen => f.write_str("DelegationRevocation::FailOpen"),
-        }
-    }
-}
-
-/// Logs the [`DelegationRevocation::FailOpen`] warning at most once.
-fn warn_fail_open_once() {
-    static WARNED: std::sync::Once = std::sync::Once::new();
-    WARNED.call_once(|| {
-        tracing::warn!(
-            "VerifyDelegationContext uses DelegationRevocation::FailOpen: delegations \
-             are accepted without a revocation check (RFC-AITP-0008 fail_open)"
-        );
-    });
-}
 
 /// Inputs for verifying a delegation token.
 ///
 /// `verifier` is A — the original grantor, voucher issuer, and the only
 /// party a delegation is presentable to.
 ///
-/// `#[non_exhaustive]`: construct with [`VerifyDelegationContext::new`] and
+/// `#[non_exhaustive]`: construct with [`DelegationVerifyContext::new`] and
 /// the builder methods rather than a struct literal, so a future
 /// verification knob is an additive change instead of a breaking one for
 /// every downstream crate.
 #[non_exhaustive]
-pub struct VerifyDelegationContext<'a> {
+pub struct DelegationVerifyContext<'a> {
     /// The verifier's own AID (A). `aud` and `voucher.iss` MUST equal
     /// this.
     pub verifier: &'a Aid,
     /// Current time.
     pub now: Timestamp,
     /// Revocation source for the source TCT (`voucher.src_jti`), A's
-    /// **own** deny list. The only stateful single-hop check; runs after
-    /// all signature checks (RFC-AITP-0008 §3.3).
-    pub revocation: DelegationRevocation<'a>,
+    /// **own** deny list: the query's `issuer` is [`Self::verifier`]. The
+    /// only stateful single-hop check; runs after all signature checks
+    /// (RFC-AITP-0008 §3.3).
+    pub revocation: RevocationSource<'a>,
     /// Source of each delegation issuer's Manifest (RFC-AITP-0006 §4
     /// step 1). The token is verified under the key its issuer's verified
     /// Manifest designates; with no source configured (or no usable
@@ -84,9 +44,20 @@ pub struct VerifyDelegationContext<'a> {
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
 }
 
-impl<'a> VerifyDelegationContext<'a> {
+impl std::fmt::Debug for DelegationVerifyContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DelegationVerifyContext")
+            .field("verifier", self.verifier)
+            .field("now", &self.now)
+            .field("revocation", &self.revocation)
+            .field("issuer_manifests", &self.issuer_manifests.is_some())
+            .finish()
+    }
+}
+
+impl<'a> DelegationVerifyContext<'a> {
     /// Context with the given source-TCT revocation choice.
-    pub fn new(verifier: &'a Aid, now: Timestamp, revocation: DelegationRevocation<'a>) -> Self {
+    pub fn new(verifier: &'a Aid, now: Timestamp, revocation: RevocationSource<'a>) -> Self {
         Self {
             verifier,
             now,
@@ -126,7 +97,7 @@ impl<'a> VerifyDelegationContext<'a> {
 /// (`crate::tct::sign_pop_response` / `verify_pop_response`).
 pub fn verify_delegation(
     token: &str,
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
 ) -> Result<VerifiedDelegation, DelegationError> {
     // Peek (unverified) to learn the claimed shape; everything is
     // re-established cryptographically below.
@@ -209,14 +180,14 @@ fn peek_claims(token: &str) -> Result<DelegationClaims, DelegationError> {
 /// confusion (RFC-AITP-0001 §5.4.5).
 fn verify_hop_jws(
     token: &str,
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
 ) -> Result<DelegationClaims, DelegationError> {
     let claimed = peek_claims(token)?;
     let signer = ctx
         .issuer_manifests
         .ok_or(crate::manifest::ManifestError::NotFound)
         .and_then(|r| {
-            resolve_verified_manifest(r, &claimed.iss, &VerifyManifestContext::at(ctx.now))
+            resolve_verified_manifest(r, &claimed.iss, &ManifestVerifyContext::at(ctx.now))
         })
         .map_err(|source| DelegationError::KeyResolutionFailed {
             issuer: claimed.iss.clone(),
@@ -244,7 +215,7 @@ fn verify_hop_jws(
 /// Claim checks on the verified token (RFC-AITP-0006 §4).
 fn check_hop_claims(
     claims: &DelegationClaims,
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
 ) -> Result<(), DelegationError> {
     if &claims.aud != ctx.verifier {
         return Err(DelegationError::AudienceMismatch);
@@ -258,7 +229,7 @@ fn check_hop_claims(
     // cnf.jkt MUST match the key encoded in `sub` (RFC-AITP-0001 §5.4.4).
     let sub_key = AitpVerifyingKey::from_aid(&claims.sub).map_err(DelegationError::Crypto)?;
     let expected_jkt = sub_key
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(DelegationError::Crypto)?;
     if claims.cnf.jkt != expected_jkt {
         return Err(DelegationError::CnfMalformed);
@@ -274,7 +245,7 @@ fn check_hop_claims(
 fn verify_root_voucher(
     voucher_token: &str,
     expected_delegator: &Aid,
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
 ) -> Result<GrantVoucherClaims, DelegationError> {
     let voucher = crate::tct::verify_voucher(voucher_token, ctx.verifier).map_err(|e| match e {
         crate::tct::TctError::Crypto(c) => DelegationError::Crypto(c),
@@ -296,7 +267,7 @@ fn verify_root_voucher(
 
 fn verify_single_hop(
     token: &str,
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
 ) -> Result<VerifiedDelegation, DelegationError> {
     // Step 1: outer JWS — strict parse, typ, alg pin, signature under
     // the key B's verified Manifest designates, ver.
@@ -328,29 +299,41 @@ fn verify_single_hop(
     check_hop_claims(&claims, ctx)?;
     // Step 7: source-TCT revocation — the only stateful check, last
     // (RFC-AITP-0008 §3.3).
-    check_source_revocation(ctx, &voucher.src_jti)?;
+    let effective_grants = check_source_revocation(ctx, &voucher.src_jti, &claims.scope)?;
 
     Ok(VerifiedDelegation {
         token: token.to_string(),
         claims,
         voucher,
+        effective_grants,
     })
 }
 
 /// Source-TCT revocation (RFC-AITP-0008 §3.3), after every signature
-/// check.
+/// check: the verifier's own list, keyed by `src_jti`. Returns `scope`,
+/// narrowed under a soft-fail safe subset.
 fn check_source_revocation(
-    ctx: &VerifyDelegationContext<'_>,
+    ctx: &DelegationVerifyContext<'_>,
     src_jti: &Uuid,
-) -> Result<(), DelegationError> {
-    match ctx.revocation {
-        DelegationRevocation::Check(check) if check(src_jti)? => {
-            Err(DelegationError::SourceTctRevoked)
-        }
-        DelegationRevocation::Check(_) => Ok(()),
-        DelegationRevocation::FailOpen => {
-            warn_fail_open_once();
-            Ok(())
-        }
-    }
+    scope: &[String],
+) -> Result<Vec<String>, DelegationError> {
+    delegation_revocation(
+        &ctx.revocation,
+        &RevocationQuery::new(ctx.verifier, src_jti, ctx.now),
+        scope,
+    )
+}
+
+/// Run `source` for one delegation artifact and map the outcome onto
+/// [`DelegationError`]. Shared with the multi-hop verifier.
+pub(crate) fn delegation_revocation(
+    source: &RevocationSource<'_>,
+    query: &RevocationQuery<'_>,
+    scope: &[String],
+) -> Result<Vec<String>, DelegationError> {
+    apply_revocation(source, query, scope).map_err(|r| match r {
+        RevocationRejection::Revoked => DelegationError::SourceTctRevoked,
+        RevocationRejection::Unavailable(e) => DelegationError::RevocationUnavailable(e),
+        RevocationRejection::SafeSubsetEmpty => DelegationError::SafeSubsetEmpty,
+    })
 }

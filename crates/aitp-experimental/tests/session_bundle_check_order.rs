@@ -10,21 +10,21 @@ use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, 
 use aitp::tct::{TctBuilder, TctError};
 use aitp_experimental::session_bundle::{
     verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleBuilder,
-    SessionBundleError, SessionTrustBundle, VerifySessionBundleContext,
+    SessionBundleError, SessionBundleVerifyContext, SessionTrustBundle,
 };
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
 fn key(seed: u8) -> AitpSigningKey {
-    AitpSigningKey::from_seed(&[seed; 32])
+    AitpSigningKey::from_ed25519_seed(&[seed; 32])
 }
 
-fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: i64) -> String {
+fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: u64) -> String {
     TctBuilder::new(coord)
         .subject(aud.aid().clone())
         .audience(aud.aid().clone())
         .grants(["session.participate"])
-        .ttl_secs(ttl_secs)
+        .ttl(std::time::Duration::from_secs(ttl_secs))
         .subject_pubkey(aud.verifying_key())
         .issued_at(NOW)
         .build()
@@ -32,7 +32,7 @@ fn issue_tct(coord: &AitpSigningKey, aud: &AitpSigningKey, ttl_secs: i64) -> Str
         .token
 }
 
-fn manifest_for(key: &AitpSigningKey, ttl_secs: i64) -> Manifest {
+fn manifest_for(key: &AitpSigningKey, ttl_secs: u64) -> Manifest {
     ManifestBuilder::new(key)
         .display_name("coordinator")
         .handshake_endpoint("https://coord.example/handshake".parse().unwrap())
@@ -42,7 +42,7 @@ fn manifest_for(key: &AitpSigningKey, ttl_secs: i64) -> Manifest {
         )
         .offer("session.coordinate")
         .published_at(NOW)
-        .ttl_secs(ttl_secs)
+        .ttl(std::time::Duration::from_secs(ttl_secs))
         .build()
         .unwrap()
 }
@@ -81,7 +81,7 @@ fn verify(
 ) -> Result<BundleOutcome, SessionBundleError> {
     verify_session_bundle(
         bundle,
-        &VerifySessionBundleContext {
+        &SessionBundleVerifyContext {
             verifier_aid: verifier.aid(),
             now,
             revocation_check: None,

@@ -12,7 +12,7 @@
 
 #![cfg(feature = "http-client")]
 
-use aitp::transport::{HostGuard, JwksFetcher, JwksFetcherError};
+use aitp::transport::{JwksFetcher, JwksFetcherError};
 
 #[tokio::test]
 async fn resolve_rejects_non_https_issuer() {
@@ -46,15 +46,15 @@ async fn resolve_rejects_link_local_issuer_host() {
 }
 
 #[tokio::test]
-async fn strict_guard_rejects_private_issuer_host() {
-    let fetcher = JwksFetcher::new().with_host_guard(HostGuard::strict());
+async fn default_guard_rejects_private_issuer_host() {
+    let fetcher = JwksFetcher::new();
     let private_issuer = "https://10.20.30.40".parse().unwrap();
     let err = fetcher
         .resolve(&private_issuer)
         .await
-        .expect_err("strict guard must refuse a private issuer host");
+        .expect_err("default guard must refuse a private issuer host");
     assert!(
         matches!(err, JwksFetcherError::InsecureUrl),
-        "expected InsecureUrl (strict guard), got {err:?}"
+        "expected InsecureUrl (DenyPrivate guard), got {err:?}"
     );
 }

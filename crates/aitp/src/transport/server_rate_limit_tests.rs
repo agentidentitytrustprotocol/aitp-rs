@@ -1,16 +1,15 @@
-//! RateLimitConfig sliding-window semantics on HandshakeServer
+//! Unit tests for RateLimitConfig sliding-window semantics on
+//! HandshakeServer, through the crate-private `enforce_rate_limit`
 //! (RFC-AITP-0009 §3.1: rate limiting is a MUST, and the pre-auth
 //! source key MUST include a transport identifier).
 
-#![cfg(all(feature = "http-client", feature = "http-server"))]
-
-use aitp::core::{AitpEnvelope, MessageType, Timestamp};
-use aitp::crypto::AitpSigningKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
-use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
-use aitp::transport::{
-    sign_envelope_with, HandshakeServer, RateLimitConfig, RateLimitOutcome, TrustedProxy,
-};
+use crate::core::{AitpEnvelope, MessageType, Timestamp};
+use crate::crypto::AitpSigningKey;
+use crate::envelope::sign_envelope_with;
+use crate::handshake::{JwkPublicKey, JwksResolver, ResolveError};
+use crate::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
+use crate::transport::server::RateLimitOutcome;
+use crate::transport::{HandshakeServer, RateLimitConfig, TrustedProxy};
 use std::net::IpAddr;
 use std::time::Duration;
 use tokio::net::TcpListener;
@@ -24,20 +23,20 @@ impl JwksResolver for NoOpResolver {
 }
 
 fn server() -> HandshakeServer<NoOpResolver> {
-    let key = AitpSigningKey::from_seed(&[0xAB; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xAB; 32]);
     let manifest = ManifestBuilder::new(&key)
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
-                aitp::core::base64url::encode(
+                crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
                         .expect("key was constructed as Ed25519, never P-256"),
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
@@ -127,8 +126,8 @@ fn recommended_defaults_match_rfc_0009() {
 
 /// An explicit opt-out, for deployments that enforce §3.1 upstream.
 #[test]
-fn without_rate_limit_always_allows() {
-    let srv = server().without_rate_limit();
+fn without_rate_limit_dangerous_always_allows() {
+    let srv = server().without_rate_limit_dangerous();
     for _ in 0..10_000 {
         assert!(matches!(
             srv.enforce_rate_limit(Some(ip("1.1.1.1")), None),
@@ -171,13 +170,13 @@ fn rotating_aids_does_not_bypass_transport_limit() {
             .with_requests_per_aid_per_60s(Some(100)),
     );
     for seed in 0..3u8 {
-        let k = AitpSigningKey::from_seed(&[seed; 32]);
+        let k = AitpSigningKey::from_ed25519_seed(&[seed; 32]);
         assert!(matches!(
             srv.enforce_rate_limit(Some(ip("8.8.8.8")), Some(k.aid())),
             RateLimitOutcome::Allow
         ));
     }
-    let fresh = AitpSigningKey::from_seed(&[0x99; 32]);
+    let fresh = AitpSigningKey::from_ed25519_seed(&[0x99; 32]);
     assert!(matches!(
         srv.enforce_rate_limit(Some(ip("8.8.8.8")), Some(fresh.aid())),
         RateLimitOutcome::DenyTooManyRequests { .. }
@@ -255,20 +254,20 @@ async fn spawn_rate_limited_server(per_ip: u32) -> u16 {
 /// list. Served with connect info, as `HandshakeServer::router`
 /// documents, so the peer socket address is the transport key.
 async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
-    let key = AitpSigningKey::from_seed(&[0xE1; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xE1; 32]);
     let manifest = ManifestBuilder::new(&key)
         .display_name("responder")
         .handshake_endpoint("https://example.com/aitp/handshake".parse().unwrap())
         .identity_hint(
             IdentityHint::new(IdentityHintKind::PinnedKey, "responder").with_public_key(
-                aitp::core::base64url::encode(
+                crate::core::base64url::encode(
                     &key.verifying_key()
                         .try_to_ed25519_bytes()
                         .expect("key was constructed as Ed25519, never P-256"),
                 ),
             ),
         )
-        .accept_identity_type("pinned_key")
+        .accept_identity_type(crate::handshake::IdentityKind::PinnedKey)
         .offer("demo.echo")
         .build()
         .unwrap();
@@ -298,7 +297,7 @@ async fn spawn_server(per_ip: u32, trusted_proxies: Vec<TrustedProxy>) -> u16 {
 /// `message_id` — distinct per call so the replay deny-list never
 /// fires, isolating the rate-limit path.
 fn fresh_hello_envelope() -> AitpEnvelope {
-    let key = AitpSigningKey::from_seed(&[0xE2; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xE2; 32]);
     sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -444,7 +443,7 @@ async fn malformed_and_stale_requests_consume_rate_limit_budget() {
 
     let mut unknown_version = serde_json::to_value(fresh_hello_envelope()).unwrap();
     unknown_version["version"] = "aitp/9.9".into();
-    let key = AitpSigningKey::from_seed(&[0xE2; 32]);
+    let key = AitpSigningKey::from_ed25519_seed(&[0xE2; 32]);
     let stale = sign_envelope_with(
         &key,
         MessageType::MutualHello,
@@ -475,7 +474,7 @@ fn allows_traffic_below_per_aid_limit_then_denies() {
             .with_requests_per_source_per_60s(1_000)
             .with_requests_per_aid_per_60s(Some(3)),
     );
-    let aid = AitpSigningKey::from_seed(&[0x33; 32]);
+    let aid = AitpSigningKey::from_ed25519_seed(&[0x33; 32]);
     for _ in 0..3 {
         assert!(matches!(
             srv.enforce_rate_limit(None, Some(aid.aid())),
@@ -495,8 +494,8 @@ fn per_aid_buckets_are_independent() {
             .with_requests_per_source_per_60s(1_000)
             .with_requests_per_aid_per_60s(Some(2)),
     );
-    let alice = AitpSigningKey::from_seed(&[0x44; 32]);
-    let bob = AitpSigningKey::from_seed(&[0x55; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0x44; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0x55; 32]);
     // Exhaust Alice's budget.
     for _ in 0..2 {
         assert!(matches!(

@@ -16,7 +16,7 @@ use aitp::manifest::{
 
 const NOW: Timestamp = Timestamp(1_700_000_000);
 
-fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
+fn manifest_for(key: &AitpSigningKey, accept: &[aitp::handshake::IdentityKind]) -> Manifest {
     let mut b = ManifestBuilder::new(key)
         .handshake_endpoint("https://example.com/handshake".parse().unwrap())
         .identity_hint(
@@ -30,7 +30,7 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
         )
         .accept_trust_anchor("https://idp.example.com".parse().unwrap())
         .offer("demo.echo")
-        .ttl_secs(3600)
+        .ttl(std::time::Duration::from_secs(3600))
         .published_at(NOW);
     if accept.is_empty() {
         // Empty input list = explicit-empty test (BUG-6 case):
@@ -47,50 +47,71 @@ fn manifest_for(key: &AitpSigningKey, accept: &[&str]) -> Manifest {
 
 #[test]
 fn pinned_key_initiator_against_pinned_key_only_peer_passes() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD1; 32]), &["pinned_key"]);
-    check_identity_type_compatibility(&m, "pinned_key").expect("compatible");
+    let m = manifest_for(
+        &AitpSigningKey::from_ed25519_seed(&[0xD1; 32]),
+        &[aitp::handshake::IdentityKind::PinnedKey],
+    );
+    check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::PinnedKey)
+        .expect("compatible");
 }
 
 #[test]
 fn pinned_key_initiator_against_mixed_peer_passes() {
     let m = manifest_for(
-        &AitpSigningKey::from_seed(&[0xD2; 32]),
-        &["oidc", "pinned_key"],
+        &AitpSigningKey::from_ed25519_seed(&[0xD2; 32]),
+        &[
+            aitp::handshake::IdentityKind::Oidc,
+            aitp::handshake::IdentityKind::PinnedKey,
+        ],
     );
-    check_identity_type_compatibility(&m, "pinned_key").expect("compatible");
+    check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::PinnedKey)
+        .expect("compatible");
 }
 
 #[test]
 fn pinned_key_initiator_against_oidc_only_peer_is_blocked() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD3; 32]), &["oidc"]);
-    let err = check_identity_type_compatibility(&m, "pinned_key").expect_err("incompatible");
+    let m = manifest_for(
+        &AitpSigningKey::from_ed25519_seed(&[0xD3; 32]),
+        &[aitp::handshake::IdentityKind::Oidc],
+    );
+    let err = check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::PinnedKey)
+        .expect_err("incompatible");
     assert!(
-        matches!(err, ManifestError::IncompatibleIdentityType("pinned_key")),
+        matches!(
+            err,
+            ManifestError::IncompatibleIdentityType(aitp::handshake::IdentityKind::PinnedKey)
+        ),
         "got {err:?}"
     );
 }
 
 #[test]
 fn empty_accepted_list_rejects_every_peer() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD4; 32]), &[]);
-    let err = check_identity_type_compatibility(&m, "pinned_key").expect_err("blocked");
+    let m = manifest_for(&AitpSigningKey::from_ed25519_seed(&[0xD4; 32]), &[]);
+    let err = check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::PinnedKey)
+        .expect_err("blocked");
     assert!(matches!(
         err,
-        ManifestError::IncompatibleIdentityType("pinned_key")
+        ManifestError::IncompatibleIdentityType(aitp::handshake::IdentityKind::PinnedKey)
     ));
-    let err = check_identity_type_compatibility(&m, "oidc").expect_err("blocked");
+    let err = check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::Oidc)
+        .expect_err("blocked");
     assert!(matches!(
         err,
-        ManifestError::IncompatibleIdentityType("oidc")
+        ManifestError::IncompatibleIdentityType(aitp::handshake::IdentityKind::Oidc)
     ));
 }
 
 #[test]
 fn oidc_initiator_against_pinned_key_only_peer_is_blocked() {
-    let m = manifest_for(&AitpSigningKey::from_seed(&[0xD5; 32]), &["pinned_key"]);
-    let err = check_identity_type_compatibility(&m, "oidc").expect_err("incompatible");
+    let m = manifest_for(
+        &AitpSigningKey::from_ed25519_seed(&[0xD5; 32]),
+        &[aitp::handshake::IdentityKind::PinnedKey],
+    );
+    let err = check_identity_type_compatibility(&m, aitp::handshake::IdentityKind::Oidc)
+        .expect_err("incompatible");
     assert!(matches!(
         err,
-        ManifestError::IncompatibleIdentityType("oidc")
+        ManifestError::IncompatibleIdentityType(aitp::handshake::IdentityKind::Oidc)
     ));
 }

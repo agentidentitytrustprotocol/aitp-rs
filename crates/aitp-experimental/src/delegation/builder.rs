@@ -17,12 +17,10 @@
 //! [`ChainedDelegationBuilder::build_async`]. Validation and output are the same.
 
 use crate::delegation::{ChainedDelegationClaims, ChainedDelegationError};
-use aitp::core::{
-    base64url, check_members, from_serde_error, jcs, reject_duplicate_keys, Aid, Timestamp,
-    PROTOCOL_VERSION,
-};
+use aitp::__private::{check_members, from_serde_error, reject_duplicate_keys};
+use aitp::core::{base64url, jcs, Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigner, AitpVerifyingKey, DynAsyncAitpSigner};
-use aitp::delegation::{DelegationError, DEFAULT_DELEGATION_TTL_SECS, DELEGATION_CLAIMS_MEMBERS};
+use aitp::delegation::{DelegationError, DEFAULT_DELEGATION_TTL, DELEGATION_CLAIMS_MEMBERS};
 use aitp::tct::{Cnf, GrantVoucherClaims, GRANT_VOUCHER_CLAIMS_MEMBERS};
 use sha2::{Digest, Sha256};
 use uuid::Uuid;
@@ -67,7 +65,7 @@ pub struct ChainedDelegationBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     authority: Authority,
     delegatee: Option<Aid>,
     scope: Vec<String>,
-    ttl_secs: i64,
+    ttl: std::time::Duration,
     now_override: Option<Timestamp>,
     jti_override: Option<Uuid>,
 }
@@ -199,7 +197,7 @@ impl<'a, S: ?Sized + IssuerAid> ChainedDelegationBuilder<'a, S> {
             },
             delegatee: None,
             scope: Vec::new(),
-            ttl_secs: DEFAULT_DELEGATION_TTL_SECS,
+            ttl: DEFAULT_DELEGATION_TTL,
             now_override: None,
             jti_override: None,
         })
@@ -248,7 +246,7 @@ impl<'a, S: ?Sized + IssuerAid> ChainedDelegationBuilder<'a, S> {
             },
             delegatee: None,
             scope: Vec::new(),
-            ttl_secs: DEFAULT_DELEGATION_TTL_SECS,
+            ttl: DEFAULT_DELEGATION_TTL,
             now_override: None,
             jti_override: None,
         })
@@ -273,8 +271,8 @@ impl<'a, S: ?Sized + IssuerAid> ChainedDelegationBuilder<'a, S> {
 
     /// Override default TTL (1h). The effective expiry is capped at the
     /// authority's expiry (voucher `exp`, or the prior hop's `exp`).
-    pub fn ttl_secs(mut self, ttl: i64) -> Self {
-        self.ttl_secs = ttl;
+    pub fn ttl(mut self, ttl: std::time::Duration) -> Self {
+        self.ttl = ttl;
         self
     }
 
@@ -319,7 +317,7 @@ impl<'a, S: ?Sized + IssuerAid> ChainedDelegationBuilder<'a, S> {
         }
 
         let now = self.now_override.unwrap_or_else(Timestamp::now);
-        let proposed = now.plus_secs(self.ttl_secs);
+        let proposed = now.saturating_add(self.ttl);
         let exp = if proposed.0 < max_expiry.0 {
             proposed
         } else {
@@ -332,7 +330,7 @@ impl<'a, S: ?Sized + IssuerAid> ChainedDelegationBuilder<'a, S> {
 
         let cnf_key = AitpVerifyingKey::from_aid(&delegatee).map_err(DelegationError::Crypto)?;
         let jkt = cnf_key
-            .to_jwk_thumbprint()
+            .to_jwk_thumbprint_sha256()
             .map_err(DelegationError::Crypto)?;
 
         let (voucher, jti, chain, chain_hash) = match self.authority {

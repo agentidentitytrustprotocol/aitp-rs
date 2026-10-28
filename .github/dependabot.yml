@@ -11,6 +11,15 @@ updates:
         update-types: ["minor", "patch"]
       major-updates:
         update-types: ["major"]
+    ignore:
+      # Held at 9.x: a dev-only test oracle, and 10+ needs a crypto
+      # backend feature this workspace does not take (#98, Cargo.toml).
+      - dependency-name: jsonwebtoken
+        update-types: ["version-update:semver-major"]
+      # 0.13 requires rustc 1.95, above the MSRV (1.90). Take it with the
+      # next MSRV raise (STABILITY.md: raised only when a dependency forces it).
+      - dependency-name: parking_lot
+        versions: [">= 0.13"]
 
   - package-ecosystem: cargo
     directory: "/bindings/aitp-py"

@@ -16,7 +16,7 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::tct::{
-    revocation_signing_bytes, verify_revocation_list, TctError, VerifyRevocationListContext,
+    revocation_signing_bytes, verify_revocation_list, RevocationListVerifyContext, TctError,
 };
 
 use crate::wire;
@@ -92,7 +92,7 @@ pub fn verify_revocation_list_js(
     let expected = Aid::parse(&expected_issuer_aid)
         .map_err(|e| Error::from_reason(format!("invalid expectedIssuerAid: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    let ctx = VerifyRevocationListContext::new(&expected, now);
+    let ctx = RevocationListVerifyContext::new(&expected, now);
     verify_revocation_list(&envelope, &ctx).map_err(|e| {
         throw_verification_error(
             env,

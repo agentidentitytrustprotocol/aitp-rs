@@ -33,7 +33,7 @@ fn manifest_for_oidc(
                 .with_issuer(aitp::core::RawUrl::from(issuer.clone())),
         )
         .accept_trust_anchor(issuer.clone())
-        .accept_identity_type("oidc")
+        .accept_identity_type(aitp::handshake::IdentityKind::Oidc)
         .offer("demo.echo")
         .published_at(NOW)
         .build()
@@ -60,8 +60,8 @@ fn full_oidc_handshake_in_process() {
     let issuer = MockOidcIssuer::new("https://idp.example.com", "kid-1", [0xC0; 32]);
     let issuer_url = issuer.issuer.clone();
 
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     let alice_manifest = manifest_for_oidc(&alice, "alice", &issuer_url);
     let bob_manifest = manifest_for_oidc(&bob, "bob", &issuer_url);
 
@@ -74,11 +74,11 @@ fn full_oidc_handshake_in_process() {
 
     let alice_jkt = aitp::crypto::AitpVerifyingKey::from_aid(alice.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
     let bob_jkt = aitp::crypto::AitpVerifyingKey::from_aid(bob.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
 
     let alice_jwt = issuer.mint_aitp_jwt(
@@ -96,7 +96,7 @@ fn full_oidc_handshake_in_process() {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -105,7 +105,7 @@ fn full_oidc_handshake_in_process() {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -204,10 +204,16 @@ fn full_oidc_handshake_in_process() {
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &alice_cfg)
         .unwrap();
 
-    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
-    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
-    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
-    assert_eq!(bob_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct().claims().iss, bob.aid());
+    assert_eq!(&bob_holds.tct().claims().iss, alice.aid());
+    assert_eq!(
+        alice_holds.tct().claims().grants,
+        vec!["demo.echo".to_string()]
+    );
+    assert_eq!(
+        bob_holds.tct().claims().grants,
+        vec!["demo.echo".to_string()]
+    );
 
     let _: MutualHelloAckPayload = ack_payload;
     let _: MutualCommitAckPayload = commit_ack_payload;
@@ -241,11 +247,11 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
 
     let alice_jkt = aitp::crypto::AitpVerifyingKey::from_aid(alice.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
     let bob_jkt = aitp::crypto::AitpVerifyingKey::from_aid(bob.aid())
         .unwrap()
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .unwrap();
 
     let trust_anchors = vec![aitp::core::RawUrl::from(issuer_url.clone())];
@@ -254,7 +260,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -263,7 +269,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -375,10 +381,16 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &alice_cfg)
         .unwrap();
 
-    assert_eq!(&alice_holds.tct.claims.iss, bob.aid());
-    assert_eq!(&bob_holds.tct.claims.iss, alice.aid());
-    assert_eq!(alice_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
-    assert_eq!(bob_holds.tct.claims.grants, vec!["demo.echo".to_string()]);
+    assert_eq!(&alice_holds.tct().claims().iss, bob.aid());
+    assert_eq!(&bob_holds.tct().claims().iss, alice.aid());
+    assert_eq!(
+        alice_holds.tct().claims().grants,
+        vec!["demo.echo".to_string()]
+    );
+    assert_eq!(
+        bob_holds.tct().claims().grants,
+        vec!["demo.echo".to_string()]
+    );
 
     let _: MutualCommitAckPayload = commit_ack_payload;
 }
@@ -386,8 +398,8 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
 /// Baseline: both peers Ed25519, presenting via the minter callback.
 #[test]
 fn oidc_minter_handshake_ed25519_both() {
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     run_oidc_minter_handshake(&alice, &bob);
 }
 
@@ -397,7 +409,7 @@ fn oidc_minter_handshake_ed25519_both() {
 #[test]
 fn oidc_minter_handshake_p256_initiator() {
     let alice = AitpSigningKey::from_p256_seed(&[0xA1; 32]).unwrap();
-    let bob = AitpSigningKey::from_seed(&[0xB2; 32]);
+    let bob = AitpSigningKey::from_ed25519_seed(&[0xB2; 32]);
     assert!(alice.aid().as_str().starts_with("aid:pubkey:p256:"));
     run_oidc_minter_handshake(&alice, &bob);
 }
@@ -407,7 +419,7 @@ fn oidc_minter_handshake_p256_initiator() {
 /// P-256 AID.
 #[test]
 fn oidc_minter_handshake_p256_responder() {
-    let alice = AitpSigningKey::from_seed(&[0xA1; 32]);
+    let alice = AitpSigningKey::from_ed25519_seed(&[0xA1; 32]);
     let bob = AitpSigningKey::from_p256_seed(&[0xB2; 32]).unwrap();
     assert!(bob.aid().as_str().starts_with("aid:pubkey:p256:"));
     run_oidc_minter_handshake(&alice, &bob);

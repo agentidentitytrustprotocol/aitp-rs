@@ -51,7 +51,7 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
         .expect("vendored bundle parses as valid wire form");
 
     let verifier_aid = participant_aid();
-    let ctx = aitp_experimental::session_bundle::VerifySessionBundleContext {
+    let ctx = aitp_experimental::session_bundle::SessionBundleVerifyContext {
         verifier_aid: &verifier_aid,
         now: Timestamp(1_711_900_100),
         revocation_check: None,

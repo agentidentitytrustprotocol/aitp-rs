@@ -18,8 +18,8 @@
 //! material, generated for this target and trusted nowhere else.
 
 use aitp::core::{Aid, Timestamp};
-use aitp_experimental::spiffe::{verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext};
 use aitp::handshake::IdentityDescriptor;
+use aitp_experimental::spiffe::{verify_spiffe, SpiffeBundleStore, SpiffeVerifyContext};
 use base64::Engine as _;
 use libfuzzer_sys::fuzz_target;
 use serde_json::json;
@@ -65,8 +65,8 @@ fn verify(identity: &IdentityDescriptor) {
         message_id: &message_id,
         timestamp: Timestamp(NOW),
         pop_nonce: "bQ88kiChryTKduskLXSCNg",
-        iat_tolerance_secs: 300,
-        now_unix_secs: NOW,
+        iat_tolerance: std::time::Duration::from_secs(300),
+        now: Timestamp(NOW),
     };
     let _ = verify_spiffe(identity, &ctx);
 }

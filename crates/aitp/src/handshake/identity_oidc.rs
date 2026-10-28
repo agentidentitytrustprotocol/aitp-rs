@@ -8,15 +8,52 @@ use crate::handshake::jwk::{verify_jws_signature, JwkPublicKey};
 use serde::Deserialize;
 use url::Url;
 
-/// Trait implementations resolve an issuer URI to a set of acceptable
-/// signing keys. The handshake crate is sync; the HTTP transport crate
-/// provides an async-fronted impl.
+/// Resolves an issuer URI to a set of acceptable signing keys.
+///
+/// The handshake state machine is synchronous, so [`Self::resolve`] does
+/// no I/O: it answers from what the resolver already holds. A resolver
+/// that fetches keys over the network does so in [`Self::prefetch`],
+/// which the async transport ([`crate::transport::HandshakeServer`] and
+/// the [`crate::facade`] initiator) awaits for the peer's OIDC issuer
+/// before running the synchronous step.
 ///
 /// Implementations MAY return Ed25519 (`OKP`) keys, RSA keys, or both.
 /// Each key is identified by a `kid` and an algorithm.
-pub trait JwksResolver {
+pub trait JwksResolver: Send + Sync {
     /// Return the set of acceptable signing keys for `issuer`.
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError>;
+
+    /// Obtain and hold `issuer`'s keys so a later [`Self::resolve`] can
+    /// answer without I/O. A failure is not returned here: `resolve`
+    /// reports it. The default does nothing, for resolvers whose keys
+    /// are already local.
+    fn prefetch<'a>(&'a self, issuer: &'a Url) -> crate::core::BoxFuture<'a, ()> {
+        let _ = issuer;
+        Box::pin(std::future::ready(()))
+    }
+}
+
+/// Prefetch the issuer keys that [`verify_oidc`] will ask `resolver` for
+/// when it verifies `identity`: only an `oidc` descriptor whose issuer is
+/// in `trust_anchors` and parses as a URL reaches the resolver.
+#[cfg(feature = "http-client")]
+pub(crate) async fn prefetch_identity_keys(
+    resolver: &dyn JwksResolver,
+    identity: &IdentityDescriptor,
+    trust_anchors: &[crate::core::RawUrl],
+) {
+    if identity.kind != crate::handshake::identity::IdentityKind::Oidc {
+        return;
+    }
+    let Some(issuer) = identity.issuer.as_ref() else {
+        return;
+    };
+    if !trust_anchors.iter().any(|a| a.as_str() == issuer.as_str()) {
+        return;
+    }
+    if let Ok(url) = issuer.parse_url() {
+        resolver.prefetch(&url).await;
+    }
 }
 
 /// Errors from JWKS resolution.
@@ -65,36 +102,136 @@ pub struct OidcVerifyContext<'a> {
     pub jwks_resolver: &'a dyn JwksResolver,
     /// Subject AID (whose key the JWT's `cnf.jkt` MUST match).
     pub subject_aid: &'a Aid,
-    /// Freshness window for the `iat` claim, in seconds. RFC-AITP-0002
-    /// §2.2 says ±300s; this lets tests pin a tighter window.
-    pub iat_tolerance_secs: i64,
+    /// Freshness window for the `iat` claim, counted in whole seconds.
+    /// RFC-AITP-0002 §2.2 says ±300 s; this lets tests pin a tighter
+    /// window.
+    pub iat_tolerance: std::time::Duration,
     /// Current time for `iat` / `exp` evaluation.
-    pub now_unix_secs: i64,
+    pub now: crate::core::Timestamp,
 }
 
 impl<'a> OidcVerifyContext<'a> {
-    /// A context that checks an ID token for `subject_aid` against
-    /// `trust_anchors`, keys from `jwks_resolver`, the expected `aud`
-    /// and `nonce`, and `iat` within `iat_tolerance_secs` of
-    /// `now_unix_secs`.
-    pub fn new(
-        expected_audience: &'a Aid,
-        expected_nonce: &'a str,
-        trust_anchors: &'a [crate::core::RawUrl],
-        jwks_resolver: &'a dyn JwksResolver,
-        subject_aid: &'a Aid,
-        iat_tolerance_secs: i64,
-        now_unix_secs: i64,
-    ) -> Self {
-        Self {
-            expected_audience,
-            expected_nonce,
-            trust_anchors,
-            jwks_resolver,
-            subject_aid,
-            iat_tolerance_secs,
-            now_unix_secs,
+    /// Start a builder. Every input except
+    /// [`OidcVerifyContextBuilder::iat_tolerance`] (default
+    /// [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`]) is required.
+    pub fn builder() -> OidcVerifyContextBuilder<'a> {
+        OidcVerifyContextBuilder {
+            expected_audience: None,
+            expected_nonce: None,
+            trust_anchors: None,
+            jwks_resolver: None,
+            subject_aid: None,
+            iat_tolerance: crate::core::DEFAULT_TIMESTAMP_TOLERANCE,
+            now: None,
         }
+    }
+}
+
+impl std::fmt::Debug for OidcVerifyContext<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcVerifyContext")
+            .field("expected_audience", &self.expected_audience)
+            .field("expected_nonce", &self.expected_nonce)
+            .field("trust_anchors", &self.trust_anchors)
+            .field("subject_aid", &self.subject_aid)
+            .field("iat_tolerance", &self.iat_tolerance)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Builder for [`OidcVerifyContext`]. See [`OidcVerifyContext::builder`].
+pub struct OidcVerifyContextBuilder<'a> {
+    expected_audience: Option<&'a Aid>,
+    expected_nonce: Option<&'a str>,
+    trust_anchors: Option<&'a [crate::core::RawUrl]>,
+    jwks_resolver: Option<&'a dyn JwksResolver>,
+    subject_aid: Option<&'a Aid>,
+    iat_tolerance: std::time::Duration,
+    now: Option<crate::core::Timestamp>,
+}
+
+impl std::fmt::Debug for OidcVerifyContextBuilder<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OidcVerifyContextBuilder")
+            .field("expected_audience", &self.expected_audience)
+            .field("expected_nonce", &self.expected_nonce)
+            .field("trust_anchors", &self.trust_anchors)
+            .field("subject_aid", &self.subject_aid)
+            .field("iat_tolerance", &self.iat_tolerance)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+impl<'a> OidcVerifyContextBuilder<'a> {
+    /// The verifier's own AID, the expected `aud` claim. Required.
+    pub fn expected_audience(mut self, aid: &'a Aid) -> Self {
+        self.expected_audience = Some(aid);
+        self
+    }
+
+    /// The `pop_nonce` sent with the handshake message, the expected
+    /// `nonce` claim. Required.
+    pub fn expected_nonce(mut self, nonce: &'a str) -> Self {
+        self.expected_nonce = Some(nonce);
+        self
+    }
+
+    /// The accepted OIDC issuers. Required.
+    pub fn trust_anchors(mut self, anchors: &'a [crate::core::RawUrl]) -> Self {
+        self.trust_anchors = Some(anchors);
+        self
+    }
+
+    /// Where the issuer's keys come from. Required.
+    pub fn jwks_resolver(mut self, resolver: &'a dyn JwksResolver) -> Self {
+        self.jwks_resolver = Some(resolver);
+        self
+    }
+
+    /// The subject AID, whose key the JWT's `cnf.jkt` must match.
+    /// Required.
+    pub fn subject_aid(mut self, aid: &'a Aid) -> Self {
+        self.subject_aid = Some(aid);
+        self
+    }
+
+    /// The `iat` freshness window, counted in whole seconds. Default
+    /// [`crate::core::DEFAULT_TIMESTAMP_TOLERANCE`].
+    pub fn iat_tolerance(mut self, tolerance: std::time::Duration) -> Self {
+        self.iat_tolerance = tolerance;
+        self
+    }
+
+    /// The time `iat` and `exp` are evaluated at. Required.
+    pub fn now(mut self, now: crate::core::Timestamp) -> Self {
+        self.now = Some(now);
+        self
+    }
+
+    /// The context, or the first required input that was not set.
+    pub fn build(self) -> Result<OidcVerifyContext<'a>, crate::core::MissingFieldError> {
+        use crate::core::MissingFieldError;
+        Ok(OidcVerifyContext {
+            expected_audience: self
+                .expected_audience
+                .ok_or(MissingFieldError::new("expected_audience"))?,
+            expected_nonce: self
+                .expected_nonce
+                .ok_or(MissingFieldError::new("expected_nonce"))?,
+            trust_anchors: self
+                .trust_anchors
+                .ok_or(MissingFieldError::new("trust_anchors"))?,
+            jwks_resolver: self
+                .jwks_resolver
+                .ok_or(MissingFieldError::new("jwks_resolver"))?,
+            subject_aid: self
+                .subject_aid
+                .ok_or(MissingFieldError::new("subject_aid"))?,
+            iat_tolerance: self.iat_tolerance,
+            now: self.now.ok_or(MissingFieldError::new("now"))?,
+        })
     }
 }
 
@@ -217,10 +354,10 @@ pub fn verify_oidc(
         return Err(HandshakeError::Identity("sub mismatch".into()));
     }
 
-    if claims.exp <= ctx.now_unix_secs {
+    if claims.exp <= ctx.now.0 {
         return Err(HandshakeError::Identity("jwt exp in the past".into()));
     }
-    if (ctx.now_unix_secs - claims.iat).abs() > ctx.iat_tolerance_secs {
+    if !crate::core::Timestamp(claims.iat).is_within_tolerance_of(ctx.now, ctx.iat_tolerance) {
         return Err(HandshakeError::Identity("iat outside tolerance".into()));
     }
 
@@ -238,7 +375,7 @@ pub fn verify_oidc(
         .ok_or_else(|| HandshakeError::Identity("missing cnf claim".into()))?;
     let expected_jkt = AitpVerifyingKey::from_aid(ctx.subject_aid)
         .map_err(|e| HandshakeError::Identity(format!("subject AID parse failed: {e}")))?
-        .to_jwk_thumbprint()
+        .to_jwk_thumbprint_sha256()
         .map_err(|e| HandshakeError::Identity(format!("subject AID jkt failed: {e}")))?;
     if cnf.jkt != expected_jkt {
         return Err(HandshakeError::Identity("cnf.jkt mismatch".into()));

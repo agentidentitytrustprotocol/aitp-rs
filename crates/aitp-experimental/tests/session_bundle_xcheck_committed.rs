@@ -18,7 +18,7 @@
 use aitp::core::{Aid, Timestamp};
 use aitp_experimental::session_bundle::{
     parse_session_bundle_wire, verify_session_bundle, BundleOutcome, SessionBundleError,
-    VerifySessionBundleContext,
+    SessionBundleVerifyContext,
 };
 use serde_json::Value;
 use std::path::PathBuf;
@@ -76,7 +76,7 @@ fn aitp_verifier_py_committed_bundle_verifies() {
         serde_json::from_value(body).expect("aitp-verifier-py-minted bundle deserializes");
 
     let verifier_aid = receiving_participant_aid();
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: &verifier_aid,
         now: reference_now(),
         revocation_check: None,
@@ -108,7 +108,7 @@ fn committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover() {
     let bundle: aitp_experimental::session_bundle::SessionTrustBundle =
         serde_json::from_value(body).expect("aitp-verifier-py-minted bundle deserializes");
     let verifier_aid = receiving_participant_aid();
-    let ctx = VerifySessionBundleContext {
+    let ctx = SessionBundleVerifyContext {
         verifier_aid: &verifier_aid,
         now: reference_now(),
         revocation_check: None,

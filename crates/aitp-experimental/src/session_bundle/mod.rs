@@ -46,7 +46,7 @@ pub use types::{
     ParticipantEntry, SessionBundleEnvelope, SessionTrustBundle, SESSION_BUNDLE_MEMBERS,
 };
 pub use verifier::{
-    verify_session_bundle, BundleOutcome, CoordinatorKeySource, VerifySessionBundleContext,
+    verify_session_bundle, BundleOutcome, CoordinatorKeySource, SessionBundleVerifyContext,
 };
 pub use wire::{parse_session_bundle_envelope, parse_session_bundle_wire};
 

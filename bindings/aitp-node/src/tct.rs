@@ -204,14 +204,10 @@ fn verify_tct_with(
     // issuer-Manifest expiry cap is still waived here — threading an
     // `issuerManifestExpiresAt` parameter through the SDK surface is the
     // remaining half of F-1.
-    let revocation_check = |jti: &Uuid| revocation.tct_status(jti);
+    let revocation_check = |q: &aitp::tct::RevocationQuery<'_>| revocation.status(q);
     let builder = TctVerifyContext::builder(aud_ref, &peek.iss, Timestamp::now())
         .skip_manifest_expiry_cap_dangerous();
-    let builder = if revocation.is_fail_open() {
-        builder.accept_unchecked_revocation_dangerous()
-    } else {
-        builder.revocation_check(&revocation_check)
-    };
+    let builder = builder.revocation(revocation.source(&revocation_check));
     let ctx = builder
         .build()
         .map_err(|e| Error::from_reason(format!("verify context: {e}")))?;
@@ -223,7 +219,7 @@ fn verify_tct_with(
             format!("TCT verification failed: {e}"),
         )
     })?;
-    let claims = &verified.claims;
+    let claims = &verified.claims();
 
     if !claims.grants.iter().any(|g| g == required_grant) {
         return Err(Error::from_reason(format!(
@@ -412,8 +408,12 @@ fn verify_tct_cached_inner(
     // Fast path: exact bytes verified before AND policy still holds.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0 as f64;
-        let cleared =
-            Uuid::parse_str(&c.jti).is_ok_and(|u| matches!(revocation.tct_status(&u), Ok(false)));
+        let cleared = Uuid::parse_str(&c.jti).is_ok_and(|u| {
+            matches!(
+                revocation.jti_status(&u),
+                Ok(aitp::tct::RevocationStatus::Clear)
+            )
+        });
         if cleared
             && c.audience == effective_aud
             && c.expires_at > now

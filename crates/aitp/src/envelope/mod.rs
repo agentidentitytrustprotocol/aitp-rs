@@ -48,7 +48,7 @@ pub fn sign_envelope_with(
     payload: serde_json::Value,
     message_id: Uuid,
     timestamp: Timestamp,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     sign_prepared_envelope(
         signing_key,
         unsigned(
@@ -72,7 +72,7 @@ pub async fn sign_envelope_with_async(
     payload: serde_json::Value,
     message_id: Uuid,
     timestamp: Timestamp,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     sign_prepared_envelope_async(
         signing_key,
         unsigned(
@@ -104,10 +104,10 @@ pub async fn sign_envelope_with_async(
 pub fn sign_prepared_envelope(
     signing_key: &dyn AitpSigner,
     mut envelope: AitpEnvelope,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     let digest = envelope_digest(signing_key.aid(), &envelope)?;
     envelope.signature = crate::crypto::sign_jcs(signing_key, &digest)
-        .map_err(backend_failed)?
+        .map_err(EnvelopeError::Signer)?
         .into_string();
     Ok(envelope)
 }
@@ -117,11 +117,11 @@ pub fn sign_prepared_envelope(
 pub async fn sign_prepared_envelope_async(
     signing_key: &dyn DynAsyncAitpSigner,
     mut envelope: AitpEnvelope,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     let digest = envelope_digest(signing_key.aid(), &envelope)?;
     envelope.signature = crate::crypto::sign_jcs_async(signing_key, &digest)
         .await
-        .map_err(backend_failed)?
+        .map_err(EnvelopeError::Signer)?
         .into_string();
     Ok(envelope)
 }
@@ -129,34 +129,54 @@ pub async fn sign_prepared_envelope_async(
 /// Validate an envelope about to be signed and return the digest its
 /// signature covers: `sha256("aitp-envelope-v2" || 0x00 ||
 /// JCS(envelope minus signature))` (RFC-AITP-0001 §5.4).
-fn envelope_digest(signer: &Aid, envelope: &AitpEnvelope) -> Result<Digest32, String> {
+fn envelope_digest(signer: &Aid, envelope: &AitpEnvelope) -> Result<Digest32, EnvelopeError> {
     if envelope.version != crate::core::PROTOCOL_VERSION {
-        return Err(format!(
-            "version: `{}` is not `{}`",
-            envelope.version,
-            crate::core::PROTOCOL_VERSION
-        ));
+        return Err(EnvelopeError::UnsupportedVersion(envelope.version.clone()));
     }
     // Proposal #72 Item 6b: every verifier rejects a non-v4 message_id,
     // so refuse to sign one.
-    crate::core::ids::check_v4(&envelope.message_id).map_err(|e| format!("message_id: {e}"))?;
+    crate::core::ids::check_v4(&envelope.message_id).map_err(EnvelopeError::MessageId)?;
     // Issue #261: every verifier rejects a non-object `payload` and a
     // negative `timestamp` as INVALID_ENVELOPE, so refuse to sign them.
-    crate::core::check_unsigned_envelope_structure(envelope)?;
+    crate::core::check_unsigned_envelope_structure(envelope).map_err(EnvelopeError::Structure)?;
     if &envelope.sender.agent_id != signer {
-        return Err(format!(
-            "sender.agent_id `{}` is not the signer's AID `{}`",
-            envelope.sender.agent_id.as_str(),
-            signer.as_str()
-        ));
+        return Err(EnvelopeError::SenderMismatch {
+            sender: envelope.sender.agent_id.clone(),
+            signer: signer.clone(),
+        });
     }
     envelope_signing_digest(envelope)
         .map(Digest32::from)
-        .map_err(|e| e.to_string())
+        .map_err(EnvelopeError::Canonicalization)
 }
 
-fn backend_failed(e: crate::crypto::SignerError) -> String {
-    format!("signing backend failed: {e}")
+/// Why an envelope could not be signed.
+#[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
+pub enum EnvelopeError {
+    /// `version` is not [`crate::core::PROTOCOL_VERSION`].
+    #[error("version: `{0}` is not `{v}`", v = crate::core::PROTOCOL_VERSION)]
+    UnsupportedVersion(String),
+    /// `message_id` is not a UUID v4.
+    #[error("message_id: {0}")]
+    MessageId(#[source] crate::core::ids::V4Error),
+    /// A member breaks a schema rule.
+    #[error("{0}")]
+    Structure(#[source] crate::core::EnvelopeStructureError),
+    /// `sender.agent_id` is not the signer's AID.
+    #[error("sender.agent_id `{}` is not the signer's AID `{}`", sender.as_str(), signer.as_str())]
+    SenderMismatch {
+        /// The envelope's `sender.agent_id`.
+        sender: Aid,
+        /// The signer's AID.
+        signer: Aid,
+    },
+    /// The envelope could not be canonicalized (RFC 8785).
+    #[error("canonicalization: {0}")]
+    Canonicalization(#[source] crate::core::jcs::JcsError),
+    /// The signing backend failed.
+    #[error("signing backend failed: {0}")]
+    Signer(#[source] crate::crypto::SignerError),
 }
 
 /// The envelope the plain `sign_envelope*` functions sign: no
@@ -181,7 +201,7 @@ pub fn sign_envelope(
     signing_key: &dyn AitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     sign_envelope_with(
         signing_key,
         message_type,
@@ -201,7 +221,7 @@ pub async fn sign_envelope_async(
     signing_key: &dyn DynAsyncAitpSigner,
     message_type: MessageType,
     payload: serde_json::Value,
-) -> Result<AitpEnvelope, String> {
+) -> Result<AitpEnvelope, EnvelopeError> {
     sign_envelope_with_async(
         signing_key,
         message_type,
