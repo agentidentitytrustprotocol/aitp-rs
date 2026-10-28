@@ -186,7 +186,7 @@ fn crypto_items() {
     let msg = b"seam message";
     for key in [ed25519(2), p256(3)] {
         let sig = sign_raw(&key, msg).unwrap();
-        key.verifying_key().verify_raw(msg, &sig).unwrap();
+        key.verifying_key().verify_raw(msg, sig.as_bytes()).unwrap();
         check_public_key(&key).unwrap();
         let async_pk: AitpVerifyingKey = ready(AsyncAitpSigner::public_key(&key)).unwrap();
         assert_eq!(async_pk, AitpSigner::public_key(&key).unwrap());
@@ -198,9 +198,10 @@ fn crypto_items() {
     let kms = MockKmsSigner::new(p256(4)).output(MockOutput::Der);
     let sig = sign_raw(&kms, msg).unwrap();
     let vk = AitpVerifyingKey::from_aid(AitpSigner::aid(&kms)).unwrap();
-    vk.verify_raw(msg, &sig).unwrap();
+    vk.verify_raw(msg, sig.as_bytes()).unwrap();
     assert!(
-        vk.verify_raw(msg, &p256_high_s_twin(sig)).is_err(),
+        vk.verify_raw(msg, &p256_high_s_twin(sig.as_bytes()))
+            .is_err(),
         "high-S must not verify"
     );
 

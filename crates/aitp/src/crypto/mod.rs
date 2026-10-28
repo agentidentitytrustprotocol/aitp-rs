@@ -20,7 +20,7 @@ pub(crate) mod thumbprint;
 
 pub use digest::Digest32;
 pub use error::CryptoError;
-pub use keys::{AitpSigningKey, AitpVerifyingKey, Signature, SignatureAlgorithm};
+pub use keys::{AitpSigningKey, AitpVerifyingKey, RawSignature, Signature, SignatureAlgorithm};
 pub use signer::{
     check_public_key, check_public_key_async, sign_jcs, sign_jcs_async, sign_raw, sign_raw_async,
     AitpSigner, AsyncAitpSigner, BackendSignature, BlockingSigner, DynAsyncAitpSigner, SignRequest,

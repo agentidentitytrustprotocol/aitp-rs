@@ -73,6 +73,6 @@ pub fn aitp::crypto::testing::MockKmsSigner::sign_with(self, aitp::crypto::AitpS
 pub fn aitp::crypto::testing::MockOutput::clone(&self) -> aitp::crypto::testing::MockOutput
 pub fn aitp::crypto::testing::MockOutput::eq(&self, &aitp::crypto::testing::MockOutput) -> bool
 pub fn aitp::crypto::testing::MockOutput::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::crypto::testing::p256_high_s_twin([u8; 64]) -> [u8; 64]
+pub fn aitp::crypto::testing::p256_high_s_twin(&[u8]) -> alloc::vec::Vec<u8>
 pub mod aitp::crypto::testing
 pub struct aitp::crypto::testing::MockKmsSigner

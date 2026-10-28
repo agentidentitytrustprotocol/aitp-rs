@@ -126,6 +126,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     - `issued.claims.grants` → `issued.claims().grants`, and `serde_json::to_value(&issued.claims)` → `serde_json::to_value(issued.claims())`.
     - `&issued.token` → `issued.token()` (three `verify_attestation` / `verify_tct` calls), and `issued.token.rsplit_once('.')` → `issued.token().rsplit_once('.')`.
     - In the golden attestation test, `.build().unwrap().token` → `.build().unwrap().into_parts().token`.
+- Raw signatures and domain tags have no fixed length in the stable API, so an algorithm added to the `#[non_exhaustive]` `AidAlgorithm` can use another length. `AitpSigningKey::sign_raw`, `aitp::crypto::sign_raw` and `sign_raw_async` return the new `aitp::crypto::RawSignature` in place of `[u8; 64]`; it has `as_bytes()`, `len()`, `is_empty()`, `into_vec()` and `AsRef<[u8]>`, and only `aitp` constructs it. `BackendSignature::Raw` holds a `Vec<u8>`, and a backend's raw signature whose length is not the algorithm's is `SignerError::MalformedSignature`. `verify_raw` and `verify_raw_jose` still take `&[u8]` and refuse a length other than the key algorithm's. `aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG` is `&[u8]` (was `&[u8; 16]`), like `PINNED_KEY_PROOF_DOMAIN`, and `aitp_experimental::renewal::RENEWAL_POP_DOMAIN_TAG` is `&[u8]` (was `&[u8; 20]`). `aitp::crypto::testing::p256_high_s_twin` takes `&[u8]` and returns `Vec<u8>`. Ed25519 and ES256 signatures are still 64 bytes and byte-identical, and the tags, `pinned_key_proof_input` and `PINNED_KEY_PROOF_DOMAIN` are unchanged.
+  - Seam migration:
+    - `verify_raw(msg, &sig)` → `verify_raw(msg, sig.as_bytes())` (two call sites).
+    - `p256_high_s_twin(sig)` → `p256_high_s_twin(sig.as_bytes())`.
 
 ### Added
 

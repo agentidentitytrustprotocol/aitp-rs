@@ -2,7 +2,7 @@
 
 /// The domain tag that starts the renewal PoP input (RFC-AITP-0013
 /// §3.1): the 19 ASCII bytes `aitp-renewal-pop-v1` and one `0x00` byte.
-pub const RENEWAL_POP_DOMAIN_TAG: &[u8; 20] = b"aitp-renewal-pop-v1\0";
+pub const RENEWAL_POP_DOMAIN_TAG: &[u8] = b"aitp-renewal-pop-v1\0";
 
 /// The renewal PoP input of RFC-AITP-0013 §3.1:
 /// `"aitp-renewal-pop-v1\0" || iss || "\0" || jti || "\0" || nonce`.

@@ -185,6 +185,7 @@ impl aitp::crypto::AitpSigningKey
 impl aitp::crypto::AitpVerifyingKey
 impl aitp::crypto::AsyncAitpSigner for aitp::crypto::AitpSigningKey
 impl aitp::crypto::Digest32
+impl aitp::crypto::RawSignature
 impl aitp::crypto::SignRequest<'_>
 impl aitp::crypto::Signature
 impl aitp::crypto::SignerError
@@ -280,6 +281,7 @@ impl core::clone::Clone for aitp::core::nonce_store::IssuedNonce
 impl core::clone::Clone for aitp::crypto::AitpVerifyingKey
 impl core::clone::Clone for aitp::crypto::BackendSignature
 impl core::clone::Clone for aitp::crypto::Digest32
+impl core::clone::Clone for aitp::crypto::RawSignature
 impl core::clone::Clone for aitp::crypto::Signature
 impl core::clone::Clone for aitp::crypto::SignatureAlgorithm
 impl core::clone::Clone for aitp::delegation::DelegationClaims
@@ -371,6 +373,7 @@ impl core::cmp::Eq for aitp::core::nonce_store::IssuedNonce
 impl core::cmp::Eq for aitp::crypto::AitpVerifyingKey
 impl core::cmp::Eq for aitp::crypto::BackendSignature
 impl core::cmp::Eq for aitp::crypto::Digest32
+impl core::cmp::Eq for aitp::crypto::RawSignature
 impl core::cmp::Eq for aitp::crypto::Signature
 impl core::cmp::Eq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::Eq for aitp::delegation::DelegationClaims
@@ -452,6 +455,7 @@ impl core::cmp::PartialEq for aitp::core::nonce_store::IssuedNonce
 impl core::cmp::PartialEq for aitp::crypto::AitpVerifyingKey
 impl core::cmp::PartialEq for aitp::crypto::BackendSignature
 impl core::cmp::PartialEq for aitp::crypto::Digest32
+impl core::cmp::PartialEq for aitp::crypto::RawSignature
 impl core::cmp::PartialEq for aitp::crypto::Signature
 impl core::cmp::PartialEq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::PartialEq for aitp::delegation::DelegationClaims
@@ -510,6 +514,7 @@ impl core::cmp::PartialEq for aitp::transport::TrustedProxy
 impl core::cmp::PartialEq for aitp::transport::TrustedProxyParseError
 impl core::cmp::PartialOrd for aitp::core::Timestamp
 impl core::convert::AsRef<[u8]> for aitp::crypto::Digest32
+impl core::convert::AsRef<[u8]> for aitp::crypto::RawSignature
 impl core::convert::AsRef<serde_json::value::Value> for aitp::core::CheckedJson
 impl core::convert::From<&str> for aitp::core::RawUrl
 impl core::convert::From<[u8; 32]> for aitp::crypto::Digest32
@@ -626,6 +631,7 @@ impl core::fmt::Debug for aitp::crypto::AitpVerifyingKey
 impl core::fmt::Debug for aitp::crypto::BackendSignature
 impl core::fmt::Debug for aitp::crypto::CryptoError
 impl core::fmt::Debug for aitp::crypto::Digest32
+impl core::fmt::Debug for aitp::crypto::RawSignature
 impl core::fmt::Debug for aitp::crypto::Signature
 impl core::fmt::Debug for aitp::crypto::SignatureAlgorithm
 impl core::fmt::Debug for aitp::crypto::SignerError
@@ -786,6 +792,7 @@ impl core::hash::Hash for aitp::core::RawUrl
 impl core::hash::Hash for aitp::core::Timestamp
 impl core::hash::Hash for aitp::crypto::AitpVerifyingKey
 impl core::hash::Hash for aitp::crypto::Digest32
+impl core::hash::Hash for aitp::crypto::RawSignature
 impl core::hash::Hash for aitp::handshake::admission::TransportId
 impl core::iter::traits::collect::FromIterator<aitp::crypto::AitpVerifyingKey> for aitp::handshake::StaticPinnedKeyStore
 impl core::marker::Copy for aitp::core::AidAlgorithm
@@ -836,6 +843,7 @@ impl core::marker::Send for aitp::crypto::AitpVerifyingKey
 impl core::marker::Send for aitp::crypto::BackendSignature
 impl core::marker::Send for aitp::crypto::CryptoError
 impl core::marker::Send for aitp::crypto::Digest32
+impl core::marker::Send for aitp::crypto::RawSignature
 impl core::marker::Send for aitp::crypto::Signature
 impl core::marker::Send for aitp::crypto::SignatureAlgorithm
 impl core::marker::Send for aitp::crypto::SignerError
@@ -972,6 +980,7 @@ impl core::marker::Sync for aitp::crypto::AitpVerifyingKey
 impl core::marker::Sync for aitp::crypto::BackendSignature
 impl core::marker::Sync for aitp::crypto::CryptoError
 impl core::marker::Sync for aitp::crypto::Digest32
+impl core::marker::Sync for aitp::crypto::RawSignature
 impl core::marker::Sync for aitp::crypto::Signature
 impl core::marker::Sync for aitp::crypto::SignatureAlgorithm
 impl core::marker::Sync for aitp::crypto::SignerError
@@ -1108,6 +1117,7 @@ impl core::marker::Unpin for aitp::crypto::AitpVerifyingKey
 impl core::marker::Unpin for aitp::crypto::BackendSignature
 impl core::marker::Unpin for aitp::crypto::CryptoError
 impl core::marker::Unpin for aitp::crypto::Digest32
+impl core::marker::Unpin for aitp::crypto::RawSignature
 impl core::marker::Unpin for aitp::crypto::Signature
 impl core::marker::Unpin for aitp::crypto::SignatureAlgorithm
 impl core::marker::Unpin for aitp::crypto::SignerError
@@ -1243,6 +1253,7 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::AitpSigningKey
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::AitpVerifyingKey
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::BackendSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::Digest32
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::DelegationClaims
@@ -1347,6 +1358,7 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::AitpSigningKey
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::AitpVerifyingKey
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::BackendSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::Digest32
+impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::DelegationClaims
@@ -1765,7 +1777,7 @@ pub aitp::core::nonce_store::NonceStoreError::AtCapacity::retry_after: core::opt
 pub aitp::core::nonce_store::NonceStoreError::Backend(aitp::core::BoxError)
 pub aitp::core::nonce_store::NonceStoreError::Duplicate
 pub aitp::crypto::BackendSignature::Der(alloc::vec::Vec<u8>)
-pub aitp::crypto::BackendSignature::Raw([u8; 64])
+pub aitp::crypto::BackendSignature::Raw(alloc::vec::Vec<u8>)
 pub aitp::crypto::CryptoError::AidNotEd25519(alloc::string::String)
 pub aitp::crypto::CryptoError::AlgMismatch(alloc::string::String)
 pub aitp::crypto::CryptoError::JwsMalformed(alloc::string::String)
@@ -2252,7 +2264,7 @@ pub aitp::transport::ServeConfig::request_body_limit: usize
 pub async fn aitp::crypto::check_public_key_async(&dyn aitp::crypto::DynAsyncAitpSigner) -> core::result::Result<(), aitp::crypto::SignerError>
 pub async fn aitp::crypto::jws::sign_compact_async<T: serde_core::ser::Serialize>(&dyn aitp::crypto::DynAsyncAitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::CryptoError>
 pub async fn aitp::crypto::sign_jcs_async(&dyn aitp::crypto::DynAsyncAitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
-pub async fn aitp::crypto::sign_raw_async(&dyn aitp::crypto::DynAsyncAitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::SignerError>
+pub async fn aitp::crypto::sign_raw_async(&dyn aitp::crypto::DynAsyncAitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
 pub async fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
 pub async fn aitp::envelope::sign_envelope_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::envelope::sign_envelope_with_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::Timestamp) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
@@ -2280,7 +2292,7 @@ pub const aitp::core::AID_PUBKEY_IDENTIFIER_LEN: usize
 pub const aitp::core::AITP_ENVELOPE_MEMBERS: &[&str]
 pub const aitp::core::DEFAULT_TIMESTAMP_TOLERANCE: core::time::Duration
 pub const aitp::core::ED25519_SIGNATURE_BASE64URL_LEN: usize
-pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8; 16]
+pub const aitp::core::ENVELOPE_SIGNING_DOMAIN_TAG: &[u8]
 pub const aitp::core::ErrorCode::ALL: &'static [aitp::core::ErrorCode]
 pub const aitp::core::PROTOCOL_VERSION: &str
 pub const aitp::core::nonce_store::InMemoryNonceStore::DEFAULT_CAPACITY: usize
@@ -2542,7 +2554,7 @@ pub fn aitp::crypto::AitpSigningKey::public_key(&self) -> impl core::future::fut
 pub fn aitp::crypto::AitpSigningKey::sign(&self, aitp::crypto::SignRequest<'_>) -> core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>
 pub fn aitp::crypto::AitpSigningKey::sign(&self, aitp::crypto::SignRequest<'_>) -> impl core::future::future::Future<Output = core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>> + core::marker::Send
 pub fn aitp::crypto::AitpSigningKey::sign_jcs(&self, &aitp::crypto::Digest32) -> aitp::crypto::Signature
-pub fn aitp::crypto::AitpSigningKey::sign_raw(&self, &[u8]) -> [u8; 64]
+pub fn aitp::crypto::AitpSigningKey::sign_raw(&self, &[u8]) -> aitp::crypto::RawSignature
 pub fn aitp::crypto::AitpSigningKey::verifying_key(&self) -> aitp::crypto::AitpVerifyingKey
 pub fn aitp::crypto::AitpVerifyingKey::algorithm(&self) -> aitp::core::AidAlgorithm
 pub fn aitp::crypto::AitpVerifyingKey::clone(&self) -> aitp::crypto::AitpVerifyingKey
@@ -2587,6 +2599,15 @@ pub fn aitp::crypto::DynAsyncAitpSigner::aid(&self) -> &aitp::core::Aid
 pub fn aitp::crypto::DynAsyncAitpSigner::max_message_len(&self) -> core::option::Option<usize>
 pub fn aitp::crypto::DynAsyncAitpSigner::public_key(&self) -> aitp::core::BoxFuture<'_, core::result::Result<aitp::crypto::AitpVerifyingKey, aitp::crypto::SignerError>>
 pub fn aitp::crypto::DynAsyncAitpSigner::sign<'a>(&'a self, aitp::crypto::SignRequest<'a>) -> aitp::core::BoxFuture<'a, core::result::Result<aitp::crypto::BackendSignature, aitp::crypto::SignerError>>
+pub fn aitp::crypto::RawSignature::as_bytes(&self) -> &[u8]
+pub fn aitp::crypto::RawSignature::as_ref(&self) -> &[u8]
+pub fn aitp::crypto::RawSignature::clone(&self) -> aitp::crypto::RawSignature
+pub fn aitp::crypto::RawSignature::eq(&self, &aitp::crypto::RawSignature) -> bool
+pub fn aitp::crypto::RawSignature::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::crypto::RawSignature::hash<__H: core::hash::Hasher>(&self, &mut __H)
+pub fn aitp::crypto::RawSignature::into_vec(self) -> alloc::vec::Vec<u8>
+pub fn aitp::crypto::RawSignature::is_empty(&self) -> bool
+pub fn aitp::crypto::RawSignature::len(&self) -> usize
 pub fn aitp::crypto::SignRequest<'_>::algorithm(&self) -> aitp::core::AidAlgorithm
 pub fn aitp::crypto::SignRequest<'_>::bytes(&self) -> &[u8]
 pub fn aitp::crypto::SignRequest<'_>::is_empty(&self) -> bool
@@ -2620,7 +2641,7 @@ pub fn aitp::crypto::jws::decode_payload_unverified(&str) -> core::result::Resul
 pub fn aitp::crypto::jws::sign_compact<T: serde_core::ser::Serialize>(&dyn aitp::crypto::AitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::CryptoError>
 pub fn aitp::crypto::jws::verify_compact(&aitp::core::Aid, &str, &str) -> core::result::Result<alloc::vec::Vec<u8>, aitp::crypto::CryptoError>
 pub fn aitp::crypto::sign_jcs(&dyn aitp::crypto::AitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
-pub fn aitp::crypto::sign_raw(&dyn aitp::crypto::AitpSigner, &[u8]) -> core::result::Result<[u8; 64], aitp::crypto::SignerError>
+pub fn aitp::crypto::sign_raw(&dyn aitp::crypto::AitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
 pub fn aitp::delegation::DelegationBuilder<'_, S>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::build(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::DelegationError>
@@ -3360,6 +3381,7 @@ pub struct aitp::crypto::AitpSigningKey(_)
 pub struct aitp::crypto::AitpVerifyingKey(_)
 pub struct aitp::crypto::BlockingSigner<S>(pub S)
 pub struct aitp::crypto::Digest32(_)
+pub struct aitp::crypto::RawSignature(_)
 pub struct aitp::crypto::Signature(_)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
 pub struct aitp::delegation::VerifiedDelegation

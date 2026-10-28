@@ -5562,7 +5562,7 @@ mod oidc_test_issuer_tests {
         let header_b64 = base64url::encode(header.as_bytes());
         let payload_b64 = base64url::encode(claims.to_string().as_bytes());
         let signing_input = format!("{header_b64}.{payload_b64}");
-        let sig = base64url::encode(&key.sign_raw(signing_input.as_bytes()));
+        let sig = base64url::encode(key.sign_raw(signing_input.as_bytes()).as_bytes());
         format!("{signing_input}.{sig}")
     }
 

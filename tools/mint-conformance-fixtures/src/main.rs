@@ -1208,7 +1208,7 @@ fn mint_id_005_legacy_proof(value: &mut Value) {
     let mid = envelope.get("message_id").and_then(|v| v.as_str()).unwrap();
     let ts = envelope.get("timestamp").and_then(|v| v.as_i64()).unwrap();
     let legacy_input = format!("{mid}|{ts}");
-    let legacy_proof = base64url::encode(&sender_key.sign_raw(legacy_input.as_bytes()));
+    let legacy_proof = base64url::encode(sender_key.sign_raw(legacy_input.as_bytes()).as_bytes());
     envelope
         .get_mut("payload")
         .unwrap()

@@ -59,6 +59,7 @@ reasons already in the table are kept.
 | `aitp::crypto::BlockingSigner` | struct | exhaustive | A newtype adapter: its one field is the wrapped signer. |
 | `aitp::crypto::CryptoError` | enum | non_exhaustive |  |
 | `aitp::crypto::Digest32` | struct | private fields |  |
+| `aitp::crypto::RawSignature` | struct | private fields |  |
 | `aitp::crypto::SignRequest` | enum | non_exhaustive |  |
 | `aitp::crypto::Signature` | struct | private fields |  |
 | `aitp::crypto::SignatureAlgorithm` | enum | non_exhaustive |  |

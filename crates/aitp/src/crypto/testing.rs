@@ -144,26 +144,26 @@ impl MockKmsSigner {
         }
         match request {
             SignRequest::Ed25519Message(m) => {
-                let mut raw = key.sign_raw(m);
+                let mut raw = key.sign_raw(m).into_vec();
                 if self.output == MockOutput::Ed25519NonCanonicalS {
                     add_l(&mut raw[32..]);
                 }
                 Ok(BackendSignature::Raw(raw))
             }
             SignRequest::P256Digest(d) => {
-                let raw = if self.output == MockOutput::RandomizedDer {
+                let raw: [u8; 64] = if self.output == MockOutput::RandomizedDer {
                     crate::crypto::keys::p256_sign_prehash_randomized(key, d).expect("P-256 key")
                 } else {
                     let BackendSignature::Raw(raw) = AitpSigner::sign(key, request)? else {
                         unreachable!("in-process keys return raw signatures")
                     };
-                    raw
+                    raw.try_into().expect("P-256 R || S is 64 bytes")
                 };
                 Ok(match self.output {
                     MockOutput::Raw | MockOutput::Ed25519NonCanonicalS => {
-                        BackendSignature::Raw(raw)
+                        BackendSignature::Raw(raw.to_vec())
                     }
-                    MockOutput::RawHighS => BackendSignature::Raw(high_s(raw)),
+                    MockOutput::RawHighS => BackendSignature::Raw(high_s(raw).to_vec()),
                     MockOutput::Der | MockOutput::RandomizedDer => {
                         BackendSignature::Der(der_encode(&raw))
                     }
@@ -256,8 +256,13 @@ const ED25519_L: [u8; 32] = [
 
 /// `(r, n - s)`: the high-S twin of a raw `R || S` P-256 signature.
 /// Equally valid under plain ECDSA, rejected by RFC-AITP-0001 §5.4.7.
-pub fn p256_high_s_twin(raw: [u8; 64]) -> [u8; 64] {
-    high_s(raw)
+///
+/// # Panics
+///
+/// If `raw` is not 64 bytes.
+pub fn p256_high_s_twin(raw: &[u8]) -> Vec<u8> {
+    let raw: [u8; 64] = raw.try_into().expect("a P-256 R || S is 64 bytes");
+    high_s(raw).to_vec()
 }
 
 fn high_s(mut raw: [u8; 64]) -> [u8; 64] {

@@ -528,7 +528,7 @@ mod tests {
     use crate::crypto::AitpSigningKey;
     use base64ct::{Base64UrlUnpadded, Encoding};
 
-    fn signing_input_and_sig(key: &AitpSigningKey, alg: &str) -> (Vec<u8>, [u8; 64]) {
+    fn signing_input_and_sig(key: &AitpSigningKey, alg: &str) -> (Vec<u8>, Vec<u8>) {
         let header = format!(r#"{{"alg":"{alg}","typ":"JWT"}}"#);
         let payload = r#"{"sub":"test"}"#;
         let signing_input = format!(
@@ -538,8 +538,8 @@ mod tests {
         );
         // JWS signs the signing input itself (EdDSA / ES256), not the
         // AITP `Digest32`.
-        let arr = key.sign_raw(signing_input.as_bytes());
-        (signing_input.into_bytes(), arr)
+        let sig = key.sign_raw(signing_input.as_bytes()).into_vec();
+        (signing_input.into_bytes(), sig)
     }
 
     #[test]
@@ -643,7 +643,7 @@ mod tests {
             },
         };
         let (signing_input, sig) = signing_input_and_sig(&key, "ES256");
-        let twin = crate::crypto::testing::p256_high_s_twin(sig);
+        let twin = crate::crypto::testing::p256_high_s_twin(&sig);
         assert_ne!(twin, sig);
         verify_jws_signature(&jwk, "ES256", &signing_input, &sig).expect("low-S");
         verify_jws_signature(&jwk, "ES256", &signing_input, &twin)
