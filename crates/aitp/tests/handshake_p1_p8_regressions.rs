@@ -249,7 +249,7 @@ fn p3_untrusted_pinned_key_rejected_with_store_configured() {
         &receiver_manifest,
         &resolver,
         &store,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         ts,
     );
 
@@ -341,7 +341,7 @@ fn p4_manifest_oidc_hint_with_pinned_key_proof_rejected() {
         &receiver_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         ts,
     )
     .with_trust_anchors(&cfg_anchors);
@@ -393,7 +393,7 @@ fn p7_grant_policy_filters_intersection() {
         &issuer_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     )
     .with_grant_policy(policy_ref);

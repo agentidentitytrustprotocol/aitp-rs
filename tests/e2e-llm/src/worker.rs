@@ -90,10 +90,13 @@ struct LiveRevocations {
 }
 
 impl RevocationListProducer for LiveRevocations {
-    fn current(&self) -> RevocationListEnvelope {
+    fn current(
+        &self,
+    ) -> aitp::core::BoxFuture<'_, Result<RevocationListEnvelope, aitp::transport::RevocationError>>
+    {
         let now = Timestamp::now();
         let entries = self.revoked.lock().clone();
-        sign_revocation_list(
+        let signed = sign_revocation_list(
             RevocationList::new(
                 self.issuer.aid().clone(),
                 now,
@@ -102,7 +105,8 @@ impl RevocationListProducer for LiveRevocations {
             ),
             &self.issuer,
         )
-        .expect("revocation snapshot signs")
+        .map_err(aitp::transport::RevocationError::SignatureInvalid);
+        Box::pin(std::future::ready(signed))
     }
 }
 
@@ -330,11 +334,17 @@ fn verify_work_tct(
     // owned value rather than holding the mutex across verification.
     let revoked: HashSet<Uuid> = revocations.revoked.lock().iter().map(|e| e.jti).collect();
     // The worker's own list is authoritative for TCTs it issued.
-    let is_revoked = |jti: &Uuid| Ok(revoked.contains(jti));
+    let is_revoked = |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if revoked.contains(q.jti) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
 
     // Holder receipt: subject == audience == caller.
     let ctx = TctVerifyContext::builder(&peeked.sub, worker_aid, Timestamp::now())
-        .revocation_check(&is_revoked)
+        .revocation(aitp::tct::RevocationSource::Check(&is_revoked))
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;

@@ -10,10 +10,11 @@ use aitp::core::{AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey};
 use aitp::handshake::{
     HandshakeError, IdentityDescriptor, IdentityKind, IdentityVerifier, IdentityVerifyContext,
-    IdentityVerifyError, JwkPublicKey, JwksResolver, PeerConfig, ResolveError, RevocationSource,
+    IdentityVerifyError, JwkPublicKey, JwksResolver, PeerConfig, ResolveError,
     StaticPinnedKeyStore, VerifiedIdentity,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
+use aitp::tct::RevocationSource;
 use serde_json::json;
 use uuid::Uuid;
 

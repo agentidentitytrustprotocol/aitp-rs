@@ -80,7 +80,7 @@ fn full_pinned_key_handshake() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -89,7 +89,7 @@ fn full_pinned_key_handshake() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -207,7 +207,7 @@ fn peer_substitution_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -216,7 +216,7 @@ fn peer_substitution_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -327,7 +327,7 @@ fn grant_overflow_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -336,7 +336,7 @@ fn grant_overflow_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -438,7 +438,7 @@ fn nonce_mismatch_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -447,7 +447,7 @@ fn nonce_mismatch_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let hello_mid = Uuid::new_v4();
@@ -515,7 +515,7 @@ fn insufficient_grants_aborts() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -524,7 +524,7 @@ fn insufficient_grants_aborts() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     // Note: alice_manifest now no longer matches the inline manifest's

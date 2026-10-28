@@ -76,7 +76,7 @@ fn pinned_handshake_with_kms_backed_initiator() {
         &alice_manifest,
         &resolver,
         &alice_store,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg = PeerConfig::new(
@@ -84,7 +84,7 @@ fn pinned_handshake_with_kms_backed_initiator() {
         &bob_manifest,
         &resolver,
         &bob_store,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
@@ -168,7 +168,7 @@ fn kms_backend_with_wrong_key_fails_locally_at_hello() {
         &alice_manifest,
         &resolver,
         &NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let err = match Initiator::start(

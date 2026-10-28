@@ -6,11 +6,10 @@
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey};
 use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationError, DelegationRevocation,
-    VerifyDelegationContext,
+    verify_delegation, DelegationBuilder, DelegationError, VerifyDelegationContext,
 };
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
-use aitp::tct::TctBuilder;
+use aitp::tct::{RevocationSource, TctBuilder};
 use aitp_experimental::delegation::{
     verify_chained_delegation, ChainedDelegationError, VerifyChainContext,
 };
@@ -69,12 +68,12 @@ fn both(token: &str, verifier: &Aid, now: Timestamp) -> Result<Vec<String>, Stri
     let manifests = manifests();
     let stable = verify_delegation(
         token,
-        &VerifyDelegationContext::new(verifier, now, DelegationRevocation::FailOpen)
+        &VerifyDelegationContext::new(verifier, now, RevocationSource::FailOpen)
             .with_issuer_manifests(&manifests),
     );
     let chained = verify_chained_delegation(
         token,
-        &VerifyChainContext::new(verifier, now, DelegationRevocation::FailOpen)
+        &VerifyChainContext::new(verifier, now, RevocationSource::FailOpen)
             .with_issuer_manifests(&manifests),
     );
     match (stable, chained) {

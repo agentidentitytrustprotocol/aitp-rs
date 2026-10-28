@@ -102,7 +102,7 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -111,7 +111,7 @@ fn responder_grant_policy_sees_real_pinned_key_identity() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_grant_policy(policy_ref);

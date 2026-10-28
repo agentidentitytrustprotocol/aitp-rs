@@ -406,7 +406,7 @@ fn tct_verify(
     // or issuer Manifest is available to a CLI, so those checks are
     // explicitly skipped (permissive) — the signature is the gate.
     let ctx = TctVerifyContext::builder(&audience, &issuer, now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .expect("both decisions are made");

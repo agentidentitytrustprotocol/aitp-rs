@@ -75,8 +75,8 @@ pub use tls_pinning::{build_pinning_client_config, compute_spki_hash, SpkiHash, 
 
 #[cfg(feature = "http-client")]
 pub use key_resolution::{
-    AsyncJwksResolver, KeyResolutionFailMode, KeyResolutionOutcome, KeyResolutionPolicy,
-    KeyResolutionPolicyBuilder, PinnedIssuerKeyStore, StaticPinnedIssuerKeyStore,
+    KeyResolutionFailMode, KeyResolutionOutcome, KeyResolutionPolicy, KeyResolutionPolicyBuilder,
+    PinnedIssuerKeyStore, StaticPinnedIssuerKeyStore,
 };
 
 #[cfg(feature = "http-server")]
@@ -97,10 +97,7 @@ pub use server_limits::{DEFAULT_REQUEST_BODY_LIMIT, RECOMMENDED_MAX_HEADER_BYTES
 pub use replay_store::{InMemoryReplayGuard, ReplayGuard};
 
 #[cfg(any(feature = "http-client", feature = "http-server"))]
-pub use revocation::{
-    apply_safe_subset, revocation_list_uri_from_manifest, RevocationCache, RevocationError,
-    RevocationFailMode, RevocationOutcome, RevocationPolicy, RevocationProvider,
-};
+pub use revocation::{RevocationError, RevocationFailMode, RevocationPolicy, RevocationProvider};
 
 #[cfg(feature = "http-client")]
 pub use revocation_fetch::{

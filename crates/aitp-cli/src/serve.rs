@@ -750,7 +750,7 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
     // presenter; it is never taken from `aud` itself.
     let ctx = TctVerifyContext::builder(&sub, self_aid, now)
         .skip_manifest_expiry_cap_dangerous()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .expect("both decisions are made");
     let claims = verify_tct(token, &ctx)
@@ -758,6 +758,9 @@ fn verify_own_tct(token: &str, self_aid: &Aid, now: Timestamp) -> Result<TctClai
         .map_err(|e| match e {
             TctError::Expired => Refusal(StatusCode::UNAUTHORIZED, "TCT_EXPIRED", e.to_string()),
             TctError::AudienceMismatch => invalid("aud differs from sub".into()),
+            TctError::SafeSubsetEmpty => {
+                Refusal(StatusCode::FORBIDDEN, "POLICY_VIOLATION", e.to_string())
+            }
             e => invalid(e.to_string()),
         })?;
     if !claims.grants.iter().any(|g| g == ECHO_CAP) {

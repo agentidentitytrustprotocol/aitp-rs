@@ -10,10 +10,7 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpVerifyingKey;
-use aitp::delegation::{
-    verify_delegation, DelegationBuilder, DelegationRevocation, SourceRevocationCheck,
-    VerifyDelegationContext,
-};
+use aitp::delegation::{verify_delegation, DelegationBuilder, VerifyDelegationContext};
 // RFC-AITP-0011 multi-hop, only behind the binding's opt-in feature.
 #[cfg(feature = "experimental-multihop-delegation")]
 use aitp_experimental::delegation::{
@@ -22,7 +19,6 @@ use aitp_experimental::delegation::{
 use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
-use uuid::Uuid;
 
 // Same set-up-front model as `tct.rs`, and reused from it so the
 // "malformed jtis are ignored" semantics are stated in exactly one place.
@@ -32,7 +28,7 @@ use uuid::Uuid;
 // as "not revoked", turning a failed deny-list lookup into a silently
 // honored revoked token. For a check RFC-AITP-0006 §4 step 7 states as a
 // MUST, failing open on error is not an acceptable default.
-use crate::helpers::{coded_error, delegation_revocation_code, js_revocation, BindingRevocation};
+use crate::helpers::{coded_error, delegation_revocation_code, js_revocation};
 use crate::tct::JsIssuedTct;
 
 /// The verified delegation's salient fields. Returned from
@@ -102,12 +98,12 @@ pub fn verify_delegation_js(
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-    let root = |jti: &Uuid| deny.delegation_status(jti);
+    let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
 
     // `verify_delegation` rejects any chain-bearing token before per-hop
     // work, which is why only the root check is wired here: there are no
     // hops.
-    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), root_source(&deny, &root))
+    let ctx = VerifyDelegationContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_issuer_manifests(&manifests);
 
     let verified = verify_delegation(&token, &ctx).map_err(|e| verify_failed(env, &e))?;
@@ -162,11 +158,11 @@ pub fn verify_delegation_multihop_js(
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
 
     let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-    let root = |jti: &Uuid| deny.delegation_status(jti);
-    let hop = |_issuer: &Aid, jti: &Uuid| deny.delegation_status(jti);
+    let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+    let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), root_source(&deny, &root))
+    let ctx = VerifyChainContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_max_delegation_hops(hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
@@ -187,19 +183,6 @@ pub fn verify_delegation_multihop_js(
         expires_at: claims.exp.0 as f64,
         cnf_jkt: claims.cnf.jkt,
     })
-}
-
-/// The root revocation source: the deny-list lookup, or nothing at all
-/// under the explicit `fail_open` opt-out.
-fn root_source<'a>(
-    deny: &BindingRevocation,
-    root: &'a SourceRevocationCheck<'a>,
-) -> DelegationRevocation<'a> {
-    if deny.is_fail_open() {
-        DelegationRevocation::FailOpen
-    } else {
-        DelegationRevocation::Check(root)
-    }
 }
 
 /// A delegation failure as a JS `Error`, coded on revocation rejections.

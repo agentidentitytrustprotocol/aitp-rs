@@ -47,7 +47,7 @@ fn malformed_jkt_shape_rejected() {
     claims["cnf"]["jkt"] = serde_json::json!("not base64url!!");
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -69,7 +69,7 @@ fn jkt_of_wrong_key_rejected() {
     claims["cnf"]["jkt"] = serde_json::json!(rogue.verifying_key().to_jwk_thumbprint().unwrap());
     let forged = jws::sign_compact(&issuer, jws::TYP_TCT, &claims).unwrap();
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();

@@ -38,9 +38,15 @@ async fn renew(
         .expect("KMS renewal request");
     let store = InMemoryNonceStore::new(4);
     let offered = vec!["demo.echo".to_string()];
-    let not_revoked = |_: &uuid::Uuid| Ok(false);
-    let ctx = RenewalContext::new(Timestamp(now.0 + 7200), &offered, &not_revoked, &store, now)
-        .ttl_secs(600);
+    let not_revoked = |_: &aitp::tct::RevocationQuery<'_>| Ok(aitp::tct::RevocationStatus::Clear);
+    let ctx = RenewalContext::new(
+        Timestamp(now.0 + 7200),
+        &offered,
+        aitp::tct::RevocationSource::Check(&not_revoked),
+        &store,
+        now,
+    )
+    .ttl_secs(600);
     process_renewal_request(&req, issuer, &ctx).await
 }
 
@@ -54,7 +60,7 @@ async fn kms_backend_signs_renewal() {
         .await
         .expect("KMS renewal");
     let ctx = TctVerifyContext::builder(holder.aid(), issuer.aid(), now)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();

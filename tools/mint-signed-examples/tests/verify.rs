@@ -72,7 +72,7 @@ fn minted_tct_verifies() {
     let expected_audience = kat_002_aid();
     let issuer = kat_001_aid();
     let ctx = TctVerifyContext::builder(&expected_audience, &issuer, fixed_now())
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
@@ -134,7 +134,7 @@ fn minted_delegation_verifies() {
     let ctx = aitp::delegation::VerifyDelegationContext::new(
         &verifier_aid,
         fixed_now(),
-        aitp::delegation::DelegationRevocation::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
     )
     .with_issuer_manifests(&issuer_manifests);
     let verified =

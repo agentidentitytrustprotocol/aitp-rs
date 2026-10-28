@@ -16,13 +16,13 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use aitp::core::{Aid, AitpEnvelope, MessageType, RawUrl, Timestamp};
+use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
     CompletedHandshake, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, RevocationSource,
-    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
+    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 use aitp::manifest::{IdentityHintKind, Manifest};
@@ -278,14 +278,8 @@ impl PyInitiatorSession {
         .map_err(|e| PyValueError::new_err(format!("invalid commit_ack payload: {e}")))?;
 
         let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
-        let fail_open = deny.is_fail_open();
-        // `RevocationCheckFn` is `'static`, so the closure owns the list.
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,
@@ -433,14 +427,8 @@ impl PyResponderSession {
         .map_err(|e| PyValueError::new_err(format!("invalid commit payload: {e}")))?;
 
         let deny = handshake_revocation(revoked_jtis.as_ref(), revocation)?;
-        let fail_open = deny.is_fail_open();
-        // `RevocationCheckFn` is `'static`, so the closure owns the list.
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
             &self.key,

@@ -7,8 +7,9 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::AitpSigner;
-use aitp::delegation::{DelegationRevocation, VerifyDelegationContext};
+use aitp::delegation::VerifyDelegationContext;
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestResolver};
+use aitp::tct::RevocationSource;
 
 /// `key`'s published Manifest: published at `published_at`, valid for
 /// one day.
@@ -33,6 +34,6 @@ pub fn verify_ctx<'a>(
     now: Timestamp,
     manifests: &'a dyn ManifestResolver,
 ) -> VerifyDelegationContext<'a> {
-    VerifyDelegationContext::new(verifier, now, DelegationRevocation::FailOpen)
+    VerifyDelegationContext::new(verifier, now, RevocationSource::FailOpen)
         .with_issuer_manifests(manifests)
 }

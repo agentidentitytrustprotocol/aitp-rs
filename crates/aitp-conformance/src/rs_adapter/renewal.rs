@@ -9,7 +9,6 @@ use super::{checked, envelope_parse_error_code, err, kat_seed_for_aid, AdapterSt
 use aitp::core::nonce_store::InMemoryNonceStore;
 use aitp::core::{Aid, ErrorCode, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::tct::TctError;
 use aitp_experimental::renewal::{
     parse_renewal_request, process_renewal_request, renewal_response_envelope,
     verify_renewal_response, RenewalContext, RenewalError, RenewalResponseContext,
@@ -65,7 +64,13 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let deny: HashSet<String> = strings(params.get("issuer_deny_list"))
         .into_iter()
         .collect();
-    let revocation_check = move |jti: &Uuid| Ok::<_, TctError>(deny.contains(&jti.to_string()));
+    let revocation_check = move |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if deny.contains(&q.jti.to_string()) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
     let Some(body) = params.get("renewal_request") else {
         return err(id, "INVALID_REQUEST", "missing renewal_request");
     };
@@ -80,7 +85,7 @@ pub(super) fn renew_tct_op(state: &mut AdapterState, id: &str, params: Value) ->
     let mut ctx = RenewalContext::new(
         Timestamp(manifest_exp),
         &offered,
-        &revocation_check,
+        aitp::tct::RevocationSource::Check(&revocation_check),
         &*store,
         now,
     );

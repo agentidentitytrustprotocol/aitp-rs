@@ -55,3 +55,25 @@ pub fn apply_peer_policy(
 ) -> Result<(), crate::handshake::HandshakeError> {
     crate::handshake::state_machine::apply_peer_policy(payload_identity, cfg)
 }
+
+/// Run a revocation source for one delegation artifact (the source TCT
+/// or a chain hop), returning `scope` narrowed under a soft-fail safe
+/// subset, with the outcome mapped onto `DelegationError`.
+pub fn delegation_revocation(
+    source: &crate::tct::RevocationSource<'_>,
+    query: &crate::tct::RevocationQuery<'_>,
+    scope: &[String],
+) -> Result<Vec<String>, crate::delegation::DelegationError> {
+    crate::delegation::verifier::delegation_revocation(source, query, scope)
+}
+
+/// Run a revocation source for a verified TCT's `claims` (queried with
+/// its `iss` and `jti`), returning its grants narrowed under a soft-fail
+/// safe subset.
+pub fn tct_revocation(
+    source: &crate::tct::RevocationSource<'_>,
+    claims: &crate::tct::TctClaims,
+    now: crate::core::Timestamp,
+) -> Result<Vec<String>, crate::tct::TctError> {
+    crate::tct::verifier::check_revocation(source, claims, now)
+}

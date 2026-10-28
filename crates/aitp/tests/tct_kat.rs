@@ -111,7 +111,7 @@ fn p256_tct_signed_example_verifies_and_reproduces() {
         Timestamp(input["iat"].as_i64().unwrap() + 100),
     )
     .skip_manifest_expiry_cap_dangerous()
-    .accept_unchecked_revocation_dangerous()
+    .revocation(aitp::tct::RevocationSource::FailOpen)
     .build()
     .unwrap();
     let verified = verify_tct(token, &ctx).expect("committed ES256 TCT verifies");

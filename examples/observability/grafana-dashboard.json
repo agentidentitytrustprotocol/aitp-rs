@@ -43,7 +43,7 @@
           "legendFormat": "{{outcome}}"
         }
       ],
-      "description": "Split of clear vs revoked vs soft_fail_safe_subset outcomes from the RevocationCache."
+      "description": "Split of clear vs revoked vs soft_fail_safe_subset outcomes from the RevocationFetcher."
     },
     {
       "id": 3,

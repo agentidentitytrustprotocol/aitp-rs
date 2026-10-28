@@ -26,8 +26,8 @@ pub enum DelegationError {
     /// closed (RFC-AITP-0008 §3.1). Same wire code as
     /// [`Self::SourceTctRevoked`], but the reason says the source was
     /// unavailable, not that the token was revoked.
-    #[error("revocation source unavailable: {0}")]
-    RevocationUnavailable(String),
+    #[error("{0}")]
+    RevocationUnavailable(#[source] crate::tct::RevocationUnavailable),
     /// Outer signature did not verify.
     #[error("delegation signature is invalid")]
     InvalidSignature,
@@ -89,4 +89,10 @@ pub enum DelegationError {
     /// draft code, even though delegation itself is a draft-RFC surface.
     #[error("unknown field: {0}")]
     UnknownField(String),
+    /// The revocation source answered
+    /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`] and none of
+    /// the delegated `scope` is in the safe subset (RFC-AITP-0008 §3.1).
+    /// Wire code `POLICY_VIOLATION`.
+    #[error("no delegated capability is in the revocation soft-fail safe subset")]
+    SafeSubsetEmpty,
 }

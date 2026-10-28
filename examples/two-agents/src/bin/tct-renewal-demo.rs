@@ -39,8 +39,11 @@ impl JwksResolver for NoOpResolver {
 /// The issuer's revocation list: signed once, empty.
 struct EmptyList(RevocationListEnvelope);
 impl RevocationListProducer for EmptyList {
-    fn current(&self) -> RevocationListEnvelope {
-        self.0.clone()
+    fn current(
+        &self,
+    ) -> aitp::core::BoxFuture<'_, Result<RevocationListEnvelope, aitp::transport::RevocationError>>
+    {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 
@@ -68,7 +71,7 @@ async fn main() {
     let initial_verified = verify_tct(
         &initial.token,
         &TctVerifyContext::builder(holder.aid(), issuer.aid(), Timestamp::now())
-            .accept_unchecked_revocation_dangerous()
+            .revocation(aitp::tct::RevocationSource::FailOpen)
             .skip_manifest_expiry_cap_dangerous()
             .build()
             .expect("both decisions are made"),

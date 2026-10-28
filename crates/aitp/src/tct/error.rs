@@ -39,8 +39,8 @@ pub enum TctError {
     /// per RFC-AITP-0008 §1.5) and the policy is `fail_closed`. Same
     /// `TCT_REVOKED` wire code as [`Self::Revoked`] (RFC-AITP-0008
     /// §3.1), but the detail says the `jti` was not found on a list.
-    #[error("revocation source unavailable: {0}")]
-    RevocationUnavailable(String),
+    #[error("{0}")]
+    RevocationUnavailable(#[source] crate::tct::RevocationUnavailable),
     /// `grants` is empty (forbidden by RFC-AITP-0004 §4.1).
     #[error("TCT grants must be non-empty")]
     EmptyGrants,
@@ -123,4 +123,10 @@ pub enum TctError {
     /// Crypto error.
     #[error(transparent)]
     Crypto(#[from] crate::crypto::CryptoError),
+    /// The revocation source answered
+    /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`] and none of
+    /// the token's grants is in the safe subset (RFC-AITP-0008 §3.1).
+    /// Wire code `POLICY_VIOLATION`.
+    #[error("no granted capability is in the revocation soft-fail safe subset")]
+    SafeSubsetEmpty,
 }

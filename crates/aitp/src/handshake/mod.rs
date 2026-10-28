@@ -42,7 +42,7 @@ pub use payloads::{
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
 pub use state_machine::{
-    CompletedHandshake, GrantPolicyContext, GrantPolicyError, GrantPolicyFn,
-    HandshakeRevocationDecision, Initiator, LocalOidcMintJwtFn, OidcMintError, OidcMintJwtFn,
-    PeerConfig, PresentedIdentity, Responder, RevocationCheckFn, RevocationSource, SessionId,
+    CompletedHandshake, GrantPolicyContext, GrantPolicyError, GrantPolicyFn, Initiator,
+    LocalOidcMintJwtFn, OidcMintError, OidcMintJwtFn, PeerConfig, PresentedIdentity, Responder,
+    SessionId,
 };

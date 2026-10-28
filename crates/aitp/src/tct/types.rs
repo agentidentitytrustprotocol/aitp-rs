@@ -157,6 +157,10 @@ pub struct VerifiedTct {
     pub token: String,
     /// Decoded claims, trusted after verification.
     pub claims: TctClaims,
+    /// The capabilities this TCT may exercise: `claims.grants`, narrowed
+    /// to the safe subset when the revocation source answered
+    /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub effective_grants: Vec<String>,
 }
 
 #[cfg(test)]

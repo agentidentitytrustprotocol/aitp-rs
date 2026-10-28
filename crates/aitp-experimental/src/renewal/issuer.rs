@@ -10,7 +10,8 @@ use aitp::core::{Aid, AitpEnvelope, ErrorCode, MessageType, Timestamp};
 use aitp::crypto::{AitpSigner, AitpVerifyingKey, Digest32, Signature};
 use aitp::envelope::sign_envelope_with;
 use aitp::tct::{
-    verify_tct, IssuedTct, TctBuilder, TctError, TctVerifyContext, DEFAULT_TCT_TTL_SECS,
+    verify_tct, IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext,
+    DEFAULT_TCT_TTL_SECS,
 };
 use uuid::Uuid;
 
@@ -43,10 +44,11 @@ pub struct RenewalContext<'a> {
     /// The issuer Manifest's current `offered_capabilities`. The renewed
     /// grants are the presented TCT's grants intersected with these.
     pub offered_grants: &'a [String],
-    /// Revocation lookup over the issuer's own deny list (`Ok(true)`
-    /// means revoked). A revoked TCT is refused with
-    /// [`TctError::Revoked`].
-    pub revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
+    /// Revocation source over the issuer's own deny list, queried with
+    /// the presented TCT's `iss` and `jti`. A revoked TCT is refused with
+    /// [`TctError::Revoked`]; under a soft-fail safe subset the renewed
+    /// grants are limited to that subset.
+    pub revocation: RevocationSource<'a>,
     /// Replay guard: every accepted `pop_nonce` is recorded here until
     /// the presented TCT's `exp`, and a nonce already present is refused
     /// with [`RenewalError::Replayed`]. Share one store across
@@ -71,14 +73,14 @@ impl<'a> RenewalContext<'a> {
     pub fn new(
         manifest_expires_at: Timestamp,
         offered_grants: &'a [String],
-        revocation_check: &'a (dyn Fn(&Uuid) -> Result<bool, TctError> + Send + Sync),
+        revocation: RevocationSource<'a>,
         nonce_store: &'a dyn NonceStore,
         now: Timestamp,
     ) -> Self {
         Self {
             manifest_expires_at,
             offered_grants,
-            revocation_check,
+            revocation,
             nonce_store,
             grant_policy: None,
             ttl_secs: DEFAULT_TCT_TTL_SECS,
@@ -151,7 +153,7 @@ pub async fn process_renewal_request(
     let claims = {
         let peek = peek_claims(&request.current_tct)?;
         let verify_ctx = TctVerifyContext::builder(&peek.aud, issuer_aid, now)
-            .accept_unchecked_revocation_dangerous()
+            .revocation(aitp::tct::RevocationSource::FailOpen)
             .issuer_manifest_expires_at(ctx.manifest_expires_at)
             .build()
             .expect("both decisions are made");
@@ -172,9 +174,7 @@ pub async fn process_renewal_request(
         .map_err(|_| TctError::PopFailed)?;
 
     // Step 4.
-    if (ctx.revocation_check)(&claims.jti)? {
-        return Err(TctError::Revoked.into());
-    }
+    let effective_grants = aitp::__private::tct_revocation(&ctx.revocation, &claims, now)?;
 
     // Step 5. The record lives until the presented TCT expires: after
     // that the TCT cannot be renewed anyway, so the nonce can go.
@@ -192,8 +192,7 @@ pub async fn process_renewal_request(
     }
 
     // Step 6.
-    let mut grants: Vec<String> = claims
-        .grants
+    let mut grants: Vec<String> = effective_grants
         .iter()
         .filter(|g| ctx.offered_grants.contains(g))
         .cloned()

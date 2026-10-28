@@ -179,14 +179,10 @@ fn verify_tct_parsed(
     // The issuer-Manifest expiry cap is still waived here — threading an
     // `issuer_manifest_expires_at` parameter through the SDK surface is
     // the remaining half of F-1.
-    let revocation_check = |jti: &Uuid| revocation.tct_status(jti);
+    let revocation_check = |q: &aitp::tct::RevocationQuery<'_>| revocation.status(q);
     let builder = TctVerifyContext::builder(aud_ref, &unverified.iss, Timestamp::now())
         .skip_manifest_expiry_cap_dangerous();
-    let builder = if revocation.is_fail_open() {
-        builder.accept_unchecked_revocation_dangerous()
-    } else {
-        builder.revocation_check(&revocation_check)
-    };
+    let builder = builder.revocation(revocation.source(&revocation_check));
     let ctx = builder
         .build()
         .map_err(|e| PyRuntimeError::new_err(format!("verify context: {e}")))?;
@@ -380,8 +376,12 @@ fn verify_tct_cached_inner(
     // rejects with the coded error.
     if let Some(c) = store.get(&key) {
         let now = Timestamp::now().0;
-        let cleared = Uuid::parse_str(&c.jti)
-            .is_ok_and(|jti| matches!(revocation_mode.tct_status(&jti), Ok(false)));
+        let cleared = Uuid::parse_str(&c.jti).is_ok_and(|jti| {
+            matches!(
+                revocation_mode.jti_status(&jti),
+                Ok(aitp::tct::RevocationStatus::Clear)
+            )
+        });
         if cleared
             && c.audience == effective_aud
             && c.expires_at > now

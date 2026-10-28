@@ -120,7 +120,9 @@ Independent of clustering, production servers/clients should set:
   backed by your deny list. Advertise the absolute HTTPS URL in the signed
   Manifest with `ManifestBuilder::revocation_list_uri(origin.join(REVOCATION_LIST_PATH)?)`;
   the server logs a warning when the key is missing. On the consumer side,
-  `RevocationCache::for_issuer_manifest` polls the advertised URL. A
+  `RevocationFetcher::prepare` fetches the advertised URL (or reads a
+  `RevocationProvider` set with `with_provider`) and caches the verified
+  snapshot. A
   Manifest without the key is still accepted: revocation for that issuer
   is treated as unavailable and the configured `RevocationFailMode`
   applies (RFC-AITP-0008 §3). The default is `fail_closed`, so

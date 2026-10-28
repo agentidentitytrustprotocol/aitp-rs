@@ -18,7 +18,10 @@ use crate::handshake::payloads::{
     MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
 };
 use crate::manifest::{verify_manifest, Manifest, VerifyManifestContext};
-use crate::tct::{verify_tct, IssuedTct, TctBuilder, TctVerifyContext, VerifiedTct};
+use crate::tct::verifier::{check_revocation, verify_tct_before_revocation};
+use crate::tct::{
+    IssuedTct, RevocationSource, TctBuilder, TctError, TctVerifyContext, VerifiedTct,
+};
 use rand::TryRng;
 use tracing::debug;
 use uuid::Uuid;
@@ -48,7 +51,7 @@ pub type SessionId = Uuid;
 ///     jwks_resolver: resolver,
 ///     pinned_key_store: &NoPinnedKeys,
 ///     grant_policy: None,
-///     revocation: aitp::handshake::RevocationSource::FailOpen,
+///     revocation: aitp::tct::RevocationSource::FailOpen,
 ///     now: aitp::core::Timestamp(0),
 /// }
 /// # }
@@ -114,7 +117,7 @@ impl<'a> PeerConfig<'a> {
     ///     manifest,
     ///     resolver,
     ///     &trusted,
-    ///     aitp::handshake::RevocationSource::FailOpen,
+    ///     aitp::tct::RevocationSource::FailOpen,
     ///     now,
     /// )
     /// .with_trust_anchors(&[]);
@@ -162,87 +165,6 @@ impl<'a> PeerConfig<'a> {
         self
     }
 }
-
-/// Where a [`PeerConfig`] gets revocation status for the peer-issued
-/// TCT (RFC-AITP-0008).
-///
-/// There is deliberately no `Default`: a verifier with no revocation
-/// source silently accepts revoked-but-unexpired TCTs, so the caller
-/// names one of the two choices.
-#[derive(Clone, Copy)]
-#[non_exhaustive]
-pub enum RevocationSource<'a> {
-    /// Consult this hook after the TCT verifies. A hook that cannot
-    /// determine the status under `fail_closed` (the RFC-AITP-0008 §3.1
-    /// default) returns
-    /// `Err(HandshakeError::Tct(TctError::RevocationUnavailable(_)))`.
-    /// `crate::transport::revocation` builds such hooks from the
-    /// peer's advertised `ListRevoked` endpoint.
-    Check(&'a RevocationCheckFn),
-    /// No revocation source: accept the TCT without any lookup, the
-    /// `fail_open` mode with the source always unavailable. A revoked
-    /// but unexpired TCT is accepted. A warning is logged once per
-    /// process. Tests and in-process demos only.
-    FailOpen,
-}
-
-impl std::fmt::Debug for RevocationSource<'_> {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            Self::Check(_) => f.write_str("RevocationSource::Check(..)"),
-            Self::FailOpen => f.write_str("RevocationSource::FailOpen"),
-        }
-    }
-}
-
-/// Logs the [`RevocationSource::FailOpen`] warning at most once.
-fn warn_fail_open_once() {
-    static WARNED: std::sync::Once = std::sync::Once::new();
-    WARNED.call_once(|| {
-        tracing::warn!(
-            "PeerConfig uses RevocationSource::FailOpen: peer-issued TCTs are \
-             accepted without a revocation check (RFC-AITP-0008 fail_open)"
-        );
-    });
-}
-
-/// Outcome of a handshake-time revocation check (RFC-AITP-0008).
-///
-/// Returned by [`RevocationCheckFn`]. Replaces the prior boolean-shaped
-/// return (`Result<bool, _>`) so soft-fail degradation carries the
-/// configured safe-grants subset all the way up to the state machine.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum HandshakeRevocationDecision {
-    /// TCT is not revoked; accept with the full grant set.
-    Clear,
-    /// TCT is revoked; the handshake fails with
-    /// [`crate::tct::TctError::Revoked`].
-    Revoked,
-    /// The revocation source was unavailable and the operator's
-    /// `SoftFail` policy applies. The verifying side MUST restrict the
-    /// effective grants from the received TCT to
-    /// `tct.grants ∩ safe_grants`. Empty intersection ⇒
-    /// [`HandshakeError::PolicyViolation`].
-    ///
-    /// Invariant: `safe_grants` is non-empty. A configured empty
-    /// safe-grants subset degenerates to `FailClosed` upstream and
-    /// surfaces here as an `Err`, not this variant.
-    SoftFailSafeSubset {
-        /// The operator-configured safe-grant subset.
-        safe_grants: Vec<String>,
-    },
-}
-
-/// Hook signature for handshake-time revocation lookups.
-///
-/// Implementors typically wrap a `RevocationCache` from
-/// `crate::transport` or any other [RFC-AITP-0008] revocation
-/// provider. The `Aid` argument is the TCT issuer (so per-issuer
-/// caches can route correctly); the `Uuid` is the TCT's JTI. Returns a
-/// [`HandshakeRevocationDecision`] so soft-fail safe-grant subsets flow
-/// through.
-pub type RevocationCheckFn =
-    dyn Fn(&Aid, &Uuid) -> Result<HandshakeRevocationDecision, HandshakeError> + Send + Sync;
 
 /// Identity-aware grant-policy hook (RFC-AITP-0004 §4.1).
 ///
@@ -773,9 +695,8 @@ fn issue_tct_for_peer(
 /// Verify a peer-issued TCT compact JWS (and its optional companion
 /// voucher) and that it satisfies our `required_peer_capabilities`.
 ///
-/// Returns the verified TCT plus the effective grant set the verifying
-/// side should honor — `None` means "the TCT's full grants", `Some(g)`
-/// means the grants were narrowed by a revocation soft-fail safe-grants
+/// Returns the verified TCT; its `effective_grants` are the grants the
+/// verifying side honors, narrowed under a revocation soft-fail safe
 /// subset (RFC-AITP-0008).
 fn verify_received_tct(
     token: &str,
@@ -784,7 +705,7 @@ fn verify_received_tct(
     issuer: &Aid,
     issuer_manifest_expires_at: Option<Timestamp>,
     issuer_offered_capabilities: &[String],
-) -> Result<(VerifiedTct, Option<Vec<String>>), HandshakeError> {
+) -> Result<VerifiedTct, HandshakeError> {
     // RFC-AITP-0008 §3.3: the TCT signature MUST be verified before any
     // remote revocation lookup. The claims are attacker-controlled
     // bytes until `verify_tct` succeeds; routing a revocation lookup
@@ -794,12 +715,7 @@ fn verify_received_tct(
     // not from the token.
     let ctx = {
         let builder = TctVerifyContext::builder(&cfg.manifest.aid, issuer, cfg.now)
-            // Revocation is deliberately NOT run inside this verify_tct
-            // call: RFC-AITP-0008 §3.3 mandates signature-before-lookup,
-            // so `cfg.revocation_check` is consulted separately *after*
-            // verification succeeds (below). The waiver records that
-            // this call's config skips revocation on purpose.
-            .accept_unchecked_revocation_dangerous();
+            .revocation(cfg.revocation.clone());
         // RFC-AITP-0004 §4.3 / RFC-AITP-0005 §10.4: the issuer Manifest's
         // expiry caps the TCT's expiry. We have it in scope from
         // bootstrap_verify_peer (initiator) or hello.manifest (responder)
@@ -812,8 +728,9 @@ fn verify_received_tct(
             .build()
             .expect("both verify decisions are made above")
     };
-    let verified = verify_tct(token, &ctx)?;
-    let claims = &verified.claims;
+    // The revocation lookup runs below, after the voucher and
+    // grant-overflow checks.
+    let claims = verify_tct_before_revocation(token, &ctx)?;
 
     // Companion voucher (when delivered): MUST verify under the same
     // issuer and mirror the TCT exactly (RFC-AITP-0005 §8.2). A
@@ -842,54 +759,31 @@ fn verify_received_tct(
         }
     }
 
-    // Revocation — `iss` and `jti` are authenticated now that
-    // `verify_tct` has succeeded under the handshake-pinned issuer AID,
-    // so a hook keyed off the issuer cannot be steered by an attacker.
-    let mut safe_subset: Option<Vec<String>> = None;
-    let check = match cfg.revocation {
-        RevocationSource::Check(check) => Some(check),
-        RevocationSource::FailOpen => {
-            warn_fail_open_once();
-            None
-        }
+    // Revocation — `iss` and `jti` are authenticated now that the TCT
+    // has verified under the handshake-pinned issuer AID, so a hook
+    // keyed off the issuer cannot be steered by an attacker. An empty
+    // soft-fail intersection is a policy failure.
+    let effective_grants = match check_revocation(&ctx.revocation, &claims, cfg.now) {
+        Ok(grants) => grants,
+        Err(TctError::SafeSubsetEmpty) => return Err(HandshakeError::PolicyViolation),
+        Err(e) => return Err(HandshakeError::Tct(e)),
     };
-    if let Some(check) = check {
-        match check(&claims.iss, &claims.jti)? {
-            HandshakeRevocationDecision::Clear => {}
-            HandshakeRevocationDecision::Revoked => {
-                return Err(HandshakeError::Tct(crate::tct::TctError::Revoked));
-            }
-            HandshakeRevocationDecision::SoftFailSafeSubset { safe_grants } => {
-                // Soft-fail under RFC-AITP-0008: keep the TCT but
-                // honor only `tct.grants ∩ safe_grants` locally.
-                // Empty intersection is a policy failure — the safe
-                // subset doesn't authorize any of the granted caps.
-                let intersection: Vec<String> = claims
-                    .grants
-                    .iter()
-                    .filter(|g| safe_grants.iter().any(|s| s == *g))
-                    .cloned()
-                    .collect();
-                if intersection.is_empty() {
-                    return Err(HandshakeError::PolicyViolation);
-                }
-                safe_subset = Some(intersection);
-            }
-        }
-    }
 
     // `required_peer_capabilities` is checked against the effective
     // grant set — under soft-fail, the safe subset must cover every
     // required cap.
     if let Some(required_caps) = cfg.manifest.required_peer_capabilities.as_deref() {
-        let effective: &[String] = safe_subset.as_deref().unwrap_or(claims.grants.as_slice());
         for required in required_caps {
-            if !effective.contains(required) {
+            if !effective_grants.contains(required) {
                 return Err(HandshakeError::InsufficientGrants);
             }
         }
     }
-    Ok((verified, safe_subset))
+    Ok(VerifiedTct {
+        token: token.to_string(),
+        claims,
+        effective_grants,
+    })
 }
 
 /// What a completed handshake leaves each side holding: the peer-issued
@@ -904,6 +798,10 @@ pub struct CompletedHandshake {
     /// The companion grant voucher, verbatim. `None` when the issuing
     /// peer's policy forbids us from delegating.
     pub grant_voucher: Option<String>,
+    /// The grants we may exercise under the peer-issued TCT: its
+    /// `grants`, narrowed to the safe subset when the revocation source
+    /// answered [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub effective_grants: Vec<String>,
 }
 
 // ── Initiator ────────────────────────────────────────────────────────────
@@ -1164,10 +1062,7 @@ impl Initiator {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &ack.pop_signature)?;
-        // Soft-fail safe subset (when returned) is enforced inside
-        // `verify_received_tct` (required-caps check); the caller can
-        // re-derive it by re-running the hook if needed.
-        let (verified, _effective_grants) = verify_received_tct(
+        let verified = verify_received_tct(
             &ack.tct,
             ack.grant_voucher.as_deref(),
             cfg,
@@ -1177,6 +1072,7 @@ impl Initiator {
         )?;
         self.state = InitiatorState::Done;
         Ok(CompletedHandshake {
+            effective_grants: verified.effective_grants.clone(),
             tct: verified,
             grant_voucher: ack.grant_voucher.clone(),
         })
@@ -1370,7 +1266,7 @@ impl Responder {
             return Err(HandshakeError::NonceMismatch);
         }
         verify_pop(&peer_pubkey, &my_pop_nonce, &commit.pop_signature)?;
-        let (verified, _effective_grants) = verify_received_tct(
+        let verified = verify_received_tct(
             &commit.tct,
             commit.grant_voucher.as_deref(),
             cfg,
@@ -1403,6 +1299,7 @@ impl Responder {
         Ok((
             ack,
             CompletedHandshake {
+                effective_grants: verified.effective_grants.clone(),
                 tct: verified,
                 grant_voucher: commit.grant_voucher.clone(),
             },

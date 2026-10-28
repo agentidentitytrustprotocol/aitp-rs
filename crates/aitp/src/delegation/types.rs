@@ -81,6 +81,10 @@ pub struct VerifiedDelegation {
     pub claims: DelegationClaims,
     /// Claims of the embedded grant voucher.
     pub voucher: GrantVoucherClaims,
+    /// The capabilities this delegation may exercise: `claims.scope`,
+    /// narrowed to the safe subset when the revocation source answered
+    /// [`crate::tct::RevocationStatus::SoftFailSafeSubset`].
+    pub effective_grants: Vec<String>,
 }
 
 #[cfg(test)]

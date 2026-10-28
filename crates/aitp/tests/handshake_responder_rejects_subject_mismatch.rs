@@ -77,7 +77,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         &alice_manifest,
         &resolver,
         &alice_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_cfg_pinned = aitp::handshake::StaticPinnedKeyStore::new([alice.verifying_key()]);
@@ -86,7 +86,7 @@ fn responder_rejects_subject_disagreeing_with_manifest_hint() {
         &bob_manifest,
         &resolver,
         &bob_cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 
