@@ -96,4 +96,5 @@ pub(crate) fn respond(
         MessageType::PopResponse,
         serde_json::to_value(response).map_err(|e| e.to_string())?,
     )
+    .map_err(|e| e.to_string())
 }

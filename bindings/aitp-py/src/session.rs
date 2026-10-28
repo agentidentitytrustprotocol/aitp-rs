@@ -204,7 +204,7 @@ impl PyInitiatorSession {
         let payload =
             serde_json::to_value(&hello).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope_with(&self.key, MessageType::MutualHello, payload, msg_id, ts)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -246,7 +246,7 @@ impl PyInitiatorSession {
         let payload =
             serde_json::to_value(&commit).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope(&self.key, MessageType::MutualCommit, payload)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))
     }
 
@@ -405,7 +405,7 @@ impl PyResponderSession {
             ack_msg_id,
             ack_ts,
         )
-        .map_err(PyRuntimeError::new_err)?;
+        .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         Ok((ack_json, session_id))
@@ -460,7 +460,7 @@ impl PyResponderSession {
         let payload =
             serde_json::to_value(&ack).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let env = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)
-            .map_err(PyRuntimeError::new_err)?;
+            .map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env).map_err(|e| PyRuntimeError::new_err(e.to_string()))?;
         let completed_json = completed_handshake_json(&completed)?;

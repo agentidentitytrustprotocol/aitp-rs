@@ -74,7 +74,7 @@ pub enum TctError {
     MissingField(&'static str),
     /// Canonicalization failed.
     #[error("canonicalization failed: {0}")]
-    Canonicalization(String),
+    Canonicalization(#[source] crate::core::jcs::JcsError),
     /// PoP nonce echo mismatch (RFC-AITP-0005 §6.2 step 2).
     #[error("PoP nonce echo mismatch")]
     PopNonceMismatch,

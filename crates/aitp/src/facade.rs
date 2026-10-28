@@ -199,6 +199,9 @@ pub enum FacadeError {
     /// the type we'd present — RFC-AITP-0003 §3.2 / §5 step 5).
     #[error("manifest verification: {0}")]
     ManifestVerify(#[from] crate::manifest::ManifestError),
+    /// An outbound envelope could not be signed.
+    #[error("sign envelope: {0}")]
+    Envelope(#[from] crate::envelope::EnvelopeError),
 }
 
 /// Maximum size of a handshake response body the facade
@@ -318,6 +321,9 @@ fn interpret_aitp_envelope_response(
         }
         EnvelopeParseError::Malformed(msg) => {
             FacadeError::Http(format!("malformed JSON in response body: {msg}"))
+        }
+        EnvelopeParseError::Structure(e) => {
+            FacadeError::Http(format!("malformed JSON in response body: {e}"))
         }
     })
 }
@@ -501,8 +507,7 @@ pub async fn run_initiator_handshake(
         hello_payload,
         mid,
         ts,
-    )
-    .map_err(FacadeError::Http)?;
+    )?;
 
     let endpoint_url = peer_manifest
         .handshake_endpoint
@@ -567,8 +572,7 @@ pub async fn run_initiator_handshake(
         commit_payload,
         Uuid::new_v4(),
         Timestamp::now(),
-    )
-    .map_err(FacadeError::Http)?;
+    )?;
 
     let commit_url = endpoint_url
         .join("commit")

@@ -20,10 +20,7 @@ use uuid::Uuid;
 
 /// The registered string of `code`.
 fn code_str(code: ErrorCode) -> String {
-    serde_json::to_value(code)
-        .ok()
-        .and_then(|v| v.as_str().map(String::from))
-        .unwrap_or_else(|| "INTERNAL_ERROR".into())
+    code.as_str().to_owned()
 }
 
 fn step_now(state: &AdapterState, params: &Value) -> Timestamp {

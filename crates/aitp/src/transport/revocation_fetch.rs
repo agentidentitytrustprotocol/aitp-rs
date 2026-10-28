@@ -222,7 +222,7 @@ impl RevocationFetcher {
         uri: &str,
     ) -> Result<crate::tct::RevocationListEnvelope, RevocationError> {
         let url = Url::parse(uri)
-            .map_err(|e| RevocationError::Network(format!("invalid list URL: {e}")))?;
+            .map_err(|e| RevocationError::Network(format!("invalid list URL: {e}").into()))?;
         let localhost_http = url.scheme() == "http"
             && matches!(url.host_str(), Some("localhost") | Some("127.0.0.1"));
         if url.scheme() != "https" && !(localhost_http && self.allow_insecure_localhost) {
@@ -238,36 +238,34 @@ impl RevocationFetcher {
                 .host_guard
                 .resolve_checked(&url)
                 .await
-                .map_err(|e| RevocationError::Network(e.to_string()))?;
+                .map_err(|e| RevocationError::Network(e.into()))?;
             if let Some(url::Host::Domain(domain)) = url.host() {
                 builder = builder.resolve_to_addrs(domain, &addrs);
             }
         }
         let client = builder
             .build()
-            .map_err(|e| RevocationError::Network(e.to_string()))?;
+            .map_err(|e| RevocationError::Network(e.into()))?;
         let mut resp = client
             .get(url)
             .send()
             .await
-            .map_err(|e| RevocationError::Network(e.to_string()))?;
+            .map_err(|e| RevocationError::Network(e.into()))?;
         if !resp.status().is_success() {
-            return Err(RevocationError::Network(format!(
-                "upstream status {}",
-                resp.status().as_u16()
-            )));
+            return Err(RevocationError::Network(
+                format!("upstream status {}", resp.status().as_u16()).into(),
+            ));
         }
         let mut body: Vec<u8> = Vec::new();
         while let Some(chunk) = resp
             .chunk()
             .await
-            .map_err(|e| RevocationError::Network(e.to_string()))?
+            .map_err(|e| RevocationError::Network(e.into()))?
         {
             if body.len() + chunk.len() > self.max_bytes {
-                return Err(RevocationError::Network(format!(
-                    "response exceeds {} bytes",
-                    self.max_bytes
-                )));
+                return Err(RevocationError::Network(
+                    format!("response exceeds {} bytes", self.max_bytes).into(),
+                ));
             }
             body.extend_from_slice(&chunk);
         }

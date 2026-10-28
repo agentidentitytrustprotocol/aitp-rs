@@ -246,7 +246,7 @@ impl JsInitiatorSession {
         let payload =
             serde_json::to_value(&hello).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope_with(&self.key, MessageType::MutualHello, payload, msg_id, ts)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))
     }
 
@@ -287,7 +287,7 @@ impl JsInitiatorSession {
         let payload =
             serde_json::to_value(&commit).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommit, payload)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))
     }
 
@@ -434,7 +434,7 @@ impl JsResponderSession {
             ack_msg_id,
             ack_ts,
         )
-        .map_err(Error::from_reason)?;
+        .map_err(|e| Error::from_reason(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
         Ok(JsHelloAckResult {
@@ -490,7 +490,7 @@ impl JsResponderSession {
 
         let payload = serde_json::to_value(&ack).map_err(|e| Error::from_reason(e.to_string()))?;
         let env_out = sign_envelope(&self.key, MessageType::MutualCommitAck, payload)
-            .map_err(Error::from_reason)?;
+            .map_err(|e| Error::from_reason(e.to_string()))?;
         let ack_json =
             serde_json::to_string(&env_out).map_err(|e| Error::from_reason(e.to_string()))?;
         let completed_js = JsCompletedHandshake {

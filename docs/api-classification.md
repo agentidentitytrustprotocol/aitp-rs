@@ -36,6 +36,7 @@ reasons already in the table are kept.
 | `aitp::core::CheckedJson` | struct | private fields |  |
 | `aitp::core::CheckedJsonError` | struct | private fields |  |
 | `aitp::core::EnvelopeParseError` | enum | non_exhaustive |  |
+| `aitp::core::EnvelopeStructureError` | enum | non_exhaustive |  |
 | `aitp::core::ErrorCode` | enum | non_exhaustive |  |
 | `aitp::core::ExtensionsMap` | struct | private fields |  |
 | `aitp::core::InMemoryNonceStore` | struct | private fields |  |
@@ -43,6 +44,7 @@ reasons already in the table are kept.
 | `aitp::core::RawUrl` | struct | private fields |  |
 | `aitp::core::Sender` | struct | non_exhaustive |  |
 | `aitp::core::Timestamp` | struct | exhaustive | A newtype over Unix seconds: its one field is the value. |
+| `aitp::core::UnknownErrorCode` | struct | private fields |  |
 | `aitp::core::base64url::Base64UrlError` | enum | non_exhaustive |  |
 | `aitp::core::ids::InvalidTag` | struct | non_exhaustive |  |
 | `aitp::core::ids::V4Error` | enum | non_exhaustive |  |
@@ -66,6 +68,7 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationRevocation` | enum | non_exhaustive |  |
 | `aitp::delegation::VerifiedDelegation` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifyDelegationContext` | struct | non_exhaustive |  |
+| `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |
 | `aitp::facade::FacadeError` | enum | non_exhaustive |  |
 | `aitp::facade::IdentityMode` | enum | non_exhaustive |  |
 | `aitp::facade::InitiatorConfig` | struct | non_exhaustive |  |
@@ -73,11 +76,14 @@ reasons already in the table are kept.
 | `aitp::facade::TctStore` | struct | private fields |  |
 | `aitp::facade::TrustMode` | enum | non_exhaustive |  |
 | `aitp::handshake::CompletedHandshake` | struct | non_exhaustive |  |
+| `aitp::handshake::GrantPolicyContext` | struct | non_exhaustive |  |
+| `aitp::handshake::GrantPolicyError` | struct | private fields |  |
 | `aitp::handshake::HandshakeError` | enum | non_exhaustive |  |
 | `aitp::handshake::HandshakeRevocationDecision` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::handshake::IdentityDescriptor` | struct | non_exhaustive |  |
 | `aitp::handshake::IdentityKind` | enum | non_exhaustive |  |
 | `aitp::handshake::IdentityVerifyContext` | struct | non_exhaustive |  |
+| `aitp::handshake::IdentityVerifyError` | enum | non_exhaustive |  |
 | `aitp::handshake::Initiator` | struct | private fields |  |
 | `aitp::handshake::JwkKeyMaterial` | enum | non_exhaustive |  |
 | `aitp::handshake::JwkParseError` | enum | non_exhaustive |  |
@@ -101,6 +107,7 @@ reasons already in the table are kept.
 | `aitp::handshake::RevocationSource` | enum | non_exhaustive |  |
 | `aitp::handshake::StaticPinnedKeyStore` | struct | private fields |  |
 | `aitp::handshake::SubjectBinding` | enum | non_exhaustive |  |
+| `aitp::handshake::VerifiedIdentity` | struct | private fields |  |
 | `aitp::handshake::VerifiedPinnedKey` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionChallenge` | struct | non_exhaustive |  |
 | `aitp::handshake::admission::AdmissionError` | enum | non_exhaustive |  |

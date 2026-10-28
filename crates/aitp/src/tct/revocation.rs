@@ -177,7 +177,7 @@ pub fn revocation_signing_bytes(body: &RevocationList) -> Result<Vec<u8>, TctErr
     for entry in &body.entries {
         crate::core::ids::check_v4(&entry.jti).map_err(TctError::JtiNotV4)?;
     }
-    jcs::canonicalize_serializable(body).map_err(|e| TctError::Canonicalization(e.to_string()))
+    jcs::canonicalize_serializable(body).map_err(TctError::Canonicalization)
 }
 
 /// Sign a [`RevocationList`] body with the issuer's signing key.

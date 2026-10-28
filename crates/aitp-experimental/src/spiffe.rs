@@ -13,7 +13,7 @@
 //! Every check of §6.5 steps 1–4 (descriptor shape, canonical SPIFFE ID,
 //! bundle lookup, keys of the right `use`) runs before any signature is
 //! verified. Every failure is `IDENTITY_FAILED`
-//! ([`HandshakeError::Identity`]).
+//! ([`IdentityVerifyError::Rejected`]).
 //!
 //! [`SpiffeVerifier`] plugs it into the handshake:
 //!
@@ -42,8 +42,9 @@ use x509_parser::oid_registry::{OID_EC_P256, OID_KEY_TYPE_EC_PUBLIC_KEY, OID_SIG
 use aitp::__private::{svid_type, x5c, SvidType};
 use aitp::handshake::identity_pinned::PINNED_KEY_PROOF_DOMAIN;
 use aitp::handshake::{
-    pinned_key_proof_input, verify_jws_signature, HandshakeError, IdentityDescriptor, IdentityKind,
-    IdentityVerifier, IdentityVerifyContext, JwkParseError, JwkPublicKey,
+    pinned_key_proof_input, verify_jws_signature, IdentityDescriptor, IdentityKind,
+    IdentityVerifier, IdentityVerifyContext, IdentityVerifyError, JwkParseError, JwkPublicKey,
+    VerifiedIdentity,
 };
 
 /// Domain prefix of the X509-SVID proof input (RFC-AITP-0002 §6.4.1).
@@ -237,7 +238,7 @@ pub struct SpiffeVerifyContext<'a> {
 pub fn verify_spiffe(
     identity: &IdentityDescriptor,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
+) -> Result<(), IdentityVerifyError> {
     // Step 1: descriptor shape (§6.1), including the canonical SPIFFE ID.
     if identity.kind != IdentityKind::Spiffe {
         return Err(fail("identity.type is not spiffe"));
@@ -289,10 +290,10 @@ pub fn spiffe_x509_proof_input(
     message_id: &Uuid,
     timestamp: Timestamp,
     pop_nonce: &str,
-) -> Result<Vec<u8>, HandshakeError> {
+) -> Result<Vec<u8>, IdentityVerifyError> {
     // The §3.1 input is its domain prefix followed by the shared fields.
-    let pinned =
-        pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)?;
+    let pinned = pinned_key_proof_input(sender_aid, receiver_aid, message_id, timestamp, pop_nonce)
+        .map_err(|e| IdentityVerifyError::Rejected(e.to_string()))?;
     let fields = pinned
         .strip_prefix(PINNED_KEY_PROOF_DOMAIN)
         .expect("the pinned-key proof input starts with its domain");
@@ -323,7 +324,7 @@ impl IdentityVerifier for SpiffeVerifier<'_> {
         &self,
         identity: &IdentityDescriptor,
         ctx: &IdentityVerifyContext<'_>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<VerifiedIdentity, IdentityVerifyError> {
         verify_spiffe(
             identity,
             &SpiffeVerifyContext {
@@ -336,7 +337,11 @@ impl IdentityVerifier for SpiffeVerifier<'_> {
                 iat_tolerance_secs: 300,
                 now_unix_secs: ctx.now.0,
             },
-        )
+        )?;
+        Ok(VerifiedIdentity::new(
+            IdentityKind::Spiffe,
+            identity.subject.clone(),
+        ))
     }
 }
 
@@ -344,7 +349,7 @@ fn verify_jwt_svid(
     identity: &IdentityDescriptor,
     bundle: &SpiffeBundle,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
+) -> Result<(), IdentityVerifyError> {
     let segments: Vec<&str> = identity.proof.split('.').collect();
     let [header_b64, payload_b64, sig_b64] = segments[..] else {
         return Err(fail("JWT-SVID is not a three-segment compact JWS"));
@@ -430,7 +435,7 @@ fn verify_x509_svid(
     identity: &IdentityDescriptor,
     bundle: &SpiffeBundle,
     ctx: &SpiffeVerifyContext<'_>,
-) -> Result<(), HandshakeError> {
+) -> Result<(), IdentityVerifyError> {
     let chain = x5c(identity)
         .unwrap_or_default()
         .iter()
@@ -501,7 +506,7 @@ fn verify_x509_svid(
 fn check_leaf(
     leaf: &x509_parser::certificate::X509Certificate<'_>,
     subject: &str,
-) -> Result<AitpVerifyingKey, HandshakeError> {
+) -> Result<AitpVerifyingKey, IdentityVerifyError> {
     // Step 2: exactly one URI SAN, equal to `subject` byte for byte.
     let san = leaf
         .subject_alternative_name()
@@ -574,7 +579,7 @@ fn check_leaf(
 /// The trust domain of a canonical SPIFFE ID with a workload path
 /// (RFC-AITP-0002 §6.1). Rejects, without folding case, anything that is
 /// not in canonical form.
-fn spiffe_id_trust_domain(id: &str) -> Result<&str, HandshakeError> {
+fn spiffe_id_trust_domain(id: &str) -> Result<&str, IdentityVerifyError> {
     if id.len() > MAX_SPIFFE_ID_LEN {
         return Err(fail("SPIFFE ID longer than 2048 bytes"));
     }
@@ -627,8 +632,8 @@ fn parse_certificate(der: &[u8]) -> Result<x509_parser::certificate::X509Certifi
     }
 }
 
-fn fail(msg: &str) -> HandshakeError {
-    HandshakeError::Identity(format!("spiffe: {msg}"))
+fn fail(msg: &str) -> IdentityVerifyError {
+    IdentityVerifyError::Rejected(format!("spiffe: {msg}"))
 }
 
 #[derive(Debug, Deserialize)]
@@ -666,7 +671,7 @@ mod tests {
         alg: &str,
         mut jwk: Value,
         sign: &dyn Fn(&[u8]) -> Vec<u8>,
-    ) -> Result<(), HandshakeError> {
+    ) -> Result<(), IdentityVerifyError> {
         let sender = Aid::parse("aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik").unwrap();
         let receiver =
             Aid::parse("aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg").unwrap();

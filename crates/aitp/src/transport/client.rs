@@ -23,9 +23,9 @@ pub enum FetchError {
     /// one would be a breaking change.)
     #[error("manifest URL must be HTTPS and resolve to a permitted address")]
     InsecureUrl,
-    /// reqwest network error.
+    /// Network error.
     #[error("network error: {0}")]
-    Network(String),
+    Network(#[source] crate::core::BoxError),
     /// Response body could not be parsed.
     #[error("malformed json: {0}")]
     MalformedJson(String),
@@ -241,7 +241,7 @@ impl ManifestFetcher {
         }
         let url = peer_origin
             .join("/.well-known/aitp-manifest")
-            .map_err(|e| FetchError::Network(e.to_string()))?;
+            .map_err(|e| FetchError::Network(e.into()))?;
 
         // SSRF guard: classify every address the host resolves to, and
         // for domain hosts pin the vetted set into a per-fetch client
@@ -254,7 +254,7 @@ impl ManifestFetcher {
         } else {
             let addrs = self.host_guard.resolve_checked(&url).await.map_err(|e| {
                 if e.is_transient() {
-                    FetchError::Network(e.to_string())
+                    FetchError::Network(e.into())
                 } else {
                     warn!(error = %e, "manifest fetch rejected by host guard");
                     FetchError::InsecureUrl
@@ -325,7 +325,7 @@ impl ManifestFetcher {
                 if e.is_timeout() {
                     FetchError::Timeout
                 } else {
-                    FetchError::Network(e.to_string())
+                    FetchError::Network(e.into())
                 }
             })?;
         let status = resp.status();
@@ -349,7 +349,7 @@ impl ManifestFetcher {
         while let Some(chunk) = stream
             .chunk()
             .await
-            .map_err(|e| FetchError::Network(e.to_string()))?
+            .map_err(|e| FetchError::Network(e.into()))?
         {
             if body.len() + chunk.len() > max_bytes {
                 return Err(FetchError::OversizedResponse { limit: max_bytes });
@@ -465,7 +465,7 @@ pub enum JwksFetcherError {
     InsecureUrl,
     /// Network error.
     #[error("network error: {0}")]
-    Network(String),
+    Network(#[source] crate::core::BoxError),
     /// Response body could not be parsed.
     #[error("malformed JSON: {0}")]
     MalformedJson(String),
@@ -729,7 +729,7 @@ impl JwksFetcher {
 
         let discovery_url = normalized
             .join("/.well-known/openid-configuration")
-            .map_err(|e| JwksFetcherError::Network(e.to_string()))?;
+            .map_err(|e| JwksFetcherError::Network(e.into()))?;
         let discovery: serde_json::Value = self.fetch_https_json(&discovery_url).await?;
 
         // §3.5 iss URL normalization: the discovery document's
@@ -751,7 +751,7 @@ impl JwksFetcher {
             .and_then(|v| v.as_str())
             .ok_or_else(|| JwksFetcherError::MalformedJson("missing jwks_uri".into()))?;
         let jwks_url = Url::parse(jwks_uri_str)
-            .map_err(|e| JwksFetcherError::Network(format!("malformed jwks_uri: {e}")))?;
+            .map_err(|e| JwksFetcherError::Network(format!("malformed jwks_uri: {e}").into()))?;
         if jwks_url.scheme() != "https" {
             return Err(JwksFetcherError::InsecureUrl);
         }
@@ -776,7 +776,7 @@ impl JwksFetcher {
     ) -> Result<Vec<crate::handshake::JwkPublicKey>, JwksFetcherError> {
         let url = issuer
             .join("/.well-known/aitp-keys")
-            .map_err(|e| JwksFetcherError::Network(e.to_string()))?;
+            .map_err(|e| JwksFetcherError::Network(e.into()))?;
         let body: serde_json::Value = self.fetch_https_json(&url).await?;
         parse_jwks(&body)
     }
@@ -794,7 +794,7 @@ impl JwksFetcher {
         // client to close the DNS-rebinding window.
         let addrs = self.host_guard.resolve_checked(url).await.map_err(|e| {
             if e.is_transient() {
-                JwksFetcherError::Network(e.to_string())
+                JwksFetcherError::Network(e.into())
             } else {
                 warn!(error = %e, "JWKS fetch rejected by host guard");
                 JwksFetcherError::InsecureUrl
@@ -812,12 +812,12 @@ impl JwksFetcher {
             .get(url.clone())
             .send()
             .await
-            .map_err(|e| JwksFetcherError::Network(e.to_string()))?;
+            .map_err(|e| JwksFetcherError::Network(e.into()))?;
         let status = resp.status();
         if !status.is_success() {
-            return Err(JwksFetcherError::Network(format!(
-                "non-2xx response from {url}: {status}"
-            )));
+            return Err(JwksFetcherError::Network(
+                format!("non-2xx response from {url}: {status}").into(),
+            ));
         }
         // Stream with a hard cap. `resp.json()` would buffer the entire
         // body unbounded; the issuer host is peer-derived during key
@@ -829,7 +829,7 @@ impl JwksFetcher {
         while let Some(chunk) = stream
             .chunk()
             .await
-            .map_err(|e| JwksFetcherError::Network(e.to_string()))?
+            .map_err(|e| JwksFetcherError::Network(e.into()))?
         {
             if body.len() + chunk.len() > max_bytes {
                 return Err(JwksFetcherError::OversizedResponse { limit: max_bytes });

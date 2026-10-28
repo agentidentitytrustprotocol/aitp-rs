@@ -318,7 +318,7 @@ impl<'a, S: ?Sized + SignerAid> ManifestBuilder<'a, S> {
         let mut challenge_bytes = [0u8; 16];
         rand::rngs::SysRng
             .try_fill_bytes(&mut challenge_bytes)
-            .map_err(|e| ManifestError::Rng(e.to_string()))?;
+            .map_err(|e| ManifestError::Rng(e.into()))?;
         let challenge = base64url::encode(&challenge_bytes);
         debug_assert_eq!(
             challenge.len(),
@@ -537,7 +537,7 @@ impl<'a> From<&'a Manifest> for ManifestSigningView<'a> {
 pub(crate) fn manifest_signing_bytes(
     view: &ManifestSigningView<'_>,
 ) -> Result<Vec<u8>, ManifestError> {
-    jcs::canonicalize_serializable(view).map_err(|e| ManifestError::Canonicalization(e.to_string()))
+    jcs::canonicalize_serializable(view).map_err(ManifestError::Canonicalization)
 }
 
 impl Default for ManifestBuilder<'_> {

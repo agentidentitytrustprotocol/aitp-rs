@@ -131,7 +131,7 @@ impl RevocationProvider for EmptyRevocationProvider {
 pub enum RevocationError {
     /// Underlying network/transport error.
     #[error("network error: {0}")]
-    Network(String),
+    Network(#[source] crate::core::BoxError),
     /// Snapshot signature did not verify.
     #[error("snapshot signature invalid: {0}")]
     SignatureInvalid(TctError),
