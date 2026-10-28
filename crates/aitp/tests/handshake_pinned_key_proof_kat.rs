@@ -19,7 +19,7 @@
 
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::crypto::{AitpVerifyingKey, Signature};
-use aitp::handshake::identity_pinned::pinned_key_proof_input;
+use aitp::handshake::pinned_key_proof_input;
 use serde::Deserialize;
 use uuid::Uuid;
 

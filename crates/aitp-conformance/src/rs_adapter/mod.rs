@@ -986,12 +986,12 @@ fn verify_handshake_payload_op(state: &AdapterState, id: &str, params: Value) ->
 
     use aitp::__private::{apply_peer_policy, bootstrap_verify_peer};
     use aitp::__private::{check_members, from_serde_error};
-    use aitp::handshake::payloads::{
+    use aitp::handshake::HandshakeError;
+    use aitp::handshake::{
         MutualCommitAckPayload, MutualHelloAckPayload, MutualHelloPayload,
         MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS,
         MUTUAL_HELLO_PAYLOAD_MEMBERS,
     };
-    use aitp::handshake::HandshakeError;
 
     let hello_family = matches!(
         envelope.message_type,
@@ -1208,7 +1208,7 @@ fn verify_handshake_dual_peer(
             .cloned()
             .ok_or_else(|| HandshakeError::InvalidEnvelope("missing received_payload".into()))?;
         strip_claims_companions(&mut payload_value);
-        let payload: aitp::handshake::payloads::MutualCommitAckPayload =
+        let payload: aitp::handshake::MutualCommitAckPayload =
             serde_json::from_value(payload_value).map_err(|e| {
                 HandshakeError::InvalidEnvelope(format!("received_payload parse: {e}"))
             })?;
@@ -1254,7 +1254,7 @@ fn verify_handshake_dual_peer(
 /// pop-signature checks the spec mandates without the session
 /// state.
 fn verify_commit_ack_stateless(
-    payload: &aitp::handshake::payloads::MutualCommitAckPayload,
+    payload: &aitp::handshake::MutualCommitAckPayload,
     sender_aid: &Aid,
     self_aid: &Aid,
     now: aitp::core::Timestamp,

@@ -1,28 +1,4 @@
 //! Pluggable replay-detection store for one-time identifiers.
-//!
-//! AITP rejects replayed envelopes by remembering each `message_id`
-//! for the length of a freshness window (RFC-AITP-0001 §5.5). "Remembering" is the
-//! only stateful thing the server layer does that carries a *security*
-//! guarantee — so it is the one piece worth making the caller's to own.
-//!
-//! # Clustering
-//!
-//! The default [`InMemoryReplayGuard`] is **per-process**. A clustered
-//! deployment — several verifier instances behind a load balancer —
-//! MUST either use sticky routing or supply a **shared** implementation
-//! (e.g. Redis `SET key val NX EX <ttl>`). Otherwise a value replayed to
-//! a second instance is accepted, because the first instance holds the
-//! record. `aitp-rs` never persists this itself: the trait is the seam,
-//! the storage decision (in-memory, Redis, a database) belongs to the
-//! embedding framework.
-//!
-//! The trait is deliberately synchronous and keyed by `&str` with a
-//! [`Duration`] TTL: that preserves the in-memory implementation's exact
-//! behavior and maps one-to-one onto the `SET NX EX` primitive of every
-//! mainstream key-value store, so a backend implementation is a few
-//! lines. A backend that performs network I/O runs it on whatever
-//! bridge the caller's runtime provides — that is the caller's tradeoff
-//! to make, not one this library imposes.
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
@@ -31,7 +7,29 @@ use parking_lot::Mutex;
 
 /// A store that detects replayed one-time identifiers.
 ///
-/// See the [module docs](self) for the clustering contract.
+/// AITP rejects replayed envelopes by remembering each `message_id`
+/// for the length of a freshness window (RFC-AITP-0001 §5.5). "Remembering" is the
+/// only stateful thing the server layer does that carries a *security*
+/// guarantee — so it is the one piece worth making the caller's to own.
+///
+/// # Clustering
+///
+/// The default [`InMemoryReplayGuard`] is **per-process**. A clustered
+/// deployment — several verifier instances behind a load balancer —
+/// MUST either use sticky routing or supply a **shared** implementation
+/// (e.g. Redis `SET key val NX EX <ttl>`). Otherwise a value replayed to
+/// a second instance is accepted, because the first instance holds the
+/// record. `aitp-rs` never persists this itself: the trait is the seam,
+/// the storage decision (in-memory, Redis, a database) belongs to the
+/// embedding framework.
+///
+/// The trait is deliberately synchronous and keyed by `&str` with a
+/// [`Duration`] TTL: that preserves the in-memory implementation's exact
+/// behavior and maps one-to-one onto the `SET NX EX` primitive of every
+/// mainstream key-value store, so a backend implementation is a few
+/// lines. A backend that performs network I/O runs it on whatever
+/// bridge the caller's runtime provides — that is the caller's tradeoff
+/// to make, not one this library imposes.
 pub trait ReplayGuard: Send + Sync {
     /// Atomically record `key` for `ttl` **iff** it has not been seen
     /// within its window. Returns `true` if the key is **fresh** (and is
@@ -45,7 +43,7 @@ pub trait ReplayGuard: Send + Sync {
 /// In-memory [`ReplayGuard`] — the default. Bounded by the traffic in
 /// the active window; expired entries are swept on every check. Uses a
 /// monotonic clock internally, so it is immune to wall-clock jumps but
-/// is not shareable across processes (see the [module docs](self)).
+/// is not shareable across processes (see [`ReplayGuard`]).
 #[derive(Default)]
 pub struct InMemoryReplayGuard {
     /// key → expiry instant (insertion time + that call's `ttl`).

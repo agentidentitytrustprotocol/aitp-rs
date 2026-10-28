@@ -44,7 +44,7 @@ pub enum HandshakeError {
         /// The underlying resolution failure (e.g. the [`ResolveError`]
         /// display string).
         ///
-        /// [`ResolveError`]: crate::handshake::identity_oidc::ResolveError
+        /// [`ResolveError`]: crate::handshake::ResolveError
         reason: String,
     },
     /// `pop_nonce_echo` did not match own previously sent nonce.

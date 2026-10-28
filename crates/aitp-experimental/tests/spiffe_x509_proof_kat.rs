@@ -4,7 +4,7 @@
 
 use aitp::core::{Aid, Timestamp};
 use aitp::crypto::{AitpVerifyingKey, Digest32, Signature};
-use aitp::handshake::identity_pinned::pinned_key_proof_input;
+use aitp::handshake::pinned_key_proof_input;
 use aitp_experimental::spiffe::spiffe_x509_proof_input;
 use serde_json::Value;
 use uuid::Uuid;

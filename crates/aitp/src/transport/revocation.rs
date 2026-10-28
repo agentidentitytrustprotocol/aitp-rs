@@ -295,7 +295,7 @@ impl Default for RevocationPolicy {
 
 /// Verify a fetched snapshot for `issuer` at `now`: signature, expiry and
 /// structure (RFC-AITP-0008 §1.5), then `max_staleness` (§3.2).
-/// Used by [`crate::transport::revocation_fetch::RevocationFetcher`].
+/// Used by [`crate::transport::RevocationFetcher`].
 pub(crate) fn verify_snapshot(
     env: &RevocationListEnvelope,
     issuer: &Aid,

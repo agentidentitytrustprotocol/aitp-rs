@@ -13,7 +13,7 @@
 
 use aitp::core::{AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::state_machine::GrantPolicyFn;
+use aitp::handshake::GrantPolicyFn;
 use aitp::handshake::{IdentityDescriptor, IdentityKind};
 use aitp::handshake::{
     Initiator, JwkPublicKey, JwksResolver, PeerConfig, PresentedIdentity, ResolveError, Responder,

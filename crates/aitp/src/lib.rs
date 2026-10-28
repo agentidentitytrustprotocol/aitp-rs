@@ -24,7 +24,10 @@
 //!   RFC-AITP-0009).
 //! - `facade` (feature `http-client`): `run_initiator_handshake`,
 //!   `TctStore`.
-//! - [`prelude`]: the most common types.
+//!
+//! Each public item has one path, normally its module root
+//! (`aitp::tct::TctBuilder`, `aitp::transport::HostGuard`); STABILITY.md,
+//! "Public paths", lists the namespace submodules.
 //!
 //! The stable surface (STABILITY.md) is frozen, with signatures, in
 //! `crates/aitp/public-api.stable.txt` and checked in CI. Features named
@@ -35,7 +38,7 @@
 //!
 //! ```
 //! use aitp::core::Timestamp;
-//! use aitp::prelude::*;
+//! use aitp::crypto::AitpSigningKey;
 //! use aitp::tct::{verify_tct, RevocationSource, TctBuilder, TctVerifyContext};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -89,15 +92,3 @@ pub mod facade;
 
 #[doc(hidden)]
 pub mod __private;
-
-/// Convenience re-exports of the most common types.
-pub mod prelude {
-    pub use crate::core::{Aid, AitpEnvelope, Timestamp};
-    pub use crate::crypto::{
-        check_public_key, check_public_key_async, sign_jcs, sign_jcs_async, sign_raw,
-        sign_raw_async, AitpSigner, AitpSigningKey, AitpVerifyingKey, AsyncAitpSigner,
-        BackendSignature, BlockingSigner, DynAsyncAitpSigner, SignRequest, SignerError,
-    };
-    pub use crate::manifest::Manifest;
-    pub use crate::tct::{IssuedTct, TctBuilder, TctClaims, VerifiedTct};
-}

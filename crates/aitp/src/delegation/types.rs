@@ -50,7 +50,7 @@ pub struct DelegationClaims {
 /// [`crate::delegation::verify_delegation`] rejects after this check. Used by the claim-set check
 /// (RFC-AITP-0001 §7 / RFC-AITP-0005 §7.2) performed on the decoded JWS
 /// payload — before AID-pinned `alg` checking and signature verification
-/// — by [`crate::delegation::verifier::verify_delegation`]'s unverified peek.
+/// — by [`crate::delegation::verify_delegation`]'s unverified peek.
 ///
 /// Anchored to the vendored schema by `crates/aitp/tests/delegation_schema.rs`,
 /// which asserts this list equals the schema's top-level `properties`

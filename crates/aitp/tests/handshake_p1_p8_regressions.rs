@@ -23,14 +23,12 @@
 use aitp::__private::bootstrap_verify_peer;
 use aitp::core::{base64url, AitpEnvelope, MessageType, Timestamp};
 use aitp::crypto::AitpSigningKey;
-use aitp::handshake::identity_pinned::{
-    sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext,
-};
-use aitp::handshake::state_machine::{GrantPolicyFn, StaticPinnedKeyStore};
+use aitp::handshake::{sign_pinned_key_proof, verify_pinned_key, PinnedKeyVerifyContext};
 use aitp::handshake::{
     verify_oidc, HandshakeError, IdentityDescriptor, JwkPublicKey, JwksResolver, OidcVerifyContext,
     PeerConfig, PresentedIdentity, ResolveError,
 };
+use aitp::handshake::{GrantPolicyFn, StaticPinnedKeyStore};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use uuid::Uuid;
 

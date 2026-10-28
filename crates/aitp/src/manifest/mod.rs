@@ -16,11 +16,11 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod builder;
-pub mod error;
-pub mod resolver;
-pub mod types;
-pub mod verifier;
+pub(crate) mod builder;
+pub(crate) mod error;
+pub(crate) mod resolver;
+pub(crate) mod types;
+pub(crate) mod verifier;
 
 pub use builder::{ManifestBuilder, DEFAULT_MANIFEST_TTL, REVOCATION_LIST_URI_EXT};
 pub use error::ManifestError;

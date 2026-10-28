@@ -98,7 +98,7 @@ pub struct Manifest {
 
 /// Full set of top-level members `aitp-manifest.schema.json`'s inner
 /// `manifest` object declares, including the `extensions` namespace key
-/// itself. Used by [`crate::manifest::verifier::parse_manifest_wire`]'s member-set
+/// itself. Used by [`crate::manifest::parse_manifest_wire`]'s member-set
 /// check (RFC-AITP-0001 §7).
 ///
 /// Anchored to the vendored schema by `crates/aitp/tests/manifest_schema.rs`,

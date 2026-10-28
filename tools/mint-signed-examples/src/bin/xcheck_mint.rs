@@ -305,8 +305,7 @@ fn mint_p256_vectors() -> serde_json::Value {
     )
     .expect("sign p256 envelope");
     let envelope_double_hash = {
-        let digest =
-            aitp::core::envelope::envelope_signing_digest(&envelope).expect("envelope digest");
+        let digest = aitp::core::envelope_signing_digest(&envelope).expect("envelope digest");
         let mut e = envelope.clone();
         e.signature = double_hash_signature(&digest);
         e

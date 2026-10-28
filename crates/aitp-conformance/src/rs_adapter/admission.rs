@@ -11,10 +11,10 @@
 //! its nonce store.
 
 use super::{checked, err, peek_token_aid_claim, trust_store_param, AdapterState};
+use aitp::core::nonce_store::{InMemoryNonceStore, IssuedNonce, NonceStore};
 use aitp::core::{base64url, Aid, Timestamp};
 use aitp::handshake::admission::{
-    AdmissionError, ChallengeRateLimiter, ChallengeSource, InMemoryNonceStore, IssuedNonce,
-    NonceStore, PinnedAdmission, TokenBucketLimiter,
+    AdmissionError, ChallengeRateLimiter, ChallengeSource, PinnedAdmission, TokenBucketLimiter,
 };
 use serde_json::{json, Value};
 use std::future::Future;

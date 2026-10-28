@@ -109,7 +109,7 @@ def shape(item: dict) -> tuple[str, str]:
 
 
 def preferred(paths: list[str]) -> str:
-    return min(paths, key=lambda p: (p.startswith("aitp::prelude::"), p.count("::"), p))
+    return min(paths, key=lambda p: (p.count("::"), p))
 
 
 def current(target_dir: Path) -> dict[str, tuple[str, str]]:

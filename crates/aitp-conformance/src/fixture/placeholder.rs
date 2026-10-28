@@ -1164,7 +1164,7 @@ const OIDC_TEST_ADAPTER_FALLBACK_AUD: &str =
     "aid:pubkey:O2onvM62pC1io6jQKm8Nc2UyFXcd4kOmOsBIoYtZ2ik";
 
 /// Mint an OIDC-profile JWT (RFC-AITP-0002 §2) acceptable to
-/// `aitp::handshake::identity_oidc::verify_oidc`. Ported from
+/// `aitp::handshake::verify_oidc`. Ported from
 /// `crates/aitp/tests/handshake_fixtures/mock_oidc.rs`'s
 /// `MockOidcIssuer::mint_jwt`/`mint_aitp_jwt` (test-only there,
 /// unreachable from this crate as a module import) — same hand-built

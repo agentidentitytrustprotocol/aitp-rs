@@ -25,13 +25,13 @@ use std::pin::Pin;
 use std::sync::{Arc, Mutex, RwLock};
 use std::time::Duration;
 
+use aitp::core::nonce_store::{
+    ConsumeOutcome, InMemoryNonceStore, IssuedNonce, NonceStore, NonceStoreError,
+};
 use aitp::core::{base64url, parse_envelope_wire, Aid, CheckedJson, MessageType, Timestamp};
 use aitp::crypto::{jws, AitpSigningKey, AitpVerifyingKey, Digest32};
 use aitp::envelope::{sign_envelope, verify_envelope_signature};
-use aitp::handshake::admission::{
-    ChallengeSource, ConsumeOutcome, InMemoryNonceStore, IssuedNonce, NonceStore, NonceStoreError,
-    TokenBucketLimiter,
-};
+use aitp::handshake::admission::{ChallengeSource, TokenBucketLimiter};
 use aitp::handshake::{JwkPublicKey, JwksResolver, PinnedKeyStore, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder};
 use aitp::tct::{

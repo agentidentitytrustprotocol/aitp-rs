@@ -1,42 +1,4 @@
 //! Outbound-fetch host guard: SSRF defense for peer-derived URLs.
-//!
-//! Several client fetch paths in this crate GET a URL whose host the
-//! *peer* controls (`peer_origin` for `/.well-known/aitp-manifest`,
-//! issuer hosts for `/.well-known/aitp-keys`). Without a guard, a
-//! peer origin can steer those GETs at internal infrastructure — cloud
-//! metadata services (`169.254.169.254`), RFC 1918 hosts, loopback
-//! daemons — a server-side request forgery (SSRF) pattern.
-//!
-//! [`HostGuard`] classifies every address a URL's host resolves to and
-//! applies a [`GuardMode`]:
-//!
-//! - Addresses no legitimate AITP peer can occupy — unspecified,
-//!   broadcast, multicast, and link-local (which includes the cloud
-//!   metadata range) — are **always rejected** (except under
-//!   [`GuardMode::AllowAll`]).
-//! - *Private* addresses (loopback, RFC 1918, CGNAT `100.64/10`, IPv6
-//!   unique-local) are rejected by the default mode
-//!   ([`GuardMode::DenyPrivate`]). Intranet agent-to-agent deployments
-//!   opt in to [`GuardMode::WarnPrivate`] (allow with a warning) with
-//!   `HostGuard::new(GuardMode::WarnPrivate)`.
-//!
-//! # Loopback
-//!
-//! [`HostGuard::allow_loopback_dangerous`] admits loopback addresses
-//! (`127.0.0.0/8`, `::1`) and only those, whatever the mode; the other
-//! private ranges still follow the mode. The fetchers' local-development
-//! switch (`with_insecure_localhost_dangerous` on
-//! [`ManifestFetcher`](crate::transport::ManifestFetcher),
-//! [`RevocationFetcher`](crate::transport::RevocationFetcher) and
-//! [`InitiatorConfig`](crate::facade::InitiatorConfig)) applies the same
-//! loopback allowance to the guard it uses, so a demo on
-//! `http://localhost` needs that one opt-in.
-//!
-//! The vetted addresses are returned so callers can **pin** them into
-//! the HTTP client (`reqwest::ClientBuilder::resolve_to_addrs`),
-//! closing the DNS-rebinding TOCTOU window between this check and the
-//! actual connection: the connection can only go to an address that
-//! passed classification.
 
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
@@ -45,7 +7,7 @@ use url::{Host, Url};
 
 /// How the guard treats *private* (but not always-forbidden) addresses.
 ///
-/// See the [module docs](self) for the address classes.
+/// See [`HostGuard`] for the address classes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum GuardMode {
@@ -61,6 +23,44 @@ pub enum GuardMode {
 }
 
 /// SSRF guard for outbound fetches whose URL a peer controls.
+///
+/// Several client fetch paths in this crate GET a URL whose host the
+/// *peer* controls (`peer_origin` for `/.well-known/aitp-manifest`,
+/// issuer hosts for `/.well-known/aitp-keys`). Without a guard, a
+/// peer origin can steer those GETs at internal infrastructure — cloud
+/// metadata services (`169.254.169.254`), RFC 1918 hosts, loopback
+/// daemons — a server-side request forgery (SSRF) pattern.
+///
+/// [`HostGuard`] classifies every address a URL's host resolves to and
+/// applies a [`GuardMode`]:
+///
+/// - Addresses no legitimate AITP peer can occupy — unspecified,
+///   broadcast, multicast, and link-local (which includes the cloud
+///   metadata range) — are **always rejected** (except under
+///   [`GuardMode::AllowAll`]).
+/// - *Private* addresses (loopback, RFC 1918, CGNAT `100.64/10`, IPv6
+///   unique-local) are rejected by the default mode
+///   ([`GuardMode::DenyPrivate`]). Intranet agent-to-agent deployments
+///   opt in to [`GuardMode::WarnPrivate`] (allow with a warning) with
+///   `HostGuard::new(GuardMode::WarnPrivate)`.
+///
+/// # Loopback
+///
+/// [`HostGuard::allow_loopback_dangerous`] admits loopback addresses
+/// (`127.0.0.0/8`, `::1`) and only those, whatever the mode; the other
+/// private ranges still follow the mode. The fetchers' local-development
+/// switch (`with_insecure_localhost_dangerous` on
+/// [`ManifestFetcher`](crate::transport::ManifestFetcher),
+/// [`RevocationFetcher`](crate::transport::RevocationFetcher) and
+/// [`InitiatorConfig`](crate::facade::InitiatorConfig)) applies the same
+/// loopback allowance to the guard it uses, so a demo on
+/// `http://localhost` needs that one opt-in.
+///
+/// The vetted addresses are returned so callers can **pin** them into
+/// the HTTP client (`reqwest::ClientBuilder::resolve_to_addrs`),
+/// closing the DNS-rebinding TOCTOU window between this check and the
+/// actual connection: the connection can only go to an address that
+/// passed classification.
 #[derive(Debug, Clone)]
 pub struct HostGuard {
     mode: GuardMode,
@@ -72,7 +72,7 @@ impl Default for HostGuard {
     /// module docs.
     ///
     /// ```
-    /// use aitp::transport::net_guard::{HostGuard, GuardMode};
+    /// use aitp::transport::{HostGuard, GuardMode};
     ///
     /// assert_eq!(HostGuard::default().mode(), GuardMode::DenyPrivate);
     /// ```
@@ -207,7 +207,7 @@ impl HostGuard {
     /// development and tests whose peers run on the same host.
     ///
     /// ```
-    /// use aitp::transport::net_guard::{HostGuard, GuardMode};
+    /// use aitp::transport::{HostGuard, GuardMode};
     ///
     /// let guard = HostGuard::default().allow_loopback_dangerous();
     /// assert_eq!(guard.mode(), GuardMode::DenyPrivate);

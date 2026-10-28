@@ -1,80 +1,4 @@
 //! SHA-256 SPKI certificate pinning for outbound HTTPS.
-//!
-//! Air-gapped deployments and high-security paths sometimes need the
-//! outbound client to refuse any TLS peer whose end-entity certificate
-//! does not present a known `SubjectPublicKeyInfo` hash. This is the
-//! pinning model defined by [RFC 7469] (HPKP) — the public-key bytes
-//! are stable across cert rotations as long as the operator re-uses
-//! the same keypair, so the pin survives routine cert renewal.
-//!
-//! Use via [`crate::transport::ClientConfig::with_spki_pin`].
-//!
-//! # Threat model
-//!
-//! When at least one pin is registered, [`SpkiPinVerifier`] **replaces
-//! the WebPKI chain validator** but **still requires the server to
-//! prove possession of the pinned key**. The verifier:
-//!
-//! - Accepts a presented end-entity cert iff its SPKI SHA-256 is in
-//!   the pin list. There is no fallback to the OS root store.
-//! - Delegates the TLS 1.2 / 1.3 handshake signature verification to
-//!   the active rustls `CryptoProvider`. This is what proves the
-//!   peer holds the cert's private key, not merely a copy of the
-//!   public cert.
-//!
-//! Skipping signature verification is unsafe — a public certificate
-//! can be captured by anyone, so without the handshake-sig check,
-//! pinning would only verify that the attacker possesses the same
-//! public bytes anyone could fetch.
-//!
-//! - This protects against rogue CAs and MITM via stolen
-//!   intermediates: even a valid chain to a trusted root is rejected
-//!   if the leaf's SPKI is not pinned.
-//! - It does **not** check hostname or expiry; the operator is
-//!   accepting that the pinned key is the authoritative identifier.
-//!   Rotate pins out of band when keys rotate.
-//!
-//! # SPKI hash
-//!
-//! The SPKI is the DER-encoded `SubjectPublicKeyInfo` field exactly
-//! as it appears in the certificate's TBS structure. The pin is
-//! `SHA-256(SPKI_DER)`, 32 bytes. To compute one for a server you
-//! control:
-//!
-//! ```bash
-//! openssl x509 -in server.crt -pubkey -noout \
-//!   | openssl pkey -pubin -outform DER \
-//!   | openssl dgst -sha256 -binary \
-//!   | xxd -p -c 64
-//! ```
-//!
-//! # Wiring into an HTTP client
-//!
-//! Compute the pin once (offline, from the server's certificate DER),
-//! then register it on a [`crate::transport::ClientConfig`] so a fetcher's client
-//! accepts only that SPKI — or build a raw `rustls::ClientConfig` for
-//! use with `reqwest` directly:
-//!
-//! ```ignore
-//! use aitp::transport::{
-//!     build_pinning_client_config, compute_spki_hash, ClientConfig, ManifestFetcher,
-//! };
-//!
-//! // `server_cert_der` is the DER-encoded server certificate.
-//! let pin = compute_spki_hash(&server_cert_der).expect("valid certificate");
-//!
-//! // Option A — let a fetcher own the pinned client:
-//! let cfg = ClientConfig::default().with_spki_pin(pin);
-//! let fetcher = ManifestFetcher::new().with_client_config(cfg);
-//!
-//! // Option B — build a rustls config and hand it to reqwest yourself:
-//! let tls = build_pinning_client_config(vec![pin]);
-//! let client = reqwest::Client::builder()
-//!     .use_preconfigured_tls(tls)
-//!     .build()?;
-//! ```
-//!
-//! [RFC 7469]: https://www.rfc-editor.org/rfc/rfc7469
 
 use std::sync::Arc;
 
@@ -121,6 +45,82 @@ pub fn compute_spki_hash(cert_der: &[u8]) -> Option<SpkiHash> {
 /// [`SpkiPinVerifier::with_provider`] for explicit provider
 /// selection. Wire into a [`rustls::ClientConfig`] via
 /// `with_custom_certificate_verifier(Arc::new(verifier))`.
+///
+/// Air-gapped deployments and high-security paths sometimes need the
+/// outbound client to refuse any TLS peer whose end-entity certificate
+/// does not present a known `SubjectPublicKeyInfo` hash. This is the
+/// pinning model defined by [RFC 7469] (HPKP) — the public-key bytes
+/// are stable across cert rotations as long as the operator re-uses
+/// the same keypair, so the pin survives routine cert renewal.
+///
+/// Use via [`crate::transport::ClientConfig::with_spki_pin`].
+///
+/// # Threat model
+///
+/// When at least one pin is registered, [`SpkiPinVerifier`] **replaces
+/// the WebPKI chain validator** but **still requires the server to
+/// prove possession of the pinned key**. The verifier:
+///
+/// - Accepts a presented end-entity cert iff its SPKI SHA-256 is in
+///   the pin list. There is no fallback to the OS root store.
+/// - Delegates the TLS 1.2 / 1.3 handshake signature verification to
+///   the active rustls `CryptoProvider`. This is what proves the
+///   peer holds the cert's private key, not merely a copy of the
+///   public cert.
+///
+/// Skipping signature verification is unsafe — a public certificate
+/// can be captured by anyone, so without the handshake-sig check,
+/// pinning would only verify that the attacker possesses the same
+/// public bytes anyone could fetch.
+///
+/// - This protects against rogue CAs and MITM via stolen
+///   intermediates: even a valid chain to a trusted root is rejected
+///   if the leaf's SPKI is not pinned.
+/// - It does **not** check hostname or expiry; the operator is
+///   accepting that the pinned key is the authoritative identifier.
+///   Rotate pins out of band when keys rotate.
+///
+/// # SPKI hash
+///
+/// The SPKI is the DER-encoded `SubjectPublicKeyInfo` field exactly
+/// as it appears in the certificate's TBS structure. The pin is
+/// `SHA-256(SPKI_DER)`, 32 bytes. To compute one for a server you
+/// control:
+///
+/// ```bash
+/// openssl x509 -in server.crt -pubkey -noout \
+///   | openssl pkey -pubin -outform DER \
+///   | openssl dgst -sha256 -binary \
+///   | xxd -p -c 64
+/// ```
+///
+/// # Wiring into an HTTP client
+///
+/// Compute the pin once (offline, from the server's certificate DER),
+/// then register it on a [`crate::transport::ClientConfig`] so a fetcher's client
+/// accepts only that SPKI — or build a raw `rustls::ClientConfig` for
+/// use with `reqwest` directly:
+///
+/// ```ignore
+/// use aitp::transport::{
+///     build_pinning_client_config, compute_spki_hash, ClientConfig, ManifestFetcher,
+/// };
+///
+/// // `server_cert_der` is the DER-encoded server certificate.
+/// let pin = compute_spki_hash(&server_cert_der).expect("valid certificate");
+///
+/// // Option A — let a fetcher own the pinned client:
+/// let cfg = ClientConfig::default().with_spki_pin(pin);
+/// let fetcher = ManifestFetcher::new().with_client_config(cfg);
+///
+/// // Option B — build a rustls config and hand it to reqwest yourself:
+/// let tls = build_pinning_client_config(vec![pin]);
+/// let client = reqwest::Client::builder()
+///     .use_preconfigured_tls(tls)
+///     .build()?;
+/// ```
+///
+/// [RFC 7469]: https://www.rfc-editor.org/rfc/rfc7469
 #[derive(Debug)]
 pub struct SpkiPinVerifier {
     pins: Vec<SpkiHash>,

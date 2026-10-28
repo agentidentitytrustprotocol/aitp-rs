@@ -24,16 +24,16 @@
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
-pub mod aid;
+pub(crate) mod aid;
 pub mod base64url;
-pub mod envelope;
-pub mod error;
-pub mod extensions;
+pub(crate) mod envelope;
+pub(crate) mod error;
+pub(crate) mod extensions;
 pub mod ids;
 pub mod jcs;
 pub mod nonce_store;
-pub mod raw_url;
-pub mod time;
+pub(crate) mod raw_url;
+pub(crate) mod time;
 pub(crate) mod unknown_field;
 
 pub use aid::{Aid, AidAlgorithm, AidParseError};
@@ -45,7 +45,6 @@ pub use envelope::{
 };
 pub use error::{ErrorCode, UnknownErrorCode};
 pub use extensions::ExtensionsMap;
-pub use nonce_store::{InMemoryNonceStore, NonceStore};
 pub use raw_url::RawUrl;
 pub use time::Timestamp;
 pub(crate) use unknown_field::{check_members, from_serde_error, reject_duplicate_keys};

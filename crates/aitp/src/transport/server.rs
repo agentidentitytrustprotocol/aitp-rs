@@ -14,7 +14,7 @@ use crate::handshake::{
 };
 use crate::manifest::{Manifest, ManifestEnvelope};
 use crate::tct::RevocationListEnvelope;
-pub use crate::transport::source_ip::{resolve_source_ip, TrustedProxy, TrustedProxyParseError};
+use crate::transport::source_ip::{resolve_source_ip, TrustedProxy};
 use axum::{
     body::{to_bytes, Body},
     extract::{Request, State},
@@ -361,7 +361,7 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// Replay deny list (RFC-AITP-0001 §5.5). Every accepted envelope's
     /// `message_id` is recorded for `replay_window`; a duplicate within
     /// that window is rejected with `REPLAY_DETECTED`. Backed by a
-    /// pluggable [`ReplayGuard`](crate::transport::replay_store::ReplayGuard):
+    /// pluggable [`ReplayGuard`](crate::transport::ReplayGuard):
     /// the default is per-process in-memory, but a clustered deployment
     /// supplies a shared store via
     /// [`HandshakeServer::with_replay_guard`] (see [`crate::transport::replay_store`]).
@@ -673,9 +673,9 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
 
     /// Replace the envelope replay-detection store (RFC-AITP-0001 §5.5).
     /// The default is per-process in-memory; a **clustered** deployment
-    /// MUST supply a shared [`ReplayGuard`](crate::transport::replay_store::ReplayGuard)
+    /// MUST supply a shared [`ReplayGuard`](crate::transport::ReplayGuard)
     /// (e.g. Redis) or use sticky routing, otherwise a message replayed
-    /// to a second instance is accepted. See [`crate::transport::replay_store`] for the clustering contract.
+    /// to a second instance is accepted. See [`ReplayGuard`](crate::transport::ReplayGuard) for the clustering contract.
     pub fn with_replay_guard(
         self,
         guard: Arc<dyn crate::transport::replay_store::ReplayGuard>,
