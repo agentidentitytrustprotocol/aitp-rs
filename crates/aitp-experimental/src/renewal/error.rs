@@ -1,9 +1,80 @@
 //! TCT renewal error types.
 
+use std::fmt;
+use std::str::FromStr;
+
 use aitp::core::nonce_store::NonceStoreError;
-use aitp::core::ErrorCode;
+use aitp::core::{ErrorCode, UnknownErrorCode};
 use aitp::crypto::CryptoError;
 use aitp::tct::TctError;
+
+/// The code a renewal error carries: a code of the core registry, or
+/// the one RFC-AITP-0013 §8 registers for renewal. It serializes as the
+/// registered wire string.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[non_exhaustive]
+pub enum RenewalErrorCode {
+    /// A code of the core registry (RFC-AITP-0001).
+    Registered(ErrorCode),
+    /// `RENEWAL_UNAVAILABLE` (§8): an issuer-side dependency the
+    /// renewal must consult, its revocation state (§4 step 4) or its
+    /// renewal nonce store (§5), was unavailable. Retryable.
+    RenewalUnavailable,
+}
+
+impl RenewalErrorCode {
+    /// The registered wire string.
+    pub const fn as_str(&self) -> &'static str {
+        match self {
+            Self::Registered(code) => code.as_str(),
+            Self::RenewalUnavailable => "RENEWAL_UNAVAILABLE",
+        }
+    }
+
+    /// Whether the registry marks the code retryable.
+    pub fn is_retryable(&self) -> bool {
+        match self {
+            Self::Registered(code) => code.is_retryable(),
+            Self::RenewalUnavailable => true,
+        }
+    }
+}
+
+impl From<ErrorCode> for RenewalErrorCode {
+    fn from(code: ErrorCode) -> Self {
+        Self::Registered(code)
+    }
+}
+
+impl fmt::Display for RenewalErrorCode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for RenewalErrorCode {
+    type Err = UnknownErrorCode;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "RENEWAL_UNAVAILABLE" => Ok(Self::RenewalUnavailable),
+            _ => s.parse().map(Self::Registered),
+        }
+    }
+}
+
+impl serde::Serialize for RenewalErrorCode {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for RenewalErrorCode {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        let s = String::deserialize(deserializer)?;
+        s.parse().map_err(serde::de::Error::custom)
+    }
+}
 
 /// Why the issuer refused a renewal request, or the holder could not
 /// build one (RFC-AITP-0013 §3, §4).
@@ -45,17 +116,21 @@ pub enum RenewalError {
 }
 
 impl RenewalError {
-    /// The registered code (RFC-AITP-0013 §4, §8). A local fault
+    /// The registered code (RFC-AITP-0013 §4, §8). A nonce store
+    /// failure (§5) or unavailable revocation state (§4 step 4) is
+    /// [`RenewalErrorCode::RenewalUnavailable`]. Another local fault
     /// ([`Self::is_local_fault`]) is answered with a retryable error,
     /// not this code.
-    pub fn error_code(&self) -> ErrorCode {
+    pub fn error_code(&self) -> RenewalErrorCode {
         match self {
-            Self::RequestMalformed(_) | Self::NonceMalformed(_) => ErrorCode::PopResponseInvalid,
-            Self::Replayed => ErrorCode::ReplayDetected,
-            Self::GrantsWithdrawn => ErrorCode::PolicyViolation,
-            Self::NonceStore(_) => ErrorCode::InvalidEnvelope,
+            Self::RequestMalformed(_) | Self::NonceMalformed(_) => {
+                ErrorCode::PopResponseInvalid.into()
+            }
+            Self::Replayed => ErrorCode::ReplayDetected.into(),
+            Self::GrantsWithdrawn => ErrorCode::PolicyViolation.into(),
+            Self::NonceStore(_) => RenewalErrorCode::RenewalUnavailable,
             Self::Tct(e) => tct_error_code(e),
-            Self::Envelope(_) => ErrorCode::InvalidEnvelope,
+            Self::Envelope(_) => ErrorCode::InvalidEnvelope.into(),
         }
     }
 
@@ -72,10 +147,11 @@ impl RenewalError {
 }
 
 /// The registered code for a TCT check failing during renewal.
-pub(crate) fn tct_error_code(err: &TctError) -> ErrorCode {
-    match err {
+pub(crate) fn tct_error_code(err: &TctError) -> RenewalErrorCode {
+    let code = match err {
         TctError::PopFailed => ErrorCode::PopResponseInvalid,
-        TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
+        TctError::Revoked => ErrorCode::TctRevoked,
+        TctError::RevocationUnavailable(_) => return RenewalErrorCode::RenewalUnavailable,
         TctError::SafeSubsetEmpty => ErrorCode::PolicyViolation,
         TctError::Expired => ErrorCode::TctExpired,
         TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
@@ -93,7 +169,8 @@ pub(crate) fn tct_error_code(err: &TctError) -> ErrorCode {
         // other than `sub`, `jti` layout, self-issued or attestation
         // marker: not a TCT this issuer issued (§4 step 2).
         _ => ErrorCode::TctSignatureInvalid,
-    }
+    };
+    code.into()
 }
 
 /// Why the holder rejected a renewal response (RFC-AITP-0013 §6.1).
@@ -131,10 +208,10 @@ pub enum RenewalResponseError {
     GrantOverflow,
     /// The issuer refused the renewal with an `error` envelope that
     /// passed steps 1 and 2.
-    #[error("issuer refused renewal: {code:?}: {reason}")]
+    #[error("issuer refused renewal: {code}: {reason}")]
     Refused {
         /// The code the issuer sent.
-        code: ErrorCode,
+        code: RenewalErrorCode,
         /// The issuer's informational text.
         reason: String,
         /// Whether the issuer marked the failure retryable.
@@ -145,8 +222,8 @@ pub enum RenewalResponseError {
 impl RenewalResponseError {
     /// The registered code (RFC-AITP-0013 §8). For [`Self::Refused`],
     /// the issuer's code.
-    pub fn error_code(&self) -> ErrorCode {
-        match self {
+    pub fn error_code(&self) -> RenewalErrorCode {
+        let code = match self {
             Self::InvalidEnvelope(_) => ErrorCode::InvalidEnvelope,
             Self::UnknownField(_) => ErrorCode::UnknownField,
             Self::TimestampExpired => ErrorCode::TimestampExpired,
@@ -154,10 +231,34 @@ impl RenewalResponseError {
             Self::PeerMismatch => ErrorCode::PeerMismatch,
             Self::NonceMismatch => ErrorCode::NonceMismatch,
             Self::Tct(TctError::AudienceMismatch) => ErrorCode::AudienceMismatch,
-            Self::Tct(e) => tct_error_code(e),
+            Self::Tct(e) => return tct_error_code(e),
             Self::AudienceMismatch => ErrorCode::AudienceMismatch,
             Self::GrantOverflow => ErrorCode::GrantOverflow,
-            Self::Refused { code, .. } => *code,
+            Self::Refused { code, .. } => return *code,
+        };
+        code.into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn renewal_codes_round_trip_as_their_wire_strings() {
+        for (code, wire) in [
+            (RenewalErrorCode::RenewalUnavailable, "RENEWAL_UNAVAILABLE"),
+            (ErrorCode::TctRevoked.into(), "TCT_REVOKED"),
+        ] {
+            let json = serde_json::to_value(code).unwrap();
+            assert_eq!(json, wire);
+            assert_eq!(
+                serde_json::from_value::<RenewalErrorCode>(json).unwrap(),
+                code
+            );
+            assert_eq!(wire.parse::<RenewalErrorCode>().unwrap(), code);
         }
+        assert!(RenewalErrorCode::RenewalUnavailable.is_retryable());
+        assert!("NOT_A_CODE".parse::<RenewalErrorCode>().is_err());
     }
 }

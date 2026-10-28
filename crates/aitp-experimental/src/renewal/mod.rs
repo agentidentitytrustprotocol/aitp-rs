@@ -40,7 +40,7 @@ mod client;
 #[cfg(feature = "http-server")]
 mod server;
 
-pub use error::{RenewalError, RenewalResponseError};
+pub use error::{RenewalError, RenewalErrorCode, RenewalResponseError};
 pub use holder::{
     build_renewal_request, verify_renewal_response, RenewalResponseContext, RenewedTct,
 };

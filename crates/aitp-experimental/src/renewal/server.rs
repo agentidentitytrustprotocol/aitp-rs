@@ -16,10 +16,10 @@
 use crate::renewal::{
     parse_renewal_request, process_renewal_request, renew_uri_from_manifest,
     renewal_error_envelope, renewal_response_envelope, RenewalContext, RenewalError,
-    RenewalGrantPolicyFn, RENEW_URI_EXT,
+    RenewalErrorCode, RenewalGrantPolicyFn, RENEW_URI_EXT,
 };
 use aitp::__private::DEFAULT_MAX_BODY_BYTES;
-use aitp::core::nonce_store::{NonceStore, NonceStoreError};
+use aitp::core::nonce_store::NonceStore;
 use aitp::core::{ErrorCode, Timestamp};
 use aitp::crypto::AitpSigner;
 use aitp::manifest::Manifest;
@@ -192,7 +192,7 @@ async fn handle_renew(State(state): State<Arc<RouteState>>, request: Request) ->
             return refusal(
                 signer,
                 StatusCode::INTERNAL_SERVER_ERROR,
-                ErrorCode::InvalidEnvelope,
+                ErrorCode::InvalidEnvelope.into(),
                 "internal error: no client address for the rate limit",
                 true,
             );
@@ -217,7 +217,7 @@ async fn handle_renew(State(state): State<Arc<RouteState>>, request: Request) ->
         return refusal(
             signer,
             StatusCode::BAD_REQUEST,
-            ErrorCode::PopResponseInvalid,
+            ErrorCode::PopResponseInvalid.into(),
             "expected Content-Type: application/json",
             false,
         );
@@ -233,7 +233,7 @@ async fn handle_renew(State(state): State<Arc<RouteState>>, request: Request) ->
             return refusal(
                 signer,
                 StatusCode::BAD_REQUEST,
-                ErrorCode::InvalidEnvelope,
+                ErrorCode::InvalidEnvelope.into(),
                 &format!("oversized or unreadable body: {e}"),
                 false,
             )
@@ -242,7 +242,7 @@ async fn handle_renew(State(state): State<Arc<RouteState>>, request: Request) ->
             return refusal(
                 signer,
                 StatusCode::BAD_REQUEST,
-                ErrorCode::InvalidEnvelope,
+                ErrorCode::InvalidEnvelope.into(),
                 &format!(
                     "body read exceeded {}s",
                     DEFAULT_BODY_READ_TIMEOUT.as_secs()
@@ -329,30 +329,26 @@ fn transport_key(source: IpAddr) -> String {
     }
 }
 
-/// The refusal for a renewal failure: a local fault is a retryable 5xx
-/// (503 for a full nonce store), everything else a 400 with
+/// The refusal for a renewal failure: an unavailable issuer-side
+/// dependency (revocation state, nonce store) is a retryable 503 with
+/// `RENEWAL_UNAVAILABLE` (RFC-AITP-0013 §4 step 4, §5, §6), another
+/// local fault a retryable 5xx, everything else a 400 with
 /// [`RenewalError::error_code`].
 fn failure(signer: &dyn AitpSigner, err: &RenewalError) -> Response {
-    match err {
-        RenewalError::NonceStore(store_err) => {
-            let status = match store_err {
-                NonceStoreError::AtCapacity { .. } => StatusCode::SERVICE_UNAVAILABLE,
-                _ => StatusCode::INTERNAL_SERVER_ERROR,
-            };
-            refusal(
-                signer,
-                status,
-                ErrorCode::InvalidEnvelope,
-                &format!("internal error: renewal replay guard: {store_err}"),
-                true,
-            )
-        }
-        e if e.is_local_fault() => local_signer_failure(e),
-        e => refusal(
+    match err.error_code() {
+        RenewalErrorCode::RenewalUnavailable => refusal(
+            signer,
+            StatusCode::SERVICE_UNAVAILABLE,
+            RenewalErrorCode::RenewalUnavailable,
+            &err.to_string(),
+            true,
+        ),
+        _ if err.is_local_fault() => local_signer_failure(err),
+        code => refusal(
             signer,
             StatusCode::BAD_REQUEST,
-            e.error_code(),
-            &e.to_string(),
+            code,
+            &err.to_string(),
             false,
         ),
     }
@@ -362,7 +358,7 @@ fn failure(signer: &dyn AitpSigner, err: &RenewalError) -> Response {
 fn refusal(
     signer: &dyn AitpSigner,
     status: StatusCode,
-    code: ErrorCode,
+    code: RenewalErrorCode,
     reason: &str,
     retryable: bool,
 ) -> Response {
@@ -419,4 +415,52 @@ fn too_many_requests() -> Response {
         header::HeaderValue::from_static("no-store"),
     );
     resp
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use aitp::core::nonce_store::NonceStoreError;
+    use aitp::crypto::AitpSigningKey;
+    use aitp::tct::{RevocationUnavailable, TctError};
+
+    /// The status and the signed refusal's `payload` of [`failure`].
+    async fn refusal_of(err: RenewalError) -> (StatusCode, serde_json::Value) {
+        let signer = AitpSigningKey::generate_ed25519();
+        let resp = failure(&signer, &err);
+        let status = resp.status();
+        let body = axum::body::to_bytes(resp.into_body(), usize::MAX)
+            .await
+            .unwrap();
+        let envelope: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        (status, envelope["payload"].clone())
+    }
+
+    #[tokio::test]
+    async fn a_nonce_store_failure_is_renewal_unavailable_503() {
+        let err = RenewalError::NonceStore(NonceStoreError::Backend("store unreachable".into()));
+        let (status, payload) = refusal_of(err).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(payload["code"], "RENEWAL_UNAVAILABLE");
+        assert_eq!(payload["retryable"], true);
+    }
+
+    #[tokio::test]
+    async fn unreadable_revocation_state_is_renewal_unavailable_503() {
+        let err = RenewalError::Tct(TctError::RevocationUnavailable(RevocationUnavailable::new(
+            "issuer revocation list: producer failed",
+        )));
+        let (status, payload) = refusal_of(err).await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(payload["code"], "RENEWAL_UNAVAILABLE");
+        assert_eq!(payload["retryable"], true);
+    }
+
+    #[tokio::test]
+    async fn a_revoked_tct_stays_tct_revoked_400() {
+        let (status, payload) = refusal_of(RenewalError::Tct(TctError::Revoked)).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert_eq!(payload["code"], "TCT_REVOKED");
+        assert_eq!(payload["retryable"], false);
+    }
 }
