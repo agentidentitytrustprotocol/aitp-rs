@@ -388,6 +388,12 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// builder can configure a server whose `Arc<HandshakeState>` is
     /// already shared.
     pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
+    /// Verifies initiator identity kinds `aitp` does not verify itself
+    /// ([`HandshakeServer::with_identity_verifier`]).
+    identity_verifier: Mutex<Option<Arc<dyn crate::handshake::IdentityVerifier>>>,
+    /// Narrows the grants of the TCT issued to the initiator
+    /// ([`HandshakeServer::with_grant_policy`]).
+    grant_policy: Mutex<Option<Arc<crate::handshake::GrantPolicyFn>>>,
     /// Revocation lookups for the initiator-issued TCT at COMMIT
     /// (RFC-AITP-0008), against the `ListRevoked` URL the initiator's
     /// Manifest advertises. Defaults to `fail_closed`; see
@@ -518,6 +524,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
+                identity_verifier: Mutex::new(None),
+                grant_policy: Mutex::new(None),
                 revocation_fetcher: Mutex::new(Arc::new(
                     crate::transport::revocation_fetch::RevocationFetcher::default(),
                 )),
@@ -648,6 +656,25 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
         *self.state.pinned_key_store.lock() = store;
+        self
+    }
+
+    /// Verify initiator identities of the kinds `aitp` does not verify
+    /// itself with `verifier` ([`crate::handshake::IdentityVerifier`]).
+    /// Without one, such an initiator is rejected with
+    /// `INCOMPATIBLE_IDENTITY_TYPE`.
+    pub fn with_identity_verifier(
+        self,
+        verifier: Arc<dyn crate::handshake::IdentityVerifier>,
+    ) -> Self {
+        *self.state.identity_verifier.lock() = Some(verifier);
+        self
+    }
+
+    /// Narrow the grants of the TCT issued to each initiator with
+    /// `policy` ([`crate::handshake::GrantPolicyFn`]).
+    pub fn with_grant_policy(self, policy: Arc<crate::handshake::GrantPolicyFn>) -> Self {
+        *self.state.grant_policy.lock() = Some(policy);
         self
     }
 
@@ -925,6 +952,8 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // No TCT is exchanged at HELLO, so the revocation source is never
     // consulted here; the COMMIT handler supplies the real lookup.
     let no_tct_at_hello = |_: &crate::core::Aid, _: &Uuid| {
@@ -934,7 +963,7 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
             ),
         ))
     };
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
@@ -943,6 +972,12 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     // Server uses pinned-key identity by default (the demo). Production
     // deployments wanting OIDC should construct PresentedIdentity::Oidc
     // outside and use a custom server. The public key is materialized
@@ -1095,6 +1130,8 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // RFC-AITP-0008: fetch the initiator's revocation snapshot before the
     // sync `on_commit`. The issuer and URL come from the Manifest that
     // HELLO already bound to the initiator's key, never from the
@@ -1117,7 +1154,7 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         )
         .await;
     let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
@@ -1126,6 +1163,12 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)

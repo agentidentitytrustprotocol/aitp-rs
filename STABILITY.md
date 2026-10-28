@@ -90,6 +90,23 @@ These can change or disappear in any release, including a patch:
   (and `aitp-experimental`). Their last release is 0.23; they get no new
   APIs and no fixes.
 
+## Async runtime
+
+The HTTP features (`http-client`, `http-server`) run on tokio 1.x, and
+that is permanent: `aitp` will not add a runtime abstraction, and the
+stable API names tokio types where a runtime type is the honest one
+(`HandshakeServer::serve` takes a `tokio::net::TcpListener`,
+`spawn_session_sweeper` returns a tokio `JoinHandle`). Moving to a tokio
+2.x would be a breaking `aitp` release.
+
+- Every future the stable API returns is `Send`, so it can run in
+  `tokio::spawn`. `crates/aitp/tests/send_sync_probe.rs` fails to
+  compile if one stops being `Send`.
+- `aitp` never blocks a runtime thread on a future (`block_on`): an
+  operation that does I/O is `async`.
+- Built without `http-client` (`default-features = false`), `aitp` does
+  not depend on tokio.
+
 ## MSRV
 
 The minimum supported Rust version is the workspace `rust-version` in
