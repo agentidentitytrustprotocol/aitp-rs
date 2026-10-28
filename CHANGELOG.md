@@ -132,6 +132,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
     - `p256_high_s_twin(sig)` → `p256_high_s_twin(sig.as_bytes())`.
 - `DelegationBuilder::build` and `build_async` return the new `aitp::delegation::IssuedDelegation` in place of the compact JWS `String`. It has private fields, the accessors `token()` (the compact JWS) and `claims()` (the signed `DelegationClaims`), and `into_parts()`, which returns the `#[non_exhaustive]` `IssuedDelegationParts`. Errors are still `DelegationError`. The token bytes are unchanged.
   - Seam migration: none.
+- `TctError::RevocationUnavailable` and `DelegationError::RevocationUnavailable` are `#[error(transparent)]`, the convention for a variant that wraps one typed error unchanged. The message is the same, `revocation source unavailable: <reason>`, and appears once. `Error::source()` on these variants now forwards to the wrapped `RevocationUnavailable`'s source (none) and no longer returns the `RevocationUnavailable` itself, so a source-chain walk no longer prints the message twice. Match the variant to reach the `RevocationUnavailable`.
+  - Seam migration: none.
 
 ### Added
 
