@@ -70,6 +70,50 @@ pub const DELEGATION_CLAIMS_MEMBERS: &[&str] = &[
     "ext",
 ];
 
+/// A freshly issued delegation token: what
+/// [`crate::delegation::DelegationBuilder::build`] and
+/// [`crate::delegation::DelegationBuilder::build_async`] return.
+///
+/// Only [`crate::delegation::DelegationBuilder`] constructs it, and its
+/// fields are read-only: [`Self::into_parts`] hands out the owned pieces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct IssuedDelegation {
+    pub(crate) token: String,
+    pub(crate) claims: DelegationClaims,
+}
+
+impl IssuedDelegation {
+    /// The delegation token as the compact JWS string that goes on the
+    /// wire.
+    pub fn token(&self) -> &str {
+        &self.token
+    }
+
+    /// The claims [`Self::token`] carries, for issuer-side bookkeeping.
+    pub fn claims(&self) -> &DelegationClaims {
+        &self.claims
+    }
+
+    /// The owned pieces.
+    pub fn into_parts(self) -> IssuedDelegationParts {
+        IssuedDelegationParts {
+            token: self.token,
+            claims: self.claims,
+        }
+    }
+}
+
+/// The owned pieces of an [`IssuedDelegation`], from
+/// [`IssuedDelegation::into_parts`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct IssuedDelegationParts {
+    /// See [`IssuedDelegation::token`].
+    pub token: String,
+    /// See [`IssuedDelegation::claims`].
+    pub claims: DelegationClaims,
+}
+
 /// A delegation token that passed [`crate::delegation::verify_delegation`]: the
 /// verbatim token, its trusted claims, and the embedded voucher's claims.
 ///

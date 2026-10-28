@@ -241,7 +241,9 @@ fn mint_delegation(voucher: &str) {
         .ttl(std::time::Duration::from_secs(DELEGATION_TTL))
         .now(Timestamp(FIXED_NOW))
         .build()
-        .expect("delegation");
+        .expect("delegation")
+        .into_parts()
+        .token;
     let payload = jws::decode_payload_unverified(&delegation).expect("delegation payload");
     let claims: DelegationClaims = serde_json::from_slice(&payload).expect("delegation claims");
     write_pretty(

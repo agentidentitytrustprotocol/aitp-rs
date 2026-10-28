@@ -2592,6 +2592,7 @@ fn issue_delegation_op(state: &mut AdapterState, id: &str, params: Value) -> Val
                     .now(now)
                     .build()
             })
+            .map(|issued| issued.into_parts().token)
             .map_err(|e| (delegation_error_code(&e), e.to_string())),
         (Some(voucher), _) => chained(ChainedDelegationBuilder::new(delegator, voucher)),
         (None, Some(prior)) => chained(ChainedDelegationBuilder::extending(delegator, prior)),
@@ -4871,7 +4872,9 @@ mod revocation_unknown_field_tests {
             .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(1_700_000_000))
             .build()
-            .unwrap();
+            .unwrap()
+            .into_parts()
+            .token;
 
         let mut snapshot = signed_snapshot_value(&a);
         snapshot["revocation_list"]

@@ -67,6 +67,8 @@ fn delegate_to_c(voucher: &str) -> String {
         .now(NOW)
         .build()
         .unwrap()
+        .into_parts()
+        .token
 }
 
 #[test]
@@ -81,6 +83,26 @@ fn happy_path_round_trip() {
     assert_eq!(verified.claims().ver, PROTOCOL_VERSION);
     assert_eq!(verified.voucher().sub, *b().aid());
     assert_eq!(verified.voucher().grants.len(), 2);
+}
+
+#[test]
+fn issued_delegation_carries_the_claims_its_token_signs() {
+    let voucher = voucher_for_b();
+    let issued = DelegationBuilder::new(&b(), &voucher)
+        .unwrap()
+        .delegatee(c().aid().clone())
+        .scope(["read_data"])
+        .now(NOW)
+        .build()
+        .unwrap();
+    let a_key = a();
+    let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
+    let verified = verify_delegation(issued.token(), &ctx).unwrap();
+    assert_eq!(verified.claims(), issued.claims());
+    assert_eq!(issued.claims().voucher.as_deref(), Some(voucher.as_str()));
+    let parts = issued.clone().into_parts();
+    assert_eq!(parts.token, issued.token());
+    assert_eq!(&parts.claims, issued.claims());
 }
 
 #[test]
@@ -128,7 +150,9 @@ fn builder_caps_expiry_at_voucher() {
         .ttl(std::time::Duration::from_secs(999_999)) // way past the voucher's 2h
         .now(NOW)
         .build()
-        .unwrap();
+        .unwrap()
+        .into_parts()
+        .token;
     let a_key = a();
     let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
     let verified = verify_delegation(&token, &ctx).unwrap();

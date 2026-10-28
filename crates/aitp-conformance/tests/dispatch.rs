@@ -264,7 +264,9 @@ mod single_hop_revocation_check {
             .ttl(std::time::Duration::from_secs(3600))
             .now(Timestamp(NOW))
             .build()
-            .unwrap();
+            .unwrap()
+            .into_parts()
+            .token;
         (voucher_claims.src_jti.to_string(), token)
     }
 

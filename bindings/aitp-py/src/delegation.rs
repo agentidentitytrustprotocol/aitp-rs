@@ -309,6 +309,7 @@ pub(crate) fn build_delegation_token(
     builder
         .build()
         .map_err(|e| PyRuntimeError::new_err(format!("delegation build failed: {e}")))
+        .map(|issued| issued.into_parts().token)
 }
 
 /// Mint a fresh TCT for the delegatee after `verify_delegation` succeeded.

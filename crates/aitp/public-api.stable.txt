@@ -55,6 +55,7 @@
 #[non_exhaustive] pub struct aitp::core::nonce_store::IssuedNonce
 #[non_exhaustive] pub struct aitp::delegation::DelegationClaims
 #[non_exhaustive] pub struct aitp::delegation::DelegationVerifyContext<'a>
+#[non_exhaustive] pub struct aitp::delegation::IssuedDelegationParts
 #[non_exhaustive] pub struct aitp::delegation::VerifiedDelegationParts
 #[non_exhaustive] pub struct aitp::facade::InitiatorConfig<'a>
 #[non_exhaustive] pub struct aitp::facade::SessionContextParts
@@ -189,6 +190,7 @@ impl aitp::crypto::RawSignature
 impl aitp::crypto::SignRequest<'_>
 impl aitp::crypto::Signature
 impl aitp::crypto::SignerError
+impl aitp::delegation::IssuedDelegation
 impl aitp::delegation::VerifiedDelegation
 impl aitp::facade::SessionContext
 impl aitp::facade::TctStore
@@ -285,6 +287,8 @@ impl core::clone::Clone for aitp::crypto::RawSignature
 impl core::clone::Clone for aitp::crypto::Signature
 impl core::clone::Clone for aitp::crypto::SignatureAlgorithm
 impl core::clone::Clone for aitp::delegation::DelegationClaims
+impl core::clone::Clone for aitp::delegation::IssuedDelegation
+impl core::clone::Clone for aitp::delegation::IssuedDelegationParts
 impl core::clone::Clone for aitp::delegation::VerifiedDelegation
 impl core::clone::Clone for aitp::delegation::VerifiedDelegationParts
 impl core::clone::Clone for aitp::facade::SessionContext
@@ -377,6 +381,8 @@ impl core::cmp::Eq for aitp::crypto::RawSignature
 impl core::cmp::Eq for aitp::crypto::Signature
 impl core::cmp::Eq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::Eq for aitp::delegation::DelegationClaims
+impl core::cmp::Eq for aitp::delegation::IssuedDelegation
+impl core::cmp::Eq for aitp::delegation::IssuedDelegationParts
 impl core::cmp::Eq for aitp::delegation::VerifiedDelegation
 impl core::cmp::Eq for aitp::delegation::VerifiedDelegationParts
 impl core::cmp::Eq for aitp::handshake::CompletedHandshake
@@ -459,6 +465,8 @@ impl core::cmp::PartialEq for aitp::crypto::RawSignature
 impl core::cmp::PartialEq for aitp::crypto::Signature
 impl core::cmp::PartialEq for aitp::crypto::SignatureAlgorithm
 impl core::cmp::PartialEq for aitp::delegation::DelegationClaims
+impl core::cmp::PartialEq for aitp::delegation::IssuedDelegation
+impl core::cmp::PartialEq for aitp::delegation::IssuedDelegationParts
 impl core::cmp::PartialEq for aitp::delegation::VerifiedDelegation
 impl core::cmp::PartialEq for aitp::delegation::VerifiedDelegationParts
 impl core::cmp::PartialEq for aitp::handshake::CompletedHandshake
@@ -638,6 +646,8 @@ impl core::fmt::Debug for aitp::crypto::SignerError
 impl core::fmt::Debug for aitp::delegation::DelegationClaims
 impl core::fmt::Debug for aitp::delegation::DelegationError
 impl core::fmt::Debug for aitp::delegation::DelegationVerifyContext<'_>
+impl core::fmt::Debug for aitp::delegation::IssuedDelegation
+impl core::fmt::Debug for aitp::delegation::IssuedDelegationParts
 impl core::fmt::Debug for aitp::delegation::VerifiedDelegation
 impl core::fmt::Debug for aitp::delegation::VerifiedDelegationParts
 impl core::fmt::Debug for aitp::envelope::EnvelopeError
@@ -849,6 +859,8 @@ impl core::marker::Send for aitp::crypto::SignatureAlgorithm
 impl core::marker::Send for aitp::crypto::SignerError
 impl core::marker::Send for aitp::delegation::DelegationClaims
 impl core::marker::Send for aitp::delegation::DelegationError
+impl core::marker::Send for aitp::delegation::IssuedDelegation
+impl core::marker::Send for aitp::delegation::IssuedDelegationParts
 impl core::marker::Send for aitp::delegation::VerifiedDelegation
 impl core::marker::Send for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Send for aitp::envelope::EnvelopeError
@@ -986,6 +998,8 @@ impl core::marker::Sync for aitp::crypto::SignatureAlgorithm
 impl core::marker::Sync for aitp::crypto::SignerError
 impl core::marker::Sync for aitp::delegation::DelegationClaims
 impl core::marker::Sync for aitp::delegation::DelegationError
+impl core::marker::Sync for aitp::delegation::IssuedDelegation
+impl core::marker::Sync for aitp::delegation::IssuedDelegationParts
 impl core::marker::Sync for aitp::delegation::VerifiedDelegation
 impl core::marker::Sync for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Sync for aitp::envelope::EnvelopeError
@@ -1123,6 +1137,8 @@ impl core::marker::Unpin for aitp::crypto::SignatureAlgorithm
 impl core::marker::Unpin for aitp::crypto::SignerError
 impl core::marker::Unpin for aitp::delegation::DelegationClaims
 impl core::marker::Unpin for aitp::delegation::DelegationError
+impl core::marker::Unpin for aitp::delegation::IssuedDelegation
+impl core::marker::Unpin for aitp::delegation::IssuedDelegationParts
 impl core::marker::Unpin for aitp::delegation::VerifiedDelegation
 impl core::marker::Unpin for aitp::delegation::VerifiedDelegationParts
 impl core::marker::Unpin for aitp::envelope::EnvelopeError
@@ -1257,6 +1273,8 @@ impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::DelegationClaims
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::IssuedDelegation
+impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::IssuedDelegationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::VerifiedDelegation
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::delegation::VerifiedDelegationParts
 impl core::panic::unwind_safe::RefUnwindSafe for aitp::facade::SessionContext
@@ -1362,6 +1380,8 @@ impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::RawSignature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::Signature
 impl core::panic::unwind_safe::UnwindSafe for aitp::crypto::SignatureAlgorithm
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::DelegationClaims
+impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::IssuedDelegation
+impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::IssuedDelegationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::VerifiedDelegation
 impl core::panic::unwind_safe::UnwindSafe for aitp::delegation::VerifiedDelegationParts
 impl core::panic::unwind_safe::UnwindSafe for aitp::facade::SessionContext
@@ -1842,6 +1862,8 @@ pub aitp::delegation::DelegationVerifyContext::issuer_manifests: core::option::O
 pub aitp::delegation::DelegationVerifyContext::now: aitp::core::Timestamp
 pub aitp::delegation::DelegationVerifyContext::revocation: aitp::tct::RevocationSource<'a>
 pub aitp::delegation::DelegationVerifyContext::verifier: &'a aitp::core::Aid
+pub aitp::delegation::IssuedDelegationParts::claims: aitp::delegation::DelegationClaims
+pub aitp::delegation::IssuedDelegationParts::token: alloc::string::String
 pub aitp::delegation::VerifiedDelegationParts::claims: aitp::delegation::DelegationClaims
 pub aitp::delegation::VerifiedDelegationParts::effective_grants: alloc::vec::Vec<alloc::string::String>
 pub aitp::delegation::VerifiedDelegationParts::token: alloc::string::String
@@ -2265,7 +2287,7 @@ pub async fn aitp::crypto::check_public_key_async(&dyn aitp::crypto::DynAsyncAit
 pub async fn aitp::crypto::jws::sign_compact_async<T: serde_core::ser::Serialize>(&dyn aitp::crypto::DynAsyncAitpSigner, &str, &T) -> core::result::Result<alloc::string::String, aitp::crypto::CryptoError>
 pub async fn aitp::crypto::sign_jcs_async(&dyn aitp::crypto::DynAsyncAitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
 pub async fn aitp::crypto::sign_raw_async(&dyn aitp::crypto::DynAsyncAitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
-pub async fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
+pub async fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::build_async(self) -> core::result::Result<aitp::delegation::IssuedDelegation, aitp::delegation::DelegationError>
 pub async fn aitp::envelope::sign_envelope_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::envelope::sign_envelope_with_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::MessageType, serde_json::value::Value, uuid::Uuid, aitp::core::Timestamp) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
 pub async fn aitp::envelope::sign_prepared_envelope_async(&dyn aitp::crypto::DynAsyncAitpSigner, aitp::core::AitpEnvelope) -> core::result::Result<aitp::core::AitpEnvelope, aitp::envelope::EnvelopeError>
@@ -2643,7 +2665,7 @@ pub fn aitp::crypto::jws::verify_compact(&aitp::core::Aid, &str, &str) -> core::
 pub fn aitp::crypto::sign_jcs(&dyn aitp::crypto::AitpSigner, &aitp::crypto::Digest32) -> core::result::Result<aitp::crypto::Signature, aitp::crypto::SignerError>
 pub fn aitp::crypto::sign_raw(&dyn aitp::crypto::AitpSigner, &[u8]) -> core::result::Result<aitp::crypto::RawSignature, aitp::crypto::SignerError>
 pub fn aitp::delegation::DelegationBuilder<'_, S>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
-pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::build(self) -> core::result::Result<alloc::string::String, aitp::delegation::DelegationError>
+pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::build(self) -> core::result::Result<aitp::delegation::IssuedDelegation, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::AitpSigner + 'a)>::new(&'a dyn aitp::crypto::AitpSigner, &str) -> core::result::Result<Self, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, (dyn aitp::crypto::DynAsyncAitpSigner + 'a)>::new_async(&'a dyn aitp::crypto::DynAsyncAitpSigner, &str) -> core::result::Result<Self, aitp::delegation::DelegationError>
 pub fn aitp::delegation::DelegationBuilder<'a, S>::delegatee(self, aitp::core::Aid) -> Self
@@ -2661,6 +2683,15 @@ pub fn aitp::delegation::DelegationError::source(&self) -> core::option::Option<
 pub fn aitp::delegation::DelegationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::DelegationVerifyContext<'a>::new(&'a aitp::core::Aid, aitp::core::Timestamp, aitp::tct::RevocationSource<'a>) -> Self
 pub fn aitp::delegation::DelegationVerifyContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::ManifestResolver) -> Self
+pub fn aitp::delegation::IssuedDelegation::claims(&self) -> &aitp::delegation::DelegationClaims
+pub fn aitp::delegation::IssuedDelegation::clone(&self) -> aitp::delegation::IssuedDelegation
+pub fn aitp::delegation::IssuedDelegation::eq(&self, &aitp::delegation::IssuedDelegation) -> bool
+pub fn aitp::delegation::IssuedDelegation::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
+pub fn aitp::delegation::IssuedDelegation::into_parts(self) -> aitp::delegation::IssuedDelegationParts
+pub fn aitp::delegation::IssuedDelegation::token(&self) -> &str
+pub fn aitp::delegation::IssuedDelegationParts::clone(&self) -> aitp::delegation::IssuedDelegationParts
+pub fn aitp::delegation::IssuedDelegationParts::eq(&self, &aitp::delegation::IssuedDelegationParts) -> bool
+pub fn aitp::delegation::IssuedDelegationParts::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::VerifiedDelegation::claims(&self) -> &aitp::delegation::DelegationClaims
 pub fn aitp::delegation::VerifiedDelegation::clone(&self) -> aitp::delegation::VerifiedDelegation
 pub fn aitp::delegation::VerifiedDelegation::effective_grants(&self) -> &[alloc::string::String]
@@ -3384,6 +3415,7 @@ pub struct aitp::crypto::Digest32(_)
 pub struct aitp::crypto::RawSignature(_)
 pub struct aitp::crypto::Signature(_)
 pub struct aitp::delegation::DelegationBuilder<'a, S: ?core::marker::Sized + 'a>
+pub struct aitp::delegation::IssuedDelegation
 pub struct aitp::delegation::VerifiedDelegation
 pub struct aitp::facade::SessionContext
 pub struct aitp::facade::TctStore

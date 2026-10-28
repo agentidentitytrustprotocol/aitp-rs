@@ -101,7 +101,9 @@ proptest! {
             .ttl(std::time::Duration::from_secs(3600))
             .now(NOW)
             .build()
-            .expect("subset scope must build");
+            .expect("subset scope must build")
+            .into_parts()
+            .token;
 
         let a_key = a();
         let ctx = verify_ctx(a_key.aid(), Timestamp(NOW.0 + 60));
@@ -150,7 +152,9 @@ proptest! {
             .ttl(std::time::Duration::from_secs(ttl))
             .now(NOW)
             .build()
-            .expect("single-grant delegation builds");
+            .expect("single-grant delegation builds")
+            .into_parts()
+            .token;
 
         // Verify at issuance time NOW: the delegation is valid for
         // [NOW, NOW+ttl] with ttl >= 1, so NOW is always inside the

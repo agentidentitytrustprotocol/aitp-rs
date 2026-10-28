@@ -68,6 +68,8 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationClaims` | struct | non_exhaustive |  |
 | `aitp::delegation::DelegationError` | enum | non_exhaustive |  |
 | `aitp::delegation::DelegationVerifyContext` | struct | non_exhaustive |  |
+| `aitp::delegation::IssuedDelegation` | struct | private fields |  |
+| `aitp::delegation::IssuedDelegationParts` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifiedDelegation` | struct | private fields |  |
 | `aitp::delegation::VerifiedDelegationParts` | struct | non_exhaustive |  |
 | `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |

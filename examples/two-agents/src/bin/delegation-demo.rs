@@ -60,7 +60,7 @@ fn main() {
 
     // ── B → C: delegate a subset (demo.read only) ──────────────────────
     // B delegates against A's voucher; the voucher is embedded verbatim
-    // in the resulting token. The result is an opaque compact JWS string
+    // in the resulting token. `token()` is the opaque compact JWS string
     // that C presents to A.
     let b_to_c = DelegationBuilder::new(&b, voucher)
         .expect("voucher entitles B to delegate")
@@ -70,6 +70,7 @@ fn main() {
         .ttl(std::time::Duration::from_secs(1800))
         .build()
         .expect("B delegates demo.read to C");
+    let b_to_c = b_to_c.token();
     println!("B → C: delegation token minted (scope [\"demo.read\"])\n");
 
     // ── A verifies C's delegation token ────────────────────────────────
@@ -91,7 +92,7 @@ fn main() {
     let issuer_manifests = vec![b_manifest];
     let ctx = DelegationVerifyContext::new(a.aid(), now, aitp::tct::RevocationSource::FailOpen)
         .with_issuer_manifests(&issuer_manifests);
-    match verify_delegation(&b_to_c, &ctx) {
+    match verify_delegation(b_to_c, &ctx) {
         Ok(v) => println!(
             "A verifies C's token:  ✓ valid — C may exercise {:?} on A",
             v.claims().scope
@@ -119,7 +120,7 @@ fn main() {
     let wrong_ctx =
         DelegationVerifyContext::new(c.aid(), now, aitp::tct::RevocationSource::FailOpen)
             .with_issuer_manifests(&issuer_manifests);
-    match verify_delegation(&b_to_c, &wrong_ctx) {
+    match verify_delegation(b_to_c, &wrong_ctx) {
         Err(e) => println!("Non-grantor verify:    ✓ rejected ({e})"),
         Ok(_) => panic!("only the grantor A should be able to verify this token"),
     }

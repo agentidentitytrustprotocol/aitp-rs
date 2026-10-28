@@ -130,6 +130,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
   - Seam migration:
     - `verify_raw(msg, &sig)` → `verify_raw(msg, sig.as_bytes())` (two call sites).
     - `p256_high_s_twin(sig)` → `p256_high_s_twin(sig.as_bytes())`.
+- `DelegationBuilder::build` and `build_async` return the new `aitp::delegation::IssuedDelegation` in place of the compact JWS `String`. It has private fields, the accessors `token()` (the compact JWS) and `claims()` (the signed `DelegationClaims`), and `into_parts()`, which returns the `#[non_exhaustive]` `IssuedDelegationParts`. Errors are still `DelegationError`. The token bytes are unchanged.
+  - Seam migration: none.
 
 ### Added
 

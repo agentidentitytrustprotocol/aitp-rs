@@ -62,6 +62,8 @@ fn token(scope: &[&str], ttl: u64) -> String {
         .now(NOW)
         .build()
         .unwrap()
+        .into_parts()
+        .token
 }
 
 /// Verify `token` with both verifiers as `verifier` at `now`, and return
