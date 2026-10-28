@@ -11,7 +11,9 @@ use std::sync::{Arc, Mutex};
 
 use aitp::core::Aid;
 use aitp::crypto::AitpVerifyingKey;
-use aitp::handshake::{JwkPublicKey, JwksResolver, OidcMintJwtFn, ResolveError};
+use aitp::handshake::{
+    JwkPublicKey, JwksResolver, LocalOidcMintJwtFn, OidcMintError, ResolveError,
+};
 use napi::bindgen_prelude::*;
 use napi::{Env, JSON};
 use napi_derive::napi;
@@ -170,12 +172,12 @@ fn unknown_to_json(env: &Env, val: &Unknown<'_>) -> Result<JsonValue> {
         .map_err(|e| Error::from_reason(format!("could not re-parse JSON: {e}")))
 }
 
-/// Wrap a JS function as an [`OidcMintJwtFn`] for one handshake step.
+/// Wrap a JS function as a [`LocalOidcMintJwtFn`] for one handshake step.
 ///
 /// JS callables fire on the libuv main thread (the same thread the
 /// `#[napi]` method is invoked on), so this closure is only ever called
-/// synchronously inside the same call. `OidcMintJwtFn` is intentionally
-/// not `Send + Sync` for exactly this case.
+/// synchronously inside the same call, and the state machine does not
+/// require it to be `Send`.
 ///
 /// `js_fn` is a [`FunctionRef`], napi 3's Drop-safe typed function
 /// reference — dropping the closure unused (e.g. when the state machine
@@ -184,13 +186,13 @@ fn unknown_to_json(env: &Env, val: &Unknown<'_>) -> Result<JsonValue> {
 pub(crate) fn make_oidc_minter(
     env: Env,
     js_fn: FunctionRef<String, String>,
-) -> Result<Box<OidcMintJwtFn>> {
-    let closure = move |nonce: &str| -> std::result::Result<String, String> {
+) -> Result<Box<LocalOidcMintJwtFn>> {
+    let closure = move |nonce: &str| -> std::result::Result<String, OidcMintError> {
         let f = js_fn
             .borrow_back(&env)
-            .map_err(|e| format!("oidc minter: {e}"))?;
+            .map_err(|e| OidcMintError::new(format!("oidc minter: {e}")))?;
         f.call(nonce.to_string())
-            .map_err(|e| format!("oidc_mint_jwt raised: {e}"))
+            .map_err(|e| OidcMintError::new(format!("oidc_mint_jwt raised: {e}")))
     };
     Ok(Box::new(closure))
 }

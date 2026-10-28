@@ -89,6 +89,7 @@ reasons already in the table are kept.
 | `aitp::handshake::MutualHelloAckPayload` | struct | non_exhaustive |  |
 | `aitp::handshake::MutualHelloPayload` | struct | non_exhaustive |  |
 | `aitp::handshake::NoPinnedKeys` | struct | exhaustive | A unit value callers write as `NoPinnedKeys`. |
+| `aitp::handshake::OidcMintError` | struct | private fields |  |
 | `aitp::handshake::OidcVerifyContext` | struct | non_exhaustive |  |
 | `aitp::handshake::PeerConfig` | struct | non_exhaustive |  |
 | `aitp::handshake::PinnedKeyEntry` | struct | non_exhaustive |  |

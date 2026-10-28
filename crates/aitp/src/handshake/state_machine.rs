@@ -53,7 +53,7 @@ pub type SessionId = Uuid;
 /// }
 /// # }
 /// ```
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 #[non_exhaustive]
 pub struct PeerConfig<'a> {
     /// Our long-term signing key. Accepts any [`AitpSigner`] (in-process
@@ -282,15 +282,31 @@ pub(crate) struct IdentityPresentationContext<'a> {
     pub pop_nonce: &'a str,
 }
 
-/// Callback signature for [`PresentedIdentity::OidcMinter`]: receives the
-/// handshake-generated `pop_nonce` and returns a freshly-minted compact
-/// JWT whose `nonce` claim equals that nonce. Held as `Box<dyn Fn>` —
-/// the state machine consumes the `PresentedIdentity` inline during
-/// `Initiator::start` / `Responder::on_hello`, so the closure is never
-/// stored across calls or moved across threads. Dropping `Send + Sync`
-/// here lets language bindings (PyO3, NAPI-rs) wrap host-runtime
-/// callables that aren't trivially thread-safe.
-pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, String> + 'static;
+/// An OIDC mint callback: receives the handshake-generated `pop_nonce`
+/// and returns a freshly-minted compact JWT whose `nonce` claim equals
+/// that nonce. `Send + Sync`, so a configuration holding one can be
+/// moved into a spawned task (`facade::IdentityMode::Oidc`). A
+/// `Box<OidcMintJwtFn>` coerces into a `Box<LocalOidcMintJwtFn>`.
+pub type OidcMintJwtFn = dyn Fn(&str) -> Result<String, OidcMintError> + Send + Sync;
+
+/// The mint callback of [`PresentedIdentity::OidcMinter`]. It need not be
+/// `Send`: the state machine calls it inside the `Initiator::start` or
+/// `Responder::on_hello` call that receives it, so a binding can wrap a
+/// host-runtime callable.
+pub type LocalOidcMintJwtFn = dyn Fn(&str) -> Result<String, OidcMintError>;
+
+/// The error an OIDC mint callback returns. The handshake reports it as
+/// `IDENTITY_FAILED` before anything is sent.
+#[derive(Debug, thiserror::Error)]
+#[error(transparent)]
+pub struct OidcMintError(crate::core::BoxError);
+
+impl OidcMintError {
+    /// Wrap the callback's own error, or a message.
+    pub fn new(error: impl Into<crate::core::BoxError>) -> Self {
+        Self(error.into())
+    }
+}
 
 /// What identity this peer will present.
 #[non_exhaustive]
@@ -334,7 +350,7 @@ pub enum PresentedIdentity {
         /// Callback that receives the just-generated `pop_nonce` and
         /// returns a freshly-minted compact JWT. Errors bubble out as
         /// `HandshakeError::Identity`.
-        mint_jwt: Box<OidcMintJwtFn>,
+        mint_jwt: Box<LocalOidcMintJwtFn>,
     },
 }
 
@@ -863,6 +879,12 @@ pub struct Initiator {
     state: InitiatorState,
 }
 
+impl std::fmt::Debug for Initiator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Initiator").finish_non_exhaustive()
+    }
+}
+
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and Awaiting* is acceptable.
 enum InitiatorState {
     AwaitingHelloAck {
@@ -1132,6 +1154,12 @@ impl Initiator {
 /// Responder-side handshake driver.
 pub struct Responder {
     state: ResponderState,
+}
+
+impl std::fmt::Debug for Responder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Responder").finish_non_exhaustive()
+    }
 }
 
 #[allow(dead_code, clippy::large_enum_variant)] // size diff between Done/Failed and AwaitingCommit is acceptable.

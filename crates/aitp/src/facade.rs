@@ -822,6 +822,14 @@ pub struct TctStore {
     refresh_threshold: f64,
 }
 
+impl std::fmt::Debug for TctStore {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("TctStore")
+            .field("refresh_threshold", &self.refresh_threshold)
+            .finish_non_exhaustive()
+    }
+}
+
 #[derive(Clone)]
 struct Stored {
     tct: VerifiedTct,

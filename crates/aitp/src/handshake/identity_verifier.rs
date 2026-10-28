@@ -87,7 +87,7 @@ impl<T: IdentityVerifier + ?Sized> IdentityVerifier for Box<T> {
 
 /// The handshake context an [`IdentityVerifier`] verifies against.
 /// Built by `aitp` only.
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct IdentityVerifyContext<'a> {
     /// The peer's verified Manifest.

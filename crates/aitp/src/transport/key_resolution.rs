@@ -122,6 +122,7 @@ pub trait PinnedIssuerKeyStore: Send + Sync {
 }
 
 /// In-memory `PinnedIssuerKeyStore` backed by a `HashMap`.
+#[derive(Debug)]
 pub struct StaticPinnedIssuerKeyStore {
     inner: HashMap<Url, Vec<JwkPublicKey>>,
 }
@@ -189,6 +190,17 @@ pub struct KeyResolutionPolicy {
     /// thundering herd on the upstream. Coarse-grained — fine for the
     /// expected access patterns (handful of issuers, not per-request).
     inflight_lock: Mutex<()>,
+}
+
+impl std::fmt::Debug for KeyResolutionPolicy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyResolutionPolicy")
+            .field("cache_ttl", &self.cache_ttl)
+            .field("negative_cache_ttl", &self.negative_cache_ttl)
+            .field("fail_mode", &self.fail_mode)
+            .field("offline", &self.offline)
+            .finish_non_exhaustive()
+    }
 }
 
 impl KeyResolutionPolicy {
@@ -532,6 +544,17 @@ pub struct KeyResolutionPolicyBuilder {
     negative_cache_ttl: Option<Duration>,
     fail_mode: Option<KeyResolutionFailMode>,
     offline: bool,
+}
+
+impl std::fmt::Debug for KeyResolutionPolicyBuilder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyResolutionPolicyBuilder")
+            .field("cache_ttl", &self.cache_ttl)
+            .field("negative_cache_ttl", &self.negative_cache_ttl)
+            .field("fail_mode", &self.fail_mode)
+            .field("offline", &self.offline)
+            .finish_non_exhaustive()
+    }
 }
 
 impl KeyResolutionPolicyBuilder {

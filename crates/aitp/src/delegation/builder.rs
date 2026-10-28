@@ -36,6 +36,16 @@ pub struct DelegationBuilder<'a, S: ?Sized + 'a = dyn AitpSigner + 'a> {
     now_override: Option<Timestamp>,
 }
 
+impl<S: ?Sized> std::fmt::Debug for DelegationBuilder<'_, S> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DelegationBuilder")
+            .field("delegatee", &self.delegatee)
+            .field("scope", &self.scope)
+            .field("ttl_secs", &self.ttl_secs)
+            .finish_non_exhaustive()
+    }
+}
+
 impl<'a> DelegationBuilder<'a, dyn AitpSigner + 'a> {
     /// Begin a single-hop delegation, signed by `issuer_key` (B's key),
     /// rooted in `voucher` — the grant voucher A delivered alongside

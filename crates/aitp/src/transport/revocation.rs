@@ -69,6 +69,15 @@ pub struct EmptyRevocationProvider {
     ttl_secs: i64,
 }
 
+impl std::fmt::Debug for EmptyRevocationProvider {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmptyRevocationProvider")
+            .field("issuer", self.issuer_key.aid())
+            .field("ttl_secs", &self.ttl_secs)
+            .finish_non_exhaustive()
+    }
+}
+
 impl EmptyRevocationProvider {
     /// New provider that signs empty lists as `issuer_key`'s AID, each valid
     /// for one hour from issuance.
@@ -318,6 +327,14 @@ pub struct RevocationCache<P: RevocationProvider> {
     provider: Option<P>,
     policy: RevocationPolicy,
     inner: RwLock<HashMap<Aid, CachedSnapshot>>,
+}
+
+impl<P: RevocationProvider> std::fmt::Debug for RevocationCache<P> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RevocationCache")
+            .field("policy", &self.policy)
+            .finish_non_exhaustive()
+    }
 }
 
 impl<P: RevocationProvider> RevocationCache<P> {

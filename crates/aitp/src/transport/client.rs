@@ -119,6 +119,18 @@ pub struct ManifestFetcher {
     allow_insecure_localhost: bool,
 }
 
+impl std::fmt::Debug for ManifestFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ManifestFetcher")
+            .field("timeout", &self.timeout)
+            .field("max_bytes", &self.max_bytes)
+            .field("retry_policy", &self.retry_policy)
+            .field("host_guard", &self.host_guard)
+            .field("allow_insecure_localhost", &self.allow_insecure_localhost)
+            .finish_non_exhaustive()
+    }
+}
+
 impl ManifestFetcher {
     /// Build a fetcher with hardened defaults: 10s timeout, redirects
     /// rejected, default [`HostGuard`].
@@ -521,6 +533,17 @@ pub struct JwksFetcher {
     /// SSRF guard for the (issuer/peer-derived) discovery, `jwks_uri`,
     /// and `/.well-known/aitp-keys` hosts.
     host_guard: HostGuard,
+}
+
+impl std::fmt::Debug for JwksFetcher {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("JwksFetcher")
+            .field("timeout", &self.timeout)
+            .field("max_bytes", &self.max_bytes)
+            .field("discovery_ttl", &self.discovery_ttl)
+            .field("host_guard", &self.host_guard)
+            .finish_non_exhaustive()
+    }
 }
 
 impl JwksFetcher {
