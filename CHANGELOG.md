@@ -68,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ### Changed
 
+- `crates/aitp/public-api.stable.txt` now lists every impl except blanket impls: derived traits, `From` conversions and the auto traits (`Send`, `Sync`, `Unpin`, `UnwindSafe`, `RefUnwindSafe`). Losing one of them now fails the snapshot check and shows in `scripts/public-api.py breaks`, and `check-stable-deps.py` sees a pre-1.0 type behind a `From` impl.
 - `STABILITY.md` states the 1.x policy, in sections Covered (the `aitp` stable surface and the npm and PyPI SDKs), Not covered, MSRV and Support window. From 1.0 a breaking change is a major release. A spec-aligning change an application can observe is a fix only when it closes a security hole; otherwise it waits for a major. The MSRV is at most N-2 and moves only in a minor. The latest minor gets bug and security fixes; the previous minor gets security fixes for 6 months. `SECURITY.md` matches.
 - TCT renewal (no promise) follows RFC-AITP-0013 Draft at spec `6a21782`:
   - The holder's `pop_signature` is over `sha256("aitp-renewal-pop-v1\0" || iss || "\0" || jti || "\0" || nonce)`, with `iss` and `jti` from the current TCT and the 16 decoded nonce bytes (`aitp::tct::renewal_pop_input`). It was over `sha256(nonce)`.
