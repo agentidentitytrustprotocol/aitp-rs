@@ -7,17 +7,17 @@
 
 #![cfg(all(feature = "http-client", feature = "http-server"))]
 
-use aitp::core::Timestamp;
+use aitp::core::{BoxFuture, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::handshake::{JwkPublicKey, JwksResolver, ResolveError};
 use aitp::manifest::{IdentityHint, IdentityHintKind, ManifestBuilder};
 use aitp::tct::{
     sign_revocation_list, verify_revocation_list, RevocationEntry, RevocationList,
-    RevocationListEnvelope, VerifyRevocationListContext,
+    RevocationListEnvelope, RevocationQuery, RevocationStatus, VerifyRevocationListContext,
 };
 use aitp::transport::{
-    revocation_list_uri_from_manifest, HandshakeServer, RevocationCache, RevocationError,
-    RevocationListProducer, RevocationPolicy, RevocationProvider, REVOCATION_LIST_PATH,
+    HandshakeServer, RevocationError, RevocationFetcher, RevocationListProducer, RevocationPolicy,
+    RevocationProvider, REVOCATION_LIST_PATH,
 };
 use std::sync::Arc;
 use tokio::net::TcpListener;
@@ -32,8 +32,8 @@ impl JwksResolver for NoOpResolver {
 
 struct StaticProducer(RevocationListEnvelope);
 impl RevocationListProducer for StaticProducer {
-    fn current(&self) -> RevocationListEnvelope {
-        self.0.clone()
+    fn current(&self) -> BoxFuture<'_, Result<RevocationListEnvelope, RevocationError>> {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 
@@ -230,7 +230,14 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     // body, and a consumer resolves exactly that URL from it.
     aitp::manifest::verify_manifest(&manifest, &aitp::manifest::VerifyManifestContext::now())
         .unwrap();
-    let advertised = revocation_list_uri_from_manifest(&manifest).expect("advertised");
+    let advertised: url::Url = manifest
+        .extensions
+        .as_ref()
+        .and_then(|ext| ext.get(aitp::manifest::REVOCATION_LIST_URI_EXT))
+        .and_then(|v| v.as_str())
+        .expect("advertised")
+        .parse()
+        .unwrap();
     assert_eq!(
         advertised.as_str(),
         "https://issuer.example/.well-known/aitp-revocation-list"
@@ -268,21 +275,27 @@ async fn list_revoked_is_served_by_default_as_a_signed_empty_snapshot() {
     let again: RevocationListEnvelope = reqwest::get(&url).await.unwrap().json().await.unwrap();
     assert_eq!(again.signature, env.signature);
 
-    // And the consumer-side cache built from the Manifest reads "clear".
-    let cache = RevocationCache::for_issuer_manifest(
-        &advertising_manifest(&issuer, &origin),
-        RevocationPolicy::default(),
-        |_url| StaticSource(env.clone()),
+    // And a consumer-side fetcher reading that snapshot answers "clear".
+    let prepared = RevocationFetcher::new(RevocationPolicy::default())
+        .with_provider(Arc::new(StaticSource(env.clone())))
+        .prepare(issuer.aid(), Some(advertised.as_str()), now)
+        .await;
+    let jti = Uuid::new_v4();
+    assert_eq!(
+        prepared
+            .decide(&RevocationQuery::new(issuer.aid(), &jti, now))
+            .unwrap(),
+        RevocationStatus::Clear
     );
-    assert!(!cache
-        .is_revoked(&Uuid::new_v4(), issuer.aid(), now)
-        .unwrap());
 }
 
 struct StaticSource(RevocationListEnvelope);
 impl RevocationProvider for StaticSource {
-    fn fetch(&self, _issuer: &aitp::core::Aid) -> Result<RevocationListEnvelope, RevocationError> {
-        Ok(self.0.clone())
+    fn fetch<'a>(
+        &'a self,
+        _issuer: &'a aitp::core::Aid,
+    ) -> BoxFuture<'a, Result<RevocationListEnvelope, RevocationError>> {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 

@@ -228,7 +228,7 @@ async fn run_pinned_handshake(
             &alice_manifest,
             &resolver,
             &alice_trusts,
-            aitp::handshake::RevocationSource::FailOpen,
+            aitp::tct::RevocationSource::FailOpen,
             Timestamp::now(),
         )
     };
@@ -330,13 +330,13 @@ async fn run_pinned_handshake(
         )
         .await;
     assert!(prepared.is_available(), "Bob's snapshot must be fetched");
-    let check = move |iss: &aitp::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let check = move |q: &aitp::tct::RevocationQuery<'_>| prepared.decide(q);
     let cfg = PeerConfig::new(
         &alice,
         &alice_manifest,
         &resolver,
         &alice_trusts,
-        aitp::handshake::RevocationSource::Check(&check),
+        aitp::tct::RevocationSource::Check(&check),
         Timestamp::now(),
     );
     let alice_holds = initiator
@@ -390,7 +390,7 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();

@@ -12,7 +12,7 @@ use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
     Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload,
-    MutualHelloPayload, PresentedIdentity, Responder, RevocationSource, StaticPinnedKeyStore,
+    MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
     MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
@@ -22,8 +22,6 @@ use napi::bindgen_prelude::*;
 use napi::Env;
 use napi_derive::napi;
 use uuid::Uuid;
-
-use aitp::core::Aid;
 
 use crate::helpers::{
     coded_error, handshake_code, js_revocation, make_peer_config, NoOpJwksResolver, NO_TCT_STEP,
@@ -318,13 +316,8 @@ impl JsInitiatorSession {
         .map_err(|e| Error::from_reason(format!("invalid commit_ack payload: {e}")))?;
 
         let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-        let fail_open = deny.is_fail_open();
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(
@@ -464,13 +457,8 @@ impl JsResponderSession {
         .map_err(|e| Error::from_reason(format!("invalid commit payload: {e}")))?;
 
         let deny = js_revocation(revoked_jtis.as_deref(), revocation.as_deref())?;
-        let fail_open = deny.is_fail_open();
-        let check = move |_: &Aid, jti: &Uuid| deny.handshake_decision(jti);
-        let source = if fail_open {
-            RevocationSource::FailOpen
-        } else {
-            RevocationSource::Check(&check)
-        };
+        let check = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
+        let source = deny.source(&check);
 
         let jwks = self.ctx.jwks_for_call();
         let cfg = make_peer_config(

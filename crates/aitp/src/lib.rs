@@ -36,7 +36,7 @@
 //! ```
 //! use aitp::core::Timestamp;
 //! use aitp::prelude::*;
-//! use aitp::tct::{verify_tct, TctBuilder, TctVerifyContext};
+//! use aitp::tct::{verify_tct, RevocationSource, TctBuilder, TctVerifyContext};
 //!
 //! # fn main() -> Result<(), Box<dyn std::error::Error>> {
 //! let alice = AitpSigningKey::from_seed(&[0x11; 32]);
@@ -59,9 +59,10 @@
 //! // silent-accept surfaces (revocation source, issuer-Manifest expiry
 //! // cap). Here — a self-issued holder receipt with no Manifest
 //! // resolved — both are deliberately waived; production verifiers
-//! // supply `.revocation_check(..)` and `.issuer_manifest_expires_at(..)`.
+//! // supply `.revocation(RevocationSource::Check(..))` and
+//! // `.issuer_manifest_expires_at(..)`.
 //! let ctx = TctVerifyContext::builder(bob.aid(), alice.aid(), now)
-//!     .accept_unchecked_revocation_dangerous()
+//!     .revocation(RevocationSource::FailOpen)
 //!     .skip_manifest_expiry_cap_dangerous()
 //!     .build()?;
 //! let verified = verify_tct(&issued.token, &ctx)?;

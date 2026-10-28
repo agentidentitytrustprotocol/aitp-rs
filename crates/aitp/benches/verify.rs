@@ -55,7 +55,7 @@ fn bench_verify(c: &mut Criterion) {
     c.bench_function("tct_verify", |b| {
         b.iter(|| {
             let ctx = TctVerifyContext::builder(&subject_aid, &issuer_aid, verify_at)
-                .accept_unchecked_revocation_dangerous()
+                .revocation(aitp::tct::RevocationSource::FailOpen)
                 .skip_manifest_expiry_cap_dangerous()
                 .build()
                 .unwrap();

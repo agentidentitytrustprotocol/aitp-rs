@@ -28,8 +28,10 @@ pub use error::TctError;
 pub use pop::{sign_pop_response, verify_pop_response, PopChallenge, PopResponse};
 pub use revocation::{
     parse_revocation_snapshot_wire, revocation_signing_bytes, sign_revocation_list,
-    verify_revocation_list, RevocationEntry, RevocationList, RevocationListEnvelope,
-    VerifyRevocationListContext, REVOCATION_ENVELOPE_MEMBERS, REVOCATION_LIST_MEMBERS,
+    verify_revocation_list, RevocationCheckFn, RevocationEntry, RevocationList,
+    RevocationListEnvelope, RevocationQuery, RevocationSource, RevocationStatus,
+    RevocationUnavailable, VerifyRevocationListContext, REVOCATION_ENVELOPE_MEMBERS,
+    REVOCATION_LIST_MEMBERS,
 };
 pub use types::{
     Cnf, GrantVoucherClaims, IssuedTct, TctClaims, VerifiedTct, GRANT_VOUCHER_CLAIMS_MEMBERS,
@@ -37,7 +39,7 @@ pub use types::{
 };
 pub use verifier::{
     verify_attestation, verify_tct, verify_voucher, AttestationVerifyContext,
-    AttestationVerifyContextBuilder, RevocationCheckFn, TctVerifyContext, TctVerifyContextBuilder,
+    AttestationVerifyContextBuilder, TctVerifyContext, TctVerifyContextBuilder,
     TctVerifyContextError, VerifiedAttestation,
 };
 

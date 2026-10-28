@@ -8,9 +8,10 @@
 
 use aitp::core::{Aid, Timestamp, PROTOCOL_VERSION};
 use aitp::crypto::{jws, AitpSigningKey};
-use aitp::delegation::{DelegationError, DelegationRevocation};
+use aitp::delegation::DelegationError;
 use aitp::manifest::{IdentityHint, IdentityHintKind, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::TctBuilder;
+use aitp::tct::{RevocationQuery, RevocationSource, RevocationStatus};
 use aitp_experimental::delegation::{
     compute_chain_hash, verify_chained_delegation, ChainedDelegationBuilder,
     ChainedDelegationError, VerifyChainContext, DEFAULT_MAX_DELEGATION_HOPS,
@@ -114,13 +115,9 @@ fn issuer_manifests() -> &'static Vec<Manifest> {
 }
 
 fn multihop_ctx(verifier: &aitp::core::Aid) -> VerifyChainContext<'_> {
-    VerifyChainContext::new(
-        verifier,
-        Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
-    )
-    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-    .with_issuer_manifests(issuer_manifests())
+    VerifyChainContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+        .with_issuer_manifests(issuer_manifests())
 }
 
 #[test]
@@ -147,7 +144,7 @@ fn chain_rejected_without_opt_in() {
     let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_max_delegation_hops(0);
     assert!(matches!(
@@ -164,7 +161,7 @@ fn hop_limit_enforced_before_signatures() {
     let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_max_delegation_hops(2);
     assert!(matches!(
@@ -249,7 +246,7 @@ fn truncated_chain_rejected() {
     let full_ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_max_delegation_hops(4)
     .with_issuer_manifests(issuer_manifests());
@@ -383,12 +380,17 @@ fn revoked_mid_chain_hop_rejected() {
     let b_aid = b().aid().clone();
     let h1_jti = Uuid::parse_str("550e8400-e29b-41d4-a716-446655440011").unwrap();
     // B revokes the hop it issued (B→C): everything downstream dies.
-    let hop_revoked =
-        move |issuer: &aitp::core::Aid, jti: &Uuid| Ok(*issuer == b_aid && *jti == h1_jti);
-    let not_revoked = |_: &Uuid| Ok(false);
+    let hop_revoked = move |q: &RevocationQuery<'_>| {
+        Ok(if *q.issuer == b_aid && *q.jti == h1_jti {
+            RevocationStatus::Revoked
+        } else {
+            RevocationStatus::Clear
+        })
+    };
+    let not_revoked = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Clear);
     let a_key = a();
     let mut ctx = multihop_ctx(a_key.aid());
-    ctx.revocation = DelegationRevocation::Check(&not_revoked);
+    ctx.revocation = RevocationSource::Check(&not_revoked);
     ctx.hop_revocation_check = Some(&hop_revoked);
     assert!(matches!(
         verify_chained_delegation(&token, &ctx).unwrap_err(),
@@ -401,10 +403,10 @@ fn revoked_mid_chain_hop_rejected() {
 #[test]
 fn multihop_without_hop_source_fails_closed() {
     let token = outer(&hop1());
-    let not_revoked = |_: &Uuid| Ok(false);
+    let not_revoked = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Clear);
     let a_key = a();
     let mut ctx = multihop_ctx(a_key.aid());
-    ctx.revocation = DelegationRevocation::Check(&not_revoked);
+    ctx.revocation = RevocationSource::Check(&not_revoked);
     assert!(matches!(
         verify_chained_delegation(&token, &ctx).unwrap_err(),
         ChainedDelegationError::Delegation(DelegationError::RevocationUnavailable(_))
@@ -420,13 +422,9 @@ fn ctx_with<'a>(
     verifier: &'a Aid,
     resolver: &'a dyn aitp::manifest::ManifestResolver,
 ) -> VerifyChainContext<'a> {
-    VerifyChainContext::new(
-        verifier,
-        Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
-    )
-    .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
-    .with_issuer_manifests(resolver)
+    VerifyChainContext::new(verifier, Timestamp(NOW.0 + 60), RevocationSource::FailOpen)
+        .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
+        .with_issuer_manifests(resolver)
 }
 
 /// Unwrap a `KeyResolutionFailed` for `issuer` and return its cause.
@@ -450,7 +448,7 @@ fn multihop_without_manifest_source_rejected() {
     let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS);
     // chain[0] is verified first; its issuer is B.
@@ -607,7 +605,7 @@ fn spec_multihop_chain_kat_verifies_end_to_end() {
     let ctx = VerifyChainContext::new(
         verifier.aid(),
         Timestamp(1_711_900_100),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     )
     .with_max_delegation_hops(DEFAULT_MAX_DELEGATION_HOPS)
     .with_issuer_manifests(&manifests);
@@ -899,7 +897,7 @@ fn new_defaults_to_three_hops() {
     let ctx = VerifyChainContext::new(
         a_key.aid(),
         Timestamp(NOW.0 + 60),
-        DelegationRevocation::FailOpen,
+        RevocationSource::FailOpen,
     );
     assert_eq!(ctx.max_delegation_hops, DEFAULT_MAX_DELEGATION_HOPS);
     assert_eq!(DEFAULT_MAX_DELEGATION_HOPS, 3);

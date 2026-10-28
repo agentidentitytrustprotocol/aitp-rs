@@ -65,7 +65,6 @@ reasons already in the table are kept.
 | `aitp::delegation::DelegationBuilder` | struct | private fields |  |
 | `aitp::delegation::DelegationClaims` | struct | non_exhaustive |  |
 | `aitp::delegation::DelegationError` | enum | non_exhaustive |  |
-| `aitp::delegation::DelegationRevocation` | enum | non_exhaustive |  |
 | `aitp::delegation::VerifiedDelegation` | struct | non_exhaustive |  |
 | `aitp::delegation::VerifyDelegationContext` | struct | non_exhaustive |  |
 | `aitp::envelope::EnvelopeError` | enum | non_exhaustive |  |
@@ -79,7 +78,6 @@ reasons already in the table are kept.
 | `aitp::handshake::GrantPolicyContext` | struct | non_exhaustive |  |
 | `aitp::handshake::GrantPolicyError` | struct | private fields |  |
 | `aitp::handshake::HandshakeError` | enum | non_exhaustive |  |
-| `aitp::handshake::HandshakeRevocationDecision` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::handshake::IdentityDescriptor` | struct | non_exhaustive |  |
 | `aitp::handshake::IdentityKind` | enum | non_exhaustive |  |
 | `aitp::handshake::IdentityVerifyContext` | struct | non_exhaustive |  |
@@ -104,7 +102,6 @@ reasons already in the table are kept.
 | `aitp::handshake::PresentedIdentity` | enum | non_exhaustive |  |
 | `aitp::handshake::ResolveError` | enum | non_exhaustive |  |
 | `aitp::handshake::Responder` | struct | private fields |  |
-| `aitp::handshake::RevocationSource` | enum | non_exhaustive |  |
 | `aitp::handshake::StaticPinnedKeyStore` | struct | private fields |  |
 | `aitp::handshake::SubjectBinding` | enum | non_exhaustive |  |
 | `aitp::handshake::VerifiedIdentity` | struct | private fields |  |
@@ -140,6 +137,10 @@ reasons already in the table are kept.
 | `aitp::tct::RevocationEntry` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationList` | struct | non_exhaustive |  |
 | `aitp::tct::RevocationListEnvelope` | struct | non_exhaustive |  |
+| `aitp::tct::RevocationQuery` | struct | non_exhaustive |  |
+| `aitp::tct::RevocationSource` | enum | non_exhaustive |  |
+| `aitp::tct::RevocationStatus` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
+| `aitp::tct::RevocationUnavailable` | struct | private fields |  |
 | `aitp::tct::TctBuilder` | struct | private fields |  |
 | `aitp::tct::TctClaims` | struct | non_exhaustive |  |
 | `aitp::tct::TctError` | enum | non_exhaustive |  |
@@ -167,11 +168,9 @@ reasons already in the table are kept.
 | `aitp::transport::PreparedRevocation` | struct | private fields |  |
 | `aitp::transport::RateLimitConfig` | struct | non_exhaustive |  |
 | `aitp::transport::RetryPolicy` | struct | private fields |  |
-| `aitp::transport::RevocationCache` | struct | private fields |  |
 | `aitp::transport::RevocationError` | enum | non_exhaustive |  |
 | `aitp::transport::RevocationFailMode` | enum | non_exhaustive |  |
 | `aitp::transport::RevocationFetcher` | struct | private fields |  |
-| `aitp::transport::RevocationOutcome` | enum | exhaustive | A security decision: a new outcome must break callers' matches, so none is handled by a wildcard arm. |
 | `aitp::transport::RevocationPolicy` | struct | non_exhaustive |  |
 | `aitp::transport::ServeConfig` | struct | non_exhaustive |  |
 | `aitp::transport::StaticPinnedIssuerKeyStore` | struct | private fields |  |

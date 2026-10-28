@@ -30,7 +30,7 @@ fn p256(seed: u8) -> AitpSigningKey {
 
 fn ctx<'a>(aud: &'a Aid, iss: &'a Aid) -> TctVerifyContext<'a> {
     TctVerifyContext::builder(aud, iss, NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap()
@@ -214,7 +214,7 @@ fn grant_context_rejects_a_valid_attestation() {
 fn attestation_ctx<'a>(iss: &'a Aid, key: &'a str) -> AttestationVerifyContext<'a> {
     AttestationVerifyContext::builder(iss, key, NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap()
 }
@@ -270,7 +270,7 @@ fn attestation_verifier_rejects_grant_tcts() {
 fn attestation_manifest_cap_is_an_explicit_decision() {
     let iss = ed(1);
     let err = AttestationVerifyContext::builder(iss.aid(), "k", NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap_err();
     assert_eq!(err, TctVerifyContextError::ManifestCapDecisionRequired);
@@ -290,7 +290,7 @@ fn attestation_manifest_cap_is_an_explicit_decision() {
         .unwrap();
     let capped = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
         .issuer_manifest_expires_at(NOW.plus_secs(86_400))
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap();
     assert!(matches!(
@@ -308,10 +308,10 @@ fn attestation_revocation_is_consulted() {
         .issued_at(NOW)
         .build()
         .unwrap();
-    let revoked = |_: &Uuid| Ok(true);
+    let revoked = |_: &aitp::tct::RevocationQuery<'_>| Ok(aitp::tct::RevocationStatus::Revoked);
     let c = AttestationVerifyContext::builder(iss.aid(), KAT_EXT_KEY, NOW)
         .waive_manifest_cap_issuer_has_no_manifest()
-        .revocation_check(&revoked)
+        .revocation(aitp::tct::RevocationSource::Check(&revoked))
         .build()
         .unwrap();
     assert!(matches!(

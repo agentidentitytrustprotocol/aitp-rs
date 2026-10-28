@@ -18,6 +18,4 @@ pub mod verifier;
 pub use builder::{DelegationBuilder, DEFAULT_DELEGATION_TTL_SECS};
 pub use error::DelegationError;
 pub use types::{DelegationClaims, VerifiedDelegation, DELEGATION_CLAIMS_MEMBERS};
-pub use verifier::{
-    verify_delegation, DelegationRevocation, SourceRevocationCheck, VerifyDelegationContext,
-};
+pub use verifier::{verify_delegation, VerifyDelegationContext};

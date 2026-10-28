@@ -162,6 +162,10 @@ pub struct SessionContext {
     /// Companion grant voucher compact JWS — present when the peer's
     /// policy allows us to delegate (RFC-AITP-0005 §8).
     pub grant_voucher: Option<String>,
+    /// The grants we may exercise under `held_tct`: its `grants`,
+    /// narrowed when the peer's revocation status was unavailable under
+    /// a `soft_fail` policy (see [`crate::handshake::CompletedHandshake`]).
+    pub effective_grants: Vec<String>,
 }
 
 /// Errors from the high-level helpers.
@@ -469,11 +473,9 @@ pub async fn run_initiator_handshake(
     //
     // No TCT arrives before MUTUAL_COMMIT_ACK, so the steps before it
     // never consult the revocation source; COMMIT_ACK gets the real one.
-    let no_tct_yet = |_: &crate::core::Aid, _: &Uuid| {
-        Err(HandshakeError::Tct(
-            crate::tct::TctError::RevocationUnavailable(
-                "no revocation lookup before MUTUAL_COMMIT_ACK".into(),
-            ),
+    let no_tct_yet = |_: &crate::tct::RevocationQuery<'_>| {
+        Err(crate::tct::RevocationUnavailable::new(
+            "no revocation lookup before MUTUAL_COMMIT_ACK",
         ))
     };
     let make_cfg = || {
@@ -482,7 +484,7 @@ pub async fn run_initiator_handshake(
             config.own_manifest,
             jwks_resolver,
             pinned_key_store,
-            crate::handshake::RevocationSource::Check(&no_tct_yet),
+            crate::tct::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
         .with_trust_anchors(trust_anchors)
@@ -561,6 +563,14 @@ pub async fn run_initiator_handshake(
                 FacadeError::Serde(e)
             }
         })?;
+    // The synchronous step resolves the responder's OIDC issuer keys
+    // from the resolver's cache; fetch them first.
+    crate::handshake::identity_oidc::prefetch_identity_keys(
+        jwks_resolver,
+        &hello_ack.identity,
+        trust_anchors,
+    )
+    .await;
     let cfg = make_cfg();
     let commit = initiator.on_hello_ack(&hello_ack_envelope, &hello_ack, &cfg)?;
 
@@ -619,13 +629,13 @@ pub async fn run_initiator_handshake(
             Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
+    let revocation_check = move |q: &crate::tct::RevocationQuery<'_>| prepared.decide(q);
     let cfg = PeerConfig::new(
         config.signing_key,
         config.own_manifest,
         jwks_resolver,
         pinned_key_store,
-        crate::handshake::RevocationSource::Check(&revocation_check),
+        crate::tct::RevocationSource::Check(&revocation_check),
         Timestamp::now(),
     )
     .with_trust_anchors(trust_anchors);
@@ -636,6 +646,7 @@ pub async fn run_initiator_handshake(
         peer_pubkey: peer_pk,
         held_tct: completed.tct,
         grant_voucher: completed.grant_voucher,
+        effective_grants: completed.effective_grants,
     })
 }
 
@@ -944,6 +955,7 @@ mod tct_store_tests {
         (
             VerifiedTct {
                 token: issued.token,
+                effective_grants: issued.claims.grants.clone(),
                 claims: issued.claims,
             },
             issued.voucher,

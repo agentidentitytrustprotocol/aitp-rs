@@ -96,7 +96,7 @@ fn full_oidc_handshake_in_process() {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -105,7 +105,7 @@ fn full_oidc_handshake_in_process() {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -254,7 +254,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         &alice_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);
@@ -263,7 +263,7 @@ fn run_oidc_minter_handshake(alice: &AitpSigningKey, bob: &AitpSigningKey) {
         &bob_manifest,
         &resolver,
         &aitp::handshake::NoPinnedKeys,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     )
     .with_trust_anchors(&trust_anchors);

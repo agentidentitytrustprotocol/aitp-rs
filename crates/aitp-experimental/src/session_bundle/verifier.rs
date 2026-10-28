@@ -178,7 +178,7 @@ pub fn verify_session_bundle(
         let tct_ctx = TctVerifyContext::builder(&entry.aid, &bundle.coordinator, ctx.now)
             // §7 per-pair revocation is applied separately below, after
             // signature verification (RFC-AITP-0008 §3.3 ordering).
-            .accept_unchecked_revocation_dangerous();
+            .revocation(aitp::tct::RevocationSource::FailOpen);
         // The coordinator issued every embedded TCT, so its verified
         // Manifest's `expires_at` is the issuer-Manifest cap. Without a
         // Manifest (`UnverifiedAidDangerous`) the cap cannot apply; the

@@ -2,7 +2,7 @@
 
 use crate::core::DEFAULT_TIMESTAMP_TOLERANCE_SECS;
 use crate::core::{
-    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, CheckedJson,
+    check_members, from_serde_error, parse_envelope_wire, AitpEnvelope, BoxFuture, CheckedJson,
     EnvelopeParseError, ErrorCode, MessageType, Timestamp,
 };
 use crate::crypto::{AitpSigner, AitpVerifyingKey};
@@ -92,11 +92,15 @@ const DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS: i64 = 60;
 ///   from your control plane, or
 /// - re-sign on every poll from a database table.
 ///
-/// The producer is sync; if the source is I/O-bound, fan out to a
-/// background task and just return the latest cached value here.
+/// An error means there is no snapshot to serve: the route answers
+/// `503 Service Unavailable` and consumers apply their fail mode
+/// (RFC-AITP-0008 §3). Never mint a fresh empty list on a backing-store
+/// failure.
 pub trait RevocationListProducer: Send + Sync + 'static {
     /// Return the current snapshot.
-    fn current(&self) -> RevocationListEnvelope;
+    fn current(
+        &self,
+    ) -> BoxFuture<'_, Result<RevocationListEnvelope, crate::transport::RevocationError>>;
 }
 
 /// Server that exposes `/.well-known/aitp-manifest` returning
@@ -388,6 +392,12 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// builder can configure a server whose `Arc<HandshakeState>` is
     /// already shared.
     pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
+    /// Verifies initiator identity kinds `aitp` does not verify itself
+    /// ([`HandshakeServer::with_identity_verifier`]).
+    identity_verifier: Mutex<Option<Arc<dyn crate::handshake::IdentityVerifier>>>,
+    /// Narrows the grants of the TCT issued to the initiator
+    /// ([`HandshakeServer::with_grant_policy`]).
+    grant_policy: Mutex<Option<Arc<crate::handshake::GrantPolicyFn>>>,
     /// Revocation lookups for the initiator-issued TCT at COMMIT
     /// (RFC-AITP-0008), against the `ListRevoked` URL the initiator's
     /// Manifest advertises. Defaults to `fail_closed`; see
@@ -518,6 +528,8 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
+                identity_verifier: Mutex::new(None),
+                grant_policy: Mutex::new(None),
                 revocation_fetcher: Mutex::new(Arc::new(
                     crate::transport::revocation_fetch::RevocationFetcher::default(),
                 )),
@@ -648,6 +660,25 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
         *self.state.pinned_key_store.lock() = store;
+        self
+    }
+
+    /// Verify initiator identities of the kinds `aitp` does not verify
+    /// itself with `verifier` ([`crate::handshake::IdentityVerifier`]).
+    /// Without one, such an initiator is rejected with
+    /// `INCOMPATIBLE_IDENTITY_TYPE`.
+    pub fn with_identity_verifier(
+        self,
+        verifier: Arc<dyn crate::handshake::IdentityVerifier>,
+    ) -> Self {
+        *self.state.identity_verifier.lock() = Some(verifier);
+        self
+    }
+
+    /// Narrow the grants of the TCT issued to each initiator with
+    /// `policy` ([`crate::handshake::GrantPolicyFn`]).
+    pub fn with_grant_policy(self, policy: Arc<crate::handshake::GrantPolicyFn>) -> Self {
+        *self.state.grant_policy.lock() = Some(policy);
         self
     }
 
@@ -799,7 +830,6 @@ enum ListSource {
 /// (RFC-AITP-0008 §1.5 "Empty lists are signed"). Reused for
 /// [`DEFAULT_EMPTY_SNAPSHOT_REFRESH_SECS`], then re-signed.
 struct SignedEmptySnapshot {
-    issuer: crate::core::Aid,
     provider: crate::transport::revocation::EmptyRevocationProvider,
     cached: Mutex<Option<RevocationListEnvelope>>,
 }
@@ -807,7 +837,6 @@ struct SignedEmptySnapshot {
 impl SignedEmptySnapshot {
     fn new(signing_key: Arc<dyn AitpSigner>) -> Self {
         Self {
-            issuer: signing_key.aid().clone(),
             provider: crate::transport::revocation::EmptyRevocationProvider::new(signing_key)
                 .with_ttl_secs(DEFAULT_EMPTY_SNAPSHOT_TTL_SECS),
             cached: Mutex::new(None),
@@ -817,7 +846,6 @@ impl SignedEmptySnapshot {
     fn current(
         &self,
     ) -> Result<RevocationListEnvelope, crate::transport::revocation::RevocationError> {
-        use crate::transport::revocation::RevocationProvider as _;
         let now = Timestamp::now();
         let mut cached = self.cached.lock();
         if let Some(env) = cached.as_ref() {
@@ -826,7 +854,7 @@ impl SignedEmptySnapshot {
                 return Ok(env.clone());
             }
         }
-        let env = self.provider.fetch(&self.issuer)?;
+        let env = self.provider.sign_empty()?;
         *cached = Some(env.clone());
         Ok(env)
     }
@@ -839,19 +867,20 @@ fn revocation_router(source: ListSource) -> Router {
         get(move || {
             let source = source.clone();
             async move {
-                match &*source {
-                    ListSource::Producer(p) => Json(p.current()).into_response(),
-                    ListSource::SignedEmpty(d) => match d.current() {
-                        Ok(env) => Json(env).into_response(),
-                        // Local signing-backend fault: there is no
-                        // snapshot to serve. Consumers see the issuer as
-                        // unreachable and apply their fail mode
-                        // (RFC-AITP-0008 §3).
-                        Err(e) => {
-                            warn!(error = %e, "could not sign default revocation snapshot");
-                            StatusCode::SERVICE_UNAVAILABLE.into_response()
-                        }
-                    },
+                let current = match &*source {
+                    ListSource::Producer(p) => p.current().await,
+                    ListSource::SignedEmpty(d) => d.current(),
+                };
+                match current {
+                    Ok(env) => Json(env).into_response(),
+                    // No snapshot to serve (backing store or signing
+                    // backend fault). Consumers see the issuer as
+                    // unreachable and apply their fail mode
+                    // (RFC-AITP-0008 §3).
+                    Err(e) => {
+                        warn!(error = %e, "no revocation snapshot to serve");
+                        StatusCode::SERVICE_UNAVAILABLE.into_response()
+                    }
                 }
             }
         }),
@@ -921,28 +950,42 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         )
     })?;
 
+    // The synchronous `Responder::on_hello` resolves the initiator's
+    // OIDC issuer keys from the resolver's cache; fetch them first.
+    crate::handshake::identity_oidc::prefetch_identity_keys(
+        &state.jwks_resolver,
+        &payload.identity,
+        &state.trust_anchors,
+    )
+    .await;
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `Responder::on_hello`
     // call below.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // No TCT is exchanged at HELLO, so the revocation source is never
     // consulted here; the COMMIT handler supplies the real lookup.
-    let no_tct_at_hello = |_: &crate::core::Aid, _: &Uuid| {
-        Err(HandshakeError::Tct(
-            crate::tct::TctError::RevocationUnavailable(
-                "no revocation lookup at MUTUAL_HELLO".into(),
-            ),
+    let no_tct_at_hello = |_: &crate::tct::RevocationQuery<'_>| {
+        Err(crate::tct::RevocationUnavailable::new(
+            "no revocation lookup at MUTUAL_HELLO",
         ))
     };
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
-        crate::handshake::RevocationSource::Check(&no_tct_at_hello),
+        crate::tct::RevocationSource::Check(&no_tct_at_hello),
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     // Server uses pinned-key identity by default (the demo). Production
     // deployments wanting OIDC should construct PresentedIdentity::Oidc
     // outside and use a custom server. The public key is materialized
@@ -1095,6 +1138,8 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
     // Snapshot the pinned-key trust store (RFC-AITP-0002 §3.2 step 3);
     // the clone outlives `cfg` and the synchronous `on_commit` call.
     let pinned_store = state.pinned_key_store.lock().clone();
+    let identity_verifier = state.identity_verifier.lock().clone();
+    let grant_policy = state.grant_policy.lock().clone();
     // RFC-AITP-0008: fetch the initiator's revocation snapshot before the
     // sync `on_commit`. The issuer and URL come from the Manifest that
     // HELLO already bound to the initiator's key, never from the
@@ -1116,16 +1161,22 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
             crate::core::Timestamp::now(),
         )
         .await;
-    let revocation_check = move |iss: &crate::core::Aid, jti: &Uuid| prepared.decide(iss, jti);
-    let cfg = PeerConfig::new(
+    let revocation_check = move |q: &crate::tct::RevocationQuery<'_>| prepared.decide(q);
+    let mut cfg = PeerConfig::new(
         &*state.signing_key,
         &state.manifest,
         &state.jwks_resolver,
         &*pinned_store,
-        crate::handshake::RevocationSource::Check(&revocation_check),
+        crate::tct::RevocationSource::Check(&revocation_check),
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    if let Some(verifier) = &identity_verifier {
+        cfg = cfg.with_identity_verifier(&**verifier);
+    }
+    if let Some(policy) = &grant_policy {
+        cfg = cfg.with_grant_policy(&**policy);
+    }
     let (ack_payload, _our_held_tct) = entry
         .responder
         .on_commit(&envelope, &payload, &cfg)

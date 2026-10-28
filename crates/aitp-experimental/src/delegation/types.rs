@@ -82,6 +82,10 @@ pub struct VerifiedChainedDelegation {
     /// Claims of the root grant voucher (embedded in the token itself
     /// for single-hop, or in `chain[0]` for multi-hop).
     pub voucher: GrantVoucherClaims,
+    /// The capabilities the delegation may exercise: `claims.scope`,
+    /// narrowed by every soft-fail safe subset the revocation lookups
+    /// returned.
+    pub effective_grants: Vec<String>,
 }
 
 #[cfg(test)]

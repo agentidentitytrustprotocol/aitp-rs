@@ -126,6 +126,7 @@ impl HandshakeError {
                 TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
                 TctError::Expired => ErrorCode::TctExpired,
                 TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
+                TctError::SafeSubsetEmpty => ErrorCode::PolicyViolation,
                 _ => ErrorCode::TctSignatureInvalid,
             },
             // RFC-AITP-0003 §5 / issue #144: a wrapped ManifestError can fail

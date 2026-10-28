@@ -8,15 +8,52 @@ use crate::handshake::jwk::{verify_jws_signature, JwkPublicKey};
 use serde::Deserialize;
 use url::Url;
 
-/// Trait implementations resolve an issuer URI to a set of acceptable
-/// signing keys. The handshake crate is sync; the HTTP transport crate
-/// provides an async-fronted impl.
+/// Resolves an issuer URI to a set of acceptable signing keys.
+///
+/// The handshake state machine is synchronous, so [`Self::resolve`] does
+/// no I/O: it answers from what the resolver already holds. A resolver
+/// that fetches keys over the network does so in [`Self::prefetch`],
+/// which the async transport ([`crate::transport::HandshakeServer`] and
+/// the [`crate::facade`] initiator) awaits for the peer's OIDC issuer
+/// before running the synchronous step.
 ///
 /// Implementations MAY return Ed25519 (`OKP`) keys, RSA keys, or both.
 /// Each key is identified by a `kid` and an algorithm.
 pub trait JwksResolver: Send + Sync {
     /// Return the set of acceptable signing keys for `issuer`.
     fn resolve(&self, issuer: &Url) -> Result<Vec<JwkPublicKey>, ResolveError>;
+
+    /// Obtain and hold `issuer`'s keys so a later [`Self::resolve`] can
+    /// answer without I/O. A failure is not returned here: `resolve`
+    /// reports it. The default does nothing, for resolvers whose keys
+    /// are already local.
+    fn prefetch<'a>(&'a self, issuer: &'a Url) -> crate::core::BoxFuture<'a, ()> {
+        let _ = issuer;
+        Box::pin(std::future::ready(()))
+    }
+}
+
+/// Prefetch the issuer keys that [`verify_oidc`] will ask `resolver` for
+/// when it verifies `identity`: only an `oidc` descriptor whose issuer is
+/// in `trust_anchors` and parses as a URL reaches the resolver.
+#[cfg(feature = "http-client")]
+pub(crate) async fn prefetch_identity_keys(
+    resolver: &dyn JwksResolver,
+    identity: &IdentityDescriptor,
+    trust_anchors: &[crate::core::RawUrl],
+) {
+    if identity.kind != crate::handshake::identity::IdentityKind::Oidc {
+        return;
+    }
+    let Some(issuer) = identity.issuer.as_ref() else {
+        return;
+    };
+    if !trust_anchors.iter().any(|a| a.as_str() == issuer.as_str()) {
+        return;
+    }
+    if let Ok(url) = issuer.parse_url() {
+        resolver.prefetch(&url).await;
+    }
 }
 
 /// Errors from JWKS resolution.

@@ -15,7 +15,6 @@ use rand::TryRng;
 use std::future::Future;
 use std::sync::OnceLock;
 use std::task::{Context, Poll};
-use uuid::Uuid;
 
 /// Holder side: build a `TctRenewalPayload` JSON.
 ///
@@ -66,11 +65,17 @@ pub fn process_renewal_request_py(
         .map_err(PyValueError::new_err)?;
     // The issuer's own list is authoritative, so an empty one is "nothing
     // revoked", never "unavailable".
-    let revocation_check = move |jti: &Uuid| Ok(revoked.contains(jti));
+    let revocation_check = move |q: &aitp::tct::RevocationQuery<'_>| {
+        Ok(if revoked.contains(q.jti) {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
     let ctx = RenewalContext::new(
         Timestamp(manifest_exp_unix_secs),
         offered_grants,
-        &revocation_check,
+        aitp::tct::RevocationSource::Check(&revocation_check),
         renewal_nonce_store(),
         Timestamp::now(),
     )

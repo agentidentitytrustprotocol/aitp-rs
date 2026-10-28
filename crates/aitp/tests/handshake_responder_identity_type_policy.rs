@@ -76,7 +76,7 @@ fn bob_on_hello(bob_accepts: &[&str], bob_trusts_alice: bool) -> Result<(), Hand
         &alice_manifest,
         &resolver,
         &alice_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
     let bob_pinned = if bob_trusts_alice {
@@ -89,7 +89,7 @@ fn bob_on_hello(bob_accepts: &[&str], bob_trusts_alice: bool) -> Result<(), Hand
         &bob_manifest,
         &resolver,
         &bob_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         NOW,
     );
 

@@ -76,6 +76,7 @@ pub(crate) fn tct_error_code(err: &TctError) -> ErrorCode {
     match err {
         TctError::PopFailed => ErrorCode::PopResponseInvalid,
         TctError::Revoked | TctError::RevocationUnavailable(_) => ErrorCode::TctRevoked,
+        TctError::SafeSubsetEmpty => ErrorCode::PolicyViolation,
         TctError::Expired => ErrorCode::TctExpired,
         TctError::ExpiresAfterManifest => ErrorCode::TctExpiresAfterManifest,
         TctError::UnknownField(_) => ErrorCode::UnknownField,

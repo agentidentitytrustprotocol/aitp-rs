@@ -89,7 +89,7 @@ async fn commit_after_session_ttl_is_rejected() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();
@@ -215,7 +215,7 @@ async fn fresh_session_within_ttl_is_accepted() {
         &alice_manifest,
         &resolver,
         &cfg_pinned,
-        aitp::handshake::RevocationSource::FailOpen,
+        aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
     );
     let hello_mid = Uuid::new_v4();

@@ -18,8 +18,11 @@ use tokio::net::TcpListener;
 
 struct StaticProducer(RevocationListEnvelope);
 impl RevocationListProducer for StaticProducer {
-    fn current(&self) -> RevocationListEnvelope {
-        self.0.clone()
+    fn current(
+        &self,
+    ) -> aitp::core::BoxFuture<'_, Result<RevocationListEnvelope, aitp::transport::RevocationError>>
+    {
+        Box::pin(std::future::ready(Ok(self.0.clone())))
     }
 }
 

@@ -4,7 +4,10 @@
 use aitp::core::nonce_store::{InMemoryNonceStore, NonceStoreError};
 use aitp::core::{base64url, Aid, ErrorCode, Timestamp};
 use aitp::crypto::{AitpSigningKey, AitpVerifyingKey, Digest32, Signature};
-use aitp::tct::{IssuedTct, TctBuilder, TctError};
+use aitp::tct::{
+    IssuedTct, RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable,
+    TctBuilder, TctError,
+};
 use aitp_experimental::renewal::{
     build_renewal_request, parse_renewal_request, process_renewal_request, renewal_error_envelope,
     renewal_pop_input, renewal_response_envelope, verify_renewal_response, RenewalContext,
@@ -18,8 +21,8 @@ fn offered() -> Vec<String> {
     GRANTS.iter().map(|s| s.to_string()).collect()
 }
 
-fn not_revoked(_: &Uuid) -> Result<bool, TctError> {
-    Ok(false)
+fn not_revoked(_: &RevocationQuery<'_>) -> Result<RevocationStatus, RevocationUnavailable> {
+    Ok(RevocationStatus::Clear)
 }
 
 fn issue(issuer: &AitpSigningKey, holder: &AitpSigningKey, now: Timestamp, ttl: i64) -> IssuedTct {
@@ -45,7 +48,14 @@ async fn renew(
 ) -> Result<IssuedTct, RenewalError> {
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
-    let ctx = RenewalContext::new(manifest_exp, &offered, &not_revoked, &store, now).ttl_secs(ttl);
+    let ctx = RenewalContext::new(
+        manifest_exp,
+        &offered,
+        RevocationSource::Check(&not_revoked),
+        &store,
+        now,
+    )
+    .ttl_secs(ttl);
     process_renewal_request(request, issuer, &ctx).await
 }
 
@@ -246,7 +256,7 @@ async fn replayed_pop_nonce_rejected() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     );
@@ -276,7 +286,7 @@ async fn failed_pop_does_not_record_nonce() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     );
@@ -337,12 +347,24 @@ async fn renewal_of_revoked_tct_rejected() {
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
     let revoked_jti = original.claims.jti;
-    let revoked = move |j: &Uuid| Ok(*j == revoked_jti);
+    let revoked = move |q: &RevocationQuery<'_>| {
+        Ok(if *q.jti == revoked_jti {
+            RevocationStatus::Revoked
+        } else {
+            RevocationStatus::Clear
+        })
+    };
     let request =
         build_renewal_request(&holder, original.token, base64url::encode(&[0xaa; 16])).unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
-    let ctx = RenewalContext::new(Timestamp(now.0 + 86_400), &offered, &revoked, &store, now);
+    let ctx = RenewalContext::new(
+        Timestamp(now.0 + 86_400),
+        &offered,
+        RevocationSource::Check(&revoked),
+        &store,
+        now,
+    );
     let err = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap_err();
@@ -367,7 +389,7 @@ async fn withdrawn_grant_is_dropped() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     );
@@ -394,7 +416,13 @@ async fn all_grants_withdrawn_refused() {
     )
     .unwrap();
     let none_offered: Vec<String> = vec!["other.cap".into()];
-    let ctx = RenewalContext::new(manifest_exp, &none_offered, &not_revoked, &store, now);
+    let ctx = RenewalContext::new(
+        manifest_exp,
+        &none_offered,
+        RevocationSource::Check(&not_revoked),
+        &store,
+        now,
+    );
     let err = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap_err();
@@ -404,8 +432,14 @@ async fn all_grants_withdrawn_refused() {
         build_renewal_request(&holder, original.token, base64url::encode(&[0xad; 16])).unwrap();
     let offered = offered();
     let deny_all = |_: &Aid, _: &[String]| Vec::new();
-    let ctx = RenewalContext::new(manifest_exp, &offered, &not_revoked, &store, now)
-        .grant_policy(&deny_all);
+    let ctx = RenewalContext::new(
+        manifest_exp,
+        &offered,
+        RevocationSource::Check(&not_revoked),
+        &store,
+        now,
+    )
+    .grant_policy(&deny_all);
     let err = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap_err();
@@ -431,7 +465,7 @@ async fn grant_policy_narrows_and_voucher_is_optional() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     )
@@ -455,7 +489,7 @@ async fn nonce_store_at_capacity_is_a_local_error() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     );
@@ -489,7 +523,13 @@ fn renewal_future_is_send() {
     let issuer = AitpSigningKey::from_seed(&[0x7a; 32]);
     let store = InMemoryNonceStore::new(1);
     let offered = offered();
-    let ctx = RenewalContext::new(Timestamp(1), &offered, &not_revoked, &store, Timestamp(0));
+    let ctx = RenewalContext::new(
+        Timestamp(1),
+        &offered,
+        RevocationSource::Check(&not_revoked),
+        &store,
+        Timestamp(0),
+    );
     let req = TctRenewalPayload::new(String::new(), String::new(), String::new());
     let fut = process_renewal_request(&req, &issuer, &ctx);
     assert_send(&fut);
@@ -566,12 +606,18 @@ async fn pop_is_checked_before_revocation() {
     let other = AitpSigningKey::from_seed(&[0x7d; 32]);
     let now = Timestamp(1_700_000_000);
     let original = issue(&issuer, &holder, now, 600);
-    let revoked = |_: &Uuid| Ok(true);
+    let revoked = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Revoked);
     let request =
         build_renewal_request(&other, original.token, base64url::encode(&[0xab; 16])).unwrap();
     let store = InMemoryNonceStore::new(16);
     let offered = offered();
-    let ctx = RenewalContext::new(Timestamp(now.0 + 86_400), &offered, &revoked, &store, now);
+    let ctx = RenewalContext::new(
+        Timestamp(now.0 + 86_400),
+        &offered,
+        RevocationSource::Check(&revoked),
+        &store,
+        now,
+    );
     let err = process_renewal_request(&request, &issuer, &ctx)
         .await
         .unwrap_err();
@@ -597,7 +643,7 @@ async fn grant_policy_cannot_widen() {
     let ctx = RenewalContext::new(
         Timestamp(now.0 + 86_400),
         &offered,
-        &not_revoked,
+        RevocationSource::Check(&not_revoked),
         &store,
         now,
     )

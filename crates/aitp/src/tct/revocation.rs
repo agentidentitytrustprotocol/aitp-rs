@@ -8,7 +8,7 @@
 //! a network attacker that suppresses fresher snapshots to roll back
 //! revocations.
 
-use crate::core::{check_members, from_serde_error, jcs, Aid, ExtensionsMap, Timestamp};
+use crate::core::{check_members, from_serde_error, jcs, Aid, BoxError, ExtensionsMap, Timestamp};
 use crate::crypto::{AitpSigner, AitpVerifyingKey, CryptoError, Signature};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
@@ -325,6 +325,154 @@ impl<'a> VerifyRevocationListContext<'a> {
             now,
         }
     }
+}
+
+/// What a [`RevocationCheckFn`] is asked: is `jti`, issued by `issuer`,
+/// revoked at `now`?
+///
+/// Built by the verifier only after every signature check has passed
+/// (RFC-AITP-0008 §3.3), so `issuer` and `jti` are authenticated values.
+#[derive(Debug, Clone)]
+#[non_exhaustive]
+pub struct RevocationQuery<'a> {
+    /// The issuer whose revocation list governs `jti`.
+    pub issuer: &'a Aid,
+    /// The token identifier to look up.
+    pub jti: &'a Uuid,
+    /// The verifier's clock.
+    pub now: Timestamp,
+}
+
+impl<'a> RevocationQuery<'a> {
+    /// A query for `jti` under `issuer`'s list at `now`.
+    pub fn new(issuer: &'a Aid, jti: &'a Uuid, now: Timestamp) -> Self {
+        Self { issuer, jti, now }
+    }
+}
+
+/// The answer to a [`RevocationQuery`] (RFC-AITP-0008 §3.1).
+///
+/// Exhaustive on purpose: each variant is a distinct security decision,
+/// and a new one must be handled by every verifier rather than fall into
+/// a wildcard arm.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum RevocationStatus {
+    /// Not revoked: the artifact keeps its full grant set.
+    Clear,
+    /// Revoked: verification fails.
+    Revoked,
+    /// The status could not be determined and the `soft_fail` policy
+    /// applies: the artifact is accepted with its grants narrowed to
+    /// those also in `safe_grants`. An empty intersection fails
+    /// verification.
+    SoftFailSafeSubset {
+        /// The configured safe-grant subset.
+        safe_grants: Vec<String>,
+    },
+}
+
+/// The revocation status could not be determined and the policy fails
+/// closed (RFC-AITP-0008 §3.1). Carries the reason.
+#[derive(Debug, thiserror::Error)]
+#[error("revocation source unavailable: {0}")]
+pub struct RevocationUnavailable(BoxError);
+
+impl RevocationUnavailable {
+    /// Wrap the reason the status is unknown.
+    pub fn new(reason: impl Into<BoxError>) -> Self {
+        Self(reason.into())
+    }
+}
+
+/// A revocation lookup (RFC-AITP-0008).
+///
+/// Returns the [`RevocationStatus`] for the query, or
+/// [`RevocationUnavailable`] when the status cannot be determined and the
+/// policy fails closed. `crate::transport::PreparedRevocation::decide`
+/// (feature `http-client`) has this shape.
+pub type RevocationCheckFn<'a> = dyn Fn(&RevocationQuery<'_>) -> Result<RevocationStatus, RevocationUnavailable>
+    + Send
+    + Sync
+    + 'a;
+
+/// Where a verifier gets revocation status (RFC-AITP-0008).
+///
+/// There is deliberately no `Default`: a verifier with no revocation
+/// source accepts revoked but unexpired artifacts, so the caller names
+/// one of the choices.
+#[derive(Clone)]
+#[non_exhaustive]
+pub enum RevocationSource<'a> {
+    /// Consult this lookup after every signature check.
+    Check(&'a RevocationCheckFn<'a>),
+    /// No revocation source: accept without any lookup, the `fail_open`
+    /// mode with the source always unavailable. A revoked but unexpired
+    /// artifact is accepted. A warning is logged once per process.
+    /// Tests and in-process demos only.
+    FailOpen,
+}
+
+impl std::fmt::Debug for RevocationSource<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Check(_) => f.write_str("RevocationSource::Check(..)"),
+            Self::FailOpen => f.write_str("RevocationSource::FailOpen"),
+        }
+    }
+}
+
+/// Why [`apply_revocation`] refused an artifact.
+#[derive(Debug)]
+pub(crate) enum RevocationRejection {
+    Revoked,
+    Unavailable(RevocationUnavailable),
+    SafeSubsetEmpty,
+}
+
+/// Run `source` for `query` and return the grants the artifact may
+/// exercise: `grants` itself, or its intersection with the safe subset
+/// under [`RevocationStatus::SoftFailSafeSubset`]. Shared by every
+/// verifier so the decision is taken one way.
+pub(crate) fn apply_revocation(
+    source: &RevocationSource<'_>,
+    query: &RevocationQuery<'_>,
+    grants: &[String],
+) -> Result<Vec<String>, RevocationRejection> {
+    let check = match source {
+        RevocationSource::Check(check) => check,
+        RevocationSource::FailOpen => {
+            warn_fail_open_once();
+            return Ok(grants.to_vec());
+        }
+    };
+    match check(query).map_err(RevocationRejection::Unavailable)? {
+        RevocationStatus::Clear => Ok(grants.to_vec()),
+        RevocationStatus::Revoked => Err(RevocationRejection::Revoked),
+        RevocationStatus::SoftFailSafeSubset { safe_grants } => {
+            let narrowed: Vec<String> = grants
+                .iter()
+                .filter(|g| safe_grants.contains(g))
+                .cloned()
+                .collect();
+            if narrowed.is_empty() {
+                Err(RevocationRejection::SafeSubsetEmpty)
+            } else {
+                Ok(narrowed)
+            }
+        }
+    }
+}
+
+/// Logs the [`RevocationSource::FailOpen`] warning at most once per
+/// process, whichever verifier hits it first.
+fn warn_fail_open_once() {
+    static WARNED: std::sync::Once = std::sync::Once::new();
+    WARNED.call_once(|| {
+        tracing::warn!(
+            "a verifier uses RevocationSource::FailOpen: artifacts are accepted \
+             without a revocation check (RFC-AITP-0008 fail_open)"
+        );
+    });
 }
 
 #[cfg(test)]

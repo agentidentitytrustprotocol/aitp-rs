@@ -150,17 +150,21 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
   advertised `ListRevoked` snapshot, so a peer whose Manifest carries no
   reachable `rfc-aitp-0008.revocation_list_uri` is refused unless the
   verifier sets `RevocationFailMode::FailOpen`. `TctVerifyContext::builder()`
-  will not build until a revocation hook is given or the
-  `accept_unchecked_revocation_dangerous()` waiver is named. The SDKs
+  will not build until a revocation source is named with
+  `.revocation(..)`: `RevocationSource::Check` with a lookup, or
+  `RevocationSource::FailOpen` to skip it. Under `soft_fail` the verified
+  TCT, delegation and handshake carry `effective_grants`, the grants
+  narrowed to the safe subset. The SDKs
   take a caller-supplied revoked-`jti` list (`[]` means nothing is
   revoked), and omitting it fails closed unless `revocation="fail_open"`.
-- **JWKS resolution from a current-thread runtime.** The synchronous
-  `JwksResolver::resolve` sync→async bridge uses `block_in_place`,
-  which requires a multi-thread tokio runtime; on a current-thread
-  runtime `resolve` now fails closed with a descriptive error rather
-  than panicking. Async callers should use
-  `AsyncJwksResolver::resolve_async` (e.g. to pre-warm the resolver
-  cache); pure-sync deployments rely on the pinned-issuer store.
+- **JWKS resolution does no I/O in the handshake step.** The
+  synchronous `JwksResolver::resolve` answers from the cache and the
+  pinned-issuer store only. `KeyResolutionPolicy` fetches over the
+  network in the async `JwksResolver::prefetch`, which `HandshakeServer`
+  and `run_initiator_handshake` await for the peer's OIDC issuer before
+  each synchronous step. A caller driving the state machine itself awaits
+  `prefetch` first; without it an unpinned issuer fails with the
+  retryable `KEY_RESOLUTION_FAILED`.
 
 ## Conformance matrix
 

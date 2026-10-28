@@ -220,8 +220,8 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
 /// supplies revocation status only to `verify_tct` (tct-024/025); its
 /// handshake fixtures and cross-impl peers carry no `ListRevoked` input,
 /// so the handshake ops run `fail_open` explicitly.
-const HARNESS_REVOCATION: aitp::handshake::RevocationSource<'static> =
-    aitp::handshake::RevocationSource::FailOpen;
+const HARNESS_REVOCATION: aitp::tct::RevocationSource<'static> =
+    aitp::tct::RevocationSource::FailOpen;
 
 fn init(id: &str) -> Value {
     let supported_ops = vec![
@@ -1303,7 +1303,7 @@ fn verify_commit_ack_stateless(
     let ctx = TctVerifyContext::builder(self_aid, sender_aid, now)
         // Handshake-payload conformance op: no revocation source or
         // issuer Manifest is wired for this synthetic check.
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .expect("both verify decisions are made above");
@@ -1604,14 +1604,24 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
     // was consulted at all, to pin the RFC-AITP-0008 §3.3 ordering
     // (signature verification MUST precede any revocation lookup).
     let lookup_called = AtomicBool::new(false);
-    let check = |jti: &Uuid| {
+    let check = |q: &aitp::tct::RevocationQuery<'_>| {
+        use aitp::tct::RevocationStatus;
         lookup_called.store(true, Ordering::Relaxed);
         if absent_is_revoked {
-            return Err(aitp::tct::TctError::RevocationUnavailable(
-                absent_reason.clone(),
-            ));
+            return Err(aitp::tct::RevocationUnavailable::new(absent_reason.clone()));
         }
-        Ok(revoked_jtis.contains(&jti.to_string()))
+        if revoked_jtis.contains(&q.jti.to_string()) {
+            return Ok(RevocationStatus::Revoked);
+        }
+        // soft_fail with a safe subset: the snapshot was discarded, so
+        // the verifier narrows the grants to that subset (RFC-AITP-0008
+        // §3.1); an empty intersection is SafeSubsetEmpty.
+        Ok(match &snapshot_mode {
+            Some(SnapshotPolicyMode::SoftFail(safe)) => RevocationStatus::SoftFailSafeSubset {
+                safe_grants: safe.clone(),
+            },
+            _ => RevocationStatus::Clear,
+        })
     };
     // Honor the spec's `issuer_manifest.expires_at` field
     // (RFC-AITP-0005 §10.4). tct-005 supplies this via
@@ -1625,7 +1635,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .map(Timestamp);
     let ctx = {
         let b = aitp::tct::TctVerifyContext::builder(&expected_audience, &issuer, now)
-            .revocation_check(&check);
+            .revocation(aitp::tct::RevocationSource::Check(&check));
         let b = match issuer_manifest_expires_at {
             Some(exp) => b.issuer_manifest_expires_at(exp),
             None => b.skip_manifest_expiry_cap_dangerous(),
@@ -1638,23 +1648,7 @@ fn verify_tct_op(state: &AdapterState, id: &str, params: Value) -> Value {
         .unwrap_or(false);
     match aitp::tct::verify_tct(&token, &ctx) {
         Ok(v) => {
-            let mut grants = v.claims.grants;
-            // soft_fail with a safe subset: the snapshot was discarded,
-            // so accept with the grants narrowed to that subset
-            // (RFC-AITP-0008 §3.1). An empty intersection is a policy
-            // violation, not a full-grant accept.
-            if let Some(SnapshotPolicyMode::SoftFail(safe)) = &snapshot_mode {
-                grants.retain(|g| safe.contains(g));
-                if grants.is_empty() {
-                    return err(
-                        id,
-                        "POLICY_VIOLATION",
-                        "revocation snapshot discarded under soft_fail and no granted \
-                         capability is in the safe subset",
-                    );
-                }
-            }
-            let mut result = json!({"verified": true, "grants": grants});
+            let mut result = json!({"verified": true, "grants": v.effective_grants});
             if instrumented {
                 result["side_effects"] = json!({
                     "revocation_lookup_called": lookup_called.load(Ordering::Relaxed),
@@ -1687,6 +1681,7 @@ fn tct_error_code(e: &aitp::tct::TctError) -> String {
         Expired => "TCT_EXPIRED",
         ExpiresAfterManifest => "TCT_EXPIRES_AFTER_MANIFEST",
         Revoked | RevocationUnavailable(_) => "TCT_REVOKED",
+        SafeSubsetEmpty => "POLICY_VIOLATION",
         EmptyGrants => "INVALID_ENVELOPE",
         GrantWhitespace(_) => "INVALID_ENVELOPE",
         CnfMalformed => "INVALID_ENVELOPE",
@@ -2099,17 +2094,27 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
     // An empty deny list is an explicit "nothing revoked" here: the
     // harness supplied every snapshot it has, and absent hop issuers are
     // already folded into `absent_issuers` by policy.
-    let revocation_check_closure = |jti: &Uuid| Ok(own_denied.contains(jti));
-    let hop_revocation_closure = |issuer: &Aid, jti: &Uuid| {
-        Ok(absent_issuers.contains(issuer)
-            || deny_lists.get(issuer).is_some_and(|s| s.contains(jti)))
+    let status = |revoked: bool| {
+        Ok(if revoked {
+            aitp::tct::RevocationStatus::Revoked
+        } else {
+            aitp::tct::RevocationStatus::Clear
+        })
+    };
+    let revocation_check_closure =
+        |q: &aitp::tct::RevocationQuery<'_>| status(own_denied.contains(q.jti));
+    let hop_revocation_closure = |q: &aitp::tct::RevocationQuery<'_>| {
+        status(
+            absent_issuers.contains(q.issuer)
+                || deny_lists.get(q.issuer).is_some_and(|s| s.contains(q.jti)),
+        )
     };
 
     let issuer_manifests = match delegation_issuer_manifests(&params) {
         Ok(m) => m,
         Err((code, msg)) => return err(id, &code, &msg),
     };
-    let revocation = aitp::delegation::DelegationRevocation::Check(&revocation_check_closure);
+    let revocation = aitp::tct::RevocationSource::Check(&revocation_check_closure);
     // Multi-hop opt-in. Per RFC-AITP-0006 §4 the default MUST reject any
     // chain-bearing token; the runner enables RFC-AITP-0011 semantics by
     // sending `set_features` with `experimental-multihop-delegation`.
@@ -2119,13 +2124,13 @@ fn verify_delegation_op(state: &AdapterState, id: &str, params: Value) -> Value 
                 .with_issuer_manifests(&issuer_manifests)
                 .with_hop_revocation_check(&hop_revocation_closure);
         aitp_experimental::delegation::verify_chained_delegation(&token, &ctx)
-            .map(|v| v.claims.scope)
+            .map(|v| v.effective_grants)
             .map_err(|e| (chained_delegation_error_code(&e), e.to_string()))
     } else {
         let ctx = aitp::delegation::VerifyDelegationContext::new(&verifier_aid, now, revocation)
             .with_issuer_manifests(&issuer_manifests);
         aitp::delegation::verify_delegation(&token, &ctx)
-            .map(|v| v.claims.scope)
+            .map(|v| v.effective_grants)
             .map_err(|e| (delegation_error_code(&e), e.to_string()))
     };
     match scope {
@@ -2173,6 +2178,7 @@ fn delegation_error_code(e: &aitp::delegation::DelegationError) -> String {
         ScopeExceeded => "DELEGATION_SCOPE_EXCEEDED",
         InvalidVoucher => "DELEGATION_INVALID_VOUCHER",
         SourceTctRevoked | RevocationUnavailable(_) => "DELEGATION_SOURCE_TCT_REVOKED",
+        SafeSubsetEmpty => "POLICY_VIOLATION",
         AudienceMismatch => "AUDIENCE_MISMATCH",
         PopFailed => "POP_RESPONSE_INVALID",
         MultihopNotSupported => "DELEGATION_MULTIHOP_NOT_SUPPORTED",
@@ -3477,7 +3483,7 @@ fn verify_tct_as_issuer_op(state: &AdapterState, id: &str, params: Value) -> Val
     };
     let ctx = aitp::tct::TctVerifyContext::builder(&sub, &self_aid, now)
         .skip_manifest_expiry_cap_dangerous()
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .expect("both verify decisions are made above");
     let claims = match aitp::tct::verify_tct(token, &ctx) {

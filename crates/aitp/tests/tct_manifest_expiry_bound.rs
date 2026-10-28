@@ -33,7 +33,7 @@ fn tct_expires_at_manifest_boundary_passes() {
     let token = issue(&issuer, &subject, 3600); // exp = NOW + 3600 = manifest_exp
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
         .issuer_manifest_expires_at(manifest_exp)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap();
     verify_tct(&token, &ctx).expect("TCT at the boundary verifies");
@@ -48,7 +48,7 @@ fn tct_expires_after_manifest_is_rejected() {
     let token = issue(&issuer, &subject, 3600); // 60 min > 30 min manifest
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
         .issuer_manifest_expires_at(manifest_exp)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .build()
         .unwrap();
     let err = verify_tct(&token, &ctx).expect_err("TCT past manifest must fail");
@@ -67,7 +67,7 @@ fn manifest_expiry_check_is_optional() {
     let subject = AitpSigningKey::from_seed(&[0xC6; 32]);
     let token = issue(&issuer, &subject, 86_400); // 24 hours, no bound
     let ctx = TctVerifyContext::builder(subject.aid(), issuer.aid(), NOW)
-        .accept_unchecked_revocation_dangerous()
+        .revocation(aitp::tct::RevocationSource::FailOpen)
         .skip_manifest_expiry_cap_dangerous()
         .build()
         .unwrap();
