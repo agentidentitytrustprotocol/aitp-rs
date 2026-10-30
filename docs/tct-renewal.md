@@ -241,6 +241,11 @@ registry code:
   multi-replica deployment needs a shared `NonceStore`.
 - **Binding replay guard.** The Python and Node bindings keep one
   process-wide in-memory replay guard shared by every agent.
+- **No metrics.** `aitp-experimental` has no `metrics` feature. The
+  renewal route emits tracing (span `handle_renew`) but no counters, and
+  its rate limiter is separate from `HandshakeServer`'s rate-limit
+  metrics. Only the shared `NonceStore` gauge fires, when `aitp/metrics`
+  is on.
 
 ## SDK example (holder ↔ issuer, Python)
 
