@@ -210,3 +210,18 @@ pinned by commit SHA in `tests/AITP_VERIFIER_TS_VERSION` because it is not on np
 `bump-verifier-ts.yml` opens a held PR weekly when its `main` moves. Once a v0.1.x
 release is published, the pin can move to the release.
 **Status:** CONFIRMED (2026-10-25).
+
+## D13 — The published SDKs carry the stable surface only; experimental is a source build (reconciled 2026-10-30, plan: rs-rc4-experimental-quarantine, Q4).
+**Assumption:** no separately published experimental SDK package. Renewal, session bundles and multi-hop delegation are opt-in through a source build only (Cargo features; `npm run build:experimental`).
+**Analysis (Opus):** confirm. The packaging enforces the policy: the npm `files` list holds only `index.js`/`index.d.ts`, both release workflows build with default features, and STABILITY.md excludes the `experimental-*` features from the promise. Publishing Draft RFCs (0010, 0011, 0013) as packages would imply support before the 1.0 freeze. Reversing later is additive: a new npm package or dist-tag with its own `binaryName`, or a new PyPI distribution. No consumer depends on a published experimental build. aitp-playground's docs wrongly assume the wheel has them, which aitp-playground#117 already tracks.
+**Decided by:** Opus (reversible tier).
+**Verdict:** confirmed as-is. Reopen if one of RFC-0010/0011/0013 nears Accepted, or an external user asks for prebuilt experimental binaries.
+**Status:** CONFIRMED (2026-10-30).
+
+## D14 — `RenewalServer` has no metrics; the absence is documented (reconciled 2026-10-30, plan: rs-rc4-experimental-quarantine, Q5).
+**Assumption:** renewal-server metrics only if `aitp-experimental` already takes `metrics`; otherwise documented as absent.
+**Analysis (Opus):** confirm, and write the missing doc line. `aitp-experimental` has no `metrics` feature and `aitp`'s counter helpers are crate-private (`crates/aitp/src/transport/obs.rs`), so adding metrics now means a new dependency plus duplicate helpers. Adding them later is purely additive, and the crate makes no promise. Only aitp-rs's own tests and example host `RenewalServer`, so there is no operational gap. The route already has a rate limit, a `handle_renew` tracing span and `warn!` events, and the shared `NonceStore` gauge fires under `aitp/metrics`. The plan said the absence was documented, but it was not.
+**Decided by:** Opus (reversible tier).
+**Verdict:** confirmed; a "No metrics" bullet was added to `docs/tct-renewal.md` Known limitations.
+**Status:** CONFIRMED (2026-10-30).
+
