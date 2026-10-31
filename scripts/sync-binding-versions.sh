@@ -80,7 +80,8 @@ sync_package_json_version() { # $1 = path to bindings/aitp-node/package.json
   ' "$1"
 }
 
-# napi-rs 3's generated `index.js` bakes `package.json`'s version into a
+# napi-rs 3's generated `index.js` (and `experimental.js`, the loader
+# `npm run build:experimental` writes) bakes `package.json`'s version into a
 # runtime `NAPI_RS_ENFORCE_VERSION_CHECK`-gated assertion (once per
 # platform-specific optional dependency, plus the WASI fallback) — it is
 # not just cosmetic. `bindings.yml`'s freshness gate rebuilds `index.js`
@@ -178,6 +179,7 @@ sync_cargo_toml_version     bindings/aitp-node/Cargo.toml
 sync_package_json_version   bindings/aitp-node/package.json
 sync_cargo_lock_versions    bindings/aitp-node/Cargo.lock
 sync_index_js_version       bindings/aitp-node/index.js
+sync_index_js_version       bindings/aitp-node/experimental.js
 
 sync_cargo_toml_version     bindings/aitp-py/Cargo.toml
 sync_pyproject_toml_version bindings/aitp-py/pyproject.toml
