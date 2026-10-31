@@ -46,6 +46,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - Python: `build_renewal_request`, `process_renewal_request`, `SessionBundleBuilder`, `verify_session_bundle` and `verify_delegation_multihop` leave `aitp.pyi`; their stubs are in `bindings/aitp-py/aitp_experimental.pyi`, which the wheel does not ship.
   - Node: `buildRenewalRequest`, `processRenewalRequest`, `SessionBundleBuilder`, `verifySessionBundle` and `verifyDelegationMultihop` leave `index.js` and `index.d.ts`. `npm run build:experimental` writes `experimental.js` and `experimental.d.ts`, which are not in the published package.
 - The SDKs raise their runtime floors: `aitp-sdk` requires CPython 3.10 (`requires-python = ">=3.10"`, one `cp310-abi3` wheel per platform, built with pyo3's `abi3-py310`) and `@agentidentitytrustprotocol/aitp` requires Node.js 20 (`engines.node`). The floors and platforms are listed in STABILITY.md.
+- Two SDK behaviour changes that throw (Node) or raise (Python) where 0.23 accepted:
+  - `buildManifest` / `build_manifest` throws on an `acceptedIdentityTypes` / `accepted_identity_types` entry other than `oidc`, `pinned_key` or `spiffe`. 0.23 wrote any string into the Manifest.
+  - `verifyDelegation` / `verify_delegation` rejects a single-hop delegation token that carries a `jti` or `chain_hash` claim, as malformed claims (`jti is not a single-hop delegation claim`, `chain_hash is not a single-hop delegation claim`). This is how the stable verifier treats those RFC-AITP-0011 members now that multi-hop delegation lives in `aitp-experimental`. The rule for them is still open in the spec, so it may change.
 - `aitp` drops items that had no use outside the crate or duplicated another path:
   - `aitp::core::AitpError` is gone; each module returns its own error type.
   - `AitpVerifyingKey::to_bytes` is gone: use `try_to_ed25519_bytes` or `to_compressed`.
@@ -195,7 +198,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- The SDKs reject an `accepted_identity_types` (Python) or `acceptedIdentityTypes` (JavaScript) entry other than `oidc`, `pinned_key` or `spiffe` with an error, where any string was written into the Manifest.
 - The handshake refuses to issue a TCT whose TTL, capped by the issuing peer's Manifest expiry, is below 1 second, including when that Manifest has already expired.
 - When its `RevocationListProducer` errors, `HandshakeServer`'s revocation list route answers HTTP 503, so consumers apply their fail mode, and `RenewalServer` refuses the renewal (fail closed).
 - TCT renewal (no promise) follows RFC-AITP-0013 0.3.1-draft at spec `c11a2c4`: when the issuer cannot read its revocation state or its renewal nonce store fails, `RenewalServer` refuses with the Draft code `RENEWAL_UNAVAILABLE`, retryable, HTTP 503. `TCT_REVOKED` is now sent only for a `jti` on the deny list. The code is `aitp_experimental::renewal::RenewalErrorCode::RenewalUnavailable`; `aitp::core::ErrorCode` does not gain it. `RenewalErrorCode` is a core `ErrorCode` or that Draft code, and is the type of `RenewalErrorPayload::code`, `RenewalResponseError::Refused::code`, the `code` argument of `renewal_error_envelope` and the return of `RenewalError::error_code` and `RenewalResponseError::error_code`.
