@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/).
 
 ## [Unreleased]
 
+## [0.24.0] — 2026-10-31
+
 ### BREAKING
 
 - The workspace now publishes three crates: `aitp`, `aitp-experimental` and `aitp-cli`. The internal crates are modules of `aitp`, each with its whole former API: `aitp-core` is `aitp::core`, `aitp-crypto` is `aitp::crypto`, `aitp-envelope` is `aitp::envelope`, `aitp-manifest` is `aitp::manifest`, `aitp-handshake` is `aitp::handshake`, `aitp-tct` is `aitp::tct`, `aitp-delegation` is `aitp::delegation` and `aitp-transport-http` is `aitp::transport`. Replace `aitp_tct::X` with `aitp::tct::X`, and so on; there are no aliases. Their old crates get a final 0.23.1 that points to `aitp` and are not yanked.

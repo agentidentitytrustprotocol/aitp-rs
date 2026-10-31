@@ -42,11 +42,6 @@ version_group = "aitp"
 [[package]]
 name = "aitp-experimental"
 version_group = "aitp"
-# Held back until the 0.24.0 release PR, which removes this line: released
-# before it, release-plz would publish aitp-experimental 0.23.0 against
-# the aitp 0.23.0 on crates.io, which has none of the modules it uses. A
-# new crate is otherwise published on the merge that adds it.
-publish = false
 
 [[package]]
 name = "aitp-cli"
