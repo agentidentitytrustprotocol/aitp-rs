@@ -23,7 +23,7 @@ http-client = ["aitp/http-client", "dep:reqwest", "dep:rand"]
 spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser", "dep:base64ct"]
 
 [dependencies]
-aitp = { path = "../aitp", version = "=0.24.0", default-features = false }
+aitp = { path = "../aitp", version = "=0.24.1", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
