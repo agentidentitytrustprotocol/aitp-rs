@@ -39,7 +39,7 @@ serve = [
 [dependencies]
 # default-features off so `--no-default-features` drops the HTTP stack;
 # the `http-client` feature above turns it back on.
-aitp = { path = "../aitp", version = "=0.24.0", default-features = false }
+aitp = { path = "../aitp", version = "=0.24.1", default-features = false }
 tokio = { workspace = true, optional = true }
 url = { workspace = true, optional = true }
 uuid = { workspace = true, optional = true }
@@ -58,7 +58,7 @@ rand = { workspace = true }
 [dev-dependencies]
 # Integration tests run the binary against a real `HandshakeServer` on
 # loopback.
-aitp = { path = "../aitp", version = "=0.24.0", features = ["http-server"] }
+aitp = { path = "../aitp", version = "=0.24.1", features = ["http-server"] }
 assert_cmd = "2"
 predicates = "3"
 tokio = { workspace = true, features = ["macros", "rt-multi-thread", "net", "time"] }
