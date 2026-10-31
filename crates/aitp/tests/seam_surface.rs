@@ -576,3 +576,50 @@ fn descriptors_built_from_public_constructors_and_fields() {
     let limiter = TokenBucketLimiter::new(1, 1.0);
     assert!(limiter.check(&source).is_ok());
 }
+
+/// `RevocationSource::SelfAttestation` accepts exactly what
+/// `TctBuilder::self_attestation` builds, and nothing else.
+#[test]
+fn self_attestation_revocation_source() {
+    let issuer = ed25519(17);
+    let issued = TctBuilder::new(&issuer)
+        .self_attestation()
+        .ext(statement())
+        .issued_at(NOW)
+        .build()
+        .unwrap();
+    let ctx = AttestationVerifyContext::builder()
+        .issuer(issuer.aid())
+        .statement_key(STATEMENT_KEY)
+        .now(NOW)
+        .waive_manifest_cap_issuer_has_no_manifest()
+        .revocation(aitp::tct::RevocationSource::SelfAttestation)
+        .build()
+        .unwrap();
+    let v = verify_attestation(issued.token(), &ctx).unwrap();
+    assert_eq!(v.statement(), &json!({"statement": "seam attestation"}));
+
+    // A grant-bearing TCT under the same source is refused, typed.
+    let holder = ed25519(18);
+    let tct = TctBuilder::new(&issuer)
+        .subject(holder.aid().clone())
+        .subject_pubkey(holder.verifying_key())
+        .audience(holder.aid().clone())
+        .grants(["read"])
+        .issued_at(NOW)
+        .build()
+        .unwrap();
+    let ctx = TctVerifyContext::builder()
+        .expected_audience(holder.aid())
+        .issuer(issuer.aid())
+        .now(NOW)
+        .revocation(aitp::tct::RevocationSource::SelfAttestation)
+        .skip_manifest_expiry_cap_dangerous()
+        .build()
+        .unwrap();
+    let err = verify_tct(tct.token(), &ctx).unwrap_err();
+    assert!(
+        matches!(&err, TctError::RevocationUnavailable(_)),
+        "{err:?}"
+    );
+}
