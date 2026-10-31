@@ -24,8 +24,9 @@ use aitp::core::{
 };
 use aitp::crypto::testing::{p256_high_s_twin, MockKmsSigner, MockOutput};
 use aitp::crypto::{
-    check_public_key, jws, sign_raw, AitpSigner, AitpSigningKey, AitpVerifyingKey, AsyncAitpSigner,
-    CryptoError, Digest32, Signature,
+    check_public_key, jws, sign_raw, sign_raw_async, AitpSigner, AitpSigningKey, AitpVerifyingKey,
+    AsyncAitpSigner, BackendSignature, CryptoError, Digest32, RawSignature, SignRequest, Signature,
+    SignerError,
 };
 use aitp::handshake::admission::{
     AdmissionError, ChallengeRateLimiter, ChallengeSource, TokenBucketLimiter, MAX_NONCE_TTL,
@@ -36,8 +37,9 @@ use aitp::handshake::{
     IdentityKind, PinnedKeyVerifyContext, StaticPinnedKeyStore, SubjectBinding,
 };
 use aitp::tct::{
-    verify_attestation, verify_tct, AttestationVerifyContext, TctBuilder, TctError,
-    TctVerifyContext, ATTESTATION_GRANT,
+    verify_attestation, verify_tct, AttestationVerifyContext, IssuedTct, RevocationCheckFn,
+    RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable, TctBuilder,
+    TctError, TctVerifyContext, ATTESTATION_GRANT,
 };
 use serde_json::{json, Map, Value};
 use uuid::Uuid;
@@ -376,4 +378,201 @@ fn admission_items() {
         None,
         "a replay is an envelope error, not an HTTP refusal"
     );
+}
+
+/// An embedder's KMS-style backend behind `AsyncAitpSigner`: it signs an
+/// Ed25519 message and hands back the raw 64 bytes.
+struct RawBackend(AitpSigningKey);
+
+impl AsyncAitpSigner for RawBackend {
+    fn aid(&self) -> &Aid {
+        self.0.aid()
+    }
+
+    fn public_key(&self) -> impl Future<Output = Result<AitpVerifyingKey, SignerError>> + Send {
+        std::future::ready(Ok(self.0.verifying_key()))
+    }
+
+    fn sign(
+        &self,
+        request: SignRequest<'_>,
+    ) -> impl Future<Output = Result<BackendSignature, SignerError>> + Send {
+        let out = match request {
+            SignRequest::Ed25519Message(m) => {
+                let raw: Result<[u8; 64], _> =
+                    self.0.sign_raw(m).as_bytes().try_into().map_err(|_| {
+                        SignerError::MalformedSignature("not a 64-byte signature".into())
+                    });
+                raw.map(|raw| BackendSignature::Raw(raw.to_vec()))
+            }
+            other => Err(SignerError::UnsupportedAlgorithm(format!(
+                "{:?}",
+                other.algorithm()
+            ))),
+        };
+        std::future::ready(out)
+    }
+}
+
+#[test]
+fn raw_signatures_and_key_conversions() {
+    let key = ed25519(11);
+    let msg = b"seam ticket digest";
+
+    // A fixed-width wire field takes an Ed25519 raw signature through a
+    // checked conversion.
+    let sig: RawSignature = key.sign_raw(msg);
+    let fixed: [u8; 64] = sig.as_bytes().try_into().unwrap();
+    assert!(<[u8; 64]>::try_from(sign_raw(&p256(12), msg).unwrap().as_bytes()).is_ok());
+    assert!(<[u8; 64]>::try_from(&sig.as_bytes()[..63]).is_err());
+
+    let pk: [u8; 32] = key
+        .verifying_key()
+        .to_compressed()
+        .as_slice()
+        .try_into()
+        .unwrap();
+    let vk = AitpVerifyingKey::from_ed25519_bytes(&pk).unwrap();
+    vk.verify_raw(msg, &fixed).unwrap();
+    let tagged = Aid::from_ed25519_tagged(&pk);
+    assert_eq!(tagged.algorithm(), AidAlgorithm::Ed25519);
+    assert_eq!(AitpVerifyingKey::from_aid(&tagged).unwrap(), vk);
+    assert_eq!(vk.to_jwk_thumbprint_sha256().unwrap().len(), 43);
+
+    let seed: [u8; 32] = base64url::decode_strict_exact(&base64url::encode(&[5; 32])).unwrap();
+    assert_eq!(seed, [5; 32]);
+    assert!(base64url::decode_strict_exact::<32>(&base64url::encode(&[5; 31])).is_err());
+
+    let backend = RawBackend(ed25519(13));
+    let via_backend = ready(sign_raw_async(&backend, msg)).unwrap();
+    backend
+        .0
+        .verifying_key()
+        .verify_raw(msg, via_backend.as_bytes())
+        .unwrap();
+    assert_eq!(via_backend.into_vec(), backend.0.sign_raw(msg).into_vec());
+}
+
+/// A v4 `jti` (`550e8400-e29b-41d4-a716-446655440000`).
+const REVOKED_JTI: u128 = 0x550e8400_e29b_41d4_a716_446655440000;
+
+#[test]
+fn attestation_context_with_a_revocation_check() {
+    let issuer = ed25519(14);
+    let jti = Uuid::from_u128(REVOKED_JTI);
+    let issued: IssuedTct = TctBuilder::new(&issuer)
+        .self_attestation()
+        .ext(statement())
+        .issued_at(NOW)
+        .jti(jti)
+        .build()
+        .unwrap();
+    assert_eq!(issued.claims().jti, jti);
+
+    let deny = |q: &RevocationQuery<'_>| -> Result<RevocationStatus, RevocationUnavailable> {
+        if *q.jti == Uuid::from_u128(REVOKED_JTI) {
+            Ok(RevocationStatus::Revoked)
+        } else {
+            Ok(RevocationStatus::Clear)
+        }
+    };
+    let unavailable = |_: &RevocationQuery<'_>| -> Result<RevocationStatus, RevocationUnavailable> {
+        Err(RevocationUnavailable::new("store unreachable"))
+    };
+    let clear = |_: &RevocationQuery<'_>| Ok(RevocationStatus::Clear);
+    let ctx = |check: &'static RevocationCheckFn<'static>| {
+        AttestationVerifyContext::builder()
+            .issuer(issuer.aid())
+            .statement_key(STATEMENT_KEY)
+            .now(NOW)
+            .clock_skew(std::time::Duration::from_secs(30))
+            .waive_manifest_cap_issuer_has_no_manifest()
+            .revocation(RevocationSource::Check(check))
+            .build()
+            .unwrap()
+    };
+    let deny: &'static RevocationCheckFn<'static> = Box::leak(Box::new(deny));
+    let unavailable: &'static RevocationCheckFn<'static> = Box::leak(Box::new(unavailable));
+    let clear: &'static RevocationCheckFn<'static> = Box::leak(Box::new(clear));
+
+    let c = ctx(clear);
+    assert_eq!(c.clock_skew, std::time::Duration::from_secs(30));
+    assert_eq!(c.issuer, issuer.aid());
+    assert_eq!(c.statement_key, STATEMENT_KEY);
+    assert_eq!(c.issuer_manifest_expires_at, None);
+    assert!(matches!(c.revocation, RevocationSource::Check(_)));
+
+    let parts = verify_attestation(issued.token(), &c).unwrap().into_parts();
+    assert_eq!(parts.statement, json!({"statement": "seam attestation"}));
+    assert!(matches!(
+        verify_attestation(issued.token(), &ctx(deny)),
+        Err(TctError::Revoked)
+    ));
+    assert!(matches!(
+        verify_attestation(issued.token(), &ctx(unavailable)),
+        Err(TctError::RevocationUnavailable(_))
+    ));
+}
+
+#[test]
+fn descriptors_built_from_public_constructors_and_fields() {
+    let key = ed25519(15);
+    let vk = key.verifying_key();
+
+    // An oidc descriptor, and a pinned-key one whose kind and fields are
+    // set after construction (a decoder filling a closed shape).
+    let oidc = IdentityDescriptor::oidc(
+        RawUrl::new("https://idp.example.com"),
+        "agent@example.com",
+        "id-token",
+    );
+    assert_eq!(oidc.kind, IdentityKind::Oidc);
+    assert_eq!(oidc.public_key, None);
+
+    let mut decoded = IdentityDescriptor::pinned_key(key.aid().as_str(), String::new(), "proof");
+    decoded.kind = IdentityKind::Oidc;
+    decoded.issuer = Some(RawUrl::new("https://idp.example.com"));
+    decoded.public_key = None;
+    decoded.extensions = None;
+    let wire = serde_json::to_value(&decoded).unwrap();
+    assert_eq!(wire["type"], "oidc");
+    assert!(wire.get("public_key").is_none(), "{wire}");
+
+    let mut no_key = IdentityDescriptor::pinned_key(
+        key.aid().as_str(),
+        base64url::encode(&vk.to_compressed()),
+        "p",
+    );
+    no_key.public_key = None;
+    assert!(serde_json::to_value(&no_key)
+        .unwrap()
+        .get("public_key")
+        .is_none());
+
+    let store = StaticPinnedKeyStore::from_aids([key.aid()]).unwrap();
+    let receiver = ed25519(16).aid().clone();
+    let message_id = Uuid::from_u128(0x5eed);
+    let pop_nonce = base64url::encode(&[4; 16]);
+    let proof =
+        sign_pinned_key_proof(&key, key.aid(), &receiver, &message_id, NOW, &pop_nonce).unwrap();
+    let descriptor = IdentityDescriptor::pinned_key(
+        key.aid().as_str(),
+        base64url::encode(&vk.to_compressed()),
+        proof,
+    );
+    let ctx = PinnedKeyVerifyContext::builder()
+        .sender_aid(key.aid())
+        .receiver_aid(&receiver)
+        .message_id(&message_id)
+        .timestamp(NOW)
+        .pop_nonce(&pop_nonce)
+        .subject(SubjectBinding::SenderAid)
+        .build()
+        .unwrap();
+    let verified = verify_pinned_key(&descriptor, &ctx, &store).unwrap();
+    assert_eq!(verified.key(), &vk);
+
+    let source = ChallengeSource::tls_client_cert_sha256([9; 32]);
+    let limiter = TokenBucketLimiter::new(1, 1.0);
+    assert!(limiter.check(&source).is_ok());
 }

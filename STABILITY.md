@@ -36,7 +36,7 @@ The published crates (`aitp`, `aitp-experimental` and `aitp-cli`) and the
 SDKs ship in lockstep at one shared version, so a breaking change anywhere
 in a covered surface bumps the major digit of every package. Every
 breaking release lists its breaks under `### BREAKING` in
-[`CHANGELOG.md`](CHANGELOG.md).
+[`crates/aitp/CHANGELOG.md`](crates/aitp/CHANGELOG.md).
 
 ### Decision and outcome enums are exhaustive on purpose
 
@@ -231,7 +231,7 @@ the crates and the SDKs. How to report a vulnerability is in
 - **Approving an intentional break.** Add the `semver-break-approved` label
   to the pull request. The blocking step is then skipped. Instead the job
   requires at least one entry under `### BREAKING` in the `[Unreleased]`
-  section of `CHANGELOG.md`, checked by
+  section of `crates/aitp/CHANGELOG.md`, checked by
   [`scripts/check-breaking-entry.sh`](scripts/check-breaking-entry.sh).
 - **`aitp public API snapshot`** fails on any change to the `aitp` surface,
   additive ones included, until the snapshots are regenerated with

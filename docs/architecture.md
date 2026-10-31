@@ -400,7 +400,7 @@ bindings and runs that suite.
 - [`sdk-python.md`](sdk-python.md) / [`sdk-node.md`](sdk-node.md) and
   [`transport-hardening.md`](transport-hardening.md) — SDK guides and the
   HTTP-transport hardening register
-- [`../CHANGELOG.md`](../CHANGELOG.md) — release history and current direction
+- [`../crates/aitp/CHANGELOG.md`](../crates/aitp/CHANGELOG.md) — release history and current direction
 - The [AITP RFCs](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/tree/main/rfcs)
   themselves — the protocol is normatively defined there; this
   implementation tracks them

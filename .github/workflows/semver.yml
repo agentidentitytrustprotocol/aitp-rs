@@ -36,7 +36,7 @@ jobs:
           toolchain: stable
       - name: An approved break needs a CHANGELOG BREAKING entry
         if: env.BREAK_APPROVED == 'true'
-        run: scripts/check-breaking-entry.sh CHANGELOG.md
+        run: scripts/check-breaking-entry.sh crates/aitp/CHANGELOG.md
       # Blocking. The baseline is the PR base commit SHA, not the ref
       # name: with only the PR head checked out, `main` doesn't exist as
       # a local ref, and the SHA is present after `fetch-depth: 0`.

@@ -57,8 +57,9 @@ each with a `.sha256` file:
 | macOS Intel | `aitp-<version>-x86_64-apple-darwin.tar.gz` |
 | Windows x86_64 | `aitp-<version>-x86_64-pc-windows-msvc.zip` |
 
-`aitp-cli` is versioned in lockstep with the library crates, so
-`aitp 0.23.0` speaks the same protocol as `aitp = "0.23.0"`.
+`aitp-cli` is released in lockstep with the `aitp` crate: every release
+publishes both at the same version, and the CLI speaks the same protocol
+as the crate of its own version (`aitp --version`).
 
 For the offline commands only, without the HTTP stack:
 

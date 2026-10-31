@@ -6,7 +6,7 @@
 # carries the `semver-break-approved` label (STABILITY.md).
 set -euo pipefail
 
-changelog="${1:-CHANGELOG.md}"
+changelog="${1:-crates/aitp/CHANGELOG.md}"
 
 entries=$(awk '
   /^## \[Unreleased\]/ { in_unreleased = 1; next }
