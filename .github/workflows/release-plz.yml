@@ -158,7 +158,7 @@ jobs:
           # correctly rewrote it on disk, which is exactly what happened
           # on the first attempt at this fix.
           git add \
-            bindings/aitp-node/Cargo.toml bindings/aitp-node/Cargo.lock bindings/aitp-node/package.json \
+            bindings/aitp-node/Cargo.toml bindings/aitp-node/Cargo.lock bindings/aitp-node/package.json bindings/aitp-node/package-lock.json \
             bindings/aitp-node/index.js bindings/aitp-node/experimental.js \
             bindings/aitp-py/Cargo.toml bindings/aitp-py/Cargo.lock bindings/aitp-py/pyproject.toml
 

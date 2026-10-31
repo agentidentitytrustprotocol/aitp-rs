@@ -180,7 +180,7 @@ jobs:
           node-version: ${{ matrix.node }}
       - name: Install dependencies
         working-directory: bindings/aitp-node
-        run: npm install
+        run: npm ci
       - name: Build the native binary (default features)
         working-directory: bindings/aitp-node
         run: npm run build:debug
@@ -219,7 +219,7 @@ jobs:
           node-version: '22'
       - name: Install dependencies
         working-directory: bindings/aitp-node
-        run: npm install
+        run: npm ci
       # Writes experimental.js and experimental.d.ts; index.js and
       # index.d.ts stay the default build's.
       - name: Build the native binary (--features experimental)

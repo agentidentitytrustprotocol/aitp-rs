@@ -66,17 +66,27 @@ sync_cargo_toml_version() { # $1 = path to a standalone binding's Cargo.toml
   mv "$tmp" "$f"
 }
 
-# Rewrite package.json: the top-level "version" field, plus every
-# @agentidentitytrustprotocol/aitp-* pin under optionalDependencies (the
-# prebuilt-binary packages, published at the same version as the main
-# package). Text-patched with perl rather than a JSON tool so this script
-# has no node/python dependency; the `[0-9]` guard on the version value
-# keeps this from ever matching the unrelated `"version": "napi version"`
-# npm-scripts entry, whose value doesn't start with a digit.
+# Rewrite package.json's top-level "version" field. The prebuilt-binary
+# packages are not listed: `napi prepublish` writes them into
+# optionalDependencies at publish time (bindings-release.yml), so the
+# lockfile never names a version that is not published yet. Text-patched
+# with perl rather than a JSON tool so this script has no node/python
+# dependency; the `[0-9]` guard on the version value keeps this from ever
+# matching the unrelated `"version": "napi version"` npm-scripts entry,
+# whose value doesn't start with a digit.
 sync_package_json_version() { # $1 = path to bindings/aitp-node/package.json
   V="$ws_version" perl -0777 -i -pe '
     s/^(\s*"version":\s*")[0-9][^"]*(")/${1}$ENV{V}${2}/m;
-    s/("\@agentidentitytrustprotocol\/aitp-[a-z0-9-]+":\s*")[0-9][^"]*(")/${1}$ENV{V}${2}/g;
+  ' "$1"
+}
+
+# Rewrite package-lock.json's two copies of the root package's version:
+# the top-level "version" and `packages[""].version`, the first two
+# "version" members in the file. Dependencies keep theirs.
+sync_package_lock_version() { # $1 = path to bindings/aitp-node/package-lock.json
+  V="$ws_version" perl -0777 -i -pe '
+    my $n = 0;
+    s/^(\s*"version":\s*")[^"]*(")/$n++ < 2 ? "${1}$ENV{V}${2}" : "${1}" . substr($&, length($1))/gme;
   ' "$1"
 }
 
@@ -177,6 +187,7 @@ sync_pyproject_toml_version() { # $1 = path to bindings/aitp-py/pyproject.toml
 
 sync_cargo_toml_version     bindings/aitp-node/Cargo.toml
 sync_package_json_version   bindings/aitp-node/package.json
+sync_package_lock_version   bindings/aitp-node/package-lock.json
 sync_cargo_lock_versions    bindings/aitp-node/Cargo.lock
 sync_index_js_version       bindings/aitp-node/index.js
 sync_index_js_version       bindings/aitp-node/experimental.js
