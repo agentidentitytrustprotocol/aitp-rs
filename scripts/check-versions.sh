@@ -129,21 +129,22 @@ check_package_json_version  bindings/aitp-node/package.json
 check_cargo_toml_version    bindings/aitp-py/Cargo.toml
 check_pyproject_toml_version bindings/aitp-py/pyproject.toml
 
-# The aitp-node optionalDependencies block pins the platform-specific
-# prebuilt-binary packages, which are published at the same version as the
-# main package. A stale pin here is exactly the failure mode that motivated
-# this check: `npm install` silently resolves an old prebuilt native
-# binary instead of the one this repo's source actually produces.
-while IFS= read -r line; do
-  pkg="$(printf '%s' "$line" | sed -n 's/^[[:space:]]*"\(@agentidentitytrustprotocol\/aitp-[a-z0-9-]*\)": "[0-9][^"]*".*/\1/p')"
-  [ -z "$pkg" ] && continue
-  binding_count=$((binding_count + 1))
-  got="$(printf '%s' "$line" | sed -n 's/^[[:space:]]*"@agentidentitytrustprotocol\/aitp-[a-z0-9-]*": "\([0-9][^"]*\)".*/\1/p')"
-  if [ "$got" != "$ws_version" ]; then
-    echo "✗ bindings/aitp-node/package.json: optionalDependencies '$pkg' pins \"${got:-?}\", expected \"$ws_version\""
-    fail=1
-  fi
-done < <(sed -n '/"optionalDependencies"/,/}/p' bindings/aitp-node/package.json)
+# The prebuilt-binary packages are not listed in package.json: `napi
+# prepublish` writes them into optionalDependencies at publish time. A
+# committed list would name versions that are not on npm yet on every
+# release PR, and `npm ci` would refuse the lockfile.
+if grep -q '"optionalDependencies"' bindings/aitp-node/package.json; then
+  echo "✗ bindings/aitp-node/package.json: lists optionalDependencies; napi prepublish writes them at publish time"
+  fail=1
+fi
+
+# package-lock.json carries the root package's version twice.
+binding_count=$((binding_count + 1))
+lock_versions="$(sed -n 's/^[[:space:]]*"version": "\([^"]*\)".*/\1/p' bindings/aitp-node/package-lock.json | head -2 | sort -u)"
+if [ "$lock_versions" != "$ws_version" ]; then
+  echo "✗ bindings/aitp-node/package-lock.json: root version \"$(echo $lock_versions)\", expected \"$ws_version\""
+  fail=1
+fi
 
 # 4. Each binding's Cargo.lock pins its own `aitp-*` PATH packages (the
 #    internal workspace-path crates the binding vendors — no `source =

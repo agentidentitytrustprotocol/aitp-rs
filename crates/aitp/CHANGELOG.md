@@ -12,6 +12,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `RevocationSource::SelfAttestation`, for a relying party whose self-attestations are not revocable. It accepts a self-attestation (`iss == sub == aud` with the one grant `ATTESTATION_GRANT`, as `TctBuilder::self_attestation` builds it) with no lookup and no warning. It refuses any other artifact (a TCT, a delegation, a handshake TCT) with `RevocationUnavailable`. `RevocationSource::FailOpen` still logs its warning.
   - Seam migration (optional): `.revocation(aitp::tct::RevocationSource::FailOpen)` on the commitment's `AttestationVerifyContext` → `.revocation(aitp::tct::RevocationSource::SelfAttestation)`, which accepts the same attestations without the warning.
 
+### Fixed
+
+- `npm ci` in `bindings/aitp-node` failed with `Missing: @agentidentitytrustprotocol/aitp-linux-x64-musl@… from lock file`: `package.json` listed the musl packages and the lockfile did not. The committed `package.json` no longer lists the prebuilt-binary packages. `napi prepublish` writes them into the published `package.json`, and a release step pins all six there, so the published package still has every one. The lockfile names no version that is not on npm yet, `make sync-versions` keeps its root version, and CI and the release jobs install with `npm ci`.
+
 ## [0.24.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.23.0...aitp-v0.24.0) - 2026-10-31
 
 ### BREAKING

@@ -49,13 +49,5 @@
   "publishConfig": {
     "access": "public",
     "registry": "https://registry.npmjs.org/"
-  },
-  "optionalDependencies": {
-    "@agentidentitytrustprotocol/aitp-darwin-x64": "0.24.0",
-    "@agentidentitytrustprotocol/aitp-darwin-arm64": "0.24.0",
-    "@agentidentitytrustprotocol/aitp-linux-x64-gnu": "0.24.0",
-    "@agentidentitytrustprotocol/aitp-linux-arm64-gnu": "0.24.0",
-    "@agentidentitytrustprotocol/aitp-linux-x64-musl": "0.24.0",
-    "@agentidentitytrustprotocol/aitp-linux-arm64-musl": "0.24.0"
   }
 }
