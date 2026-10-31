@@ -11,7 +11,7 @@ Rust reference implementation of the **Agent Identity & Trust Protocol (AITP)**.
 > spec commit pinned in [`tests/schemas/SPEC_VERSION`](tests/schemas/SPEC_VERSION).
 > The current crate version is in [`Cargo.toml`](Cargo.toml) and the
 > [release notes](https://github.com/agentidentitytrustprotocol/aitp-rs/releases);
-> history is in [`CHANGELOG.md`](CHANGELOG.md). Conformance results at the
+> history is in [`crates/aitp/CHANGELOG.md`](crates/aitp/CHANGELOG.md). Conformance results at the
 > pin, and what they do and do not prove, are in
 > [`docs/conformance.md`](docs/conformance.md#v02-conformance-matrix).
 
@@ -266,7 +266,7 @@ docs here point to the relevant RFC section rather than restating it.
 
 The v0.1 bootstrap, the v0.2 compact-JWS migration (portable trust
 artifacts re-serialized as compact JWS) and the security-hardening work are
-complete. See [`CHANGELOG.md`](CHANGELOG.md) for the history and
+complete. See [`crates/aitp/CHANGELOG.md`](crates/aitp/CHANGELOG.md) for the history and
 [`docs/transport-hardening.md`](docs/transport-hardening.md) for the
 transport-layer status register.
 

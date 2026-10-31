@@ -37,7 +37,7 @@ the spec's
 | Try a live handshake, or run the public interop peer | [`interop-peer.md`](interop-peer.md) |
 | Run the tests / understand the test layers | [`testing.md`](testing.md) |
 | Try AITP in a container | [`../Dockerfile`](../Dockerfile) (`docker run` the two-agent demo) |
-| See the release history / direction | [`../CHANGELOG.md`](../CHANGELOG.md) |
+| See the release history / direction | [`../crates/aitp/CHANGELOG.md`](../crates/aitp/CHANGELOG.md) |
 
 ## All pages
 

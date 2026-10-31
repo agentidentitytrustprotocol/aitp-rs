@@ -9,7 +9,7 @@
 - [ ] `cargo test --workspace --all-features` passes
 - [ ] `cargo doc --workspace --no-deps --all-features` passes
 - [ ] Touched the spec? Linked to the matching `agentidentitytrustprotocol` change.
-- [ ] User-visible change? Updated `CHANGELOG.md`.
+- [ ] User-visible change? Added an entry under `[Unreleased]` in `crates/aitp/CHANGELOG.md`.
 
 # Spec / RFC reference
 

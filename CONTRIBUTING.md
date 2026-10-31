@@ -147,9 +147,23 @@ Also:
 - One logical change per commit.
 - Subject line in the imperative ("add X", "fix Y"), under 72 chars.
 - Body explains the *why*; the diff covers the *what*.
-- The root `CHANGELOG.md` is maintained by hand (release-plz only writes
-  the per-crate changelogs). For a user-visible change, add an entry under
-  `[Unreleased]`, per the PR template's CHANGELOG checkbox.
+- `crates/aitp/CHANGELOG.md` is the canonical changelog; the root
+  `CHANGELOG.md` only points to it. For a user-visible change, add an
+  entry under `## [Unreleased]` there, in the `### BREAKING`, `### Added`,
+  `### Changed` or `### Fixed` section, per the PR template's CHANGELOG
+  checkbox. A breaking entry states the migration (the old call → the new
+  one). Changes to `aitp-experimental` and `aitp-cli` go there too.
+
+## Releasing
+
+release-plz opens the release PR. It writes the new version's section
+into each `crates/*/CHANGELOG.md` from the commits, directly under the
+`## [Unreleased]` heading, so the hand-written `[Unreleased]` entries of
+`crates/aitp/CHANGELOG.md` end up below it. Before merging the release
+PR, move those entries into the new version's section, above the
+generated list under a `### Pull requests` heading, and leave
+`## [Unreleased]` empty. The GitHub release notes are taken from that
+section.
 
 ## Pull requests
 

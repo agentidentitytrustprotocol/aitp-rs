@@ -19,7 +19,7 @@ Python 3 standard library only. Checks, in order:
                 aitp-playground) must keep existing. Renaming one of these
                 headings breaks a link this repository cannot see.
   4. banned     Stale strings from earlier releases that must not reappear in
-                the docs (CHANGELOG.md and plans/ are history and not scanned).
+                the docs (the CHANGELOGs and plans/ are history and not scanned).
   5. mdx        README.md and docs/**/*.md are synced into the website as MDX.
                 Constructs that the website's escape-mdx.py cannot neutralise
                 (HTML comments, unclosed HTML tags with attributes) are
