@@ -458,12 +458,21 @@ pub(crate) fn check_revocation(
     claims: &TctClaims,
     now: Timestamp,
 ) -> Result<Vec<String>, TctError> {
+    if matches!(source, RevocationSource::SelfAttestation) && is_self_attestation(claims) {
+        return Ok(claims.grants.clone());
+    }
     let query = RevocationQuery::new(&claims.iss, &claims.jti, now);
     apply_revocation(source, &query, &claims.grants).map_err(|r| match r {
         RevocationRejection::Revoked => TctError::Revoked,
         RevocationRejection::Unavailable(e) => TctError::RevocationUnavailable(e),
         RevocationRejection::SafeSubsetEmpty => TctError::SafeSubsetEmpty,
     })
+}
+
+/// The self-attestation shape (RFC-AITP-0005 §5.3): `iss == sub == aud`
+/// and the one grant [`ATTESTATION_GRANT`].
+fn is_self_attestation(c: &TctClaims) -> bool {
+    c.sub == c.iss && c.aud == c.iss && c.grants == [ATTESTATION_GRANT]
 }
 
 /// Item 6b on a peeked payload: a string member must be strict v4. A
@@ -691,8 +700,7 @@ pub fn verify_attestation(
         issuer_manifest_expires_at: ctx.issuer_manifest_expires_at,
     };
     let claims = core.verify(token, |c| {
-        let shape = c.sub == c.iss && c.aud == c.iss && c.grants == [ATTESTATION_GRANT];
-        if shape {
+        if is_self_attestation(c) {
             Ok(())
         } else {
             Err(TctError::NotAttestation)

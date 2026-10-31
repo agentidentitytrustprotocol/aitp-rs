@@ -421,6 +421,15 @@ pub enum RevocationSource<'a> {
     /// artifact is accepted. A warning is logged once per process.
     /// Tests and in-process demos only.
     FailOpen,
+    /// Accept a self-attestation (`iss == sub == aud`, the one grant
+    /// [`ATTESTATION_GRANT`](crate::tct::ATTESTATION_GRANT), as
+    /// [`TctBuilder::self_attestation`](crate::tct::TctBuilder::self_attestation)
+    /// builds it) without a lookup and without a warning. Any other
+    /// artifact (a TCT, a delegation) is refused with
+    /// `RevocationUnavailable`, so this source cannot accept a revoked
+    /// grant-bearing token. For an embedder whose attestations are not
+    /// revocable.
+    SelfAttestation,
 }
 
 impl std::fmt::Debug for RevocationSource<'_> {
@@ -428,6 +437,7 @@ impl std::fmt::Debug for RevocationSource<'_> {
         match self {
             Self::Check(_) => f.write_str("RevocationSource::Check(..)"),
             Self::FailOpen => f.write_str("RevocationSource::FailOpen"),
+            Self::SelfAttestation => f.write_str("RevocationSource::SelfAttestation"),
         }
     }
 }
@@ -455,6 +465,13 @@ pub(crate) fn apply_revocation(
             warn_fail_open_once();
             return Ok(grants.to_vec());
         }
+        // A self-attestation is accepted in `tct::verifier::check_revocation`
+        // before it gets here; every artifact that reaches this point is not one.
+        RevocationSource::SelfAttestation => {
+            return Err(RevocationRejection::Unavailable(
+                RevocationUnavailable::new(SELF_ATTESTATION_ONLY),
+            ));
+        }
     };
     match check(query).map_err(RevocationRejection::Unavailable)? {
         RevocationStatus::Clear => Ok(grants.to_vec()),
@@ -473,6 +490,11 @@ pub(crate) fn apply_revocation(
         }
     }
 }
+
+/// Why [`RevocationSource::SelfAttestation`] refuses an artifact that is
+/// not a self-attestation.
+const SELF_ATTESTATION_ONLY: &str =
+    "RevocationSource::SelfAttestation applies only to a self-attestation (iss == sub == aud)";
 
 /// Logs the [`RevocationSource::FailOpen`] warning at most once per
 /// process, whichever verifier hits it first.

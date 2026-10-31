@@ -7,6 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `RevocationSource::SelfAttestation`, for a relying party whose self-attestations are not revocable. It accepts a self-attestation (`iss == sub == aud` with the one grant `ATTESTATION_GRANT`, as `TctBuilder::self_attestation` builds it) with no lookup and no warning. It refuses any other artifact (a TCT, a delegation, a handshake TCT) with `RevocationUnavailable`. `RevocationSource::FailOpen` still logs its warning.
+  - Seam migration (optional): `.revocation(aitp::tct::RevocationSource::FailOpen)` on the commitment's `AttestationVerifyContext` → `.revocation(aitp::tct::RevocationSource::SelfAttestation)`, which accepts the same attestations without the warning.
+
 ## [0.24.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.23.0...aitp-v0.24.0) - 2026-10-31
 
 ### BREAKING

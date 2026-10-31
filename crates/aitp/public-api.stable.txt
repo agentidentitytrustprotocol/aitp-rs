@@ -2171,6 +2171,7 @@ pub aitp::tct::RevocationQuery::jti: &'a uuid::Uuid
 pub aitp::tct::RevocationQuery::now: aitp::core::Timestamp
 pub aitp::tct::RevocationSource::Check(&'a aitp::tct::RevocationCheckFn<'a>)
 pub aitp::tct::RevocationSource::FailOpen
+pub aitp::tct::RevocationSource::SelfAttestation
 pub aitp::tct::RevocationStatus::Clear
 pub aitp::tct::RevocationStatus::Revoked
 pub aitp::tct::RevocationStatus::SoftFailSafeSubset::safe_grants: alloc::vec::Vec<alloc::string::String>
