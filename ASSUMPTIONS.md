@@ -197,3 +197,11 @@
 - **Alternatives:** rotate CHANGELOG now; bump pin in the same PR; several PRs; required CI gate for the checker.
 - **Blast radius if wrong:** docs-only, reverted with the PR; D2 can be flipped to required in a one-line branch-protection change.
 - **Status:** D2–D6 CONFIRMED (owner, 2026-10-18). D1 REVERSED (owner, 2026-10-18) — the root CHANGELOG is being rotated now under #201 rather than only appended to.
+
+## A2A Agent Card binding (RFC-AITP-0014): P1 library decisions
+- **Plan:** plans/a2a-agent-card.md
+- **Assumed:** `ManifestError::Crypto` is MANIFEST_POP_FAILED, because the AID's key first loads for the PoP check. `Manifest.version` is checked before parsing, the RFC-AITP-0003 §5 order, where the adapter's `verify_manifest_op` parses first. A SecurityScheme with any second member is rejected, reading §2.2's "exactly one" strictly.
+- **Chose:** "HTTPS URL" means a literal `https://` prefix, a non-empty ASCII authority with no `@` or `%`, and no whitespace, control characters or backslashes anywhere, because the URL parser alone repairs those. A raw IDN host is refused; punycode passes. A host the parser rewrites (numeric IPv4 spellings) is refused. It applies to `manifestUrl`, the interface matched in step 5 (leader accepted, spec #176 item 15) and the Manifest's `handshake_endpoint` (MANIFEST_INVALID, since stable `verify_manifest` does not check its grammar).
+- **Alternatives:** recheck all Manifest schema grammar here: rejected, since no other member decides where a credential goes and the fix belongs in stable `verify_manifest`, which this work may not change.
+- **Blast radius if wrong:** one draft, opt-in module. A too-strict check rejects a Card or Manifest with a clear code; the fix is local to `a2a.rs`.
+- **Status:** UNCONFIRMED, except the step 5 HTTPS check (CONFIRMED by the leader, 2026-11-01).

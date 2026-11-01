@@ -13,10 +13,14 @@
 //!   status Proposed), plugged into the handshake as an
 //!   [`aitp::handshake::IdentityVerifier`]. Needs feature
 //!   `spiffe-identity`.
+//! - [`a2a`]: the A2A Agent Card binding's client verification
+//!   (RFC-AITP-0014, Draft). Pure, no I/O. Needs feature `a2a-agent-card`.
 
 #![forbid(unsafe_code)]
 #![warn(missing_docs)]
 
+#[cfg(feature = "a2a-agent-card")]
+pub mod a2a;
 pub mod delegation;
 pub mod renewal;
 pub mod session_bundle;

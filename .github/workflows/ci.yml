@@ -892,6 +892,7 @@ jobs:
         run: |
           cargo check -p aitp --no-default-features --features pinned-admission --target wasm32-wasip1
           cargo check -p aitp-experimental --target wasm32-wasip1
+          cargo check -p aitp-experimental --target wasm32-wasip1 --features a2a-agent-card
 
   e2e-llm-build:
     name: tier-3 e2e build (no API calls)

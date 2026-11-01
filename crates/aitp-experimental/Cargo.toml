@@ -21,6 +21,9 @@ http-server = ["aitp/http-server", "dep:axum", "dep:parking_lot", "dep:tokio"]
 http-client = ["aitp/http-client", "dep:reqwest", "dep:rand"]
 # `spiffe`: SPIFFE identity verification (RFC-AITP-0002 §6).
 spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser", "dep:base64ct"]
+# `a2a`: the A2A Agent Card binding's client verification (RFC-AITP-0014).
+# Pure: no I/O, no new dependency.
+a2a-agent-card = []
 
 [dependencies]
 aitp = { path = "../aitp", version = "=0.24.1", default-features = false }
@@ -68,3 +71,7 @@ required-features = ["http-server", "http-client"]
 [[test]]
 name = "spiffe_x509_proof_kat"
 required-features = ["spiffe-identity"]
+
+[[test]]
+name = "a2a_binding"
+required-features = ["a2a-agent-card"]

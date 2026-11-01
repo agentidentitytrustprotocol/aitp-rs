@@ -1,0 +1,61 @@
+{
+  "name": "Research Agent B",
+  "description": "Summarizes papers.",
+  "supportedInterfaces": [
+    {
+      "url": "https://b.agents.example.com/a2a/v1",
+      "protocolBinding": "HTTP+JSON",
+      "protocolVersion": "1.0"
+    }
+  ],
+  "version": "1.4.0",
+  "capabilities": {
+    "streaming": true,
+    "extensions": [
+      {
+        "uri": "https://agentidentitytrustprotocol.io/ext/a2a/v1",
+        "description": "AITP peer trust. Verify the Manifest at manifestUrl; send the TCT in x-aitp-tct.",
+        "required": true,
+        "params": {
+          "aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+          "manifestUrl": "https://b.agents.example.com/.well-known/aitp-manifest",
+          "securityScheme": "aitp"
+        }
+      }
+    ]
+  },
+  "securitySchemes": {
+    "aitp": {
+      "apiKeySecurityScheme": {
+        "description": "AITP Trust Context Token, RFC-AITP-0014 (https://agentidentitytrustprotocol.io/ext/a2a/v1).",
+        "location": "header",
+        "name": "x-aitp-tct"
+      }
+    }
+  },
+  "securityRequirements": [
+    {
+      "schemes": {
+        "aitp": {
+          "list": []
+        }
+      }
+    }
+  ],
+  "defaultInputModes": [
+    "text/plain"
+  ],
+  "defaultOutputModes": [
+    "text/plain"
+  ],
+  "skills": [
+    {
+      "id": "summarize",
+      "name": "Summarize",
+      "description": "Summarize a paper.",
+      "tags": [
+        "research"
+      ]
+    }
+  ]
+}

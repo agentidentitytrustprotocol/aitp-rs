@@ -9,6 +9,8 @@
 #     on another HTTP stack can use it (aitp-rs#205 A-2).
 #   - `aitp-experimental` with default features: does not turn on the
 #     server (no axum, hyper or tokio).
+#   - `aitp-experimental` with `a2a-agent-card`: the binding is pure (no
+#     HTTP stack, no tokio).
 set -euo pipefail
 
 export CARGO_TERM_COLOR=never
@@ -46,5 +48,8 @@ forbid "aitp --features source-ip" 'axum|tokio|hyper' \
 
 forbid "aitp-experimental (default features)" 'axum|hyper|tokio' \
   -p aitp-experimental
+
+forbid "aitp-experimental --features a2a-agent-card" 'axum|hyper|reqwest|tokio' \
+  -p aitp-experimental --features a2a-agent-card
 
 exit "$fail"
