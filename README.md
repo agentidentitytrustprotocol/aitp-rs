@@ -60,7 +60,7 @@ aitp-rs/
 │   │       ├── delegation/  Delegation tokens (single-hop; multi-hop opt-in)
 │   │       ├── transport/   HTTP client/server (feature-gated, async)
 │   │       └── facade.rs    async handshake helpers
-│   ├── aitp-experimental/   Session Trust Bundle, multi-hop delegation, TCT renewal; no stability promise
+│   ├── aitp-experimental/   Session Trust Bundle, multi-hop delegation, TCT renewal, A2A Agent Card binding; no stability promise
 │   ├── aitp-cli/            `aitp` command-line tool (keygen, verify, handshake)
 │   └── aitp-conformance/    conformance runner + the canonical Rust adapter (`aitp-rs-adapter` binary)
 ├── bindings/                language SDKs — excluded from the Cargo workspace
@@ -113,7 +113,7 @@ The Status column is the state of **this implementation**. The RFCs' own
 status is in the
 [RFC index](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md):
 RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
-0011 opt-in; RFC-0012 is Reserved and RFC-0013 is Draft, opt-in.
+0011 opt-in; RFC-0012 is Reserved and RFC-0013 and RFC-0014 are Draft, opt-in.
 
 | RFC | Title | Status | Notes |
 |-----|-------|--------|-------|
@@ -130,6 +130,7 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
 | [0011](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0011-multihop-delegation.md) | Multi-hop delegation | ✅ Draft, opt-in | In the `aitp-experimental` crate (`aitp_experimental::delegation`): `ChainedDelegationBuilder` and `verify_chained_delegation`, with a hop budget of `DEFAULT_MAX_DELEGATION_HOPS = 3`. The stable `aitp::delegation::verify_delegation` rejects chains with `DELEGATION_MULTIHOP_NOT_SUPPORTED`; the conformance runner's `--feature experimental-multihop-delegation` flag exercises the `del-mh-*` fixtures. |
 | [0012](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0012-extensions.md) | Extensions | ◐ container only | The §1 container is carried: `ExtensionsMap` on JCS payloads, the `ext` claim on JWS artifacts, unknown keys ignored; revocation URL extension wired. No ZK/TEE extension family is implemented. |
 | [0013](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0013-tct-renewal-extension.md) | TCT renewal | ✅ Draft, opt-in | In `aitp_experimental::renewal`: the holder's PoP request, the issuer's §4 checks and signed `tct` / `error` response envelope, the holder's §6.1 response check, the `renew_tct` client (feature `http-client`) and `RenewalServer` at the advertised `rfc-aitp-0005.renew_uri` (feature `http-server`); the conformance runner's `--feature experimental-renewal` flag exercises the `ren-*` fixtures. See [`docs/tct-renewal.md`](docs/tct-renewal.md). |
+| [0014](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/RFC-AITP-0014-a2a-agent-card.md) | A2A Agent Card binding | ✅ Draft, opt-in | In `aitp_experimental::a2a` (feature `a2a-agent-card`): client-side §4.2 steps 2 to 5 and §4.3. Server-side §5.2 and A2A request headers are not implemented. `a2a-001` to `a2a-006` pass under `--feature aitp-a2a-agent-card`. See [`docs/a2a-agent-card.md`](docs/a2a-agent-card.md). |
 
 ## Known limitations (v0.3)
 
@@ -139,11 +140,12 @@ RFC-0001 to RFC-0011 are Community Standards Track (Draft), with 0010 and
   [`docs/multihop-delegation.md`](docs/multihop-delegation.md) and, for
   why the default must stay strict,
   [`docs/architecture.md`](docs/architecture.md#why-multi-hop-delegation-is-unreachable-by-default).
-- **Session Trust Bundle and renewal are opt-in.** N-party trust
-  artifacts (RFC-0010, Draft, opt-in) live in the separate
-  `aitp-experimental` crate, as does TCT renewal (RFC-0013, Draft). The
-  published language SDKs include neither; a source build adds them with
-  the bindings' `experimental` feature.
+- **Session Trust Bundle, renewal and the A2A binding are opt-in.** N-party
+  trust artifacts (RFC-0010, Draft, opt-in) live in the separate
+  `aitp-experimental` crate, as do TCT renewal (RFC-0013, Draft) and the A2A
+  Agent Card binding (RFC-0014, Draft). The published language SDKs include
+  none of them; a source build adds them with the bindings' `experimental`
+  feature.
 - **Revocation is fail_closed (RFC-AITP-0008 §3.1).** A verifier with no
   revocation status for a TCT treats it as revoked (`TCT_REVOKED`). The
   `HandshakeServer` and `run_initiator_handshake` fetch the peer's
@@ -252,7 +254,7 @@ Highlights:
 - [`docs/jcs.md`](docs/jcs.md) — JSON canonicalization strategy and test vectors
 - [`docs/conformance.md`](docs/conformance.md) — NDJSON adapter protocol, conformance results and the gate caveat
 - [`docs/handshake-transcripts.md`](docs/handshake-transcripts.md) — four-message exchange, byte by byte
-- [`docs/session-bundle.md`](docs/session-bundle.md) · [`docs/multihop-delegation.md`](docs/multihop-delegation.md) · [`docs/tct-renewal.md`](docs/tct-renewal.md) — opt-in extensions (RFC-0010/0011/0013 Draft)
+- [`docs/session-bundle.md`](docs/session-bundle.md) · [`docs/multihop-delegation.md`](docs/multihop-delegation.md) · [`docs/tct-renewal.md`](docs/tct-renewal.md) · [`docs/a2a-agent-card.md`](docs/a2a-agent-card.md) — opt-in extensions (RFC-0010/0011/0013/0014 Draft)
 - [`docs/sdk-python.md`](docs/sdk-python.md) · [`docs/sdk-node.md`](docs/sdk-node.md) — SDK feature guides
 - [`docs/transport-hardening.md`](docs/transport-hardening.md) — HTTP-transport hardening register
 - [`docs/deployment.md`](docs/deployment.md) · [`docs/key-management.md`](docs/key-management.md) — running in production: where state lives, clustering, and signing-key handling
@@ -274,7 +276,7 @@ The runtime covers the common case: two agents, pinned-key or OIDC
 identity, single-hop delegation, the `aitp/0.3` wire. The crates are
 pre-1.0, so a breaking API change bumps the minor version. The remaining
 work is the opt-in extensions (Session Trust Bundle, multi-hop delegation,
-TCT renewal), which follow their RFCs through the spec lifecycle.
+TCT renewal, A2A Agent Card binding), which follow their RFCs through the spec lifecycle.
 
 ## License
 

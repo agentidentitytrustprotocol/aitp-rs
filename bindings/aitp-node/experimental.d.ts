@@ -322,6 +322,12 @@ export declare class TctStore {
 export type JsTctStore = TctStore
 
 /**
+ * RFC-AITP-0014 §4.2 step 2: read the AITP extension from an Agent Card.
+ * Failure throws with `error.code === 'IDENTITY_FAILED'`.
+ */
+export declare function a2aCardManifestUrl(cardJson: string): JsA2ACardPointer
+
+/**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
  * claim when proving the key binding (RFC-AITP-0002 §2.2.1).
@@ -353,6 +359,36 @@ export interface GenerateOpts {
    * `"p256"` (RFC-AITP-0001 §5.4.3).
    */
   suite?: string
+}
+
+/** The RFC-AITP-0014 §4.3 effective values, all from the verified Manifest. */
+export interface JsA2ABoundCard {
+  /** The server's identity: the Manifest's own AID string. */
+  aid: string
+  /** The identity types the server accepts. */
+  acceptedIdentityTypes: Array<string>
+  /** The trust anchors the server accepts. */
+  acceptedTrustAnchors: Array<string>
+  /** The capabilities the server can grant. */
+  offeredCapabilities: Array<string>
+  /** The endpoint to run the Mutual Handshake against. */
+  handshakeEndpoint: string
+  /**
+   * The interface URL that was accepted, the only one that may receive
+   * the TCT.
+   */
+  interfaceUrl: string
+}
+
+/** What an Agent Card's AITP extension points at. Both values are unverified. */
+export interface JsA2ACardPointer {
+  /** `params.aid`. */
+  aid: string
+  /**
+   * `params.manifestUrl`, chosen by the Card's author. Fetch it as any
+   * untrusted URL.
+   */
+  manifestUrl: string
 }
 
 /**
@@ -622,6 +658,22 @@ export interface SignEnvelopeOpts {
   /** Unix seconds. Defaults to now. */
   timestamp?: number
 }
+
+/**
+ * RFC-AITP-0014 §4.2 steps 2 to 5: bind an Agent Card to the agent's
+ * signed Manifest.
+ *
+ * `manifestJson` is the 2xx body fetched from `manifestUrl`: the Manifest
+ * or its `{"manifest": {...}}` wrapper. `null` means the fetch failed.
+ * `selectedInterfaceUrl` is the `url` of the AgentInterface the client
+ * intends to call, matched byte for byte. `nowUnixSecs` defaults to the
+ * current time.
+ *
+ * A binding failure throws with the registered code on `error.code`:
+ * `IDENTITY_FAILED`, `MANIFEST_NOT_FOUND`, or a code of the Manifest's
+ * verification. Steps 6 and 7 stay with the caller.
+ */
+export declare function verifyA2aAgentCardBinding(cardJson: string, selectedInterfaceUrl: string, manifestJson?: string | undefined | null, nowUnixSecs?: number | undefined | null): JsA2ABoundCard
 
 /**
  * Verify a delegation compact JWS under **strict AITP v0.3**

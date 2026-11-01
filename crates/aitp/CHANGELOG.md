@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `aitp-experimental`: the A2A Agent Card binding, client verification (RFC-AITP-0014 §4.2 steps 2 to 5 and §4.3, Draft), feature `a2a-agent-card`. `a2a-001` to `a2a-006` pass under `--feature aitp-a2a-agent-card`. A source build of either SDK adds it with feature `experimental-a2a-agent-card`. See `docs/a2a-agent-card.md`.
+
 ### Changed (breaking)
 
 - `verify_manifest` enforces the RFC-AITP-0003 §5 step 2 grammar: a value outside `aitp-manifest.schema.json` is `MANIFEST_INVALID` (`ManifestError::Malformed`, naming the member, or `IdentityHintMalformed`), ahead of expiry, proof of possession and signature. A `handshake_endpoint` must be an `https://` URI.
