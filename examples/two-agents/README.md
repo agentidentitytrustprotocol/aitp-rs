@@ -99,7 +99,9 @@ just to read the output. `ManifestFetcher` refuses plain HTTP by
 default; `agent-a` opts in with `.with_insecure_localhost_dangerous()` (and
 `InitiatorConfig::with_insecure_localhost_dangerous()`), which allows HTTP
 only for `localhost` / `127.0.0.1` and admits loopback addresses through
-the default `DenyPrivate` host guard. Non-local origins are still rejected
+the default `DenyPrivate` host guard. `agent-b` opts in on its
+`HandshakeServer`, because `verify_manifest` holds a peer's
+`handshake_endpoint` to the same rule. Non-local origins are still rejected
 with `FetchError::InsecureUrl`.
 
 ## The other demos

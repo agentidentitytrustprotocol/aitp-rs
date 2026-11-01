@@ -310,9 +310,21 @@ fn unknown_version_value_is_not_confused_with_unknown_field() {
     m.version = "aitp/9.9".into();
     let value = serde_json::to_value(&m).unwrap();
 
-    let parsed =
-        parse_manifest_wire(&checked(&value)).expect("known member with an unknown value parses");
-    let err = verify_manifest(&parsed, &ManifestVerifyContext::at(now)).unwrap_err();
+    let err = parse_manifest_wire(&checked(&value)).unwrap_err();
+    assert!(matches!(err, ManifestError::VersionUnknown), "got: {err:?}");
+    let err = verify_manifest(&m, &ManifestVerifyContext::at(now)).unwrap_err();
+    assert!(matches!(err, ManifestError::VersionUnknown), "got: {err:?}");
+}
+
+/// RFC-AITP-0003 §5 checks the version before the member set: a newer
+/// Manifest's new members are a version problem.
+#[test]
+fn an_unknown_version_outranks_an_unknown_member() {
+    let mut m = build_alice_manifest_at(Timestamp(1_700_000_000));
+    m.version = "aitp/9.9".into();
+    let mut value = serde_json::to_value(&m).unwrap();
+    value["added_in_a_later_version"] = serde_json::json!(true);
+    let err = parse_manifest_wire(&checked(&value)).unwrap_err();
     assert!(matches!(err, ManifestError::VersionUnknown), "got: {err:?}");
 }
 

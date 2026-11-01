@@ -27,12 +27,12 @@ def _presented():
     consumer = aitp.AitpAgent.generate()
     holder.build_manifest(
         display_name="holder",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     consumer_manifest = consumer.build_manifest(
         display_name="consumer",
-        handshake_endpoint="http://localhost:8200/aitp/handshake/",
+        handshake_endpoint="https://localhost:8200/aitp/handshake/",
         offered_caps=[GRANT],
     )
     sess = holder.new_session(pinned_keys=[consumer.aid])

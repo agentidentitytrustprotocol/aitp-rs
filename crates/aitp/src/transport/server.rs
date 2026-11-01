@@ -390,6 +390,8 @@ struct HandshakeState<R: JwksResolver + Send + Sync> {
     /// builder can configure a server whose `Arc<HandshakeState>` is
     /// already shared.
     pinned_key_store: Mutex<Arc<dyn PinnedKeyStore>>,
+    /// Set by [`HandshakeServer::with_insecure_localhost_dangerous`].
+    insecure_localhost: std::sync::atomic::AtomicBool,
     /// Verifies initiator identity kinds `aitp` does not verify itself
     /// ([`HandshakeServer::with_identity_verifier`]).
     identity_verifier: Mutex<Option<Arc<dyn crate::handshake::IdentityVerifier>>>,
@@ -478,6 +480,7 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
                 rate_limit_config: Mutex::new(Some(RateLimitConfig::default())),
                 rate_limit_events: Mutex::new(HashMap::new()),
                 pinned_key_store: Mutex::new(Arc::new(NoPinnedKeys)),
+                insecure_localhost: std::sync::atomic::AtomicBool::new(false),
                 identity_verifier: Mutex::new(None),
                 grant_policy: Mutex::new(None),
                 revocation_fetcher: Mutex::new(Arc::new(
@@ -625,6 +628,16 @@ impl<R: JwksResolver + Send + Sync + 'static> HandshakeServer<R> {
     /// `jwks_resolver` arguments to [`Self::new`].
     pub fn with_pinned_key_store(self, store: Arc<dyn PinnedKeyStore>) -> Self {
         *self.state.pinned_key_store.lock() = store;
+        self
+    }
+
+    /// Accept an initiator Manifest whose `handshake_endpoint` is
+    /// `http://localhost` / `http://127.0.0.1`. For local demos and tests.
+    /// See [`crate::manifest::ManifestVerifyContext::with_insecure_localhost_dangerous`].
+    pub fn with_insecure_localhost_dangerous(self) -> Self {
+        self.state
+            .insecure_localhost
+            .store(true, std::sync::atomic::Ordering::Relaxed);
         self
     }
 
@@ -945,6 +958,9 @@ async fn handle_hello_inner<R: JwksResolver + Send + Sync + 'static>(
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    cfg.insecure_localhost = state
+        .insecure_localhost
+        .load(std::sync::atomic::Ordering::Relaxed);
     if let Some(verifier) = &identity_verifier {
         cfg = cfg.with_identity_verifier(&**verifier);
     }
@@ -1137,6 +1153,9 @@ async fn handle_commit_inner<R: JwksResolver + Send + Sync + 'static>(
         crate::core::Timestamp::now(),
     )
     .with_trust_anchors(&state.trust_anchors);
+    cfg.insecure_localhost = state
+        .insecure_localhost
+        .load(std::sync::atomic::Ordering::Relaxed);
     if let Some(verifier) = &identity_verifier {
         cfg = cfg.with_identity_verifier(&**verifier);
     }

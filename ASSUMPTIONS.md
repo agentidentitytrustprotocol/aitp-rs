@@ -205,3 +205,11 @@
 - **Alternatives:** recheck all Manifest schema grammar here: rejected, since no other member decides where a credential goes and this module adds no stable API. The conformance crate builds the op by default because it is unpublished test tooling and a run still opts in with `--feature`, so strict and cross-implementation runs still skip a2a.
 - **Blast radius if wrong:** one draft, opt-in module. A too-strict check rejects a Card or Manifest with a clear code; the fix is local to `a2a.rs`.
 - **Status:** UNCONFIRMED, except the step 5 HTTPS check (CONFIRMED, spec issue #176 item 15, 2026-11-01).
+
+## Manifest grammar check in `verify_manifest` (RFC-AITP-0003 §5 step 2)
+- **Plan:** none, one PR.
+- **Assumed:** every member's schema grammar applies at verification, including `accepted_identity_types` and `accepted_signature_algorithms` enums, so a Manifest naming a type this schema version does not list is `MANIFEST_INVALID`.
+- **Chose:** a hand-written check in `verifier.rs`, held to the vendored schema by `tests/manifest_grammar.rs`, so `aitp` adds no dependency. `with_insecure_localhost_dangerous()` on `ManifestVerifyContext`, `PeerConfig`, `HandshakeServer` and `DelegationVerifyContext`, off by default, because an unconditional check breaks loopback demos and an allow-by-default one leaves the grammar open. SDK `build_hello` verifies the peer's Manifest and checks its identity type before building anything, the checks the Rust facade makes through `ManifestFetcher`. The step 6 trust-anchor overlap for OIDC stays with the caller, in both. The stricter verification is marked breaking for the 0.25.0 release.
+- **Alternatives:** a schema validator dependency in `aitp` (changes the dependency tree); the endpoint check alone (leaves the rest of step 2 open); no SDK switch (breaks deployed consumers whose local runs advertise `http://localhost`, so the SDKs take the same default-off, loopback-only opt-in, on the Manifest verify call, sessions and delegation).
+- **Blast radius if wrong:** a too-strict check rejects a Manifest with `MANIFEST_INVALID`; the schema-oracle test and the conformance corpus bound it, and the fix is local to `check_grammar`.
+- **Status:** UNCONFIRMED.

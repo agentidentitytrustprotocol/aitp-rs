@@ -16,12 +16,12 @@ function issuedPair() {
   const b = AitpAgent.generate();
   const aManifest = a.buildManifest({
     displayName: 'A',
-    handshakeEndpoint: 'http://localhost:9301/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9301/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
   b.buildManifest({
     displayName: 'B',
-    handshakeEndpoint: 'http://localhost:9302/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9302/aitp/handshake/',
     offeredCaps: ['demo.echo'],
   });
   // B initiates against A → at the end B holds A-issued TCT.
@@ -96,7 +96,7 @@ test('withdrawn grant renewal rejected', { skip: !HAS_RENEWAL }, () => {
   // A's Manifest no longer offers demo.write: nothing left to renew.
   a.buildManifest({
     displayName: 'A',
-    handshakeEndpoint: 'http://localhost:9301/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9301/aitp/handshake/',
     offeredCaps: ['demo.other'],
   });
   const now = Math.floor(Date.now() / 1000);

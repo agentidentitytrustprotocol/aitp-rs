@@ -74,12 +74,12 @@ const responder = AitpAgent.generate();
 
 initiator.buildManifest({
   displayName: 'initiator',
-  handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+  handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
   offeredCaps: ['demo.echo'],
 });
 const respManifest = responder.buildManifest({
   displayName: 'responder',
-  handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+  handshakeEndpoint: 'https://localhost:8200/aitp/handshake/',
   offeredCaps: ['demo.write'],
 });
 
@@ -119,13 +119,13 @@ compact-JWS token strings** (`header.payload.signature`).
 
 | Export                    | Feature | Notes |
 |---------------------------|:-------:|-------|
-| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)` (`opts.revocationListUri`), `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`), `verifyTct(token, grant, expectedAudience?, revokedJtis?, revocation?, pop?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?, revocation?, pop?)` (`pop = { challenge, response }`, the presented-TCT path), `newPopChallenge(tctToken, ttlSecs?)`, `signPopResponse(challengeJson)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signEnvelope(messageType, payloadJson, opts?)` (`opts.extensionsJson`, `opts.messageId`, `opts.timestamp`), `signRevocationList(entries, expiresInSecs?)` |
+| `AitpAgent`               | default | `generate(opts?)` / `fromSeed(buffer, opts?)` (`opts.suite = "ed25519" \| "p256"`), `aid`, `buildManifest(opts)` (`opts.revocationListUri`), `newSession(jwks?, opts?)`, `newResponder(jwks?, opts?)` (`opts.trustAnchors`, `opts.pinnedKeys`, `opts.insecureLocalhostDangerous`), `verifyTct(token, grant, expectedAudience?, revokedJtis?, revocation?, pop?)`, `verifyTctCached(token, grant, store, expectedAudience?, revokedJtis?, revocation?, pop?)` (`pop = { challenge, response }`, the presented-TCT path), `newPopChallenge(tctToken, ttlSecs?)`, `signPopResponse(challengeJson)`, `buildDelegation(voucherToken, delegateeAid, scope, ttlSecs?)`, `issueTctForDelegatee(verified, ttlSecs?)` → `{ tct, grantVoucher? }`, `signEnvelope(messageType, payloadJson, opts?)` (`opts.extensionsJson`, `opts.messageId`, `opts.timestamp`), `signRevocationList(entries, expiresInSecs?)` |
 | `JsInitiatorSession`      | default | Returned by `newSession`. `buildHello(peerManifest, grants, oidcMintJwt?)`, `processHelloAck(...)`, `complete(...)` → `{ tct, claims, grantVoucher? }` |
 | `JsResponderSession`      | default | Returned by `newResponder`. `processHello(hello, oidcMintJwt?)` → `{ ackJson, sessionId }`, `processCommit(commit)` → `{ ackJson, completed: { tct, claims, grantVoucher? } }` |
 | `TctStore`                | default | Cache for `AitpAgent.verifyTctCached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
 | `JwksProvider`            | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
-| `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?, revocation?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
-| `verifyManifestJson(json, nowUnixSecs?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
+| `verifyDelegation(token, verifierAid, issuerManifests, revokedJtis?, revocation?, insecureLocalhostDangerous?)` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. Verifies under the key the delegator's Manifest designates (`issuerManifests`: `{"manifest": ...}` JSON strings). Returns `{ delegator, delegatee, issuedBy, grants, expiresAt, cnfJkt }` |
+| `verifyManifestJson(json, nowUnixSecs?, insecureLocalhostDangerous?)` | default | Throws an `Error` with `code` (e.g. `signature_invalid`, `expired`, `unknown_field`, `malformed`) |
 | `verifyEnvelope(json, expectedSenderAid)` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Throws an `Error` with `code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-node.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verifyRevocationList(json, expectedIssuerAid, nowUnixSecs?)` | default | Verifies a revocation snapshot against a pinned issuer. Throws an `Error` with `code` |
 | `revocationSigningBytes(json)` | default | The exact bytes a revocation snapshot's signature covers |
@@ -134,7 +134,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `buildRenewalRequest()` / `processRenewalRequest()` | `experimental-renewal` | RFC-AITP-0013 (Draft). `processRenewalRequest` → `{ tct, grantVoucher? }` |
 | `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `experimental-session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
-| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?)` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?, insecureLocalhostDangerous?)` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
 
 `verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
 the issuer.

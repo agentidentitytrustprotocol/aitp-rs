@@ -51,7 +51,7 @@ function buildPeer(name, port, offers) {
   const agent = AitpAgent.generate();
   const manifest = agent.buildManifest({
     displayName: name,
-    handshakeEndpoint: `http://localhost:${port}/aitp/handshake/`,
+    handshakeEndpoint: `https://localhost:${port}/aitp/handshake/`,
     offeredCaps: offers,
   });
   return { agent, manifest };

@@ -103,6 +103,7 @@ async fn main() {
         NoOpResolver,
         vec!["demo.echo".into()],
     )
+    .with_insecure_localhost_dangerous()
     .with_pinned_key_store(Arc::new(pinned))
     // Revocation is fail_closed by default (RFC-AITP-0008 §3.1): the
     // initiator's Manifest must advertise a reachable `ListRevoked`

@@ -38,6 +38,8 @@ reconstruction. `total_hops = chain.len() + 2` (§2).
 ceiling is exported as `DEFAULT_MAX_DELEGATION_HOPS = 3`, which with `+2`
 admits a single-entry `chain` (the A → B → C → D example).
 `ChainVerifyContext::new` sets it; `with_max_delegation_hops(n)` changes it.
+`with_insecure_localhost_dangerous()` admits a loopback plain-HTTP issuer
+Manifest for local development. It is off by default.
 
 ## Verification (`verify_chained_delegation`)
 

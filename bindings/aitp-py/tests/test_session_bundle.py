@@ -43,19 +43,19 @@ def test_session_bundle_round_trip():
 
     coord_manifest = coord.build_manifest(
         display_name="coordinator",
-        handshake_endpoint="http://localhost:9401/aitp/handshake/",
+        handshake_endpoint="https://localhost:9401/aitp/handshake/",
         offered_caps=["session.member"],
         # Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
         ttl_secs=24 * 3600,
     )
     alice.build_manifest(
         display_name="alice",
-        handshake_endpoint="http://localhost:9402/aitp/handshake/",
+        handshake_endpoint="https://localhost:9402/aitp/handshake/",
         offered_caps=["x"],
     )
     bob.build_manifest(
         display_name="bob",
-        handshake_endpoint="http://localhost:9403/aitp/handshake/",
+        handshake_endpoint="https://localhost:9403/aitp/handshake/",
         offered_caps=["x"],
     )
 
@@ -89,10 +89,16 @@ def test_session_bundle_round_trip():
     with pytest.raises(TypeError):
         aitp.verify_session_bundle(envelope, alice.aid)
 
+    # An unknown Manifest version fails verification, not argument parsing.
+    unknown_version = json.loads(coord_manifest)
+    unknown_version["manifest"]["version"] = "aitp/99.0"
+    with pytest.raises(RuntimeError, match="bundle verification failed"):
+        aitp.verify_session_bundle(envelope, alice.aid, json.dumps(unknown_version))
+
     # A Manifest for another AID resolves no coordinator key.
     other_manifest = outsider.build_manifest(
         display_name="outsider",
-        handshake_endpoint="http://localhost:9404/aitp/handshake/",
+        handshake_endpoint="https://localhost:9404/aitp/handshake/",
         offered_caps=["x"],
     )
     with pytest.raises(RuntimeError, match="coordinator manifest aid"):
@@ -110,19 +116,19 @@ def test_session_bundle_revocation_drops_participant():
 
     coord_manifest = coord.build_manifest(
         display_name="coordinator",
-        handshake_endpoint="http://localhost:9501/aitp/handshake/",
+        handshake_endpoint="https://localhost:9501/aitp/handshake/",
         offered_caps=["session.member"],
         # Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
         ttl_secs=24 * 3600,
     )
     alice.build_manifest(
         display_name="alice",
-        handshake_endpoint="http://localhost:9502/aitp/handshake/",
+        handshake_endpoint="https://localhost:9502/aitp/handshake/",
         offered_caps=["x"],
     )
     bob.build_manifest(
         display_name="bob",
-        handshake_endpoint="http://localhost:9503/aitp/handshake/",
+        handshake_endpoint="https://localhost:9503/aitp/handshake/",
         offered_caps=["x"],
     )
 

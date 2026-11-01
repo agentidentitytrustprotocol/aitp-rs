@@ -287,7 +287,7 @@ aitp keygen [--suite ed25519|p256] [--seed <hex>]
 aitp aid --seed <hex> [--suite ...]
 aitp tct inspect --token <jws|->
 aitp tct verify --token <jws|-> [--issuer <aid>] [--audience <aid>] [--at <unix>]
-aitp manifest verify [--file <path|->] [--at <unix>]
+aitp manifest verify [--file <path|->] [--at <unix>] [--insecure-localhost]
 ```
 
 See [`crates/aitp-cli/README.md`](../crates/aitp-cli/README.md) for what

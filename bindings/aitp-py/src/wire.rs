@@ -26,6 +26,9 @@ pub enum WireError {
     /// implementation speaks (RFC-AITP-0001 §5.4 check order, step 1;
     /// `UNKNOWN_VERSION`). Checked before the member set.
     UnknownVersion(String),
+    /// A Manifest whose `version` is not the revision this implementation
+    /// speaks (RFC-AITP-0003 §5 step 1, `MANIFEST_VERSION_UNKNOWN`).
+    ManifestVersionUnknown,
     /// A member outside the object's declared member set
     /// (RFC-AITP-0001 §7, `UNKNOWN_FIELD`).
     UnknownField(String),
@@ -35,11 +38,12 @@ pub enum WireError {
 }
 
 impl WireError {
-    /// Stable cause code: `unknown_version`, `unknown_field` or
-    /// `malformed`.
+    /// Stable cause code: `unknown_version`, `version_unknown`,
+    /// `unknown_field` or `malformed`.
     pub fn code(&self) -> &'static str {
         match self {
             WireError::UnknownVersion(_) => "unknown_version",
+            WireError::ManifestVersionUnknown => "version_unknown",
             WireError::UnknownField(_) => "unknown_field",
             WireError::Malformed(_) => "malformed",
         }
@@ -50,6 +54,7 @@ impl std::fmt::Display for WireError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             WireError::UnknownVersion(v) => write!(f, "unknown protocol version {v}"),
+            WireError::ManifestVersionUnknown => write!(f, "unknown Manifest version"),
             WireError::UnknownField(field) => write!(f, "unknown field `{field}`"),
             WireError::Malformed(msg) => f.write_str(msg),
         }
@@ -110,6 +115,7 @@ pub fn manifest(json: &str) -> Result<Manifest, WireError> {
     require_wrapper(&value, "manifest")?;
     parse_manifest_wire(&value).map_err(|e| match e {
         ManifestError::UnknownField(field) => WireError::UnknownField(field),
+        ManifestError::VersionUnknown => WireError::ManifestVersionUnknown,
         other => WireError::Malformed(other.to_string()),
     })
 }

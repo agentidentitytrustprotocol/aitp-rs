@@ -2683,6 +2683,7 @@ pub fn aitp::delegation::DelegationError::from(aitp::crypto::CryptoError) -> Sel
 pub fn aitp::delegation::DelegationError::source(&self) -> core::option::Option<&(dyn core::error::Error + 'static)>
 pub fn aitp::delegation::DelegationVerifyContext<'_>::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
 pub fn aitp::delegation::DelegationVerifyContext<'a>::new(&'a aitp::core::Aid, aitp::core::Timestamp, aitp::tct::RevocationSource<'a>) -> Self
+pub fn aitp::delegation::DelegationVerifyContext<'a>::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::delegation::DelegationVerifyContext<'a>::with_issuer_manifests(self, &'a dyn aitp::manifest::ManifestResolver) -> Self
 pub fn aitp::delegation::IssuedDelegation::claims(&self) -> &aitp::delegation::DelegationClaims
 pub fn aitp::delegation::IssuedDelegation::clone(&self) -> aitp::delegation::IssuedDelegation
@@ -2855,6 +2856,7 @@ pub fn aitp::handshake::PeerConfig<'a>::clone(&self) -> aitp::handshake::PeerCon
 pub fn aitp::handshake::PeerConfig<'a>::new(&'a dyn aitp::crypto::AitpSigner, &'a aitp::manifest::Manifest, &'a dyn aitp::handshake::JwksResolver, &'a dyn aitp::handshake::PinnedKeyStore, aitp::tct::RevocationSource<'a>, aitp::core::Timestamp) -> Self
 pub fn aitp::handshake::PeerConfig<'a>::with_grant_policy(self, &'a aitp::handshake::GrantPolicyFn) -> Self
 pub fn aitp::handshake::PeerConfig<'a>::with_identity_verifier(self, &'a dyn aitp::handshake::IdentityVerifier) -> Self
+pub fn aitp::handshake::PeerConfig<'a>::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::handshake::PeerConfig<'a>::with_trust_anchors(self, &'a [aitp::core::RawUrl]) -> Self
 pub fn aitp::handshake::PinnedKeyEntry::clone(&self) -> aitp::handshake::PinnedKeyEntry
 pub fn aitp::handshake::PinnedKeyEntry::deserialize<__D>(__D) -> core::result::Result<Self, <__D as serde_core::de::Deserializer>::Error> where __D: serde_core::de::Deserializer<'de>
@@ -3052,6 +3054,7 @@ pub fn aitp::manifest::ManifestPop::serialize<__S>(&self, __S) -> core::result::
 pub fn aitp::manifest::ManifestResolver::resolve_manifest(&self, &aitp::core::Aid) -> core::option::Option<aitp::manifest::Manifest>
 pub fn aitp::manifest::ManifestVerifyContext::at(aitp::core::Timestamp) -> Self
 pub fn aitp::manifest::ManifestVerifyContext::now() -> Self
+pub fn aitp::manifest::ManifestVerifyContext::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::manifest::VerifiedManifest::clone(&self) -> aitp::manifest::VerifiedManifest
 pub fn aitp::manifest::VerifiedManifest::eq(&self, &aitp::manifest::VerifiedManifest) -> bool
 pub fn aitp::manifest::VerifiedManifest::fmt(&self, &mut core::fmt::Formatter<'_>) -> core::fmt::Result
@@ -3224,6 +3227,7 @@ pub fn aitp::transport::HandshakeServer<R>::new<S: aitp::crypto::AitpSigner + 's
 pub fn aitp::transport::HandshakeServer<R>::spawn_session_sweeper(&self, core::time::Duration) -> core::result::Result<tokio::runtime::task::join::JoinHandle<()>, tokio::runtime::handle::TryCurrentError>
 pub fn aitp::transport::HandshakeServer<R>::with_grant_policy(self, alloc::sync::Arc<aitp::handshake::GrantPolicyFn>) -> Self
 pub fn aitp::transport::HandshakeServer<R>::with_identity_verifier(self, alloc::sync::Arc<dyn aitp::handshake::IdentityVerifier>) -> Self
+pub fn aitp::transport::HandshakeServer<R>::with_insecure_localhost_dangerous(self) -> Self
 pub fn aitp::transport::HandshakeServer<R>::with_max_sessions(self, usize) -> Self
 pub fn aitp::transport::HandshakeServer<R>::with_pinned_key_store(self, alloc::sync::Arc<dyn aitp::handshake::PinnedKeyStore>) -> Self
 pub fn aitp::transport::HandshakeServer<R>::with_rate_limit(self, aitp::transport::RateLimitConfig) -> Self

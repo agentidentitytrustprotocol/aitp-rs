@@ -14,7 +14,7 @@ def test_sign_revocation_list_round_trips():
     issuer = aitp.AitpAgent.generate()
     issuer.build_manifest(
         display_name="issuer",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
 
@@ -53,7 +53,7 @@ def test_sign_revocation_list_rejects_bad_uuid():
     issuer = aitp.AitpAgent.generate()
     issuer.build_manifest(
         display_name="issuer",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     try:
@@ -67,7 +67,7 @@ def test_sign_revocation_list_requires_jti():
     issuer = aitp.AitpAgent.generate()
     issuer.build_manifest(
         display_name="issuer",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     try:
@@ -322,7 +322,7 @@ def _fresh_snapshot():
     issuer = aitp.AitpAgent.generate()
     issuer.build_manifest(
         display_name="issuer",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     return issuer, issuer.sign_revocation_list([{"jti": str(uuid.uuid4())}], 600)

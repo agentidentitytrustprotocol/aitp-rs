@@ -51,7 +51,7 @@
 //! [`std::error::Error::source`] and in `Debug`, so log `Display` or
 //! [`A2aBindingError::code`].
 
-use aitp::core::{Aid, CheckedJson, ErrorCode, RawUrl, Timestamp, PROTOCOL_VERSION};
+use aitp::core::{Aid, CheckedJson, ErrorCode, RawUrl, Timestamp};
 use aitp::manifest::{
     parse_manifest_wire, verify_manifest, ManifestError, ManifestVerifyContext, VerifiedManifest,
 };
@@ -370,16 +370,6 @@ pub fn verify_agent_card_binding(
 fn verify_fetched(bytes: &[u8], now: Timestamp) -> Result<VerifiedManifest, A2aBindingError> {
     let body = CheckedJson::from_slice(bytes)
         .map_err(|e| A2aBindingError::Manifest(ManifestError::Malformed(e.to_string())))?;
-    // RFC-AITP-0003 §5 checks the version first: a newer Manifest's new
-    // members are a version problem, not unknown fields.
-    let inner = body.get("manifest").unwrap_or(body.as_value());
-    if inner
-        .get("version")
-        .and_then(Value::as_str)
-        .is_some_and(|v| v != PROTOCOL_VERSION)
-    {
-        return Err(A2aBindingError::Manifest(ManifestError::VersionUnknown));
-    }
     let manifest = parse_manifest_wire(&body).map_err(A2aBindingError::Manifest)?;
     verify_manifest(&manifest, &ManifestVerifyContext::at(now)).map_err(A2aBindingError::Manifest)
 }

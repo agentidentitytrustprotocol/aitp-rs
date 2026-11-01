@@ -11,7 +11,7 @@ def _signed_manifest():
     a = aitp.AitpAgent.generate()
     return a.build_manifest(
         display_name="enrollee",
-        handshake_endpoint="http://localhost:9000/aitp/handshake/",
+        handshake_endpoint="https://localhost:9000/aitp/handshake/",
         offered_caps=["demo.write"],
     )
 
@@ -59,7 +59,7 @@ def test_every_failure_cause_is_recoverable_without_parsing_a_message():
     agent = aitp.AitpAgent.generate()
     good = agent.build_manifest(
         display_name="peer",
-        handshake_endpoint="http://localhost:9/aitp/handshake/",
+        handshake_endpoint="https://localhost:9/aitp/handshake/",
         offered_caps=["demo.x"],
     )
     assert aitp.verify_manifest_json(good) is None
@@ -72,7 +72,7 @@ def test_every_failure_cause_is_recoverable_without_parsing_a_message():
     # manifest is expired the instant it is minted — deterministic, no sleep.
     expired = agent.build_manifest(
         display_name="peer",
-        handshake_endpoint="http://localhost:9/aitp/handshake/",
+        handshake_endpoint="https://localhost:9/aitp/handshake/",
         offered_caps=["demo.x"],
         ttl_secs=-1,
     )
@@ -128,14 +128,14 @@ def test_expired_is_distinct_from_signature_invalid():
     agent = aitp.AitpAgent.generate()
     stale = agent.build_manifest(
         display_name="peer",
-        handshake_endpoint="http://localhost:9/aitp/handshake/",
+        handshake_endpoint="https://localhost:9/aitp/handshake/",
         offered_caps=["demo.x"],
         ttl_secs=-1,
     )
     forged = json.loads(
         agent.build_manifest(
             display_name="peer",
-            handshake_endpoint="http://localhost:9/aitp/handshake/",
+            handshake_endpoint="https://localhost:9/aitp/handshake/",
             offered_caps=["demo.x"],
         )
     )

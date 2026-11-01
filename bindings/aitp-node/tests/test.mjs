@@ -15,12 +15,12 @@ function agents() {
   const responder = AitpAgent.generate();
   const initManifest = initiator.buildManifest({
     displayName: 'initiator',
-    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
     offeredCaps: ['demo.echo'],
   });
   const respManifest = responder.buildManifest({
     displayName: 'responder',
-    handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8200/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
   return { initiator, responder, initManifest, respManifest };
@@ -78,17 +78,17 @@ test('initiator rejects peer substitution', () => {
   // The initiator needs its own manifest before it can open a session.
   initiator.buildManifest({
     displayName: 'initiator',
-    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
   const realManifest = real.buildManifest({
     displayName: 'real',
-    handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8200/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
   const malloryManifest = mallory.buildManifest({
     displayName: 'mallory',
-    handshakeEndpoint: 'http://localhost:8300/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8300/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
 

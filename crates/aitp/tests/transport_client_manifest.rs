@@ -22,6 +22,36 @@ async fn rejects_non_localhost_http() {
 }
 
 #[tokio::test]
+async fn unknown_manifest_version_keeps_its_cause() {
+    use axum::{routing::get, Json, Router};
+    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let app = Router::new().route(
+        "/.well-known/aitp-manifest",
+        get(|| async { Json(serde_json::json!({"manifest": {"version": "aitp/99.0"}})) }),
+    );
+    let server = tokio::spawn(async move {
+        axum::serve(listener, app.into_make_service()).await.ok();
+    });
+    tokio::time::sleep(Duration::from_millis(50)).await;
+
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
+    let err = fetcher
+        .fetch(&format!("http://localhost:{port}").parse().unwrap())
+        .await
+        .unwrap_err();
+    assert!(
+        matches!(
+            err,
+            FetchError::VerificationFailed(aitp::manifest::ManifestError::VersionUnknown)
+        ),
+        "expected VersionUnknown, got: {err:?}"
+    );
+    server.abort();
+    let _ = server.await;
+}
+
+#[tokio::test]
 async fn malformed_json_response_rejected() {
     // Plain string responses come back with Content-Type: text/plain;
     // P13 hardening rejects this at the boundary as WrongContentType.
@@ -539,4 +569,62 @@ async fn insecure_localhost_opt_in_allows_dev_origin() {
         matches!(err, FetchError::Network(_) | FetchError::Timeout),
         "opt-in should get past the scheme check, got: {err:?}"
     );
+}
+
+/// RFC-AITP-0003 §5 step 2 on the fetch path: a Manifest's endpoint is held
+/// to the grammar, and the fetcher's insecure-localhost switch admits only
+/// a loopback one.
+#[tokio::test]
+async fn the_fetched_manifests_endpoint_is_held_to_the_grammar() {
+    use aitp::core::{base64url, RawUrl};
+    use aitp::crypto::AitpSigningKey;
+    use aitp::handshake::IdentityKind;
+    use aitp::manifest::{IdentityHint, ManifestBuilder, ManifestEnvelope, ManifestError};
+    use axum::{routing::get, Json, Router};
+
+    async fn serve(endpoint: &'static str) -> (Url, tokio::task::JoinHandle<()>) {
+        let key = AitpSigningKey::from_ed25519_seed(&[0x31; 32]);
+        let manifest = ManifestBuilder::new(&key)
+            .handshake_endpoint_raw(RawUrl::new(endpoint))
+            .identity_hint(
+                IdentityHint::new(IdentityKind::PinnedKey, "bob").with_public_key(
+                    base64url::encode(&key.verifying_key().try_to_ed25519_bytes().unwrap()),
+                ),
+            )
+            .build()
+            .unwrap();
+        let body = serde_json::to_value(ManifestEnvelope::new(manifest)).unwrap();
+        let app = Router::new().route(
+            "/.well-known/aitp-manifest",
+            get(move || {
+                let body = body.clone();
+                async move { Json(body) }
+            }),
+        );
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let server = tokio::spawn(async move {
+            axum::serve(listener, app.into_make_service()).await.ok();
+        });
+        tokio::time::sleep(Duration::from_millis(50)).await;
+        let origin = format!("http://localhost:{port}").parse().unwrap();
+        (origin, server)
+    }
+
+    let fetcher = ManifestFetcher::new().with_insecure_localhost_dangerous();
+
+    let (origin, server) = serve("http://a.example.com/aitp/handshake/").await;
+    let err = fetcher.fetch(&origin).await.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            FetchError::VerificationFailed(ManifestError::Malformed(_))
+        ),
+        "got: {err:?}"
+    );
+    server.abort();
+
+    let (origin, server) = serve("http://localhost:1/aitp/handshake/").await;
+    fetcher.fetch(&origin).await.expect("loopback, opted in");
+    server.abort();
 }

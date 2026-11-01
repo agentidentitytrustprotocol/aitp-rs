@@ -34,8 +34,9 @@ pub fn make_peer_config<'a>(
     trust_anchors: &'a [RawUrl],
     pinned_keys: &'a dyn PinnedKeyStore,
     revocation: aitp::tct::RevocationSource<'a>,
+    insecure_localhost: bool,
 ) -> PeerConfig<'a> {
-    PeerConfig::new(
+    let cfg = PeerConfig::new(
         key,
         manifest,
         jwks,
@@ -43,7 +44,12 @@ pub fn make_peer_config<'a>(
         revocation,
         Timestamp::now(),
     )
-    .with_trust_anchors(trust_anchors)
+    .with_trust_anchors(trust_anchors);
+    if insecure_localhost {
+        cfg.with_insecure_localhost_dangerous()
+    } else {
+        cfg
+    }
 }
 
 /// Parse a wire-bound UUID v4 strictly (RFC-AITP-0001 §5.2): lowercase

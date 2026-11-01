@@ -298,6 +298,15 @@ try {
   ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
 - **The optional second argument** `nowUnixSecs` overrides the verification
   clock.
+- **`buildHello` verifies the peer's Manifest first** (RFC-AITP-0003 §5),
+  including that it accepts this agent's identity type. A Manifest that fails
+  throws with its registry code in `.code`, and nothing is built or sent.
+- **`handshakeEndpoint` must be `https://`** (RFC-AITP-0003 §5 step 2). For
+  local development, the optional third argument
+  `insecureLocalhostDangerous` also accepts plain `http://localhost` and
+  `http://127.0.0.1`, and nothing else. `newSession` and `newResponder` take it
+  in their options, and `verifyDelegation` as its last argument. It is off by
+  default.
 
 ### Revocation lists (RFC-AITP-0008)
 
@@ -532,6 +541,9 @@ const verifiedMultihop = verifyDelegationMultihop(
   delegationJws, bob.aid, [aliceManifest], 3, revoked,
 );
 ```
+
+For a loopback issuer in local development, its last argument is the same
+`insecureLocalhostDangerous` as `verifyDelegation`. It is off by default.
 
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
 `maxDelegationHops` total hops, with a default of 3. Each hop is verified

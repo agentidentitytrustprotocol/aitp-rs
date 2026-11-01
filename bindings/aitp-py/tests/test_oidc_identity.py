@@ -190,8 +190,10 @@ def test_oidc_responder_rejects_untrusted_issuer():
 
 
 def _oidc_hello_to_pinned_bob(bob_accepted_identity_types):
-    """Alice (OIDC) builds a HELLO to bob (pinned_key). Returns bob's
-    responder and the HELLO."""
+    """Alice (OIDC) builds a HELLO to bob (pinned_key), from a Manifest of
+    bob's that lists OIDC, since her own check refuses one that doesn't. Bob
+    then answers under `bob_accepted_identity_types`. Returns bob's responder
+    and the HELLO."""
     import time
 
     issuer, provider, alice, bob, _a_manifest, _b_manifest = _agents()
@@ -199,7 +201,7 @@ def _oidc_hello_to_pinned_bob(bob_accepted_identity_types):
         display_name="bob",
         handshake_endpoint="https://bob.example.test/aitp/handshake/",
         offered_caps=["demo.write"],
-        accepted_identity_types=bob_accepted_identity_types,
+        accepted_identity_types=["pinned_key", "oidc"],
     )
     a_jkt = _aid_jkt(alice.aid)
     now = int(time.time())
@@ -208,6 +210,12 @@ def _oidc_hello_to_pinned_bob(bob_accepted_identity_types):
     )
     sess = alice.new_session(jwks=provider, pinned_keys=[bob.aid])
     hello = sess.build_hello(b_manifest, ["demo.write"], oidc_mint_jwt=a_mint)
+    bob.build_manifest(
+        display_name="bob",
+        handshake_endpoint="https://bob.example.test/aitp/handshake/",
+        offered_caps=["demo.write"],
+        accepted_identity_types=bob_accepted_identity_types,
+    )
     rsess = bob.new_responder(jwks=provider, trust_anchors=[ISSUER_URL])
     return rsess, hello
 

@@ -67,6 +67,10 @@ The ones in `aitp` are `TctVerifyContextBuilder::skip_manifest_expiry_cap_danger
 `ManifestFetcher::with_insecure_localhost_dangerous`,
 `RevocationFetcher::with_insecure_localhost_dangerous`,
 `InitiatorConfig::with_insecure_localhost_dangerous`,
+`ManifestVerifyContext::with_insecure_localhost_dangerous`,
+`PeerConfig::with_insecure_localhost_dangerous`,
+`HandshakeServer::with_insecure_localhost_dangerous`,
+`DelegationVerifyContext::with_insecure_localhost_dangerous`,
 `HostGuard::allow_loopback_dangerous` and
 `HandshakeServer::without_rate_limit_dangerous`. A new one follows the
 same rule.

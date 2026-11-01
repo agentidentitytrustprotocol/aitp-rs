@@ -295,6 +295,15 @@ except aitp.ManifestVerificationError as err:
 - **Input that is not a manifest at all**, including JSON with a duplicate
   key anywhere (RFC-AITP-0001 §5.4.5), raises `ValueError`.
 - **`now_unix_secs`** overrides the verification clock.
+- **`build_hello` verifies the peer's Manifest first** (RFC-AITP-0003 §5),
+  including that it accepts this agent's identity type. A Manifest that fails
+  raises `RuntimeError` with its registry code in `.code`, and nothing is built
+  or sent.
+- **`handshake_endpoint` must be `https://`** (RFC-AITP-0003 §5 step 2). For
+  local development, `insecure_localhost_dangerous=True` also accepts plain
+  `http://localhost` and `http://127.0.0.1`, and nothing else. The same keyword
+  is on `new_session`, `new_responder` and `verify_delegation`. It is off by
+  default.
 
 ### Revocation lists (RFC-AITP-0008)
 
@@ -523,6 +532,9 @@ verified = aitp.verify_delegation_multihop(
     max_delegation_hops=3, revoked_jtis=revoked,
 )
 ```
+
+For a loopback issuer in local development, it takes the same
+`insecure_localhost_dangerous=True` as `verify_delegation`. It is off by default.
 
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
 `max_delegation_hops` total hops, with a default of 3. Each hop is verified

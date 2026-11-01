@@ -374,12 +374,12 @@ function readmeUsage() {
 
   initiator.buildManifest({
     displayName: 'initiator',
-    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
     offeredCaps: ['demo.echo'],
   });
   const respManifest = responder.buildManifest({
     displayName: 'responder',
-    handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8200/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
 

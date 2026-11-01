@@ -16,12 +16,12 @@ def _agents():
     responder = aitp.AitpAgent.generate()
     init_manifest = initiator.build_manifest(
         display_name="initiator",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     resp_manifest = responder.build_manifest(
         display_name="responder",
-        handshake_endpoint="http://localhost:8200/aitp/handshake/",
+        handshake_endpoint="https://localhost:8200/aitp/handshake/",
         offered_caps=["demo.write"],
     )
     return initiator, responder, init_manifest, resp_manifest
@@ -84,17 +84,17 @@ def test_initiator_rejects_peer_substitution():
     # The initiator needs its own manifest before it can open a session.
     initiator.build_manifest(
         display_name="initiator",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.write"],
     )
     real_manifest = real.build_manifest(
         display_name="real",
-        handshake_endpoint="http://localhost:8200/aitp/handshake/",
+        handshake_endpoint="https://localhost:8200/aitp/handshake/",
         offered_caps=["demo.write"],
     )
     mallory_manifest = mallory.build_manifest(
         display_name="mallory",
-        handshake_endpoint="http://localhost:8300/aitp/handshake/",
+        handshake_endpoint="https://localhost:8300/aitp/handshake/",
         offered_caps=["demo.write"],
     )
 
@@ -249,7 +249,7 @@ def test_invalid_pinned_keys_entry_raises_value_error(bad):
     agent = aitp.AitpAgent.generate()
     agent.build_manifest(
         display_name="a",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     good = aitp.AitpAgent.generate().aid

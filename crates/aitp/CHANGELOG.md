@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed (breaking)
+
+- `verify_manifest` enforces the RFC-AITP-0003 §5 step 2 grammar: a value outside `aitp-manifest.schema.json` is `MANIFEST_INVALID` (`ManifestError::Malformed`, naming the member, or `IdentityHintMalformed`), ahead of expiry, proof of possession and signature. A `handshake_endpoint` must be an `https://` URI.
+  - An `http://localhost` / `http://127.0.0.1` endpoint is accepted only under `with_insecure_localhost_dangerous()`, now also on `ManifestVerifyContext`, `PeerConfig`, `HandshakeServer` and `DelegationVerifyContext`. `ManifestFetcher` and `InitiatorConfig`, which have it already, apply it to the Manifests they verify. `aitp manifest verify` takes `--insecure-localhost`.
+  - The SDKs take the same opt-in: `insecure_localhost_dangerous` (Python, keyword-only) and `insecureLocalhostDangerous` (Node) on the Manifest verify call, `new_session` / `newSession`, `new_responder` / `newResponder` and `verify_delegation_multihop` / `verifyDelegationMultihop`, `verify_delegation` / `verifyDelegation`. It is off by default. Any other plain-HTTP endpoint is refused either way.
+  - SDK `build_hello` / `buildHello` verifies the peer's Manifest before building the HELLO (RFC-AITP-0003 §5), under the same opt-in, and checks that it accepts this agent's identity type. A failure raises its registry code at this call, not at `process_hello_ack` or from the responder. A bad peer Manifest there is `RuntimeError` in Python, no longer `ValueError`.
+  - `verify_session_bundle` and the A2A binding take no opt-in.
+
+### Fixed
+
+- `parse_manifest_wire` reports an unknown `version` (`MANIFEST_VERSION_UNKNOWN`) before unknown members, the RFC-AITP-0003 §5 order.
+
 ## [0.24.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.24.0...aitp-v0.24.1) - 2026-10-31
 
 ### Added
