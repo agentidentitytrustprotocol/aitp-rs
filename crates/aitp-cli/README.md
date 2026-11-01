@@ -38,7 +38,7 @@ aitp tct verify --token <jws|-> [--issuer <aid>] [--audience <aid>] [--at <unix>
     issuer/audience default to the token's own iss/aud; --at overrides
     the clock (handy for fixed/historical tokens).
 
-aitp manifest verify [--file <path|->] [--at <unix>]
+aitp manifest verify [--file <path|->] [--at <unix>] [--insecure-localhost]
     Verify a signed Manifest envelope (signature + proof-of-possession)
     and print its AID, endpoint, and offered capabilities.
 

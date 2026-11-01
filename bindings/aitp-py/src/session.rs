@@ -20,12 +20,14 @@ use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
-    CompletedHandshake, IdentityKind, Initiator, JwksResolver, MutualCommitAckPayload,
-    MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder,
-    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
-    MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
+    CompletedHandshake, HandshakeError, IdentityKind, Initiator, JwksResolver,
+    MutualCommitAckPayload, MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload,
+    PresentedIdentity, Responder, StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS,
+    MUTUAL_COMMIT_PAYLOAD_MEMBERS, MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp::manifest::Manifest;
+use aitp::manifest::{
+    check_identity_type_compatibility, verify_manifest, Manifest, ManifestVerifyContext,
+};
 use pyo3::exceptions::{PyRuntimeError, PyValueError};
 use pyo3::prelude::*;
 use uuid::Uuid;
@@ -57,6 +59,10 @@ pub struct SessionContext {
     /// `pinned_key` peer whose key is not in it is rejected with
     /// `IDENTITY_FAILED`; empty ⇒ every pinned-key peer is rejected.
     pub pinned_keys: StaticPinnedKeyStore,
+    /// Accept a peer Manifest whose `handshake_endpoint` is plain
+    /// `http://localhost` or `http://127.0.0.1`. Off unless the caller
+    /// opts in.
+    pub insecure_localhost: bool,
 }
 
 impl SessionContext {
@@ -158,7 +164,9 @@ impl PyInitiatorSession {
     ///
     /// `peer_manifest_json` is the `ManifestEnvelope` JSON from the peer's
     /// `GET /.well-known/aitp-manifest`. Returns the envelope JSON to
-    /// `POST` to `/aitp/handshake/hello`.
+    /// `POST` to `/aitp/handshake/hello`. The peer's Manifest is verified
+    /// first (RFC-AITP-0003 §5, including step 6's identity type check),
+    /// under the session's loopback opt-in.
     ///
     /// `oidc_mint_jwt` is required when this agent's manifest is OIDC;
     /// the callable receives the handshake-generated `pop_nonce` and
@@ -171,8 +179,25 @@ impl PyInitiatorSession {
         requested_grants: Vec<String>,
         oidc_mint_jwt: Option<Py<PyAny>>,
     ) -> PyResult<String> {
-        let peer_manifest = wire::manifest(peer_manifest_json)
-            .map_err(|e| PyValueError::new_err(format!("invalid peer manifest JSON: {e}")))?;
+        let peer_manifest = wire::manifest(peer_manifest_json).map_err(|e| {
+            let code = match e {
+                wire::WireError::ManifestVersionUnknown => "MANIFEST_VERSION_UNKNOWN",
+                wire::WireError::UnknownField(_) => "UNKNOWN_FIELD",
+                _ => "MANIFEST_INVALID",
+            };
+            runtime_error(format!("invalid peer manifest JSON: {e}"), Some(code))
+        })?;
+        // RFC-AITP-0003 §5: no handshake starts from an unverified Manifest.
+        let mut manifest_ctx = ManifestVerifyContext::now();
+        if self.ctx.insecure_localhost {
+            manifest_ctx = manifest_ctx.with_insecure_localhost_dangerous();
+        }
+        verify_manifest(&peer_manifest, &manifest_ctx)
+            .and_then(|_| check_identity_type_compatibility(&peer_manifest, self.ctx.identity_kind))
+            .map_err(|e| {
+                let e = HandshakeError::from(e);
+                runtime_error(e.to_string(), handshake_code(&e).as_deref())
+            })?;
 
         // The pinned-key identity proof binds (message_id, timestamp), so
         // the envelope MUST be signed with the same pair the state
@@ -187,6 +212,7 @@ impl PyInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
 
@@ -233,6 +259,7 @@ impl PyInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let commit = self
             .inner
@@ -288,6 +315,7 @@ impl PyInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             source,
+            self.ctx.insecure_localhost,
         );
         let completed = self
             .inner
@@ -370,6 +398,7 @@ impl PyResponderSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let presented = self.ctx.presented_identity(oidc_mint_jwt)?;
         // Mutual handshake: the responder must also receive a TCT, so it
@@ -437,6 +466,7 @@ impl PyResponderSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             source,
+            self.ctx.insecure_localhost,
         );
         let (ack, completed) = self
             .inner

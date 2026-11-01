@@ -73,6 +73,8 @@ pub struct ChainVerifyContext<'a> {
     /// Manifest for an issuer) the token is rejected with
     /// [`DelegationError::KeyResolutionFailed`].
     pub issuer_manifests: Option<&'a dyn ManifestResolver>,
+    /// Set by [`Self::with_insecure_localhost_dangerous`].
+    insecure_localhost: bool,
 }
 
 impl<'a> ChainVerifyContext<'a> {
@@ -86,6 +88,7 @@ impl<'a> ChainVerifyContext<'a> {
             revocation,
             hop_revocation_check: None,
             issuer_manifests: None,
+            insecure_localhost: false,
         }
     }
 
@@ -107,6 +110,14 @@ impl<'a> ChainVerifyContext<'a> {
     /// any delegation — single-hop or multi-hop — to verify.
     pub fn with_issuer_manifests(mut self, resolver: &'a dyn ManifestResolver) -> Self {
         self.issuer_manifests = Some(resolver);
+        self
+    }
+
+    /// Accept an issuer Manifest whose `handshake_endpoint` is plain
+    /// `http://localhost` or `http://127.0.0.1`. Local development only;
+    /// see [`aitp::manifest::ManifestVerifyContext::with_insecure_localhost_dangerous`].
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 }
@@ -241,12 +252,14 @@ fn verify_hop_jws(
     ctx: &ChainVerifyContext<'_>,
 ) -> Result<ChainedDelegationClaims, ChainedDelegationError> {
     let claimed = peek_claims(token)?;
+    let mut manifest_ctx = ManifestVerifyContext::at(ctx.now);
+    if ctx.insecure_localhost {
+        manifest_ctx = manifest_ctx.with_insecure_localhost_dangerous();
+    }
     let signer = ctx
         .issuer_manifests
         .ok_or(aitp::manifest::ManifestError::NotFound)
-        .and_then(|r| {
-            resolve_verified_manifest(r, &claimed.iss, &ManifestVerifyContext::at(ctx.now))
-        })
+        .and_then(|r| resolve_verified_manifest(r, &claimed.iss, &manifest_ctx))
         .map_err(|source| DelegationError::KeyResolutionFailed {
             issuer: claimed.iss.clone(),
             source,

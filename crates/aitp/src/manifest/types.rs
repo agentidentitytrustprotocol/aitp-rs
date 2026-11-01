@@ -2,7 +2,17 @@
 
 use crate::core::{Aid, ExtensionsMap, RawUrl, Timestamp};
 use crate::handshake::IdentityKind;
-use serde::{Deserialize, Serialize};
+use serde::{Deserialize, Deserializer, Serialize};
+
+/// An optional member is absent or has its schema type. `Option` alone
+/// would read `null` as absent, past the RFC-AITP-0003 §5 step 2 check.
+fn present<'de, D, T>(deserializer: D) -> Result<Option<T>, D::Error>
+where
+    D: Deserializer<'de>,
+    T: Deserialize<'de>,
+{
+    T::deserialize(deserializer).map(Some)
+}
 
 /// A signed self-description published by every A2A agent.
 ///
@@ -17,7 +27,11 @@ pub struct Manifest {
     /// The agent's AID.
     pub aid: Aid,
     /// Optional human-readable name. Not used in trust decisions.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub display_name: Option<String>,
     /// Static identity metadata. NOT a verifiable JWT.
     pub identity_hint: IdentityHint,
@@ -39,7 +53,11 @@ pub struct Manifest {
     /// the canonical signing bytes preserve the on-the-wire shape:
     /// `None` → field absent, `Some(_)` → field serialized verbatim
     /// (including `Some(vec![])`).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub accepted_identity_types: Option<Vec<String>>,
     /// Signature algorithms this peer accepts from a proof-of-possession
     /// signature (RFC-AITP-0001 §5.4.3 / RFC-AITP-0009 §4), e.g.
@@ -55,7 +73,11 @@ pub struct Manifest {
     /// out-of-scope feature) — this field exists so a manifest that
     /// legitimately carries it round-trips instead of being misclassified
     /// as `UNKNOWN_FIELD`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub accepted_signature_algorithms: Option<Vec<String>>,
     /// Capabilities this peer is willing to grant.
     pub offered_capabilities: Vec<String>,
@@ -67,7 +89,11 @@ pub struct Manifest {
     /// and the canonical signing bytes differ. Modeling as
     /// `Option<Vec<String>>` preserves the wire form through
     /// deserialize→re-serialize.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub required_peer_capabilities: Option<Vec<String>>,
     /// Proof-of-possession over the Manifest signing key.
     pub proof_of_possession: ManifestPop,
@@ -91,7 +117,11 @@ pub struct Manifest {
     /// failed verification. Silently normalizing one shape into the other
     /// would change the signing input and break verification against a
     /// conformant peer (RFC-AITP-0001 §5.4.1).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub extensions: Option<ExtensionsMap>,
     /// Signature over JCS-canonicalized Manifest minus this field.
     pub signature: String,
@@ -161,11 +191,19 @@ pub struct IdentityHint {
     pub subject: String,
     /// OIDC issuer URI (required when type=oidc). `RawUrl` so the
     /// canonical-form bytes match the issuer-signed input.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub issuer: Option<RawUrl>,
     /// Pinned 32-byte raw public key, base64url-unpadded
     /// (required when type=pinned_key).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        deserialize_with = "present",
+        skip_serializing_if = "Option::is_none"
+    )]
     pub public_key: Option<String>,
 }
 

@@ -65,6 +65,7 @@ PopExchange.response: string
 RevocationEntryInput.jti: string
 RevocationEntryInput.reason?: string
 RevocationEntryInput.revokedAt?: number
+SessionOpts.insecureLocalhostDangerous?: boolean
 SessionOpts.pinnedKeys?: Array<string>
 SessionOpts.trustAnchors?: Array<string>
 SignEnvelopeOpts.extensionsJson?: string
@@ -87,9 +88,9 @@ const __napiBindingTarget: 'native' | 'wasm32-wasi' | 'wasm32-wasip1'
 function computeAidJkt(aid: string): string
 function computeSpkiHash(certDer: Buffer): Buffer
 function revocationSigningBytes(envelopeJson: string): Buffer
-function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
+function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsDelegationVerified
 function verifyEnvelope(envelopeJson: string, expectedSenderAid: string): void
-function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null): void
+function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): void
 function verifyPopResponse(challengeJson: string, responseJson: string, tctToken: string): string
 function verifyRevocationList(envelopeJson: string, expectedIssuerAid: string, nowUnixSecs?: number | undefined | null): void
 interface GenerateOpts

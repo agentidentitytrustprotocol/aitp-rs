@@ -33,12 +33,12 @@ def _issued_pair():
     b = aitp.AitpAgent.generate()
     a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:9201/aitp/handshake/",
+        handshake_endpoint="https://localhost:9201/aitp/handshake/",
         offered_caps=["demo.write"],
     )
     b_manifest = b.build_manifest(
         display_name="B",
-        handshake_endpoint="http://localhost:9202/aitp/handshake/",
+        handshake_endpoint="https://localhost:9202/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     # B is the initiator → at the end of the handshake, B holds a TCT
@@ -46,7 +46,7 @@ def _issued_pair():
     # A initiate so A becomes the issuer of B's TCT. Re-orient:
     a_manifest = json.loads(a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:9201/aitp/handshake/",
+        handshake_endpoint="https://localhost:9201/aitp/handshake/",
         offered_caps=["demo.write"],
     ))
     # Run handshake B-initiates-against-A: B → A. B will end up holding
@@ -131,7 +131,7 @@ def test_withdrawn_grant_renewal_rejected():
     # A's Manifest no longer offers demo.write: nothing left to renew.
     a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:9201/aitp/handshake/",
+        handshake_endpoint="https://localhost:9201/aitp/handshake/",
         offered_caps=["demo.other"],
     )
     now = int(time.time())

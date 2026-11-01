@@ -63,12 +63,12 @@ responder = aitp.AitpAgent.generate()
 
 initiator.build_manifest(
     display_name="initiator",
-    handshake_endpoint="http://localhost:8100/aitp/handshake/",
+    handshake_endpoint="https://localhost:8100/aitp/handshake/",
     offered_caps=["demo.echo"],
 )
 resp_manifest = responder.build_manifest(
     display_name="responder",
-    handshake_endpoint="http://localhost:8200/aitp/handshake/",
+    handshake_endpoint="https://localhost:8200/aitp/handshake/",
     offered_caps=["demo.write"],
 )
 
@@ -101,14 +101,14 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 
 | Type / function       | Feature | Notes |
 |-----------------------|:-------:|-------|
-| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None)`, `verify_tct(..., pop=None)`, `verify_tct_cached(..., pop=None)` (`pop=(challenge_json, response_json)`, the presented-TCT path), `new_pop_challenge(tct_token, ttl_secs=60)`, `sign_pop_response(challenge_json)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_envelope(message_type, payload_json, ...)`, `sign_revocation_list(...)` |
+| `AitpAgent`           | default | `generate(suite=...)`, `from_seed(bytes, suite=...)`, `aid`, `build_manifest(...)`, `new_session(jwks=None, trust_anchors=None, pinned_keys=None, *, insecure_localhost_dangerous=False)`, `new_responder(jwks=None, trust_anchors=None, pinned_keys=None, *, insecure_localhost_dangerous=False)`, `verify_tct(..., pop=None)`, `verify_tct_cached(..., pop=None)` (`pop=(challenge_json, response_json)`, the presented-TCT path), `new_pop_challenge(tct_token, ttl_secs=60)`, `sign_pop_response(challenge_json)`, `build_delegation(voucher_token, delegatee_aid, scope, ttl_secs=None)`, `issue_tct_for_delegatee(...)` (returns `{"tct", "grant_voucher"}` JSON), `sign_envelope(message_type, payload_json, ...)`, `sign_revocation_list(...)` |
 | `InitiatorSession`    | default | `build_hello(peer_manifest, grants, oidc_mint_jwt=None)`, `process_hello_ack(...)`, `complete(...)` → JSON `{"tct", "grant_voucher"}` |
 | `ResponderSession`    | default | `process_hello(hello, oidc_mint_jwt=None)` → `(ack_json, session_id)`, `process_commit(...)` → `(ack_json, completed_json)` |
 | `TctIdentity`         | default | `peer_aid`, `grants`, `expires_at`, `jti` |
 | `DelegationVerified`  | default | `delegator`, `delegatee`, `issued_by`, `grants`, `expires_at`, `cnf_jkt` (`cnf` is a deprecated alias that emits `DeprecationWarning`) |
 | `JwksProvider`        | default | OIDC JWKS map. `upsert(issuer, keys)`, `remove(issuer)`, `issuers()` |
 | `TctStore`            | default | Cache for `AitpAgent.verify_tct_cached()`. A byte-identical, still-valid TCT skips the signature check; the key is the SHA-256 of the token bytes |
-| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None, revocation=None)`: verifies under the key the delegator's Manifest designates |
+| `verify_delegation()` | default | RFC-AITP-0006, strict single-hop; rejects any multi-hop `chain`. `verify_delegation(token, verifier_aid, issuer_manifests, revoked_jtis=None, revocation=None, *, insecure_localhost_dangerous=False)`: verifies under the key the delegator's Manifest designates |
 | `verify_manifest_json()` / `ManifestVerificationError` | default | Raises `ManifestVerificationError` with `.code`; non-manifest input raises `ValueError` |
 | `verify_envelope()` / `EnvelopeVerificationError` | default | Verifies an `aitp/0.3` envelope's signature against a pinned sender, in the RFC-AITP-0001 §5.4 check order. Raises with `.code` (`UNKNOWN_VERSION`, `UNKNOWN_FIELD`, `INVALID_ENVELOPE`, `INVALID_SIGNATURE`). Replay and timestamp checks stay with the caller; see [Envelope signatures](../../docs/sdk-python.md#envelope-signatures-rfc-aitp-0001-54) |
 | `verify_revocation_list()` / `RevocationVerificationError` | default | Verifies a revocation snapshot against a pinned issuer. Raises with `.code` |

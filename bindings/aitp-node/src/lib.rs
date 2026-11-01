@@ -82,16 +82,25 @@ pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
 /// `nowUnixSecs` overrides the verification clock — omit it to use the
 /// system clock, or pass a pinned value in tests. Matches
 /// `verifyRevocationList`'s `nowUnixSecs` parameter.
+///
+/// `insecureLocalhostDangerous` accepts a `handshakeEndpoint` that is plain
+/// `http://localhost` or `http://127.0.0.1`. Local development only:
+/// RFC-AITP-0003 §5 step 2 requires HTTPS.
 #[napi]
 pub fn verify_manifest_json(
     env: Env,
     manifest_envelope_json: String,
     now_unix_secs: Option<i64>,
+    insecure_localhost_dangerous: Option<bool>,
 ) -> Result<()> {
     let manifest = wire::manifest(&manifest_envelope_json)
         .map_err(|e| throw_with_code(env, e.code(), format!("invalid manifest JSON: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&manifest, &ManifestVerifyContext::at(now)).map_err(|e| {
+    let mut ctx = ManifestVerifyContext::at(now);
+    if insecure_localhost_dangerous.unwrap_or(false) {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
+    verify_manifest(&manifest, &ctx).map_err(|e| {
         throw_with_code(
             env,
             manifest_verification_cause(&e),

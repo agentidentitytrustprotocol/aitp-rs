@@ -94,6 +94,8 @@ pub struct PeerConfig<'a> {
     pub identity_verifier: Option<&'a dyn IdentityVerifier>,
     /// Current time (Unix seconds).
     pub now: Timestamp,
+    /// Set by [`PeerConfig::with_insecure_localhost_dangerous`].
+    pub(crate) insecure_localhost: bool,
 }
 
 impl<'a> PeerConfig<'a> {
@@ -142,6 +144,7 @@ impl<'a> PeerConfig<'a> {
             revocation,
             identity_verifier: None,
             now,
+            insecure_localhost: false,
         }
     }
 
@@ -162,6 +165,14 @@ impl<'a> PeerConfig<'a> {
     /// [`PeerConfig::grant_policy`].
     pub fn with_grant_policy(mut self, grant_policy: &'a GrantPolicyFn) -> Self {
         self.grant_policy = Some(grant_policy);
+        self
+    }
+
+    /// Accept a peer Manifest whose `handshake_endpoint` is
+    /// `http://localhost` / `http://127.0.0.1`. For local demos and tests.
+    /// See [`ManifestVerifyContext::with_insecure_localhost_dangerous`].
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
         self
     }
 }
@@ -486,7 +497,9 @@ pub(crate) fn bootstrap_verify_peer(
             "manifest.aid does not match sender.agent_id".into(),
         ));
     }
-    verify_manifest(payload_manifest, &ManifestVerifyContext { now: cfg.now })?;
+    let mut manifest_ctx = ManifestVerifyContext::at(cfg.now);
+    manifest_ctx.insecure_localhost = cfg.insecure_localhost;
+    verify_manifest(payload_manifest, &manifest_ctx)?;
     if payload_identity.subject != payload_manifest.identity_hint.subject {
         return Err(HandshakeError::Identity(
             "identity.subject != manifest.identity_hint.subject".into(),

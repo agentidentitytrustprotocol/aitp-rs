@@ -18,7 +18,7 @@ def _build(suite, name, port, offers):
     agent = aitp.AitpAgent.generate(suite=suite)
     manifest = agent.build_manifest(
         display_name=name,
-        handshake_endpoint=f"http://localhost:{port}/aitp/handshake/",
+        handshake_endpoint=f"https://localhost:{port}/aitp/handshake/",
         offered_caps=offers,
     )
     return agent, manifest

@@ -271,6 +271,10 @@ enum ManifestCommand {
         /// current clock — useful for a fixed/historical Manifest.
         #[arg(long)]
         at: Option<i64>,
+        /// Accept an `http://localhost` / `http://127.0.0.1` handshake
+        /// endpoint, for a peer on this machine. Never in production.
+        #[arg(long)]
+        insecure_localhost: bool,
     },
     /// Fetch a peer's Manifest from `<url>/.well-known/aitp-manifest`,
     /// verify it, and print the envelope (pipes into `manifest verify`).
@@ -314,9 +318,11 @@ fn run(cli: Cli) -> CliResult {
             } => tct_verify(read_arg_or_stdin(&token)?.trim(), issuer, audience, at),
         },
         Command::Manifest { command } => match command {
-            ManifestCommand::Verify { file, at } => {
-                manifest_verify(&read_file_or_stdin(&file)?, at)
-            }
+            ManifestCommand::Verify {
+                file,
+                at,
+                insecure_localhost,
+            } => manifest_verify(&read_file_or_stdin(&file)?, at, insecure_localhost),
             #[cfg(feature = "http-client")]
             ManifestCommand::Fetch { url, net } => {
                 net::manifest_fetch(parse_url(&url)?, net.into_opts())
@@ -434,11 +440,14 @@ fn tct_verify(
     Ok(())
 }
 
-fn manifest_verify(json: &str, at: Option<i64>) -> CliResult {
+fn manifest_verify(json: &str, at: Option<i64>, insecure_localhost: bool) -> CliResult {
     let env: ManifestEnvelope = serde_json::from_str(json)?;
-    let ctx = at.map_or_else(ManifestVerifyContext::now, |t| {
+    let mut ctx = at.map_or_else(ManifestVerifyContext::now, |t| {
         ManifestVerifyContext::at(Timestamp(t))
     });
+    if insecure_localhost {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
     verify_manifest(&env.manifest, &ctx)?;
     let m = &env.manifest;
     println!("OK: Manifest signature + proof-of-possession verify");

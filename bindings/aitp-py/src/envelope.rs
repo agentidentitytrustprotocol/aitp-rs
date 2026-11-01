@@ -55,6 +55,7 @@ fn verification_error(code: &str, message: String) -> PyErr {
 fn wire_code(err: &WireError) -> &'static str {
     match err {
         WireError::UnknownVersion(_) => "UNKNOWN_VERSION",
+        WireError::ManifestVersionUnknown => "MANIFEST_VERSION_UNKNOWN",
         WireError::UnknownField(_) => "UNKNOWN_FIELD",
         WireError::Malformed(_) => "INVALID_ENVELOPE",
     }

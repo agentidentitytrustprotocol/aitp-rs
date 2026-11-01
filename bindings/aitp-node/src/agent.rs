@@ -86,6 +86,10 @@ pub struct SessionOpts {
     /// Omitted or `[]` trusts no pinned key, so every `pinned_key` peer
     /// is rejected (fail closed). An invalid AID entry throws.
     pub pinned_keys: Option<Vec<String>>,
+    /// Accept a peer Manifest whose `handshake_endpoint` is plain
+    /// `http://localhost` or `http://127.0.0.1`. Local development only:
+    /// RFC-AITP-0003 §5 step 2 requires HTTPS.
+    pub insecure_localhost_dangerous: Option<bool>,
 }
 
 /// Options for `AitpAgent.generate` and `AitpAgent.fromSeed`.
@@ -598,9 +602,13 @@ fn build_session_context(
     jwks: Option<&JwksProvider>,
     opts: Option<SessionOpts>,
 ) -> Result<SessionContext> {
-    let (trust_anchors, pinned_keys) = match opts {
-        Some(o) => (o.trust_anchors, o.pinned_keys),
-        None => (None, None),
+    let (trust_anchors, pinned_keys, insecure_localhost) = match opts {
+        Some(o) => (
+            o.trust_anchors,
+            o.pinned_keys,
+            o.insecure_localhost_dangerous.unwrap_or(false),
+        ),
+        None => (None, None, false),
     };
     let pinned_keys = parse_pinned_keys(pinned_keys.unwrap_or_default())?;
     let anchors: Vec<RawUrl> = match trust_anchors {
@@ -621,6 +629,7 @@ fn build_session_context(
         identity_subject: manifest.identity_hint.subject.clone(),
         identity_issuer: manifest.identity_hint.issuer.clone(),
         pinned_keys,
+        insecure_localhost,
     })
 }
 

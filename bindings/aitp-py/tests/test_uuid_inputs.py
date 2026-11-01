@@ -76,13 +76,13 @@ def _bundle_builder():
     member = aitp.AitpAgent.generate()
     coord_manifest = coord.build_manifest(
         display_name="coordinator",
-        handshake_endpoint="http://localhost:9701/aitp/handshake/",
+        handshake_endpoint="https://localhost:9701/aitp/handshake/",
         offered_caps=["session.member"],
         ttl_secs=24 * 3600,
     )
     member.build_manifest(
         display_name="member",
-        handshake_endpoint="http://localhost:9702/aitp/handshake/",
+        handshake_endpoint="https://localhost:9702/aitp/handshake/",
         offered_caps=["x"],
     )
     sess = member.new_session(pinned_keys=[coord.aid])
@@ -119,12 +119,12 @@ def _held_tct():
     responder = aitp.AitpAgent.generate()
     initiator.build_manifest(
         display_name="initiator",
-        handshake_endpoint="http://localhost:9711/aitp/handshake/",
+        handshake_endpoint="https://localhost:9711/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     responder_manifest = responder.build_manifest(
         display_name="responder",
-        handshake_endpoint="http://localhost:9712/aitp/handshake/",
+        handshake_endpoint="https://localhost:9712/aitp/handshake/",
         offered_caps=[GRANT],
     )
     sess = initiator.new_session(pinned_keys=[responder.aid])
@@ -239,17 +239,17 @@ def delegation():
     c = aitp.AitpAgent.generate()
     a_manifest = a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:9721/aitp/handshake/",
+        handshake_endpoint="https://localhost:9721/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     b_manifest = b.build_manifest(
         display_name="B",
-        handshake_endpoint="http://localhost:9722/aitp/handshake/",
+        handshake_endpoint="https://localhost:9722/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     c.build_manifest(
         display_name="C",
-        handshake_endpoint="http://localhost:9723/aitp/handshake/",
+        handshake_endpoint="https://localhost:9723/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     bsess = b.new_session(pinned_keys=[a.aid])

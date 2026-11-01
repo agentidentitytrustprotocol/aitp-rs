@@ -390,9 +390,14 @@ impl ManifestFetcher {
         // body so callers can tell the two failure classes apart.
         let manifest = crate::manifest::parse_manifest_wire(&inner).map_err(|e| match e {
             crate::manifest::ManifestError::UnknownField(field) => FetchError::UnknownField(field),
+            crate::manifest::ManifestError::VersionUnknown => {
+                FetchError::VerificationFailed(crate::manifest::ManifestError::VersionUnknown)
+            }
             other => FetchError::MalformedJson(other.to_string()),
         })?;
-        let verified = verify_manifest(&manifest, &ManifestVerifyContext::now())?;
+        let mut verify_ctx = ManifestVerifyContext::now();
+        verify_ctx.insecure_localhost = self.insecure_localhost;
+        let verified = verify_manifest(&manifest, &verify_ctx)?;
         self.insert_cache(verified.clone());
         Ok(verified)
     }

@@ -30,19 +30,19 @@ function setup() {
   const bob = AitpAgent.generate();
   const coordManifest = coord.buildManifest({
     displayName: 'coordinator',
-    handshakeEndpoint: 'http://localhost:9601/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9601/aitp/handshake/',
     offeredCaps: ['session.member'],
     // Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
     ttlSecs: 24 * 3600,
   });
   alice.buildManifest({
     displayName: 'alice',
-    handshakeEndpoint: 'http://localhost:9602/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9602/aitp/handshake/',
     offeredCaps: ['x'],
   });
   bob.buildManifest({
     displayName: 'bob',
-    handshakeEndpoint: 'http://localhost:9603/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9603/aitp/handshake/',
     offeredCaps: ['x'],
   });
   const aliceTct = handshakeToCoordinator(alice, coord, coordManifest);
@@ -86,7 +86,7 @@ test('coordinator Manifest is required and checked', { skip: !HAS_BUNDLE }, () =
   const outsider = AitpAgent.generate();
   const otherManifest = outsider.buildManifest({
     displayName: 'outsider',
-    handshakeEndpoint: 'http://localhost:9604/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9604/aitp/handshake/',
     offeredCaps: ['x'],
   });
   assert.throws(

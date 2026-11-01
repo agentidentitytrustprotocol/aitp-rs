@@ -401,12 +401,12 @@ def _readme_usage():
 
     initiator.build_manifest(
         display_name="initiator",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     resp_manifest = responder.build_manifest(
         display_name="responder",
-        handshake_endpoint="http://localhost:8200/aitp/handshake/",
+        handshake_endpoint="https://localhost:8200/aitp/handshake/",
         offered_caps=["demo.write"],
     )
 

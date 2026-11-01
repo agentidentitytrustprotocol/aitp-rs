@@ -44,17 +44,17 @@ def _build_delegation_token():
 
     a_manifest = a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     b_manifest = b.build_manifest(
         display_name="B",
-        handshake_endpoint="http://localhost:8101/aitp/handshake/",
+        handshake_endpoint="https://localhost:8101/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     c.build_manifest(
         display_name="C",
-        handshake_endpoint="http://localhost:8102/aitp/handshake/",
+        handshake_endpoint="https://localhost:8102/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
 
@@ -126,7 +126,7 @@ def test_verify_delegation_resolves_issuer_key_from_manifest():
     other = aitp.AitpAgent.generate()
     other_manifest = other.build_manifest(
         display_name="Other",
-        handshake_endpoint="http://localhost:8103/aitp/handshake/",
+        handshake_endpoint="https://localhost:8103/aitp/handshake/",
         offered_caps=[PING_CAP],
     )
     for manifests in ([], [other_manifest]):

@@ -7,7 +7,8 @@ use aitp::crypto::{jws, AitpSigningKey, CryptoError};
 use aitp::delegation::{
     verify_delegation, DelegationBuilder, DelegationError, DelegationVerifyContext,
 };
-use aitp::manifest::{Manifest, ManifestError};
+use aitp::handshake::IdentityKind;
+use aitp::manifest::{IdentityHint, Manifest, ManifestBuilder, ManifestError};
 use aitp::tct::{
     RevocationQuery, RevocationSource, RevocationStatus, RevocationUnavailable, TctBuilder,
 };
@@ -69,6 +70,44 @@ fn delegate_to_c(voucher: &str) -> String {
         .unwrap()
         .into_parts()
         .token
+}
+
+#[test]
+fn only_the_opt_in_admits_a_loopback_issuer_and_only_a_loopback_one() {
+    let token = delegate_to_c(&voucher_for_b());
+    let a_key = a();
+    let now = Timestamp(NOW.0 + 60);
+    let issuer = |endpoint: &str| {
+        vec![ManifestBuilder::new(&b())
+            .handshake_endpoint(endpoint.parse().unwrap())
+            .identity_hint(
+                IdentityHint::new(IdentityKind::Oidc, "agent")
+                    .with_issuer("https://idp.example.com".parse().unwrap()),
+            )
+            .accept_trust_anchor("https://idp.example.com".parse().unwrap())
+            .published_at(NOW)
+            .ttl(std::time::Duration::from_secs(86_400))
+            .build()
+            .unwrap()]
+    };
+
+    let loopback = issuer("http://localhost:8080/aitp/handshake/");
+    let strict = common::verify_ctx(a_key.aid(), now, &loopback);
+    assert!(matches!(
+        verify_delegation(&token, &strict),
+        Err(DelegationError::KeyResolutionFailed { .. })
+    ));
+    let opted_in =
+        common::verify_ctx(a_key.aid(), now, &loopback).with_insecure_localhost_dangerous();
+    verify_delegation(&token, &opted_in).expect("opted in");
+
+    let elsewhere = issuer("http://a.example.com/aitp/handshake/");
+    let opted_in =
+        common::verify_ctx(a_key.aid(), now, &elsewhere).with_insecure_localhost_dangerous();
+    assert!(matches!(
+        verify_delegation(&token, &opted_in),
+        Err(DelegationError::KeyResolutionFailed { .. })
+    ));
 }
 
 #[test]

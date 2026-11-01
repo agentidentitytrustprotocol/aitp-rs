@@ -201,6 +201,7 @@ pub async fn spawn(
         NoOpResolver,
         vec![WORK_CAPABILITY.into()],
     )
+    .with_insecure_localhost_dangerous()
     .with_revocation_producer(Arc::clone(&revocations) as Arc<dyn RevocationListProducer>)
     .with_pinned_key_store(Arc::new(
         StaticPinnedKeyStore::from_aids(trusted)

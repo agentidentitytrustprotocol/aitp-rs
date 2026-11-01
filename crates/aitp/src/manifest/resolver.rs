@@ -69,8 +69,8 @@ impl ManifestResolver for HashMap<Aid, Manifest> {
 ///
 /// 1. No Manifest from the source ⇒ [`ManifestError::NotFound`].
 /// 2. The full RFC-AITP-0003 §5 check ([`verify_manifest`]: version,
-///    expiry, signature, proof-of-possession, identity-hint shape) — its
-///    error is returned unchanged.
+///    grammar, expiry, proof-of-possession, signature) — its error is
+///    returned unchanged.
 /// 3. The verified Manifest MUST designate `aid` — a Manifest published
 ///    under a different (e.g. rotated, RFC-AITP-0003 §8.1) key is not
 ///    `aid`'s Manifest ⇒ [`ManifestError::AidMismatch`].
@@ -120,7 +120,7 @@ mod tests {
     }
 
     fn ctx() -> ManifestVerifyContext {
-        ManifestVerifyContext { now: NOW }
+        ManifestVerifyContext::at(NOW)
     }
 
     #[test]

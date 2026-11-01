@@ -312,6 +312,13 @@ async fn manifest_fetch_output_pipes_into_manifest_verify() {
 
     aitp()
         .args(["manifest", "verify", "--file", "-"])
+        .write_stdin(out.stdout.clone())
+        .assert()
+        .failure()
+        .stderr(predicate::str::contains("handshake_endpoint"));
+
+    aitp()
+        .args(["manifest", "verify", "--file", "-", "--insecure-localhost"])
         .write_stdin(out.stdout)
         .assert()
         .success()

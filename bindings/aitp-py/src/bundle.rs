@@ -140,8 +140,12 @@ pub fn verify_session_bundle_py<'py>(
 ) -> PyResult<Bound<'py, PyDict>> {
     let bundle = wire::session_bundle(bundle_envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid bundle envelope JSON: {e}")))?;
-    let coordinator_manifest = wire::manifest(coordinator_manifest_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid coordinator manifest JSON: {e}")))?;
+    let coordinator_manifest = wire::manifest(coordinator_manifest_json).map_err(|e| match e {
+        wire::WireError::ManifestVersionUnknown => {
+            PyRuntimeError::new_err(format!("bundle verification failed: {e}"))
+        }
+        e => PyValueError::new_err(format!("invalid coordinator manifest JSON: {e}")),
+    })?;
     let verifier = Aid::parse(verifier_aid)
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));

@@ -174,6 +174,8 @@ class AitpAgent:
         jwks: Optional[JwksProvider] = ...,
         trust_anchors: Optional[list[str]] = ...,
         pinned_keys: Optional[list[str]] = None,
+        *,
+        insecure_localhost_dangerous: bool = False,
     ) -> InitiatorSession:
         """Create an outbound handshake session.
 
@@ -183,16 +185,24 @@ class AitpAgent:
         check runs before the proof. `None` or `[]` trusts no pinned key,
         so EVERY `pinned_key` peer is rejected (fail closed). An invalid
         AID entry raises `ValueError`. Since 0.14 there is no
-        possession-only mode: pass the peer's AID (e.g. `[peer.aid]`)."""
+        possession-only mode: pass the peer's AID (e.g. `[peer.aid]`).
+
+        `insecure_localhost_dangerous` accepts a peer Manifest whose
+        `handshake_endpoint` is plain `http://localhost` or
+        `http://127.0.0.1`. Local development only: RFC-AITP-0003 §5 step 2
+        requires HTTPS."""
         ...
     def new_responder(
         self,
         jwks: Optional[JwksProvider] = ...,
         trust_anchors: Optional[list[str]] = ...,
         pinned_keys: Optional[list[str]] = None,
+        *,
+        insecure_localhost_dangerous: bool = False,
     ) -> ResponderSession:
         """Create an inbound handshake session. `pinned_keys` as in
-        `new_session`: `None` ⇒ every `pinned_key` initiator is rejected."""
+        `new_session`: `None` ⇒ every `pinned_key` initiator is rejected.
+        `insecure_localhost_dangerous` as in `new_session`."""
         ...
     def verify_tct(
         self,
@@ -309,6 +319,8 @@ def verify_delegation(
     issuer_manifests: Sequence[str],
     revoked_jtis: Optional[RevokedJtis] = None,
     revocation: Optional[Revocation] = None,
+    *,
+    insecure_localhost_dangerous: bool = False,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) under strict AITP v0.3
     (RFC-AITP-0006 single-hop). A token carrying a non-empty `chain`
@@ -350,8 +362,14 @@ class ManifestVerificationError(RuntimeError):
 def verify_manifest_json(
     manifest_envelope_json: str,
     now_unix_secs: Optional[int] = ...,
+    *,
+    insecure_localhost_dangerous: bool = False,
 ) -> None:
     """Verify a `ManifestEnvelope` JSON. Raises on failure.
+
+    `insecure_localhost_dangerous` accepts a `handshake_endpoint` that is
+    plain `http://localhost` or `http://127.0.0.1`. Local development only:
+    RFC-AITP-0003 §5 step 2 requires HTTPS.
 
     Raises `ManifestVerificationError` (with `.code`) when the envelope does
     not verify, and `ValueError` when it is not parseable as a manifest at

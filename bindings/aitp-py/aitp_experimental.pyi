@@ -41,6 +41,8 @@ def verify_delegation_multihop(
     max_delegation_hops: int = 3,
     revoked_jtis: Optional[RevokedJtis] = None,
     revocation: Optional[Revocation] = None,
+    *,
+    insecure_localhost_dangerous: bool = False,
 ) -> DelegationVerified:
     """Verify a delegation token (compact-JWS string) allowing RFC-AITP-0011
     multi-hop chains up to `max_delegation_hops` total hops. Feature
