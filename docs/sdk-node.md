@@ -598,7 +598,7 @@ console.log(outcome.kind);   // clear  (fields: kind, activeAids, droppedAids)
 const checked = verifySessionBundle(bundle, alice.aid, bobManifest, null, (jti) => revoked.includes(jti));
 ```
 
-`verifySessionBundle(bundleEnvelopeJson, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)`
+`verifySessionBundle(bundleEnvelopeJson, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?, insecureLocalhostDangerous?)`
 returns `{ kind: 'clear' | 'degraded', activeAids, droppedAids }`.
 `coordinatorManifestJson` is required: the coordinator's `{"manifest": …}`
 envelope is verified, must designate the bundle's `coordinator`, and supplies

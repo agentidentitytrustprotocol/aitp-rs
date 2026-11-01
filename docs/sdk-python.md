@@ -591,7 +591,7 @@ outcome = aitp.verify_session_bundle(
 )
 ```
 
-`verify_session_bundle(bundle_envelope_json, verifier_aid, coordinator_manifest_json, now_unix_secs=None, revocation_check=None)`
+`verify_session_bundle(bundle_envelope_json, verifier_aid, coordinator_manifest_json, now_unix_secs=None, revocation_check=None, *, insecure_localhost_dangerous=False)`
 returns `{"kind": "clear" | "degraded", "active_aids": [...], "dropped_aids": [...]}`.
 `revocation_check` is called with each participant TCT's `jti` and returns
 `True` if that TCT is revoked. A revoked participant is dropped, and `kind`

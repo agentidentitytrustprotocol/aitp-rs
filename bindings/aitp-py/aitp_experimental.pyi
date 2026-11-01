@@ -121,9 +121,15 @@ def verify_session_bundle(
     coordinator_manifest_json: str,
     now_unix_secs: Optional[int] = ...,
     revocation_check: Optional[Callable[[str], bool]] = ...,
+    *,
+    insecure_localhost_dangerous: bool = False,
 ) -> dict:
     """Returns `{"kind": "clear"|"degraded", "active_aids": [...],
     "dropped_aids": [...]}`. Feature `experimental-session-bundle`.
+
+    `insecure_localhost_dangerous` accepts a coordinator Manifest whose
+    `handshake_endpoint` is plain `http://localhost` or `http://127.0.0.1`,
+    for local development.
 
     `coordinator_manifest_json` (required; the coordinator's
     `ManifestEnvelope` JSON) is verified, must designate the bundle's

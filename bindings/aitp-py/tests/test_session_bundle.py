@@ -152,3 +152,43 @@ def test_session_bundle_revocation_drops_participant():
     assert outcome["kind"] == "degraded"
     assert alice.aid in outcome["active_aids"]
     assert bob.aid in outcome["dropped_aids"]
+
+
+def test_a_plain_http_coordinator_needs_the_loopback_opt_in():
+    coord = aitp.AitpAgent.generate()
+    alice = aitp.AitpAgent.generate()
+    bob = aitp.AitpAgent.generate()
+
+    def coordinator_manifest(endpoint):
+        return coord.build_manifest(
+            display_name="coordinator",
+            handshake_endpoint=endpoint,
+            offered_caps=["session.member"],
+            ttl_secs=24 * 3600,
+        )
+
+    https_manifest = coordinator_manifest("https://localhost:9701/aitp/handshake/")
+    for agent, port in ((alice, 9702), (bob, 9703)):
+        agent.build_manifest(
+            display_name="p",
+            handshake_endpoint=f"https://localhost:{port}/aitp/handshake/",
+            offered_caps=["x"],
+        )
+    builder = aitp.SessionBundleBuilder(coord)
+    builder = builder.participant(alice.aid, _handshake_to_coordinator(alice, coord, https_manifest))
+    builder = builder.participant(bob.aid, _handshake_to_coordinator(bob, coord, https_manifest))
+    envelope = builder.build()
+
+    loopback = coordinator_manifest("http://localhost:9701/aitp/handshake/")
+    with pytest.raises(RuntimeError, match="bundle verification failed"):
+        aitp.verify_session_bundle(envelope, alice.aid, loopback)
+    outcome = aitp.verify_session_bundle(
+        envelope, alice.aid, loopback, insecure_localhost_dangerous=True
+    )
+    assert outcome["kind"] == "clear"
+
+    remote = coordinator_manifest("http://coordinator.example.com/aitp/handshake/")
+    with pytest.raises(RuntimeError, match="bundle verification failed"):
+        aitp.verify_session_bundle(
+            envelope, alice.aid, remote, insecure_localhost_dangerous=True
+        )

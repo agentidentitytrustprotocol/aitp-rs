@@ -68,7 +68,9 @@ Manifest, (6) bundle signature, (7) per-participant TCT verification,
    - `CoordinatorKeySource::Manifest(&m)` — the caller fetched the coordinator's
      Manifest (e.g. `aitp::transport::ManifestFetcher::fetch`); it is
      re-verified with `aitp::manifest::verify_manifest` → `CoordinatorManifest(_)`
-     (the Manifest's own error code, e.g. `MANIFEST_EXPIRED`), must have
+     (the Manifest's own error code, e.g. `MANIFEST_EXPIRED`; for local
+     development, `insecure_localhost_dangerous` accepts a plain
+     `http://localhost` or `http://127.0.0.1` endpoint), must have
      `m.aid == coordinator` → `CoordinatorManifestMismatch`
      (`KEY_RESOLUTION_FAILED`, RFC-AITP-0007 §1), and the signing key is
      resolved from `m.aid`.
