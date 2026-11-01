@@ -5,7 +5,7 @@
 //! published package does not enable. No stability promise. No I/O: the
 //! caller fetches the Manifest.
 
-use aitp::core::{CheckedJson, ErrorCode, Timestamp};
+use aitp::core::{CheckedJson, ErrorCode};
 use aitp_experimental::a2a::{
     locate_aitp_extension, verify_agent_card_binding, A2aBindingError, BindingContext,
     ManifestFetch,
@@ -92,15 +92,7 @@ pub fn verify_a2a_agent_card_binding_js(
         Some(json) => ManifestFetch::Fetched(json.as_bytes()),
         None => ManifestFetch::Unreachable,
     };
-    let now = match now_unix_secs {
-        None => Timestamp::now(),
-        Some(v) if v.is_finite() => Timestamp(v as i64),
-        Some(v) => {
-            return Err(Error::from_reason(format!(
-                "nowUnixSecs must be finite seconds-since-epoch (got {v})"
-            )));
-        }
-    };
+    let now = crate::helpers::now_or_system(now_unix_secs)?;
     let bound = verify_agent_card_binding(
         &card(env, &card_json)?,
         &selected_interface_url,

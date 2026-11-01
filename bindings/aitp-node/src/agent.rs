@@ -498,12 +498,7 @@ impl AitpAgent {
                 })?;
                 let revoked_at = match e.revoked_at {
                     None => now,
-                    Some(v) if v.is_finite() => Timestamp(v as i64),
-                    Some(v) => {
-                        return Err(Error::from_reason(format!(
-                            "revoked_at must be finite seconds-since-epoch (got {v})"
-                        )));
-                    }
+                    Some(v) => crate::helpers::finite_unix_secs("revoked_at", v)?,
                 };
                 Ok::<_, Error>({
                     let mut entry = RevocationEntry::new(jti, revoked_at);
@@ -559,7 +554,7 @@ impl AitpAgent {
     pub fn process_renewal_request(
         &self,
         request_payload_json: String,
-        manifest_exp_unix_secs: i64,
+        manifest_exp_unix_secs: f64,
         new_ttl_secs: i64,
         revoked_jtis: Option<Vec<String>>,
     ) -> Result<JsIssuedTct> {

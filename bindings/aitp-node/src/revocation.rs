@@ -14,7 +14,7 @@
 //! single accidental interlock standing in its way. One missing binding, three
 //! times.
 
-use aitp::core::{Aid, Timestamp};
+use aitp::core::Aid;
 use aitp::tct::{
     revocation_signing_bytes, verify_revocation_list, RevocationListVerifyContext, TctError,
 };
@@ -78,7 +78,7 @@ pub fn verify_revocation_list_js(
     env: Env,
     envelope_json: String,
     expected_issuer_aid: String,
-    now_unix_secs: Option<i64>,
+    now_unix_secs: Option<f64>,
 ) -> Result<()> {
     let envelope = wire::revocation_snapshot(&envelope_json).map_err(|e| {
         throw_verification_error(
@@ -91,7 +91,7 @@ pub fn verify_revocation_list_js(
     // as a verification cause.
     let expected = Aid::parse(&expected_issuer_aid)
         .map_err(|e| Error::from_reason(format!("invalid expectedIssuerAid: {e}")))?;
-    let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
+    let now = crate::helpers::now_or_system(now_unix_secs)?;
     let ctx = RevocationListVerifyContext::new(&expected, now);
     verify_revocation_list(&envelope, &ctx).map_err(|e| {
         throw_verification_error(
