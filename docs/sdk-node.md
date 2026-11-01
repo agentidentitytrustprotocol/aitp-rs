@@ -554,6 +554,24 @@ none fails with `KEY_RESOLUTION_FAILED`. A single-hop token also
 verifies, and `0` reverts to strict single-hop. See
 [multihop-delegation.md](multihop-delegation.md).
 
+### A2A Agent Card binding (RFC-AITP-0014, feature `experimental-a2a-agent-card`)
+
+```javascript
+// not executed: the committed vector has expired; tests/test_a2a.mjs runs these calls at a pinned time
+const { a2aCardManifestUrl, verifyA2aAgentCardBinding } = require('./bindings/aitp-node/experimental.js');
+
+const pointer = a2aCardManifestUrl(cardJson); // { aid, manifestUrl }, unverified
+// Fetch pointer.manifestUrl yourself, as any untrusted URL. Pass null if the
+// fetch failed.
+const bound = verifyA2aAgentCardBinding(cardJson, interfaceUrl, manifestBody);
+bound.handshakeEndpoint; // the Manifest's values, not the Card's
+```
+
+The SDK does no I/O. `interfaceUrl` is the `url` of the AgentInterface you
+intend to call, matched byte for byte. A binding failure throws with the
+registered code on `error.code`. Steps 6 and 7 stay with you. See
+[a2a-agent-card.md](a2a-agent-card.md).
+
 ### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 
 ```javascript

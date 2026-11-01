@@ -16,6 +16,8 @@
 // test builds rather than littering each export with `#[allow]`.
 #![cfg_attr(test, allow(dead_code))]
 
+#[cfg(feature = "experimental-a2a-agent-card")]
+mod a2a;
 mod agent;
 #[cfg(feature = "experimental-session-bundle")]
 mod bundle;

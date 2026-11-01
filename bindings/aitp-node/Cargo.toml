@@ -19,8 +19,9 @@ napi-build = "2"
 
 # The default build, and so the published `.node`, has the stable surface
 # plus SPKI pinning. The `experimental-*` features (umbrella
-# `experimental`) add renewal, session bundles and multi-hop delegation
-# to a source build; they carry no stability promise.
+# `experimental`) add renewal, session bundles, multi-hop delegation and
+# the A2A Agent Card binding to a source build; they carry no stability
+# promise.
 [features]
 default = ["spki-pinning"]
 # Experimental (no promise; not in the published packages): TCT renewal
@@ -36,11 +37,15 @@ spki-pinning = ["dep:x509-parser"]
 # The strict single-hop `verifyDelegation` is always present; this
 # additionally exposes `verifyDelegationMultihop`.
 experimental-multihop-delegation = ["dep:aitp-experimental"]
+# Experimental: A2A Agent Card binding, client verification (RFC-AITP-0014,
+# `aitp_experimental::a2a`).
+experimental-a2a-agent-card = ["dep:aitp-experimental", "aitp-experimental/a2a-agent-card"]
 # Every experimental feature.
 experimental = [
     "experimental-renewal",
     "experimental-session-bundle",
     "experimental-multihop-delegation",
+    "experimental-a2a-agent-card",
 ]
 
 [dependencies]

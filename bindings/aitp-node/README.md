@@ -63,6 +63,7 @@ package. A source build enables them one by one, or all with `experimental`
 | `experimental-renewal`             | `AitpAgent.buildRenewalRequest` / `processRenewalRequest` | RFC-AITP-0013 (Draft) |
 | `experimental-session-bundle`      | `SessionBundleBuilder`, `verifySessionBundle`             | RFC-AITP-0010 (Draft) |
 | `experimental-multihop-delegation` | `verifyDelegationMultihop`                                | RFC-AITP-0011 (Draft) |
+| `experimental-a2a-agent-card`      | `a2aCardManifestUrl`, `verifyA2aAgentCardBinding`         | RFC-AITP-0014 (Draft) |
 
 ## Usage
 
@@ -135,6 +136,7 @@ compact-JWS token strings** (`header.payload.signature`).
 | `SessionBundleBuilder`, `verifySessionBundle(json, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)` | `experimental-session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinatorManifestJson`: `{"manifest": ...}` JSON, required) |
 | `computeSpkiHash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verifyDelegationMultihop(token, verifierAid, issuerManifests, maxDelegationHops?, revokedJtis?, revocation?, insecureLocalhostDangerous?)` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `a2aCardManifestUrl(cardJson)`, `verifyA2aAgentCardBinding(cardJson, selectedInterfaceUrl, manifestJson?, nowUnixSecs?)` | `experimental-a2a-agent-card` | RFC-AITP-0014 client verification, no I/O. Throws with `error.code`. See [`docs/a2a-agent-card.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/a2a-agent-card.md) |
 
 `verifyTct` returns `{ peerAid, grants, expiresAt, jti }`, where `peerAid` is
 the issuer.

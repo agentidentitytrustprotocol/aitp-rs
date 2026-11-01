@@ -225,3 +225,16 @@ release is published, the pin can move to the release.
 **Verdict:** confirmed; a "No metrics" bullet was added to `docs/tct-renewal.md` Known limitations.
 **Status:** CONFIRMED (2026-10-30).
 
+## D15 — A2A Agent Card binding, P1 library decisions (reconciled 2026-11-01, plan: a2a-agent-card).
+**Assumption:** see the `ASSUMPTIONS.md` entry.
+**Analysis (Opus):** version-first, the strict SecurityScheme reading and the default-built conformance op stand. `https_url` works as coded, but becomes a cross-implementation contract once spec #176 item 16 lands, and that text says a host URL parsing leaves unchanged while case changes and IPv6 rewrites pass here. Its use on `handshake_endpoint` isn't covered by items 15-17. `ManifestError::Crypto` as MANIFEST_POP_FAILED differs from the handshake mapping for the same AID, and no fixture pins it.
+**Decided by:** Opus for the reversible parts. The HTTPS URL definition goes to the spec owner.
+**Verdict:** confirmed, with the entry's text corrected. Open: the `Crypto` code. Deferred: the HTTPS URL definition, until item 16 and 17 dispositions at RC2.1.
+**Status:** CONFIRMED (2026-11-01) in part; see the entry.
+
+## D16 — Manifest grammar check in `verify_manifest` (reconciled 2026-11-01, PR #477).
+**Assumption:** see the `ASSUMPTIONS.md` entry.
+**Analysis (Opus):** the hand-written check holds: a differential of `is_uri` against boon on 1,075,200 generated URIs found no false accept. Opt-ins are default-off and follow `STABILITY.md`. Closed enums match the RFC and schema, but `VERSIONING.md:104` allows additive identity types on the frozen line. The step 6 overlap predates this work and needs a ruling on an OIDC initiator whose verification mode isn't OIDC.
+**Decided by:** the project lead for the SDK opt-ins, delegation opt-in, strict bundle verification and 0.25.0; Opus for the rest. Closed enums and step 6 go to the spec owner.
+**Verdict:** confirmed, with the entry's text corrected. Deferred: closed enums against `VERSIONING.md`, and the step 6 overlap, until a spec ruling.
+**Status:** CONFIRMED (2026-11-01) in part; see the entry.

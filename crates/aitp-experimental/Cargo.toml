@@ -1,6 +1,6 @@
 [package]
 name = "aitp-experimental"
-description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles, TCT renewal, SPIFFE identity). No stability promise."
+description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles, TCT renewal, SPIFFE identity, A2A Agent Card binding). No stability promise."
 version.workspace = true
 edition.workspace = true
 license.workspace = true

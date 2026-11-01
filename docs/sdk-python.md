@@ -483,8 +483,8 @@ HTTP itself.
 
 The published `aitp-sdk` wheel does not include these. They carry no
 stability promise. Build from source with every experimental feature, or
-name one of `experimental-renewal`, `experimental-session-bundle` and
-`experimental-multihop-delegation`:
+name one of `experimental-renewal`, `experimental-session-bundle`,
+`experimental-multihop-delegation` and `experimental-a2a-agent-card`:
 
 ```bash
 maturin develop --features experimental
@@ -546,6 +546,22 @@ also verifies, and `max_delegation_hops=0` reverts to strict single-hop.
 `revoked_jtis` is applied to the root voucher's `src_jti` and to every hop's
 `jti`. See [multihop-delegation.md](multihop-delegation.md) for the
 verification rules and known limitations.
+
+### A2A Agent Card binding (RFC-AITP-0014, feature `experimental-a2a-agent-card`)
+
+```python
+# not executed: the committed vector has expired; tests/test_a2a.py runs these calls at a pinned time
+pointer = aitp.a2a_card_manifest_url(card_json)  # {"aid", "manifest_url"}, unverified
+# Fetch pointer["manifest_url"] yourself, as any untrusted URL. Pass None
+# if the fetch failed.
+bound = aitp.verify_a2a_agent_card_binding(card_json, interface_url, manifest_body)
+bound["handshake_endpoint"]  # the Manifest's values, not the Card's
+```
+
+The SDK does no I/O. `interface_url` is the `url` of the AgentInterface you
+intend to call, matched byte for byte. A failure raises `RuntimeError` with
+the registered code on `.code`. Steps 6 and 7 stay with you. See
+[a2a-agent-card.md](a2a-agent-card.md).
 
 ### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 

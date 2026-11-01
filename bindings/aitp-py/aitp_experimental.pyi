@@ -4,7 +4,7 @@
 # none of these. `tests/test_stub_signatures.py` checks them against a build
 # that has the features.
 
-from typing import Callable, Optional, Sequence
+from typing import Any, Callable, Dict, Optional, Sequence
 
 from aitp import AitpAgent as _AitpAgent
 from aitp import DelegationVerified, Revocation, RevokedJtis
@@ -31,6 +31,28 @@ class AitpAgent(_AitpAgent):
         matches); one that is not a UUID raises `ValueError`.
         Feature `experimental-renewal`."""
         ...
+
+# ── experimental-a2a-agent-card ────────────────────────────────
+
+def a2a_card_manifest_url(card_json: str) -> Dict[str, str]:
+    """RFC-AITP-0014 §4.2 step 2. Returns `{"aid", "manifest_url"}`, both
+    unverified. Raises `RuntimeError` with `.code == "IDENTITY_FAILED"`.
+    Feature `experimental-a2a-agent-card`."""
+    ...
+
+def verify_a2a_agent_card_binding(
+    card_json: str,
+    selected_interface_url: str,
+    manifest_json: Optional[str] = None,
+    now_unix_secs: Optional[int] = None,
+) -> Dict[str, Any]:
+    """RFC-AITP-0014 §4.2 steps 2 to 5. `manifest_json` is the fetched body;
+    `None` means the fetch failed. Returns the §4.3 effective values:
+    `{"aid", "accepted_identity_types", "accepted_trust_anchors",
+    "offered_capabilities", "handshake_endpoint", "interface_url"}`. Raises
+    `RuntimeError` with the registered code on `.code`. Feature
+    `experimental-a2a-agent-card`."""
+    ...
 
 # ── experimental-multihop-delegation ───────────────────────────
 

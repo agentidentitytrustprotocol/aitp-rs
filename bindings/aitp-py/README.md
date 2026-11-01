@@ -48,6 +48,7 @@ They carry no stability promise; their stubs are in `aitp_experimental.pyi`.
 | `experimental-renewal`             | `AitpAgent.build_renewal_request` / `process_renewal_request` | RFC-AITP-0013 (Draft) |
 | `experimental-session-bundle`      | `SessionBundleBuilder`, `verify_session_bundle`               | RFC-AITP-0010 (Draft) |
 | `experimental-multihop-delegation` | `verify_delegation_multihop`                                  | RFC-AITP-0011 (Draft) |
+| `experimental-a2a-agent-card`      | `a2a_card_manifest_url`, `verify_a2a_agent_card_binding`      | RFC-AITP-0014 (Draft) |
 
 From the sdist: `MATURIN_PEP517_ARGS="--features experimental" pip install --no-binary aitp-sdk aitp-sdk`.
 
@@ -119,6 +120,7 @@ summarizes it. All `*_json` parameters and return values are JSON strings.
 | `SessionBundleBuilder`, `verify_session_bundle(json, verifier_aid, coordinator_manifest_json, ...)` | `experimental-session-bundle` | RFC-AITP-0010. Verifies under the key the coordinator's Manifest designates (`coordinator_manifest_json` required) |
 | `compute_spki_hash()`, `SpkiPinVerifier` | `spki-pinning` | HPKP-style outbound pinning |
 | `verify_delegation_multihop()` | `experimental-multihop-delegation` | RFC-AITP-0011 multi-hop opt-in |
+| `a2a_card_manifest_url(card_json)`, `verify_a2a_agent_card_binding(card_json, selected_interface_url, manifest_json=None, now_unix_secs=None)` | `experimental-a2a-agent-card` | RFC-AITP-0014 client verification, no I/O. Raises with `.code`. See [`docs/a2a-agent-card.md`](https://github.com/agentidentitytrustprotocol/aitp-rs/blob/main/docs/a2a-agent-card.md) |
 
 The Python and Node bindings differ in some return shapes and argument
 names; see
