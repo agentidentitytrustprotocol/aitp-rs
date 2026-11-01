@@ -35,7 +35,6 @@ mod session;
 mod tct;
 mod wire;
 
-use aitp::core::Timestamp;
 use aitp::manifest::{verify_manifest, ManifestError, ManifestVerifyContext};
 use napi::bindgen_prelude::*;
 use napi_derive::napi;
@@ -92,12 +91,12 @@ pub const REVOCATION_LIST_PATH: &str = "/.well-known/aitp-revocation-list";
 pub fn verify_manifest_json(
     env: Env,
     manifest_envelope_json: String,
-    now_unix_secs: Option<i64>,
+    now_unix_secs: Option<f64>,
     insecure_localhost_dangerous: Option<bool>,
 ) -> Result<()> {
     let manifest = wire::manifest(&manifest_envelope_json)
         .map_err(|e| throw_with_code(env, e.code(), format!("invalid manifest JSON: {e}")))?;
-    let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
+    let now = helpers::now_or_system(now_unix_secs)?;
     let mut ctx = ManifestVerifyContext::at(now);
     if insecure_localhost_dangerous.unwrap_or(false) {
         ctx = ctx.with_insecure_localhost_dangerous();

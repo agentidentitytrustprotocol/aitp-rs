@@ -297,7 +297,7 @@ try {
   HTTP transport
   ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
 - **The optional second argument** `nowUnixSecs` overrides the verification
-  clock.
+  clock. A non-finite value throws; every clock argument in the SDK refuses one.
 - **`buildHello` verifies the peer's Manifest first** (RFC-AITP-0003 §5),
   including that it accepts this agent's identity type. A Manifest that fails
   throws with its registry code in `.code`, and nothing is built or sent.

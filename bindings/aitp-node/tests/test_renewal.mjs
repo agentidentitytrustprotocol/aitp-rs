@@ -105,3 +105,11 @@ test('withdrawn grant renewal rejected', { skip: !HAS_RENEWAL }, () => {
     /renewal request rejected/,
   );
 });
+
+test('a non-finite manifest expiry is refused', { skip: !HAS_RENEWAL }, () => {
+  const { a, b, bHeld } = issuedPair();
+  const req = b.buildRenewalRequest(bHeld);
+  for (const bad of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => a.processRenewalRequest(req, bad, 3600), /manifestExpUnixSecs must be finite/);
+  }
+});

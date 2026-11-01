@@ -165,3 +165,12 @@ test('a plain HTTP coordinator needs the loopback opt-in', { skip: !HAS_BUNDLE }
   const remote = manifestAt('http://coordinator.example.com/aitp/handshake/');
   assert.throws(() => verifySessionBundle(envelope, alice.aid, remote, null, null, true), /bundle verification failed/);
 });
+
+test('the bundle clocks refuse a non-finite value', { skip: !HAS_BUNDLE }, () => {
+  const { coord, alice, aliceTct, coordManifest } = setup();
+  const envelope = new SessionBundleBuilder(coord).participant(alice.aid, aliceTct).build();
+  for (const bad of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => new SessionBundleBuilder(coord).issuedAt(bad), /unixSecs must be finite/);
+    assert.throws(() => verifySessionBundle(envelope, alice.aid, coordManifest, bad), /nowUnixSecs must be finite/);
+  }
+});
