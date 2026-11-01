@@ -819,6 +819,7 @@ fn step5_a_listed_url_must_be_a_plain_https_url() {
         "https://b.example:x@b.example/a",
         "https://b.example/a b",
         "https://b.example/a\tb",
+        "https://b.example/a\u{1}b",
         "https://b.example/a\nb",
         "https://b.example/a\\b",
     ] {
