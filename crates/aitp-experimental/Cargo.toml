@@ -26,7 +26,7 @@ spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser", "dep
 a2a-agent-card = []
 
 [dependencies]
-aitp = { path = "../aitp", version = "=0.24.1", default-features = false }
+aitp = { path = "../aitp", version = "=0.25.0", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

@@ -7,6 +7,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-experimental-v0.24.1...aitp-experimental-v0.25.0) - 2026-11-01
+
+### Added
+
+- *(experimental)* verify_session_bundle takes the loopback opt-in ([#479](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/479))
+- *(experimental)* A2A Agent Card binding in the SDKs, docs ([#478](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/478))
+- *(experimental)* A2A Agent Card binding, client verification ([#475](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/475))
+
+### Fixed
+
+- *(manifest)* [**breaking**] verify_manifest enforces the RFC-AITP-0003 §5 step 2 grammar ([#477](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/477))
+
 ## [0.24.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-experimental-v0.23.0...aitp-experimental-v0.24.0) - 2026-10-31
 
 ### Added
