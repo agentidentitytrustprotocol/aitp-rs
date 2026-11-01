@@ -15,11 +15,15 @@ categories.workspace = true
 homepage.workspace = true
 
 [features]
-default = []
+default = ["a2a-agent-card"]
 # `in-process` brings the in-process adapter into scope. It calls
 # `rs_adapter::handle` directly, the same dispatch the `aitp-rs-adapter`
 # binary uses, so in-process and subprocess runs cannot drift.
 in-process = []
+# `verify_a2a_agent_card_binding` (RFC-AITP-0014). The adapter advertises the
+# op and the `aitp-a2a-agent-card` feature only when this is built; a run
+# still opts in with `--feature`.
+a2a-agent-card = ["aitp-experimental/a2a-agent-card"]
 
 [dependencies]
 serde = { workspace = true }

@@ -877,3 +877,77 @@ mod verify_tct_as_issuer {
         assert_err(&resp, "v", "POP_RESPONSE_INVALID");
     }
 }
+
+/// RFC-AITP-0014 op wiring. The corpus run proves the behaviour.
+#[cfg(feature = "a2a-agent-card")]
+mod a2a_binding_op {
+    use super::*;
+
+    const OP: &str = "verify_a2a_agent_card_binding";
+
+    fn card() -> Value {
+        serde_json::from_str(include_str!(
+            "../../aitp-experimental/tests/fixtures/a2a/agent-card.json"
+        ))
+        .unwrap()
+    }
+
+    fn call(params: Value) -> Value {
+        handle(&mut AdapterState::default(), "r", OP, params)
+    }
+
+    #[test]
+    fn a_failed_fetch_is_manifest_not_found() {
+        let resp = call(json!({
+            "agent_card": card(),
+            "selected_interface_url": "https://b.agents.example.com/a2a/v1",
+            "manifest_fetch": {"outcome": "connection_refused"},
+        }));
+        assert_eq!(resp["error_code"], json!("MANIFEST_NOT_FOUND"), "{resp}");
+    }
+
+    #[test]
+    fn a_verified_manifest_reports_effective_values() {
+        let body: Value = serde_json::from_str(include_str!(
+            "../../aitp-experimental/tests/fixtures/a2a/manifest.json"
+        ))
+        .unwrap();
+        let resp = call(json!({
+            "now": 1_711_900_100,
+            "agent_card": card(),
+            "selected_interface_url": "https://b.agents.example.com/a2a/v1",
+            "manifest": body["manifest"],
+        }));
+        assert_eq!(resp["ok"], json!(true), "{resp}");
+        let effective = &resp["result"]["effective"];
+        assert_eq!(effective["accepted_identity_types"], json!(["oidc"]));
+        assert_eq!(
+            effective["offered_capabilities"],
+            json!(["macp.mode.task.v1"])
+        );
+    }
+
+    /// A malformed request is the harness's fault, not a protocol result.
+    #[test]
+    fn a_malformed_request_is_refused() {
+        let url = "https://b.agents.example.com/a2a/v1";
+        for params in [
+            json!({}),
+            json!({"agent_card": card()}),
+            json!({"agent_card": card(), "selected_interface_url": url}),
+            json!({"selected_interface_url": url, "manifest_fetch": {}}),
+            json!({
+                "agent_card": card(),
+                "selected_interface_url": url,
+                "manifest": {},
+                "manifest_fetch": {},
+            }),
+        ] {
+            assert_eq!(
+                call(params.clone())["error_code"],
+                json!("INVALID_REQUEST"),
+                "{params}"
+            );
+        }
+    }
+}

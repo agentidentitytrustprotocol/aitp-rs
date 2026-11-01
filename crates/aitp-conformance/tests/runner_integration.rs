@@ -55,6 +55,7 @@ fn jcs_canonicalize_roundtrip_via_adapter() {
             renewed_tct_claims: None,
             renewed_jti_differs: None,
             response: None,
+            effective: None,
         }),
     };
     let r = runner.run(&f);
@@ -96,6 +97,7 @@ fn unminted_placeholder_fails_the_fixture() {
             renewed_tct_claims: None,
             renewed_jti_differs: None,
             response: None,
+            effective: None,
         }),
     };
     match runner.run(&f) {
@@ -144,6 +146,7 @@ fn unsupported_op_yields_skip() {
             renewed_tct_claims: None,
             renewed_jti_differs: None,
             response: None,
+            effective: None,
         }),
     };
     let r = runner.run(&f);
@@ -210,6 +213,7 @@ fn verify_tct_against_adapter_fails_for_random_pubkey_aid() {
             renewed_tct_claims: None,
             renewed_jti_differs: None,
             response: None,
+            effective: None,
         }),
     };
     let r = runner.run(&f);
@@ -916,6 +920,7 @@ fn claims_companions_never_reach_the_adapter_across_the_corpus() {
             "experimental-spiffe-identity",
             "aitp-pinned-admission",
             "aitp-self-attestation",
+            "aitp-a2a-agent-card",
         ]
         .into_iter()
         .fold(runner, |r, feature| r.with_feature(feature));

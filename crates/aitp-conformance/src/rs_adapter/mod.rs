@@ -28,6 +28,8 @@ use serde_json::{json, Value};
 use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
+#[cfg(feature = "a2a-agent-card")]
+mod a2a;
 mod admission;
 mod renewal;
 
@@ -201,6 +203,10 @@ pub fn handle(state: &mut AdapterState, id: &str, op: &str, params: Value) -> Va
         "renew_tct" => renewal::renew_tct_op(state, id, params),
         "verify_renewal_response" => renewal::verify_renewal_response_op(state, id, params),
 
+        // A2A Agent Card binding (RFC-AITP-0014)
+        #[cfg(feature = "a2a-agent-card")]
+        "verify_a2a_agent_card_binding" => a2a::verify_binding_op(state, id, params),
+
         // Tier D
         "set_clock" => set_clock_op(state, id, params),
         "set_features" => set_features_op(state, id, params),
@@ -224,7 +230,8 @@ const HARNESS_REVOCATION: aitp::tct::RevocationSource<'static> =
     aitp::tct::RevocationSource::FailOpen;
 
 fn init(id: &str) -> Value {
-    let supported_ops = vec![
+    #[cfg_attr(not(feature = "a2a-agent-card"), allow(unused_mut))]
+    let mut supported_ops = vec![
         "init",
         "shutdown",
         // Tier A
@@ -268,7 +275,13 @@ fn init(id: &str) -> Value {
         "inject_revocation",
         "dump_session",
     ];
-    let supported_features = vec!["pinned_key_identity", "oidc_identity"];
+    #[cfg_attr(not(feature = "a2a-agent-card"), allow(unused_mut))]
+    let mut supported_features = vec!["pinned_key_identity", "oidc_identity"];
+    #[cfg(feature = "a2a-agent-card")]
+    {
+        supported_ops.push("verify_a2a_agent_card_binding");
+        supported_features.push("aitp-a2a-agent-card");
+    }
     json!({
         "id": id,
         "ok": true,
@@ -3938,6 +3951,34 @@ fn bundle_error_code(e: &aitp_experimental::session_bundle::SessionBundleError) 
         UnknownField(_) => "UNKNOWN_FIELD",
     }
     .to_string()
+}
+
+#[cfg(test)]
+mod a2a_claim_tests {
+    use super::*;
+
+    fn advertised(list: &str, name: &str) -> bool {
+        init("i")["result"][list]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v == name)
+    }
+
+    /// The claim follows the build: without the library the op is not
+    /// advertised and `aitp-a2a-agent-card` fixtures SKIP.
+    #[test]
+    fn init_claims_a2a_only_when_built() {
+        let built = cfg!(feature = "a2a-agent-card");
+        assert_eq!(
+            advertised("supported_ops", "verify_a2a_agent_card_binding"),
+            built
+        );
+        assert_eq!(
+            advertised("supported_features", "aitp-a2a-agent-card"),
+            built
+        );
+    }
 }
 
 #[cfg(test)]

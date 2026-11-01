@@ -85,9 +85,9 @@ binary `aitp-rs-adapter`) reports the `aitp-conformance` package version
 release. Its live operation list is `supported_ops` in `init()` in
 `rs_adapter/mod.rs`.
 
-- It answers every fixture operation ADAPTER.md lists except
-  `verify_a2a_agent_card_binding`, so the `a2a-*` fixtures (extension
-  `aitp-a2a-agent-card`) SKIP.
+- It answers every fixture operation ADAPTER.md lists. It advertises
+  `verify_a2a_agent_card_binding` and the feature `aitp-a2a-agent-card`
+  only when built with the crate's `a2a-agent-card` feature, on by default.
 - It also answers ops no fixture uses: issuance (`generate_keypair`,
   `issue_manifest`, `issue_tct`, `issue_delegation_token`,
   `issue_session_bundle`, `sign_envelope`), `start_handshake`,
@@ -245,8 +245,9 @@ features and no draft features. It checks the report three ways:
    `scripts/check-conformance-report.py --fixtures-dir`, which recomputes
    the totals, the gates and the digest.
 
-The job uploads the report as the `conformance-report` artifact. To
-reproduce it locally:
+The job uploads the report as the `conformance-report` artifact, and a second
+report from a run with `--feature aitp-a2a-agent-card` as
+`a2a-conformance-report`. To reproduce the first locally:
 
 ```bash
 ./target/debug/aitp-conformance run \
@@ -371,7 +372,7 @@ summary shows the report's `totals` and `gates`, and the
 [report](#conformance-report). Other pages link here instead of quoting
 numbers.
 
-| Tier | Strict run (no `--feature`) | With all six features |
+| Tier | Strict run (no `--feature`) | With all seven features |
 |---|---|---|
 | `core`, `required_for_core: true` (the `aitp/0.3` core tier) | all PASS | all PASS except `del-007` (SKIP) |
 | `core`, frozen in the v0.1 shape (`del-004`; `required_for_v0_1: true`, `required_for_core: false`) | PASS | SKIP |
@@ -379,6 +380,7 @@ numbers.
 | `draft`: multi-hop delegation (`experimental-multihop-delegation`) | SKIP | PASS |
 | `draft`: SPIFFE identity (`experimental-spiffe-identity`) | SKIP | PASS |
 | `draft`: TCT renewal (`experimental-renewal`) | SKIP | PASS |
+| `draft`: A2A Agent Card binding (`aitp-a2a-agent-card`) | SKIP | PASS |
 | `extension`: pinned-key admission (`aitp-pinned-admission`) | SKIP | PASS |
 | `extension`: self-attestation (`aitp-self-attestation`) | SKIP | PASS |
 
@@ -427,7 +429,8 @@ cargo build -p aitp-conformance   # builds aitp-conformance and aitp-rs-adapter
   --feature experimental-spiffe-identity \
   --feature aitp-pinned-admission \
   --feature aitp-self-attestation \
-  --feature experimental-renewal
+  --feature experimental-renewal \
+  --feature aitp-a2a-agent-card
 ```
 
 ### Core conformance gate
@@ -491,6 +494,7 @@ is set, as explained above.
 | Session Trust Bundle (draft, `experimental-session-bundle`): RFC-AITP-0010 | `bundle-001`–`bundle-008` |
 | Multi-hop delegation (draft, `experimental-multihop-delegation`): RFC-AITP-0011 | `del-mh-001`–`del-mh-006` (`del-mh-006`: a discarded hop snapshot under `fail_closed`, §6) |
 | SPIFFE identity (draft, `experimental-spiffe-identity`): RFC-AITP-0002 §6 | `id-024` (JWT-SVID), `id-025` (X509-SVID); rejected: `id-026` (no bundle for the subject's trust domain), `id-027` (nonce), `id-028` (expired), `id-029` (`aud`), `id-030` (two URI SANs) |
+| A2A Agent Card binding (draft, `aitp-a2a-agent-card`): RFC-AITP-0014 | `a2a-001`–`a2a-006` |
 
 The RFCs are indexed in the spec repo's [`rfcs/README.md`](https://github.com/agentidentitytrustprotocol/agentidentitytrustprotocol/blob/main/rfcs/README.md).
 
