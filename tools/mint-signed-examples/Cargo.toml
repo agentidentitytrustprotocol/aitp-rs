@@ -7,8 +7,8 @@ license.workspace = true
 publish = false
 
 [dependencies]
-aitp = { path = "../../crates/aitp", version = "0.25.0", default-features = false }
-aitp-experimental = { path = "../../crates/aitp-experimental", version = "0.25.0" }
+aitp = { path = "../../crates/aitp", version = "0.25.1", default-features = false }
+aitp-experimental = { path = "../../crates/aitp-experimental", version = "0.25.1" }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
