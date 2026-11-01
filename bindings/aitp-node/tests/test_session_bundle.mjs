@@ -143,3 +143,25 @@ test(
     assert.ok(outcome.droppedAids.includes(bob.aid));
   },
 );
+
+test('a plain HTTP coordinator needs the loopback opt-in', { skip: !HAS_BUNDLE }, () => {
+  const { coord, alice, bob, aliceTct, bobTct } = setup();
+  const envelope = new SessionBundleBuilder(coord)
+    .participant(alice.aid, aliceTct)
+    .participant(bob.aid, bobTct)
+    .build();
+  const manifestAt = (handshakeEndpoint) => coord.buildManifest({
+    displayName: 'coordinator',
+    handshakeEndpoint,
+    offeredCaps: ['session.member'],
+    ttlSecs: 24 * 3600,
+  });
+
+  const loopback = manifestAt('http://localhost:9601/aitp/handshake/');
+  assert.throws(() => verifySessionBundle(envelope, alice.aid, loopback), /bundle verification failed/);
+  const outcome = verifySessionBundle(envelope, alice.aid, loopback, null, null, true);
+  assert.equal(outcome.kind, 'clear');
+
+  const remote = manifestAt('http://coordinator.example.com/aitp/handshake/');
+  assert.throws(() => verifySessionBundle(envelope, alice.aid, remote, null, null, true), /bundle verification failed/);
+});

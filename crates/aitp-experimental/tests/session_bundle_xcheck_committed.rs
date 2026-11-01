@@ -82,6 +82,7 @@ fn aitp_verifier_py_committed_bundle_verifies() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {
@@ -114,6 +115,7 @@ fn committed_aitp_0_2_bundle_is_rejected_by_the_strict_cutover() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     assert!(matches!(
         verify_session_bundle(&bundle, &ctx),

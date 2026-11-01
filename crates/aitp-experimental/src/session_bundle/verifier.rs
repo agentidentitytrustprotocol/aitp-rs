@@ -47,6 +47,10 @@ pub struct SessionBundleVerifyContext<'a> {
     pub revocation_check: Option<&'a dyn Fn(&Uuid) -> bool>,
     /// Where the coordinator's key comes from (§5 step 5).
     pub coordinator_key: CoordinatorKeySource<'a>,
+    /// Accept a coordinator Manifest whose `handshake_endpoint` is plain
+    /// `http://localhost` or `http://127.0.0.1`, for local development.
+    /// Off in production.
+    pub insecure_localhost_dangerous: bool,
 }
 
 /// Outcome of verifying a Session Trust Bundle.
@@ -131,7 +135,11 @@ pub fn verify_session_bundle(
     // 5. Coordinator key resolution.
     let (coord_key, coordinator_manifest_expires_at) = match ctx.coordinator_key {
         CoordinatorKeySource::Manifest(manifest) => {
-            verify_manifest(manifest, &ManifestVerifyContext::at(ctx.now))
+            let mut manifest_ctx = ManifestVerifyContext::at(ctx.now);
+            if ctx.insecure_localhost_dangerous {
+                manifest_ctx = manifest_ctx.with_insecure_localhost_dangerous();
+            }
+            verify_manifest(manifest, &manifest_ctx)
                 .map_err(SessionBundleError::CoordinatorManifest)?;
             if manifest.aid != bundle.coordinator {
                 return Err(SessionBundleError::CoordinatorManifestMismatch);

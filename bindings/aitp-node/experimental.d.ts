@@ -843,6 +843,8 @@ export declare function verifyRevocationList(envelopeJson: string, expectedIssue
  * coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
  * §5), must designate the bundle's `coordinator`, and the coordinator
  * key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
- * AID-only fallback.
+ * AID-only fallback. `insecureLocalhostDangerous` accepts a coordinator
+ * Manifest whose `handshakeEndpoint` is plain `http://localhost` or
+ * `http://127.0.0.1`, for local development.
  */
-export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null): JsBundleOutcome
+export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsBundleOutcome

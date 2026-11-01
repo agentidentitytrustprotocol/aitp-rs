@@ -321,6 +321,7 @@ async fn signed_bundle_round_trips_and_is_signed_over_the_inner_body() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     verify_session_bundle(&got.session_bundle, &ctx)
         .expect("fetched bundle must verify under the coordinator's key");

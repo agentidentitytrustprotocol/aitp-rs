@@ -122,7 +122,9 @@ impl SessionBundleBuilderJs {
 /// coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
 /// §5), must designate the bundle's `coordinator`, and the coordinator
 /// key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
-/// AID-only fallback.
+/// AID-only fallback. `insecureLocalhostDangerous` accepts a coordinator
+/// Manifest whose `handshakeEndpoint` is plain `http://localhost` or
+/// `http://127.0.0.1`, for local development.
 #[napi(js_name = "verifySessionBundle")]
 pub fn verify_session_bundle_js(
     env: Env,
@@ -131,6 +133,7 @@ pub fn verify_session_bundle_js(
     coordinator_manifest_json: String,
     now_unix_secs: Option<i64>,
     revocation_check: Option<FunctionRef<String, bool>>,
+    insecure_localhost_dangerous: Option<bool>,
 ) -> Result<JsBundleOutcome> {
     let bundle = wire::session_bundle(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
@@ -165,6 +168,7 @@ pub fn verify_session_bundle_js(
             now,
             revocation_check: closure.as_deref(),
             coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
+            insecure_localhost_dangerous: insecure_localhost_dangerous.unwrap_or(false),
         },
     )
     .map_err(|e| Error::from_reason(format!("bundle verification failed: {e}")))?;
