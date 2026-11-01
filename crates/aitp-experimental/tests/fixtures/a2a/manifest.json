@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "version": "aitp/0.3",
+    "aid": "aid:pubkey:A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg",
+    "identity_hint": {
+      "type": "oidc",
+      "subject": "agent-B",
+      "issuer": "https://auth.example.com"
+    },
+    "handshake_endpoint": "https://b.agents.example.com/aitp/handshake",
+    "accepted_trust_anchors": [
+      "https://auth.example.com/"
+    ],
+    "offered_capabilities": [
+      "macp.mode.task.v1"
+    ],
+    "proof_of_possession": {
+      "challenge": "2jfQoxeycJyENM6iXv8uWg",
+      "signature": "NXnLI2-l1JD-CBiS5eqHAZVdOIr8YYHpwHpwavlDIdK4IBOV0DZu9iQqTm8e_vnSVQAtd5GjNcObOXBzyqpwAQ"
+    },
+    "published_at": 1711900000,
+    "expires_at": 1711986400,
+    "extensions": {
+      "rfc-aitp-0014.a2a_interfaces": [
+        "https://b.agents.example.com/a2a/v1"
+      ]
+    },
+    "signature": "ZBNxUQywMh1fSmyZXtqczzUv7rZimzaB3Vp7xB0xzhe4lpiDameQ2D0GIuCkXG1ypz3nAvSZAHHHQS-t1Z2zBQ"
+  }
+}

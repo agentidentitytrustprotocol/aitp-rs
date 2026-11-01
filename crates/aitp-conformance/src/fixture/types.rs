@@ -207,4 +207,9 @@ pub struct FixtureExpected {
     /// `sender` (its `agent_id`) and `pop_nonce_echo` (a payload member).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub response: Option<serde_json::Map<String, serde_json::Value>>,
+    /// `verify_a2a_agent_card_binding` success (RFC-AITP-0014 §4.3): each
+    /// listed value must equal the adapter's `result.effective` member.
+    /// Unlike `side_effects`, a value the adapter does not report fails.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effective: Option<serde_json::Map<String, serde_json::Value>>,
 }

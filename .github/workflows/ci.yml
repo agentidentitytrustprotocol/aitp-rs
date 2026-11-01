@@ -498,7 +498,7 @@ jobs:
       - name: Run the full fixture corpus against the Rust adapter
         working-directory: aitp-rs
         # Opt into the draft features and extensions so the bundle-*,
-        # multihop, spiffe, ren-*, pinned-admission and self-attestation fixtures run
+        # multihop, spiffe, ren-*, a2a-*, pinned-admission and self-attestation fixtures run
         # instead of being SKIPped. The runner exits non-zero if any
         # fixture FAILs or a required_for_core fixture is SKIPped.
         # Expected skips: del-004 and del-007, negated by multi-hop (the
@@ -513,7 +513,45 @@ jobs:
             --feature experimental-spiffe-identity \
             --feature aitp-pinned-admission \
             --feature aitp-self-attestation \
-            --feature experimental-renewal
+            --feature experimental-renewal \
+            --feature aitp-a2a-agent-card
+      - name: Run the A2A Agent Card fixtures (each must pass, none skip)
+        working-directory: aitp-rs
+        # The runner exits 0 when a draft fixture SKIPs, so a dropped op
+        # would go unnoticed without this check.
+        run: |
+          ./target/debug/aitp-conformance run \
+            --target ./target/debug/aitp-rs-adapter \
+            --fixtures-dir ../spec/schemas/conformance \
+            --filter a2a- \
+            --feature aitp-a2a-agent-card \
+            --output json > a2a-results.json
+          python3 - <<'PY'
+          import json, sys
+          got = {r["id"]: r["outcome"] for r in json.load(open("a2a-results.json"))}
+          want = {f"a2a-00{i}": "pass" for i in range(1, 7)}
+          if got != want:
+              sys.exit(f"::error::a2a fixtures: expected {want}, got {got}")
+          print("a2a-001..a2a-006: pass")
+          PY
+      - name: Write the A2A Agent Card report
+        working-directory: aitp-rs
+        # Separate from the core report below, which stays without draft
+        # features. Uploaded as a durable artifact for the A2A extension proposal.
+        run: |
+          ./target/debug/aitp-conformance run \
+            --target ./target/debug/aitp-rs-adapter \
+            --fixtures-dir ../spec/schemas/conformance \
+            --feature aitp-a2a-agent-card \
+            --spec-commit "${{ steps.pin.outputs.sha }}" \
+            --implementation-commit "${{ github.sha }}" \
+            --report a2a-report.json \
+            --output tap > /dev/null
+      - name: The A2A claim follows the build
+        working-directory: aitp-rs
+        # Without the library, init must not advertise the op or the feature.
+        # After the runs above: a build with other features may relink the adapter.
+        run: cargo test -p aitp-conformance --no-default-features --lib a2a_claim_tests
       - name: Write the conformance report (core + extension claims)
         working-directory: aitp-rs
         # No draft features: a core fixture negated by one (del-007
@@ -568,6 +606,13 @@ jobs:
         with:
           name: conformance-report
           path: aitp-rs/conformance-report.json
+          if-no-files-found: error
+      - name: Upload the A2A Agent Card report
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: a2a-conformance-report
+          path: aitp-rs/a2a-report.json
           if-no-files-found: error
 
   xcheck:
@@ -892,6 +937,7 @@ jobs:
         run: |
           cargo check -p aitp --no-default-features --features pinned-admission --target wasm32-wasip1
           cargo check -p aitp-experimental --target wasm32-wasip1
+          cargo check -p aitp-experimental --target wasm32-wasip1 --features a2a-agent-card
 
   e2e-llm-build:
     name: tier-3 e2e build (no API calls)

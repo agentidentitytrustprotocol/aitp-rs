@@ -356,6 +356,7 @@ impl<A: Adapter> Runner<A> {
         if let Some(expected) = expected {
             assert_outcome(&result, expected)?;
             assert_renewal(&result, expected, &op_params)?;
+            assert_effective(&result, expected)?;
         }
         Ok(())
     }
@@ -421,6 +422,7 @@ impl<A: Adapter> Runner<A> {
             }
             assert_outcome(&result, &step.expected).map_err(|e| e.in_step(step.step))?;
             assert_renewal(&result, &step.expected, &params).map_err(|e| e.in_step(step.step))?;
+            assert_effective(&result, &step.expected).map_err(|e| e.in_step(step.step))?;
         }
         Ok(())
     }
@@ -563,6 +565,30 @@ fn assert_side_effects(actual: &OpResult, expected: &FixtureExpected) -> Result<
             }
         }
         // key absent from the adapter's report → un-instrumented → skip
+    }
+    Ok(())
+}
+
+/// Assert an A2A binding success (RFC-AITP-0014 §4.3) against
+/// `expected.effective`. A listed value the adapter does not report fails:
+/// these values are what the fixture is testing.
+fn assert_effective(actual: &OpResult, expected: &FixtureExpected) -> Result<(), StepError> {
+    let Some(want) = &expected.effective else {
+        return Ok(());
+    };
+    let OpResult::Ok { result, .. } = actual else {
+        return Ok(()); // assert_outcome already failed a non-success
+    };
+    let got = result
+        .get("effective")
+        .ok_or_else(|| StepError::Fail("binding succeeded without result.effective".into()))?;
+    for (key, want_val) in want {
+        if got.get(key) != Some(want_val) {
+            return Err(StepError::Fail(format!(
+                "effective `{key}`: expected {want_val}, got {}",
+                got.get(key).unwrap_or(&serde_json::Value::Null)
+            )));
+        }
     }
     Ok(())
 }
@@ -736,6 +762,32 @@ mod tests {
             result: json!({}),
         };
         assert!(assert_renewal(&bare, &want, &params).is_err());
+    }
+
+    #[test]
+    fn effective_assertions_read_the_result() {
+        let want = expected(json!({
+            "outcome": "success",
+            "effective": {"aid": "a", "accepted_identity_types": ["oidc"]},
+        }));
+        let ok = |effective: serde_json::Value| OpResult::Ok {
+            ok: true,
+            result: json!({ "effective": effective }),
+        };
+        let good = ok(json!({"aid": "a", "accepted_identity_types": ["oidc"], "extra": 1}));
+        assert!(assert_effective(&good, &want).is_ok());
+        let differs = ok(json!({"aid": "a", "accepted_identity_types": ["pinned_key"]}));
+        assert!(assert_effective(&differs, &want).is_err());
+        let missing_key = ok(json!({"aid": "a"}));
+        assert!(assert_effective(&missing_key, &want).is_err());
+        let no_object = OpResult::Ok {
+            ok: true,
+            result: json!({}),
+        };
+        assert!(assert_effective(&no_object, &want).is_err());
+        // Without an `effective` in the fixture there is nothing to check.
+        let bare = expected(json!({"outcome": "success"}));
+        assert!(assert_effective(&no_object, &bare).is_ok());
     }
 
     fn err(code: &str, http_status: Option<u16>) -> OpResult {
