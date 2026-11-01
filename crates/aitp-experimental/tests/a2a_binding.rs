@@ -469,6 +469,13 @@ fn step5_the_match_is_byte_for_byte() {
     }
 }
 
+/// A later entry does not undo an earlier match.
+#[test]
+fn step5_the_match_may_be_any_entry() {
+    let body = manifest_with_interfaces(json!([INTERFACE, "https://other.example/a2a"]));
+    assert!(bind(&card(), ManifestFetch::Fetched(&body), INTERFACE).is_ok());
+}
+
 /// RFC-AITP-0014 §4.1 and §5.1: a listed `http://` URL gets no credential.
 #[test]
 fn step5_a_listed_cleartext_url_is_refused() {
@@ -809,6 +816,11 @@ fn step5_a_listed_url_must_be_a_plain_https_url() {
         "https://b%2eexample/a",
         "https://b.exam\u{200b}ple/a",
         "https://b\u{fc}cher.example/a",
+        "https://b.example:x@b.example/a",
+        "https://b.example/a b",
+        "https://b.example/a\tb",
+        "https://b.example/a\nb",
+        "https://b.example/a\\b",
     ] {
         let body = manifest_with_interfaces(json!([url]));
         let err = bind(&card(), ManifestFetch::Fetched(&body), url).unwrap_err();

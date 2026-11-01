@@ -449,14 +449,14 @@ cargo build -p aitp-conformance   # builds aitp-conformance and aitp-rs-adapter
 A feature-negation skip does not count, because the run opted into a
 feature that contradicts the fixture's assertion (see the multi-hop note
 above). The runner lists each such exemption on stderr, so it is never
-silent. With all five features at the pin that is `del-007` under the
+silent. With all seven features at the pin that is `del-007` under the
 default profile, and `del-004` under `--profile v0.1`. There is no other
 allowlist: every other required fixture must pass.
 
 The gate is `check_gate` in `crates/aitp-conformance/src/runner/gate.rs`,
 called from `run()` in `crates/aitp-conformance/src/main.rs`. The
 `conformance` CI job runs the corpus under the default profile strict and
-with all five features, then writes the [report](#conformance-report) from
+with all seven features, then writes the [report](#conformance-report) from
 a run with the two extensions.
 
 ### Fixtures by area

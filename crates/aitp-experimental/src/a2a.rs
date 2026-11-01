@@ -308,8 +308,8 @@ pub fn bind_manifest(
             held.clone()
         }
     };
-    // `verify_manifest` does not check this member's grammar, and step 7
-    // sends the handshake there (RFC-AITP-0003 §5 step 2).
+    // Step 7 sends the handshake here, so hold it to the same bar as the
+    // interface URL (RFC-AITP-0003 §5 step 2).
     if https_url(manifest.manifest().handshake_endpoint.as_str()).is_none() {
         return Err(A2aBindingError::Manifest(ManifestError::Malformed(
             "handshake_endpoint is not an HTTPS URL".to_owned(),

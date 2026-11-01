@@ -928,3 +928,55 @@ fn claims_companions_never_reach_the_adapter_across_the_corpus() {
         assert_no_companions(&requests, &f.id);
     }
 }
+
+/// The runner checks `expected.effective` on both fixture shapes: a wrong
+/// value fails a fixture the adapter otherwise answers correctly.
+#[cfg(feature = "a2a-agent-card")]
+#[test]
+fn effective_values_are_asserted_end_to_end() {
+    let card: Value = serde_json::from_str(include_str!(
+        "../../aitp-experimental/tests/fixtures/a2a/agent-card.json"
+    ))
+    .unwrap();
+    let vector: Value = serde_json::from_str(include_str!(
+        "../../aitp-experimental/tests/fixtures/a2a/manifest.json"
+    ))
+    .unwrap();
+    let params = json!({
+        "operation": "verify_a2a_agent_card_binding",
+        "now": 1_711_900_100,
+        "agent_card": card,
+        "selected_interface_url": "https://b.agents.example.com/a2a/v1",
+        "manifest": vector["manifest"],
+    });
+    let expected = |types: Value| json!({"outcome": "success", "effective": {"accepted_identity_types": types}});
+    let run = |input: Value, want: Option<Value>| {
+        let adapter =
+            SubprocessAdapter::spawn(adapter_path().to_str().unwrap(), &[]).expect("spawn adapter");
+        let f: Fixture = serde_json::from_value(json!({
+            "id": "a2a-effective",
+            "status": "core",
+            "description": "effective values",
+            "input": input,
+            "expected": want,
+        }))
+        .unwrap();
+        Runner::new(adapter).run(&f)
+    };
+
+    let r = run(params.clone(), Some(expected(json!(["oidc"]))));
+    assert!(matches!(r, FixtureResult::Pass { .. }), "got: {r:?}");
+    let r = run(params.clone(), Some(expected(json!(["pinned_key"]))));
+    assert!(matches!(r, FixtureResult::Fail { .. }), "got: {r:?}");
+
+    let sequence = |types: Value| {
+        let mut step = params.clone();
+        step["step"] = json!(1);
+        step["expected"] = expected(types);
+        json!({"sequence": [step]})
+    };
+    let r = run(sequence(json!(["oidc"])), None);
+    assert!(matches!(r, FixtureResult::Pass { .. }), "got: {r:?}");
+    let r = run(sequence(json!(["pinned_key"])), None);
+    assert!(matches!(r, FixtureResult::Fail { .. }), "got: {r:?}");
+}
