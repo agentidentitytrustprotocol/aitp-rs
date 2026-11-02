@@ -1,0 +1,1 @@
+- Node SDK duration arguments (`ttlSecs`, `expiresInSecs`, `newTtlSecs`) and `maxDelegationHops` read a non-finite number as 0: the result is already expired, refused, or multi-hop off, the same as an explicit 0, so never more permissive (2026-11-01, #480).
