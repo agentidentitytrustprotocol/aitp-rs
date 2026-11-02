@@ -47,7 +47,7 @@ sequenceDiagram
     C->>S: Handshake at bound.handshake_endpoint()
 ```
 
-```rust,ignore
+```rust
 use aitp::core::Timestamp;
 use aitp_experimental::a2a::*;
 
