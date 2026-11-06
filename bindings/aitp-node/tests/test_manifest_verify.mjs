@@ -15,7 +15,7 @@ function signedManifest() {
   const a = AitpAgent.generate();
   return a.buildManifest({
     displayName: 'enrollee',
-    handshakeEndpoint: 'http://localhost:9000/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9000/aitp/handshake/',
     offeredCaps: ['demo.write'],
   });
 }
@@ -63,7 +63,7 @@ test('every manifest failure cause is recoverable without parsing prose', () => 
   const mk = (extra = {}) =>
     a.buildManifest({
       displayName: 'peer',
-      handshakeEndpoint: 'http://localhost:9000/aitp/handshake/',
+      handshakeEndpoint: 'https://localhost:9000/aitp/handshake/',
       offeredCaps: ['demo.write'],
       ...extra,
     });
@@ -113,7 +113,7 @@ test('expired is distinct from signature_invalid', () => {
   const mk = (extra = {}) =>
     a.buildManifest({
       displayName: 'peer',
-      handshakeEndpoint: 'http://localhost:9000/aitp/handshake/',
+      handshakeEndpoint: 'https://localhost:9000/aitp/handshake/',
       offeredCaps: ['demo.write'],
       ...extra,
     });

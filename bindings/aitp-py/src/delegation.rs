@@ -149,13 +149,14 @@ impl PyDelegationVerified {
 /// Entries are normalized (any RFC 9562 text form matches); one that is
 /// not a UUID raises `ValueError`.
 #[pyfunction]
-#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, issuer_manifests, revoked_jtis = None, revocation = None))]
+#[pyo3(name = "verify_delegation", signature = (delegation_token, verifier_aid, issuer_manifests, revoked_jtis = None, revocation = None, *, insecure_localhost_dangerous = false))]
 pub fn verify_delegation_py(
     delegation_token: &str,
     verifier_aid: &str,
     issuer_manifests: Vec<String>,
     revoked_jtis: Option<HashSet<String>>,
     revocation: Option<&str>,
+    insecure_localhost_dangerous: bool,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
     let deny = delegation_revocation(revoked_jtis.as_ref(), revocation)?;
@@ -166,8 +167,11 @@ pub fn verify_delegation_py(
     // hops.
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), source)
+    let mut ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_issuer_manifests(&manifests);
+    if insecure_localhost_dangerous {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
 
     let verified = verify_delegation(delegation_token, &ctx).map_err(verify_failed)?;
 
@@ -203,7 +207,7 @@ pub fn verify_delegation_py(
 #[pyfunction]
 #[pyo3(
     name = "verify_delegation_multihop",
-    signature = (delegation_token, verifier_aid, issuer_manifests, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS, revoked_jtis = None, revocation = None)
+    signature = (delegation_token, verifier_aid, issuer_manifests, max_delegation_hops = DEFAULT_MAX_DELEGATION_HOPS, revoked_jtis = None, revocation = None, *, insecure_localhost_dangerous = false)
 )]
 pub fn verify_delegation_multihop_py(
     delegation_token: &str,
@@ -212,6 +216,7 @@ pub fn verify_delegation_multihop_py(
     max_delegation_hops: usize,
     revoked_jtis: Option<HashSet<String>>,
     revocation: Option<&str>,
+    insecure_localhost_dangerous: bool,
 ) -> PyResult<PyDelegationVerified> {
     let verifier = parse_verifier(verifier_aid)?;
     let deny = delegation_revocation(revoked_jtis.as_ref(), revocation)?;
@@ -220,10 +225,13 @@ pub fn verify_delegation_multihop_py(
     let root = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
     let source = deny.source(&root);
-    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), source)
+    let mut ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), source)
         .with_max_delegation_hops(max_delegation_hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
+    if insecure_localhost_dangerous {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
 
     let verified = verify_chained_delegation(delegation_token, &ctx).map_err(|e| match e {
         aitp_experimental::delegation::ChainedDelegationError::Delegation(e) => verify_failed(e),
@@ -245,9 +253,14 @@ pub fn verify_delegation_multihop_py(
 fn parse_issuer_manifests(issuer_manifests: &[String]) -> PyResult<Vec<aitp::manifest::Manifest>> {
     issuer_manifests
         .iter()
-        .map(|json| {
-            crate::wire::manifest(json)
-                .map_err(|e| PyValueError::new_err(format!("invalid issuer manifest JSON: {e}")))
+        .filter_map(|json| match crate::wire::manifest(json) {
+            Ok(manifest) => Some(Ok(manifest)),
+            // Can't verify any issuer, and must not fail the others: a hop
+            // that names this issuer fails as unresolved.
+            Err(crate::wire::WireError::ManifestVersionUnknown) => None,
+            Err(e) => Some(Err(PyValueError::new_err(format!(
+                "invalid issuer manifest JSON: {e}"
+            )))),
         })
         .collect()
 }

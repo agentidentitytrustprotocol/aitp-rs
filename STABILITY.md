@@ -67,6 +67,10 @@ The ones in `aitp` are `TctVerifyContextBuilder::skip_manifest_expiry_cap_danger
 `ManifestFetcher::with_insecure_localhost_dangerous`,
 `RevocationFetcher::with_insecure_localhost_dangerous`,
 `InitiatorConfig::with_insecure_localhost_dangerous`,
+`ManifestVerifyContext::with_insecure_localhost_dangerous`,
+`PeerConfig::with_insecure_localhost_dangerous`,
+`HandshakeServer::with_insecure_localhost_dangerous`,
+`DelegationVerifyContext::with_insecure_localhost_dangerous`,
 `HostGuard::allow_loopback_dangerous` and
 `HandshakeServer::without_rate_limit_dangerous`. A new one follows the
 same rule.
@@ -122,9 +126,10 @@ These can change or disappear in any release, including a patch:
   Bundles (`aitp_experimental::session_bundle`, RFC-AITP-0010, Draft), TCT
   renewal (`aitp_experimental::renewal`, RFC-AITP-0013, Draft), SPIFFE
   identity (`aitp_experimental::spiffe`, RFC-AITP-0002 §6, registry
-  status Proposed; feature `spiffe-identity`) and their HTTP endpoints
-  and client (features `http-server`, `http-client`). The crate tracks
-  Draft spec text.
+  status Proposed; feature `spiffe-identity`), the A2A Agent Card binding
+  (`aitp_experimental::a2a`, RFC-AITP-0014, Draft; feature `a2a-agent-card`)
+  and their HTTP endpoints and client (features `http-server`,
+  `http-client`). The crate tracks Draft spec text.
 - **Unstable features of `aitp`.** These are `experimental-axum`
   (`HandshakeServer::into_router`, `ManifestServer::into_router` and the
   `with_request_body_limit*` helpers, which expose axum, a pre-1.0

@@ -9,6 +9,8 @@
 //! macros expand to `unsafe` glue. The underlying protocol crates keep
 //! the forbid attribute.
 
+#[cfg(feature = "experimental-a2a-agent-card")]
+mod a2a;
 mod agent;
 #[cfg(feature = "experimental-session-bundle")]
 mod bundle;
@@ -74,6 +76,11 @@ fn aitp(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_function(wrap_pyfunction!(envelope::verify_envelope_py, m)?)?;
     m.add_function(wrap_pyfunction!(pop::verify_pop_response_py, m)?)?;
     m.add_function(wrap_pyfunction!(oidc::compute_aid_jkt, m)?)?;
+    #[cfg(feature = "experimental-a2a-agent-card")]
+    {
+        m.add_function(wrap_pyfunction!(a2a::a2a_card_manifest_url_py, m)?)?;
+        m.add_function(wrap_pyfunction!(a2a::verify_a2a_agent_card_binding_py, m)?)?;
+    }
     #[cfg(feature = "experimental-session-bundle")]
     {
         m.add_class::<bundle::PySessionBundleBuilder>()?;

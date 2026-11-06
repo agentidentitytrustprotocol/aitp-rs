@@ -17,7 +17,7 @@ function issuer() {
   const a = AitpAgent.generate();
   a.buildManifest({
     displayName: 'issuer',
-    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
     offeredCaps: ['demo.echo'],
   });
   return a;

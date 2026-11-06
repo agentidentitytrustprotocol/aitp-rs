@@ -537,7 +537,7 @@ pub async fn run_initiator_handshake(
         ))
     };
     let make_cfg = || {
-        PeerConfig::new(
+        let mut cfg = PeerConfig::new(
             config.signing_key,
             config.own_manifest,
             jwks_resolver,
@@ -545,7 +545,9 @@ pub async fn run_initiator_handshake(
             crate::tct::RevocationSource::Check(&no_tct_yet),
             Timestamp::now(),
         )
-        .with_trust_anchors(trust_anchors)
+        .with_trust_anchors(trust_anchors);
+        cfg.insecure_localhost = config.insecure_localhost;
+        cfg
     };
     let cfg = make_cfg();
 
@@ -695,7 +697,7 @@ pub async fn run_initiator_handshake(
         )
         .await;
     let revocation_check = move |q: &crate::tct::RevocationQuery<'_>| prepared.decide(q);
-    let cfg = PeerConfig::new(
+    let mut cfg = PeerConfig::new(
         config.signing_key,
         config.own_manifest,
         jwks_resolver,
@@ -704,6 +706,7 @@ pub async fn run_initiator_handshake(
         Timestamp::now(),
     )
     .with_trust_anchors(trust_anchors);
+    cfg.insecure_localhost = config.insecure_localhost;
     let completed = initiator.on_commit_ack(&commit_ack_envelope, &commit_ack, &cfg)?;
 
     Ok(SessionContext {
@@ -863,8 +866,8 @@ impl<'a> InitiatorConfig<'a> {
         self
     }
 
-    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin and
-    /// revocation list URL, and admit loopback addresses (`127.0.0.0/8`,
+    /// Accept an `http://localhost` / `http://127.0.0.1` peer origin,
+    /// `handshake_endpoint` and revocation list URL, and admit loopback addresses (`127.0.0.0/8`,
     /// `::1`) through the host guard for the Manifest fetch, handshake
     /// endpoint and revocation list ([`HostGuard::allow_loopback_dangerous`]).
     /// For local demos and tests; RFC-AITP-0003 §4.1 requires HTTPS for

@@ -186,7 +186,7 @@ async fn run_pinned_handshake(
     let alice_manifest = manifest_with_revocation(
         &alice,
         "alice",
-        "http://localhost:0/aitp/handshake", // alice doesn't run a server in this test
+        "https://localhost/aitp/handshake", // never contacted
         alice_list_uri,
     );
 
@@ -231,6 +231,7 @@ async fn run_pinned_handshake(
             aitp::tct::RevocationSource::FailOpen,
             Timestamp::now(),
         )
+        .with_insecure_localhost_dangerous()
     };
     let cfg = make_cfg();
     let hello_mid = Uuid::new_v4();
@@ -338,7 +339,8 @@ async fn run_pinned_handshake(
         &alice_trusts,
         aitp::tct::RevocationSource::Check(&check),
         Timestamp::now(),
-    );
+    )
+    .with_insecure_localhost_dangerous();
     let alice_holds = initiator
         .on_commit_ack(&commit_ack_envelope, &commit_ack_payload, &cfg)
         .unwrap();
@@ -368,7 +370,7 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
     let bob_port = bob_listener.local_addr().unwrap().port();
     let bob_endpoint = format!("http://localhost:{bob_port}/aitp/handshake");
     let bob_manifest = manifest_for(&bob, "bob", &bob_endpoint);
-    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
+    let alice_manifest = manifest_for(&alice, "alice", "https://localhost/aitp/handshake");
 
     // Bob's pinned-key store trusts a stranger — NOT Alice.
     let stranger = AitpSigningKey::from_ed25519_seed(&[0x99; 32]);
@@ -395,7 +397,8 @@ async fn pinned_key_store_rejects_untrusted_initiator() {
         &cfg_pinned,
         aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
-    );
+    )
+    .with_insecure_localhost_dangerous();
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (_initiator, hello_payload) = Initiator::start(

@@ -13,6 +13,8 @@ pub struct ManifestVerifyContext {
     /// Current time, used for expiry check. Pass `Timestamp::now()` in
     /// production; pass a pinned value in tests.
     pub now: Timestamp,
+    /// Set by [`Self::with_insecure_localhost_dangerous`].
+    pub(crate) insecure_localhost: bool,
 }
 
 impl ManifestVerifyContext {
@@ -23,7 +25,18 @@ impl ManifestVerifyContext {
 
     /// Build a context at `now`.
     pub fn at(now: Timestamp) -> Self {
-        Self { now }
+        Self {
+            now,
+            insecure_localhost: false,
+        }
+    }
+
+    /// Accept an `http://localhost` / `http://127.0.0.1`
+    /// `handshake_endpoint`. For local demos and tests; RFC-AITP-0003 §3
+    /// requires HTTPS.
+    pub fn with_insecure_localhost_dangerous(mut self) -> Self {
+        self.insecure_localhost = true;
+        self
     }
 }
 
@@ -55,19 +68,23 @@ impl VerifiedManifest {
 ///
 /// 1. **Version** — `manifest.version == "aitp/0.3"`. Else
 ///    [`ManifestError::VersionUnknown`].
-/// 2. **Expiry** — `manifest.expires_at` is in the future relative to
+/// 2. **Grammar** — every value is inside the grammar of
+///    `aitp-manifest.schema.json` (RFC-AITP-0003 §5 step 2). Else
+///    [`ManifestError::Malformed`], or
+///    [`ManifestError::IdentityHintMalformed`] for the `identity_hint`
+///    members its type requires or forbids. The member-set check is
+///    [`parse_manifest_wire`]'s.
+/// 3. **Expiry** — `manifest.expires_at` is in the future relative to
 ///    `ctx.now`. Else [`ManifestError::Expired`].
-/// 3. **PoP** — verify `proof_of_possession.signature` covers
+/// 4. **PoP** — verify `proof_of_possession.signature` covers
 ///    `sha256(base64url_decode(challenge))` using the public key encoded
 ///    in `manifest.aid` (RFC-AITP-0001 §5.4.2 unified signing-input
 ///    convention; RFC-AITP-0003 §3, §5). The hash input is the raw
 ///    decoded challenge bytes, NOT the ASCII bytes of the base64url
 ///    string. Else [`ManifestError::PopFailed`].
-/// 4. **Outer signature** — re-canonicalize the Manifest minus signature
+/// 5. **Outer signature** — re-canonicalize the Manifest minus signature
 ///    via JCS, hash with SHA-256, verify with the same key. Else
 ///    [`ManifestError::SignatureInvalid`].
-/// 5. **Identity-hint shape** — type/subject/issuer/public_key
-///    consistency. Else [`ManifestError::IdentityHintMalformed`].
 ///
 /// Identity-proof verification (the actual JWT or pinned-key signature
 /// check) does NOT happen here. That's done in the Mutual Handshake using
@@ -81,7 +98,10 @@ pub fn verify_manifest(
         return Err(ManifestError::VersionUnknown);
     }
 
-    // 2. Expiry check.
+    // 2. Grammar check.
+    check_grammar(manifest, ctx)?;
+
+    // 3. Expiry check.
     if manifest.expires_at.is_in_the_past(ctx.now) {
         return Err(ManifestError::Expired);
     }
@@ -91,7 +111,7 @@ pub fn verify_manifest(
     // before either check.
     let issuer_pubkey = AitpVerifyingKey::from_aid(&manifest.aid)?;
 
-    // 3. PoP signature check, before the outer signature
+    // 4. PoP signature check, before the outer signature
     //    (RFC-AITP-0003 §5 steps 4 and 5): a Manifest failing both
     //    is `MANIFEST_POP_FAILED`. RFC-AITP-0001 §5.4.2: the signing
     //    input for every PoP construction is
@@ -106,7 +126,7 @@ pub fn verify_manifest(
         .verify_jcs(&pop_input, &pop_sig)
         .map_err(|_| ManifestError::PopFailed)?;
 
-    // 4. Outer signature check.
+    // 5. Outer signature check.
     let view = ManifestSigningView::from(manifest);
     let canonical = manifest_signing_bytes(&view)?;
     let digest = crate::crypto::Digest32::sha256(&canonical);
@@ -116,22 +136,100 @@ pub fn verify_manifest(
         .verify_jcs(&digest, &outer_sig)
         .map_err(|_| ManifestError::SignatureInvalid)?;
 
-    // 5. Identity-hint shape check.
-    match manifest.identity_hint.kind {
+    Ok(VerifiedManifest {
+        manifest: manifest.clone(),
+    })
+}
+
+/// RFC-AITP-0003 §5 step 2: the value grammar of
+/// `aitp-manifest.schema.json`. A hand-written check rather than a schema
+/// validator so `aitp` takes no dependency for it; `tests/manifest_grammar.rs`
+/// holds it to the schema. Errors name the member, never its value.
+fn check_grammar(m: &Manifest, ctx: &ManifestVerifyContext) -> Result<(), ManifestError> {
+    fn outside(member: &str) -> ManifestError {
+        ManifestError::Malformed(format!("`{member}` is outside its grammar"))
+    }
+    fn ensure(ok: bool, member: &str) -> Result<(), ManifestError> {
+        ok.then_some(()).ok_or_else(|| outside(member))
+    }
+
+    if let Some(name) = &m.display_name {
+        ensure(name.chars().count() <= 128, "display_name")?;
+    }
+    let endpoint = m.handshake_endpoint.as_str();
+    ensure(
+        is_https_uri(endpoint) || (ctx.insecure_localhost && is_localhost_http(endpoint)),
+        "handshake_endpoint",
+    )?;
+    ensure(
+        m.accepted_trust_anchors.iter().all(|a| is_uri(a.as_str()))
+            && all_unique(m.accepted_trust_anchors.iter().map(|a| a.as_str())),
+        "accepted_trust_anchors",
+    )?;
+    ensure(
+        is_capability_list(&m.offered_capabilities),
+        "offered_capabilities",
+    )?;
+    if let Some(required) = &m.required_peer_capabilities {
+        ensure(is_capability_list(required), "required_peer_capabilities")?;
+    }
+    if let Some(types) = &m.accepted_identity_types {
+        ensure(
+            types
+                .iter()
+                .all(|t| matches!(t.as_str(), "oidc" | "pinned_key" | "spiffe"))
+                && all_unique(types.iter().map(String::as_str)),
+            "accepted_identity_types",
+        )?;
+    }
+    if let Some(algorithms) = &m.accepted_signature_algorithms {
+        ensure(
+            algorithms
+                .iter()
+                .all(|a| matches!(a.as_str(), "ed25519" | "p256"))
+                && all_unique(algorithms.iter().map(String::as_str)),
+            "accepted_signature_algorithms",
+        )?;
+    }
+    ensure(
+        m.proof_of_possession.challenge.len() == 22
+            && is_base64url(&m.proof_of_possession.challenge),
+        "proof_of_possession.challenge",
+    )?;
+    ensure(
+        is_signature(&m.proof_of_possession.signature),
+        "proof_of_possession.signature",
+    )?;
+    ensure(m.published_at.0 >= 0, "published_at")?;
+    ensure(m.expires_at.0 >= 1, "expires_at")?;
+    ensure(is_signature(&m.signature), "signature")?;
+
+    let hint = &m.identity_hint;
+    ensure(!hint.subject.is_empty(), "identity_hint.subject")?;
+    if let Some(issuer) = &hint.issuer {
+        ensure(is_uri(issuer.as_str()), "identity_hint.issuer")?;
+    }
+    if let Some(key) = &hint.public_key {
+        ensure(
+            matches!(key.len(), 43 | 44) && is_base64url(key),
+            "identity_hint.public_key",
+        )?;
+    }
+    match hint.kind {
         IdentityKind::Oidc => {
-            if manifest.identity_hint.issuer.is_none() {
+            if hint.issuer.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "oidc requires `issuer`",
                 ));
             }
-            if manifest.identity_hint.public_key.is_some() {
+            if hint.public_key.is_some() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "oidc must not include `public_key`",
                 ));
             }
         }
         IdentityKind::PinnedKey => {
-            if manifest.identity_hint.public_key.is_none() {
+            if hint.public_key.is_none() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "pinned_key requires `public_key`",
                 ));
@@ -139,22 +237,123 @@ pub fn verify_manifest(
         }
         IdentityKind::Spiffe => {
             // RFC-AITP-0002 §6.6: `type` and `subject` only.
-            if manifest.identity_hint.issuer.is_some() {
+            if hint.issuer.is_some() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "spiffe must not include `issuer`",
                 ));
             }
-            if manifest.identity_hint.public_key.is_some() {
+            if hint.public_key.is_some() {
                 return Err(ManifestError::IdentityHintMalformed(
                     "spiffe must not include `public_key`",
                 ));
             }
+            ensure(is_spiffe_id(&hint.subject), "identity_hint.subject")?;
         }
     }
+    Ok(())
+}
 
-    Ok(VerifiedManifest {
-        manifest: manifest.clone(),
-    })
+/// The schema's `format: uri`: an absolute RFC 3986 URI. `url::Url` alone
+/// is too lenient, it strips or percent-encodes what RFC 3986 forbids, and
+/// it passes bad escapes through. It also refuses a few URIs the schema
+/// admits that name no reachable host, such as `https://` or a port above
+/// 65535.
+fn is_uri(s: &str) -> bool {
+    // RFC 3986 §3: an authority follows only a `//` right after the scheme,
+    // and brackets belong only to its host.
+    let rest = s.split_once(':').map_or(s, |(_, rest)| rest);
+    let (userinfo, after_authority) = match rest.strip_prefix("//") {
+        Some(after) => {
+            let (authority, tail) =
+                after.split_at(after.find(['/', '?', '#']).unwrap_or(after.len()));
+            (authority.rsplit_once('@').map_or("", |(u, _)| u), tail)
+        }
+        None => ("", rest),
+    };
+    s.bytes().all(|b| {
+        b.is_ascii_graphic()
+            && !matches!(
+                b,
+                b'"' | b'<' | b'>' | b'\\' | b'^' | b'`' | b'{' | b'|' | b'}'
+            )
+    }) && s.split('%').skip(1).all(|escaped| {
+        escaped.len() >= 2 && escaped.as_bytes()[..2].iter().all(u8::is_ascii_hexdigit)
+    }) && !userinfo.contains(['[', ']', '@'])
+        && !after_authority.contains(['[', ']'])
+        && after_authority.matches('#').count() <= 1
+        && url::Url::parse(s).is_ok()
+}
+
+/// `handshake_endpoint`: `format: uri` and `pattern: ^https://`.
+fn is_https_uri(s: &str) -> bool {
+    s.starts_with("https://") && is_uri(s)
+}
+
+/// An `http://` URL naming `localhost` or `127.0.0.1`, the hosts the
+/// insecure-localhost switches admit.
+fn is_localhost_http(s: &str) -> bool {
+    s.starts_with("http://")
+        && is_uri(s)
+        && url::Url::parse(s).is_ok_and(|u| matches!(u.host_str(), Some("localhost" | "127.0.0.1")))
+}
+
+fn all_unique<'a>(items: impl Iterator<Item = &'a str>) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    items.into_iter().all(|i| seen.insert(i))
+}
+
+/// `pattern: ^[^\\s]+$` on every item, and `uniqueItems`.
+fn is_capability_list(capabilities: &[String]) -> bool {
+    capabilities
+        .iter()
+        .all(|c| !c.is_empty() && !c.chars().any(is_ecma_space))
+        && all_unique(capabilities.iter().map(String::as_str))
+}
+
+/// ECMA-262 `\s`, the schema's dialect: Unicode whitespace without U+0085,
+/// with U+FEFF.
+fn is_ecma_space(ch: char) -> bool {
+    (ch.is_whitespace() && ch != '\u{85}') || ch == '\u{feff}'
+}
+
+fn is_base64url(s: &str) -> bool {
+    s.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+}
+
+/// `pattern: ^((ed25519|p256)\\.)?[A-Za-z0-9_-]{86}$`.
+fn is_signature(s: &str) -> bool {
+    let bare = s
+        .strip_prefix("ed25519.")
+        .or_else(|| s.strip_prefix("p256."))
+        .unwrap_or(s);
+    bare.len() == 86 && is_base64url(bare)
+}
+
+/// The schema's `type: spiffe` subject (RFC-AITP-0002 §6.1): at most 2048
+/// characters, `spiffe://`, a trust domain of 1 to 255 of `[a-z0-9._-]`,
+/// and one or more path segments that are not `.`, `..` or empty.
+fn is_spiffe_id(s: &str) -> bool {
+    if s.chars().count() > 2048 {
+        return false;
+    }
+    let Some(rest) = s.strip_prefix("spiffe://") else {
+        return false;
+    };
+    let Some((domain, path)) = rest.split_once('/') else {
+        return false;
+    };
+    (1..=255).contains(&domain.len())
+        && domain.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
+        && path.split('/').all(|segment| {
+            segment
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+                && (segment.len() >= 3 || segment.bytes().any(|b| b != b'.'))
+                && !segment.is_empty()
+        })
 }
 
 /// Parse a raw wire-form JSON value into a [`Manifest`], enforcing
@@ -178,10 +377,13 @@ pub fn verify_manifest(
 ///
 /// Order of operations:
 /// 1. If wrapped, [`check_members`] the wrapper against `["manifest"]`.
-/// 2. [`check_members`] the (unwrapped) body against [`MANIFEST_MEMBERS`] —
+/// 2. A `version` other than [`PROTOCOL_VERSION`](crate::core::PROTOCOL_VERSION)
+///    is [`ManifestError::VersionUnknown`] (RFC-AITP-0003 §5 step 1): a newer
+///    Manifest's new members are a version problem, not unknown fields.
+/// 3. [`check_members`] the (unwrapped) body against [`MANIFEST_MEMBERS`] —
 ///    rejects any top-level member the schema does not declare.
-/// 3. `serde_json::from_value` into [`Manifest`].
-/// 4. On a residual serde error (which, now that the top-level check has
+/// 4. `serde_json::from_value` into [`Manifest`].
+/// 5. On a residual serde error (which, now that the top-level check has
 ///    already passed, can only come from a nested closed object —
 ///    `identity_hint` or `proof_of_possession`), [`from_serde_error`]
 ///    recovers the offending field name so the caller still gets
@@ -198,6 +400,14 @@ pub fn parse_manifest_wire(value: &CheckedJson) -> Result<Manifest, ManifestErro
         }
         _ => value,
     };
+
+    if body
+        .get("version")
+        .and_then(serde_json::Value::as_str)
+        .is_some_and(|v| v != crate::core::PROTOCOL_VERSION)
+    {
+        return Err(ManifestError::VersionUnknown);
+    }
 
     check_members("Manifest", body, MANIFEST_MEMBERS)
         .map_err(|e| ManifestError::UnknownField(e.field))?;

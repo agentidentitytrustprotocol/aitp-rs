@@ -6,6 +6,27 @@ use aitp::handshake::{JwkPublicKey, JwksResolver, PeerConfig, PinnedKeyStore, Re
 use aitp::manifest::Manifest;
 use url::Url;
 
+/// A caller's Unix-seconds value as a `Timestamp`. A JS number is taken as
+/// `f64` because napi turns a non-finite one into 0 when converting to `i64`,
+/// which would read as the epoch; it is refused instead.
+pub(crate) fn finite_unix_secs(name: &str, v: f64) -> napi::Result<Timestamp> {
+    if v.is_finite() {
+        Ok(Timestamp(v as i64))
+    } else {
+        Err(napi::Error::from_reason(format!(
+            "{name} must be finite seconds-since-epoch (got {v})"
+        )))
+    }
+}
+
+/// The optional `nowUnixSecs` clock override: the system clock when omitted.
+pub(crate) fn now_or_system(now_unix_secs: Option<f64>) -> napi::Result<Timestamp> {
+    now_unix_secs.map_or_else(
+        || Ok(Timestamp::now()),
+        |v| finite_unix_secs("nowUnixSecs", v),
+    )
+}
+
 /// A JWKS resolver that always fails. Used for pinned-key-only sessions.
 pub struct NoOpJwksResolver;
 
@@ -34,8 +55,9 @@ pub fn make_peer_config<'a>(
     trust_anchors: &'a [RawUrl],
     pinned_keys: &'a dyn PinnedKeyStore,
     revocation: aitp::tct::RevocationSource<'a>,
+    insecure_localhost: bool,
 ) -> PeerConfig<'a> {
-    PeerConfig::new(
+    let cfg = PeerConfig::new(
         key,
         manifest,
         jwks,
@@ -43,7 +65,12 @@ pub fn make_peer_config<'a>(
         revocation,
         Timestamp::now(),
     )
-    .with_trust_anchors(trust_anchors)
+    .with_trust_anchors(trust_anchors);
+    if insecure_localhost {
+        cfg.with_insecure_localhost_dangerous()
+    } else {
+        cfg
+    }
 }
 
 /// Parse a wire-bound UUID v4 strictly (RFC-AITP-0001 §5.2): lowercase

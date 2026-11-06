@@ -295,6 +295,15 @@ except aitp.ManifestVerificationError as err:
 - **Input that is not a manifest at all**, including JSON with a duplicate
   key anywhere (RFC-AITP-0001 §5.4.5), raises `ValueError`.
 - **`now_unix_secs`** overrides the verification clock.
+- **`build_hello` verifies the peer's Manifest first** (RFC-AITP-0003 §5),
+  including that it accepts this agent's identity type. A Manifest that fails
+  raises `RuntimeError` with its registry code in `.code`, and nothing is built
+  or sent.
+- **`handshake_endpoint` must be `https://`** (RFC-AITP-0003 §5 step 2). For
+  local development, `insecure_localhost_dangerous=True` also accepts plain
+  `http://localhost` and `http://127.0.0.1`, and nothing else. The same keyword
+  is on `new_session`, `new_responder` and `verify_delegation`. It is off by
+  default.
 
 ### Revocation lists (RFC-AITP-0008)
 
@@ -474,8 +483,8 @@ HTTP itself.
 
 The published `aitp-sdk` wheel does not include these. They carry no
 stability promise. Build from source with every experimental feature, or
-name one of `experimental-renewal`, `experimental-session-bundle` and
-`experimental-multihop-delegation`:
+name one of `experimental-renewal`, `experimental-session-bundle`,
+`experimental-multihop-delegation` and `experimental-a2a-agent-card`:
 
 ```bash
 maturin develop --features experimental
@@ -524,6 +533,9 @@ verified = aitp.verify_delegation_multihop(
 )
 ```
 
+For a loopback issuer in local development, it takes the same
+`insecure_localhost_dangerous=True` as `verify_delegation`. It is off by default.
+
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
 `max_delegation_hops` total hops, with a default of 3. Each hop is verified
 under the key resolved from its issuer's verified Manifest
@@ -534,6 +546,22 @@ also verifies, and `max_delegation_hops=0` reverts to strict single-hop.
 `revoked_jtis` is applied to the root voucher's `src_jti` and to every hop's
 `jti`. See [multihop-delegation.md](multihop-delegation.md) for the
 verification rules and known limitations.
+
+### A2A Agent Card binding (RFC-AITP-0014, feature `experimental-a2a-agent-card`)
+
+```python
+# not executed: the committed vector has expired; tests/test_a2a.py runs these calls at a pinned time
+pointer = aitp.a2a_card_manifest_url(card_json)  # {"aid", "manifest_url"}, unverified
+# Fetch pointer["manifest_url"] yourself, as any untrusted URL. Pass None
+# if the fetch failed.
+bound = aitp.verify_a2a_agent_card_binding(card_json, interface_url, manifest_body)
+bound["handshake_endpoint"]  # the Manifest's values, not the Card's
+```
+
+The SDK does no I/O. `interface_url` is the `url` of the AgentInterface you
+intend to call, matched byte for byte. A failure raises `RuntimeError` with
+the registered code on `.code`. Steps 6 and 7 stay with you. See
+[a2a-agent-card.md](a2a-agent-card.md).
 
 ### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 
@@ -563,7 +591,7 @@ outcome = aitp.verify_session_bundle(
 )
 ```
 
-`verify_session_bundle(bundle_envelope_json, verifier_aid, coordinator_manifest_json, now_unix_secs=None, revocation_check=None)`
+`verify_session_bundle(bundle_envelope_json, verifier_aid, coordinator_manifest_json, now_unix_secs=None, revocation_check=None, *, insecure_localhost_dangerous=False)`
 returns `{"kind": "clear" | "degraded", "active_aids": [...], "dropped_aids": [...]}`.
 `revocation_check` is called with each participant TCT's `jti` and returns
 `True` if that TCT is revoked. A revoked participant is dropped, and `kind`

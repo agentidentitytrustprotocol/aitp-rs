@@ -3888,6 +3888,7 @@ fn verify_session_bundle_op(state: &mut AdapterState, id: &str, params: Value) -
         now,
         revocation_check,
         coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
+        insecure_localhost_dangerous: false,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {

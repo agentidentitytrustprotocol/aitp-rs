@@ -58,7 +58,7 @@ pub(crate) fn build_renewal_request_js(
 pub(crate) fn process_renewal_request_js(
     issuer_key: &AitpSigningKey,
     request_payload_json: &str,
-    manifest_exp_unix_secs: i64,
+    manifest_exp_unix_secs: f64,
     new_ttl_secs: i64,
     offered_grants: &[String],
     revoked_jtis: &[String],
@@ -77,7 +77,7 @@ pub(crate) fn process_renewal_request_js(
         })
     };
     let ctx = RenewalContext::new(
-        Timestamp(manifest_exp_unix_secs),
+        crate::helpers::finite_unix_secs("manifestExpUnixSecs", manifest_exp_unix_secs)?,
         offered_grants,
         aitp::tct::RevocationSource::Check(&revocation_check),
         renewal_nonce_store(),

@@ -297,7 +297,16 @@ try {
   HTTP transport
   ([#152](https://github.com/agentidentitytrustprotocol/aitp-rs/issues/152)).
 - **The optional second argument** `nowUnixSecs` overrides the verification
-  clock.
+  clock. A non-finite value throws; every clock argument in the SDK refuses one.
+- **`buildHello` verifies the peer's Manifest first** (RFC-AITP-0003 §5),
+  including that it accepts this agent's identity type. A Manifest that fails
+  throws with its registry code in `.code`, and nothing is built or sent.
+- **`handshakeEndpoint` must be `https://`** (RFC-AITP-0003 §5 step 2). For
+  local development, the optional third argument
+  `insecureLocalhostDangerous` also accepts plain `http://localhost` and
+  `http://127.0.0.1`, and nothing else. `newSession` and `newResponder` take it
+  in their options, and `verifyDelegation` as its last argument. It is off by
+  default.
 
 ### Revocation lists (RFC-AITP-0008)
 
@@ -533,6 +542,9 @@ const verifiedMultihop = verifyDelegationMultihop(
 );
 ```
 
+For a loopback issuer in local development, its last argument is the same
+`insecureLocalhostDangerous` as `verifyDelegation`. It is off by default.
+
 This is an opt-in verifier that accepts RFC-AITP-0011 chains up to
 `maxDelegationHops` total hops, with a default of 3. Each hop is verified
 under the key resolved from its issuer's verified Manifest
@@ -541,6 +553,24 @@ under the key resolved from its issuer's verified Manifest
 none fails with `KEY_RESOLUTION_FAILED`. A single-hop token also
 verifies, and `0` reverts to strict single-hop. See
 [multihop-delegation.md](multihop-delegation.md).
+
+### A2A Agent Card binding (RFC-AITP-0014, feature `experimental-a2a-agent-card`)
+
+```javascript
+// not executed: the committed vector has expired; tests/test_a2a.mjs runs these calls at a pinned time
+const { a2aCardManifestUrl, verifyA2aAgentCardBinding } = require('./bindings/aitp-node/experimental.js');
+
+const pointer = a2aCardManifestUrl(cardJson); // { aid, manifestUrl }, unverified
+// Fetch pointer.manifestUrl yourself, as any untrusted URL. Pass null if the
+// fetch failed.
+const bound = verifyA2aAgentCardBinding(cardJson, interfaceUrl, manifestBody);
+bound.handshakeEndpoint; // the Manifest's values, not the Card's
+```
+
+The SDK does no I/O. `interfaceUrl` is the `url` of the AgentInterface you
+intend to call, matched byte for byte. A binding failure throws with the
+registered code on `error.code`. Steps 6 and 7 stay with you. See
+[a2a-agent-card.md](a2a-agent-card.md).
 
 ### Session Trust Bundle (RFC-AITP-0010, feature `experimental-session-bundle`)
 
@@ -568,7 +598,7 @@ console.log(outcome.kind);   // clear  (fields: kind, activeAids, droppedAids)
 const checked = verifySessionBundle(bundle, alice.aid, bobManifest, null, (jti) => revoked.includes(jti));
 ```
 
-`verifySessionBundle(bundleEnvelopeJson, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?)`
+`verifySessionBundle(bundleEnvelopeJson, verifierAid, coordinatorManifestJson, nowUnixSecs?, revocationCheck?, insecureLocalhostDangerous?)`
 returns `{ kind: 'clear' | 'degraded', activeAids, droppedAids }`.
 `coordinatorManifestJson` is required: the coordinator's `{"manifest": …}`
 envelope is verified, must designate the bundle's `coordinator`, and supplies

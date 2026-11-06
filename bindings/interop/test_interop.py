@@ -252,13 +252,13 @@ def _handshake(initiator, responder, init_suite="ed25519", resp_suite="ed25519")
     initiator.build_manifest(
         init_agent,
         f"{initiator.name}-initiator",
-        "http://localhost:8100/aitp/handshake/",
+        "https://localhost:8100/aitp/handshake/",
         [PING_CAP],
     )
     resp_manifest = responder.build_manifest(
         resp_agent,
         f"{responder.name}-responder",
-        "http://localhost:8200/aitp/handshake/",
+        "https://localhost:8200/aitp/handshake/",
         [PING_CAP],
     )
 
@@ -356,10 +356,10 @@ def test_responder_without_pinned_keys_rejects_pinned_initiator(node, direction)
     init_agent, _ = initiator.new_agent()
     resp_agent, resp_aid = responder.new_agent()
     initiator.build_manifest(
-        init_agent, "init", "http://localhost:8100/aitp/handshake/", [PING_CAP]
+        init_agent, "init", "https://localhost:8100/aitp/handshake/", [PING_CAP]
     )
     resp_manifest = responder.build_manifest(
-        resp_agent, "resp", "http://localhost:8200/aitp/handshake/", [PING_CAP]
+        resp_agent, "resp", "https://localhost:8200/aitp/handshake/", [PING_CAP]
     )
     isession = initiator.new_session(init_agent, pinned_keys=[resp_aid])
     rsession = responder.new_responder(resp_agent)  # no pinned_keys
@@ -442,10 +442,10 @@ def test_delegation_python_issuer_node_chain(node):
     a, _ = py.new_agent()
     b, _ = py.new_agent()
     a_manifest = py.build_manifest(
-        a, "py-A", "http://localhost:8500/aitp/handshake/", [PING_CAP]
+        a, "py-A", "https://localhost:8500/aitp/handshake/", [PING_CAP]
     )
     b_manifest = py.build_manifest(
-        b, "py-B", "http://localhost:8501/aitp/handshake/", [PING_CAP]
+        b, "py-B", "https://localhost:8501/aitp/handshake/", [PING_CAP]
     )
 
     # B handshakes against A → B holds A's TCT + grant voucher for PING_CAP.
@@ -504,7 +504,7 @@ def test_python_revocation_list_parses_on_node(node):
     py = PyEndpoint()
     issuer, issuer_aid = py.new_agent()
     py.build_manifest(
-        issuer, "issuer", "http://localhost:8600/aitp/handshake/", [PING_CAP]
+        issuer, "issuer", "https://localhost:8600/aitp/handshake/", [PING_CAP]
     )
     envelope = issuer.sign_revocation_list(
         [
@@ -532,10 +532,10 @@ def test_python_manifest_verifies_on_node(node):
     nd_agent, _ = nd.new_agent()
 
     py_manifest = py.build_manifest(
-        py_agent, "py-mfst", "http://localhost:8700/aitp/handshake/", [PING_CAP]
+        py_agent, "py-mfst", "https://localhost:8700/aitp/handshake/", [PING_CAP]
     )
     nd_manifest = nd.build_manifest(
-        nd_agent, "nd-mfst", "http://localhost:8701/aitp/handshake/", [PING_CAP]
+        nd_agent, "nd-mfst", "https://localhost:8701/aitp/handshake/", [PING_CAP]
     )
 
     # Each side verifies the other's manifest.
@@ -754,15 +754,15 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     coord_manifest = py.build_manifest(
         coord,
         "coord",
-        "http://localhost:9001/aitp/handshake/",
+        "https://localhost:9001/aitp/handshake/",
         ["session.member"],
         ttl_secs=24 * 3600,
     )
     py.build_manifest(
-        py_part, "py-part", "http://localhost:9002/aitp/handshake/", ["x"]
+        py_part, "py-part", "https://localhost:9002/aitp/handshake/", ["x"]
     )
     nd.build_manifest(
-        nd_part_handle, "nd-part", "http://localhost:9003/aitp/handshake/", ["x"]
+        nd_part_handle, "nd-part", "https://localhost:9003/aitp/handshake/", ["x"]
     )
 
     # Bilateral handshakes against coordinator.
@@ -806,7 +806,7 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     nd_coord_manifest = nd.build_manifest(
         nd_coord_handle,
         "nd-coord",
-        "http://localhost:9011/aitp/handshake/",
+        "https://localhost:9011/aitp/handshake/",
         ["session.member"],
         ttl_secs=24 * 3600,
     )
@@ -824,10 +824,10 @@ def test_session_bundle_python_coordinator_node_verifier(node):
     py_part2, py_part2_aid = py.new_agent()
     nd_part2_handle, nd_part2_aid = nd.new_agent()
     py.build_manifest(
-        py_part2, "py-part2", "http://localhost:9012/aitp/handshake/", ["x"]
+        py_part2, "py-part2", "https://localhost:9012/aitp/handshake/", ["x"]
     )
     nd.build_manifest(
-        nd_part2_handle, "nd-part2", "http://localhost:9013/aitp/handshake/", ["x"]
+        nd_part2_handle, "nd-part2", "https://localhost:9013/aitp/handshake/", ["x"]
     )
 
     py_part2_tct = handshake_to_nd_coord(py, py_part2, py_part2_aid)

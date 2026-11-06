@@ -11,12 +11,14 @@ use aitp::core::{AitpEnvelope, MessageType, RawUrl, Timestamp};
 use aitp::crypto::AitpSigningKey;
 use aitp::envelope::{sign_envelope, sign_envelope_with};
 use aitp::handshake::{
-    IdentityKind, Initiator, JwksResolver, MutualCommitAckPayload, MutualCommitPayload,
-    MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder, StaticPinnedKeyStore,
-    MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
+    HandshakeError, IdentityKind, Initiator, JwksResolver, MutualCommitAckPayload,
+    MutualCommitPayload, MutualHelloAckPayload, MutualHelloPayload, PresentedIdentity, Responder,
+    StaticPinnedKeyStore, MUTUAL_COMMIT_ACK_PAYLOAD_MEMBERS, MUTUAL_COMMIT_PAYLOAD_MEMBERS,
     MUTUAL_HELLO_ACK_PAYLOAD_MEMBERS, MUTUAL_HELLO_PAYLOAD_MEMBERS,
 };
-use aitp::manifest::Manifest;
+use aitp::manifest::{
+    check_identity_type_compatibility, verify_manifest, Manifest, ManifestVerifyContext,
+};
 use aitp::tct::VerifiedTct;
 use napi::bindgen_prelude::*;
 use napi::Env;
@@ -41,6 +43,10 @@ pub struct SessionContext {
     /// it is rejected with `IDENTITY_FAILED`; empty ⇒ every pinned-key
     /// peer is rejected.
     pub pinned_keys: StaticPinnedKeyStore,
+    /// Accept a peer Manifest whose `handshake_endpoint` is plain
+    /// `http://localhost` or `http://127.0.0.1`. Off unless the caller
+    /// opts in.
+    pub insecure_localhost: bool,
 }
 
 impl SessionContext {
@@ -202,7 +208,9 @@ impl JsInitiatorSession {
 
 #[napi]
 impl JsInitiatorSession {
-    /// Step 1 — build the `MUTUAL_HELLO` envelope.
+    /// Step 1 — build the `MUTUAL_HELLO` envelope. The peer's Manifest is
+    /// verified first (RFC-AITP-0003 §5, including step 6's identity type
+    /// check), under the session's loopback opt-in.
     ///
     /// `oidcMintJwt`: required for OIDC agents. Receives the handshake-
     /// generated `pop_nonce` (string) and must return the JWT (string).
@@ -214,8 +222,25 @@ impl JsInitiatorSession {
         requested_grants: Vec<String>,
         oidc_mint_jwt: Option<FunctionRef<String, String>>,
     ) -> Result<String> {
-        let peer_manifest = wire::manifest(&peer_manifest_json)
-            .map_err(|e| Error::from_reason(format!("invalid peer manifest JSON: {e}")))?;
+        let peer_manifest = wire::manifest(&peer_manifest_json).map_err(|e| {
+            let code = match e {
+                wire::WireError::ManifestVersionUnknown => "MANIFEST_VERSION_UNKNOWN",
+                wire::WireError::UnknownField(_) => "UNKNOWN_FIELD",
+                _ => "MANIFEST_INVALID",
+            };
+            coded_error(env, Some(code), format!("invalid peer manifest JSON: {e}"))
+        })?;
+        // RFC-AITP-0003 §5: no handshake starts from an unverified Manifest.
+        let mut manifest_ctx = ManifestVerifyContext::now();
+        if self.ctx.insecure_localhost {
+            manifest_ctx = manifest_ctx.with_insecure_localhost_dangerous();
+        }
+        verify_manifest(&peer_manifest, &manifest_ctx)
+            .and_then(|_| check_identity_type_compatibility(&peer_manifest, self.ctx.identity_kind))
+            .map_err(|e| {
+                let e = HandshakeError::from(e);
+                coded_error(env, handshake_code(&e).as_deref(), e.to_string())
+            })?;
 
         let msg_id = Uuid::new_v4();
         let ts = Timestamp::now();
@@ -227,6 +252,7 @@ impl JsInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
 
@@ -274,6 +300,7 @@ impl JsInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let commit = self
             .inner
@@ -327,6 +354,7 @@ impl JsInitiatorSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             source,
+            self.ctx.insecure_localhost,
         );
         let completed = self
             .inner
@@ -401,6 +429,7 @@ impl JsResponderSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             NO_TCT_STEP,
+            self.ctx.insecure_localhost,
         );
         let presented = self.ctx.presented_identity(env, oidc_mint_jwt)?;
         let requested = hello.manifest.offered_capabilities.clone();
@@ -468,6 +497,7 @@ impl JsResponderSession {
             &self.ctx.trust_anchors,
             &self.ctx.pinned_keys,
             source,
+            self.ctx.insecure_localhost,
         );
         let (ack, completed) = self
             .inner

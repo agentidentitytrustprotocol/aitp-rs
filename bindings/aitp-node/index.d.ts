@@ -158,7 +158,9 @@ export declare class AitpAgent {
 /** Outbound handshake session — drives the initiator side. */
 export declare class JsInitiatorSession {
   /**
-   * Step 1 — build the `MUTUAL_HELLO` envelope.
+   * Step 1 — build the `MUTUAL_HELLO` envelope. The peer's Manifest is
+   * verified first (RFC-AITP-0003 §5, including step 6's identity type
+   * check), under the session's loopback opt-in.
    *
    * `oidcMintJwt`: required for OIDC agents. Receives the handshake-
    * generated `pop_nonce` (string) and must return the JWT (string).
@@ -531,6 +533,12 @@ export interface SessionOpts {
    * is rejected (fail closed). An invalid AID entry throws.
    */
   pinnedKeys?: Array<string>
+  /**
+   * Accept a peer Manifest whose `handshake_endpoint` is plain
+   * `http://localhost` or `http://127.0.0.1`. Local development only:
+   * RFC-AITP-0003 §5 step 2 requires HTTPS.
+   */
+  insecureLocalhostDangerous?: boolean
 }
 
 /** Options for `AitpAgent.signEnvelope`. */
@@ -581,7 +589,7 @@ export interface SignEnvelopeOpts {
  * (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry that is
  * not a UUID throws rather than being ignored.
  */
-export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsDelegationVerified
 
 /**
  * Verify an `AitpEnvelope` JSON string sent by `expectedSenderAid`.
@@ -636,8 +644,12 @@ export declare function verifyEnvelope(envelopeJson: string, expectedSenderAid: 
  * `nowUnixSecs` overrides the verification clock — omit it to use the
  * system clock, or pass a pinned value in tests. Matches
  * `verifyRevocationList`'s `nowUnixSecs` parameter.
+ *
+ * `insecureLocalhostDangerous` accepts a `handshakeEndpoint` that is plain
+ * `http://localhost` or `http://127.0.0.1`. Local development only:
+ * RFC-AITP-0003 §5 step 2 requires HTTPS.
  */
-export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null): void
+export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): void
 
 /**
  * Verify a holder's PoP response for `tctToken` (RFC-AITP-0005 §6.2) and

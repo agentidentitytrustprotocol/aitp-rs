@@ -1,6 +1,6 @@
 [package]
 name = "aitp-experimental"
-description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles, TCT renewal, SPIFFE identity). No stability promise."
+description = "Agent Identity & Trust Protocol: experimental surface (multi-hop delegation, Session Trust Bundles, TCT renewal, SPIFFE identity, A2A Agent Card binding). No stability promise."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -26,7 +26,7 @@ spiffe-identity = ["dep:webpki", "dep:rustls-pki-types", "dep:x509-parser", "dep
 a2a-agent-card = []
 
 [dependencies]
-aitp = { path = "../aitp", version = "=0.24.1", default-features = false }
+aitp = { path = "../aitp", version = "=0.25.1", default-features = false }
 serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

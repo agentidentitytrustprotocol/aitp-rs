@@ -80,20 +80,31 @@ fn verification_error(code: &str, message: String) -> PyErr {
 /// `now_unix_secs` overrides the verification clock — omit it to use the
 /// system clock, or pass a pinned value in tests. Matches
 /// `verify_revocation_list`'s `now_unix_secs` parameter.
+///
+/// `insecure_localhost_dangerous` accepts a `handshake_endpoint` that is
+/// plain `http://localhost` or `http://127.0.0.1`. Local development only:
+/// RFC-AITP-0003 §5 step 2 requires HTTPS.
 #[pyfunction]
-#[pyo3(name = "verify_manifest_json", signature = (manifest_envelope_json, now_unix_secs=None))]
+#[pyo3(name = "verify_manifest_json", signature = (manifest_envelope_json, now_unix_secs=None, *, insecure_localhost_dangerous=false))]
 pub fn verify_manifest_json_py(
     manifest_envelope_json: &str,
     now_unix_secs: Option<i64>,
+    insecure_localhost_dangerous: bool,
 ) -> PyResult<()> {
     let manifest = wire::manifest(manifest_envelope_json).map_err(|e| match e {
-        WireError::UnknownField(_) | WireError::UnknownVersion(_) => {
+        WireError::UnknownField(_)
+        | WireError::UnknownVersion(_)
+        | WireError::ManifestVersionUnknown => {
             verification_error(e.code(), format!("invalid manifest JSON: {e}"))
         }
         WireError::Malformed(_) => PyValueError::new_err(format!("invalid manifest JSON: {e}")),
     })?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
-    verify_manifest(&manifest, &ManifestVerifyContext::at(now)).map_err(|e| {
+    let mut ctx = ManifestVerifyContext::at(now);
+    if insecure_localhost_dangerous {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
+    verify_manifest(&manifest, &ctx).map_err(|e| {
         verification_error(
             verification_cause(&e),
             format!("manifest verification failed: {e}"),

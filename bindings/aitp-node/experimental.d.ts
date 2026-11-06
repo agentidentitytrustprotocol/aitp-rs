@@ -181,7 +181,9 @@ export declare class AitpAgent {
 /** Outbound handshake session — drives the initiator side. */
 export declare class JsInitiatorSession {
   /**
-   * Step 1 — build the `MUTUAL_HELLO` envelope.
+   * Step 1 — build the `MUTUAL_HELLO` envelope. The peer's Manifest is
+   * verified first (RFC-AITP-0003 §5, including step 6's identity type
+   * check), under the session's loopback opt-in.
    *
    * `oidcMintJwt`: required for OIDC agents. Receives the handshake-
    * generated `pop_nonce` (string) and must return the JWT (string).
@@ -320,6 +322,12 @@ export declare class TctStore {
 export type JsTctStore = TctStore
 
 /**
+ * RFC-AITP-0014 §4.2 step 2: read the AITP extension from an Agent Card.
+ * Failure throws with `error.code === 'IDENTITY_FAILED'`.
+ */
+export declare function a2aCardManifestUrl(cardJson: string): JsA2ACardPointer
+
+/**
  * Compute the RFC 7638 JWK thumbprint of the public key embedded in
  * an AID — the value an OIDC IdP MUST place in the JWT's `cnf.jkt`
  * claim when proving the key binding (RFC-AITP-0002 §2.2.1).
@@ -351,6 +359,36 @@ export interface GenerateOpts {
    * `"p256"` (RFC-AITP-0001 §5.4.3).
    */
   suite?: string
+}
+
+/** The RFC-AITP-0014 §4.3 effective values, all from the verified Manifest. */
+export interface JsA2ABoundCard {
+  /** The server's identity: the Manifest's own AID string. */
+  aid: string
+  /** The identity types the server accepts. */
+  acceptedIdentityTypes: Array<string>
+  /** The trust anchors the server accepts. */
+  acceptedTrustAnchors: Array<string>
+  /** The capabilities the server can grant. */
+  offeredCapabilities: Array<string>
+  /** The endpoint to run the Mutual Handshake against. */
+  handshakeEndpoint: string
+  /**
+   * The interface URL that was accepted, the only one that may receive
+   * the TCT.
+   */
+  interfaceUrl: string
+}
+
+/** What an Agent Card's AITP extension points at. Both values are unverified. */
+export interface JsA2ACardPointer {
+  /** `params.aid`. */
+  aid: string
+  /**
+   * `params.manifestUrl`, chosen by the Card's author. Fetch it as any
+   * untrusted URL.
+   */
+  manifestUrl: string
 }
 
 /**
@@ -596,6 +634,12 @@ export interface SessionOpts {
    * is rejected (fail closed). An invalid AID entry throws.
    */
   pinnedKeys?: Array<string>
+  /**
+   * Accept a peer Manifest whose `handshake_endpoint` is plain
+   * `http://localhost` or `http://127.0.0.1`. Local development only:
+   * RFC-AITP-0003 §5 step 2 requires HTTPS.
+   */
+  insecureLocalhostDangerous?: boolean
 }
 
 /** Options for `AitpAgent.signEnvelope`. */
@@ -614,6 +658,22 @@ export interface SignEnvelopeOpts {
   /** Unix seconds. Defaults to now. */
   timestamp?: number
 }
+
+/**
+ * RFC-AITP-0014 §4.2 steps 2 to 5: bind an Agent Card to the agent's
+ * signed Manifest.
+ *
+ * `manifestJson` is the 2xx body fetched from `manifestUrl`: the Manifest
+ * or its `{"manifest": {...}}` wrapper. `null` means the fetch failed.
+ * `selectedInterfaceUrl` is the `url` of the AgentInterface the client
+ * intends to call, matched byte for byte. `nowUnixSecs` defaults to the
+ * current time.
+ *
+ * A binding failure throws with the registered code on `error.code`:
+ * `IDENTITY_FAILED`, `MANIFEST_NOT_FOUND`, or a code of the Manifest's
+ * verification. Steps 6 and 7 stay with the caller.
+ */
+export declare function verifyA2aAgentCardBinding(cardJson: string, selectedInterfaceUrl: string, manifestJson?: string | undefined | null, nowUnixSecs?: number | undefined | null): JsA2ABoundCard
 
 /**
  * Verify a delegation compact JWS under **strict AITP v0.3**
@@ -646,7 +706,7 @@ export interface SignEnvelopeOpts {
  * (uppercase, braced, `urn:uuid:`, unhyphenated) matches. An entry that is
  * not a UUID throws rather than being ignored.
  */
-export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
+export declare function verifyDelegation(token: string, verifierAid: string, issuerManifests: Array<string>, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsDelegationVerified
 
 /**
  * Verify a delegation compact JWS allowing **RFC-AITP-0011 multi-hop**
@@ -682,7 +742,7 @@ export declare function verifyDelegation(token: string, verifierAid: string, iss
  * before use; when several designate one AID the newest `published_at`
  * wins.
  */
-export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null): JsDelegationVerified
+export declare function verifyDelegationMultihop(token: string, verifierAid: string, issuerManifests: Array<string>, maxDelegationHops?: number | undefined | null, revokedJtis?: Array<string> | undefined | null, revocation?: string | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsDelegationVerified
 
 /**
  * Verify an `AitpEnvelope` JSON string sent by `expectedSenderAid`.
@@ -737,8 +797,12 @@ export declare function verifyEnvelope(envelopeJson: string, expectedSenderAid: 
  * `nowUnixSecs` overrides the verification clock — omit it to use the
  * system clock, or pass a pinned value in tests. Matches
  * `verifyRevocationList`'s `nowUnixSecs` parameter.
+ *
+ * `insecureLocalhostDangerous` accepts a `handshakeEndpoint` that is plain
+ * `http://localhost` or `http://127.0.0.1`. Local development only:
+ * RFC-AITP-0003 §5 step 2 requires HTTPS.
  */
-export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null): void
+export declare function verifyManifestJson(manifestEnvelopeJson: string, nowUnixSecs?: number | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): void
 
 /**
  * Verify a holder's PoP response for `tctToken` (RFC-AITP-0005 §6.2) and
@@ -779,6 +843,8 @@ export declare function verifyRevocationList(envelopeJson: string, expectedIssue
  * coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
  * §5), must designate the bundle's `coordinator`, and the coordinator
  * key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
- * AID-only fallback.
+ * AID-only fallback. `insecureLocalhostDangerous` accepts a coordinator
+ * Manifest whose `handshakeEndpoint` is plain `http://localhost` or
+ * `http://127.0.0.1`, for local development.
  */
-export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null): JsBundleOutcome
+export declare function verifySessionBundle(bundleEnvelopeJson: string, verifierAid: string, coordinatorManifestJson: string, nowUnixSecs?: number | undefined | null, revocationCheck?: ((arg: string) => boolean) | undefined | null, insecureLocalhostDangerous?: boolean | undefined | null): JsBundleOutcome

@@ -64,6 +64,7 @@ fn happy_path_three_participants() {
             revocation_check: None,
             coordinator_key:
                 aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+            insecure_localhost_dangerous: false,
         };
         let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
         match outcome {
@@ -98,6 +99,7 @@ fn non_member_rejected() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::NotMember));
@@ -120,6 +122,7 @@ fn expired_bundle_rejected() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::Expired));
@@ -144,6 +147,7 @@ fn tampered_signature_rejected() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::InvalidSignature));
@@ -184,6 +188,7 @@ fn wrapped_signed_bundle_is_rejected() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(
@@ -219,6 +224,7 @@ fn revoked_participant_degrades_subset() {
         revocation_check: Some(&revoke),
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     match verify_session_bundle(&bundle, &ctx).unwrap() {
         BundleOutcome::DegradedSubset {
@@ -299,6 +305,7 @@ fn tampered_participant_tct_cannot_bypass_via_peek() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     // Rejected — the tampered peek value can never yield acceptance.
@@ -397,6 +404,7 @@ fn version_mismatch_rejected() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let err = verify_session_bundle(&bundle, &ctx).unwrap_err();
     assert!(matches!(err, SessionBundleError::VersionMismatch));
@@ -447,6 +455,7 @@ fn populated_extensions_round_trip_and_signature_verifies() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -551,6 +560,7 @@ fn unknown_keys_inside_extensions_are_preserved_through_round_trip() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let outcome = verify_session_bundle(&round_tripped, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -581,6 +591,7 @@ fn bundle_without_extensions_still_verifies_unchanged() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
     assert!(matches!(outcome, BundleOutcome::Clear { .. }));
@@ -623,6 +634,7 @@ fn present_but_empty_extensions_still_verifies() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     let outcome = verify_session_bundle(&bundle, &ctx).unwrap();
     assert!(

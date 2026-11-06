@@ -57,6 +57,7 @@ fn kat_keypair_001_bundle_parses_and_verifies() {
         revocation_check: None,
         coordinator_key:
             aitp_experimental::session_bundle::CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     match verify_session_bundle(&bundle, &ctx) {
         Ok(BundleOutcome::Clear { active_aids }) => {

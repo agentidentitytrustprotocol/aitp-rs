@@ -24,3 +24,6 @@ HAS_BUNDLE = _present(hasattr(aitp, "SessionBundleBuilder"), "experimental-sessi
 HAS_MULTIHOP = _present(
     hasattr(aitp, "verify_delegation_multihop"), "experimental-multihop-delegation"
 )
+HAS_A2A = _present(
+    hasattr(aitp, "verify_a2a_agent_card_binding"), "experimental-a2a-agent-card"
+)

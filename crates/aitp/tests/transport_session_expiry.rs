@@ -58,7 +58,7 @@ async fn commit_after_session_ttl_is_rejected() {
     let endpoint = format!("http://localhost:{port}/aitp/handshake");
 
     let bob_manifest = manifest_for(&bob, "bob", &endpoint);
-    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
+    let alice_manifest = manifest_for(&alice, "alice", "https://localhost/aitp/handshake");
 
     // 50ms TTL; the test sleeps 200ms between HELLO and COMMIT.
     let server = HandshakeServer::new(
@@ -92,7 +92,8 @@ async fn commit_after_session_ttl_is_rejected() {
         &cfg_pinned,
         aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
-    );
+    )
+    .with_insecure_localhost_dangerous();
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(
@@ -186,7 +187,7 @@ async fn fresh_session_within_ttl_is_accepted() {
     let endpoint = format!("http://localhost:{port}/aitp/handshake");
 
     let bob_manifest = manifest_for(&bob, "bob", &endpoint);
-    let alice_manifest = manifest_for(&alice, "alice", "http://localhost:0/aitp/handshake");
+    let alice_manifest = manifest_for(&alice, "alice", "https://localhost/aitp/handshake");
 
     let server = HandshakeServer::new(
         AitpSigningKey::from_ed25519_seed(&[0x74; 32]),
@@ -218,7 +219,8 @@ async fn fresh_session_within_ttl_is_accepted() {
         &cfg_pinned,
         aitp::tct::RevocationSource::FailOpen,
         Timestamp::now(),
-    );
+    )
+    .with_insecure_localhost_dangerous();
     let hello_mid = Uuid::new_v4();
     let hello_ts = Timestamp::now();
     let (mut initiator, hello_payload) = Initiator::start(

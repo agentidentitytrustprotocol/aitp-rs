@@ -261,30 +261,50 @@ impl PyAitpAgent {
     /// the proof is verified. `None` or `[]` trusts no pinned key, so
     /// every `pinned_key` peer is rejected (fail closed). An entry that
     /// is not a valid AID raises `ValueError`.
-    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None))]
+    ///
+    /// `insecure_localhost_dangerous` accepts a peer Manifest whose
+    /// `handshake_endpoint` is plain `http://localhost` or
+    /// `http://127.0.0.1`. Local development only: RFC-AITP-0003 §5 step 2
+    /// requires HTTPS.
+    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None, *, insecure_localhost_dangerous=false))]
     fn new_session(
         &self,
         jwks: Option<&PyJwksProvider>,
         trust_anchors: Option<Vec<String>>,
         pinned_keys: Option<Vec<String>>,
+        insecure_localhost_dangerous: bool,
     ) -> PyResult<PyInitiatorSession> {
         let manifest = self.cached_manifest()?;
-        let ctx = build_session_context(&manifest, jwks, trust_anchors, pinned_keys)?;
+        let ctx = build_session_context(
+            &manifest,
+            jwks,
+            trust_anchors,
+            pinned_keys,
+            insecure_localhost_dangerous,
+        )?;
         Ok(PyInitiatorSession::new(self.key.clone(), manifest, ctx))
     }
 
     /// Create a new inbound (responder) handshake session. Mirror of
-    /// [`Self::new_session`], including `pinned_keys`: `None` ⇒ every
-    /// `pinned_key` initiator is rejected.
-    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None))]
+    /// [`Self::new_session`], including `pinned_keys` (`None` ⇒ every
+    /// `pinned_key` initiator is rejected) and
+    /// `insecure_localhost_dangerous`.
+    #[pyo3(signature = (jwks=None, trust_anchors=None, pinned_keys=None, *, insecure_localhost_dangerous=false))]
     fn new_responder(
         &self,
         jwks: Option<&PyJwksProvider>,
         trust_anchors: Option<Vec<String>>,
         pinned_keys: Option<Vec<String>>,
+        insecure_localhost_dangerous: bool,
     ) -> PyResult<PyResponderSession> {
         let manifest = self.cached_manifest()?;
-        let ctx = build_session_context(&manifest, jwks, trust_anchors, pinned_keys)?;
+        let ctx = build_session_context(
+            &manifest,
+            jwks,
+            trust_anchors,
+            pinned_keys,
+            insecure_localhost_dangerous,
+        )?;
         Ok(PyResponderSession::new(self.key.clone(), manifest, ctx))
     }
 
@@ -553,6 +573,7 @@ fn build_session_context(
     jwks: Option<&PyJwksProvider>,
     trust_anchors: Option<Vec<String>>,
     pinned_keys: Option<Vec<String>>,
+    insecure_localhost: bool,
 ) -> PyResult<SessionContext> {
     let pinned_keys = parse_pinned_keys(pinned_keys.unwrap_or_default())?;
     let anchors: Vec<RawUrl> = match trust_anchors {
@@ -573,6 +594,7 @@ fn build_session_context(
         identity_subject: manifest.identity_hint.subject.clone(),
         identity_issuer: manifest.identity_hint.issuer.clone(),
         pinned_keys,
+        insecure_localhost,
     })
 }
 

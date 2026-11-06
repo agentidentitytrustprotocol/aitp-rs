@@ -129,6 +129,8 @@ impl PySessionBundleBuilder {
     coordinator_manifest_json,
     now_unix_secs = None,
     revocation_check = None,
+    *,
+    insecure_localhost_dangerous = false,
 ))]
 pub fn verify_session_bundle_py<'py>(
     py: Python<'py>,
@@ -137,11 +139,16 @@ pub fn verify_session_bundle_py<'py>(
     coordinator_manifest_json: &str,
     now_unix_secs: Option<i64>,
     revocation_check: Option<Py<PyAny>>,
+    insecure_localhost_dangerous: bool,
 ) -> PyResult<Bound<'py, PyDict>> {
     let bundle = wire::session_bundle(bundle_envelope_json)
         .map_err(|e| PyValueError::new_err(format!("invalid bundle envelope JSON: {e}")))?;
-    let coordinator_manifest = wire::manifest(coordinator_manifest_json)
-        .map_err(|e| PyValueError::new_err(format!("invalid coordinator manifest JSON: {e}")))?;
+    let coordinator_manifest = wire::manifest(coordinator_manifest_json).map_err(|e| match e {
+        wire::WireError::ManifestVersionUnknown => {
+            PyRuntimeError::new_err(format!("bundle verification failed: {e}"))
+        }
+        e => PyValueError::new_err(format!("invalid coordinator manifest JSON: {e}")),
+    })?;
     let verifier = Aid::parse(verifier_aid)
         .map_err(|e| PyValueError::new_err(format!("invalid verifier AID: {e}")))?;
     let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
@@ -170,6 +177,7 @@ pub fn verify_session_bundle_py<'py>(
             now,
             revocation_check: cb_fn.as_deref().map(|b: &dyn Fn(&Uuid) -> bool| b),
             coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
+            insecure_localhost_dangerous,
         },
     )
     .map_err(|e| PyRuntimeError::new_err(format!("bundle verification failed: {e}")))?;

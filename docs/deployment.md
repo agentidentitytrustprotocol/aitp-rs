@@ -162,7 +162,10 @@ Independent of clustering, production servers/clients should set:
   `.with_insecure_localhost_dangerous()` (and the facade only after
   `InitiatorConfig::with_insecure_localhost_dangerous()`). The same call
   admits loopback addresses (`127.0.0.0/8`, `::1`), and only those,
-  through the host guard (`HostGuard::allow_loopback_dangerous`). Never
+  through the host guard (`HostGuard::allow_loopback_dangerous`).
+  `verify_manifest` holds a `handshake_endpoint` to the same rule, with the
+  same opt-in on `ManifestVerifyContext`, `PeerConfig`, `HandshakeServer` and
+  `DelegationVerifyContext`, so both ends of a local plain-HTTP handshake set it. Never
   enable it in production.
 - **Observability** — the optional `metrics` feature on
   `aitp` emits low-cardinality counters via the

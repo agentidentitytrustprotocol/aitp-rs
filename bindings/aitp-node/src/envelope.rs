@@ -24,6 +24,7 @@ use crate::wire::{self, WireError};
 fn wire_code(err: &WireError) -> &'static str {
     match err {
         WireError::UnknownVersion(_) => "UNKNOWN_VERSION",
+        WireError::ManifestVersionUnknown => "MANIFEST_VERSION_UNKNOWN",
         WireError::UnknownField(_) => "UNKNOWN_FIELD",
         WireError::Malformed(_) => "INVALID_ENVELOPE",
     }
@@ -103,7 +104,7 @@ pub struct SignEnvelopeOpts {
     /// refused, not normalized. Defaults to a fresh one.
     pub message_id: Option<String>,
     /// Unix seconds. Defaults to now.
-    pub timestamp: Option<i64>,
+    pub timestamp: Option<f64>,
 }
 
 /// Sign an envelope with `key` (RFC-AITP-0001 §5.4) and return its JSON.
@@ -142,7 +143,10 @@ pub fn sign_envelope_js(
             message_type,
             payload,
             message_id,
-            opts.timestamp.map(Timestamp).unwrap_or_else(Timestamp::now),
+            opts.timestamp.map_or_else(
+                || Ok(Timestamp::now()),
+                |v| crate::helpers::finite_unix_secs("timestamp", v),
+            )?,
         );
         envelope.extensions = extensions;
         envelope

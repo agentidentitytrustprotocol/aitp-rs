@@ -123,7 +123,8 @@ aitp-experimental          session_bundle: SessionBundleBuilder +
                            SessionBundleServer (http-server feature);
                            delegation (multi-hop, RFC-0011); renewal
                            (RFC-0013); spiffe: SpiffeVerifier
-                           (spiffe-identity feature)
+                           (spiffe-identity feature); a2a: Agent Card
+                           binding (RFC-0014, a2a-agent-card feature)
 aitp-cli                   `aitp` binary — offline keygen / aid /
                            tct inspect+verify / manifest verify;
                            manifest fetch + handshake (http-client)

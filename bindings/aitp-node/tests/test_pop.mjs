@@ -23,12 +23,12 @@ function presented() {
   const consumer = AitpAgent.generate();
   holder.buildManifest({
     displayName: 'holder',
-    handshakeEndpoint: 'http://localhost:8100/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8100/aitp/handshake/',
     offeredCaps: ['demo.echo'],
   });
   const consumerManifest = consumer.buildManifest({
     displayName: 'consumer',
-    handshakeEndpoint: 'http://localhost:8200/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:8200/aitp/handshake/',
     offeredCaps: [GRANT],
   });
   const sess = holder.newSession(null, { pinnedKeys: [consumer.aid] });

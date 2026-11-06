@@ -30,19 +30,19 @@ function setup() {
   const bob = AitpAgent.generate();
   const coordManifest = coord.buildManifest({
     displayName: 'coordinator',
-    handshakeEndpoint: 'http://localhost:9601/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9601/aitp/handshake/',
     offeredCaps: ['session.member'],
     // Caps every participant TCT (RFC-AITP-0005 §10.4): outlive them.
     ttlSecs: 24 * 3600,
   });
   alice.buildManifest({
     displayName: 'alice',
-    handshakeEndpoint: 'http://localhost:9602/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9602/aitp/handshake/',
     offeredCaps: ['x'],
   });
   bob.buildManifest({
     displayName: 'bob',
-    handshakeEndpoint: 'http://localhost:9603/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9603/aitp/handshake/',
     offeredCaps: ['x'],
   });
   const aliceTct = handshakeToCoordinator(alice, coord, coordManifest);
@@ -86,7 +86,7 @@ test('coordinator Manifest is required and checked', { skip: !HAS_BUNDLE }, () =
   const outsider = AitpAgent.generate();
   const otherManifest = outsider.buildManifest({
     displayName: 'outsider',
-    handshakeEndpoint: 'http://localhost:9604/aitp/handshake/',
+    handshakeEndpoint: 'https://localhost:9604/aitp/handshake/',
     offeredCaps: ['x'],
   });
   assert.throws(
@@ -143,3 +143,34 @@ test(
     assert.ok(outcome.droppedAids.includes(bob.aid));
   },
 );
+
+test('a plain HTTP coordinator needs the loopback opt-in', { skip: !HAS_BUNDLE }, () => {
+  const { coord, alice, bob, aliceTct, bobTct } = setup();
+  const envelope = new SessionBundleBuilder(coord)
+    .participant(alice.aid, aliceTct)
+    .participant(bob.aid, bobTct)
+    .build();
+  const manifestAt = (handshakeEndpoint) => coord.buildManifest({
+    displayName: 'coordinator',
+    handshakeEndpoint,
+    offeredCaps: ['session.member'],
+    ttlSecs: 24 * 3600,
+  });
+
+  const loopback = manifestAt('http://localhost:9601/aitp/handshake/');
+  assert.throws(() => verifySessionBundle(envelope, alice.aid, loopback), /bundle verification failed/);
+  const outcome = verifySessionBundle(envelope, alice.aid, loopback, null, null, true);
+  assert.equal(outcome.kind, 'clear');
+
+  const remote = manifestAt('http://coordinator.example.com/aitp/handshake/');
+  assert.throws(() => verifySessionBundle(envelope, alice.aid, remote, null, null, true), /bundle verification failed/);
+});
+
+test('the bundle clocks refuse a non-finite value', { skip: !HAS_BUNDLE }, () => {
+  const { coord, alice, aliceTct, coordManifest } = setup();
+  const envelope = new SessionBundleBuilder(coord).participant(alice.aid, aliceTct).build();
+  for (const bad of [NaN, Infinity, -Infinity]) {
+    assert.throws(() => new SessionBundleBuilder(coord).issuedAt(bad), /unixSecs must be finite/);
+    assert.throws(() => verifySessionBundle(envelope, alice.aid, coordManifest, bad), /nowUnixSecs must be finite/);
+  }
+});

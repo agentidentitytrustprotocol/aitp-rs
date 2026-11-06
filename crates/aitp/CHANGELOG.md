@@ -7,6 +7,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.25.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.25.0...aitp-v0.25.1) - 2026-11-01
+
+### Fixed
+
+- *(bindings)* refuse a non-finite nowUnixSecs ([#480](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/480))
+
+### Fixed
+
+- Node SDK: refuse a non-finite `nowUnixSecs`, and likewise `timestamp`, `unixSecs` and `manifestExpUnixSecs`. These values previously became 0.
+
+## [0.25.0](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.24.1...aitp-v0.25.0) - 2026-11-01
+
+### Added
+
+- *(experimental)* verify_session_bundle takes the loopback opt-in ([#479](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/479))
+- *(experimental)* A2A Agent Card binding in the SDKs, docs ([#478](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/478))
+
+### Fixed
+
+- *(manifest)* [**breaking**] verify_manifest enforces the RFC-AITP-0003 §5 step 2 grammar ([#477](https://github.com/agentidentitytrustprotocol/aitp-rs/pull/477))
+
+### Added
+
+- `aitp-experimental`: the A2A Agent Card binding, client verification (RFC-AITP-0014 §4.2 steps 2 to 5 and §4.3, Draft), feature `a2a-agent-card`. `a2a-001` to `a2a-006` pass under `--feature aitp-a2a-agent-card`. A source build of either SDK adds it with feature `experimental-a2a-agent-card`. See `docs/a2a-agent-card.md`.
+
+### Changed (breaking)
+
+- `verify_manifest` enforces the RFC-AITP-0003 §5 step 2 grammar: a value outside `aitp-manifest.schema.json` is `MANIFEST_INVALID` (`ManifestError::Malformed`, naming the member, or `IdentityHintMalformed`), ahead of expiry, proof of possession and signature. A `handshake_endpoint` must be an `https://` URI.
+  - An `http://localhost` / `http://127.0.0.1` endpoint is accepted only under `with_insecure_localhost_dangerous()`, now also on `ManifestVerifyContext`, `PeerConfig`, `HandshakeServer` and `DelegationVerifyContext`. `ManifestFetcher` and `InitiatorConfig`, which have it already, apply it to the Manifests they verify. `aitp manifest verify` takes `--insecure-localhost`.
+  - The SDKs take the same opt-in: `insecure_localhost_dangerous` (Python, keyword-only) and `insecureLocalhostDangerous` (Node) on the Manifest verify call, `new_session` / `newSession`, `new_responder` / `newResponder` and `verify_delegation_multihop` / `verifyDelegationMultihop`, `verify_delegation` / `verifyDelegation`. It is off by default. Any other plain-HTTP endpoint is refused either way.
+  - SDK `build_hello` / `buildHello` verifies the peer's Manifest before building the HELLO (RFC-AITP-0003 §5), under the same opt-in, and checks that it accepts this agent's identity type. A failure raises its registry code at this call, not at `process_hello_ack` or from the responder. A bad peer Manifest there is `RuntimeError` in Python, no longer `ValueError`.
+  - `verify_session_bundle` takes the same opt-in, off by default. The A2A binding takes none.
+
+### Fixed
+
+- `parse_manifest_wire` reports an unknown `version` (`MANIFEST_VERSION_UNKNOWN`) before unknown members, the RFC-AITP-0003 §5 order.
+
 ## [0.24.1](https://github.com/agentidentitytrustprotocol/aitp-rs/compare/aitp-v0.24.0...aitp-v0.24.1) - 2026-10-31
 
 ### Added

@@ -32,6 +32,7 @@ fuzz_target!(|data: &[u8]| {
         now: Timestamp(NOW),
         revocation_check: Some(&revoked),
         coordinator_key: CoordinatorKeySource::UnverifiedAidDangerous,
+        insecure_localhost_dangerous: false,
     };
     for bundle in [
         parse_session_bundle_wire(&checked),

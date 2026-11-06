@@ -93,6 +93,7 @@ pub fn verify_delegation_js(
     issuer_manifests: Vec<String>,
     revoked_jtis: Option<Vec<String>>,
     revocation: Option<String>,
+    insecure_localhost_dangerous: Option<bool>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
@@ -103,8 +104,11 @@ pub fn verify_delegation_js(
     // `verify_delegation` rejects any chain-bearing token before per-hop
     // work, which is why only the root check is wired here: there are no
     // hops.
-    let ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let mut ctx = DelegationVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_issuer_manifests(&manifests);
+    if insecure_localhost_dangerous.unwrap_or(false) {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
 
     let verified = verify_delegation(&token, &ctx).map_err(|e| verify_failed(env, &e))?;
 
@@ -145,6 +149,7 @@ pub fn verify_delegation_js(
 /// wins.
 #[cfg(feature = "experimental-multihop-delegation")]
 #[napi(js_name = "verifyDelegationMultihop")]
+#[allow(clippy::too_many_arguments)]
 pub fn verify_delegation_multihop_js(
     env: Env,
     token: String,
@@ -153,6 +158,7 @@ pub fn verify_delegation_multihop_js(
     max_delegation_hops: Option<u32>,
     revoked_jtis: Option<Vec<String>>,
     revocation: Option<String>,
+    insecure_localhost_dangerous: Option<bool>,
 ) -> Result<JsDelegationVerified> {
     let verifier = parse_verifier(&verifier_aid)?;
     let manifests = parse_issuer_manifests(&issuer_manifests)?;
@@ -162,10 +168,13 @@ pub fn verify_delegation_multihop_js(
     let hop = |q: &aitp::tct::RevocationQuery<'_>| deny.status(q);
 
     let hops = max_delegation_hops.unwrap_or(DEFAULT_MAX_DELEGATION_HOPS as u32) as usize;
-    let ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
+    let mut ctx = ChainVerifyContext::new(&verifier, Timestamp::now(), deny.source(&root))
         .with_max_delegation_hops(hops)
         .with_issuer_manifests(&manifests)
         .with_hop_revocation_check(&hop);
+    if insecure_localhost_dangerous.unwrap_or(false) {
+        ctx = ctx.with_insecure_localhost_dangerous();
+    }
 
     let verified = verify_chained_delegation(&token, &ctx).map_err(|e| match e {
         aitp_experimental::delegation::ChainedDelegationError::Delegation(e) => {
@@ -203,13 +212,15 @@ fn parse_verifier(verifier_aid: &str) -> Result<Aid> {
 fn parse_issuer_manifests(issuer_manifests: &[String]) -> Result<Vec<aitp::manifest::Manifest>> {
     issuer_manifests
         .iter()
-        .map(|json| {
-            crate::wire::manifest(json).map_err(|e| {
-                Error::new(
-                    Status::InvalidArg,
-                    format!("invalid issuer manifest JSON: {e}"),
-                )
-            })
+        .filter_map(|json| match crate::wire::manifest(json) {
+            Ok(manifest) => Some(Ok(manifest)),
+            // Can't verify any issuer, and must not fail the others: a hop
+            // that names this issuer fails as unresolved.
+            Err(crate::wire::WireError::ManifestVersionUnknown) => None,
+            Err(e) => Some(Err(Error::new(
+                Status::InvalidArg,
+                format!("invalid issuer manifest JSON: {e}"),
+            ))),
         })
         .collect()
 }

@@ -24,12 +24,12 @@ def _agents():
     responder = aitp.AitpAgent.generate()
     initiator.build_manifest(
         display_name="initiator",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=["demo.echo"],
     )
     responder_manifest = responder.build_manifest(
         display_name="responder",
-        handshake_endpoint="http://localhost:8200/aitp/handshake/",
+        handshake_endpoint="https://localhost:8200/aitp/handshake/",
         offered_caps=[GRANT],
     )
     sess = initiator.new_session(pinned_keys=[responder.aid])
@@ -145,12 +145,12 @@ def _delegation():
     a, b, c = (aitp.AitpAgent.generate() for _ in range(3))
     a_manifest = a.build_manifest(
         display_name="A",
-        handshake_endpoint="http://localhost:8100/aitp/handshake/",
+        handshake_endpoint="https://localhost:8100/aitp/handshake/",
         offered_caps=[GRANT],
     )
     b_manifest = b.build_manifest(
         display_name="B",
-        handshake_endpoint="http://localhost:8101/aitp/handshake/",
+        handshake_endpoint="https://localhost:8101/aitp/handshake/",
         offered_caps=[GRANT],
     )
     bsess = b.new_session(pinned_keys=[a.aid])

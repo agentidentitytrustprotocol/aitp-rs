@@ -74,9 +74,9 @@ impl SessionBundleBuilderJs {
 
     /// Override `issued_at` (unix seconds). Defaults to "now" at build.
     #[napi]
-    pub fn issued_at(&mut self, unix_secs: i64) -> &Self {
-        self.issued_at = Some(Timestamp(unix_secs));
-        self
+    pub fn issued_at(&mut self, unix_secs: f64) -> Result<&Self> {
+        self.issued_at = Some(crate::helpers::finite_unix_secs("unixSecs", unix_secs)?);
+        Ok(self)
     }
 
     /// Add a participant entry. `tctToken` is the participant's TCT as an
@@ -122,15 +122,18 @@ impl SessionBundleBuilderJs {
 /// coordinator's `ManifestEnvelope` JSON: it is verified (RFC-AITP-0003
 /// §5), must designate the bundle's `coordinator`, and the coordinator
 /// key is resolved from it (RFC-AITP-0010 §5 step 5). There is no
-/// AID-only fallback.
+/// AID-only fallback. `insecureLocalhostDangerous` accepts a coordinator
+/// Manifest whose `handshakeEndpoint` is plain `http://localhost` or
+/// `http://127.0.0.1`, for local development.
 #[napi(js_name = "verifySessionBundle")]
 pub fn verify_session_bundle_js(
     env: Env,
     bundle_envelope_json: String,
     verifier_aid: String,
     coordinator_manifest_json: String,
-    now_unix_secs: Option<i64>,
+    now_unix_secs: Option<f64>,
     revocation_check: Option<FunctionRef<String, bool>>,
+    insecure_localhost_dangerous: Option<bool>,
 ) -> Result<JsBundleOutcome> {
     let bundle = wire::session_bundle(&bundle_envelope_json)
         .map_err(|e| Error::from_reason(format!("invalid bundle envelope JSON: {e}")))?;
@@ -138,7 +141,7 @@ pub fn verify_session_bundle_js(
         .map_err(|e| Error::from_reason(format!("invalid coordinator manifest JSON: {e}")))?;
     let verifier = Aid::parse(&verifier_aid)
         .map_err(|e| Error::from_reason(format!("invalid verifier AID: {e}")))?;
-    let now = Timestamp(now_unix_secs.unwrap_or_else(|| Timestamp::now().0));
+    let now = crate::helpers::now_or_system(now_unix_secs)?;
 
     // `revocation_check` is a `FunctionRef`, napi 3's Drop-safe typed
     // function reference. The verifier may never invoke the closure
@@ -165,6 +168,7 @@ pub fn verify_session_bundle_js(
             now,
             revocation_check: closure.as_deref(),
             coordinator_key: CoordinatorKeySource::Manifest(&coordinator_manifest),
+            insecure_localhost_dangerous: insecure_localhost_dangerous.unwrap_or(false),
         },
     )
     .map_err(|e| Error::from_reason(format!("bundle verification failed: {e}")))?;

@@ -142,15 +142,17 @@ test('mintJwt callback Ref unrefs cleanly on early error', () => {
   // If we reach this line without a panic, the Ref was unref'd cleanly.
 });
 
-// Alice (OIDC) builds a HELLO to bob (pinned_key); returns bob's responder
-// and the HELLO.
+// Alice (OIDC) builds a HELLO to bob (pinned_key), from a Manifest of bob's
+// that lists OIDC, since her own check refuses one that doesn't. Bob then
+// answers under `bobAcceptedIdentityTypes`. Returns bob's responder and the
+// HELLO.
 function oidcHelloToPinnedBob(bobAcceptedIdentityTypes) {
   const { issuer, provider, alice, bob } = setup();
   const bManifest = bob.buildManifest({
     displayName: 'bob',
     handshakeEndpoint: 'https://bob.example.test/aitp/handshake/',
     offeredCaps: ['demo.write'],
-    acceptedIdentityTypes: bobAcceptedIdentityTypes,
+    acceptedIdentityTypes: ['pinned_key', 'oidc'],
   });
   const now = Math.floor(Date.now() / 1000);
   const aJkt = aidJkt(alice.aid);
@@ -158,6 +160,12 @@ function oidcHelloToPinnedBob(bobAcceptedIdentityTypes) {
     issuer.mint({ sub: 'alice', aud: bob.aid, nonce, cnfJkt: aJkt, now });
   const sess = alice.newSession(provider, { pinnedKeys: [bob.aid] });
   const hello = sess.buildHello(bManifest, ['demo.write'], aMint);
+  bob.buildManifest({
+    displayName: 'bob',
+    handshakeEndpoint: 'https://bob.example.test/aitp/handshake/',
+    offeredCaps: ['demo.write'],
+    acceptedIdentityTypes: bobAcceptedIdentityTypes,
+  });
   const rsess = bob.newResponder(provider, { trustAnchors: [ISSUER_URL] });
   return { rsess, hello };
 }

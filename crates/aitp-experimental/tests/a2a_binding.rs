@@ -670,11 +670,26 @@ fn step3_a_cleartext_handshake_endpoint_is_invalid() {
         let body = serde_json::to_vec(&m).unwrap();
         let err = bind(&card(), ManifestFetch::Fetched(&body), INTERFACE).unwrap_err();
         assert_eq!(err.code().as_str(), "MANIFEST_INVALID", "{endpoint}");
-        // A held Manifest goes through the same check.
-        let m = held(&body);
-        let err = bind(&card(), ManifestFetch::Verified(&m), INTERFACE).unwrap_err();
-        assert_eq!(err.code().as_str(), "MANIFEST_INVALID", "{endpoint}");
     }
+}
+
+#[test]
+fn step3_a_held_manifest_with_a_loopback_endpoint_is_invalid() {
+    // `aitp` verifies it under its insecure-localhost switch; the binding
+    // has no such switch.
+    let key = key();
+    let m = builder(&key)
+        .handshake_endpoint_raw(aitp::core::RawUrl::new("http://localhost:8080/h"))
+        .extension(A2A_INTERFACES_KEY, json!([INTERFACE]))
+        .build()
+        .unwrap();
+    let held = verify_manifest(
+        &m,
+        &ManifestVerifyContext::at(NOW).with_insecure_localhost_dangerous(),
+    )
+    .unwrap();
+    let err = bind(&card(), ManifestFetch::Verified(&held), INTERFACE).unwrap_err();
+    assert_eq!(err.code().as_str(), "MANIFEST_INVALID");
 }
 
 #[test]

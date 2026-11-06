@@ -16,7 +16,13 @@ function present(ok, feature) {
   return ok;
 }
 
-export const { SessionBundleBuilder, verifySessionBundle, verifyDelegationMultihop } = aitp;
+export const {
+  SessionBundleBuilder,
+  verifySessionBundle,
+  verifyDelegationMultihop,
+  a2aCardManifestUrl,
+  verifyA2aAgentCardBinding,
+} = aitp;
 
 export const HAS_RENEWAL = present(
   typeof aitp.AitpAgent.prototype.buildRenewalRequest === 'function',
@@ -29,4 +35,8 @@ export const HAS_BUNDLE = present(
 export const HAS_MULTIHOP = present(
   typeof verifyDelegationMultihop === 'function',
   'experimental-multihop-delegation',
+);
+export const HAS_A2A = present(
+  typeof verifyA2aAgentCardBinding === 'function',
+  'experimental-a2a-agent-card',
 );

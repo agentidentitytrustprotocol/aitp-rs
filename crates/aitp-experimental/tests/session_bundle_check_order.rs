@@ -88,6 +88,7 @@ fn verify(
             now,
             revocation_check: None,
             coordinator_key,
+            insecure_localhost_dangerous: false,
         },
     )
 }
@@ -372,4 +373,57 @@ fn non_member_rejected_last() {
         CoordinatorKeySource::Manifest(&manifest),
     );
     assert!(matches!(err, Err(SessionBundleError::NotMember)), "{err:?}");
+}
+
+#[test]
+fn plain_http_coordinator_manifest_needs_the_loopback_opt_in() {
+    let coord = key(0xC0);
+    let alice = key(0xA0);
+    let bundle = valid_bundle(&coord, &alice);
+    let manifest_at = |endpoint: &str| {
+        ManifestBuilder::new(&coord)
+            .display_name("coordinator")
+            .handshake_endpoint(endpoint.parse().unwrap())
+            .identity_hint(
+                IdentityHint::new(IdentityKind::PinnedKey, "coordinator")
+                    .with_public_key(coord.aid().identifier().to_string()),
+            )
+            .offer("session.coordinate")
+            .published_at(NOW)
+            .ttl(std::time::Duration::from_secs(86_400))
+            .build()
+            .unwrap()
+    };
+    let run = |manifest: &Manifest, insecure_localhost_dangerous: bool| {
+        verify_session_bundle(
+            &bundle,
+            &SessionBundleVerifyContext {
+                verifier_aid: alice.aid(),
+                now: NOW,
+                revocation_check: None,
+                coordinator_key: CoordinatorKeySource::Manifest(manifest),
+                insecure_localhost_dangerous,
+            },
+        )
+    };
+
+    let loopback = manifest_at("http://localhost:8080/handshake");
+    assert!(matches!(
+        run(&loopback, false),
+        Err(SessionBundleError::CoordinatorManifest(
+            ManifestError::Malformed(_)
+        ))
+    ));
+    assert!(matches!(
+        run(&loopback, true),
+        Ok(BundleOutcome::Clear { .. })
+    ));
+
+    let remote = manifest_at("http://coord.example/handshake");
+    assert!(matches!(
+        run(&remote, true),
+        Err(SessionBundleError::CoordinatorManifest(
+            ManifestError::Malformed(_)
+        ))
+    ));
 }
