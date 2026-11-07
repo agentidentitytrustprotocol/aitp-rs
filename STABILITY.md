@@ -204,6 +204,34 @@ its source distribution, which needs a Rust toolchain at the MSRV.
   dry run: every platform binary is built and smoke-tested, and nothing is
   published.
 
+## 1.0 API candidate
+
+The 1.0 API candidate is the **0.25.1** release (tag `aitp-v0.25.1`).
+From that tag until `1.0.0-rc.1`, the surface this file covers (the
+stable surface of `aitp`, and the Python and Node SDKs) changes only for
+a bug fix, a security fix, or to align with the Release Candidate text of
+RFC-AITP-0001 to 0009. That holds for additions too: anything else waits
+for 1.x.
+
+- Each change has an entry in `crates/aitp/CHANGELOG.md` naming which of
+  the three reasons applies. This covers a signature added, removed or
+  changed, and a change of behaviour that leaves the signatures alone.
+  A break also follows the [Enforcement](#enforcement) rules below
+  (`semver-break-approved` label and a `### BREAKING` entry).
+- Before `1.0.0-rc.1` is cut, the whole candidate period is checked in
+  one go, from the repository root. Every line this prints must match a changelog entry released
+  after 0.25.1:
+
+  ```sh
+  for f in crates/aitp/public-api.stable.txt \
+           bindings/aitp-py/api.txt bindings/aitp-node/api.txt; do
+    git diff aitp-v0.25.1 -- "$f"
+  done
+  ```
+
+  Changes of behaviour don't show in these snapshots, so the changelog
+  entries since 0.25.1 are also read against the list of reasons.
+
 ## Support window
 
 | Line | Gets |
