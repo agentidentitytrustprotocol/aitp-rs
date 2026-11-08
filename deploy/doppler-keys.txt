@@ -1,0 +1,19 @@
+# Railway variables that Doppler owns for the interop-peer service
+# (Doppler project aitp-interop-peer: config prd -> Railway production,
+# config stg -> Railway staging). deploy/doppler-sync.sh sets and updates
+# exactly these; it never deletes anything.
+# Never list RAILWAY_* system variables or Railway references (${{...}}):
+# Railway owns those. Left Railway-managed on purpose:
+#   RAILWAY_DOCKERFILE_PATH   set by deploy/interop-peer/deploy.sh
+# This list only grows: dropping a key stops the sync managing it, never deletes it.
+
+# Secret: the peer's identity key (a new key is a new peer AID).
+# In stg it is a Doppler reference to prd's value: staging and production share
+# the peer key today.
+AITP_PEER_KEY
+
+# Config
+AITP_CLIENT_IP_HEADER
+AITP_PUBLIC_URL
+AITP_TRUSTED_PROXIES
+RUST_LOG

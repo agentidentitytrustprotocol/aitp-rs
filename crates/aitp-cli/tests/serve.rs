@@ -351,3 +351,118 @@ fn client_ip_header_from_a_trusted_proxy_keys_the_limits() {
     assert_eq!(challenge("203.0.113.7", 10), 429);
     assert_eq!(challenge("203.0.113.8", 11), 200);
 }
+
+/// `GET path` with optional extra headers: status, headers, body text.
+fn get(
+    peer: &Peer,
+    path: &str,
+    headers: &[(&str, &str)],
+) -> (u16, reqwest::header::HeaderMap, String) {
+    let mut req = client().get(format!("{}{path}", peer.origin));
+    for (name, value) in headers {
+        req = req.header(*name, *value);
+    }
+    let resp = req.send().unwrap();
+    let status = resp.status().as_u16();
+    let headers = resp.headers().clone();
+    (status, headers, resp.text().unwrap())
+}
+
+fn retry_after(headers: &reqwest::header::HeaderMap) -> u64 {
+    headers["retry-after"].to_str().unwrap().parse().unwrap()
+}
+
+#[test]
+fn fourth_status_over_the_general_limit_gets_429() {
+    let peer = spawn_peer_with(0x57, &["--rate-per-ip-per-minute", "3"]);
+    for i in 0..3 {
+        let (status, _, body) = get(&peer, "/status", &[]);
+        assert_eq!(status, 200, "request {}: {body}", i + 1);
+    }
+    let (status, headers, body) = get(&peer, "/status", &[]);
+    assert_eq!(status, 429, "{body}");
+    assert!(retry_after(&headers) >= 1);
+    let body: Value = serde_json::from_str(&body).unwrap();
+    assert_eq!(body["error"], "rate_limited");
+}
+
+#[test]
+fn general_limit_keys_on_the_client_ip_header_from_a_trusted_proxy() {
+    let peer = spawn_peer_with(
+        0x58,
+        &[
+            "--rate-per-ip-per-minute",
+            "3",
+            "--trusted-proxy",
+            "127.0.0.1",
+            "--client-ip-header",
+            "x-real-ip",
+        ],
+    );
+    let status = |client_ip: &str| get(&peer, "/status", &[("x-real-ip", client_ip)]).0;
+    for _ in 0..3 {
+        assert_eq!(status("203.0.113.7"), 200);
+    }
+    assert_eq!(status("203.0.113.7"), 429);
+    assert_eq!(status("203.0.113.8"), 200);
+}
+
+#[test]
+fn spoofed_client_ip_headers_do_not_reset_the_general_limit() {
+    // The header is configured, but the caller is not a trusted proxy, so it is ignored.
+    let peer = spawn_peer_with(
+        0x59,
+        &[
+            "--rate-per-ip-per-minute",
+            "3",
+            "--client-ip-header",
+            "x-real-ip",
+        ],
+    );
+    let status = |i: u8| {
+        let ip = format!("203.0.113.{i}");
+        get(
+            &peer,
+            "/status",
+            &[("x-real-ip", &ip), ("x-forwarded-for", &ip)],
+        )
+        .0
+    };
+    for i in 0..3 {
+        assert_eq!(status(i), 200);
+    }
+    assert_eq!(status(3), 429);
+}
+
+#[test]
+fn general_limit_of_zero_never_refuses() {
+    let peer = spawn_peer_with(0x5a, &["--rate-per-ip-per-minute", "0"]);
+    for i in 0..50 {
+        let (status, _, body) = get(&peer, "/status", &[]);
+        assert_eq!(status, 200, "request {}: {body}", i + 1);
+    }
+}
+
+/// Over the limit, a path outside the peer's own routes gets the
+/// handshake server's empty-body 429, plus `Retry-After`.
+fn assert_empty_429(peer: &Peer, path: &str) {
+    let (status, headers, body) = get(peer, path, &[]);
+    assert_eq!(status, 429, "{path}: {body}");
+    assert!(retry_after(&headers) >= 1, "{path}");
+    assert_eq!(headers["cache-control"], "no-store", "{path}");
+    assert!(body.is_empty(), "{path}: {body}");
+}
+
+#[test]
+fn manifest_over_the_general_limit_gets_an_empty_429() {
+    let peer = spawn_peer_with(0x5b, &["--rate-per-ip-per-minute", "1"]);
+    assert_eq!(get(&peer, "/.well-known/aitp-manifest", &[]).0, 200);
+    assert_empty_429(&peer, "/.well-known/aitp-manifest");
+}
+
+#[test]
+fn unknown_path_over_the_general_limit_gets_an_empty_429() {
+    let peer = spawn_peer_with(0x5c, &["--rate-per-ip-per-minute", "1"]);
+    assert_eq!(get(&peer, "/nope", &[]).0, 404);
+    assert_empty_429(&peer, "/nope");
+}

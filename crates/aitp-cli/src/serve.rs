@@ -125,6 +125,13 @@ pub(crate) struct ServeArgs {
     /// hour: a burst of this many, refilling evenly over the hour.
     #[arg(long, env = "AITP_ENROL_PER_IP_PER_HOUR", default_value_t = 5)]
     enrol_per_ip_per_hour: u32,
+    /// Requests allowed per client IP (IPv6: per /64) per minute, on
+    /// every route, before the route's own limits. 0 turns it off.
+    #[arg(long, env = "AITP_RATE_PER_IP_PER_MINUTE", default_value_t = 120)]
+    rate_per_ip_per_minute: u32,
+    /// Burst for `--rate-per-ip-per-minute`. Default: the per-minute value.
+    #[arg(long, env = "AITP_RATE_BURST", value_name = "N")]
+    rate_burst: Option<u32>,
 }
 
 pub(crate) fn run(args: ServeArgs) -> CliResult {
@@ -184,6 +191,7 @@ async fn serve(args: ServeArgs, key: Arc<AitpSigningKey>) -> CliResult {
         echo_nonces: InMemoryNonceStore::new(MAX_OUTSTANDING_CHALLENGES),
         // One `aitp echo` spends two: a challenge, then the answer.
         echo_limiter: TokenBucketLimiter::new(10, 1.0 / 6.0),
+        general_limiter: general_limiter(args.rate_per_ip_per_minute, args.rate_burst),
         revoked: HashSet::new(),
         trusted_proxies: args.trusted_proxies,
         client_ip_header: args.client_ip_header,
@@ -210,6 +218,14 @@ async fn serve(args: ServeArgs, key: Arc<AitpSigningKey>) -> CliResult {
     Ok(())
 }
 
+/// The `--rate-per-ip-per-minute` bucket: `burst` (default `per_minute`)
+/// at once, refilling `per_minute` a minute. `None` for 0, explicitly,
+/// since [`TokenBucketLimiter::new`] would clamp it to 1.
+fn general_limiter(per_minute: u32, burst: Option<u32>) -> Option<TokenBucketLimiter> {
+    (per_minute > 0)
+        .then(|| TokenBucketLimiter::new(burst.unwrap_or(per_minute), f64::from(per_minute) / 60.0))
+}
+
 /// Shared state of the interop routes.
 struct Interop {
     key: Arc<AitpSigningKey>,
@@ -223,6 +239,8 @@ struct Interop {
     echo_nonces: InMemoryNonceStore,
     /// Both `/echo` routes, per client address.
     echo_limiter: TokenBucketLimiter,
+    /// Every route, per client address; `None` when turned off.
+    general_limiter: Option<TokenBucketLimiter>,
     /// The deny list behind the served `ListRevoked` snapshot: empty,
     /// because this peer revokes nothing.
     revoked: HashSet<Uuid>,
@@ -307,6 +325,13 @@ fn router(peer: Arc<Interop>) -> Router {
         .route("/status", get(status))
         .fallback(aitp_routes)
         .with_state(Arc::clone(&peer))
+        // Last added runs first: limits, then client_ip, then this, so
+        // it keys on the rewritten client address and the body is
+        // already drained when it refuses.
+        .layer(middleware::from_fn_with_state(
+            Arc::clone(&peer),
+            general_limit,
+        ))
         .layer(middleware::from_fn_with_state(peer, client_ip))
         .layer(middleware::from_fn(limits))
 }
@@ -336,6 +361,46 @@ async fn client_ip(State(peer): State<Arc<Interop>>, mut request: Request, next:
         }
     }
     next.run(request).await
+}
+
+/// The peer's own routes, which answer a refusal with a JSON body.
+const JSON_ROUTES: [&str; 5] = [
+    enrol::CHALLENGE_PATH,
+    enrol::ENROLL_PATH,
+    echo::CHALLENGE_PATH,
+    echo::ECHO_PATH,
+    "/status",
+];
+
+/// `--rate-per-ip-per-minute`: one token per request on every route,
+/// keyed like the enrolment limit. Over it, the peer's own routes get
+/// [`rate_limited`]; the AITP routes and unknown paths get the handshake
+/// server's empty-body 429 (RFC-AITP-0009 §3.1) plus `Retry-After`.
+async fn general_limit(State(peer): State<Arc<Interop>>, request: Request, next: Next) -> Response {
+    let Some(limiter) = &peer.general_limiter else {
+        return next.run(request).await;
+    };
+    let addr = request
+        .extensions()
+        .get::<ConnectInfo<SocketAddr>>()
+        .map(|c| c.0);
+    let Some(addr) = addr else {
+        return next.run(request).await;
+    };
+    let source = peer.source(addr, request.headers());
+    let Err(retry) = limiter.check_key(source.transport_key()) else {
+        return next.run(request).await;
+    };
+    let path = request.uri().path();
+    tracing::debug!(source = source.transport_key(), path, "general rate limit");
+    if JSON_ROUTES.contains(&path) {
+        return rate_limited(retry);
+    }
+    let mut response = StatusCode::TOO_MANY_REQUESTS.into_response();
+    let headers = response.headers_mut();
+    headers.insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    headers.insert(header::RETRY_AFTER, retry_after_secs(retry));
+    response
 }
 
 /// Body cap and deadline for every request, the AITP routes included
@@ -416,11 +481,19 @@ fn rate_limited(retry_after: Duration) -> Response {
         "rate_limited",
         "too many requests from this address",
     );
-    let secs = retry_after.as_secs().max(1).to_string();
-    if let Ok(v) = secs.parse() {
-        response.headers_mut().insert(header::RETRY_AFTER, v);
-    }
     response
+        .headers_mut()
+        .insert(header::RETRY_AFTER, retry_after_secs(retry_after));
+    response
+}
+
+/// A `Retry-After` in whole seconds, rounded up, at least 1.
+fn retry_after_secs(wait: Duration) -> HeaderValue {
+    let secs = wait
+        .as_secs()
+        .saturating_add(u64::from(wait.subsec_nanos() > 0))
+        .max(1);
+    HeaderValue::from(secs)
 }
 
 async fn enroll_challenge(
@@ -462,8 +535,10 @@ async fn enroll_challenge(
                 "enrol_busy",
                 "too many outstanding challenges; retry shortly",
             );
-            if let Some(v) = retry_after.and_then(|d| d.as_secs().max(1).to_string().parse().ok()) {
-                response.headers_mut().insert(header::RETRY_AFTER, v);
+            if let Some(wait) = retry_after {
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, retry_after_secs(wait));
             }
             response
         }
@@ -598,8 +673,10 @@ async fn echo_challenge(
                 "echo_busy",
                 "too many outstanding challenges; retry shortly",
             );
-            if let Some(v) = retry_after.and_then(|d| d.as_secs().max(1).to_string().parse().ok()) {
-                response.headers_mut().insert(header::RETRY_AFTER, v);
+            if let Some(wait) = retry_after {
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, retry_after_secs(wait));
             }
             return response;
         }
@@ -962,6 +1039,7 @@ mod tests {
             enrol_limiter: TokenBucketLimiter::new(10, 1.0),
             echo_nonces: InMemoryNonceStore::new(10),
             echo_limiter: TokenBucketLimiter::new(10, 1.0),
+            general_limiter: None,
             revoked: HashSet::new(),
             trusted_proxies: vec![],
             client_ip_header: None,
@@ -1002,6 +1080,13 @@ mod tests {
             Ok(_) => "ok",
             Err(Refusal(_, code, _)) => code,
         }
+    }
+
+    #[test]
+    fn general_limit_of_zero_is_off() {
+        assert!(general_limiter(0, None).is_none());
+        assert!(general_limiter(0, Some(5)).is_none());
+        assert!(general_limiter(120, None).is_some());
     }
 
     #[tokio::test]

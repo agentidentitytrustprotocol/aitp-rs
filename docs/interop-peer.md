@@ -28,6 +28,9 @@ issued back to its `/echo`, with proof of possession. See [cli.md](cli.md) for b
 | `POST /echo/challenge`, `POST /echo` | Present the TCT the peer issued you, with proof of possession; get its verified claims back. |
 | `GET /status` | `{"status": "ok", "aid", "version", "capabilities", "enrolled"}`. |
 
+Every route, unknown paths included, sits behind a general per-address
+rate limit (below).
+
 ```mermaid
 sequenceDiagram
     participant C as aitp (you)
@@ -113,6 +116,7 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 
 | Limit | Value | Setting |
 |---|---|---|
+| Every request, any route, per client address | A token bucket: a burst of 120, then 120 a minute (one every 0.5 s). Over it: 429 with `Retry-After`. On the peer's own routes (`/enroll`, `/enroll/challenge`, `/echo`, `/echo/challenge`, `/status`) the body is the `rate_limited` JSON error; on every other path, AITP routes and unknown paths alike, it is empty, with `Cache-Control: no-store`, matching the handshake's own 429 (RFC-AITP-0009 §3.1). `0` turns it off; `--rate-burst 0` does not (it means a burst of 1). It tracks up to 100 000 addresses; once that many have a partly drained bucket, a new address is refused on every route until buckets refill. | `--rate-per-ip-per-minute` / `AITP_RATE_PER_IP_PER_MINUTE`, `--rate-burst` / `AITP_RATE_BURST` |
 | Enrolment lifetime | 24 h; enrolling again refreshes it | `--enrol-ttl` / `AITP_ENROL_TTL` |
 | Enrolled keys held | 10 000; at the cap the oldest enrolment goes first | `--enrol-cap` / `AITP_ENROL_CAP` |
 | `POST /enroll` per client address | A token bucket: a burst of 5, then one every 12 minutes (5 an hour). Every attempt counts, valid or not. | `--enrol-per-ip-per-hour` |
@@ -122,6 +126,10 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 | Handshake requests | RFC-AITP-0009 §3.1 defaults: 30 per source and 10 per sender AID per 60 s | — |
 | Request body | 64 KiB, every route → 413. The peer reads and discards the rest of an over-limit body, up to 1 MiB, before it answers, so the 413 reaches the client and the connection stays open. A declared `Content-Length` over 1 MiB is refused without reading the body. | — |
 | Request deadline | 15 s → 408 | — |
+
+The general limit is checked first, so the stricter per-route buckets
+below it still decide once a client is under 120 a minute. A full client
+run (enrol, handshake, echo) is about 8 requests.
 
 A client address is the TCP peer, or the client named in
 `X-Forwarded-For` when the TCP peer is a `--trusted-proxy`: the
@@ -268,6 +276,8 @@ proxy with `--trusted-proxy` so the per-address limits see clients.
 | `--enrol-ttl <SECS>` | `AITP_ENROL_TTL` | `86400` |
 | `--enrol-cap <N>` | `AITP_ENROL_CAP` | `10000` |
 | `--enrol-per-ip-per-hour <N>` | `AITP_ENROL_PER_IP_PER_HOUR` | `5` |
+| `--rate-per-ip-per-minute <N>` | `AITP_RATE_PER_IP_PER_MINUTE` | `120`. The general limit on every request per client address; `0` turns it off. |
+| `--rate-burst <N>` | `AITP_RATE_BURST` | the per-minute value |
 
 The peer's key is its identity: its AID is what clients see, and a new
 key is a new peer. Keep it in a secret store and pass it through
@@ -285,8 +295,8 @@ does every change, and on its own only prints the plan:
 
 | Command | What it does |
 |---|---|
-| `deploy.sh` | Prints the ref, variables, peer AID and live state. Changes nothing. |
-| `deploy.sh --apply [--ref R]` | Pipes the key from Doppler into Railway and sets the other variables. Then it deploys `R` (default `origin/main`) from a clean worktree, waits for `/status` to show the peer AID, and runs [`scripts/interop-peer-smoke.sh`](../scripts/interop-peer-smoke.sh) against the public URL. |
+| `deploy.sh` | Prints the ref, the peer AID, the variable sync's dry run and the live state. Changes nothing. |
+| `deploy.sh --apply [--ref R]` | Checks that Doppler's `AITP_PUBLIC_URL` matches the environment's URL, runs `doppler-sync.sh --apply --no-redeploy` (and stops if it refuses), and sets only `RAILWAY_DOCKERFILE_PATH` itself. Then it deploys `R` (default `origin/main`) from a clean worktree, waits for `/status` to show the peer AID, and runs [`scripts/interop-peer-smoke.sh`](../scripts/interop-peer-smoke.sh) against the public URL. |
 | `deploy.sh --previous` | Redeploys the deployment before the latest one. |
 | `deploy.sh --rollback` | Removes the live deployment, so the peer is offline, and prints the DNS record to delete. `--apply` or `--previous` brings it back. |
 
@@ -299,7 +309,8 @@ you're done.
 flowchart LR
     client["client"] -->|"TLS<br/>interop.agentidentitytrustprotocol.io"| edge["Railway edge<br/>100.64.0.0/10"]
     edge -->|"plain HTTP<br/>X-Real-IP: client"| peer["aitp serve --interop"]
-    doppler[("Doppler<br/>AITP_PEER_KEY")] -.->|"deploy.sh --apply"| peer
+    doppler[("Doppler<br/>aitp-interop-peer")] -.->|"doppler-sync.sh<br/>(run by deploy.sh --apply)"| vars["Railway variables"]
+    vars -.-> peer
 ```
 
 DNS for `agentidentitytrustprotocol.io` is hosted at Squarespace, which
@@ -308,3 +319,64 @@ domain, and `_railway-verify.interop` is a TXT record that proves
 ownership: Railway issues the TLS certificate only after it sees it.
 `deploy.sh` prints either record while it is missing, so adding (or
 deleting) them is the one manual step.
+
+### Variables (Doppler)
+
+Doppler is the source of truth for the peer's Railway variables:
+project `aitp-interop-peer`, config `prd` for the `production`
+environment and `stg` for `staging`.
+[`deploy/doppler-sync.sh`](../deploy/doppler-sync.sh) copies the keys
+listed in [`deploy/doppler-keys.txt`](../deploy/doppler-keys.txt) from
+Doppler into Railway:
+
+| Key | Kind |
+|---|---|
+| `AITP_PEER_KEY` | Secret: the peer's identity. In `stg` it is a Doppler reference to `prd`'s value, so staging presents the production AID. |
+| `AITP_PUBLIC_URL` | Config: differs per environment. |
+| `AITP_TRUSTED_PROXIES`, `AITP_CLIENT_IP_HEADER` | Config: Railway's edge range and its client IP header. |
+| `RUST_LOG` | Config. |
+
+`RAILWAY_DOCKERFILE_PATH` stays Railway-managed: `deploy.sh` sets it, and
+sets nothing else. `--environment` takes `production` (config `prd`) or
+`staging` (config `stg`). For a new environment, set `AITP_PUBLIC_URL`
+in Doppler before the first `--apply`; `deploy.sh` stops and says so
+otherwise.
+The sync refuses `RAILWAY_*` keys and Railway references (`${{…}}`),
+and never deletes a variable.
+
+The enrolment and rate-limit settings (`AITP_ENROL_*`,
+`AITP_RATE_PER_IP_PER_MINUTE`, `AITP_RATE_BURST`) are not on the list,
+so the peer runs with the defaults in the limits table above. To
+override one, set it in Doppler in both `prd` and `stg` first (by pipe,
+as below), then add it to `deploy/doppler-keys.txt` in the same PR. If
+the key is listed but missing from either config, the sync refuses it
+as `missing-in-doppler`, and that also stops `deploy.sh --apply`. Never
+set it in Railway directly: Doppler is the only writer.
+
+| Command | What it does |
+|---|---|
+| `doppler-sync.sh [--environment E]` | Dry run: prints each key's status (`unchanged`, `new`, `changed`, or a refusal) and whether the Doppler and Railway fingerprints match. Never prints a value. |
+| `doppler-sync.sh --apply` | Writes `new` keys, then redeploys once. With nothing to write it prints `no-op` and redeploys nothing. |
+| `doppler-sync.sh --apply --push K` | Also overwrites `K`, whose Railway value differs from Doppler's. Without `--push`, `--apply` refuses a key the two disagree on, so a person decides which value wins. |
+| `--no-redeploy` | Writes without redeploying; the values apply on the next deploy. |
+
+To change a value, set it in Doppler by pipe (`doppler secrets set`
+echoes values, so discard its output), then push it:
+
+```sh
+printf %s "$new_value" | doppler secrets set RUST_LOG -p aitp-interop-peer -c prd >/dev/null
+deploy/doppler-sync.sh --apply --push RUST_LOG
+```
+
+`--apply` refuses to run while the sync script or the allowlist is
+uncommitted or modified, so it applies the reviewed allowlist. It runs
+from your checkout, not from the ref being deployed.
+
+Seeded 2026-11-08 from Railway's own values: both configs hold all five
+keys, `stg`'s `AITP_PEER_KEY` is the reference, and the dry run shows
+every key `unchanged` with matching fingerprints (production
+`1f097b3456d944ff`, staging `54b6871b256e175a`).
+
+**Event freeze, 2026-11-09 to 2026-11-15 UTC:** nothing may redeploy
+the peer. Against interop-peer only a dry run, a no-op `--apply`, or
+`--apply --no-redeploy` is allowed in that window.

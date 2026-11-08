@@ -20,9 +20,15 @@ env:
 permissions:
   contents: read
 
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   fuzz-pr:
     name: fuzz-pr / ${{ matrix.target }}
+    # release-plz PRs only bump versions and changelogs.
+    if: ${{ !startsWith(github.head_ref, 'release-plz-') }}
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
