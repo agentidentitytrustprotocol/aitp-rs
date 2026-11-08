@@ -238,3 +238,27 @@ release is published, the pin can move to the release.
 **Decided by:** the project lead for the SDK, delegation and session-bundle opt-ins and 0.25.0; Opus for the rest. The session-bundle opt-in replaces strict bundle verification, once the playground's use of it was known.
 **Verdict:** confirmed, with the entry's text corrected. Deferred: closed enums against `VERSIONING.md` (#176 item 18), and the step 6 overlap, until a spec ruling.
 **Status:** CONFIRMED (2026-11-01) in part; see the entry.
+
+## D17 — One-time CI-cost pass (decided 2026-11-08, plan: interop-peer-hardening P5).
+**Context:** the owner's one-time CI-cost pass (requested 2026-11-05 for every repo). 30-day baseline: about 42.5k job-min (sample of 2,810 runs). The repo is public, so this cost $0. See `docs/ci-cost.md`.
+**Decision (Opus):**
+- cargo-audit is installed as a prebuilt binary through `taiki-e/install-action`, pinned by SHA.
+- `fuzz-pr` skips `release-plz-*` PRs and cancels superseded runs.
+- The test matrix, coverage, bench-check and interop peer (docker) jobs are gated on a `changes` job that fails closed. `scripts/ci-changes.sh` replaces `dorny/paths-filter`, so a broken filter runs everything.
+- The test matrix gates each step, because a job-level `if` on matrix legs would leave their required contexts pending.
+- No required check was removed or renamed: all 21 contexts still match branch protection. Deploy and release jobs were not touched.
+- Runner sizes are unchanged: Linux jobs already use the smallest hosted runner, and the Windows and macOS legs are the cross-platform test.
+**Estimate:** ~8.6k–10k job-min per 30 days saved, about 20–24%.
+**Not done:** a merge queue (`merge_group` with `base_sha`). It changes how PRs merge, so it is the owner's call. The doc gives the steps.
+**Reversible:** yes, by reverting the workflow commit.
+**Status:** DECIDED (2026-11-08).
+
+## D18 — interop-peer hardening assumptions Q1–Q3 (reconciled 2026-11-08, plan: interop-peer-hardening).
+**Assumption:** see the three `ASSUMPTIONS.md` entries (Q1 `--push`, Q2 staging key reference, Q3 rate-limit default).
+**Analysis (Opus):** all three are reversible without a migration or a contract change:
+- Q1 is a flag in a deploy script, and it puts the "don't pick a winner" hard rule into code.
+- Q3 is a default that `AITP_RATE_PER_IP_PER_MINUTE` overrides with no code change. 120/min per /32 or /64 is well above one interop suite's request rate, and a 429 always carries `Retry-After`. It takes effect only at the first deploy after the 2026-11-09..15 freeze.
+- Q2 records what Railway already ran: staging's key hashed equal to production's. The reference avoids a second copy of the secret.
+**Decided by:** Opus. These entries are not a one-way door, and no peer message counts as owner approval.
+**Verdict:** confirmed. Owner item left open: whether staging should get its own peer key. Creating a key needs owner approval, which has not been given. Staging's latest Railway deployment is REMOVED (since 2026-10-25), so the shared identity is not currently served.
+**Status:** CONFIRMED (2026-11-08).

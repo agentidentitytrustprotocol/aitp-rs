@@ -73,10 +73,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.90.0"
-      # See ci.yml's `audit` job for why this is an explicit `--locked`
-      # install rather than rustsec/audit-check.
+      # Prebuilt binary, as in ci.yml's `audit` job.
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        with:
+          tool: cargo-audit
       - name: Audit aitp-py
         run: cargo audit --file bindings/aitp-py/Cargo.lock
       - name: Audit aitp-node

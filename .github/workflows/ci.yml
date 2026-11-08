@@ -22,36 +22,33 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Detect whether a PR touches Rust/build inputs. The heavy net-new jobs
-  # below (conformance, wasm) gate on this so a docs-only PR skips them
-  # instead of spending several minutes rebuilding the workspace — the
-  # same gating `xcheck`/`e2e-llm-build` already use safely as required
-  # checks (a job skipped via `if:` reports "skipped", which satisfies a
-  # required status check; it's a job that never runs at all — e.g. a
-  # typo'd name — that deadlocks branch protection). `test`/`coverage`
-  # are not conditionally skipped at all — they always run — so there's
-  # no skip semantics to reason about for those two. `cargo-semver-checks`
-  # lives in semver.yml.
+  # Detect whether a PR touches Rust/build inputs (scripts/ci-changes.sh).
+  # The jobs below that only build and test Rust are gated on it, FAILING
+  # CLOSED: each runs unless `changes` succeeded AND said rust=false, so a
+  # broken or skipped `changes` job runs everything. A job skipped via
+  # `if:` reports "skipped", which satisfies a required status check.
+  # The matrix `test` job is gated per step instead (see there): a matrix
+  # job skipped at job level reports one check under its unexpanded name,
+  # so the required `test (…)` contexts would never report. `audit`,
+  # `deny`, fmt/clippy and the doc checks are not gated. Cost notes:
+  # docs/ci-cost.md. `cargo-semver-checks` lives in semver.yml.
   changes:
     name: detect changes
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
     outputs:
       rust: ${{ steps.filter.outputs.rust }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-      - uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v3
-        id: filter
-        with:
-          filters: |
-            rust:
-              - 'crates/**'
-              - 'tests/**'
-              - 'scripts/**'
-              - 'tools/**'
-              - 'Cargo.toml'
-              - 'Cargo.lock'
-              - 'rust-toolchain.toml'
-              - '.github/workflows/ci.yml'
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: bash scripts/ci-changes.sh
 
   fmt:
     name: rustfmt
@@ -83,7 +80,7 @@ jobs:
   features:
     name: feature matrix
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -133,7 +130,12 @@ jobs:
 
   test:
     name: test (${{ matrix.os }} / ${{ matrix.toolchain }})
+    needs: changes
+    # Never skipped at job level (see `changes`); its steps are gated on RUN.
+    if: ${{ !cancelled() }}
     runs-on: ${{ matrix.os }}
+    env:
+      RUN: ${{ needs.changes.result != 'success' || needs.changes.outputs.rust != 'false' }}
     strategy:
       fail-fast: false
       matrix:
@@ -144,19 +146,25 @@ jobs:
             toolchain: "1.90.0"   # MSRV gate — kept in lockstep with rust-toolchain.toml and rust-version
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
-      - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
+      - if: env.RUN == 'true'
+        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: ${{ matrix.toolchain }}
-      - uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
-      - name: Install cargo-nextest
+      - if: env.RUN == 'true'
+        uses: Swatinem/rust-cache@c8037a86dde8214a8310e9f54a8fc61ab362aa31 # v2
+      - if: env.RUN == 'true'
+        name: Install cargo-nextest
         uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
         with:
           tool: cargo-nextest
-      - run: cargo build --workspace --all-targets --all-features
+      - if: env.RUN == 'true'
+        run: cargo build --workspace --all-targets --all-features
       # nextest is faster and gives clearer per-test output, but it does
       # NOT run doctests — those need a separate `cargo test --doc` pass.
-      - run: cargo nextest run --workspace --all-features --no-fail-fast
-      - run: cargo test --doc --workspace --all-features
+      - if: env.RUN == 'true'
+        run: cargo nextest run --workspace --all-features --no-fail-fast
+      - if: env.RUN == 'true'
+        run: cargo test --doc --workspace --all-features
 
   docs:
     name: docs
@@ -189,20 +197,15 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master
         with:
           toolchain: "1.90.0"
-      # Installed explicitly instead of via rustsec/audit-check, which runs
-      # a plain `cargo install cargo-audit`. Unlocked, cargo resolves
-      # cargo-audit's dependencies to their newest semver-compatible
-      # versions -- and one of those (kstring 2.0.4) now requires rustc
-      # 1.96, above this repo's 1.90 MSRV pin. The tool then fails to BUILD
-      # and the job goes red without ever auditing anything, which reads as
-      # a security failure but is a toolchain-resolution failure.
-      #
-      # `--locked` makes cargo-audit's own committed lockfile govern its
-      # dependency versions, which are chosen to build on older rustc.
-      # Verified: `cargo install cargo-audit --locked` compiles under
-      # 1.90.0 and `cargo audit` then scans cleanly.
+      # A prebuilt cargo-audit binary instead of compiling it (minutes per
+      # run). Not rustsec/audit-check: that runs an unlocked `cargo install`,
+      # whose newest dependencies need a newer rustc than this repo's 1.90
+      # pin, so the tool failed to build and the job went red without
+      # auditing anything. A prebuilt binary has no build step to break.
       - name: Install cargo-audit
-        run: cargo install cargo-audit --locked
+        uses: taiki-e/install-action@86f7a0ffb25f40114606501a311ebcfaf882ea32 # v2
+        with:
+          tool: cargo-audit
       - name: Audit the dependency tree
         run: cargo audit
 
@@ -241,15 +244,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
       - name: shellcheck
-        run: shellcheck deploy/*.sh deploy/interop-peer/deploy.sh scripts/doppler-sync-test.sh
+        run: shellcheck deploy/*.sh deploy/interop-peer/deploy.sh scripts/doppler-sync-test.sh scripts/ci-changes.sh scripts/ci-changes-test.sh
       - name: doppler-sync harness
         run: bash scripts/doppler-sync-test.sh
+      - name: ci-changes classifier tests
+        run: bash scripts/ci-changes-test.sh
 
   interop-peer-docker:
     # RS4.2 acceptance: the interop peer's image builds and a client
     # completes `aitp enroll` -> `aitp echo` (handshake + PoP /echo) against
     # a local `docker run` of it.
     name: interop peer (docker)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -328,6 +335,8 @@ jobs:
   # merges on it; promote to required once it's proven stable in CI.
   bench-check:
     name: bench-check
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -339,6 +348,8 @@ jobs:
 
   coverage:
     name: coverage (tarpaulin)
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -460,7 +471,7 @@ jobs:
   conformance:
     name: conformance fixtures
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
@@ -631,7 +642,7 @@ jobs:
   xcheck:
     name: cross-impl acceptance (aitp-verifier-py)
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
@@ -745,7 +756,7 @@ jobs:
   xcheck-ts:
     name: cross-impl acceptance (aitp-verifier-ts)
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
@@ -842,7 +853,7 @@ jobs:
   xcheck-go:
     name: cross-impl acceptance (aitp-verifier-go)
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout aitp-rs
@@ -926,7 +937,7 @@ jobs:
   wasm:
     name: wasm portability check
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
@@ -955,7 +966,7 @@ jobs:
   e2e-llm-build:
     name: tier-3 e2e build (no API calls)
     needs: changes
-    if: needs.changes.outputs.rust == 'true'
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.rust != 'false') }}
     runs-on: ubuntu-latest
     # `tests/e2e-llm` is excluded from the workspace (it talks to live
     # LLM provider APIs), so `fmt`, `clippy` and `test` above do NOT
