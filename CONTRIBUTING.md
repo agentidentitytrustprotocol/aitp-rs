@@ -141,6 +141,9 @@ entries from them, so the commit type matters:
   alone.
 - A squash merge uses the PR title as the commit subject, so make the PR
   title a valid Conventional Commit too, including any `!`.
+- `main` has a merge queue: merge with `gh pr merge --auto` or "Merge when
+  ready". The queue re-runs the required checks on `main` plus the PR
+  before it lands (see [`docs/ci-cost.md`](docs/ci-cost.md#merge-queue-enabled-2026-11-08)).
 
 Also:
 
