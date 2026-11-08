@@ -4,6 +4,11 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The merge queue: every required check must report on this event, or a
+  # queued PR waits until the queue's check timeout. Every job here runs
+  # (or reports "skipped" via its fail-closed `if:`) on merge_group too.
+  merge_group:
+    types: [checks_requested]
   workflow_dispatch:
 
 env:
@@ -22,7 +27,8 @@ concurrency:
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
-  # Detect whether a PR touches Rust/build inputs (scripts/ci-changes.sh).
+  # Detect whether a PR (or a merge-queue group) touches Rust/build inputs
+  # (scripts/ci-changes.sh).
   # The jobs below that only build and test Rust are gated on it, FAILING
   # CLOSED: each runs unless `changes` succeeded AND said rust=false, so a
   # broken or skipped `changes` job runs everything. A job skipped via
@@ -48,6 +54,10 @@ jobs:
           EVENT_NAME: ${{ github.event_name }}
           REPO: ${{ github.repository }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          # merge_group only: the script fetches whichever commit the
+          # depth-1 checkout lacks, and fails closed if it cannot.
+          BASE_SHA: ${{ github.event.merge_group.base_sha }}
+          HEAD_SHA: ${{ github.event.merge_group.head_sha }}
         run: bash scripts/ci-changes.sh
 
   fmt:
