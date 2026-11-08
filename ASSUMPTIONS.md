@@ -213,3 +213,27 @@
 - **Alternatives:** a schema validator dependency in `aitp` (changes the dependency tree); the endpoint check alone (leaves the rest of step 2 open); no SDK switch (breaks deployed consumers whose local runs advertise `http://localhost`, so the SDKs take the same default-off, loopback-only opt-in, on the Manifest verify call, sessions and delegation).
 - **Blast radius if wrong:** a too-strict check rejects a Manifest with `MANIFEST_INVALID`; the schema-oracle test and the conformance corpus bound it, and the fix is local to `check_grammar`. Closed enums are the exception: a later loosening does not reach verifiers already deployed.
 - **Status:** see D16. CONFIRMED (2026-11-01), except closed `accepted_identity_types` / `accepted_signature_algorithms` against the spec repo's `VERSIONING.md:104` (UNCONFIRMED, spec issue #176 item 18) and the step 6 overlap (UNCONFIRMED, awaiting a spec ruling).
+
+## interop-peer Doppler sync: changed keys need `--push` (plan interop-peer-hardening, Q1)
+- **Plan:** plans/interop-peer-hardening.md P1.
+- **Assumed:** when Doppler and Railway disagree on a key, neither side is presumed right (hard rule: stop, report, don't pick a winner).
+- **Chose:** a dry run reports the key and exits 0; `--apply` refuses unless each changed key is named with `--push KEY`. New keys (absent in Railway) are written without `--push`.
+- **Alternatives:** Doppler always wins (acdp-registry-rs pattern; violates the hard rule); a `--force` flag for all keys (too coarse).
+- **Blast radius if wrong:** an operator needs one extra flag; reversible in the script.
+- **Status:** see D18. CONFIRMED (2026-11-08).
+
+## interop-peer general per-IP rate limit default (plan interop-peer-hardening, Q3)
+- **Plan:** plans/interop-peer-hardening.md P4.
+- **Assumed:** 120 requests/min per client address (IPv4 /32, IPv6 /64), burst 120, no route exemptions, is generous for interop testers and still bounds a single-source flood.
+- **Chose:** `--rate-per-ip-per-minute 120` default, `0` off, `--rate-burst` defaulting to the per-minute value; outermost layer, keyed on the trusted-proxy-resolved address.
+- **Alternatives:** exempt `/status` or `/.well-known` (health checks come from Railway's edge, which is one source; not exempted so a flood can't ride them); lower default (risks interop suites that loop).
+- **Blast radius if wrong:** legitimate testers see 429 with Retry-After; fixed by `AITP_RATE_PER_IP_PER_MINUTE` without code change. Takes effect only at the next deploy (after 2026-11-15).
+- **Status:** see D18. CONFIRMED (2026-11-08).
+
+## interop-peer staging peer key is a Doppler reference to prd (plan interop-peer-hardening, Q2)
+- **Plan:** plans/interop-peer-hardening.md P2.
+- **Assumed:** staging is meant to present the production AID, as it does today (Railway staging's AITP_PEER_KEY hashed equal to production's on 2026-11-08).
+- **Chose:** Doppler stg `AITP_PEER_KEY` = `${prd.AITP_PEER_KEY}`, so a prod rotation follows automatically and there is one copy of the secret.
+- **Alternatives:** a literal copy (two copies to rotate); a new staging key (needs owner approval; not given).
+- **Blast radius if wrong:** staging keeps sharing the prod identity; replacing the reference with a new key is one Doppler write plus a staging deploy.
+- **Status:** see D18. CONFIRMED (2026-11-08) as a record of the current state. A separate staging key is still the owner's call.
