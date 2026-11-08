@@ -1,6 +1,6 @@
 # CI cost
 
-This page records the one-time CI-cost pass (2026-11-08): what CI used, what changed, and the next step if it needs to drop further. The repository is public, so GitHub-hosted runner minutes cost $0. The numbers matter for queue time and for the shared runner limits, not for billing.
+This page records the one-time CI-cost pass (2026-11-08): what CI used, what changed, and the merge queue enabled afterwards. The repository is public, so GitHub-hosted runner minutes cost $0. The numbers matter for queue time and for the shared runner limits, not for billing.
 
 ## Baseline: 2026-10-08 to 2026-11-07
 
@@ -42,7 +42,7 @@ On a pull request, the `changes` job lists the PR's changed files with `gh api �
 - a missing repository or PR number;
 - a list at the API's 3,000-file cap.
 
-Every other event (push to `main`, manual dispatch) always runs everything.
+In the merge queue (`merge_group`) the list is a `git diff` of the group instead; see [Merge queue](#merge-queue-enabled-2026-11-08). Every other event (push to `main`, manual dispatch) always runs everything.
 
 The gated jobs run unless the `changes` job succeeded and said `rust=false`:
 
@@ -56,12 +56,13 @@ Deploy and release workflows were not touched. That includes the PR-triggered `a
 
 Two limits of the filter, both accepted: a PR that edits `scripts/ci-changes.sh` is classified by its own edited copy (no worse than editing `ci.yml`), and the `release-plz-` skip in `fuzz-pr.yml` keys on the branch name, which any contributor can choose. `fuzz-pr` is not a required check; if it becomes one, its job-level `if` must move to the steps like `test`.
 
-## Next lever: a merge queue
+## Merge queue (enabled 2026-11-08)
 
-The repository has no merge queue today: a PR's own run is its last run before merge, plus the `push` run on `main` (7.2k job-min). If a merge queue is enabled:
+The owner enabled a merge queue on `main` on 2026-11-08 (DECISIONS.md D19). PRs merge through the queue. A PR's own run is no longer its last run: the queue builds a temporary `gh-readonly-queue/main/pr-<N>-<sha>` branch (`main` plus every PR queued ahead of it, squashed) and runs every required check on it as a `merge_group` event. Only a green group merges.
 
-1. Add `merge_group:` to `ci.yml`'s triggers.
-2. In `scripts/ci-changes.sh`, add a `merge_group` branch. It should diff `github.event.merge_group.base_sha` against `head_sha`, which needs a checkout deep enough to hold both commits. It should fail closed on a missing SHA or a failed diff, and cover each of those cases in `scripts/ci-changes-test.sh`.
-3. Consider dropping the `push`-to-`main` run of the heavy jobs (coverage, feature matrix), because the queue already tested the exact merge commit.
+- **Triggers.** `ci.yml`, `semver.yml` and `readme-smoke.yml` own all the required checks, and each runs on `merge_group`. The required checks are the original 21 plus `shell scripts`, which became required the same day. The live README job (public peer) does not run in the queue. With a queue on, a required check that never reports on `merge_group` blocks every PR until the check-response timeout. So a new required check must run on `merge_group` too, or report "skipped" through a job-level `if:`. The jobs must not be absent.
+- **Gating.** `scripts/ci-changes.sh` has a `merge_group` branch. It diffs `merge_group.base_sha..head_sha` in the checkout, fetching a missing commit at depth 1, and reads the paths with `-z` so unusual paths are not quoted. It fails closed (runs everything) on a missing or malformed SHA, an unfetchable commit, a failed diff or an empty diff. `scripts/ci-changes-test.sh` covers each of these cases. A docs-only group therefore skips the Rust jobs the same way a docs-only PR does.
+- **semver.** In the queue the baseline is the queue's base commit, and the `semver-break-approved` label is read from the PR named in the group's `head_ref`. If the label lookup fails, the break counts as not approved. One limit is accepted: if an earlier PR in the same group carries an approved break, a later group fails as well. Re-queue it after the earlier PR has landed.
+- **Settings.** Classic branch protection is unchanged apart from the added `shell scripts` context. The queue is the repository ruleset `main merge queue`, which holds a single `merge_queue` rule: squash, build concurrency 3, merge up to 3, minimum group size 1, wait 1 min, all-green grouping, check-response timeout 60 min. To disable the queue, delete that ruleset (Settings → Rules, or `gh api -X DELETE repos/agentidentitytrustprotocol/aitp-rs/rulesets/26786315`). Classic protection keeps working on its own.
 
-Together these would save about another 5–6k job-min per 30 days. Not done in this pass, because it changes how PRs merge and that needs an owner decision.
+**Estimate.** The queue adds one `merge_group` run per merged PR. That run costs about the same as the `push` run on `main` (7.2k job-min per 30 days, all events), and less for docs-only groups. It also removes the "update branch, run again" cycles that strict up-to-date protection forced on PRs. Net, it is roughly cost-neutral at first. The saving of about 5–6k job-min per 30 days arrives once the heavy `push`-to-`main` jobs (coverage, the feature matrix) are dropped, because the queue already tested the exact commit that lands. That step has **not** been taken: it changes what runs on `main`, and it should wait until the queue has run cleanly for a while.

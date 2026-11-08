@@ -262,3 +262,14 @@ release is published, the pin can move to the release.
 **Decided by:** Opus. These entries are not a one-way door, and no peer message counts as owner approval.
 **Verdict:** confirmed. Owner item left open: whether staging should get its own peer key. Creating a key needs owner approval, which has not been given. Staging's latest Railway deployment is REMOVED (since 2026-10-25), so the shared identity is not currently served.
 **Status:** CONFIRMED (2026-11-08).
+
+## D19 — Merge queue enabled; `shell scripts` is a required check (decided 2026-11-08, owner).
+**Decision (owner, 2026-11-08):** enable a GitHub merge queue on `main` now, and make the `shell scripts` CI job (shellcheck plus the `deploy/doppler-sync.sh` and `ci-changes.sh` test harnesses) a required check.
+**Done:**
+- PR #491 added `merge_group` to `ci.yml`, `semver.yml` and `readme-smoke.yml`, the three workflows that own every required check. It also added a fail-closed `merge_group` branch to `scripts/ci-changes.sh`, with tests.
+- Classic branch protection gained one context, `shell scripts` (GitHub Actions app), for 22 required checks. Everything else in classic protection is unchanged.
+- The queue is the repository ruleset `main merge queue` (id 26786315). It targets `refs/heads/main`, has no bypass actors, and holds one `merge_queue` rule: SQUASH, build 3, merge up to 3, minimum group size 1, wait 1 min, ALLGREEN, check-response timeout 60 min. The ruleset adds to classic protection and does not replace it.
+**Consequence:** PRs merge with `gh pr merge --auto` or "Merge when ready". A new required check must also report on `merge_group`, or every queued PR waits until the 60-minute timeout. Dependabot's `gh pr merge --auto --squash` enqueues.
+**Estimate:** roughly cost-neutral now. Each merged PR gets one more run, the `merge_group` run, and PRs no longer need "update branch" re-runs. About 5–6k job-min per 30 days becomes available once the heavy `push`-to-`main` jobs are dropped. That step is not done (`docs/ci-cost.md`).
+**Reversible:** yes. To disable the queue: `gh api -X DELETE repos/agentidentitytrustprotocol/aitp-rs/rulesets/26786315`. To un-require the check: `gh api -X DELETE repos/agentidentitytrustprotocol/aitp-rs/branches/main/protection/required_status_checks/contexts -f 'contexts[]=shell scripts'`. The `merge_group` triggers do no harm without a queue.
+**Status:** DECIDED (2026-11-08).
