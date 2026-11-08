@@ -28,6 +28,9 @@ issued back to its `/echo`, with proof of possession. See [cli.md](cli.md) for b
 | `POST /echo/challenge`, `POST /echo` | Present the TCT the peer issued you, with proof of possession; get its verified claims back. |
 | `GET /status` | `{"status": "ok", "aid", "version", "capabilities", "enrolled"}`. |
 
+Every route, unknown paths included, sits behind a general per-address
+rate limit (below).
+
 ```mermaid
 sequenceDiagram
     participant C as aitp (you)
@@ -113,6 +116,7 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 
 | Limit | Value | Setting |
 |---|---|---|
+| Every request, any route, per client address | A token bucket: a burst of 120, then 120 a minute (one every 0.5 s). Over it: 429 with `Retry-After`. On the peer's own routes (`/enroll`, `/enroll/challenge`, `/echo`, `/echo/challenge`, `/status`) the body is the `rate_limited` JSON error; on every other path, AITP routes and unknown paths alike, it is empty, with `Cache-Control: no-store`, matching the handshake's own 429 (RFC-AITP-0009 §3.1). `0` turns it off; `--rate-burst 0` does not (it means a burst of 1). It tracks up to 100 000 addresses; once that many have a partly drained bucket, a new address is refused on every route until buckets refill. | `--rate-per-ip-per-minute` / `AITP_RATE_PER_IP_PER_MINUTE`, `--rate-burst` / `AITP_RATE_BURST` |
 | Enrolment lifetime | 24 h; enrolling again refreshes it | `--enrol-ttl` / `AITP_ENROL_TTL` |
 | Enrolled keys held | 10 000; at the cap the oldest enrolment goes first | `--enrol-cap` / `AITP_ENROL_CAP` |
 | `POST /enroll` per client address | A token bucket: a burst of 5, then one every 12 minutes (5 an hour). Every attempt counts, valid or not. | `--enrol-per-ip-per-hour` |
@@ -122,6 +126,10 @@ Every refusal is `{"error": "<code>", "message": "…"}`:
 | Handshake requests | RFC-AITP-0009 §3.1 defaults: 30 per source and 10 per sender AID per 60 s | — |
 | Request body | 64 KiB, every route → 413. The peer reads and discards the rest of an over-limit body, up to 1 MiB, before it answers, so the 413 reaches the client and the connection stays open. A declared `Content-Length` over 1 MiB is refused without reading the body. | — |
 | Request deadline | 15 s → 408 | — |
+
+The general limit is checked first, so the stricter per-route buckets
+below it still decide once a client is under 120 a minute. A full client
+run (enrol, handshake, echo) is about 8 requests.
 
 A client address is the TCP peer, or the client named in
 `X-Forwarded-For` when the TCP peer is a `--trusted-proxy`: the
@@ -268,6 +276,8 @@ proxy with `--trusted-proxy` so the per-address limits see clients.
 | `--enrol-ttl <SECS>` | `AITP_ENROL_TTL` | `86400` |
 | `--enrol-cap <N>` | `AITP_ENROL_CAP` | `10000` |
 | `--enrol-per-ip-per-hour <N>` | `AITP_ENROL_PER_IP_PER_HOUR` | `5` |
+| `--rate-per-ip-per-minute <N>` | `AITP_RATE_PER_IP_PER_MINUTE` | `120`. The general limit on every request per client address; `0` turns it off. |
+| `--rate-burst <N>` | `AITP_RATE_BURST` | the per-minute value |
 
 The peer's key is its identity: its AID is what clients see, and a new
 key is a new peer. Keep it in a secret store and pass it through
