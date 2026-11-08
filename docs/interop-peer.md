@@ -318,3 +318,46 @@ domain, and `_railway-verify.interop` is a TXT record that proves
 ownership: Railway issues the TLS certificate only after it sees it.
 `deploy.sh` prints either record while it is missing, so adding (or
 deleting) them is the one manual step.
+
+### Variables (Doppler)
+
+Doppler is the source of truth for the peer's Railway variables:
+project `aitp-interop-peer`, config `prd` for the `production`
+environment and `stg` for `staging`.
+[`deploy/doppler-sync.sh`](../deploy/doppler-sync.sh) copies the keys
+listed in [`deploy/doppler-keys.txt`](../deploy/doppler-keys.txt) from
+Doppler into Railway:
+
+| Key | Kind |
+|---|---|
+| `AITP_PEER_KEY` | Secret: the peer's identity. In `stg` it is a Doppler reference to `prd`'s value, so staging presents the production AID. |
+| `AITP_PUBLIC_URL` | Config: differs per environment. |
+| `AITP_TRUSTED_PROXIES`, `AITP_CLIENT_IP_HEADER` | Config: Railway's edge range and its client IP header. |
+| `RUST_LOG` | Config. |
+
+`RAILWAY_DOCKERFILE_PATH` stays Railway-managed: `deploy.sh` sets it.
+The sync refuses `RAILWAY_*` keys and Railway references (`${{…}}`),
+and never deletes a variable.
+
+| Command | What it does |
+|---|---|
+| `doppler-sync.sh [--environment E]` | Dry run: prints each key's status (`unchanged`, `new`, `changed`, or a refusal) and whether the Doppler and Railway fingerprints match. Never prints a value. |
+| `doppler-sync.sh --apply` | Writes `new` keys, then redeploys once. With nothing to write it prints `no-op` and redeploys nothing. |
+| `doppler-sync.sh --apply --push K` | Also overwrites `K`, whose Railway value differs from Doppler's. Without `--push`, `--apply` refuses a key the two disagree on, so a person decides which value wins. |
+| `--no-redeploy` | Writes without redeploying; the values apply on the next deploy. |
+
+To change a value, set it in Doppler by pipe (`doppler secrets set`
+echoes values, so discard its output), then push it:
+
+```sh
+printf %s "$new_value" | doppler secrets set RUST_LOG -p aitp-interop-peer -c prd >/dev/null
+deploy/doppler-sync.sh --apply --push RUST_LOG
+```
+
+`--apply` refuses to run while the sync script or the allowlist is
+uncommitted or modified, so it applies the reviewed allowlist. It runs
+from your checkout, not from the ref being deployed.
+
+**Event freeze, 2026-11-09 to 2026-11-15 UTC:** nothing may redeploy
+the peer. Against interop-peer only a dry run, a no-op `--apply`, or
+`--apply --no-redeploy` is allowed in that window.

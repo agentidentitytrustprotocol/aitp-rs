@@ -232,6 +232,19 @@ jobs:
       - run: ./scripts/check-versions.sh
       - run: ./scripts/check-docker-rust.sh
 
+  shell:
+    # Deploy and CI shell scripts: shellcheck plus their offline test
+    # harnesses (fake curl/doppler/gh, no network). Not path-gated: it takes
+    # seconds, and it guards the scripts that write production variables.
+    name: shell scripts
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
+      - name: shellcheck
+        run: shellcheck deploy/*.sh deploy/interop-peer/deploy.sh scripts/doppler-sync-test.sh
+      - name: doppler-sync harness
+        run: bash scripts/doppler-sync-test.sh
+
   interop-peer-docker:
     # RS4.2 acceptance: the interop peer's image builds and a client
     # completes `aitp enroll` -> `aitp echo` (handshake + PoP /echo) against
