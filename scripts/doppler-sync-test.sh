@@ -247,5 +247,11 @@ setup; jq 'del(.RUST_LOG)' "$FAKE/doppler.json" >"$FAKE/d.tmp" && mv "$FAKE/d.tm
 expect "missing in Doppler: non-zero, says set it in Doppler first" \
   bash -c '[ "$0" != 0 ] && grep -q "RUST_LOG not set in Doppler; set each in Doppler first" <<<"$1"' "$code" "$out"
 
+# deploy.sh is not a second writer: it sets no allowlisted key itself.
+keys="$(grep -vE '^[[:space:]]*(#|$)' "$src/deploy/doppler-keys.txt" | paste -sd'|' -)"
+if grep -nE "variable set.*($keys)|($keys)=" "$src/deploy/interop-peer/deploy.sh" >/dev/null; then
+  bad "deploy.sh sets no allowlisted key (doppler-sync.sh is the only writer)"
+else ok "deploy.sh sets no allowlisted key (doppler-sync.sh is the only writer)"; fi
+
 printf '\n%d passed, %d failed\n' "$pass" "$fail"
 [ "$fail" = 0 ]

@@ -295,8 +295,8 @@ does every change, and on its own only prints the plan:
 
 | Command | What it does |
 |---|---|
-| `deploy.sh` | Prints the ref, variables, peer AID and live state. Changes nothing. |
-| `deploy.sh --apply [--ref R]` | Pipes the key from Doppler into Railway and sets the other variables. Then it deploys `R` (default `origin/main`) from a clean worktree, waits for `/status` to show the peer AID, and runs [`scripts/interop-peer-smoke.sh`](../scripts/interop-peer-smoke.sh) against the public URL. |
+| `deploy.sh` | Prints the ref, the peer AID, the variable sync's dry run and the live state. Changes nothing. |
+| `deploy.sh --apply [--ref R]` | Checks that Doppler's `AITP_PUBLIC_URL` matches the environment's URL, runs `doppler-sync.sh --apply --no-redeploy` (and stops if it refuses), and sets only `RAILWAY_DOCKERFILE_PATH` itself. Then it deploys `R` (default `origin/main`) from a clean worktree, waits for `/status` to show the peer AID, and runs [`scripts/interop-peer-smoke.sh`](../scripts/interop-peer-smoke.sh) against the public URL. |
 | `deploy.sh --previous` | Redeploys the deployment before the latest one. |
 | `deploy.sh --rollback` | Removes the live deployment, so the peer is offline, and prints the DNS record to delete. `--apply` or `--previous` brings it back. |
 
@@ -309,7 +309,8 @@ you're done.
 flowchart LR
     client["client"] -->|"TLS<br/>interop.agentidentitytrustprotocol.io"| edge["Railway edge<br/>100.64.0.0/10"]
     edge -->|"plain HTTP<br/>X-Real-IP: client"| peer["aitp serve --interop"]
-    doppler[("Doppler<br/>AITP_PEER_KEY")] -.->|"deploy.sh --apply"| peer
+    doppler[("Doppler<br/>aitp-interop-peer")] -.->|"doppler-sync.sh<br/>(run by deploy.sh --apply)"| vars["Railway variables"]
+    vars -.-> peer
 ```
 
 DNS for `agentidentitytrustprotocol.io` is hosted at Squarespace, which
@@ -335,7 +336,11 @@ Doppler into Railway:
 | `AITP_TRUSTED_PROXIES`, `AITP_CLIENT_IP_HEADER` | Config: Railway's edge range and its client IP header. |
 | `RUST_LOG` | Config. |
 
-`RAILWAY_DOCKERFILE_PATH` stays Railway-managed: `deploy.sh` sets it.
+`RAILWAY_DOCKERFILE_PATH` stays Railway-managed: `deploy.sh` sets it, and
+sets nothing else. `--environment` takes `production` (config `prd`) or
+`staging` (config `stg`). For a new environment, set `AITP_PUBLIC_URL`
+in Doppler before the first `--apply`; `deploy.sh` stops and says so
+otherwise.
 The sync refuses `RAILWAY_*` keys and Railway references (`${{…}}`),
 and never deletes a variable.
 
@@ -357,6 +362,11 @@ deploy/doppler-sync.sh --apply --push RUST_LOG
 `--apply` refuses to run while the sync script or the allowlist is
 uncommitted or modified, so it applies the reviewed allowlist. It runs
 from your checkout, not from the ref being deployed.
+
+Seeded 2026-11-08 from Railway's own values: both configs hold all five
+keys, `stg`'s `AITP_PEER_KEY` is the reference, and the dry run shows
+every key `unchanged` with matching fingerprints (production
+`1f097b3456d944ff`, staging `54b6871b256e175a`).
 
 **Event freeze, 2026-11-09 to 2026-11-15 UTC:** nothing may redeploy
 the peer. Against interop-peer only a dry run, a no-op `--apply`, or
