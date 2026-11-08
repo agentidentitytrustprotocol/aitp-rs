@@ -344,6 +344,15 @@ otherwise.
 The sync refuses `RAILWAY_*` keys and Railway references (`${{…}}`),
 and never deletes a variable.
 
+The enrolment and rate-limit settings (`AITP_ENROL_*`,
+`AITP_RATE_PER_IP_PER_MINUTE`, `AITP_RATE_BURST`) are not on the list,
+so the peer runs with the defaults in the limits table above. To
+override one, set it in Doppler in both `prd` and `stg` first (by pipe,
+as below), then add it to `deploy/doppler-keys.txt` in the same PR. If
+the key is listed but missing from either config, the sync refuses it
+as `missing-in-doppler`, and that also stops `deploy.sh --apply`. Never
+set it in Railway directly: Doppler is the only writer.
+
 | Command | What it does |
 |---|---|
 | `doppler-sync.sh [--environment E]` | Dry run: prints each key's status (`unchanged`, `new`, `changed`, or a refusal) and whether the Doppler and Railway fingerprints match. Never prints a value. |
