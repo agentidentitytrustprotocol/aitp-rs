@@ -2,9 +2,9 @@ name: readme-smoke
 
 # Runs the README's hello world block (the ```bash readme-smoke fence;
 # scripts/extract-readme-block.sh), so it can't rot:
-#   - local: on every pull request and push to main, against an interop
-#     peer built from the checkout, with `cargo install aitp-cli` pointed at
-#     crates/aitp-cli. Blocking: a broken command or flag fails it.
+#   - local: on every pull request, merge-queue group and push to main,
+#     against an interop peer built from the checkout, with
+#     `cargo install aitp-cli` pointed at crates/aitp-cli. Blocking: a broken command or flag fails it.
 #   - live: daily (and on workflow_dispatch), verbatim against the public
 #     peer with aitp-cli from crates.io. Never blocks a PR. A failure opens
 #     (or comments on) a single issue labelled `readme-smoke`, and the next
@@ -12,6 +12,9 @@ name: readme-smoke
 
 on:
   pull_request:
+  # The local job is a required check, so it must report in the merge queue.
+  merge_group:
+    types: [checks_requested]
   push:
     branches: [main]
   schedule:
@@ -28,7 +31,7 @@ concurrency:
 jobs:
   local:
     name: README hello world (local peer)
-    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    if: github.event_name == 'pull_request' || github.event_name == 'push' || github.event_name == 'merge_group'
     runs-on: ubuntu-latest
     env:
       CARGO_TARGET_DIR: ${{ github.workspace }}/target

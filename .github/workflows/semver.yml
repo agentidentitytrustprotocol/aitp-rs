@@ -3,10 +3,20 @@ name: semver
 # `aitp` follows semver (STABILITY.md); `aitp-experimental` carries no
 # promise. This workflow is separate from ci.yml so that adding
 # or removing the `semver-break-approved` label re-runs only this job.
+#
+# In the merge queue (merge_group) the baseline is the queue's base commit
+# (main), so the check covers every PR in the group, and the approval label
+# is read from the PR the group is named after (its head_ref, pr-<N>-<sha>).
+# A failed label lookup counts as "not approved" (the blocking checks run).
+# Accepted limit: if an EARLIER PR in the same group carries an approved
+# break, a later group fails too; re-queue it once the earlier PR has landed.
 
 on:
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
+  # cargo-semver-checks is a required check, so it must report in the queue.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -25,27 +35,60 @@ jobs:
   semver:
     name: cargo-semver-checks
     runs-on: ubuntu-latest
-    env:
-      BREAK_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'semver-break-approved') }}
+    permissions:
+      contents: read
+      pull-requests: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v4
         with:
           fetch-depth: 0
+      # Sets BASELINE (the commit to compare against) and BREAK_APPROVED
+      # for the steps below.
+      - name: Resolve the baseline and the break approval
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE: ${{ github.event.pull_request.base.sha }}
+          PR_APPROVED: ${{ contains(github.event.pull_request.labels.*.name, 'semver-break-approved') }}
+          MG_BASE: ${{ github.event.merge_group.base_sha }}
+          MG_HEAD_REF: ${{ github.event.merge_group.head_ref }}
+          REPO: ${{ github.repository }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT_NAME" = merge_group ]; then
+            base="$MG_BASE"
+            approved=false
+            pr="$(sed -nE 's#^refs/heads/gh-readonly-queue/.+/pr-([0-9]+)-[0-9a-f]+$#\1#p' <<<"$MG_HEAD_REF")"
+            if [ -z "$pr" ]; then
+              echo "::warning::no PR number in '$MG_HEAD_REF'; treating the break as NOT approved"
+            elif labels="$(gh api "repos/$REPO/pulls/$pr" --jq '.labels[].name')"; then
+              if grep -qx 'semver-break-approved' <<<"$labels"; then approved=true; fi
+            else
+              echo "::warning::could not read PR #$pr's labels; treating the break as NOT approved"
+            fi
+          else
+            base="$PR_BASE"
+            approved="$PR_APPROVED"
+          fi
+          [ -n "$base" ] || { echo "::error::no baseline commit for event '$EVENT_NAME'"; exit 1; }
+          echo "baseline=$base break-approved=$approved"
+          { echo "BASELINE=$base"; echo "BREAK_APPROVED=$approved"; } >>"$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # master (stable)
         with:
           toolchain: stable
       - name: An approved break needs a CHANGELOG BREAKING entry
         if: env.BREAK_APPROVED == 'true'
         run: scripts/check-breaking-entry.sh crates/aitp/CHANGELOG.md
-      # Blocking. The baseline is the PR base commit SHA, not the ref
-      # name: with only the PR head checked out, `main` doesn't exist as
-      # a local ref, and the SHA is present after `fetch-depth: 0`.
+      # Blocking. The baseline is a commit SHA (the PR's or the queue's
+      # base), not the ref name: with only the head checked out, `main`
+      # doesn't exist as a local ref, and the SHA is present after
+      # `fetch-depth: 0`.
       - name: aitp (blocking)
         if: env.BREAK_APPROVED != 'true'
         uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
           package: aitp
-          baseline-rev: ${{ github.event.pull_request.base.sha }}
+          baseline-rev: ${{ env.BASELINE }}
           # The stable features only (STABILITY.md).
           feature-group: only-explicit-features
           features: http-client,http-server,pinned-admission,metrics
@@ -54,7 +97,7 @@ jobs:
         continue-on-error: true
         uses: obi1kenobi/cargo-semver-checks-action@6b69fcf40e9b5fb17adeb57e4b6ecd020649a239 # v2
         with:
-          baseline-rev: ${{ github.event.pull_request.base.sha }}
+          baseline-rev: ${{ env.BASELINE }}
           exclude: ${{ env.UNCHECKED_CRATES }},aitp
       # Blocking. cargo-semver-checks misses some breaks (RS-RC1 found a
       # changed field type and an added variant it let through), so the
@@ -74,7 +117,7 @@ jobs:
       - name: aitp stable signature snapshot (blocking)
         if: env.BREAK_APPROVED != 'true'
         env:
-          BASE: ${{ github.event.pull_request.base.sha }}
+          BASE: ${{ env.BASELINE }}
         run: |
           if ! git show "$BASE:crates/aitp/public-api.stable.txt" > "$RUNNER_TEMP/base.txt" 2>/dev/null; then
             echo "::notice::the base commit has no stable snapshot yet; nothing to compare"
